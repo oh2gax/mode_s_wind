@@ -122,10 +122,11 @@ def create_app(
                             "track":    ac.get("track"),
                             "vert_rate": ac.get("vert_rate"),
                             "meteo_source": ac.get("meteo_source", "NONE"),
-                            "best_wind_spd": ac.get("best_wind_spd"),
-                            "best_wind_dir": ac.get("best_wind_dir"),
-                            "best_temp":     ac.get("best_temp"),
-                            "mrar_fom":      ac.get("mrar_fom"),
+                            "best_wind_spd":  ac.get("best_wind_spd"),
+                            "best_wind_dir":  ac.get("best_wind_dir"),
+                            "best_temp":      ac.get("best_temp"),
+                            "best_pressure":  ac.get("best_pressure"),
+                            "mrar_fom":       ac.get("mrar_fom"),
                             "last_seen": ac.get("last_seen"),
                         })
 

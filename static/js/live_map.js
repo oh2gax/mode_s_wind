@@ -37,14 +37,20 @@ const labelMarkers   = {};   // icao → L.Marker (callsign label)
 const windArrows     = {};   // icao → L.Polyline (wind direction arrow)
 const aircraftData   = {};   // icao → latest data object
 const callsignCache  = {};   // icao → best known callsign (never downgraded to null)
+const windHistory    = {};   // icao → [{pressure, alt_ft, temp_c, wind_spd, wind_dir}, ...]
 
 let selectedIcao = null;
-let meteoOnly    = false;
-let showLabels   = false;
-let labelMode    = 'callsign';   // 'callsign' | 'icao'
 let detailChart  = null;
 
-const MAX_TRAIL = 20;   // positions kept ≈ 60 s at 3-second SSE interval
+const MAX_TRAIL       = 20;   // position dots kept ≈ 60 s
+const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profile)
+
+// Restore persisted UI prefs — default both toggles ON
+// localStorage.getItem returns null when key is absent; null !== 'false' → true (default ON)
+let meteoOnly   = localStorage.getItem('ms_meteoOnly')  !== 'false';
+let showLabels  = localStorage.getItem('ms_showLabels') !== 'false';
+let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
+let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
 
 // ── Source colours ────────────────────────────────────────────────────────
 const SOURCE_COLOR = {
@@ -61,8 +67,39 @@ function acColor(ac) {
 
 function getLabelText(ac) {
   if (labelMode === 'icao') return ac.icao;
-  // callsign mode: prefer cached callsign (never lost between SSE cycles)
   return callsignCache[ac.icao] || ac.icao;
+}
+
+// ── Wind profile history (per aircraft) ───────────────────────────────────
+// Accumulates wind observations as an aircraft climbs or descends so the
+// mini Skew-T can show a full vertical wind profile, not just one barb.
+function updateWindHistory(ac) {
+  if (!ac.best_wind_spd || !ac.best_wind_dir || !ac.altitude) return;
+
+  if (!windHistory[ac.icao]) windHistory[ac.icao] = [];
+  const hist = windHistory[ac.icao];
+  const last = hist[hist.length - 1];
+
+  // Only record a new point when altitude changed by ≥ 400 ft so level
+  // cruise doesn't fill the array with identical readings.
+  if (last && Math.abs(last.alt_ft - ac.altitude) < 400) {
+    // Still update the last entry's wind/temp in case it improved
+    last.wind_spd = ac.best_wind_spd;
+    last.wind_dir = ac.best_wind_dir;
+    if (ac.best_temp     != null) last.temp_c  = ac.best_temp;
+    if (ac.best_pressure != null) last.pressure = ac.best_pressure;
+    return;
+  }
+
+  hist.push({
+    alt_ft:   ac.altitude,
+    pressure: ac.best_pressure ?? altToPressHPa(ac.altitude),
+    temp_c:   ac.best_temp,
+    wind_spd: ac.best_wind_spd,
+    wind_dir: ac.best_wind_dir,
+  });
+
+  if (hist.length > MAX_WIND_HIST) hist.shift();
 }
 
 // ── Mini sounding profile ─────────────────────────────────────────────────
@@ -70,29 +107,78 @@ function getLabelText(ac) {
 let soundingLevels = [];   // cached from /api/sounding
 let miniAcOverlay  = null; // {alt_ft, temp_c, color} when aircraft selected
 
-// Client-side ISA helpers
-function pressToAltFt(p) {
-  if (p >= 226.32)
-    return ((288.15 / 0.0065) * (1 - Math.pow(p / 1013.25, 1 / 5.2561))) * 3.28084;
-  return (11000 - Math.log(p / 226.32) / 0.0001577) * 3.28084;
-}
-function isaTemp(alt_ft) {
+// ── ISA helpers ───────────────────────────────────────────────────────────
+function altToPressHPa(alt_ft) {
   const m = alt_ft * 0.3048;
-  return m <= 11000 ? 15 - 0.0065 * m : -56.5;
+  if (m <= 11000) return 1013.25 * Math.pow(1 - 0.0065 * m / 288.15, 5.2561);
+  return 226.32 * Math.exp(-0.0001577 * (m - 11000));
+}
+function isaTempP(p_hPa) {
+  // ISA temperature (°C) at a given pressure (hPa)
+  if (p_hPa >= 226.32) return 288.15 * Math.pow(p_hPa / 1013.25, 0.19026) - 273.15;
+  return -56.5;
 }
 
-// Canvas geometry constants
-const MS = {
-  W: 204, H: 330,
-  ML: 32, MR: 6, MT: 12, MB: 20,
-  TMIN: -75, TMAX: 30,   // °C range
-  AMAX: 42000,            // ft
+// ── Mini Skew-T geometry ──────────────────────────────────────────────────
+// Canvas: 252 × 346 px.  Log-pressure Y, skewed temperature X.
+const MSK = {
+  W: 292, H: 346,
+  ML: 28, MR: 80, MT: 10, MB: 22,
+  TL: -80, TR: 30,   // temperature range °C
+  PT: 200, PB: 1050, // pressure range hPa
+  SK: 0.38,          // skew factor (higher = more tilt)
 };
-MS.PW = MS.W - MS.ML - MS.MR;
-MS.PH = MS.H - MS.MT - MS.MB;
+MSK.PW = MSK.W - MSK.ML - MSK.MR;   // 184
+MSK.PH = MSK.H - MSK.MT - MSK.MB;   // 314
 
-const msY = alt  => MS.MT + MS.PH * (1 - Math.max(0, Math.min(alt, MS.AMAX)) / MS.AMAX);
-const msX = temp => MS.ML + MS.PW * (temp - MS.TMIN) / (MS.TMAX - MS.TMIN);
+function mskY(p) {
+  const lt = Math.log(MSK.PT), lb = Math.log(MSK.PB);
+  return MSK.MT + MSK.PH * (Math.log(p) - lt) / (lb - lt);
+}
+function mskX(t, p) {
+  const base = MSK.ML + MSK.PW * (t - MSK.TL) / (MSK.TR - MSK.TL);
+  const skew = MSK.PH * (Math.log(MSK.PB) - Math.log(p)) /
+                        (Math.log(MSK.PB) - Math.log(MSK.PT));
+  return base + skew * MSK.SK;
+}
+
+// ── Mini wind barb (scaled for small canvas) ──────────────────────────────
+// color defaults to grey for area sounding barbs; pass aircraft colour for overlays.
+function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
+  if (speedKt == null || dirFrom == null) return;
+  const spd   = Math.round(speedKt / 5) * 5;
+  const angle = ((dirFrom + 180) % 360) * Math.PI / 180;
+  const sLen  = 14;
+  const ex    = x + sLen * Math.sin(angle);
+  const ey    = y - sLen * Math.cos(angle);
+
+  ctx.strokeStyle = color; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+
+  let rem = spd, pos = 0;
+  const step = 3;
+
+  while (rem >= 50) {
+    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
+    const tx = sx + 7 * Math.cos(angle),  ty = sy + 7 * Math.sin(angle);
+    const mx = sx + step * Math.sin(angle), my = sy - step * Math.cos(angle);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.lineTo(mx, my);
+    ctx.closePath(); ctx.fill();
+    pos += step + 1; rem -= 50;
+  }
+  while (rem >= 10) {
+    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
+    const px = sx + 7 * Math.cos(angle),  py = sy + 7 * Math.sin(angle);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
+    pos += step; rem -= 10;
+  }
+  if (rem >= 5) {
+    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
+    const px = sx + 4 * Math.cos(angle),  py = sy + 4 * Math.sin(angle);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
+  }
+}
 
 async function fetchMiniSounding() {
   try {
@@ -113,124 +199,189 @@ function drawMiniSounding() {
   const canvas = document.getElementById('mini-sounding-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const { W, H, ML, MR, MT, MB, PW, PH, TMIN, TMAX, AMAX } = MS;
+  const { W, H, ML, MR, MT, MB, PW, PH, TL, TR, PT, PB } = MSK;
+  const barbX = ML + PW + 6;   // X start of wind barb column
 
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0f1923';
+  ctx.fillStyle = '#0c1620';
   ctx.fillRect(0, 0, W, H);
 
-  // Altitude grid lines + labels
-  ctx.font = '9px system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  for (const alt of [0, 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000]) {
-    const y = msY(alt);
-    ctx.strokeStyle = '#1e2a3a'; ctx.lineWidth = 1;
+  // ── Clip to plot + barb area for grid ──────────────────────────────────
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, MT, W, PH);
+  ctx.clip();
+
+  // Isobars (horizontal lines + pressure labels)
+  const isobars = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
+  ctx.font = '8px monospace'; ctx.textAlign = 'right';
+  for (const p of isobars) {
+    if (p < PT || p > PB) continue;
+    const y = mskY(p);
+    ctx.strokeStyle = p % 100 === 0 ? '#1e2a3a' : '#172030';
+    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
     ctx.fillStyle = '#4b5563';
-    ctx.fillText(alt === 0 ? '0' : (alt / 1000) + 'k', ML - 3, y + 3);
+    ctx.fillText(p, ML - 3, y + 3);
   }
 
-  // Temperature grid lines + labels
-  ctx.textAlign = 'center';
-  for (const t of [-60, -40, -20, 0, 20]) {
-    const x = msX(t);
-    ctx.strokeStyle = t === 0 ? '#2d3f52' : '#1a2535';
-    ctx.lineWidth   = t === 0 ? 1.5 : 1;
-    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + PH); ctx.stroke();
-    ctx.fillStyle = '#4b5563';
-    ctx.fillText(t + '°', x, MT + PH + 14);
+  // Isotherms (skewed temperature lines)
+  for (const t of [-70, -60, -50, -40, -30, -20, -10, 0, 10, 20]) {
+    const x1 = mskX(t, PB), y1 = mskY(PB);
+    const x2 = mskX(t, PT), y2 = mskY(PT);
+    ctx.strokeStyle = t === 0 ? '#1e3a5f' : '#182030';
+    ctx.lineWidth   = t === 0 ? 1.2 : 0.7;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    // Temperature label at bottom of plot
+    if (x1 >= ML && x1 <= ML + PW) {
+      ctx.fillStyle = '#374151'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(t + '°', x1, MT + PH + 14);
+    }
   }
 
-  // Axes border
+  ctx.restore();
+
+  // Y axis line
   ctx.strokeStyle = '#2d3f52'; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.lineTo(ML + PW, MT + PH);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.stroke();
 
-  // ISA standard atmosphere reference (dashed blue)
-  const isaAlts = [0, 3000, 6000, 9000, 11000, 15000, 20000, 25000, 30000, 36000, 40000];
+  // ── ISA reference (dashed blue) ─────────────────────────────────────────
+  const isaPs = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
   ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1.2;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();
-  let first = true;
-  for (const a of isaAlts) {
-    const x = msX(isaTemp(a)), y = msY(a);
-    if (x >= ML - 2 && x <= ML + PW + 2) {
-      first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      first = false;
+  let isaFirst = true;
+  for (const p of isaPs) {
+    if (p < PT || p > PB) continue;
+    const t = isaTempP(p);
+    const x = mskX(t, p), y = mskY(p);
+    if (x >= ML && x <= ML + PW) {
+      isaFirst ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      isaFirst = false;
     }
   }
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Build temperature profile points
-  const pts = soundingLevels
-    .map(l => ({
-      alt:  l.altitude != null ? l.altitude : pressToAltFt(l.pressure),
-      temp: l.temp,
-    }))
-    .filter(p => p.temp != null && p.alt >= 0 && p.alt <= AMAX)
-    .sort((a, b) => a.alt - b.alt);
+  // ── Temperature profile ─────────────────────────────────────────────────
+  const tempPts = soundingLevels
+    .filter(l => l.temp != null && l.pressure >= PT && l.pressure <= PB)
+    .sort((a, b) => b.pressure - a.pressure);   // surface → top
 
-  if (pts.length >= 2) {
-    // Shaded fill between actual and ISA
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = msX(p.temp), y = msY(p.alt);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    for (let i = pts.length - 1; i >= 0; i--)
-      ctx.lineTo(msX(isaTemp(pts[i].alt)), msY(pts[i].alt));
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(239,68,68,0.08)';
-    ctx.fill();
+  if (tempPts.length >= 2) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
 
-    // Temperature line
     ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.beginPath();
-    pts.forEach((p, i) => {
-      i === 0 ? ctx.moveTo(msX(p.temp), msY(p.alt))
-              : ctx.lineTo(msX(p.temp), msY(p.alt));
+    tempPts.forEach((l, i) => {
+      const x = mskX(l.temp, l.pressure), y = mskY(l.pressure);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
 
-    // Dots at measured levels
     ctx.fillStyle = '#ef4444';
-    for (const p of pts) {
+    for (const l of tempPts) {
       ctx.beginPath();
-      ctx.arc(msX(p.temp), msY(p.alt), 2.5, 0, Math.PI * 2);
+      ctx.arc(mskX(l.temp, l.pressure), mskY(l.pressure), 2, 0, Math.PI * 2);
       ctx.fill();
     }
-  } else {
-    ctx.fillStyle = '#374151'; ctx.font = '11px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText('No data yet', ML + PW / 2, MT + PH / 2 - 8);
+    ctx.restore();
+  } else if (soundingLevels.length === 0) {
+    ctx.fillStyle = '#374151'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('No data yet', ML + PW / 2, MT + PH / 2 - 6);
     ctx.fillText('Collecting…', ML + PW / 2, MT + PH / 2 + 8);
   }
 
-  // ISA label (bottom right)
-  ctx.fillStyle = '#1e3a5f'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText('ISA', msX(isaTemp(0)) + 3, MT + PH - 4);
+  // ── Wind barbs + speed labels (area sounding) ───────────────────────────
+  for (const l of soundingLevels) {
+    if (l.wind_spd == null || l.wind_dir == null) continue;
+    if (l.pressure == null || l.pressure < PT || l.pressure > PB) continue;
+    const by = mskY(l.pressure);
+    drawMiniBarb(ctx, barbX, by, l.wind_spd, l.wind_dir);
+    // Direction + speed label right-aligned at canvas edge
+    ctx.fillStyle = '#4b5563'; ctx.font = '7px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, by + 3);
+  }
 
-  // Aircraft overlay
+  // ── Aircraft overlay ────────────────────────────────────────────────────
   if (miniAcOverlay) {
-    const { alt_ft, temp_c, color } = miniAcOverlay;
-    if (temp_c != null && alt_ft != null && alt_ft <= AMAX) {
-      const x = msX(temp_c), y = msY(alt_ft);
+    const { temp_c, pressure, alt_ft, color, windHistory: wh } = miniAcOverlay;
 
-      // Dashed guide lines to axes
-      ctx.strokeStyle = color + '99'; ctx.lineWidth = 1;
+    // ── Wind + temperature history (density-filtered vertical profile) ──
+    if (wh && wh.length > 0) {
+      // Build density-filtered index list: include a point only when altitude
+      // has changed by at least windDensity × 400 ft since the last included.
+      const minGapFt = windDensity * 400;
+      const shownIdx = [];
+      let lastShownAlt = null;
+      for (let i = 0; i < wh.length; i++) {
+        if (lastShownAlt === null || Math.abs(wh[i].alt_ft - lastShownAlt) >= minGapFt) {
+          shownIdx.push(i);
+          lastShownAlt = wh[i].alt_ft;
+        }
+      }
+      // Always include the most recent observation regardless of gap
+      if (shownIdx[shownIdx.length - 1] !== wh.length - 1) shownIdx.push(wh.length - 1);
+
+      for (const idx of shownIdx) {
+        const obs = wh[idx];
+        if (obs.pressure < PT || obs.pressure > PB) continue;
+        const oy        = mskY(obs.pressure);
+        const isCurrent = (idx === wh.length - 1);
+        const barbColor = isCurrent ? color : color + '66';
+
+        // Temperature dot on the skewed T axis
+        if (obs.temp_c != null) {
+          const ox = mskX(obs.temp_c, obs.pressure);
+          ctx.fillStyle = barbColor;
+          ctx.beginPath();
+          ctx.arc(ox, oy, isCurrent ? 3 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Wind barb in aircraft colour + speed label
+        if (obs.wind_spd != null && obs.wind_dir != null) {
+          drawMiniBarb(ctx, barbX + 2, oy, obs.wind_spd, obs.wind_dir, barbColor);
+          ctx.fillStyle = barbColor;
+          ctx.font      = '7px monospace'; ctx.textAlign = 'right';
+          ctx.fillText(Math.round(obs.wind_dir) + '° ' + Math.round(obs.wind_spd) + 'kt', W - 2, oy + 3);
+        }
+      }
+    }
+
+    // ── Current altitude/pressure level indicator ───────────────────────
+    // Always show a dashed horizontal line at the aircraft's current level,
+    // even when temperature data is not available.
+    const p = (pressure != null) ? pressure
+            : (alt_ft  != null) ? altToPressHPa(alt_ft)
+            : null;
+
+    if (p != null && p >= PT && p <= PB) {
+      const y = mskY(p);
+
+      // Full-width dashed line spanning plot + barb area
+      ctx.strokeStyle = color; ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.moveTo(ML, y); ctx.lineTo(x, y);       // → temp axis
-      ctx.moveTo(x, y); ctx.lineTo(x, MT + PH);  // ↓ alt axis
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - 2, y); ctx.stroke();
       ctx.setLineDash([]);
 
-      // White ring + coloured fill
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      // Circle on temperature profile (only if temp available)
+      if (temp_c != null) {
+        const x = mskX(temp_c, p);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      } else {
+        // No temp: draw a small diamond on the pressure axis instead
+        const dx = ML + 5, dy = y;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(dx, dy - 5); ctx.lineTo(dx + 4, dy);
+        ctx.lineTo(dx, dy + 5); ctx.lineTo(dx - 4, dy);
+        ctx.closePath(); ctx.fill();
+      }
     }
   }
 }
@@ -375,6 +526,7 @@ function removeStale(liveIcaos) {
       if (trailLayers[icao]) { trailLayers[icao].remove(); delete trailLayers[icao]; }
       if (labelMarkers[icao]){ labelMarkers[icao].remove();delete labelMarkers[icao]; }
       delete trails[icao];
+      delete windHistory[icao];
       delete aircraftData[icao];
     }
   }
@@ -462,11 +614,15 @@ function selectAircraft(icao) {
   set('d-fom',   ac.mrar_fom);
   set('d-src',   src);
 
-  // Update mini sounding overlay
+  // Update mini sounding overlay — includes full wind history for the profile
   miniAcOverlay = {
-    alt_ft: ac.altitude,
-    temp_c: ac.best_temp,
-    color:  acColor(ac),
+    alt_ft:      ac.altitude,
+    temp_c:      ac.best_temp,
+    pressure:    ac.best_pressure,
+    wind_spd:    ac.best_wind_spd,
+    wind_dir:    ac.best_wind_dir,
+    color:       acColor(ac),
+    windHistory: windHistory[ac.icao] || [],
   };
   drawMiniSounding();
 
@@ -560,8 +716,8 @@ function connectSSE() {
     const liveIcaos = new Set(data.map(d => d.icao));
 
     for (const ac of data) {
-      // Update callsign cache — only upgrade, never downgrade to null
       if (ac.callsign) callsignCache[ac.icao] = ac.callsign;
+      updateWindHistory(ac);       // accumulate vertical wind profile
       aircraftData[ac.icao] = ac;
       upsertMarker(ac);
     }
@@ -575,13 +731,21 @@ function connectSSE() {
 }
 
 // ── Filter toggles ─────────────────────────────────────────────────────────
+
+// Restore saved state into the DOM controls before first render
+document.getElementById('filter-meteo-only').checked = meteoOnly;
+document.getElementById('toggle-labels').checked     = showLabels;
+document.getElementById('label-mode').value          = labelMode;
+
 document.getElementById('filter-meteo-only').addEventListener('change', e => {
   meteoOnly = e.target.checked;
+  localStorage.setItem('ms_meteoOnly', meteoOnly);
   renderList(Object.values(aircraftData));
 });
 
 document.getElementById('toggle-labels').addEventListener('change', e => {
   showLabels = e.target.checked;
+  localStorage.setItem('ms_showLabels', showLabels);
   if (!showLabels) {
     for (const icao of Object.keys(labelMarkers)) {
       labelMarkers[icao].remove();
@@ -596,13 +760,29 @@ document.getElementById('toggle-labels').addEventListener('change', e => {
 
 document.getElementById('label-mode').addEventListener('change', e => {
   labelMode = e.target.value;
-  // Refresh all visible labels with new text
+  localStorage.setItem('ms_labelMode', labelMode);
   if (showLabels) {
     for (const [icao, ac] of Object.entries(aircraftData)) {
       if (ac.lat && ac.lon) updateLabel(icao, ac.lat, ac.lon, getLabelText(ac));
     }
   }
 });
+
+// ── Wind density slider ───────────────────────────────────────────────────
+const densitySlider = document.getElementById('wind-density');
+const densityVal    = document.getElementById('wind-density-val');
+
+if (densitySlider) {
+  densitySlider.value  = windDensity;
+  densityVal.textContent = windDensity;
+
+  densitySlider.addEventListener('input', e => {
+    windDensity = parseInt(e.target.value, 10);
+    localStorage.setItem('ms_windDensity', windDensity);
+    densityVal.textContent = windDensity;
+    drawMiniSounding();   // re-render immediately with new density
+  });
+}
 
 // ── Start ──────────────────────────────────────────────────────────────────
 connectSSE();

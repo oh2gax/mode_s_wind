@@ -15,8 +15,9 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
 - **Skew-T atmospheric soundings** — aggregated area profile built from all aircraft near the receiver over a configurable time window, plus per-flight vertical profiles for climbing/descending flights
-- **Mini atmosphere profile panel** — always-visible temperature profile in the live map sidebar with ISA reference line; selected aircraft plotted on the profile in real time
+- **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar with ISA reference, area wind barbs labelled with direction and speed, and a live aircraft overlay that accumulates a full vertical wind history as the aircraft climbs or descends
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics
+- **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, wind history density) are remembered across browser sessions via localStorage
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -251,15 +252,17 @@ Each aircraft leaves a trail of fading dots showing its position over the past ~
 
 Lists all currently visible aircraft sorted alphabetically. Shows callsign, ICAO24 code, altitude, ground speed, and the current wind/temperature reading if available. Click any row to select that aircraft and open the detail strip.
 
-**Meteo only** checkbox — hides all aircraft that do not currently have any decoded meteo data.
+**Meteo only** checkbox — hides all aircraft that do not currently have any decoded meteo data. Defaults **on**; state persists across browser sessions.
 
 #### Map labels
 
-**Labels checkbox** — toggles callsign or ICAO24 labels next to each aircraft symbol on the map.
+**Labels checkbox** — toggles callsign or ICAO24 labels next to each aircraft symbol on the map. Defaults **on**; state persists across browser sessions.
 
 **Label mode selector** — choose between:
-- **Callsign** — shows the flight's callsign (e.g. FIN3GJ). Once a callsign has been seen for an aircraft it is remembered and will not revert to ICAO24 even if subsequent messages do not include it.
+- **Callsign** — shows the flight's callsign (e.g. FIN3GJ). Once a callsign has been seen for an aircraft it is cached and will never revert to the ICAO24 code even if some subsequent messages do not include it.
 - **ICAO24** — always shows the aircraft's ICAO 24-bit address (e.g. 461F52).
+
+The selected label mode persists across browser sessions.
 
 #### Clicking an aircraft
 
@@ -279,14 +282,28 @@ Click the **✕** button to deselect and close the detail strip.
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible mini vertical profile of the atmosphere near the receiver, built from the same data as the Sounding page and auto-refreshed every 2 minutes.
+A permanently visible mini Skew-T Log-P diagram built from the same aggregated area data as the Sounding page and auto-refreshed every 2 minutes. The wider panel provides room for labelled wind barbs and wind history detail.
 
-- **Red line** — measured temperature profile from all recent aircraft in the area
-- **Dashed blue line** — ISA (International Standard Atmosphere) reference temperature at each altitude
-- **Red dots** — individual pressure levels where measurements are available
-- **Subtle red fill** — deviation of actual temperature from ISA standard
+**Area sounding layer** (always visible):
+- **Red line + dots** — measured temperature profile from all recent aircraft near the receiver, plotted on the skewed temperature axis
+- **Dashed blue line** — ISA (International Standard Atmosphere) reference temperature at each pressure level
+- **Wind barbs** — one barb per standard pressure level where wind data is available, labelled with direction and speed in the format **248° 24kt** (FROM direction, meteorological convention)
 
-When an aircraft is selected, a **coloured circle** appears on the profile at its exact position (altitude × temperature), with dashed guide lines back to both axes. This instantly shows how the aircraft's environment compares to the surrounding atmospheric profile. The label below the canvas shows the aircraft's callsign, altitude, and temperature.
+**Wind history density slider** — the slider below the canvas controls how densely the aircraft's wind history barbs are drawn. Each step equals a 400 ft minimum altitude gap between consecutive barbs:
+- Position **1** (leftmost) — show a barb for nearly every 400 ft increment (dense, full detail)
+- Position **8** (rightmost) — show barbs only every 3 200 ft (coarse, avoids overlap at high sample rates)
+- Default is **2** (800 ft gap). The setting persists across browser sessions.
+
+**Aircraft overlay** (visible when an aircraft is selected):
+
+When you click an aircraft the panel overlays its data in the aircraft's own colour (matching the map symbol colour):
+
+- **Wind barbs** — drawn in the aircraft's colour for each accumulated altitude observation; older history barbs are shown at 40% opacity to distinguish them from the current reading. Each barb is labelled with direction and speed.
+- **Temperature dots** — plotted at the correct skewed-temperature position for each altitude observation.
+- **Level indicator** — a dashed horizontal line spanning the full width of the diagram (plot area and barb column) showing the aircraft's current pressure/altitude level. When temperature data is available a white-ringed coloured dot marks the exact point on the temperature curve; when only wind data is available a small diamond appears on the pressure axis instead.
+- **Accumulated wind history** — as an aircraft climbs or descends the panel builds up a full vertical wind profile from the observations received during the session. A new point is added whenever the aircraft changes altitude by at least 400 ft, so level cruise does not flood the history with identical readings. Up to 80 observations are kept per aircraft.
+
+The label below the canvas shows the selected aircraft's callsign, current altitude, and temperature. Closing the detail strip (✕) clears the overlay and returns to the area sounding view.
 
 ---
 

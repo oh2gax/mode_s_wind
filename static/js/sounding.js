@@ -80,7 +80,7 @@ function drawGrid(ctx) {
 
 // ── Wind barb ──────────────────────────────────────────────────────────────
 function drawBarb(ctx, x, y, speedKt, dirFrom) {
-  if (speedKt == null) return;
+  if (speedKt == null || dirFrom == null) return;
   const spd   = Math.round(speedKt / 5) * 5;   // round to 5 kt
   const angle = ((dirFrom + 180) % 360) * Math.PI / 180;  // direction arrow points TO
 
@@ -171,49 +171,59 @@ function renderSounding(levels) {
   ctx.fillText('Pressure (hPa)', 0, 0);
   ctx.restore();
 
-  // Filter levels with temp data
-  const tempLevels = levels.filter(l => l.temp != null && l.pressure >= P_TOP && l.pressure <= P_BOTTOM);
+  // Separate temp and wind levels
+  const tempLevels = levels.filter(
+    l => l.temp     != null && l.pressure >= P_TOP && l.pressure <= P_BOTTOM);
+  const windLevels = levels.filter(
+    l => l.wind_spd != null && l.wind_dir != null &&
+         l.pressure >= P_TOP && l.pressure <= P_BOTTOM);
 
-  if (tempLevels.length === 0) {
+  // Nothing to draw at all
+  if (tempLevels.length === 0 && windLevels.length === 0) {
     ctx.fillStyle = '#64748b';
     ctx.font      = '13px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('No temperature data available', CANVAS_W / 2, CANVAS_H / 2);
+    ctx.fillText('No data available', CANVAS_W / 2, CANVAS_H / 2);
     return;
   }
 
-  // Temperature curve
-  ctx.strokeStyle = '#ef4444';
-  ctx.lineWidth   = 2.5;
-  ctx.beginPath();
-  tempLevels.forEach((l, i) => {
-    const x = tToX(l.temp, l.pressure);
-    const y = pToY(l.pressure);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Temperature dots
-  ctx.fillStyle = '#ef4444';
-  for (const l of tempLevels) {
-    const x = tToX(l.temp, l.pressure);
-    const y = pToY(l.pressure);
+  // ── Temperature curve ───────────────────────────────────────────────────
+  if (tempLevels.length >= 2) {
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth   = 2.5;
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fill();
-    // Label
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font      = '9px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(l.temp.toFixed(1) + '°', x + 5, y + 3);
+    tempLevels.forEach((l, i) => {
+      const x = tToX(l.temp, l.pressure);
+      const y = pToY(l.pressure);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
     ctx.fillStyle = '#ef4444';
+    for (const l of tempLevels) {
+      const x = tToX(l.temp, l.pressure);
+      const y = pToY(l.pressure);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font      = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(l.temp.toFixed(1) + '°', x + 5, y + 3);
+      ctx.fillStyle = '#ef4444';
+    }
+  } else if (tempLevels.length === 0) {
+    // Note that only wind data is available
+    ctx.fillStyle = '#4b5563';
+    ctx.font      = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Wind only — no temperature data', CANVAS_W / 2, MT + 14);
   }
 
-  // Wind barbs (right of plot area)
-  for (const l of levels) {
-    if (l.wind_spd == null || l.pressure < P_TOP || l.pressure > P_BOTTOM) continue;
-    const y  = pToY(l.pressure);
-    const bx = ML + PLOT_W + 20;
+  // ── Wind barbs (right of plot area) ────────────────────────────────────
+  const bx = ML + PLOT_W + 20;
+  for (const l of windLevels) {
+    const y = pToY(l.pressure);
     ctx.fillStyle = '#94a3b8';
     ctx.font      = '9px monospace';
     ctx.textAlign = 'left';

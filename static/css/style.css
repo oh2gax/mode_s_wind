@@ -15,7 +15,7 @@
   --amber:   #f59e0b;
   --red:     #ef4444;
   --purple:  #8b5cf6;
-  --panel-w: 230px;
+  --panel-w: 270px;
   --navbar-h: 44px;
 }
 
@@ -59,7 +59,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .panel-left  { width: var(--panel-w); background: var(--bg-1);
                border-right: 1px solid var(--border); display: flex;
                flex-direction: column; flex-shrink: 0; }
-.panel-right { width: 220px; background: var(--bg-1);
+.panel-right { width: 310px; background: var(--bg-1);
                border-left: 1px solid var(--border); display: flex;
                flex-direction: column; flex-shrink: 0; overflow-y: auto; }
 
@@ -235,9 +235,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* ── Mini sounding panel (right side of live map) ──────────────────────── */
 .mini-sounding-wrap {
   display: flex; flex-direction: column; align-items: center;
-  padding: 6px 4px 4px; gap: 4px; overflow: hidden;
+  padding: 4px 4px 4px; gap: 4px; overflow: hidden;
 }
-#mini-sounding-canvas { display: block; border-radius: 4px; }
+#mini-sounding-canvas { display: block; border-radius: 4px; max-width: 100%; }
 .mini-sounding-meta {
   font-size: 10px; color: var(--text-3);
   text-align: center; letter-spacing: .3px;
@@ -246,6 +246,24 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-size: 10px; color: var(--text-3); font-family: 'Courier New', monospace;
   text-align: center; padding: 2px 6px; line-height: 1.4;
   border-top: 1px solid var(--border); width: 100%;
+}
+
+/* ── Wind density slider (mini sounding panel) ─────────────────────────── */
+.density-row {
+  display: flex; align-items: center; gap: 5px;
+  width: 100%; padding: 0 4px;
+}
+.density-label {
+  font-size: 9px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .4px; white-space: nowrap; flex-shrink: 0;
+}
+.density-val {
+  font-size: 10px; color: var(--text-2); font-family: 'Courier New', monospace;
+  min-width: 12px; text-align: right; flex-shrink: 0;
+}
+.density-slider {
+  flex: 1; height: 3px; cursor: pointer;
+  accent-color: var(--accent); min-width: 0;
 }
 
 /* ── Label mode selector ────────────────────────────────────────────────── */
