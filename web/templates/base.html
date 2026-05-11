@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MODE-S Meteo{% endblock %}</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">
+    <span class="nav-icon">📡</span>
+    <span>MODE-S Meteo</span>
+  </div>
+  <div class="nav-links">
+    <a href="/"        class="nav-link {% if request.endpoint == 'index'        %}active{% endif %}">Live Map</a>
+    <a href="/flights" class="nav-link {% if request.endpoint == 'flights_page' %}active{% endif %}">Flights</a>
+    <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
+  </div>
+  <div class="nav-status">
+    <span id="status-dot" class="status-dot status-connecting"></span>
+    <span id="status-text">Connecting…</span>
+    &nbsp;|&nbsp;
+    <span id="nav-live-count">–</span> live &nbsp;
+    <span id="nav-meteo-count" class="badge-meteo">–</span> meteo
+  </div>
+</nav>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% block scripts %}{% endblock %}
+<script>
+// Global stats refresh (navbar)
+async function refreshStats() {
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('nav-live-count').textContent  = d.live_aircraft   ?? '–';
+    document.getElementById('nav-meteo-count').textContent = d.live_with_meteo ?? '–';
+    // Only update if SSE hasn't already set it to 'Live'
+    if (!dot.classList.contains('status-live')) {
+      dot.className   = 'status-dot status-live';
+      text.textContent = 'Online';
+    }
+  } catch(e) {
+    if (!dot.classList.contains('status-live')) {
+      dot.className   = 'status-dot status-error';
+      text.textContent = 'Error';
+    }
+  }
+}
+refreshStats();
+setInterval(refreshStats, 15000);
+</script>
+</body>
+</html>

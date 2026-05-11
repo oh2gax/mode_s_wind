@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Flights – MODE-S Meteo{% endblock %}
+
+{% block content %}
+<div class="page-flights">
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input id="f-icao"     type="text" placeholder="ICAO (e.g. 461F52)" class="filter-input">
+    <input id="f-callsign" type="text" placeholder="Callsign (e.g. FIN3GJ)" class="filter-input">
+    <label class="toggle-label">
+      <input type="checkbox" id="f-meteo"> Meteo only
+    </label>
+    <button onclick="loadFlights(1)" class="btn-primary">Search</button>
+    <button onclick="resetFilters()" class="btn-secondary">Reset</button>
+    <span id="f-total" class="result-count"></span>
+  </div>
+
+  <!-- Flights table -->
+  <div class="table-wrap">
+    <table class="data-table" id="flights-table">
+      <thead>
+        <tr>
+          <th>ICAO</th><th>Callsign</th><th>First seen (UTC)</th>
+          <th>Last seen (UTC)</th><th>Max alt</th><th>Min alt</th>
+          <th>Obs</th><th>Meteo obs</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="flights-tbody"></tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+
+  <!-- Flight detail modal -->
+  <div id="flight-modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modal-title">Flight detail</span>
+        <button onclick="closeModal()" class="btn-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-map-wrap">
+          <div id="modal-map"></div>
+        </div>
+        <div class="modal-charts">
+          <div class="chart-row">
+            <div class="chart-cell">
+              <div class="chart-label">Altitude (ft)</div>
+              <canvas id="chart-alt" height="100"></canvas>
+            </div>
+            <div class="chart-cell">
+              <div class="chart-label">Temperature (°C)</div>
+              <canvas id="chart-temp" height="100"></canvas>
+            </div>
+          </div>
+          <div class="chart-row">
+            <div class="chart-cell">
+              <div class="chart-label">Wind speed (kt)</div>
+              <canvas id="chart-wind" height="100"></canvas>
+            </div>
+            <div class="chart-cell">
+              <div class="chart-label">Wind direction (°)</div>
+              <canvas id="chart-wdir" height="100"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="modal-obs-table-wrap">
+          <table class="data-table small" id="modal-obs-table">
+            <thead>
+              <tr>
+                <th>UTC</th><th>Alt</th><th>GS</th>
+                <th>Src</th><th>Wind</th><th>Dir</th><th>Temp</th><th>Pres</th>
+              </tr>
+            </thead>
+            <tbody id="modal-obs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let modalMap = null;
+let chartAlt = null, chartTemp = null, chartWind = null, chartWdir = null;
+
+// A flight qualifies for a Skew-T sounding when it has meteo data AND
+// a significant altitude range (climbing or descending flight).
+function hasSounding(f) {
+  return f.meteo_count > 0
+      && f.max_altitude != null
+      && f.min_altitude != null
+      && (f.max_altitude - f.min_altitude) > 5000;
+}
+
+async function loadFlights(page) {
+  currentPage = page;
+  const icao     = document.getElementById('f-icao').value.trim();
+  const callsign = document.getElementById('f-callsign').value.trim();
+  const meteo    = document.getElementById('f-meteo').checked ? '1' : '0';
+  const params   = new URLSearchParams({page, per:50, icao, callsign, meteo});
+
+  const r = await fetch('/api/flights?' + params);
+  const d = await r.json();
+
+  document.getElementById('f-total').textContent =
+    `${d.total} flights found`;
+
+  const tbody = document.getElementById('flights-tbody');
+  tbody.innerHTML = '';
+  for (const f of d.flights) {
+    const row = document.createElement('tr');
+    row.className = 'clickable';
+    row.onclick = () => openFlight(f.id, f.icao, f.callsign);
+    row.innerHTML = `
+      <td class="mono">${f.icao}</td>
+      <td>${f.callsign || '–'}</td>
+      <td class="mono small">${f.first_seen}</td>
+      <td class="mono small">${f.last_seen}</td>
+      <td class="num">${f.max_altitude != null ? f.max_altitude.toLocaleString() : '–'}</td>
+      <td class="num">${f.min_altitude != null ? f.min_altitude.toLocaleString() : '–'}</td>
+      <td class="num">${f.obs_count}</td>
+      <td class="num ${f.meteo_count > 0 ? 'meteo-yes' : ''}">${f.meteo_count}</td>
+      <td>${hasSounding(f) ? `<a href="/sounding?flight=${f.id}" class="btn-sounding" title="View Skew-T sounding for this flight">🌡 Sounding</a>` : ''}</td>
+    `;
+    tbody.appendChild(row);
+  }
+
+  // Pagination
+  const pages = Math.ceil(d.total / d.per);
+  const pg = document.getElementById('pagination');
+  pg.innerHTML = '';
+  for (let p = 1; p <= Math.min(pages, 20); p++) {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (p === page ? ' active' : '');
+    b.textContent = p;
+    b.onclick = () => loadFlights(p);
+    pg.appendChild(b);
+  }
+}
+
+async function openFlight(id, icao, callsign) {
+  document.getElementById('modal-title').textContent =
+    `${callsign || icao}  ·  ${icao}  ·  Flight #${id}`;
+  document.getElementById('flight-modal').classList.remove('hidden');
+
+  const r = await fetch(`/api/flights/${id}`);
+  const d = await r.json();
+  const obs = d.observations;
+
+  // Render flight track on modal map
+  if (!modalMap) {
+    modalMap = L.map('modal-map').setView([60.317, 24.963], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {attribution:'© OSM', maxZoom:18}).addTo(modalMap);
+  } else {
+    modalMap.eachLayer(l => { if(l instanceof L.Polyline || l instanceof L.CircleMarker) l.remove(); });
+  }
+
+  const track = obs.filter(o => o.lat && o.lon).map(o => [o.lat, o.lon]);
+  if (track.length > 0) {
+    L.polyline(track, {color:'#3b82f6', weight:2}).addTo(modalMap);
+    modalMap.fitBounds(L.polyline(track).getBounds(), {padding:[20,20]});
+    // Mark meteo points
+    obs.filter(o => o.lat && o.lon && o.meteo_source && o.meteo_source !== 'NONE')
+       .forEach(o => {
+         const c = o.meteo_source === 'MRAR' ? '#3b82f6' :
+                   o.meteo_source === 'COMPUTED' ? '#10b981' : '#f59e0b';
+         L.circleMarker([o.lat, o.lon], {radius:4, color:c, fillColor:c,
+           fillOpacity:0.8, weight:1}).addTo(modalMap);
+       });
+  }
+
+  // Charts
+  const times   = obs.map(o => new Date(o.ts * 1000).toISOString().substr(11,5));
+  const alts    = obs.map(o => o.altitude);
+  const temps   = obs.map(o => o.best_temp);
+  const winds   = obs.map(o => o.best_wind_spd);
+  const wdirs   = obs.map(o => o.best_wind_dir);
+
+  const buildChart = (id, data, label, color) => {
+    const ctx = document.getElementById(id).getContext('2d');
+    if (window['_chart_' + id]) window['_chart_' + id].destroy();
+    window['_chart_' + id] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: times,
+        datasets: [{label, data, borderColor: color,
+          backgroundColor: color + '22', tension: 0.3,
+          pointRadius: 2, borderWidth: 1.5, fill: true}]
+      },
+      options: {
+        animation: false,
+        plugins: {legend:{display:false}},
+        scales: {
+          x: {ticks:{maxTicksLimit:8, color:'#9ca3af'}, grid:{color:'#1e2a3a'}},
+          y: {ticks:{color:'#9ca3af'}, grid:{color:'#1e2a3a'}}
+        }
+      }
+    });
+  };
+
+  buildChart('chart-alt',  alts,  'Altitude ft', '#3b82f6');
+  buildChart('chart-temp', temps, 'Temp °C',     '#ef4444');
+  buildChart('chart-wind', winds, 'Wind kt',     '#10b981');
+  buildChart('chart-wdir', wdirs, 'Wind dir °',  '#f59e0b');
+
+  // Obs table (show meteo rows only, max 200)
+  const meteoObs = obs.filter(o => o.meteo_source && o.meteo_source !== 'NONE')
+                      .slice(-200);
+  const tbody = document.getElementById('modal-obs-tbody');
+  tbody.innerHTML = '';
+  for (const o of meteoObs) {
+    const utc = new Date(o.ts * 1000).toISOString().replace('T',' ').substr(0,19);
+    const src = o.meteo_source || '–';
+    const srcClass = src === 'MRAR' ? 'badge-mrar' : src === 'COMPUTED' ? 'badge-comp' : 'badge-mhr';
+    tbody.insertAdjacentHTML('beforeend', `<tr>
+      <td class="mono small">${utc}</td>
+      <td class="num">${o.altitude != null ? o.altitude.toLocaleString() : '–'}</td>
+      <td class="num">${o.groundspeed ?? '–'}</td>
+      <td><span class="${srcClass}">${src}</span></td>
+      <td class="num">${o.best_wind_spd != null ? o.best_wind_spd.toFixed(1) : '–'}</td>
+      <td class="num">${o.best_wind_dir != null ? o.best_wind_dir.toFixed(0) + '°' : '–'}</td>
+      <td class="num">${o.best_temp != null ? o.best_temp.toFixed(1) + '°C' : '–'}</td>
+      <td class="num">${o.best_pressure != null ? o.best_pressure.toFixed(0) + ' hPa' : '–'}</td>
+    </tr>`);
+  }
+
+  setTimeout(() => modalMap.invalidateSize(), 100);
+}
+
+function closeModal() {
+  document.getElementById('flight-modal').classList.add('hidden');
+}
+
+function resetFilters() {
+  document.getElementById('f-icao').value = '';
+  document.getElementById('f-callsign').value = '';
+  document.getElementById('f-meteo').checked = false;
+  loadFlights(1);
+}
+
+loadFlights(1);
+</script>
+{% endblock %}

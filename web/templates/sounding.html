@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Sounding – MODE-S Meteo{% endblock %}
+
+{% block content %}
+<div class="page-sounding">
+
+  <!-- Mode selector bar -->
+  <div class="sounding-controls">
+    <div class="sounding-mode-toggle">
+      <button id="btn-mode-area"   class="mode-btn active" onclick="setMode('area')">
+        📡 Area Average
+      </button>
+      <button id="btn-mode-flight" class="mode-btn"        onclick="setMode('flight')">
+        ✈️ Flight Profile
+      </button>
+    </div>
+
+    <!-- Area average info (shown in area mode) -->
+    <div id="area-info" class="sounding-info">
+      <span>Aggregating last <strong>{{ sounding_window }} min</strong>
+            within <strong>{{ sounding_radius }} km</strong> of receiver
+            ({{ "%.3f"|format(receiver_lat) }}°N, {{ "%.3f"|format(receiver_lon) }}°E)</span>
+    </div>
+
+    <!-- Flight selector (shown in flight mode) -->
+    <div id="flight-selector" class="flight-selector hidden">
+      <select id="flight-select" class="filter-input" style="min-width:320px">
+        <option value="">— select a flight with altitude profile —</option>
+      </select>
+      <button onclick="loadFlightSounding()" class="btn-primary">Load Sounding</button>
+    </div>
+
+    <div class="sounding-actions">
+      <button id="btn-refresh" onclick="refresh()" class="btn-secondary">↻ Refresh</button>
+      <span id="sounding-meta" class="sounding-meta"></span>
+    </div>
+  </div>
+
+  <!-- Flight profile info banner (hidden in area mode) -->
+  <div id="flight-banner" class="flight-banner hidden"></div>
+
+  <div class="sounding-layout">
+
+    <!-- Skew-T canvas -->
+    <div class="skewt-wrap">
+      <canvas id="skewt-canvas" width="540" height="580"></canvas>
+      <div class="skewt-legend">
+        <span style="color:#ef4444">━</span> Temperature (°C)
+        &nbsp;&nbsp;
+        <span style="color:#94a3b8">┤</span> Wind barb (kt)
+      </div>
+    </div>
+
+    <!-- Data table -->
+    <div class="sounding-table-wrap">
+      <div class="panel-header" id="table-header">Level data</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Press (hPa)</th>
+            <th>Alt (ft)</th>
+            <th>Temp (°C)</th>
+            <th>Wind (kt)</th>
+            <th>Dir (°)</th>
+            <th>Obs</th>
+          </tr>
+        </thead>
+        <tbody id="sounding-tbody"></tbody>
+      </table>
+      <div class="sounding-note" id="sounding-note">
+        Data from multiple aircraft over the time window.
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sounding.js') }}"></script>
+<script>
+// ── Mode state ─────────────────────────────────────────────────────────────
+let currentMode = 'area';
+let autoRefreshTimer = null;
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-mode-area').classList.toggle('active', mode === 'area');
+  document.getElementById('btn-mode-flight').classList.toggle('active', mode === 'flight');
+  document.getElementById('area-info').classList.toggle('hidden', mode !== 'area');
+  document.getElementById('flight-selector').classList.toggle('hidden', mode !== 'flight');
+  document.getElementById('flight-banner').classList.add('hidden');
+
+  if (mode === 'area') {
+    document.getElementById('sounding-note').textContent =
+      'Data from multiple aircraft over the time window.';
+    document.getElementById('table-header').textContent = 'Level data';
+    loadSounding();
+    autoRefreshTimer = setInterval(loadSounding, 120000);
+  } else {
+    clearInterval(autoRefreshTimer);
+    document.getElementById('sounding-note').textContent =
+      'Altitude profile from a single flight. Works best for climbing/descending flights.';
+    document.getElementById('table-header').textContent = 'Flight profile levels';
+    loadFlightList();
+  }
+}
+
+function refresh() {
+  if (currentMode === 'area') loadSounding();
+  else loadFlightSounding();
+}
+
+// ── Area average sounding ──────────────────────────────────────────────────
+// loadSounding() is defined in sounding.js
+
+// ── Flight profile sounding ───────────────────────────────────────────────
+async function loadFlightList() {
+  const sel = document.getElementById('flight-select');
+  try {
+    const r = await fetch('/api/flights/suitable_soundings');
+    const flights = await r.json();
+    sel.innerHTML = '<option value="">— select a flight with altitude profile —</option>';
+    for (const f of flights) {
+      const range = f.max_altitude && f.min_altitude
+        ? `${Math.round(f.min_altitude/100)*100}–${Math.round(f.max_altitude/100)*100} ft`
+        : '';
+      const label = `${f.callsign || f.icao}  ${range}  (${f.last_seen.substr(0,16)} UTC,  ${f.meteo_count} meteo obs)`;
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+  } catch(e) {
+    console.error('Could not load flight list', e);
+  }
+}
+
+async function loadFlightSounding() {
+  const sel    = document.getElementById('flight-select');
+  const flightId = sel.value;
+  if (!flightId) {
+    document.getElementById('sounding-meta').textContent = 'Select a flight first.';
+    return;
+  }
+
+  const meta = document.getElementById('sounding-meta');
+  meta.textContent = 'Loading…';
+
+  try {
+    const r = await fetch(`/api/flights/${flightId}/sounding`);
+    const d = await r.json();
+
+    if (d.error) {
+      meta.textContent = 'Error: ' + d.error;
+      return;
+    }
+
+    // Render the Skew-T
+    renderSounding(d.levels);
+
+    // Show flight banner
+    const f = d.flight;
+    const banner = document.getElementById('flight-banner');
+    const rangeStr = (f.min_altitude != null && f.max_altitude != null)
+      ? `${f.min_altitude.toLocaleString()}–${f.max_altitude.toLocaleString()} ft`
+      : '–';
+    banner.innerHTML =
+      `<strong>${f.callsign || f.icao}</strong> &nbsp;·&nbsp; ${f.icao}` +
+      `&nbsp;·&nbsp; ${f.first_seen ? f.first_seen.substr(0,16) : ''} – ${f.last_seen ? f.last_seen.substr(0,16) : ''} UTC` +
+      `&nbsp;·&nbsp; Altitude range: ${rangeStr}` +
+      `&nbsp;·&nbsp; ${f.meteo_count} meteo obs`;
+    banner.classList.remove('hidden');
+
+    meta.textContent = `${d.obs_used} obs used · ${d.levels.length} levels · generated ${d.generated_at.substr(11,5)} UTC`;
+
+    // Fill table
+    const tbody = document.getElementById('sounding-tbody');
+    tbody.innerHTML = '';
+    for (const l of d.levels) {
+      const hasData = l.temp != null || l.wind_spd != null;
+      tbody.insertAdjacentHTML('beforeend', `<tr class="${hasData ? '' : 'empty-level'}">
+        <td class="num" style="font-weight:700">${l.pressure}</td>
+        <td class="num">${l.altitude != null ? l.altitude.toLocaleString() : '–'}</td>
+        <td class="num ${l.temp != null ? '' : 'text-dim'}">${l.temp != null ? l.temp.toFixed(1) : '–'}</td>
+        <td class="num">${l.wind_spd != null ? l.wind_spd.toFixed(1) : '–'}</td>
+        <td class="num">${l.wind_dir != null ? l.wind_dir.toFixed(0) + '°' : '–'}</td>
+        <td class="num text-dim">${(l.temp_count || 0) + (l.wind_count || 0)}</td>
+      </tr>`);
+    }
+
+    document.getElementById('table-header').textContent =
+      `Flight profile — ${d.levels.length} levels`;
+
+  } catch(e) {
+    meta.textContent = 'Error loading flight sounding.';
+    console.error(e);
+  }
+}
+
+// ── Startup ────────────────────────────────────────────────────────────────
+// Check URL for ?flight=<id> — pre-select flight profile mode
+const urlParams = new URLSearchParams(window.location.search);
+const preFlightId = urlParams.get('flight');
+
+if (preFlightId) {
+  // Switch to flight mode immediately, then load the specific flight
+  setMode('flight');
+  // Wait for dropdown to populate, then select and load
+  loadFlightList().then(() => {
+    const sel = document.getElementById('flight-select');
+    sel.value = preFlightId;
+    if (sel.value) loadFlightSounding();
+    // If flight not in dropdown (too old / not qualifying), load directly
+    else {
+      sel.innerHTML += `<option value="${preFlightId}" selected>Flight #${preFlightId}</option>`;
+      sel.value = preFlightId;
+      loadFlightSounding();
+    }
+  });
+} else {
+  setMode('area');
+}
+</script>
+
+<style>
+.sounding-mode-toggle { display:flex; gap:8px; }
+.mode-btn {
+  padding:6px 16px; border-radius:6px; border:1px solid var(--border);
+  background:var(--surface2); color:var(--text-muted); cursor:pointer;
+  font-size:13px; transition:all .15s;
+}
+.mode-btn.active {
+  background:var(--accent); color:#fff; border-color:var(--accent);
+}
+.flight-selector { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.flight-banner {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:8px 14px; font-size:13px;
+  color:var(--text-muted); margin-bottom:4px;
+}
+.flight-banner strong { color:var(--text); }
+</style>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Live Map – MODE-S Meteo{% endblock %}
+
+{% block content %}
+<div class="live-layout">
+
+  <!-- Left panel: aircraft list -->
+  <aside class="panel-left">
+    <div class="panel-header">
+      <span>Live Aircraft</span>
+      <div class="filter-row">
+        <label class="toggle-label">
+          <input type="checkbox" id="filter-meteo-only"> Meteo only
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" id="toggle-labels"> Labels:
+        </label>
+        <select id="label-mode" class="label-mode-select">
+          <option value="callsign">Callsign</option>
+          <option value="icao">ICAO24</option>
+        </select>
+      </div>
+    </div>
+    <div id="aircraft-list" class="aircraft-list">
+      <div class="ac-placeholder">Waiting for data…</div>
+    </div>
+  </aside>
+
+  <!-- Centre: Leaflet map -->
+  <div class="map-container">
+    <div id="map"></div>
+    <div class="map-legend">
+      <span class="legend-dot" style="background:#3b82f6"></span> MRAR direct
+      <span class="legend-dot" style="background:#10b981"></span> Wind computed
+      <span class="legend-dot" style="background:#f59e0b"></span> MHR hazard
+      <span class="legend-dot" style="background:#6b7280"></span> No meteo
+    </div>
+  </div>
+
+  <!-- Right panel: mini sounding profile -->
+  <aside class="panel-right">
+    <div class="panel-header">Atmosphere Profile</div>
+    <div id="detail-panel" class="mini-sounding-wrap">
+      <canvas id="mini-sounding-canvas" width="204" height="330"></canvas>
+      <div id="mini-sounding-meta" class="mini-sounding-meta">Loading…</div>
+      <div id="mini-ac-info" class="mini-ac-info">Click an aircraft to overlay</div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- Bottom strip: selected aircraft full detail -->
+<div id="detail-strip" class="detail-strip hidden">
+  <div class="detail-strip-header">
+    <span id="detail-callsign" class="detail-callsign">–</span>
+    <span id="detail-icao" class="detail-icao"></span>
+    <span id="detail-bds" class="badge-source">–</span>
+    <button onclick="closeDetail()" class="btn-close">✕</button>
+  </div>
+  <div class="detail-strip-body">
+    <div class="detail-grid">
+      <div class="detail-cell"><span class="dlabel">Altitude</span><span id="d-alt">–</span></div>
+      <div class="detail-cell"><span class="dlabel">GS</span><span id="d-gs">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Track</span><span id="d-track">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Vert rate</span><span id="d-vr">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Wind speed</span><span id="d-wsp">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Wind dir</span><span id="d-wdir">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Temp</span><span id="d-temp">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Pressure</span><span id="d-pres">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Humidity</span><span id="d-hum">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Turbulence</span><span id="d-turb">–</span></div>
+      <div class="detail-cell"><span class="dlabel">FOM</span><span id="d-fom">–</span></div>
+      <div class="detail-cell"><span class="dlabel">Source</span><span id="d-src">–</span></div>
+    </div>
+    <div class="detail-chart-wrap">
+      <canvas id="detail-chart" height="90"></canvas>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RECEIVER_LAT = {{ receiver_lat }};
+const RECEIVER_LON = {{ receiver_lon }};
+</script>
+<script src="{{ url_for('static', filename='js/live_map.js') }}"></script>
+{% endblock %}
