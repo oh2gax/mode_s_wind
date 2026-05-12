@@ -53,6 +53,12 @@ class Config:
     DB_WRITE_INTERVAL: float = 5.0
     # Gap (seconds) between two contacts with same ICAO that starts a new flight
     FLIGHT_GAP_SEC: float = 1800.0   # 30 minutes
+    # Minimum gap (seconds) between successive DB writes for the same aircraft.
+    # Prevents storing dozens of near-identical rows for a cruising aircraft.
+    # 30 s is a good balance: enough resolution for sounding profiles while
+    # cutting write volume by ~80-90 % compared to storing every observation.
+    # Set to 0 to disable throttling (store every qualifying observation).
+    WRITE_MIN_INTERVAL_SEC: float = 30.0
 
     # ── Radarcape JSON feed ───────────────────────────────────────────────
     # Provides MLAT positions (GPS-jamming immune) and pre-decoded MRAR

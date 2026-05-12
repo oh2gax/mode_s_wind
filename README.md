@@ -146,6 +146,9 @@ class Config:
 
     # ── Storage mode ──────────────────────────────────────────────────────
     STORAGE_MODE = "ALL"              # "ALL" | "METEO_ONLY"
+
+    # ── Per-aircraft write throttle ───────────────────────────────────────
+    WRITE_MIN_INTERVAL_SEC = 30.0     # 0 = disabled (store every observation)
 ```
 
 Key values to change for your installation:
@@ -154,7 +157,7 @@ Key values to change for your installation:
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
 - `MAG_DECLINATION` — magnetic declination for your location (affects computed wind accuracy); find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
-- `METEO_SOURCE_MODE` and `STORAGE_MODE` — see the [Operational Modes](#operational-modes) section below
+- `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
 
 ### 4. Run
 
@@ -255,6 +258,27 @@ Controls which decoded observations are written to the SQLite database.
 **Note:** In `METEO_ONLY` mode the `flights` table still records every flight session, but individual `observations` rows exist only for moments when meteo data was present. Flight track maps in the Flights browser will show only the positions where meteo was decoded rather than the full continuous path.
 
 **SD card recommendation:** Even with `METEO_ONLY`, SQLite WAL mode generates frequent small writes which accelerate SD card wear. Moving the database to a USB SSD (update `DB_PATH` in `config.py`) is strongly recommended for any deployment intended to run continuously for more than a few days.
+
+---
+
+### Write Throttle (`WRITE_MIN_INTERVAL_SEC`)
+
+Controls the minimum time gap (in seconds) between successive database writes for the same aircraft. This is the most effective single setting for controlling database growth during extended operation.
+
+| Value | Behaviour |
+|-------|-----------|
+| `30.0` | **Default.** At most one observation stored per aircraft per 30 seconds. An aircraft cruising at FL350 for 20 minutes produces ~40 rows instead of potentially hundreds. During climbs and descents a typical jet ascends ~1 000 ft per 30-second interval, so consecutive stored observations naturally sample different altitude layers — sounding profile quality is essentially unaffected. |
+| `60.0` | One observation per minute per aircraft. Halves the write volume again compared to 30 s. Suitable for very long-running deployments or slower storage media. Sounding resolution remains good since standard pressure levels are typically 1 000–2 000 ft apart. |
+| `0` | Throttle disabled — every qualifying observation is stored immediately. Use only for short diagnostic sessions or when studying individual message rates. |
+
+**Combined effect:** Running `METEO_ONLY` together with `WRITE_MIN_INTERVAL_SEC = 30.0` is the recommended configuration for continuous long-term operation. At a busy location like EFHK, testing has shown this reduces database growth from several hundred MB per hour (all observations, no throttle) to a much more manageable level while preserving all the data needed for sounding profiles and historical analysis.
+
+**Tuning guide:**
+
+- Start with `30.0` and monitor database growth over a few hours of peak traffic.
+- If growth is still too fast, increase to `60.0`.
+- If you need finer vertical resolution in sounding profiles (e.g. studying temperature inversions in thin layers), reduce toward `10.0`–`15.0`.
+- Set to `0` temporarily if you want to capture a specific event at full resolution, then restore your normal value.
 
 ---
 

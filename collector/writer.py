@@ -27,28 +27,45 @@ class BatchWriter:
     """Accumulate decoded observations and flush to SQLite periodically."""
 
     def __init__(self, write_interval: float, flight_gap_sec: float,
-                 storage_mode: str = "ALL") -> None:
-        self._interval      = write_interval
-        self._flight_gap    = flight_gap_sec
-        self._storage_mode  = storage_mode
+                 storage_mode: str = "ALL",
+                 write_min_interval: float = 0.0) -> None:
+        self._interval          = write_interval
+        self._flight_gap        = flight_gap_sec
+        self._storage_mode      = storage_mode
+        self._write_min_interval = write_min_interval
         self._buffer: list[dict] = []
         self._last_flush = time.monotonic()
 
         # ICAO → (flight_id, last_seen_ts)
         self._sessions: dict[str, tuple[int, float]] = {}
+        # ICAO → unix timestamp of last observation written (for throttling)
+        self._last_written: dict[str, float] = {}
 
     # ── Public API ────────────────────────────────────────────────────────
 
     def add(self, obs: dict) -> None:
         """Add one observation to the in-memory buffer.
 
-        In METEO_ONLY mode, observations with no decoded meteo data are
-        silently dropped, which substantially reduces DB size and SD-card
-        write load.
+        Two optional filters are applied before buffering:
+
+        1. METEO_ONLY mode — drops observations with no meteo data.
+        2. Per-aircraft write throttle — drops observations arriving sooner
+           than WRITE_MIN_INTERVAL_SEC after the last stored one for the
+           same ICAO.  Prevents dozens of near-identical cruise-level rows
+           while still capturing altitude changes during climbs/descents.
         """
         if (self._storage_mode == "METEO_ONLY"
                 and obs.get("meteo_source", "NONE") == "NONE"):
             return
+
+        if self._write_min_interval > 0:
+            icao = obs.get("icao", "")
+            ts   = obs.get("ts", 0.0)
+            last = self._last_written.get(icao, 0.0)
+            if ts - last < self._write_min_interval:
+                return
+            self._last_written[icao] = ts
+
         self._buffer.append(obs)
 
         # Flush on time trigger
