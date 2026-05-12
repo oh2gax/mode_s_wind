@@ -56,9 +56,11 @@ def main() -> None:
 
     log.info("=" * 60)
     log.info("MODE-S Meteo System starting")
-    log.info("  Database : %s", cfg.DB_PATH)
-    log.info("  Radarcape: %s:%d", cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
-    log.info("  Web      : http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)
+    log.info("  Database    : %s", cfg.DB_PATH)
+    log.info("  Radarcape   : %s:%d", cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
+    log.info("  Web         : http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)
+    log.info("  Source mode : %s", cfg.METEO_SOURCE_MODE)
+    log.info("  Storage mode: %s", cfg.STORAGE_MODE)
     log.info("=" * 60)
 
     # ── Initialise database ───────────────────────────────────────────────
@@ -82,7 +84,7 @@ def main() -> None:
     # ── Start Radarcape JSON poller thread ────────────────────────────────
     json_thread = threading.Thread(
         target=run_json_poller,
-        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock),
+        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock, cfg.METEO_SOURCE_MODE),
         name="json_poller",
         daemon=True,
     )

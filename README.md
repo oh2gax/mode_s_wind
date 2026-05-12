@@ -18,6 +18,8 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
 - **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar with ISA reference, area wind barbs labelled with direction and speed, and a live aircraft overlay that accumulates a full vertical wind history as the aircraft climbs or descends
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics
 - **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, wind history density) are remembered across browser sessions via localStorage
+- **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority; active mode shown as a read-only badge in the navbar on every page
+- **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -138,6 +140,12 @@ class Config:
     # ── Sounding aggregation ──────────────────────────────────────────────
     SOUNDING_RADIUS_KM = 150.0        # aggregate obs within this radius
     SOUNDING_WINDOW_MIN = 60          # aggregate over this many past minutes
+
+    # ── Meteo source mode ─────────────────────────────────────────────────
+    METEO_SOURCE_MODE = "HYBRID"      # "EHS" | "JSON" | "HYBRID"
+
+    # ── Storage mode ──────────────────────────────────────────────────────
+    STORAGE_MODE = "ALL"              # "ALL" | "METEO_ONLY"
 ```
 
 Key values to change for your installation:
@@ -146,6 +154,7 @@ Key values to change for your installation:
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
 - `MAG_DECLINATION` — magnetic declination for your location (affects computed wind accuracy); find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
+- `METEO_SOURCE_MODE` and `STORAGE_MODE` — see the [Operational Modes](#operational-modes) section below
 
 ### 4. Run
 
@@ -158,9 +167,11 @@ The system will log startup information and the web interface address:
 ```
 2025-05-11 12:00:00  INFO     modes.main           ============================================================
 2025-05-11 12:00:00  INFO     modes.main           MODE-S Meteo System starting
-2025-05-11 12:00:00  INFO     modes.main             Database : /home/pi/mode-s-meteo/data/modes_meteo.db
-2025-05-11 12:00:00  INFO     modes.main             Radarcape: 192.168.0.119:10003
-2025-05-11 12:00:00  INFO     modes.main             Web      : http://0.0.0.0:5010
+2025-05-11 12:00:00  INFO     modes.main             Database    : /home/pi/mode-s-meteo/data/modes_meteo.db
+2025-05-11 12:00:00  INFO     modes.main             Radarcape   : 192.168.0.119:10003
+2025-05-11 12:00:00  INFO     modes.main             Web         : http://0.0.0.0:5010
+2025-05-11 12:00:00  INFO     modes.main             Source mode : HYBRID
+2025-05-11 12:00:00  INFO     modes.main             Storage mode: ALL
 ```
 
 Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for username and password.
@@ -207,6 +218,43 @@ sudo systemctl enable modes-meteo
 sudo systemctl start modes-meteo
 sudo systemctl status modes-meteo
 ```
+
+---
+
+## Operational Modes
+
+Two independent settings in `config.py` control how the system collects and stores data. Both are displayed as read-only pill badges in the navbar on every page of the web interface so you always know which modes are active without opening any files.
+
+Changing either setting requires editing `config.py` and restarting the service. The active configuration is also printed in the startup log.
+
+---
+
+### Meteo Source Mode (`METEO_SOURCE_MODE`)
+
+Controls which data source provides the meteorological values (wind speed/direction, temperature, pressure) that appear in the live map, sounding diagrams, and database.
+
+| Value | Behaviour |
+|-------|-----------|
+| `"HYBRID"` | **Default.** EHS data from the Beast feed has priority. The Radarcape JSON feed provides MLAT positions and fills in meteo values only for aircraft where pyModeS has not yet produced any EHS data. This preserves the full decode chain while also capturing aircraft that are only reachable via MLAT. |
+| `"EHS"` | The JSON feed is used exclusively for MLAT positions. It never injects meteo values. All wind, temperature and pressure data comes from pyModeS decoding of BDS 4,4 / 4,5 / 5,0 / 6,0 registers received via the Beast TCP feed. Use this mode to work with fully transparent, self-decoded data. |
+| `"JSON"` | The Radarcape's own decoded wind and temperature values from `aircraftlist.json` are always used and overwrite any EHS-derived values for the same aircraft on every poll cycle. Use this to compare the Radarcape's internal processing against the pyModeS decode chain, or to rely on the receiver hardware's own algorithms. |
+
+**Tip:** If you are seeing mostly `COMPUTED` source tags (green symbols on the map), EHS decoding is working well. Switch to `"EHS"` mode to confirm that the JSON feed is not contributing anything and that all meteo originates from pyModeS. Switch to `"JSON"` mode to see what the Radarcape produces on its own and compare values.
+
+---
+
+### Storage Mode (`STORAGE_MODE`)
+
+Controls which decoded observations are written to the SQLite database.
+
+| Value | Behaviour |
+|-------|-----------|
+| `"ALL"` | **Default.** Every decoded observation is stored — positions, motion data, and meteo — regardless of whether it carries any meteorological values. This gives the most complete flight tracks and motion history but grows the database quickly. At a busy location like EFHK, the database can accumulate several hundred megabytes per day. |
+| `"METEO_ONLY"` | Only observations that carry at least one decoded meteo value (`meteo_source ≠ NONE`) are written to disk. Position-only messages are used to update the live map in memory but are never persisted. This typically reduces database growth by 60–80% depending on what fraction of tracked aircraft are producing meteo data. Recommended for long-running deployments on SD card or when storage is limited. |
+
+**Note:** In `METEO_ONLY` mode the `flights` table still records every flight session, but individual `observations` rows exist only for moments when meteo data was present. Flight track maps in the Flights browser will show only the positions where meteo was decoded rather than the full continuous path.
+
+**SD card recommendation:** Even with `METEO_ONLY`, SQLite WAL mode generates frequent small writes which accelerate SD card wear. Moving the database to a USB SSD (update `DB_PATH` in `config.py`) is strongly recommended for any deployment intended to run continuously for more than a few days.
 
 ---
 

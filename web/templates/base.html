@@ -19,6 +19,12 @@
     <a href="/flights" class="nav-link {% if request.endpoint == 'flights_page' %}active{% endif %}">Flights</a>
     <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
   </div>
+  <div class="nav-config-badges">
+    <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"
+          title="Meteo source mode: {{ meteo_source_mode }}">{{ meteo_source_mode }}</span>
+    <span class="config-badge badge-storage-{{ storage_mode | lower }}"
+          title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
+  </div>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
     <span id="status-text">Connecting…</span>

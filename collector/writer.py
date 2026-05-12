@@ -26,9 +26,11 @@ log = logging.getLogger("modes.writer")
 class BatchWriter:
     """Accumulate decoded observations and flush to SQLite periodically."""
 
-    def __init__(self, write_interval: float, flight_gap_sec: float) -> None:
-        self._interval   = write_interval
-        self._flight_gap = flight_gap_sec
+    def __init__(self, write_interval: float, flight_gap_sec: float,
+                 storage_mode: str = "ALL") -> None:
+        self._interval      = write_interval
+        self._flight_gap    = flight_gap_sec
+        self._storage_mode  = storage_mode
         self._buffer: list[dict] = []
         self._last_flush = time.monotonic()
 
@@ -38,7 +40,15 @@ class BatchWriter:
     # ── Public API ────────────────────────────────────────────────────────
 
     def add(self, obs: dict) -> None:
-        """Add one observation to the in-memory buffer."""
+        """Add one observation to the in-memory buffer.
+
+        In METEO_ONLY mode, observations with no decoded meteo data are
+        silently dropped, which substantially reduces DB size and SD-card
+        write load.
+        """
+        if (self._storage_mode == "METEO_ONLY"
+                and obs.get("meteo_source", "NONE") == "NONE"):
+            return
         self._buffer.append(obs)
 
         # Flush on time trigger

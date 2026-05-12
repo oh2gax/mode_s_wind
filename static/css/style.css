@@ -59,7 +59,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .panel-left  { width: var(--panel-w); background: var(--bg-1);
                border-right: 1px solid var(--border); display: flex;
                flex-direction: column; flex-shrink: 0; }
-.panel-right { width: 310px; background: var(--bg-1);
+.panel-right { width: 378px; background: var(--bg-1);
                border-left: 1px solid var(--border); display: flex;
                flex-direction: column; flex-shrink: 0; overflow-y: auto; }
 
@@ -247,6 +247,21 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   text-align: center; padding: 2px 6px; line-height: 1.4;
   border-top: 1px solid var(--border); width: 100%;
 }
+
+/* ── Config mode badges (navbar) ───────────────────────────────────────── */
+.nav-config-badges { display: flex; gap: 5px; align-items: center; margin-left: auto; }
+.config-badge {
+  font-size: 9px; font-family: 'Courier New', monospace; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; letter-spacing: .6px;
+  border: 1px solid; cursor: default; white-space: nowrap;
+}
+/* Source mode colours */
+.badge-src-ehs    { color: #93c5fd; border-color: #1e40af; background: rgba(30,58,95,.25); }
+.badge-src-json   { color: #c4b5fd; border-color: #5b21b6; background: rgba(46,27,85,.25); }
+.badge-src-hybrid { color: #6ee7b7; border-color: #065f46; background: rgba(6,64,58,.25); }
+/* Storage mode colours */
+.badge-storage-all        { color: #94a3b8; border-color: #334155; background: rgba(30,41,59,.25); }
+.badge-storage-meteo_only { color: #fbbf24; border-color: #92400e; background: rgba(69,26,3,.25); }
 
 /* ── Wind density slider (mini sounding panel) ─────────────────────────── */
 .density-row {

@@ -63,3 +63,21 @@ class Config:
     # ── Sounding aggregation ──────────────────────────────────────────────
     SOUNDING_RADIUS_KM: float = 150.0   # use obs within this radius of receiver
     SOUNDING_WINDOW_MIN: int = 60       # aggregate over this many past minutes
+
+    # ── Meteo source mode ─────────────────────────────────────────────────
+    # Controls which source provides meteorological values in live_state.
+    #   "EHS"    — use only BDS-decoded data from Beast TCP feed
+    #              (MRAR / MHR / COMPUTED); JSON feed provides MLAT positions
+    #              only and never injects meteo values.
+    #   "JSON"   — Radarcape JSON meteo values are primary; they overwrite
+    #              any EHS value for the same aircraft every poll cycle.
+    #   "HYBRID" — EHS has priority; JSON meteo fills in only when EHS has
+    #              not yet produced a value for that aircraft. (default)
+    METEO_SOURCE_MODE: str = "HYBRID"
+
+    # ── Storage mode ──────────────────────────────────────────────────────
+    # Controls which observations are written to the SQLite database.
+    #   "ALL"        — store every decoded observation (positions + meteo)
+    #   "METEO_ONLY" — store only observations that carry meteo data;
+    #                  significantly reduces DB size and SD-card wear.
+    STORAGE_MODE: str = "ALL"

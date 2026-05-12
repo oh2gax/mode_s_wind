@@ -103,17 +103,23 @@ def run_json_poller(
     url: str,
     live_state: dict,
     live_lock: threading.RLock,
+    source_mode: str = "HYBRID",
 ) -> None:
     """
     Daemon thread: polls the Radarcape JSON endpoint and merges data into
     live_state.
 
     Args:
-        url        : full HTTP URL, e.g. "http://192.168.0.119/aircraftlist.json"
-        live_state : shared dict {icao: {...}} maintained by the collector
-        live_lock  : RLock protecting live_state
+        url         : full HTTP URL, e.g. "http://192.168.0.119/aircraftlist.json"
+        live_state  : shared dict {icao: {...}} maintained by the collector
+        live_lock   : RLock protecting live_state
+        source_mode : "EHS" | "JSON" | "HYBRID" — controls meteo injection
+                      EHS    → positions only, never inject JSON meteo
+                      JSON   → always inject JSON meteo, overwrite EHS values
+                      HYBRID → inject JSON meteo only when EHS has nothing yet
     """
-    log.info("JSON poller starting — %s (every %.0f s)", url, POLL_INTERVAL)
+    log.info("JSON poller starting — %s (every %.0f s) [source_mode=%s]",
+             url, POLL_INTERVAL, source_mode)
     consecutive_errors = 0
 
     while True:
@@ -162,26 +168,36 @@ def run_json_poller(
                             n_pos_adsb += 1
 
                     # ── Temperature ───────────────────────────────────────────
-                    # Inject if we have no MRAR temperature yet
-                    if (parsed.get("json_temp") is not None
-                            and merged.get("mrar_temp") is None
-                            and merged.get("best_temp") is None):
-                        merged["best_temp"] = parsed["json_temp"]
-                        merged["json_temp"] = parsed["json_temp"]
-                        n_meteo += 1
+                    # EHS:    never inject — JSON feed is for positions only.
+                    # JSON:   always inject, overwrite any EHS-derived value.
+                    # HYBRID: inject only when no MRAR/EHS temperature present.
+                    if parsed.get("json_temp") is not None and source_mode != "EHS":
+                        if (source_mode == "JSON"
+                                or (merged.get("mrar_temp") is None
+                                    and merged.get("best_temp") is None)):
+                            merged["best_temp"] = parsed["json_temp"]
+                            merged["json_temp"] = parsed["json_temp"]
+                            n_meteo += 1
 
                     # ── Wind ──────────────────────────────────────────────────
-                    # Inject if we have no wind yet (MRAR or COMPUTED)
+                    # EHS:    never inject.
+                    # JSON:   always inject, overwrite any EHS-derived value.
+                    # HYBRID: inject only when no EHS/COMPUTED wind present.
                     if (parsed.get("json_wind_spd") is not None
                             and parsed.get("json_wind_dir") is not None
-                            and merged.get("best_wind_spd") is None):
-                        merged["best_wind_spd"] = parsed["json_wind_spd"]
-                        merged["best_wind_dir"] = parsed["json_wind_dir"]
-                        merged["json_wind_spd"] = parsed["json_wind_spd"]
-                        merged["json_wind_dir"] = parsed["json_wind_dir"]
-                        if merged.get("meteo_source", "NONE") == "NONE":
-                            merged["meteo_source"] = "JSON"
-                        n_meteo += 1
+                            and source_mode != "EHS"):
+                        if (source_mode == "JSON"
+                                or merged.get("best_wind_spd") is None):
+                            merged["best_wind_spd"] = parsed["json_wind_spd"]
+                            merged["best_wind_dir"] = parsed["json_wind_dir"]
+                            merged["json_wind_spd"] = parsed["json_wind_spd"]
+                            merged["json_wind_dir"] = parsed["json_wind_dir"]
+                            # Tag source: always "JSON" in JSON mode;
+                            # in HYBRID only if nothing else set it yet.
+                            if (source_mode == "JSON"
+                                    or merged.get("meteo_source", "NONE") == "NONE"):
+                                merged["meteo_source"] = "JSON"
+                            n_meteo += 1
 
                     merged["icao"]      = icao
                     merged["last_seen"] = max(merged.get("last_seen", 0.0), now)

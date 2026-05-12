@@ -122,13 +122,13 @@ function isaTempP(p_hPa) {
 // ── Mini Skew-T geometry ──────────────────────────────────────────────────
 // Canvas: 252 × 346 px.  Log-pressure Y, skewed temperature X.
 const MSK = {
-  W: 292, H: 346,
-  ML: 28, MR: 80, MT: 10, MB: 22,
+  W: 362, H: 346,
+  ML: 28, MR: 90, MT: 10, MB: 22,
   TL: -80, TR: 30,   // temperature range °C
   PT: 200, PB: 1050, // pressure range hPa
   SK: 0.38,          // skew factor (higher = more tilt)
 };
-MSK.PW = MSK.W - MSK.ML - MSK.MR;   // 184
+MSK.PW = MSK.W - MSK.ML - MSK.MR;   // 244
 MSK.PH = MSK.H - MSK.MT - MSK.MB;   // 314
 
 function mskY(p) {
@@ -300,7 +300,7 @@ function drawMiniSounding() {
     const by = mskY(l.pressure);
     drawMiniBarb(ctx, barbX, by, l.wind_spd, l.wind_dir);
     // Direction + speed label right-aligned at canvas edge
-    ctx.fillStyle = '#4b5563'; ctx.font = '7px monospace'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#4b5563'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
     ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, by + 3);
   }
 
@@ -344,7 +344,7 @@ function drawMiniSounding() {
         if (obs.wind_spd != null && obs.wind_dir != null) {
           drawMiniBarb(ctx, barbX + 2, oy, obs.wind_spd, obs.wind_dir, barbColor);
           ctx.fillStyle = barbColor;
-          ctx.font      = '7px monospace'; ctx.textAlign = 'right';
+          ctx.font      = '9px monospace'; ctx.textAlign = 'right';
           ctx.fillText(Math.round(obs.wind_dir) + '° ' + Math.round(obs.wind_spd) + 'kt', W - 2, oy + 3);
         }
       }

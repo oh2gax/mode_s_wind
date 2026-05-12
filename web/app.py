@@ -55,6 +55,15 @@ def create_app(
     )
     app.config["SECRET_KEY"] = "modes-meteo-secret"
 
+    # ── Template globals — config badges shown in every page's navbar ─────
+
+    @app.context_processor
+    def inject_config_modes():
+        return {
+            "meteo_source_mode": cfg.METEO_SOURCE_MODE,
+            "storage_mode":      cfg.STORAGE_MODE,
+        }
+
     # ── Authentication ────────────────────────────────────────────────────
 
     @app.before_request

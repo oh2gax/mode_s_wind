@@ -173,6 +173,7 @@ def run_collector(
     writer = BatchWriter(
         write_interval  = cfg.DB_WRITE_INTERVAL,
         flight_gap_sec  = cfg.FLIGHT_GAP_SEC,
+        storage_mode    = cfg.STORAGE_MODE,
     )
 
     pipe = PipeDecoder(surface_ref=(cfg.RECEIVER_LAT, cfg.RECEIVER_LON))
