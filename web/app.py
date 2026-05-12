@@ -92,6 +92,12 @@ def create_app(
                                sounding_radius=cfg.SOUNDING_RADIUS_KM,
                                sounding_window=cfg.SOUNDING_WINDOW_MIN)
 
+    @app.route("/windmap")
+    def windmap_page():
+        return render_template("windmap.html",
+                               receiver_lat=cfg.RECEIVER_LAT,
+                               receiver_lon=cfg.RECEIVER_LON)
+
     # ── Live state API ────────────────────────────────────────────────────
 
     @app.route("/api/live/state")
@@ -253,6 +259,40 @@ def create_app(
             "flight":       dict(flight),
             "observations": [dict(r) for r in obs],
         })
+
+    # ── Wind map API ─────────────────────────────────────────────────────
+
+    @app.route("/api/windmap")
+    def windmap_api():
+        """
+        Gridded wind map for a chosen flight level, altitude tolerance,
+        time window and grid resolution.
+
+        Query params:
+          fl        — flight level (e.g. 350 for FL350), default 350
+          tolerance — ±ft band around FL centre altitude, default 1000
+          grid      — grid cell size in degrees, default 0.5
+          window    — minutes back from now (mutually exclusive with start/end)
+          start     — period start as Unix timestamp
+          end       — period end   as Unix timestamp
+        """
+        from web.api.windmap import build_windmap
+
+        fl        = int(request.args.get("fl",        350))
+        tolerance = int(request.args.get("tolerance", 1000))
+        grid      = float(request.args.get("grid",    0.5))
+
+        now = time.time()
+        if "start" in request.args and "end" in request.args:
+            start_ts = float(request.args["start"])
+            end_ts   = float(request.args["end"])
+        else:
+            window_min = int(request.args.get("window", 60))
+            end_ts     = now
+            start_ts   = now - window_min * 60
+
+        result = build_windmap(get_db(), fl, tolerance, start_ts, end_ts, grid)
+        return jsonify(result)
 
     # ── Sounding API ──────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@
 
 A Python-based system for collecting, decoding and visualising real-time meteorological data from aircraft using **MODE-S Enhanced Surveillance (EHS)** and **ADS-B** messages received by a [Jetvision Radarcape](https://www.jetvision.de/radarcape/) receiver.
 
-Aircraft continuously broadcast meteorological data from their onboard sensors as part of their secondary surveillance transponder output. This system decodes those messages in real time, stores the data in a local SQLite database, and presents it through a dark-themed web dashboard with a live map, historical flight browser, and Skew-T atmospheric sounding diagrams.
+Aircraft continuously broadcast meteorological data from their onboard sensors as part of their secondary surveillance transponder output. This system decodes those messages in real time, stores the data in a local SQLite database, and presents it through a dark-themed web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, and a gridded historical wind map.
 
 ---
 
@@ -20,6 +20,8 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
 - **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, wind history density) are remembered across browser sessions via localStorage
 - **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority; active mode shown as a read-only badge in the navbar on every page
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
+- **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
+- **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -466,6 +468,44 @@ The table on the right shows each pressure level with:
 
 ---
 
+### Wind Map  `/windmap`
+
+A gridded horizontal wind analysis map built from historical observations stored in the database. Wind vectors within each grid cell are averaged using proper U/V component decomposition — the same mathematically correct method used by the sounding aggregation — so directional accuracy is preserved when combining multiple observations.
+
+#### Controls
+
+| Control | Options | Description |
+|---------|---------|-------------|
+| FL | FL050 – FL450 | Centre flight level for the altitude filter |
+| ± | 500 / 1 000 / 2 000 / 3 000 ft | Altitude band around the chosen FL; observations within FL ± tolerance are included |
+| Period | Last 1 h / 3 h / 6 h / 12 h / 24 h / Custom | Time window for the database query. **Custom** reveals date+time pickers for selecting any historical hour from the database |
+| Grid | 0.25° / 0.5° / 1.0° | Grid cell size in decimal degrees. Finer grids place barbs more precisely along flight routes; coarser grids merge nearby observations and produce a cleaner overview |
+| Load | — | Executes the query and renders the map |
+
+The status bar below the controls shows the number of raw observations used, the resulting cell count, the exact UTC time period, and the active grid resolution.
+
+#### Wind barbs
+
+Each populated grid cell is represented by a standard meteorological wind barb placed at the cell centre:
+
+- **Staff** — points FROM the direction the wind is coming from (meteorological convention)
+- **Pennant** — filled triangle = 50 kt
+- **Full barb** — line = 10 kt
+- **Half barb** — short line = 5 kt
+- **Calm** — open circle when averaged speed rounds to 0 kt
+
+**Colour** indicates averaged wind speed: green < 15 kt, blue 15–30 kt, amber 30–50 kt, red > 50 kt.
+
+The label below each barb shows direction, speed, temperature (if available), and observation count — for example `248° 45kt −35.1°C (12)`. Clicking a barb opens a popup with full cell details including exact grid coordinates. Hovering shows a compact tooltip.
+
+#### Interpreting the map
+
+Observations will be concentrated along the main flight routes visible from your receiver — typically approach/departure corridors and overfly routes. Areas with no aircraft traffic will have no barbs. A longer time window and wider altitude tolerance populate more cells but may mix observations from different weather systems; a shorter window gives a snapshot closer to current conditions.
+
+For best results when studying a specific weather event, use the Custom period selector to load exactly the hour of interest from your historical database.
+
+---
+
 ## Database
 
 The SQLite database is stored at the path configured in `DB_PATH` (default: `data/modes_meteo.db`). It uses WAL journal mode for safe concurrent access.
@@ -551,17 +591,20 @@ mode-s-meteo/
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
 │   ├── api/
-│   │   └── sounding.py        # Sounding aggregation logic
+│   │   ├── sounding.py        # Sounding aggregation logic
+│   │   └── windmap.py         # Gridded wind map aggregation logic
 │   └── templates/
-│       ├── base.html          # Navbar, status indicator
+│       ├── base.html          # Navbar, status indicator, config badges
 │       ├── live.html          # Live map page
 │       ├── flights.html       # Flights browser page
-│       └── sounding.html      # Skew-T sounding page
+│       ├── sounding.html      # Skew-T sounding page
+│       └── windmap.html       # Gridded wind map page
 ├── static/
 │   ├── css/style.css          # Dark theme stylesheet
 │   └── js/
 │       ├── live_map.js        # Live map, ATC display, mini sounding
-│       └── sounding.js        # Skew-T canvas renderer
+│       ├── sounding.js        # Skew-T canvas renderer
+│       └── windmap.js         # Wind map barb rendering + controls
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library
@@ -584,6 +627,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/flights/suitable_soundings` | Flights eligible for per-flight sounding |
 | GET | `/api/sounding` | Area-average sounding from recent observations |
 | GET | `/api/stats` | Summary counters for the navbar |
+| GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 
 ---
 

@@ -207,6 +207,49 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .sounding-info { font-size: 12px; color: var(--text-2); }
 .sounding-note { padding: 8px 12px; font-size: 11px; color: var(--text-3); }
 
+/* ── Wind Map page ──────────────────────────────────────────────────────── */
+.windmap-page {
+  display: flex; flex-direction: column; height: 100%; overflow: hidden;
+}
+.windmap-controls {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 14px; background: var(--bg-1);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.windmap-map { flex: 1; min-height: 0; }
+
+.wm-group  { display: flex; align-items: center; gap: 5px; }
+.wm-label  { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.wm-arrow  { font-size: 13px; color: var(--text-3); }
+.wm-select {
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-1); font-size: 12px; border-radius: 4px;
+  padding: 3px 6px; cursor: pointer; outline: none;
+}
+.wm-select:focus { border-color: var(--accent); }
+.wm-datetime {
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-1); font-size: 11px; border-radius: 4px;
+  padding: 3px 6px; outline: none;
+}
+.wm-datetime:focus { border-color: var(--accent); }
+.wm-load-btn { padding: 4px 16px; font-size: 12px; flex-shrink: 0; }
+.wm-hidden   { display: none !important; }
+
+.wm-legend {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-3);
+  margin-left: 6px; white-space: nowrap;
+}
+.wm-dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.wm-status {
+  margin-left: auto; font-size: 11px; color: var(--text-3);
+  font-family: 'Courier New', monospace; white-space: nowrap;
+}
+
 /* ── Leaflet overrides for dark theme ──────────────────────────────────── */
 .leaflet-container { background: #162030; }
 .leaflet-control-zoom a { background: var(--bg-2); color: var(--text-1);
