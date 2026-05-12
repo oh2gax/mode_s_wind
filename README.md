@@ -657,4 +657,6 @@ Some areas where contributions would be valuable:
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+This project is licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE) for the full text.
+
+GPL-3.0 was chosen to comply with the licence of the [pyModeS](https://github.com/junzis/pyModeS) library by Junzi Sun, which is included in this repository and is itself published under GPL-3.0. You are free to use, study, modify and distribute this project, provided that any distributed derivative work is also released under GPL-3.0 and retains attribution to both this project and the original pyModeS library.
