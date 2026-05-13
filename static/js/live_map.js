@@ -132,6 +132,36 @@ const MSK = {
 MSK.PW = MSK.W - MSK.ML - MSK.MR;   // 244
 MSK.PH = MSK.H - MSK.MT - MSK.MB;   // 314
 
+// ── Responsive canvas sizing ───────────────────────────────────────────────
+// Fills all available height in the right panel.  Called once on load and
+// whenever the panel changes size (window resize / font-size change, etc).
+function resizeMiniCanvas() {
+  const canvas = document.getElementById('mini-sounding-canvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  if (!wrap || wrap.clientWidth === 0) return;
+
+  // Sum the heights of every sibling element (density row, ac-info line)
+  let fixedH = 0;
+  for (const child of wrap.children) {
+    if (child !== canvas) fixedH += child.offsetHeight + 4; // 4 = flex gap
+  }
+  fixedH += 8; // wrap top + bottom padding (4px each)
+
+  const w = Math.max(160, wrap.clientWidth  - 8);
+  const h = Math.max(160, wrap.clientHeight - fixedH);
+
+  if (canvas.width === w && canvas.height === h) return; // nothing changed
+
+  canvas.width  = w;
+  canvas.height = h;
+  MSK.W  = w;
+  MSK.H  = h;
+  MSK.PW = w - MSK.ML - MSK.MR;
+  MSK.PH = h - MSK.MT - MSK.MB;
+  drawMiniSounding();
+}
+
 function mskY(p) {
   const lt = Math.log(MSK.PT), lb = Math.log(MSK.PB);
   return MSK.MT + MSK.PH * (Math.log(p) - lt) / (lb - lt);
@@ -777,4 +807,12 @@ if (densitySlider) {
 
 // ── Start ──────────────────────────────────────────────────────────────────
 connectSSE();
-drawMiniSounding();   // draw empty grid on load
+
+// Size the canvas to the available panel space and keep it responsive.
+// ResizeObserver fires on first observe too, so no separate initial call needed.
+const _mskWrap = document.querySelector('.mini-sounding-wrap');
+if (_mskWrap) {
+  new ResizeObserver(() => resizeMiniCanvas()).observe(_mskWrap);
+} else {
+  drawMiniSounding();   // fallback: draw with default dimensions
+}

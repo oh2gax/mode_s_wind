@@ -163,7 +163,10 @@ async function loadWindMap() {
 
     barbLayer.clearLayers();
 
-    const flStr = `FL${String(fl).padStart(3, '0')}`;
+    // Below FL050 use feet notation; FL050+ use standard FL notation
+    const flStr = fl < 50
+      ? `${(fl * 100).toLocaleString()} ft`
+      : `FL${String(fl).padStart(3, '0')}`;
 
     if (!d.cells || d.cells.length === 0) {
       status.textContent =

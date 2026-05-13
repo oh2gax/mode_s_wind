@@ -357,7 +357,7 @@ Click the **✕** button to deselect and close the detail strip.
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible mini Skew-T Log-P diagram showing the selected aircraft's vertical wind and temperature profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
+A permanently visible Skew-T Log-P diagram filling the full height of the right panel. The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
 **When no aircraft is selected** the diagram shows only the ISA reference grid and a "Click an aircraft to show profile" hint.
 
@@ -459,8 +459,8 @@ A gridded horizontal wind analysis map built from historical observations stored
 
 | Control | Options | Description |
 |---------|---------|-------------|
-| FL | FL050 – FL450 | Centre flight level for the altitude filter |
-| ± | 500 / 1 000 / 2 000 / 3 000 ft | Altitude band around the chosen FL; observations within FL ± tolerance are included |
+| FL | 1 000 ft – 4 000 ft, FL050 – FL450 | Centre altitude for the filter. Low-altitude options (1 000–4 000 ft) are displayed in feet and sit below the transition altitude; FL050 and above use standard flight-level notation |
+| ± | 500 / 1 000 / 2 000 / 3 000 ft | Altitude band around the chosen level; observations within ± tolerance are included. For the 1 000 ft layer a ±500 ft tolerance is recommended to keep the band tight |
 | Period | Last 1 h / 3 h / 6 h / 12 h / 24 h / Custom | Time window for the database query. **Custom** reveals date+time pickers for selecting any historical hour from the database |
 | Grid | 0.25° / 0.5° / 1.0° | Grid cell size in decimal degrees. Finer grids place barbs more precisely along flight routes; coarser grids merge nearby observations and produce a cleaner overview |
 | Load | — | Executes the query and renders the map |
