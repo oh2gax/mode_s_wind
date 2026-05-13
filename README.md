@@ -1,4 +1,4 @@
-# MODE-S Meteo
+# MODE-S Wind
 
 A Python-based system for collecting, decoding and visualising real-time meteorological data from aircraft using **MODE-S Enhanced Surveillance (EHS)** and **ADS-B** messages received by a [Jetvision Radarcape](https://www.jetvision.de/radarcape/) receiver.
 
@@ -14,9 +14,9 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
   - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels)
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
-- **Skew-T atmospheric soundings** — aggregated area profile built from all aircraft near the receiver over a configurable time window, plus per-flight vertical profiles for climbing/descending flights
-- **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar with ISA reference, area wind barbs labelled with direction and speed, and a live aircraft overlay that accumulates a full vertical wind history as the aircraft climbs or descends
-- **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics
+- **Skew-T atmospheric soundings** — per-flight vertical profiles for climbing/descending flights, accessible from the Sounding page or directly from the Flights browser
+- **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar; clicking any aircraft immediately loads its full historical wind and temperature profile from the database, then continues accumulating live updates on top. Profile persists across page navigation — navigating away and back restores the full picture instantly.
+- **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, wind history density) are remembered across browser sessions via localStorage
 - **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority; active mode shown as a read-only badge in the navbar on every page
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
@@ -65,7 +65,8 @@ Radarcape receiver (192.168.0.119)
                               (SQLite WAL)         │
                                     │              ├─ /           Live map
                                     │              ├─ /flights    History
-                                    │              └─ /sounding   Skew-T
+                                    │              ├─ /sounding   Skew-T
+                                    │              └─ /windmap    Wind map
                                     │
                               data/modes_meteo.db
 ```
@@ -86,8 +87,8 @@ When multiple sources are available for the same observation the `best_*` consol
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mode-s-meteo.git
-cd mode-s-meteo
+git clone https://github.com/oh2gax/mode_s_wind.git
+cd mode_s_wind
 ```
 
 ### 2. Install Python dependencies
@@ -171,8 +172,8 @@ The system will log startup information and the web interface address:
 
 ```
 2025-05-11 12:00:00  INFO     modes.main           ============================================================
-2025-05-11 12:00:00  INFO     modes.main           MODE-S Meteo System starting
-2025-05-11 12:00:00  INFO     modes.main             Database    : /home/pi/mode-s-meteo/data/modes_meteo.db
+2025-05-11 12:00:00  INFO     modes.main           MODE-S Wind System starting
+2025-05-11 12:00:00  INFO     modes.main             Database    : /home/pi/mode_s_wind/data/modes_meteo.db
 2025-05-11 12:00:00  INFO     modes.main             Radarcape   : 192.168.0.119:10003
 2025-05-11 12:00:00  INFO     modes.main             Web         : http://0.0.0.0:5010
 2025-05-11 12:00:00  INFO     modes.main             Source mode : HYBRID
@@ -184,7 +185,7 @@ Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for user
 ### 5. Running in the background (optional)
 
 ```bash
-nohup python3 run.py > logs/modes_meteo.log 2>&1 &
+nohup python3 run.py > logs/modes_wind.log 2>&1 &
 echo $! > run.pid          # save PID to stop later
 ```
 
@@ -196,17 +197,17 @@ kill $(cat run.pid)
 
 ### 6. Run as a systemd service (recommended for permanent deployment)
 
-Create `/etc/systemd/system/modes-meteo.service`:
+Create `/etc/systemd/system/modes-wind.service`:
 
 ```ini
 [Unit]
-Description=MODE-S Meteo System
+Description=MODE-S Wind System
 After=network.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/mode-s-meteo
+WorkingDirectory=/home/pi/mode_s_wind
 ExecStart=/usr/bin/python3 run.py
 Restart=on-failure
 RestartSec=10
@@ -219,9 +220,9 @@ Enable and start:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable modes-meteo
-sudo systemctl start modes-meteo
-sudo systemctl status modes-meteo
+sudo systemctl enable modes-wind
+sudo systemctl start modes-wind
+sudo systemctl status modes-wind
 ```
 
 ---
@@ -350,34 +351,28 @@ Clicking an aircraft symbol or list entry:
    - Turbulence level and Figure of Merit (FOM) if from MRAR
    - Meteo source badge
    - A 30-minute altitude and temperature history chart
-3. **Overlays the aircraft position** on the Atmosphere Profile panel (right side) — see below
+3. **Overlays the aircraft's full wind profile** on the Atmosphere Profile panel (right side) — see below
 
 Click the **✕** button to deselect and close the detail strip.
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible mini Skew-T Log-P diagram built from the same aggregated area data as the Sounding page and auto-refreshed every 2 minutes. The wider panel provides room for labelled wind barbs and wind history detail.
+A permanently visible mini Skew-T Log-P diagram showing the selected aircraft's vertical wind and temperature profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
-**Area sounding layer** (always visible):
-- **Red line + dots** — measured temperature profile from all recent aircraft near the receiver, plotted on the skewed temperature axis
-- **Dashed blue line** — ISA (International Standard Atmosphere) reference temperature at each pressure level
-- **Wind barbs** — one barb per standard pressure level where wind data is available, labelled with direction and speed in the format **248° 24kt** (FROM direction, meteorological convention)
+**When no aircraft is selected** the diagram shows only the ISA reference grid and a "Click an aircraft to show profile" hint.
 
-**Wind history density slider** — the slider below the canvas controls how densely the aircraft's wind history barbs are drawn. Each step equals a 400 ft minimum altitude gap between consecutive barbs:
+**When an aircraft is selected** the panel immediately loads the aircraft's full flight history from the database, then continues accumulating live updates:
+
+- **Wind barbs** — drawn in the aircraft's colour for each stored altitude observation, labelled with direction and speed in the format **248° 24kt** (FROM direction, meteorological convention). Older history barbs are shown at 40% opacity.
+- **Temperature dots** — plotted at the correct skewed-temperature position for each altitude observation.
+- **Level indicator** — a dashed horizontal line showing the aircraft's current pressure level derived from barometric altitude via the ISA model. When temperature data is available a white-ringed coloured dot marks the point on the temperature curve; otherwise a small diamond appears on the pressure axis.
+
+**Profile persistence** — the profile is pre-loaded from the database the first time you click an aircraft during a page session. Navigating to another page and returning, then clicking the same aircraft again, restores the complete historical profile instantly from the database rather than starting from scratch.
+
+**Wind history density slider** — controls how densely history barbs are drawn. Each step equals a 400 ft minimum altitude gap between consecutive barbs:
 - Position **1** (leftmost) — show a barb for nearly every 400 ft increment (dense, full detail)
 - Position **8** (rightmost) — show barbs only every 3 200 ft (coarse, avoids overlap at high sample rates)
 - Default is **2** (800 ft gap). The setting persists across browser sessions.
-
-**Aircraft overlay** (visible when an aircraft is selected):
-
-When you click an aircraft the panel overlays its data in the aircraft's own colour (matching the map symbol colour):
-
-- **Wind barbs** — drawn in the aircraft's colour for each accumulated altitude observation; older history barbs are shown at 40% opacity to distinguish them from the current reading. Each barb is labelled with direction and speed.
-- **Temperature dots** — plotted at the correct skewed-temperature position for each altitude observation.
-- **Level indicator** — a dashed horizontal line spanning the full width of the diagram (plot area and barb column) showing the aircraft's current pressure/altitude level. When temperature data is available a white-ringed coloured dot marks the exact point on the temperature curve; when only wind data is available a small diamond appears on the pressure axis instead.
-- **Accumulated wind history** — as an aircraft climbs or descends the panel builds up a full vertical wind profile from the observations received during the session. A new point is added whenever the aircraft changes altitude by at least 400 ft, so level cruise does not flood the history with identical readings. Up to 80 observations are kept per aircraft.
-
-The label below the canvas shows the selected aircraft's callsign, current altitude, and temperature. Closing the detail strip (✕) clears the overlay and returns to the area sounding view.
 
 ---
 
@@ -425,25 +420,13 @@ The 🌡 **Sounding** button (visible on flights with sufficient altitude range)
 
 ### Sounding  `/sounding`
 
-Skew-T style atmospheric sounding diagrams. Two modes are available, toggled by the buttons at the top.
-
-#### 📡 Area Average mode
-
-Aggregates all meteo observations recorded within `SOUNDING_RADIUS_KM` of the receiver over the past `SOUNDING_WINDOW_MIN` minutes. Observations are binned into standard pressure levels (1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100 hPa) and wind vectors are averaged correctly as U/V components before converting back to speed and direction.
-
-This mode auto-refreshes every 2 minutes. Click **↻ Refresh** to update manually.
-
-The status line shows the number of observations used and the generation time (UTC).
-
-#### ✈️ Flight Profile mode
-
-Builds a vertical profile from a single flight's observations. Observations are binned into 2 000 ft altitude bands. This works best for climbing departures or descending arrivals where the aircraft samples many different altitude layers.
+Skew-T style atmospheric sounding for individual flights. Observations from a single flight are binned into 2 000 ft altitude bands to build a vertical profile. This works best for climbing departures or descending arrivals where the aircraft samples many different altitude layers.
 
 Select a flight from the dropdown (populated with all flights that have meteo data and an altitude range > 5 000 ft, most recent first), then click **Load Sounding**.
 
 The flight info banner below the controls shows callsign, ICAO24, time range, altitude range, and observation count.
 
-You can also reach a specific flight's sounding directly from the Flights page via the 🌡 Sounding button, which opens this page in Flight Profile mode with that flight pre-selected.
+You can also reach a specific flight's sounding directly from the Flights page via the 🌡 Sounding button, which opens this page with that flight pre-selected.
 
 #### Skew-T diagram
 
@@ -577,7 +560,7 @@ The system mitigates this in two ways:
 ## Project Structure
 
 ```
-mode-s-meteo/
+mode_s_wind/
 ├── config.py                  # All configuration settings
 ├── run.py                     # Main entry point
 ├── database/
@@ -602,7 +585,7 @@ mode-s-meteo/
 ├── static/
 │   ├── css/style.css          # Dark theme stylesheet
 │   └── js/
-│       ├── live_map.js        # Live map, ATC display, mini sounding
+│       ├── live_map.js        # Live map, ATC display, atmosphere profile
 │       ├── sounding.js        # Skew-T canvas renderer
 │       └── windmap.js         # Wind map barb rendering + controls
 ├── data/                      # SQLite database (created at runtime)
@@ -621,6 +604,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/live/state` | Snapshot of all currently visible aircraft |
 | GET | `/api/live/stream` | Server-Sent Events stream (3-second updates) |
 | GET | `/api/live/aircraft/<icao>` | Last 30 minutes of observations for one aircraft |
+| GET | `/api/aircraft/<icao>/wind_history` | Full wind+temp history for the aircraft's current flight (used to pre-seed the live map atmosphere profile) |
 | GET | `/api/flights` | Paginated flight list (params: `page`, `per`, `icao`, `callsign`, `meteo`) |
 | GET | `/api/flights/<id>` | Full observation track for one historical flight |
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |

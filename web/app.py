@@ -184,6 +184,37 @@ def create_app(
         ).fetchall()
         return jsonify([dict(r) for r in rows])
 
+    @app.route("/api/aircraft/<icao>/wind_history")
+    def aircraft_wind_history(icao: str):
+        """
+        Wind + temp profile for the aircraft's current flight session.
+        Used by the live map to pre-seed the mini Skew-T when an aircraft
+        is selected, so the profile is immediately populated from the DB
+        rather than building from scratch in real-time.
+        Returns rows ordered oldest→newest (ascending ts).
+        """
+        icao = icao.upper()
+        db   = get_db()
+
+        # Find the most recent flight session for this ICAO
+        flight = db.execute(
+            "SELECT id FROM flights WHERE icao = ? ORDER BY last_seen DESC LIMIT 1",
+            (icao,),
+        ).fetchone()
+        if not flight:
+            return jsonify([])
+
+        rows = db.execute(
+            """SELECT ts, altitude, best_wind_spd, best_wind_dir, best_temp
+               FROM observations
+               WHERE flight_id = ?
+                 AND altitude IS NOT NULL
+                 AND (best_wind_spd IS NOT NULL OR best_temp IS NOT NULL)
+               ORDER BY ts ASC""",
+            (flight["id"],),
+        ).fetchall()
+        return jsonify([dict(r) for r in rows])
+
     # ── Flights browser API ───────────────────────────────────────────────
 
     @app.route("/api/flights")

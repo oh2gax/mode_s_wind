@@ -38,6 +38,7 @@ const windArrows     = {};   // icao → L.Polyline (wind direction arrow)
 const aircraftData   = {};   // icao → latest data object
 const callsignCache  = {};   // icao → best known callsign (never downgraded to null)
 const windHistory    = {};   // icao → [{pressure, alt_ft, temp_c, wind_spd, wind_dir}, ...]
+const dbSeeded       = new Set(); // ICAOs whose wind history has been pre-loaded from DB
 
 let selectedIcao = null;
 let detailChart  = null;
@@ -87,13 +88,14 @@ function updateWindHistory(ac) {
     last.wind_spd = ac.best_wind_spd;
     last.wind_dir = ac.best_wind_dir;
     if (ac.best_temp     != null) last.temp_c  = ac.best_temp;
-    if (ac.best_pressure != null) last.pressure = ac.best_pressure;
+    // Always derive from altitude — best_pressure may be QNH, not static air pressure
+    last.pressure = altToPressHPa(ac.altitude);
     return;
   }
 
   hist.push({
     alt_ft:   ac.altitude,
-    pressure: ac.best_pressure ?? altToPressHPa(ac.altitude),
+    pressure: altToPressHPa(ac.altitude),
     temp_c:   ac.best_temp,
     wind_spd: ac.best_wind_spd,
     wind_dir: ac.best_wind_dir,
@@ -104,7 +106,6 @@ function updateWindHistory(ac) {
 
 // ── Mini sounding profile ─────────────────────────────────────────────────
 
-let soundingLevels = [];   // cached from /api/sounding
 let miniAcOverlay  = null; // {alt_ft, temp_c, color} when aircraft selected
 
 // ── ISA helpers ───────────────────────────────────────────────────────────
@@ -147,7 +148,7 @@ function mskX(t, p) {
 function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
   if (speedKt == null || dirFrom == null) return;
   const spd   = Math.round(speedKt / 5) * 5;
-  const angle = ((dirFrom + 180) % 360) * Math.PI / 180;
+  const angle = dirFrom * Math.PI / 180;  // staff points FROM wind direction (met convention)
   const sLen  = 14;
   const ex    = x + sLen * Math.sin(angle);
   const ey    = y - sLen * Math.cos(angle);
@@ -180,20 +181,6 @@ function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
   }
 }
 
-async function fetchMiniSounding() {
-  try {
-    const r = await fetch('/api/sounding');
-    const d = await r.json();
-    soundingLevels = d.levels || [];
-    const meta = document.getElementById('mini-sounding-meta');
-    if (meta) meta.textContent =
-      `${d.obs_used ?? 0} obs · last ${(d.generated_at || '').substr(11, 5)} UTC`;
-    drawMiniSounding();
-  } catch (_) {
-    const meta = document.getElementById('mini-sounding-meta');
-    if (meta) meta.textContent = 'Sounding unavailable';
-  }
-}
 
 function drawMiniSounding() {
   const canvas = document.getElementById('mini-sounding-canvas');
@@ -263,45 +250,11 @@ function drawMiniSounding() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Temperature profile ─────────────────────────────────────────────────
-  const tempPts = soundingLevels
-    .filter(l => l.temp != null && l.pressure >= PT && l.pressure <= PB)
-    .sort((a, b) => b.pressure - a.pressure);   // surface → top
-
-  if (tempPts.length >= 2) {
-    ctx.save();
-    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
-
-    ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    tempPts.forEach((l, i) => {
-      const x = mskX(l.temp, l.pressure), y = mskY(l.pressure);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    ctx.fillStyle = '#ef4444';
-    for (const l of tempPts) {
-      ctx.beginPath();
-      ctx.arc(mskX(l.temp, l.pressure), mskY(l.pressure), 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  } else if (soundingLevels.length === 0) {
+  // ── No aircraft selected hint ───────────────────────────────────────────
+  if (!miniAcOverlay) {
     ctx.fillStyle = '#374151'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText('No data yet', ML + PW / 2, MT + PH / 2 - 6);
-    ctx.fillText('Collecting…', ML + PW / 2, MT + PH / 2 + 8);
-  }
-
-  // ── Wind barbs + speed labels (area sounding) ───────────────────────────
-  for (const l of soundingLevels) {
-    if (l.wind_spd == null || l.wind_dir == null) continue;
-    if (l.pressure == null || l.pressure < PT || l.pressure > PB) continue;
-    const by = mskY(l.pressure);
-    drawMiniBarb(ctx, barbX, by, l.wind_spd, l.wind_dir);
-    // Direction + speed label right-aligned at canvas edge
-    ctx.fillStyle = '#4b5563'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
-    ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, by + 3);
+    ctx.fillText('Click an aircraft', ML + PW / 2, MT + PH / 2 - 6);
+    ctx.fillText('to show profile',   ML + PW / 2, MT + PH / 2 + 8);
   }
 
   // ── Aircraft overlay ────────────────────────────────────────────────────
@@ -528,6 +481,7 @@ function removeStale(liveIcaos) {
       delete trails[icao];
       delete windHistory[icao];
       delete aircraftData[icao];
+      dbSeeded.delete(icao);  // allow re-seed if aircraft reappears
     }
   }
 }
@@ -618,13 +572,50 @@ function selectAircraft(icao) {
   miniAcOverlay = {
     alt_ft:      ac.altitude,
     temp_c:      ac.best_temp,
-    pressure:    ac.best_pressure,
+    pressure:    ac.altitude != null ? altToPressHPa(ac.altitude) : null,  // ISA, not QNH
     wind_spd:    ac.best_wind_spd,
     wind_dir:    ac.best_wind_dir,
     color:       acColor(ac),
     windHistory: windHistory[ac.icao] || [],
   };
   drawMiniSounding();
+
+  // ── Pre-seed wind history from DB (once per aircraft per page session) ────
+  // Fetch the full flight's stored observations so the Skew-T profile is
+  // immediately populated, even on first load or after navigating away.
+  // The dbSeeded set prevents re-fetching on every SSE-triggered redraw.
+  if (!dbSeeded.has(icao)) {
+    dbSeeded.add(icao);
+    fetch(`/api/aircraft/${icao}/wind_history`)
+      .then(r => r.json())
+      .then(rows => {
+        if (!rows.length) return;
+
+        // Convert DB rows to the same format used by updateWindHistory()
+        const dbPoints = rows.map(r => ({
+          alt_ft:   r.altitude,
+          pressure: altToPressHPa(r.altitude),
+          temp_c:   r.best_temp    ?? null,
+          wind_spd: r.best_wind_spd ?? null,
+          wind_dir: r.best_wind_dir ?? null,
+        }));
+
+        // Prepend DB history; keep any live points already accumulated
+        const livePoints = windHistory[icao] || [];
+        windHistory[icao] = [...dbPoints, ...livePoints];
+
+        // Trim to MAX_WIND_HIST cap (keep most recent)
+        if (windHistory[icao].length > MAX_WIND_HIST)
+          windHistory[icao] = windHistory[icao].slice(-MAX_WIND_HIST);
+
+        // Refresh the overlay if this aircraft is still selected
+        if (selectedIcao === icao && miniAcOverlay) {
+          miniAcOverlay.windHistory = windHistory[icao];
+          drawMiniSounding();
+        }
+      })
+      .catch(() => {});  // silently ignore network errors
+  }
 
   // Update info line below canvas
   const info = document.getElementById('mini-ac-info');
@@ -786,5 +777,4 @@ if (densitySlider) {
 
 // ── Start ──────────────────────────────────────────────────────────────────
 connectSSE();
-fetchMiniSounding();
-setInterval(fetchMiniSounding, 120_000);   // refresh sounding every 2 minutes
+drawMiniSounding();   // draw empty grid on load

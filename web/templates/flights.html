@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Flights – MODE-S Meteo{% endblock %}
+{% block title %}Flights – MODE-S Wind{% endblock %}
 
 {% block content %}
 <div class="page-flights">
@@ -22,8 +22,8 @@
       <thead>
         <tr>
           <th>ICAO</th><th>Callsign</th><th>First seen (UTC)</th>
-          <th>Last seen (UTC)</th><th>Max alt</th><th>Min alt</th>
-          <th>Obs</th><th>Meteo obs</th><th></th>
+          <th>Last seen (UTC)</th><th class="num">Max alt</th><th class="num">Min alt</th>
+          <th class="num">Obs</th><th class="num">Meteo obs</th><th></th>
         </tr>
       </thead>
       <tbody id="flights-tbody"></tbody>
@@ -68,8 +68,8 @@
           <table class="data-table small" id="modal-obs-table">
             <thead>
               <tr>
-                <th>UTC</th><th>Alt</th><th>GS</th>
-                <th>Src</th><th>Wind</th><th>Dir</th><th>Temp</th><th>Pres</th>
+                <th>UTC</th><th class="num">Alt</th><th class="num">GS</th>
+                <th>Src</th><th class="num">Wind</th><th class="num">Dir</th><th class="num">Temp</th><th class="num">Pres</th>
               </tr>
             </thead>
             <tbody id="modal-obs-tbody"></tbody>

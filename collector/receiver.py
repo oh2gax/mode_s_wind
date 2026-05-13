@@ -299,6 +299,16 @@ def run_collector(
                     except Exception:
                         pass   # queue full — skip SSE event
 
+                # ── Enrich obs with best-known callsign ──────────────────
+                # Identification messages (TC 1-4) carry only the callsign
+                # with no position/altitude, so _is_worth_storing() drops them.
+                # Position messages (TC 9-18) carry no callsign at all.
+                # The live_state merge already accumulates the callsign across
+                # message types — back-fill it into obs before the DB write so
+                # every stored observation carries the aircraft's callsign.
+                if obs.get("callsign") is None and merged.get("callsign"):
+                    obs["callsign"] = merged["callsign"]
+
                 # ── Write to DB ───────────────────────────────────────────
                 if _is_worth_storing(obs):
                     writer.add(obs)

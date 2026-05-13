@@ -1,12 +1,12 @@
 """
-MODE-S Meteorological Data System — main entry point.
+MODE-S Wind — meteorological data system — main entry point.
 
 Usage (on RPi):
     cd /home/rspi22/modes_wind
     python3 run.py
 
 Or in the background:
-    nohup python3 run.py > logs/modes_meteo.log 2>&1 &
+    nohup python3 run.py > logs/modes_wind.log 2>&1 &
 
 Press Ctrl-C to stop.
 """
@@ -55,7 +55,7 @@ def main() -> None:
     logging.getLogger().addHandler(fh)
 
     log.info("=" * 60)
-    log.info("MODE-S Meteo System starting")
+    log.info("MODE-S Wind System starting")
     log.info("  Database    : %s", cfg.DB_PATH)
     log.info("  Radarcape   : %s:%d", cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
     log.info("  Web         : http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)

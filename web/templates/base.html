@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}MODE-S Meteo{% endblock %}</title>
+  <title>{% block title %}MODE-S Wind{% endblock %}</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
@@ -12,7 +12,7 @@
 <nav class="navbar">
   <div class="nav-brand">
     <span class="nav-icon">📡</span>
-    <span>MODE-S Meteo</span>
+    <span>MODE-S Wind</span>
   </div>
   <div class="nav-links">
     <a href="/"        class="nav-link {% if request.endpoint == 'index'        %}active{% endif %}">Live Map</a>

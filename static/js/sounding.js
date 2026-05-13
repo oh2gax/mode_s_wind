@@ -82,7 +82,7 @@ function drawGrid(ctx) {
 function drawBarb(ctx, x, y, speedKt, dirFrom) {
   if (speedKt == null || dirFrom == null) return;
   const spd   = Math.round(speedKt / 5) * 5;   // round to 5 kt
-  const angle = ((dirFrom + 180) % 360) * Math.PI / 180;  // direction arrow points TO
+  const angle = dirFrom * Math.PI / 180;  // staff points FROM wind direction (met convention)
 
   const staffLen = 20;
   const endX     = x + staffLen * Math.sin(angle);
