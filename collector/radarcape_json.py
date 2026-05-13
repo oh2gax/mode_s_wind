@@ -81,7 +81,7 @@ def _parse_entry(entry: dict) -> Optional[dict]:
 
     return {
         "icao":         hex_icao,
-        "callsign":     entry.get("fli"),
+        "callsign":     entry.get("fli") or None,  # "" → None (no flight ID set)
         "lat":          lat,
         "lon":          lon,
         "altitude":     entry.get("alt"),     # ft

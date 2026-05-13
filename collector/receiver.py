@@ -103,7 +103,7 @@ def _build_observation(icao: str, ts: float, result: dict,
     obs: dict = {
         "icao":        icao,
         "ts":          ts,
-        "callsign":    result.get("callsign"),
+        "callsign":    result.get("callsign") or None,  # "" → None (unset transponder)
         "lat":         result.get("latitude"),
         "lon":         result.get("longitude"),
         "altitude":    result.get("altitude"),
@@ -306,7 +306,7 @@ def run_collector(
                 # The live_state merge already accumulates the callsign across
                 # message types — back-fill it into obs before the DB write so
                 # every stored observation carries the aircraft's callsign.
-                if obs.get("callsign") is None and merged.get("callsign"):
+                if not obs.get("callsign") and merged.get("callsign"):
                     obs["callsign"] = merged["callsign"]
 
                 # ── Write to DB ───────────────────────────────────────────

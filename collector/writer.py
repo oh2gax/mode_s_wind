@@ -264,7 +264,7 @@ class BatchWriter:
                     min_altitude = CASE WHEN min_altitude IS NULL THEN :min_alt
                                         WHEN :min_alt < min_altitude THEN :min_alt
                                         ELSE min_altitude END,
-                    callsign = COALESCE(:callsign, callsign)
+                    callsign = COALESCE(NULLIF(:callsign, ''), callsign)
                    WHERE id = :id""",
                 {
                     "last_seen":   upd["last_seen"],
