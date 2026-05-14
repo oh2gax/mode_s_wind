@@ -23,6 +23,30 @@ from database.db import get_db
 
 log = logging.getLogger("modes.web")
 
+# ── QNH cache ─────────────────────────────────────────────────────────────
+# Populated each time /api/wx is called; shared between requests.
+# Falls back to ISA standard (1013.25 hPa) if no METAR has been fetched yet.
+_qnh_cache: dict = {"hpa": 1013.25, "station": None, "updated": 0.0}
+
+
+def _parse_qnh(metar_text: str) -> float | None:
+    """Extract QNH from a decoded METAR string.
+
+    Handles both hPa (Q-group, e.g. ``Q1013``) and inHg (A-group,
+    e.g. ``A2992``).  Returns hPa as a float, or None if not found.
+    """
+    import re
+    # Q-group: metric hPa (European standard)
+    m = re.search(r"\bQ(\d{3,4})\b", metar_text)
+    if m:
+        return float(m.group(1))
+    # A-group: hundredths of inches of mercury (US/Canada)
+    m = re.search(r"\bA(\d{4})\b", metar_text)
+    if m:
+        inhg = float(m.group(1)) / 100.0
+        return round(inhg * 33.8639, 1)
+    return None
+
 
 def _check_auth(username: str, password: str, cfg: Config) -> bool:
     return username == cfg.WEB_USER and password == cfg.WEB_PASS
@@ -324,7 +348,12 @@ def create_app(
             end_ts     = now
             start_ts   = now - window_min * 60
 
-        result = build_windmap(get_db(), fl, tolerance, start_ts, end_ts, grid)
+        # Pass current QNH for low-altitude pressure-altitude correction.
+        # The cache is populated by /api/wx; falls back to ISA 1013.25 hPa
+        # until the first METAR fetch completes.
+        qnh = _qnh_cache["hpa"]
+        result = build_windmap(get_db(), fl, tolerance, start_ts, end_ts, grid,
+                               qnh_hpa=qnh)
         return jsonify(result)
 
     # ── Sounding API ──────────────────────────────────────────────────────
@@ -432,7 +461,16 @@ def create_app(
                 result[key] = "\n".join(lines[1:]).strip() if len(lines) > 1 else raw
             except Exception as exc:
                 log.warning("WX fetch failed (%s %s): %s", key.upper(), icao, exc)
-                result[key] = f"[unavailable]"
+                result[key] = "[unavailable]"
+
+        # Extract QNH from the METAR and update the module-level cache
+        if result.get("metar") and result["metar"] != "[unavailable]":
+            qnh = _parse_qnh(result["metar"])
+            if qnh is not None:
+                _qnh_cache["hpa"]     = qnh
+                _qnh_cache["station"] = icao
+                _qnh_cache["updated"] = time.time()
+                log.debug("QNH cache updated: %.1f hPa from %s METAR", qnh, icao)
 
         return jsonify(result)
 

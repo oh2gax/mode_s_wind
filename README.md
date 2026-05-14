@@ -24,6 +24,7 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
+- **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -152,6 +153,9 @@ class Config:
     # ── Storage mode ──────────────────────────────────────────────────────
     STORAGE_MODE = "ALL"              # "ALL" | "METEO_ONLY"
 
+    # ── Airport ICAO ──────────────────────────────────────────────────────
+    AIRPORT_ICAO = "EFHK"             # used for METAR/TAF display and QNH correction
+
     # ── Per-aircraft write throttle ───────────────────────────────────────
     WRITE_MIN_INTERVAL_SEC = 30.0     # 0 = disabled (store every observation)
 ```
@@ -161,6 +165,7 @@ Key values to change for your installation:
 - `RADARCAPE_HOST` — IP address of your Radarcape on the local network
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
 - `MAG_DECLINATION` — magnetic declination for your location (affects computed wind accuracy); find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
+- `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
 
@@ -470,7 +475,7 @@ A gridded horizontal wind analysis map built from historical observations stored
 | Grid | 0.25° / 0.5° / 1.0° | Grid cell size in decimal degrees. Finer grids place barbs more precisely along flight routes; coarser grids merge nearby observations and produce a cleaner overview |
 | Load | — | Executes the query and renders the map |
 
-The status bar below the controls shows the number of raw observations used, the resulting cell count, the exact UTC time period, and the active grid resolution.
+The status bar below the controls shows the number of raw observations used, the resulting cell count, the exact UTC time period, and the active grid resolution. For low-altitude layers (below FL050) the status bar additionally shows the QNH value that was used and the resulting pressure-altitude correction — for example `· QNH 998.0 hPa (alt corr +410 ft)`.
 
 #### Wind barbs
 
@@ -491,6 +496,18 @@ The label below each barb shows direction, speed, temperature (if available), an
 Observations will be concentrated along the main flight routes visible from your receiver — typically approach/departure corridors and overfly routes. Areas with no aircraft traffic will have no barbs. A longer time window and wider altitude tolerance populate more cells but may mix observations from different weather systems; a shorter window gives a snapshot closer to current conditions.
 
 For best results when studying a specific weather event, use the Custom period selector to load exactly the hour of interest from your historical database.
+
+#### QNH correction for low-altitude layers
+
+Aircraft transponders always broadcast pressure altitude referenced to the ICAO standard pressure of 1013.25 hPa, regardless of what QNH the pilot has set. Above the transition altitude (FL050 / 5 000 ft) this is correct by convention — pressure altitude IS the reference. Below FL050, however, the difference between pressure altitude and true MSL altitude can reach several hundred feet when QNH departs significantly from standard, which is common in Finnish winter conditions (QNH can be 980–990 hPa, causing 600–900 ft of offset).
+
+When a low-altitude layer (1 000–4 000 ft) is selected, the system automatically shifts the database query window into pressure-altitude space using the correction:
+
+```
+pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
+```
+
+For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the database for pressure altitudes between roughly 1 610 ft and 2 610 ft (with ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is sourced from the cached METAR fetched by the server every 10 minutes via `/api/wx`; it falls back to 1013.25 hPa until the first METAR is available. Raw pressure altitudes are never modified in the database.
 
 ---
 

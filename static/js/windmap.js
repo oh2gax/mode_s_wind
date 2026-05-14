@@ -202,9 +202,18 @@ async function loadWindMap() {
         .addTo(barbLayer);
     }
 
+    // For low-altitude layers, append QNH correction note
+    let qnhNote = '';
+    if (fl < 50 && d.qnh_hpa != null) {
+      const corr = d.qnh_correction_ft != null ? d.qnh_correction_ft : 0;
+      const sign = corr >= 0 ? '+' : '−';
+      const absCorr = Math.abs(corr);
+      qnhNote = ` · QNH ${d.qnh_hpa} hPa (alt corr ${sign}${absCorr} ft)`;
+    }
+
     status.textContent =
       `${flStr} ±${tol} ft · ${d.obs_used} obs → ${d.cells_count} grid cells · ` +
-      `${d.period_start} – ${d.period_end} · grid ${grid}°`;
+      `${d.period_start} – ${d.period_end} · grid ${grid}°${qnhNote}`;
 
   } catch (e) {
     status.textContent = 'Error loading wind map data.';

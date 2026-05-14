@@ -7,27 +7,58 @@ chosen flight-level band and time window.
 Wind vectors within each grid cell are averaged using U/V component
 decomposition so that directional accuracy is preserved — e.g. averaging
 350° and 010° correctly produces 000°, not 180°.
+
+QNH altitude correction
+-----------------------
+Transponders always transmit pressure altitude referenced to 1013.25 hPa,
+regardless of the QNH setting on the aircraft's altimeter.  Below the
+transition altitude (FL050 / 5 000 ft) the difference between pressure
+altitude and true MSL altitude can be several hundred feet when QNH departs
+significantly from standard — common in Finnish winter conditions.
+
+When a low-altitude layer is requested (fl < TRANSITION_FL) and a QNH value
+is provided, the centre altitude is shifted into pressure-altitude space
+before the DB query so that observations at the correct MSL altitude are
+returned.  The displayed altitude in the response remains the original
+MSL value the user selected.
+
+Correction formula:
+    pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
 """
 
 import math
 import time
 
+TRANSITION_FL = 50        # FL050 — below this apply QNH correction
+ISA_CORRECTION_FACTOR = 27.3   # ft per hPa
+
 
 def build_windmap(
     db,
-    fl: int,             # flight level (e.g. 350 for FL350 = 35 000 ft)
-    tolerance_ft: int,   # ± ft band around the centre altitude
-    start_ts: float,     # period start (Unix timestamp, UTC)
-    end_ts: float,       # period end   (Unix timestamp, UTC)
-    grid_deg: float,     # grid-cell size in decimal degrees
+    fl: int,               # flight level (e.g. 350 for FL350 = 35 000 ft)
+    tolerance_ft: int,     # ± ft band around the centre altitude
+    start_ts: float,       # period start (Unix timestamp, UTC)
+    end_ts: float,         # period end   (Unix timestamp, UTC)
+    grid_deg: float,       # grid-cell size in decimal degrees
+    qnh_hpa: float = 1013.25,  # current airport QNH (hPa); used below FL050
 ) -> dict:
     """
     Query observations in the altitude band and time range, bin them into
     a regular lat/lon grid, and return averaged wind + temperature per cell.
     """
-    alt_centre = fl * 100           # FL350 → 35 000 ft
-    alt_min    = alt_centre - tolerance_ft
-    alt_max    = alt_centre + tolerance_ft
+    alt_centre_msl = fl * 100    # requested MSL altitude (what the user sees)
+
+    # Below transition altitude: shift query band into pressure-altitude space
+    # so the DB lookup matches what transponders actually transmitted.
+    if fl < TRANSITION_FL:
+        qnh_correction_ft = (1013.25 - qnh_hpa) * ISA_CORRECTION_FACTOR
+        alt_centre_query  = alt_centre_msl + qnh_correction_ft
+    else:
+        qnh_correction_ft = 0.0
+        alt_centre_query  = float(alt_centre_msl)
+
+    alt_min = alt_centre_query - tolerance_ft
+    alt_max = alt_centre_query + tolerance_ft
 
     rows = db.execute(
         """SELECT lat, lon, best_wind_spd, best_wind_dir, best_temp
@@ -100,14 +131,16 @@ def build_windmap(
     result_cells.sort(key=lambda x: x["obs"])
 
     return {
-        "fl":           fl,
-        "altitude_ft":  alt_centre,
-        "tolerance_ft": tolerance_ft,
-        "grid_deg":     grid_deg,
-        "cells":        result_cells,
-        "obs_used":     len(rows),
-        "cells_count":  len(result_cells),
-        "period_start": time.strftime("%Y-%m-%d %H:%M", time.gmtime(start_ts)) + " UTC",
-        "period_end":   time.strftime("%Y-%m-%d %H:%M", time.gmtime(end_ts))   + " UTC",
-        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())      + " UTC",
+        "fl":                  fl,
+        "altitude_ft":         alt_centre_msl,   # MSL altitude the user requested
+        "tolerance_ft":        tolerance_ft,
+        "grid_deg":            grid_deg,
+        "cells":               result_cells,
+        "obs_used":            len(rows),
+        "cells_count":         len(result_cells),
+        "qnh_hpa":             round(qnh_hpa, 1),
+        "qnh_correction_ft":   round(qnh_correction_ft, 0) if fl < TRANSITION_FL else None,
+        "period_start":        time.strftime("%Y-%m-%d %H:%M", time.gmtime(start_ts)) + " UTC",
+        "period_end":          time.strftime("%Y-%m-%d %H:%M", time.gmtime(end_ts))   + " UTC",
+        "generated_at":        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())      + " UTC",
     }
