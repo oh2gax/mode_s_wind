@@ -341,21 +341,24 @@ Lists all currently visible aircraft sorted alphabetically. Shows callsign, ICAO
 
 The selected label mode persists across browser sessions.
 
+#### Bottom strip — METAR / TAF
+
+The bottom of the live map always shows the current METAR and TAF for the configured airport (`AIRPORT_ICAO` in `config.py`, default EFHK). The data is fetched server-side from NOAA and refreshed automatically every 10 minutes. METAR and TAF are displayed side-by-side in a fixed-position panel anchored to the right; selecting an aircraft does not shift or disturb this panel.
+
 #### Clicking an aircraft
 
 Clicking an aircraft symbol or list entry:
 
 1. **Enlarges the symbol** on the map for easy tracking
-2. **Opens the detail strip** at the bottom of the screen showing all decoded values:
+2. **Opens the aircraft detail panel** on the left side of the bottom strip showing all decoded values:
    - Altitude, ground speed, track, vertical rate
    - Wind speed and direction
    - Temperature, pressure, humidity
    - Turbulence level and Figure of Merit (FOM) if from MRAR
    - Meteo source badge
-   - A 30-minute altitude and temperature history chart
 3. **Overlays the aircraft's full wind profile** on the Atmosphere Profile panel (right side) — see below
 
-Click the **✕** button to deselect and close the detail strip.
+Click the **✕** button to deselect and close the aircraft detail panel. The METAR/TAF panel remains visible at all times.
 
 #### Right panel — Atmosphere Profile
 
@@ -614,6 +617,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/sounding` | Area-average sounding from recent observations |
 | GET | `/api/stats` | Summary counters for the navbar |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
+| GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
 
 ---
 

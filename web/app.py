@@ -10,6 +10,7 @@ import logging
 import queue
 import threading
 import time
+import urllib.request
 from functools import wraps
 
 from flask import (
@@ -78,7 +79,8 @@ def create_app(
     def index():
         return render_template("live.html",
                                receiver_lat=cfg.RECEIVER_LAT,
-                               receiver_lon=cfg.RECEIVER_LON)
+                               receiver_lon=cfg.RECEIVER_LON,
+                               airport_icao=cfg.AIRPORT_ICAO)
 
     @app.route("/flights")
     def flights_page():
@@ -406,5 +408,32 @@ def create_app(
             "total_obs":        total_obs,
             "meteo_obs_last_hour": meteo_obs_1h,
         })
+
+    # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
+
+    @app.route("/api/wx")
+    def wx_api():
+        """Fetch METAR and TAF for the configured airport from NOAA and return
+        as JSON.  Runs server-side to avoid browser CORS restrictions."""
+        icao = cfg.AIRPORT_ICAO.upper()
+        result: dict = {"station": icao, "metar": None, "taf": None}
+
+        sources = {
+            "metar": f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{icao}.TXT",
+            "taf":   f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{icao}.TXT",
+        }
+        for key, url in sources.items():
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "MODE-S-Wind/1.0"})
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace").strip()
+                # NOAA files: first line is a date/time stamp — skip it
+                lines = raw.splitlines()
+                result[key] = "\n".join(lines[1:]).strip() if len(lines) > 1 else raw
+            except Exception as exc:
+                log.warning("WX fetch failed (%s %s): %s", key.upper(), icao, exc)
+                result[key] = f"[unavailable]"
+
+        return jsonify(result)
 
     return app

@@ -41,7 +41,6 @@ const windHistory    = {};   // icao → [{pressure, alt_ft, temp_c, wind_spd, w
 const dbSeeded       = new Set(); // ICAOs whose wind history has been pre-loaded from DB
 
 let selectedIcao = null;
-let detailChart  = null;
 
 const MAX_TRAIL       = 20;   // position dots kept ≈ 60 s
 const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profile)
@@ -569,8 +568,7 @@ function selectAircraft(icao) {
     if (d) m.setIcon(makeIcon(acColor(d), d.track, k === icao));
   }
 
-  const strip = document.getElementById('detail-strip');
-  strip.classList.remove('hidden');
+  document.getElementById('detail-ac-panel').classList.remove('hidden');
 
   document.getElementById('detail-callsign').textContent = ac.callsign || ac.icao;
   document.getElementById('detail-icao').textContent     = ac.callsign ? ac.icao : '';
@@ -663,41 +661,8 @@ function selectAircraft(icao) {
     }
   }
 
-  loadDetailChart(icao);
 }
 
-async function loadDetailChart(icao) {
-  try {
-    const r   = await fetch(`/api/live/aircraft/${icao}`);
-    const obs = await r.json();
-    const times = obs.map(o => new Date(o.ts * 1000).toISOString().substr(11, 5));
-    const alts  = obs.map(o => o.altitude);
-    const temps = obs.map(o => o.best_temp);
-
-    const ctx = document.getElementById('detail-chart').getContext('2d');
-    if (detailChart) detailChart.destroy();
-    detailChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: times,
-        datasets: [
-          { label: 'Alt (÷100 ft)', data: alts.map(v => v ? v / 100 : null),
-            borderColor: '#3b82f6', tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
-          { label: 'Temp (°C×10)', data: temps.map(v => v ? v * 10 : null),
-            borderColor: '#ef4444', tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
-        ],
-      },
-      options: {
-        animation: false,
-        plugins: { legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12 } } },
-        scales: {
-          x: { ticks: { maxTicksLimit: 5, color: '#64748b' }, grid: { color: '#1e2a3a' } },
-          y: { ticks: { color: '#64748b' }, grid: { color: '#1e2a3a' } },
-        },
-      },
-    });
-  } catch (e) {}
-}
 
 function closeDetail() {
   selectedIcao  = null;
@@ -705,7 +670,7 @@ function closeDetail() {
   drawMiniSounding();
   const info = document.getElementById('mini-ac-info');
   if (info) { info.textContent = 'Click an aircraft to overlay'; info.style.color = ''; }
-  document.getElementById('detail-strip').classList.add('hidden');
+  document.getElementById('detail-ac-panel').classList.add('hidden');
   for (const [k, m] of Object.entries(markers)) {
     const d = aircraftData[k];
     if (d) m.setIcon(makeIcon(acColor(d), d.track, false));
@@ -804,6 +769,25 @@ if (densitySlider) {
     drawMiniSounding();   // re-render immediately with new density
   });
 }
+
+// ── METAR / TAF fetcher ───────────────────────────────────────────────────
+async function fetchWx() {
+  try {
+    const r = await fetch('/api/wx');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const metarEl = document.getElementById('wx-metar');
+    const tafEl   = document.getElementById('wx-taf');
+    if (metarEl) metarEl.textContent = d.metar || '–';
+    if (tafEl)   tafEl.textContent   = d.taf   || '–';
+  } catch (e) {
+    const metarEl = document.getElementById('wx-metar');
+    if (metarEl) metarEl.textContent = '[fetch error]';
+  }
+}
+
+fetchWx();
+setInterval(fetchWx, 10 * 60 * 1000);   // refresh every 10 minutes
 
 // ── Start ──────────────────────────────────────────────────────────────────
 connectSSE();

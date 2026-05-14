@@ -81,6 +81,10 @@ class Config:
     #              not yet produced a value for that aircraft. (default)
     METEO_SOURCE_MODE: str = "HYBRID"
 
+    # ── Airport ICAO ──────────────────────────────────────────────────────
+    # Used to fetch METAR and TAF for the live map bottom panel.
+    AIRPORT_ICAO: str = "EFHK"
+
     # ── Storage mode ──────────────────────────────────────────────────────
     # Controls which observations are written to the SQLite database.
     #   "ALL"        — store every decoded observation (positions + meteo)

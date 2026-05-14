@@ -91,23 +91,46 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                 align-items: center; gap: 4px; cursor: pointer; }
 .toggle-label input { cursor: pointer; }
 
-/* Detail strip (bottom) */
+/* ── Detail strip (bottom) ──────────────────────────────────────────────── */
 .detail-strip { height: 130px; background: var(--bg-1); border-top: 1px solid var(--border);
-                overflow: hidden; flex-shrink: 0; }
+                overflow: hidden; flex-shrink: 0; position: relative; }
 .detail-strip.hidden { display: none; }
-.detail-strip-header { background: var(--bg-2); padding: 6px 12px;
+
+/* Aircraft detail panel — absolute left, only when aircraft selected */
+.detail-ac-panel { position: absolute; left: 0; top: 0; bottom: 0; width: 520px;
+                   display: flex; flex-direction: column; z-index: 1; overflow: hidden;
+                   background: var(--bg-1); border-right: 1px solid var(--border); }
+.detail-ac-panel.hidden { display: none; }
+
+.detail-strip-header { background: var(--bg-2); padding: 5px 12px;
                        display: flex; align-items: center; gap: 8px;
-                       border-bottom: 1px solid var(--border); }
+                       border-bottom: 1px solid var(--border); flex-shrink: 0;
+                       height: 30px; box-sizing: border-box; }
 .detail-callsign { font-weight: 700; font-size: 14px; }
 .detail-icao     { font-size: 11px; color: var(--text-3); }
-.detail-strip-body { display: flex; height: calc(100% - 31px); }
 .detail-grid { display: grid; grid-template-columns: repeat(6, 1fr);
-               gap: 0; border-right: 1px solid var(--border); }
-.detail-cell { padding: 6px 10px; border-right: 1px solid var(--border);
-               border-bottom: 1px solid var(--border); }
+               align-content: start; overflow: hidden; }
+.detail-cell { padding: 4px 10px; border-right: 1px solid var(--border);
+               border-bottom: 1px solid var(--border); line-height: 1.2; }
 .dlabel { display: block; font-size: 10px; color: var(--text-3); text-transform: uppercase; }
 .detail-cell span:last-child { font-size: 13px; font-weight: 600; color: var(--text-1); }
-.detail-chart-wrap { flex: 1; padding: 6px 10px; overflow: hidden; }
+
+/* METAR / TAF panel — absolute, anchored to right, always visible */
+.wx-panel { position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+            display: flex; overflow: hidden; }
+/* When aircraft panel is visible, shift wx-panel past it */
+.detail-ac-panel:not(.hidden) ~ .wx-panel { left: 520px;
+                                             border-left: 1px solid var(--border); }
+.wx-section { flex: 1; min-width: 0; padding: 5px 10px; overflow: hidden;
+              display: flex; flex-direction: column; }
+.wx-section + .wx-section { border-left: 1px solid var(--border); }
+.wx-label { font-size: 9px; font-weight: 700; color: var(--text-3);
+            text-transform: uppercase; letter-spacing: .5px;
+            margin-bottom: 3px; flex-shrink: 0; }
+.wx-label span { color: var(--accent); }
+.wx-text { font-family: 'Courier New', monospace; font-size: 11px; color: var(--text-1);
+           margin: 0; white-space: pre-wrap; word-break: break-word;
+           overflow-y: auto; flex: 1; line-height: 1.45; }
 
 /* ── Source badges ──────────────────────────────────────────────────────── */
 .badge-source, .badge-mrar, .badge-comp, .badge-mhr {
