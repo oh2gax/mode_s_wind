@@ -38,7 +38,33 @@ from config import Config
 from database.db import init_db
 from collector.receiver import run_collector
 from collector.radarcape_json import run_json_poller
+from collector.windshear import WindshearTracker
 from web.app import create_app
+
+
+def _windshear_sweep(
+    live_state: dict,
+    live_lock: threading.RLock,
+    tracker: WindshearTracker,
+) -> None:
+    """
+    Background daemon: sweeps live_state every 3 seconds, feeds each
+    aircraft into the windshear tracker, then prunes stale entries.
+    Runs independently of the SSE endpoint so the approach history is
+    always current even when no browser tab is open.
+    """
+    while True:
+        try:
+            with live_lock:
+                snapshot = list(live_state.values())
+            now = time.time()
+            for ac in snapshot:
+                if now - ac.get("last_seen", 0) < 30:   # windshear tracker drops stale ac fast
+                    tracker.update(ac)
+            tracker.prune_stale()
+        except Exception as exc:
+            log.debug("Windshear sweep error: %s", exc)
+        time.sleep(3)
 
 
 def main() -> None:
@@ -91,11 +117,31 @@ def main() -> None:
     json_thread.start()
     log.info("JSON poller thread started — %s", cfg.RADARCAPE_JSON_URL)
 
+    # ── Start Windshear approach tracker ─────────────────────────────────
+    ws_tracker = WindshearTracker(
+        airport_lat          = cfg.WINDSHEAR_AIRPORT_LAT,
+        airport_lon          = cfg.WINDSHEAR_AIRPORT_LON,
+        max_dist_nm          = cfg.WINDSHEAR_RADIUS_NM,
+        max_alt_ft           = cfg.WINDSHEAR_MAX_ALT_FT,
+        corridor_half_width  = cfg.WINDSHEAR_CORRIDOR_HALF_WIDTH_NM,
+        max_ils_nm           = cfg.WINDSHEAR_MAX_ILS_NM,
+        thr_elevation_ft     = cfg.WINDSHEAR_THR_ELEVATION_FT,
+    )
+    ws_thread = threading.Thread(
+        target=_windshear_sweep,
+        args=(live_state, live_lock, ws_tracker),
+        name="ws_sweep",
+        daemon=True,
+    )
+    ws_thread.start()
+    log.info("Windshear sweep thread started (radius=%.0f NM, max_alt=%.0f ft)",
+             cfg.WINDSHEAR_RADIUS_NM, cfg.WINDSHEAR_MAX_ALT_FT)
+
     # Give the collector a moment to connect before Flask starts accepting
     time.sleep(1)
 
     # ── Create Flask app ──────────────────────────────────────────────────
-    app = create_app(cfg, live_state, live_lock)
+    app = create_app(cfg, live_state, live_lock, ws_tracker)
 
     log.info("Web interface starting on http://0.0.0.0:%d", cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)

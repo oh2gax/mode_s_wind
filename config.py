@@ -90,4 +90,36 @@ class Config:
     #   "ALL"        — store every decoded observation (positions + meteo)
     #   "METEO_ONLY" — store only observations that carry meteo data;
     #                  significantly reduces DB size and SD-card wear.
-    STORAGE_MODE: str = "ALL"
+    STORAGE_MODE: str = "METEO_ONLY"
+
+    # ── Windshear / Approach monitoring ───────────────────────────────────────
+    # Airport reference point used for approach-range filtering and the 30 NM
+    # range circle displayed on the Windshear map.  Set to your monitoring
+    # airport; coordinates below are EFHK (Helsinki-Vantaa).
+    WINDSHEAR_AIRPORT_LAT: float = 60.3172
+    WINDSHEAR_AIRPORT_LON: float = 24.9634
+    # Maximum distance from the airport (NM) for an aircraft to be considered
+    # on approach and shown on the Windshear page.
+    WINDSHEAR_RADIUS_NM: float = 30.0
+    # Maximum altitude (ft) for approach monitoring.  Aircraft above this
+    # value are ignored by the windshear tracker even if they are close.
+    WINDSHEAR_MAX_ALT_FT: float = 5000.0
+    # ILS corridor half-width (NM) measured perpendicular to the centreline.
+    # Aircraft must be within this distance either side of the extended ILS
+    # centreline to be matched to a runway.  Departures and overflights are
+    # also rejected by the positive along-track gate.
+    # Once established on a localizer, aircraft are typically within ±0.3 NM;
+    # 1.5 NM allows for late vector intercepts while filtering non-approach traffic.
+    WINDSHEAR_CORRIDOR_HALF_WIDTH_NM: float = 1.5
+    # Maximum along-track distance (NM) from the threshold for a corridor
+    # match.  Aircraft further out are shown on the map only (not in strips).
+    WINDSHEAR_MAX_ILS_NM: float = 25.0
+    # Threshold elevation (ft MSL) used to anchor the 3° glideslope reference.
+    # EFHK runways are all ~179 ft MSL.  Without this the GS line is drawn from
+    # 0 ft (sea level) and every aircraft appears ~179 ft above it.
+    WINDSHEAR_THR_ELEVATION_FT: float = 179.0
+    # Manual glideslope offset (ft) for calibration.  Positive shifts the GS
+    # line up (aircraft appear lower relative to it); negative shifts it down.
+    # Adjust this if aircraft that you know are on GS still read consistently
+    # high or low after the threshold-elevation and QNH corrections are applied.
+    WINDSHEAR_GS_OFFSET_FT: float = 0.0

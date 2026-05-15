@@ -18,7 +18,8 @@
     <a href="/"        class="nav-link {% if request.endpoint == 'index'        %}active{% endif %}">Live Map</a>
     <a href="/flights" class="nav-link {% if request.endpoint == 'flights_page' %}active{% endif %}">Flights</a>
     <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
-    <a href="/windmap" class="nav-link {% if request.endpoint == 'windmap_page' %}active{% endif %}">Wind Map</a>
+    <a href="/windmap"   class="nav-link {% if request.endpoint == 'windmap_page'   %}active{% endif %}">Wind Map</a>
+    <a href="/windshear" class="nav-link {% if request.endpoint == 'windshear_page' %}active{% endif %}">Windshear</a>
   </div>
   <div class="nav-config-badges">
     <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"

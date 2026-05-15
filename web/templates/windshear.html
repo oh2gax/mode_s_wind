@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Windshear – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="ws-page">
+
+  <!-- ── Windshear alert banner (hidden until detection fires) ─────────── -->
+  <div id="ws-alert-banner" class="ws-alert-banner ws-alert-hidden"></div>
+
+  <div class="ws-body">
+
+    <!-- ── Left panel: QNH + detection toggle + flight strips ───────────── -->
+    <aside class="ws-panel-left">
+
+      <!-- QNH display -->
+      <div class="ws-qnh-section">
+        <div class="ws-qnh-label">QNH · {{ airport_icao }}</div>
+        <div>
+          <span class="ws-qnh-value" id="ws-qnh-val">—</span>
+          <span class="ws-qnh-unit">hPa</span>
+        </div>
+        <div class="ws-ac-summary" id="ws-ac-summary">No approach traffic</div>
+      </div>
+
+      <!-- Windshear detection toggle -->
+      <div class="ws-det-wrap">
+        <button id="ws-det-btn" class="ws-det-btn" title="Enable windshear detection (≥15 kt headwind change)">
+          <span class="ws-det-icon">⚡</span>
+          <span class="ws-det-label">Windshear Detection</span>
+          <span class="ws-det-state" id="ws-det-state">OFF</span>
+        </button>
+      </div>
+
+      <!-- Flight strips -->
+      <div class="ws-strips-scroll" id="ws-strips">
+        <div class="ws-no-traffic">Waiting for data…</div>
+      </div>
+
+    </aside>
+
+    <!-- ── Right column: map + ILS profile ──────────────────────────────── -->
+    <div class="ws-right-col">
+
+      <!-- Leaflet map -->
+      <div class="ws-map-wrap">
+        <div id="ws-map"></div>
+
+        <!-- Map controls overlay -->
+        <div class="ws-map-controls">
+          <span class="ws-map-count" id="ws-map-count">0 on approach</span>
+          <button class="ws-ils-filter-btn" id="ws-ils-filter" title="Show only aircraft inside an ILS corridor">ILS Only</button>
+          <button class="ws-theme-btn active" data-theme="dark">Dark</button>
+          <button class="ws-theme-btn"        data-theme="grey">Grey</button>
+          <button class="ws-theme-btn"        data-theme="black">Black</button>
+        </div>
+      </div>
+
+      <!-- ILS vertical profile -->
+      <div class="ws-ils-panel">
+        <div class="ws-ils-header">
+          <span class="ws-ils-title">ILS Profile · 3° Glideslope</span>
+          <select id="ws-ils-rwy" class="ws-ils-rwy-select">
+            <option value="">All runways</option>
+            <option value="04L">RWY 04L</option>
+            <option value="04R">RWY 04R</option>
+            <option value="22L">RWY 22L</option>
+            <option value="22R">RWY 22R</option>
+            <option value="15">RWY 15</option>
+          </select>
+          <div class="ws-ils-legend">
+            <span class="ws-ils-leg-item">
+              <span class="ws-ils-leg-dot" style="background:#6ee7b7"></span>On GS
+            </span>
+            <span class="ws-ils-leg-item">
+              <span class="ws-ils-leg-dot" style="background:#fcd34d"></span>High
+            </span>
+            <span class="ws-ils-leg-item">
+              <span class="ws-ils-leg-dot" style="background:#fca5a5"></span>Low
+            </span>
+            <span class="ws-ils-leg-item">
+              <span class="ws-ils-leg-dot" style="background:#64748b"></span>Far/No ILS
+            </span>
+          </div>
+        </div>
+        <canvas id="ws-ils-canvas"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Bottom strip: METAR + TAF ──────────────────────────────────────── -->
+  <div class="ws-wx-strip">
+    <div class="ws-wx-section">
+      <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
+      <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
+    </div>
+    <div class="ws-wx-section">
+      <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
+      <pre class="ws-wx-text" id="ws-taf-text">Loading…</pre>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const WS_AIRPORT_LAT      = {{ airport_lat }};
+const WS_AIRPORT_LON      = {{ airport_lon }};
+const WS_RADIUS_NM        = {{ radius_nm }};
+const WS_THR_ELEVATION_FT = {{ thr_elevation_ft }};
+const WS_GS_OFFSET_FT     = {{ gs_offset_ft }};
+</script>
+<script src="{{ url_for('static', filename='js/windshear.js') }}"></script>
+{% endblock %}

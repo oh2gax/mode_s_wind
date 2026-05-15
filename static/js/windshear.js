@@ -1,0 +1,797 @@
+/**
+ * windshear.js — Approach monitoring page for MODE-S Wind.
+ *
+ * Displays aircraft currently on approach within WS_RADIUS_NM of the
+ * configured airport on:
+ *   • ATC-style flight strips (left panel)
+ *   • Leaflet map with airport + ILS overlays (top right)
+ *   • ILS vertical profile / glideslope canvas (bottom right)
+ *
+ * Data source: /api/windshear/state  — polled every 3 s (RAM-only, no DB).
+ * Weather:     /api/wx               — polled every 10 min.
+ *
+ * Glideslope reference: 3° → 318.5 ft per NM (tan(3°) × 6 076 ft/NM).
+ */
+
+'use strict';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const GS_FT_PER_NM   = 318.5;
+const GS_TOL_FT      = 300;
+const PROFILE_MAX_NM = 30;
+const PROFILE_MAX_FT = 5_000;
+
+// Windshear detection thresholds (ICAO definition: ≥15 kt headwind change)
+const WS_THRESHOLD_KT   = 15;    // minimum headwind delta to flag shear
+const WS_SEVERE_KT      = 25;    // severe windshear threshold
+const WS_MAX_ALT_BAND   = 2000;  // max altitude separation (ft) between compared aircraft
+const WS_MIN_ALT_BAND   = 200;   // min altitude separation (ft) — avoid same-level noise
+
+// Meteo-source colour palette (matches live map)
+const SRC_COLOR = {
+  MRAR:     '#3b82f6',
+  COMPUTED: '#10b981',
+  MHR:      '#f59e0b',
+  JSON:     '#a855f7',
+  NONE:     '#6b7280',
+};
+
+function acColor(src) {
+  return SRC_COLOR[src] || SRC_COLOR.NONE;
+}
+
+// GS-status → dot colour for ILS profile
+const GS_COLOR = {
+  ON:   '#6ee7b7',
+  HIGH: '#fcd34d',
+  LOW:  '#fca5a5',
+  FAR:  '#6b7280',
+};
+
+// ── Map initialisation ────────────────────────────────────────────────────────
+const map = L.map('ws-map', { zoomControl: true })
+             .setView([WS_AIRPORT_LAT, WS_AIRPORT_LON], 10);
+
+// Tile layers for theme switching
+const TILES = {
+  dark: L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
+  ),
+  grey: L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
+  ),
+  black: L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
+      opacity: 0.0 }     // pure black — tiles hidden, bg = #000
+  ),
+};
+
+let currentTheme = 'dark';
+TILES.dark.addTo(map);
+
+// Airport marker
+L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
+  radius: 6, color: '#fff', fillColor: '#1d4ed8',
+  fillOpacity: 1, weight: 2,
+}).bindTooltip('EFHK').addTo(map);
+
+// 30 NM range circle
+L.circle([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
+  radius:      WS_RADIUS_NM * 1_852,
+  color:       '#334155',
+  weight:      1,
+  fill:        false,
+  dashArray:   '4 6',
+}).addTo(map);
+
+// ── GeoJSON overlays ──────────────────────────────────────────────────────────
+
+let ilsLayer  = null;
+let aptLayer  = null;
+
+function ilsStyle(theme) {
+  return {
+    color:     theme === 'grey' ? '#64748b' : '#38bdf8',
+    weight:    1.5,
+    opacity:   theme === 'grey' ? 0.7 : 0.6,
+    dashArray: '6 5',
+    fillOpacity: 0,
+  };
+}
+function aptStyle(theme) {
+  return {
+    color:   theme === 'grey' ? '#475569' : '#94a3b8',
+    weight:  1,
+    opacity: 0.5,
+    fillOpacity: 0,
+  };
+}
+
+async function loadOverlays(theme) {
+  // Remove existing overlay layers
+  if (ilsLayer) { map.removeLayer(ilsLayer); ilsLayer = null; }
+  if (aptLayer) { map.removeLayer(aptLayer); aptLayer = null; }
+
+  try {
+    const [ilsResp, aptResp] = await Promise.all([
+      fetch('/overlays/efhk_ils.geojson'),
+      fetch('/overlays/efhk_apt.geojson'),
+    ]);
+    const [ilsGeo, aptGeo] = await Promise.all([ilsResp.json(), aptResp.json()]);
+
+    // Filter ILS to EFHK features only (properties.airport === 'EFHK')
+    const efhkIls = {
+      type: 'FeatureCollection',
+      features: ilsGeo.features.filter(
+        f => f.properties && f.properties.airport === 'EFHK'
+      ),
+    };
+
+    ilsLayer = L.geoJSON(efhkIls, { style: ilsStyle(theme) }).addTo(map);
+    aptLayer = L.geoJSON(aptGeo,  { style: aptStyle(theme)  }).addTo(map);
+  } catch (e) {
+    console.warn('Overlay load failed:', e);
+  }
+}
+
+loadOverlays(currentTheme);
+
+// ── Theme switching ───────────────────────────────────────────────────────────
+
+function applyTheme(theme) {
+  currentTheme = theme;
+
+  // Swap tile layer
+  Object.values(TILES).forEach(t => map.removeLayer(t));
+  TILES[theme].addTo(map);
+
+  // Black theme: kill tile opacity, force container background
+  const container = document.getElementById('ws-map');
+  container.style.background = theme === 'black' ? '#000' : '';
+
+  // Reload overlays with matching style
+  loadOverlays(theme);
+
+  // Update buttons
+  document.querySelectorAll('.ws-theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === theme);
+  });
+
+  // Redraw ILS canvas with updated colours
+  drawIlsProfile(lastAircraft);
+}
+
+document.querySelectorAll('.ws-theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+});
+
+// ── Aircraft markers on map ───────────────────────────────────────────────────
+const acMarkers = {};   // icao → { marker, label }
+
+function makeAcIcon(src) {
+  const color = acColor(src);
+  return L.divIcon({
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+               viewBox="0 0 14 14">
+             <rect x="1" y="1" width="12" height="12"
+                   fill="${color}" stroke="#000" stroke-width="1" rx="2"/>
+           </svg>`,
+    className:  '',
+    iconSize:   [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
+function updateMapMarkers(aircraft) {
+  const seen = new Set();
+
+  for (const ac of aircraft) {
+    if (ac.lat == null || ac.lon == null) continue;
+
+    // When ILS filter is active, hide non-corridor aircraft
+    if (ilsFilterActive && !ac.in_corridor) {
+      // Remove existing marker if present so it disappears immediately
+      if (acMarkers[ac.icao]) {
+        map.removeLayer(acMarkers[ac.icao].marker);
+        map.removeLayer(acMarkers[ac.icao].label);
+        delete acMarkers[ac.icao];
+      }
+      continue;
+    }
+
+    seen.add(ac.icao);
+
+    const tip = [
+      `${ac.callsign || ac.icao}`,
+      ac.approach_runway ? `RWY ${ac.approach_runway}` : 'No ILS match',
+      `${ac.altitude?.toLocaleString()} ft`,
+      ac.dist_thr_nm != null
+        ? `${ac.dist_thr_nm.toFixed(1)} NM`
+        : `${ac.dist_apt_nm?.toFixed(1)} NM (apt)`,
+    ].filter(Boolean).join(' · ');
+
+    if (acMarkers[ac.icao]) {
+      acMarkers[ac.icao].marker.setLatLng([ac.lat, ac.lon]);
+      acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.meteo_source));
+      acMarkers[ac.icao].marker.setTooltipContent(tip);
+      acMarkers[ac.icao].label.setLatLng([ac.lat, ac.lon]);
+    } else {
+      const marker = L.marker([ac.lat, ac.lon], {
+        icon: makeAcIcon(ac.meteo_source),
+        zIndexOffset: ac.in_corridor ? 100 : 50,
+      }).bindTooltip(tip, { direction: 'top', offset: [0, -12] }).addTo(map);
+
+      const label = L.marker([ac.lat, ac.lon], {
+        icon: L.divIcon({
+          html: `<div class="ws-ac-label${ac.in_corridor ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}</div>`,
+          className: '',
+          iconAnchor: [-10, 5],
+        }),
+        interactive: false,
+        zIndexOffset: ac.in_corridor ? 50 : 10,
+      }).addTo(map);
+
+      acMarkers[ac.icao] = { marker, label };
+    }
+  }
+
+  // Remove stale markers
+  for (const icao of Object.keys(acMarkers)) {
+    if (!seen.has(icao)) {
+      map.removeLayer(acMarkers[icao].marker);
+      map.removeLayer(acMarkers[icao].label);
+      delete acMarkers[icao];
+    }
+  }
+}
+
+// ── ILS vertical profile canvas ───────────────────────────────────────────────
+const ilsCanvas = document.getElementById('ws-ils-canvas');
+const ilsCtx    = ilsCanvas.getContext('2d');
+
+// Margin constants (computed in draw)
+const M = { left: 52, right: 20, top: 18, bottom: 34 };
+
+function resizeIlsCanvas() {
+  const wrap = ilsCanvas.parentElement;
+  ilsCanvas.width  = wrap.clientWidth;
+  ilsCanvas.height = wrap.clientHeight;
+}
+
+new ResizeObserver(() => {
+  resizeIlsCanvas();
+  drawIlsProfile(lastAircraft);
+}).observe(ilsCanvas.parentElement);
+resizeIlsCanvas();
+
+function drawIlsProfile(aircraft, shearEvents = []) {
+  const W = ilsCanvas.width;
+  const H = ilsCanvas.height;
+  const PW = W - M.left - M.right;
+  const PH = H - M.top  - M.bottom;
+
+  ilsCtx.clearRect(0, 0, W, H);
+
+  // Background
+  ilsCtx.fillStyle = '#0f1923';
+  ilsCtx.fillRect(0, 0, W, H);
+
+  if (PW < 20 || PH < 20) return;
+
+  // Helper: convert distance (NM) to X pixel
+  // 0 NM (threshold) → right edge, PROFILE_MAX_NM → left edge
+  const distX = d => M.left + (1 - d / PROFILE_MAX_NM) * PW;
+  // Helper: convert altitude (ft) to Y pixel
+  const altY  = a => M.top  + (1 - a / PROFILE_MAX_FT) * PH;
+
+  // ── Grid ──────────────────────────────────────────────────────────────────
+  ilsCtx.strokeStyle = '#1e2d40';
+  ilsCtx.lineWidth   = 1;
+
+  // Altitude grid lines (every 500 ft)
+  for (let a = 0; a <= PROFILE_MAX_FT; a += 500) {
+    const y = altY(a);
+    ilsCtx.beginPath();
+    ilsCtx.moveTo(M.left, y);
+    ilsCtx.lineTo(M.left + PW, y);
+    ilsCtx.stroke();
+  }
+  // Distance grid lines (every 5 NM)
+  for (let d = 0; d <= PROFILE_MAX_NM; d += 5) {
+    const x = distX(d);
+    ilsCtx.beginPath();
+    ilsCtx.moveTo(x, M.top);
+    ilsCtx.lineTo(x, M.top + PH);
+    ilsCtx.stroke();
+  }
+
+  // ── 3° glideslope ─────────────────────────────────────────────────────────
+  // The glideslope reference is computed in pressure-altitude terms so that
+  // aircraft dots (always plotted at MODE-S pressure altitude) land on the
+  // line when they are geometrically on the 3° slope.
+  //
+  //   gs_ref(d) = THR_ELEV_FT           ← threshold above MSL
+  //             + d × 318.5             ← 3° geometric climb (ft/NM)
+  //             + (1013.25 − QNH) × 27  ← convert geometric → pressure alt
+  //             + GS_OFFSET_FT          ← manual calibration trim
+  //
+  const qnhCorr   = (1013.25 - currentQnh) * 27;   // positive when QNH < std
+  const gsBaseline = WS_THR_ELEVATION_FT + WS_GS_OFFSET_FT + qnhCorr;
+  const gsRef = d => gsBaseline + d * GS_FT_PER_NM;
+
+  // GS tolerance band (±300 ft around the corrected line)
+  const gsMaxDist = (PROFILE_MAX_FT - gsBaseline) / GS_FT_PER_NM;
+  ilsCtx.beginPath();
+  ilsCtx.moveTo(distX(0),         altY(gsRef(0) + GS_TOL_FT));
+  ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist) + GS_TOL_FT));
+  ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist) - GS_TOL_FT));
+  ilsCtx.lineTo(distX(0),         altY(gsRef(0) - GS_TOL_FT));
+  ilsCtx.closePath();
+  ilsCtx.fillStyle = 'rgba(56,189,248,0.07)';
+  ilsCtx.fill();
+
+  // Glideslope centreline
+  ilsCtx.beginPath();
+  ilsCtx.moveTo(distX(0),         altY(gsRef(0)));
+  ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist)));
+  ilsCtx.strokeStyle  = '#38bdf8';
+  ilsCtx.lineWidth    = 1.5;
+  ilsCtx.setLineDash([6, 4]);
+  ilsCtx.globalAlpha = 0.7;
+  ilsCtx.stroke();
+  ilsCtx.setLineDash([]);
+  ilsCtx.globalAlpha = 1;
+
+  // Small annotation: active corrections
+  const corrSign = qnhCorr >= 0 ? '+' : '';
+  ilsCtx.fillStyle = '#475569';
+  ilsCtx.font      = '9px "Courier New", monospace';
+  ilsCtx.textAlign = 'left';
+  ilsCtx.fillText(
+    `GS ref: thr+${WS_THR_ELEVATION_FT}ft  QNH${corrSign}${Math.round(qnhCorr)}ft  trim${WS_GS_OFFSET_FT >= 0 ? '+' : ''}${WS_GS_OFFSET_FT}ft`,
+    M.left + 4, M.top + 10
+  );
+
+  // ── Windshear zones ───────────────────────────────────────────────────────
+  if (wsDetectionEnabled && shearEvents.length > 0) {
+    const selectedRwy = document.getElementById('ws-ils-rwy').value;
+    for (const ev of shearEvents) {
+      if (selectedRwy && ev.rwy !== selectedRwy) continue;
+      const color = ev.severity === 'severe' ? '#ef4444' : '#d97706';
+      const yTop  = altY(ev.alt_high);
+      const yBot  = altY(ev.alt_low);
+      const zoneH = yBot - yTop;
+      if (zoneH <= 0) continue;
+
+      // Full-width semi-transparent band
+      ilsCtx.fillStyle = color + '22';
+      ilsCtx.fillRect(M.left, yTop, PW, zoneH);
+
+      // Left and right edge lines
+      ilsCtx.strokeStyle = color + '88';
+      ilsCtx.lineWidth   = 1;
+      ilsCtx.setLineDash([3, 3]);
+      ilsCtx.beginPath();
+      ilsCtx.moveTo(M.left, yTop);   ilsCtx.lineTo(M.left + PW, yTop);
+      ilsCtx.moveTo(M.left, yBot);   ilsCtx.lineTo(M.left + PW, yBot);
+      ilsCtx.stroke();
+      ilsCtx.setLineDash([]);
+
+      // Label on the right edge
+      ilsCtx.fillStyle  = color;
+      ilsCtx.font       = '10px "Courier New", monospace';
+      ilsCtx.textAlign  = 'right';
+      const label = `WS ${ev.delta_kt} kt`;
+      ilsCtx.fillText(label, M.left + PW - 4, yTop + zoneH / 2 + 4);
+    }
+  }
+
+  // ── Axis labels ───────────────────────────────────────────────────────────
+  ilsCtx.fillStyle  = '#64748b';
+  ilsCtx.font       = '10px "Courier New", monospace';
+  ilsCtx.textAlign  = 'right';
+  for (let a = 0; a <= PROFILE_MAX_FT; a += 500) {
+    if (a === 0) continue;
+    ilsCtx.fillText(a.toLocaleString(), M.left - 4, altY(a) + 3);
+  }
+  ilsCtx.textAlign = 'center';
+  for (let d = 0; d <= PROFILE_MAX_NM; d += 5) {
+    ilsCtx.fillText(d === 0 ? 'THR' : `${d}`, distX(d), M.top + PH + 12);
+  }
+
+  // Axis unit labels
+  ilsCtx.save();
+  ilsCtx.translate(10, M.top + PH / 2);
+  ilsCtx.rotate(-Math.PI / 2);
+  ilsCtx.textAlign = 'center';
+  ilsCtx.fillText('ft', 0, 0);
+  ilsCtx.restore();
+  ilsCtx.textAlign = 'center';
+  ilsCtx.fillText('NM from threshold', M.left + PW / 2, H - 4);
+
+  // ── Plot aircraft ─────────────────────────────────────────────────────────
+  if (!aircraft || aircraft.length === 0) {
+    ilsCtx.fillStyle  = '#334155';
+    ilsCtx.font       = '12px system-ui, sans-serif';
+    ilsCtx.textAlign  = 'center';
+    ilsCtx.fillText('No approach traffic', M.left + PW / 2, M.top + PH / 2);
+    return;
+  }
+
+  const selectedRwy = document.getElementById('ws-ils-rwy').value;
+
+  for (const ac of aircraft) {
+    if (selectedRwy && ac.approach_runway !== selectedRwy) continue;
+    if (ac.dist_thr_nm == null) continue;
+
+    const gs = ac.gs_status || 'FAR';
+    const color = GS_COLOR[gs] || GS_COLOR.FAR;
+
+    // ── History trail ────────────────────────────────────────────────────────
+    if (ac.history && ac.history.length > 1) {
+      ilsCtx.beginPath();
+      let first = true;
+      for (const h of ac.history) {
+        if (h.dist_thr > PROFILE_MAX_NM || h.altitude > PROFILE_MAX_FT) continue;
+        const hx = distX(h.dist_thr);
+        const hy = altY(h.altitude);
+        if (first) { ilsCtx.moveTo(hx, hy); first = false; }
+        else ilsCtx.lineTo(hx, hy);
+      }
+      ilsCtx.strokeStyle  = 'rgba(255,255,255,0.12)';
+      ilsCtx.lineWidth    = 1;
+      ilsCtx.stroke();
+    }
+
+    // ── Current position dot ─────────────────────────────────────────────────
+    if (ac.dist_thr_nm > PROFILE_MAX_NM || ac.altitude > PROFILE_MAX_FT) continue;
+
+    const x = distX(ac.dist_thr_nm);
+    const y = altY(ac.altitude);
+
+    // Glow ring
+    ilsCtx.beginPath();
+    ilsCtx.arc(x, y, 8, 0, Math.PI * 2);
+    ilsCtx.fillStyle = color + '22';
+    ilsCtx.fill();
+
+    // Dot
+    ilsCtx.beginPath();
+    ilsCtx.arc(x, y, 5, 0, Math.PI * 2);
+    ilsCtx.fillStyle = color;
+    ilsCtx.fill();
+    ilsCtx.strokeStyle = '#000';
+    ilsCtx.lineWidth   = 1;
+    ilsCtx.stroke();
+
+    // Label: callsign + altitude delta from corrected glideslope reference
+    const delta = Math.round(ac.altitude - gsRef(ac.dist_thr_nm));
+    const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+    const label = `${ac.callsign || ac.icao} (${deltaStr}ft)`;
+
+    ilsCtx.fillStyle = color;
+    ilsCtx.font      = '10px "Courier New", monospace';
+    ilsCtx.textAlign = x > M.left + PW * 0.7 ? 'right' : 'left';
+    const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
+    ilsCtx.fillText(label, labelX, y - 7);
+  }
+}
+
+// ── Flight strips ─────────────────────────────────────────────────────────────
+
+function srcClass(src) {
+  const s = (src || 'NONE').toLowerCase();
+  return `src-${s}`;
+}
+
+function fmtVs(vr) {
+  if (vr == null) return { text: '—', cls: '' };
+  const abs  = Math.abs(Math.round(vr));
+  const sign = vr > 50 ? '↑' : vr < -50 ? '↓' : '→';
+  const cls  = vr > 50 ? 'climbing' : vr < -50 ? 'descending' : '';
+  return { text: `${sign} ${abs}`, cls };
+}
+
+function fmtAlt(alt) {
+  if (alt == null) return '—';
+  return alt.toLocaleString() + ' ft';
+}
+
+function fmtDist(nm) {
+  if (nm == null) return '—';
+  return nm.toFixed(1) + ' NM';
+}
+
+function fmtWind(spd, dir) {
+  if (spd == null || dir == null) return null;
+  return `${Math.round(dir)}° / ${Math.round(spd)} kt`;
+}
+
+function fmtTemp(t) {
+  if (t == null) return null;
+  const sign = t >= 0 ? '+' : '';
+  return `${sign}${t.toFixed(1)} °C`;
+}
+
+function gsClass(gs) {
+  switch (gs) {
+    case 'ON':   return 'gs-on';
+    case 'HIGH': return 'gs-high';
+    case 'LOW':  return 'gs-low';
+    default:     return 'gs-far';
+  }
+}
+
+// ── Windshear detection engine ────────────────────────────────────────────────
+let wsDetectionEnabled = false;
+let lastShearEvents    = [];
+
+/**
+ * Detect windshear by comparing headwind components between corridor aircraft
+ * on the same runway, sorted by altitude.
+ *
+ * Returns an array of shear event objects:
+ *   { rwy, icao_low, icao_high, alt_low, alt_high, hw_low, hw_high,
+ *     delta_kt, severity }
+ *
+ * Detection only runs when wsDetectionEnabled is true.
+ */
+function detectWindshear(aircraft) {
+  if (!wsDetectionEnabled) return [];
+
+  const events = [];
+
+  // Group corridor aircraft with valid headwind data by runway
+  const byRwy = {};
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (ac.headwind_kt == null) continue;
+    if (!byRwy[ac.approach_runway]) byRwy[ac.approach_runway] = [];
+    byRwy[ac.approach_runway].push(ac);
+  }
+
+  // For each runway, compare every altitude-adjacent pair
+  for (const [rwy, acs] of Object.entries(byRwy)) {
+    if (acs.length < 2) continue;
+    acs.sort((a, b) => a.altitude - b.altitude);   // lowest first
+
+    for (let i = 0; i < acs.length - 1; i++) {
+      const low  = acs[i];
+      const high = acs[i + 1];
+
+      const altDiff = high.altitude - low.altitude;
+      if (altDiff < WS_MIN_ALT_BAND) continue;   // too close — same level
+      if (altDiff > WS_MAX_ALT_BAND) continue;   // too far apart
+
+      const delta = Math.abs(high.headwind_kt - low.headwind_kt);
+      if (delta < WS_THRESHOLD_KT) continue;
+
+      events.push({
+        rwy,
+        icao_low:   low.icao,
+        icao_high:  high.icao,
+        cs_low:     low.callsign  || low.icao,
+        cs_high:    high.callsign || high.icao,
+        alt_low:    low.altitude,
+        alt_high:   high.altitude,
+        hw_low:     low.headwind_kt,
+        hw_high:    high.headwind_kt,
+        delta_kt:   Math.round(delta),
+        severity:   delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Update the alert banner at the top of the page.
+ * Hidden when wsDetectionEnabled is false or no events.
+ */
+function updateAlertBanner(events) {
+  const banner = document.getElementById('ws-alert-banner');
+  if (!wsDetectionEnabled || events.length === 0) {
+    banner.className = 'ws-alert-banner ws-alert-hidden';
+    return;
+  }
+
+  const hasSevere = events.some(e => e.severity === 'severe');
+  const cls = hasSevere ? 'ws-alert-severe' : 'ws-alert-moderate';
+  const icon = hasSevere ? '🔴' : '⚠';
+
+  const tags = events.map(e => {
+    const hw = e.hw_high > e.hw_low
+      ? `+${e.delta_kt} kt ↑`   // more headwind higher = normal gradient
+      : `-${e.delta_kt} kt ↑`;  // more tailwind higher = hazardous
+    return `<span class="ws-alert-tag">RWY ${e.rwy} · ${e.delta_kt} kt  ${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft  [${e.cs_low}↕${e.cs_high}]</span>`;
+  }).join(' ');
+
+  banner.className = `ws-alert-banner ${cls}`;
+  banner.innerHTML = `${icon} WINDSHEAR ALERT &nbsp; ${tags}`;
+}
+
+// ── Detection toggle ──────────────────────────────────────────────────────────
+document.getElementById('ws-det-btn').addEventListener('click', () => {
+  wsDetectionEnabled = !wsDetectionEnabled;
+  const btn   = document.getElementById('ws-det-btn');
+  const state = document.getElementById('ws-det-state');
+  btn.classList.toggle('active', wsDetectionEnabled);
+  state.textContent = wsDetectionEnabled ? 'ON' : 'OFF';
+
+  if (!wsDetectionEnabled) {
+    // Clear alerts immediately when turned off
+    lastShearEvents = [];
+    updateAlertBanner([]);
+    // Redraw strips and profile without shear markers
+    renderStrips(window._lastAircraft || [], []);
+    drawIlsProfile((window._lastAircraft || []).filter(ac => ac.in_corridor), []);
+  }
+});
+
+function buildStrip(ac, wsSeverity = null) {
+  const vs     = fmtVs(ac.vert_rate);
+  const wind   = fmtWind(ac.best_wind_spd, ac.best_wind_dir);
+  const temp   = fmtTemp(ac.best_temp);
+  const gs     = ac.gs_status || 'FAR';
+  const rwyTxt = ac.approach_runway || '?';
+  const rwyClass = ac.approach_runway ? '' : 'rwy-none';
+
+  const wsBadge = wsSeverity
+    ? `<div class="ws-ws-badge ws-${wsSeverity}">WS</div>`
+    : '';
+
+  // Headwind component label: positive = headwind, negative = tailwind
+  const hw = ac.headwind_kt != null
+    ? (ac.headwind_kt >= 0
+        ? `+${ac.headwind_kt.toFixed(0)} kt HW`
+        : `${ac.headwind_kt.toFixed(0)} kt TW`)
+    : null;
+
+  const row = (label, val) =>
+    `<div class="ws-sd"><span class="ws-sd-label">${label}</span><span class="ws-sd-val${val == null ? ' ws-sd-nil' : ''}">${val ?? '—'}</span></div>`;
+
+  return `
+<div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}" data-icao="${ac.icao}">
+  <div class="ws-strip-top">
+    <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
+    <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
+    <div class="ws-gs-badge ${gsClass(gs)}">${gs}</div>
+    ${wsBadge}
+  </div>
+  <div class="ws-strip-id">
+    <span class="ws-strip-callsign">${ac.callsign || ac.icao}</span>
+    ${ac.aircraft_type ? `<span class="ws-strip-type">${ac.aircraft_type}</span>` : ''}
+  </div>
+  <div class="ws-strip-reg">${ac.registration || '—'}</div>
+  <div class="ws-strip-data">
+    ${row('CS',   ac.callsign && ac.callsign !== ac.icao ? ac.callsign : null)}
+    ${row('Alt',  fmtAlt(ac.altitude))}
+    ${row('Dist', fmtDist(ac.dist_thr_nm))}
+    ${row('Wind', wind)}
+    ${row('HW',   hw)}
+    ${row('Temp', temp)}
+    ${row('GS',   ac.groundspeed != null ? Math.round(ac.groundspeed) + ' kt' : null)}
+    ${row('XT',   ac.cross_track_nm != null ? ac.cross_track_nm.toFixed(1) + ' NM' : null)}
+  </div>
+</div>`;
+}
+
+function renderStrips(aircraft, shearEvents = []) {
+  const container = document.getElementById('ws-strips');
+
+  // Only show aircraft that are inside an ILS corridor
+  const onApproach = (aircraft || []).filter(ac => ac.in_corridor);
+
+  if (onApproach.length === 0) {
+    container.innerHTML = '<div class="ws-no-traffic">No aircraft inside ILS corridor</div>';
+    return;
+  }
+
+  // Build a map of icao → highest shear severity for badge rendering
+  const wsMap = new Map();
+  for (const ev of shearEvents) {
+    const bump = (icao) => {
+      const cur = wsMap.get(icao);
+      if (!cur || ev.severity === 'severe') wsMap.set(icao, ev.severity);
+    };
+    bump(ev.icao_low);
+    bump(ev.icao_high);
+  }
+
+  // Preserve scroll position
+  const scrollTop = container.scrollTop;
+  container.innerHTML = onApproach.map(ac => buildStrip(ac, wsMap.get(ac.icao) || null)).join('');
+  container.scrollTop = scrollTop;
+}
+
+// ── Weather (METAR / TAF / QNH) ───────────────────────────────────────────────
+// QNH kept as a module-level variable so drawIlsProfile() can use it.
+let currentQnh = 1013.25;
+
+async function fetchWx() {
+  try {
+    const r = await fetch('/api/wx');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    const metarEl = document.getElementById('ws-metar-text');
+    const tafEl   = document.getElementById('ws-taf-text');
+    if (metarEl) metarEl.textContent = d.metar || '—';
+    if (tafEl)   tafEl.textContent   = d.taf   || '—';
+
+    if (d.qnh_hpa != null) {
+      currentQnh = d.qnh_hpa;
+      document.getElementById('ws-qnh-val').textContent = d.qnh_hpa.toFixed(0);
+      // Redraw profile with updated QNH immediately
+      drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+    }
+  } catch (_) { /* silent */ }
+}
+
+fetchWx();
+setInterval(fetchWx, 10 * 60 * 1000);
+
+// ── ILS corridor filter toggle ────────────────────────────────────────────────
+let ilsFilterActive = false;
+const ilsFilterBtn  = document.getElementById('ws-ils-filter');
+ilsFilterBtn.addEventListener('click', () => {
+  ilsFilterActive = !ilsFilterActive;
+  ilsFilterBtn.classList.toggle('active', ilsFilterActive);
+  updateMapMarkers(lastAircraft);
+});
+
+// ── Main poll loop ────────────────────────────────────────────────────────────
+let lastAircraft = [];
+
+async function fetchApproachState() {
+  try {
+    const r = await fetch('/api/windshear/state');
+    if (!r.ok) return;
+    const aircraft = await r.json();
+    lastAircraft   = aircraft;
+
+    const corridor = aircraft.filter(ac => ac.in_corridor);
+
+    // Run windshear detection
+    lastShearEvents = detectWindshear(corridor);
+
+    renderStrips(aircraft, lastShearEvents);
+    updateMapMarkers(aircraft);
+    drawIlsProfile(corridor, lastShearEvents);
+    updateAlertBanner(lastShearEvents);
+
+    // Summary: count corridor aircraft per runway
+    const rwyCounts = {};
+    corridor.forEach(ac => {
+      if (ac.approach_runway) rwyCounts[ac.approach_runway] = (rwyCounts[ac.approach_runway] || 0) + 1;
+    });
+    const rwySummary = Object.entries(rwyCounts)
+      .map(([rwy, c]) => `${c}×${rwy}`)
+      .join('  ');
+    const nCorridor = corridor.length;
+    const nTotal    = aircraft.length;
+
+    document.getElementById('ws-ac-summary').textContent =
+      nCorridor === 0 ? 'No aircraft inside ILS corridor'
+                      : `${nCorridor} on ILS${rwySummary ? '  ·  ' + rwySummary : ''}${nTotal > nCorridor ? `  (${nTotal - nCorridor} other)` : ''}`;
+    document.getElementById('ws-map-count').textContent =
+      ilsFilterActive
+        ? `${nCorridor} ILS corridor`
+        : `${nTotal} tracked  ·  ${nCorridor} on ILS`;
+
+  } catch (e) {
+    console.warn('Windshear state fetch error:', e);
+  }
+}
+
+// Runway selector triggers profile redraw
+document.getElementById('ws-ils-rwy').addEventListener('change', () => {
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+});
+
+fetchApproachState();
+setInterval(fetchApproachState, 3_000);

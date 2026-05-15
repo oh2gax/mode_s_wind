@@ -7,6 +7,7 @@ hook.  Credentials come from Config.WEB_USER / WEB_PASS.
 
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -15,7 +16,7 @@ from functools import wraps
 
 from flask import (
     Flask, Response, g, render_template, request,
-    jsonify, stream_with_context,
+    jsonify, stream_with_context, send_from_directory,
 )
 
 from config import Config
@@ -64,6 +65,7 @@ def create_app(
     cfg: Config,
     live_state: dict,
     live_lock: threading.RLock,
+    ws_tracker=None,
 ) -> Flask:
     """
     Build and return the Flask application.
@@ -123,6 +125,31 @@ def create_app(
         return render_template("windmap.html",
                                receiver_lat=cfg.RECEIVER_LAT,
                                receiver_lon=cfg.RECEIVER_LON)
+
+    @app.route("/windshear")
+    def windshear_page():
+        return render_template("windshear.html",
+                               receiver_lat=cfg.RECEIVER_LAT,
+                               receiver_lon=cfg.RECEIVER_LON,
+                               airport_icao=cfg.AIRPORT_ICAO,
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
+                               radius_nm=cfg.WINDSHEAR_RADIUS_NM,
+                               thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
+                               gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
+
+    # ── Overlay file server ────────────────────────────────────────────────
+    # Serves GeoJSON files from the project-level overlays/ directory.
+    # Used by the windshear map to load ILS centrelines and airport outlines.
+
+    _OVERLAYS_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "overlays",
+    )
+
+    @app.route("/overlays/<path:filename>")
+    def overlay_file(filename):
+        return send_from_directory(_OVERLAYS_DIR, filename)
 
     # ── Live state API ────────────────────────────────────────────────────
 
@@ -438,6 +465,23 @@ def create_app(
             "meteo_obs_last_hour": meteo_obs_1h,
         })
 
+    # ── Windshear approach state API ──────────────────────────────────────
+
+    @app.route("/api/windshear/state")
+    def windshear_state_api():
+        """
+        Return all aircraft currently tracked as being on approach within
+        WINDSHEAR_RADIUS_NM of the configured airport and below
+        WINDSHEAR_MAX_ALT_FT.
+
+        Data is maintained in RAM by the background windshear sweep thread
+        and requires no database access.  Includes a rolling 10-minute
+        position history for each aircraft (used by the ILS profile graph).
+        """
+        if ws_tracker is None:
+            return jsonify([])
+        return jsonify(ws_tracker.get_state())
+
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 
     @app.route("/api/wx")
@@ -471,6 +515,9 @@ def create_app(
                 _qnh_cache["station"] = icao
                 _qnh_cache["updated"] = time.time()
                 log.debug("QNH cache updated: %.1f hPa from %s METAR", qnh, icao)
+
+        # Include QNH in the response so the windshear page can display it
+        result["qnh_hpa"] = _qnh_cache["hpa"] if _qnh_cache["updated"] > 0 else None
 
         return jsonify(result)
 

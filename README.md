@@ -25,6 +25,7 @@ Aircraft continuously broadcast meteorological data from their onboard sensors a
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
+- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS approach, with flight strips, an ILS glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -61,17 +62,16 @@ Radarcape receiver (192.168.0.119)
                                      │  live_state dict │  (shared in-memory)
                                      └────────┬────────┘
                                               │
-                                    ┌─────────┴──────────┐
-                                    │                    │
-                              database/            web/app.py
-                              writer thread        Flask + SSE
-                              (SQLite WAL)         │
-                                    │              ├─ /           Live map
-                                    │              ├─ /flights    History
-                                    │              ├─ /sounding   Skew-T
-                                    │              └─ /windmap    Wind map
-                                    │
-                              data/modes_meteo.db
+                             ┌────────────────┼──────────────────┐
+                             │                │                  │
+                       database/       windshear sweep     web/app.py
+                       writer thread   daemon (3 s)        Flask + SSE
+                       (SQLite WAL)         │               │
+                             │       WindshearTracker       ├─ /           Live map
+                             │       (RAM only, no DB)      ├─ /flights    History
+                             │                              ├─ /sounding   Skew-T
+                       data/modes_meteo.db                  ├─ /windmap    Wind map
+                                                            └─ /windshear  Approach
 ```
 
 ### Data source priority
@@ -158,6 +158,16 @@ class Config:
 
     # ── Per-aircraft write throttle ───────────────────────────────────────
     WRITE_MIN_INTERVAL_SEC = 30.0     # 0 = disabled (store every observation)
+
+    # ── Windshear / Approach monitoring ───────────────────────────────────
+    WINDSHEAR_AIRPORT_LAT = 60.3172   # airport reference point (lat)
+    WINDSHEAR_AIRPORT_LON = 24.9634   # airport reference point (lon)
+    WINDSHEAR_RADIUS_NM = 30.0        # outer tracking radius (NM)
+    WINDSHEAR_MAX_ALT_FT = 5000.0     # altitude gate (ft) — ignore aircraft above
+    WINDSHEAR_CORRIDOR_HALF_WIDTH_NM = 1.5   # ILS corridor half-width (NM)
+    WINDSHEAR_MAX_ILS_NM = 25.0       # max along-track range from threshold
+    WINDSHEAR_THR_ELEVATION_FT = 179.0        # runway threshold elevation MSL (ft)
+    WINDSHEAR_GS_OFFSET_FT = 0.0      # manual glideslope calibration trim (ft)
 ```
 
 Key values to change for your installation:
@@ -168,6 +178,9 @@ Key values to change for your installation:
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
+- `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 30 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
+- `WINDSHEAR_THR_ELEVATION_FT` — runway threshold elevation above MSL in feet; used to anchor the 3° glideslope correctly on the ILS vertical profile (EFHK = 179 ft)
+- `WINDSHEAR_GS_OFFSET_FT` — manual calibration trim for the glideslope line; adjust if aircraft you know to be on glideslope still appear consistently high or low after the threshold and QNH corrections are applied
 
 ### 4. Run
 
@@ -262,8 +275,8 @@ Controls which decoded observations are written to the SQLite database.
 
 | Value | Behaviour |
 |-------|-----------|
-| `"ALL"` | **Default.** Every decoded observation is stored — positions, motion data, and meteo — regardless of whether it carries any meteorological values. This gives the most complete flight tracks and motion history but grows the database quickly. At a busy location like EFHK, the database can accumulate several hundred megabytes per day. |
-| `"METEO_ONLY"` | Only observations that carry at least one decoded meteo value (`meteo_source ≠ NONE`) are written to disk. Position-only messages are used to update the live map in memory but are never persisted. This typically reduces database growth by 60–80% depending on what fraction of tracked aircraft are producing meteo data. Recommended for long-running deployments on SD card or when storage is limited. |
+| `"METEO_ONLY"` | **Default.** Only observations that carry at least one decoded meteo value (`meteo_source ≠ NONE`) are written to disk. Position-only messages are used to update the live map in memory but are never persisted. This typically reduces database growth by 60–80% depending on what fraction of tracked aircraft are producing meteo data. Recommended for long-running deployments on SD card or when storage is limited. |
+| `"ALL"` | Every decoded observation is stored — positions, motion data, and meteo — regardless of whether it carries any meteorological values. This gives the most complete flight tracks and motion history but grows the database quickly. At a busy location like EFHK, the database can accumulate several hundred megabytes per day. |
 
 **Note:** In `METEO_ONLY` mode the `flights` table still records every flight session, but individual `observations` rows exist only for moments when meteo data was present. Flight track maps in the Flights browser will show only the positions where meteo was decoded rather than the full continuous path.
 
@@ -497,6 +510,122 @@ Observations will be concentrated along the main flight routes visible from your
 
 For best results when studying a specific weather event, use the Custom period selector to load exactly the hour of interest from your historical database.
 
+---
+
+### Windshear  `/windshear`
+
+A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. All tracking data is held entirely in RAM — the Windshear page does not write to the database and has no dependency on historical stored data.
+
+#### Layout
+
+The page has three main areas:
+
+- **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor
+- **Right top** — Leaflet map with ILS centreline overlays, 30 NM range circle, and aircraft markers
+- **Right bottom** — ILS vertical glideslope profile canvas showing all approach aircraft simultaneously
+- **Bottom strip** — METAR and TAF for the configured airport
+
+#### ILS corridor detection
+
+Aircraft are accepted into the display using precise geometric corridor matching rather than a simple heading tolerance. For each of the configured runway ILS centrelines, the system computes:
+
+- **Cross-track offset** — perpendicular distance from the extended ILS centreline (signed: positive = right of centreline, negative = left)
+- **Along-track distance** — projection along the centreline from the runway threshold (positive = aircraft is approaching, not yet at threshold)
+
+An aircraft matches a runway only when both conditions hold:
+
+```
+|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM   (default 1.5 NM)
+0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM            (default 25 NM)
+```
+
+The along-track gate naturally excludes departing aircraft (they have a negative along-track value, having passed through the threshold heading outbound). The cross-track gate is tight enough to reject overflights and aircraft in adjacent traffic patterns.
+
+For airports with parallel runways (EFHK has 04L/04R and 22L/22R), the correct runway is identified by the sign of the cross-track offset: positive → right-hand runway (04R, 22R), negative → left-hand runway (04L, 22L).
+
+Aircraft that are within the outer radius and altitude limits but outside any ILS corridor remain visible on the map (shown dimmed) but do not appear in the flight strips.
+
+#### Flight strips
+
+Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left panel, sorted by distance from threshold (closest first). Strips show:
+
+| Field | Description |
+|-------|-------------|
+| **RWY** | Large runway designator (04L, 22R, 15, etc.) |
+| **↕ fpm** | Vertical rate — green for descent, amber for climb |
+| **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope |
+| **WS badge** | Pulsing amber/red badge when the aircraft is inside a detected windshear layer (visible only when detection is enabled) |
+| **CS** | Callsign |
+| **Alt** | Pressure altitude (ft) |
+| **Dist** | Distance from runway threshold (NM) |
+| **Wind** | Wind direction / speed decoded from EHS or JSON |
+| **HW** | Headwind component along the runway heading (positive = headwind, negative = tailwind) |
+| **Temp** | Temperature (°C) |
+| **GS** | Groundspeed (kt) |
+| **XT** | Cross-track offset from centreline (NM) |
+
+All fields are always present with `—` shown when data has not yet been received, preventing layout shifts as new data arrives.
+
+#### ILS vertical profile
+
+The canvas on the bottom right plots all corridor aircraft on a distance-vs-altitude graph:
+
+- **X axis** — distance from threshold (0 NM at right = threshold, up to 30 NM at left)
+- **Y axis** — pressure altitude (ft)
+- **Dashed blue line** — 3° ILS glideslope reference, correctly positioned in pressure-altitude space
+- **Blue shaded band** — ±300 ft glideslope tolerance zone
+- **Coloured dots** — each aircraft, coloured by glideslope status (green = ON, amber = HIGH, red = LOW, grey = FAR)
+- **History trails** — faint white line showing the aircraft's path over the past 10 minutes
+- **Labels** — callsign and current deviation from glideslope in feet (e.g. `FIN3GJ (+85ft)`)
+- **Windshear zones** — amber/red horizontal bands between the altitudes of the two aircraft involved in a detected shear event (visible when detection is enabled)
+
+The glideslope line accounts for two corrections applied at render time so that aircraft on the correct slope land exactly on the line:
+
+1. **Threshold elevation** — the glideslope starts at the runway threshold altitude above MSL (configurable via `WINDSHEAR_THR_ELEVATION_FT`; EFHK ≈ 179 ft), not at sea level
+2. **QNH correction** — MODE-S transponders always broadcast pressure altitude (1013.25 hPa reference). The glideslope reference is shifted by `(1013.25 − QNH) × 27 ft` to convert between pressure altitude and geometric altitude. At a QNH of 1000 hPa, this correction is approximately +357 ft. The current QNH is sourced from the live METAR and applied automatically; when QNH changes (polled every 10 minutes) the canvas redraws immediately.
+
+The small annotation at the top-left of the canvas shows the active corrections so you can verify they are being applied — for example: `GS ref: thr+179ft  QNH+223ft  trim+0ft`.
+
+A **manual trim** (`WINDSHEAR_GS_OFFSET_FT`) is also available for residual calibration errors such as slightly inaccurate threshold coordinates. Positive values shift the line up; negative shift it down.
+
+#### Map
+
+The Leaflet map shows:
+
+- **ILS centreline overlays** from `overlays/efhk_ils.geojson` — each runway's extended centreline drawn as a line on the map
+- **Airport layout overlay** from `overlays/efhk_apt.geojson` — taxiways and runway markings
+- **30 NM range circle** centred on the configured airport reference point
+- **Aircraft markers** with callsign labels; corridor aircraft are brighter and have a higher z-index than non-corridor traffic
+- **Tooltips** showing callsign, matched runway, altitude, and distance from threshold
+
+**Map themes** — three tile layer choices accessible via buttons in the map controls overlay: Dark (CartoDB dark), Grey (CartoDB light), Black (pure black background, no labels).
+
+**ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic.
+
+#### Windshear detection
+
+A windshear detection algorithm can be enabled via the **⚡ Windshear Detection** toggle button in the left panel. It is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+
+The detection compares the headwind component along the runway approach heading between pairs of aircraft on the same ILS corridor, sorted by altitude. For every pair within a 200–2 000 ft altitude separation window:
+
+```
+headwind (kt) = wind_speed × cos(wind_direction − runway_heading)
+```
+
+If the difference in headwind between two altitudes is ≥ 15 kt (the ICAO windshear definition), a shear event is flagged. Events ≥ 25 kt are classified as **severe**.
+
+When detection is active and a shear event is found:
+
+- An **alert banner** appears at the top of the page showing the runway, altitude band, delta in knots, and the callsigns of the two aircraft involved
+- Both flight strips get a pulsing **WS badge** (amber = moderate, red = severe) and an amber left-border highlight
+- A coloured **horizontal band** is drawn on the ILS profile canvas between the two aircraft's altitudes, labelled with the shear magnitude
+
+Turning the toggle OFF immediately clears all alerts and restores the normal display. All data is held in RAM and does not persist.
+
+#### Stale aircraft removal
+
+Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight on short final) are removed from the display within approximately 30–45 seconds. The tracker's sweep thread checks `last_seen` timestamps against a 30-second window and the `prune_stale()` method removes any aircraft not updated within 30 seconds. This keeps the display clean during busy approach sequences where multiple aircraft land in quick succession.
+
 #### QNH correction for low-altitude layers
 
 Aircraft transponders always broadcast pressure altitude referenced to the ICAO standard pressure of 1013.25 hPa, regardless of what QNH the pilot has set. Above the transition altitude (FL050 / 5 000 ft) this is correct by convention — pressure altitude IS the reference. Below FL050, however, the difference between pressure altitude and true MSL altitude can reach several hundred feet when QNH departs significantly from standard, which is common in Finnish winter conditions (QNH can be 980–990 hPa, causing 600–900 ft of offset).
@@ -584,7 +713,7 @@ The system mitigates this in two ways:
 ```
 mode_s_wind/
 ├── config.py                  # All configuration settings
-├── run.py                     # Main entry point
+├── run.py                     # Main entry point + windshear sweep thread
 ├── database/
 │   ├── db.py                  # SQLite connection management
 │   └── schema.sql             # Database schema
@@ -592,6 +721,7 @@ mode_s_wind/
 │   ├── receiver.py            # Beast TCP connection + EHS decoder
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind
+│   ├── windshear.py           # RAM-only approach tracker + windshear detection
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
@@ -603,13 +733,18 @@ mode_s_wind/
 │       ├── live.html          # Live map page
 │       ├── flights.html       # Flights browser page
 │       ├── sounding.html      # Skew-T sounding page
-│       └── windmap.html       # Gridded wind map page
+│       ├── windmap.html       # Gridded wind map page
+│       └── windshear.html     # Approach monitoring + windshear page
 ├── static/
 │   ├── css/style.css          # Dark theme stylesheet
 │   └── js/
 │       ├── live_map.js        # Live map, ATC display, atmosphere profile
 │       ├── sounding.js        # Skew-T canvas renderer
-│       └── windmap.js         # Wind map barb rendering + controls
+│       ├── windmap.js         # Wind map barb rendering + controls
+│       └── windshear.js       # Approach strips, ILS profile, windshear detection
+├── overlays/                  # GeoJSON overlays served to the Windshear map
+│   ├── efhk_ils.geojson       # EFHK ILS centreline geometry (all runways)
+│   └── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library
@@ -635,6 +770,8 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/stats` | Summary counters for the navbar |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
+| GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
+| GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
 
 ---
 

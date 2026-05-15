@@ -370,3 +370,489 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   pointer-events: none;
   user-select: none;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WINDSHEAR PAGE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page skeleton ──────────────────────────────────────────────────────── */
+.ws-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--navbar-h));
+  margin-top: var(--navbar-h);
+  overflow: hidden;
+}
+
+.ws-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Left panel (flight strips + QNH) ──────────────────────────────────── */
+.ws-panel-left {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+.ws-qnh-section {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.ws-qnh-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.ws-qnh-value {
+  font-size: 2.4rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--accent);
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.ws-qnh-unit {
+  font-size: 1rem;
+  color: var(--text-2);
+  margin-left: 4px;
+  font-weight: 400;
+  font-family: system-ui, sans-serif;
+}
+.ws-ac-summary {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.ws-strips-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Individual flight strip ────────────────────────────────────────────── */
+.ws-strip {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px 6px;
+}
+/* Strip involved in a windshear event gets an amber left-border pulse */
+.ws-strip.ws-strip-shear {
+  border-left-color: #d97706;
+  animation: ws-pulse 1.4s ease-in-out infinite;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ws-strip:hover { background: var(--bg-3); }
+.ws-strip.selected { background: var(--bg-3); border-color: var(--accent); }
+
+/* Strip colour by meteo source — left accent bar */
+.ws-strip.src-mrar     { border-left-color: var(--accent); }
+.ws-strip.src-computed { border-left-color: var(--green); }
+.ws-strip.src-mhr      { border-left-color: var(--amber); }
+.ws-strip.src-json     { border-left-color: var(--purple); }
+.ws-strip.src-none     { border-left-color: var(--border); }
+
+/* Strip header row: runway (large) + vert-rate + GS badge */
+.ws-strip-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.ws-strip-rwy {
+  font-size: 1.55rem;
+  font-weight: 800;
+  font-family: 'Courier New', monospace;
+  color: var(--text-1);
+  letter-spacing: 1px;
+  min-width: 56px;
+  line-height: 1;
+}
+.ws-strip-rwy.rwy-none {
+  font-size: 0.9rem;
+  color: var(--text-3);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.ws-strip-vs {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  color: var(--text-2);
+  min-width: 64px;
+}
+.ws-strip-vs.descending { color: var(--green); }
+.ws-strip-vs.climbing   { color: var(--amber); }
+
+.ws-gs-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  letter-spacing: .05em;
+}
+.ws-gs-badge.gs-on   { background: #065f46; color: #6ee7b7; }
+.ws-gs-badge.gs-high { background: #78350f; color: #fcd34d; }
+.ws-gs-badge.gs-low  { background: #7f1d1d; color: #fca5a5; }
+.ws-gs-badge.gs-far  { background: var(--bg-3); color: var(--text-3); }
+
+/* Windshear badge — shown on strip when aircraft is inside a detected shear layer */
+.ws-ws-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  letter-spacing: .05em;
+  animation: ws-pulse 1.4s ease-in-out infinite;
+}
+.ws-ws-badge.ws-moderate { background: #78350f; color: #fcd34d; }
+.ws-ws-badge.ws-severe   { background: #7f1d1d; color: #fca5a5; }
+@keyframes ws-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+/* Callsign + type row */
+.ws-strip-id {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+.ws-strip-callsign {
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--text-1);
+  letter-spacing: .03em;
+}
+.ws-strip-type {
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: 'Courier New', monospace;
+  background: var(--bg-3);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+/* Registration */
+.ws-strip-reg {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: 'Courier New', monospace;
+  margin-bottom: 5px;
+  letter-spacing: .03em;
+}
+
+/* Data grid inside strip */
+.ws-strip-data {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 8px;
+  margin-top: 2px;
+}
+.ws-sd {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+}
+.ws-sd-label {
+  color: var(--text-3);
+  min-width: 32px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.ws-sd-val {
+  color: var(--text-1);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+.ws-sd-val.no-data { color: var(--text-3); }
+.ws-sd-val.ws-sd-nil { color: var(--text-3); opacity: 0.45; }
+
+/* Windshear detection toggle button */
+.ws-det-wrap {
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.ws-det-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.ws-det-btn:hover { background: var(--bg-3); }
+.ws-det-btn.active {
+  border-color: #d97706;
+  background: #78350f22;
+  color: var(--text-1);
+}
+.ws-det-icon { font-size: 13px; }
+.ws-det-label { flex: 1; text-align: left; }
+.ws-det-state {
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--text-3);
+  letter-spacing: .05em;
+}
+.ws-det-btn.active .ws-det-state {
+  background: #d97706;
+  color: #fff;
+}
+
+/* Windshear alert banner */
+.ws-alert-banner {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: .04em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  transition: all .3s;
+  border-bottom: 2px solid transparent;
+}
+.ws-alert-hidden { display: none; }
+.ws-alert-moderate {
+  background: #78350f33;
+  border-color: #d97706;
+  color: #fcd34d;
+}
+.ws-alert-severe {
+  background: #7f1d1d44;
+  border-color: #ef4444;
+  color: #fca5a5;
+  animation: ws-pulse 1.4s ease-in-out infinite;
+}
+.ws-alert-tag {
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: rgba(255,255,255,0.12);
+}
+
+.ws-no-traffic {
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 12px;
+}
+
+/* ── Right column (map + ILS profile) ───────────────────────────────────── */
+.ws-right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+/* Map */
+.ws-map-wrap {
+  flex: 0 0 58%;
+  position: relative;
+  min-height: 0;
+}
+#ws-map { width: 100%; height: 100%; }
+
+/* Map control overlay */
+.ws-map-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15,25,35,.82);
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  backdrop-filter: blur(4px);
+}
+.ws-theme-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+.ws-theme-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-theme-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ILS corridor filter toggle — same shape as theme buttons but amber when active */
+.ws-ils-filter-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+.ws-ils-filter-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-ils-filter-btn.active { background: #d97706; color: #fff; border-color: #d97706; }
+
+.ws-map-count {
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: 'Courier New', monospace;
+  white-space: nowrap;
+}
+
+/* ILS vertical profile panel */
+.ws-ils-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  min-height: 0;
+}
+
+.ws-ils-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+.ws-ils-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+.ws-ils-rwy-select {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  outline: none;
+}
+.ws-ils-rwy-select:focus { border-color: var(--accent); }
+
+.ws-ils-legend {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.ws-ils-leg-item { display: flex; align-items: center; gap: 4px; }
+.ws-ils-leg-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+
+#ws-ils-canvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  min-height: 0;
+}
+
+/* ── Bottom METAR / TAF strip ───────────────────────────────────────────── */
+.ws-wx-strip {
+  display: flex;
+  height: 120px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.ws-wx-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+.ws-wx-section:last-child { border-right: none; }
+.ws-wx-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.ws-wx-text {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow: hidden;
+  line-height: 1.45;
+  flex: 1;
+}
+
+/* ── Map aircraft marker labels ─────────────────────────────────────────── */
+.ws-ac-label {
+  color: #e2e8f0;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  text-shadow: 0 0 3px #000, 0 0 6px #000;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+/* Non-corridor aircraft shown on map with reduced prominence */
+.ws-ac-label-dim {
+  color: #94a3b8;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/* ── Leaflet map theme overrides ────────────────────────────────────────── */
+.ws-theme-black .leaflet-container {
+  background: #000 !important;
+}
