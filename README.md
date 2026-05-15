@@ -168,6 +168,7 @@ class Config:
     WINDSHEAR_MAX_ILS_NM = 25.0       # max along-track range from threshold
     WINDSHEAR_THR_ELEVATION_FT = 179.0        # runway threshold elevation MSL (ft)
     WINDSHEAR_GS_OFFSET_FT = 0.0      # manual glideslope calibration trim (ft)
+    WINDSHEAR_MAX_TRACK_DEV_DEG = 60.0        # max track deviation from approach hdg (°)
 ```
 
 Key values to change for your installation:
@@ -181,6 +182,7 @@ Key values to change for your installation:
 - `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 15 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
 - `WINDSHEAR_THR_ELEVATION_FT` — runway threshold elevation above MSL in feet; used to anchor the 3° glideslope correctly on the ILS vertical profile (EFHK = 179 ft)
 - `WINDSHEAR_GS_OFFSET_FT` — manual calibration trim for the glideslope line; adjust if aircraft you know to be on glideslope still appear consistently high or low after the threshold and QNH corrections are applied
+- `WINDSHEAR_MAX_TRACK_DEV_DEG` — maximum allowed deviation in degrees between an aircraft's ADS-B ground track and the runway's approach heading; the default of 60° rejects departures on parallel runways (which fly ~180° off the approach heading) while accepting all legitimate approach aircraft including those still rolling out of a late vector intercept
 
 ### 4. Run
 
@@ -530,19 +532,22 @@ The page has four main areas:
 
 #### ILS corridor detection
 
-Aircraft are accepted into the display using precise geometric corridor matching rather than a simple heading tolerance. For each of the configured runway ILS centrelines, the system computes:
+Aircraft are accepted into the display using precise geometric corridor matching combined with a track heading check. For each of the configured runway ILS centrelines, the system computes:
 
 - **Cross-track offset** — perpendicular distance from the extended ILS centreline (signed: positive = right of centreline, negative = left)
 - **Along-track distance** — projection along the centreline from the runway threshold (positive = aircraft is approaching, not yet at threshold)
 
-An aircraft matches a runway only when both conditions hold:
+An aircraft matches a runway only when all three conditions hold:
 
 ```
-|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM   (default 1.5 NM)
-0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM            (default 25 NM)
+|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 1.5 NM)
+0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM                (default 25 NM)
+|track − approach_heading| ≤ WINDSHEAR_MAX_TRACK_DEV_DEG       (default 60°, when track available)
 ```
 
-The along-track gate naturally excludes departing aircraft (they have a negative along-track value, having passed through the threshold heading outbound). The cross-track gate is tight enough to reject overflights and aircraft in adjacent traffic patterns.
+The along-track gate excludes aircraft that have already passed through the threshold (negative along-track), such as aircraft that have landed and are rolling out. The track heading gate is the primary defence against **parallel-runway departures**: at EFHK, the two parallel runway pairs (04L/22R and 04R/22L) are only about 0.9 NM apart — well within the cross-track corridor — so a departure on 22L flying ~220° would otherwise pass the geometric gates for the 04L corridor (approaching its threshold from the north). The 60° track tolerance rejects it immediately since 220° is ~173° from the 04L approach heading of 047°. The same logic applies to all configured runways automatically.
+
+The track check is skipped when track data is not available for an aircraft (rare at low altitude); those aircraft fall back to geometry-only matching, which is the same behaviour as before the check was added.
 
 For airports with parallel runways (EFHK has 04L/04R and 22L/22R), the correct runway is identified by the sign of the cross-track offset: positive → right-hand runway (04R, 22R), negative → left-hand runway (04L, 22L).
 

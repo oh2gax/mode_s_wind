@@ -67,6 +67,7 @@ ILS_CORRIDOR_HALF_WIDTH_NM = 2.5   # default ±NM from centreline (configurable)
 ILS_MAX_RANGE_NM           = 25.0  # default max along-track distance from thr
 MAX_HISTORY_SEC            = 600.0 # retain 10 min of position history
 STALE_TIMEOUT_SEC          = 30.0  # drop aircraft silent for 30 s
+CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach hdg
 
 # ── EFHK ILS runway definitions ───────────────────────────────────────────────
 EFHK_RUNWAYS = [
@@ -212,6 +213,7 @@ class WindshearTracker:
         corridor_half_width: float  = ILS_CORRIDOR_HALF_WIDTH_NM,
         max_ils_nm: float           = ILS_MAX_RANGE_NM,
         thr_elevation_ft: float     = 0.0,
+        max_track_dev: float        = CORRIDOR_MAX_TRACK_DEV_DEG,
         runways: list               = None,
     ):
         self.airport_lat         = airport_lat
@@ -221,6 +223,7 @@ class WindshearTracker:
         self.corridor_half_width = corridor_half_width
         self.max_ils_nm          = max_ils_nm
         self.thr_elevation_ft    = thr_elevation_ft
+        self.max_track_dev       = max_track_dev
         self.runways             = runways or EFHK_RUNWAYS
 
         self._state: dict[str, dict] = {}   # icao → approach record
@@ -228,17 +231,25 @@ class WindshearTracker:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _best_runway(self, lat: float, lon: float) -> tuple:
+    def _best_runway(self, lat: float, lon: float,
+                     track: float | None = None) -> tuple:
         """
-        Find the best-matching ILS runway using rectangular corridor geometry.
+        Find the best-matching ILS runway using rectangular corridor geometry
+        plus an optional track heading check to reject departures.
 
-        For each runway the aircraft must satisfy both:
+        For each runway the aircraft must satisfy all of:
           • |cross_track| ≤ corridor_half_width  (within corridor width)
           • 0 ≤ along_track ≤ max_ils_nm         (approaching, not departed)
+          • |track − approach_hdg| ≤ max_track_dev  (heading right direction)
+            — only applied when track data is available; omitted otherwise so
+            that aircraft without a current ground track are still accepted on
+            geometry alone.
+
+        The track gate is the key filter for parallel-runway departures: a
+        departure on 22L flies ~180° opposite to the 04L approach heading and
+        is trivially rejected, even though it passes all the geometric gates.
 
         Among qualifying runways, the one with the smallest |cross_track| wins.
-        This naturally distinguishes parallel runways (04L/04R, 22L/22R) and
-        excludes departures (negative along-track), go-arounds, and overflights.
 
         Returns (runway_name, dist_from_threshold_nm, cross_track_nm, along_track_nm).
         All values are None when no runway corridor matches.
@@ -253,11 +264,18 @@ class WindshearTracker:
             xt = _cross_track_nm(lat, lon, rwy["thr_lat"], rwy["thr_lon"], rwy["heading"])
             at = _along_track_nm(lat, lon, rwy["thr_lat"], rwy["thr_lon"], rwy["heading"])
 
-            # Corridor gates
+            # Geometric corridor gates
             if abs(xt) > self.corridor_half_width:
                 continue
             if at < 0 or at > self.max_ils_nm:
                 continue
+
+            # Track heading gate — reject if aircraft is flying the wrong way.
+            # Skipped when track is unavailable (None) to preserve behaviour for
+            # aircraft that do not broadcast ground track on short final.
+            if track is not None:
+                if _hdg_diff(track, rwy["heading"]) > self.max_track_dev:
+                    continue
 
             if abs(xt) < best_abs_xt:
                 best_abs_xt = abs(xt)
@@ -293,9 +311,9 @@ class WindshearTracker:
                 self._state.pop(icao, None)
             return
 
-        # ── ILS corridor detection (no track required) ────────────────────────
+        # ── ILS corridor detection ────────────────────────────────────────────
         track  = aircraft.get("track")
-        runway, dist_thr, cross_track, along_track = self._best_runway(lat, lon)
+        runway, dist_thr, cross_track, along_track = self._best_runway(lat, lon, track)
         in_corridor = runway is not None
 
         vert_rate   = aircraft.get("vert_rate") or 0

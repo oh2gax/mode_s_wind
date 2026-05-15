@@ -937,12 +937,12 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   flex-shrink: 0;
 }
 .ws-wx-text {
-  font-size: 11px;
-  font-family: 'Courier New', monospace;
+  font-size: 12.5px;
+  font-family: system-ui, -apple-system, sans-serif;
   color: var(--text-2);
   white-space: pre-wrap;
   overflow: hidden;
-  line-height: 1.45;
+  line-height: 1.5;
   flex: 1;
 }
 

@@ -123,3 +123,13 @@ class Config:
     # Adjust this if aircraft that you know are on GS still read consistently
     # high or low after the threshold-elevation and QNH corrections are applied.
     WINDSHEAR_GS_OFFSET_FT: float = 0.0
+    # Maximum allowed deviation (°) between the aircraft's ADS-B ground track
+    # and the runway's approach heading for the aircraft to be accepted into an
+    # ILS corridor.  Departures on a parallel runway fly the reciprocal heading
+    # (~180° off) and are rejected by this gate.  Applies only when track data
+    # is available; aircraft without a current track report are accepted on
+    # geometry alone (same behaviour as before this check was added).
+    # 60° is a generous tolerance that accepts all legitimate approach aircraft
+    # (including those still rolling out of a late vector intercept) while
+    # reliably rejecting parallel-runway departures.
+    WINDSHEAR_MAX_TRACK_DEV_DEG: float = 60.0

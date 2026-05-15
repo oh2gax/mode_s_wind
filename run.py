@@ -126,6 +126,7 @@ def main() -> None:
         corridor_half_width  = cfg.WINDSHEAR_CORRIDOR_HALF_WIDTH_NM,
         max_ils_nm           = cfg.WINDSHEAR_MAX_ILS_NM,
         thr_elevation_ft     = cfg.WINDSHEAR_THR_ELEVATION_FT,
+        max_track_dev        = cfg.WINDSHEAR_MAX_TRACK_DEV_DEG,
     )
     ws_thread = threading.Thread(
         target=_windshear_sweep,
