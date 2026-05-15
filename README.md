@@ -516,6 +516,8 @@ For best results when studying a specific weather event, use the Custom period s
 
 A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. All tracking data is held entirely in RAM — the Windshear page does not write to the database and has no dependency on historical stored data.
 
+![MODE-S Wind Approach / Windshear screen](https://raw.githubusercontent.com/oh2gax/mode_s_wind/master/Mode_S_Wind_Approach_Screen_1.png)
+
 #### Layout
 
 The page has three main areas:
