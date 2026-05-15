@@ -55,35 +55,45 @@
         </div>
       </div>
 
-      <!-- ILS vertical profile -->
-      <div class="ws-ils-panel">
-        <div class="ws-ils-header">
-          <span class="ws-ils-title">ILS Profile · 3° Glideslope</span>
-          <select id="ws-ils-rwy" class="ws-ils-rwy-select">
-            <option value="">All runways</option>
-            <option value="04L">RWY 04L</option>
-            <option value="04R">RWY 04R</option>
-            <option value="22L">RWY 22L</option>
-            <option value="22R">RWY 22R</option>
-            <option value="15">RWY 15</option>
-          </select>
-          <div class="ws-ils-legend">
-            <span class="ws-ils-leg-item">
-              <span class="ws-ils-leg-dot" style="background:#6ee7b7"></span>On GS
-            </span>
-            <span class="ws-ils-leg-item">
-              <span class="ws-ils-leg-dot" style="background:#fcd34d"></span>High
-            </span>
-            <span class="ws-ils-leg-item">
-              <span class="ws-ils-leg-dot" style="background:#fca5a5"></span>Low
-            </span>
-            <span class="ws-ils-leg-item">
-              <span class="ws-ils-leg-dot" style="background:#64748b"></span>Far/No ILS
-            </span>
+      <!-- Bottom row: ILS profile (left) + Windshear event log (right) -->
+      <div class="ws-bottom-row">
+
+        <!-- ILS vertical profile -->
+        <div class="ws-ils-panel">
+          <div class="ws-ils-header">
+            <span class="ws-ils-title">ILS Profile · 3° GS · 15 NM</span>
+            <select id="ws-ils-rwy" class="ws-ils-rwy-select">
+              <option value="">All runways</option>
+              <option value="04L&R">04L &amp; 04R</option>
+              <option value="22L&R">22L &amp; 22R</option>
+              <option value="04L">RWY 04L</option>
+              <option value="04R">RWY 04R</option>
+              <option value="22L">RWY 22L</option>
+              <option value="22R">RWY 22R</option>
+              <option value="15">RWY 15</option>
+            </select>
+            <div class="ws-ils-legend">
+              <span class="ws-ils-leg-item"><span class="ws-ils-leg-dot" style="background:#6ee7b7"></span>On GS</span>
+              <span class="ws-ils-leg-item"><span class="ws-ils-leg-dot" style="background:#fcd34d"></span>High</span>
+              <span class="ws-ils-leg-item"><span class="ws-ils-leg-dot" style="background:#fca5a5"></span>Low</span>
+              <span class="ws-ils-leg-item"><span class="ws-ils-leg-dot" style="background:#64748b"></span>Far</span>
+            </div>
+          </div>
+          <canvas id="ws-ils-canvas"></canvas>
+        </div>
+
+        <!-- Windshear event log -->
+        <div class="ws-ws-log">
+          <div class="ws-ws-log-hdr">
+            <span class="ws-ws-log-title">⚡ Windshear Log</span>
+            <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
+          </div>
+          <div class="ws-ws-log-entries" id="ws-ws-log-entries">
+            <div class="ws-ws-log-empty">Enable ⚡ detection to start logging</div>
           </div>
         </div>
-        <canvas id="ws-ils-canvas"></canvas>
-      </div>
+
+      </div><!-- .ws-bottom-row -->
 
     </div>
   </div>

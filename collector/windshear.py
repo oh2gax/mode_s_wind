@@ -314,6 +314,16 @@ class WindshearTracker:
             history = [h for h in prev.get("history", [])
                        if now - h["ts"] <= MAX_HISTORY_SEC]
 
+            # Prefer the latest real callsign; once known, never revert to ICAO.
+            raw_cs   = aircraft.get("callsign")
+            prev_cs  = prev.get("callsign")
+            if raw_cs and raw_cs != icao:
+                callsign = raw_cs
+            elif prev_cs and prev_cs != icao:
+                callsign = prev_cs   # keep cached value
+            else:
+                callsign = icao      # nothing known yet
+
             if in_corridor:
                 history.append({
                     "ts":       now,
@@ -325,7 +335,7 @@ class WindshearTracker:
 
             self._state[icao] = {
                 "icao":           icao,
-                "callsign":       aircraft.get("callsign") or icao,
+                "callsign":       callsign,
                 "registration":   aircraft.get("registration"),
                 "aircraft_type":  aircraft.get("aircraft_type"),
                 "lat":            lat,

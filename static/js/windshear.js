@@ -18,7 +18,7 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 const GS_FT_PER_NM   = 318.5;
 const GS_TOL_FT      = 300;
-const PROFILE_MAX_NM = 30;
+const PROFILE_MAX_NM = 15;
 const PROFILE_MAX_FT = 5_000;
 
 // Windshear detection thresholds (ICAO definition: ≥15 kt headwind change)
@@ -322,8 +322,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const gsBaseline = WS_THR_ELEVATION_FT + WS_GS_OFFSET_FT + qnhCorr;
   const gsRef = d => gsBaseline + d * GS_FT_PER_NM;
 
-  // GS tolerance band (±300 ft around the corrected line)
-  const gsMaxDist = (PROFILE_MAX_FT - gsBaseline) / GS_FT_PER_NM;
+  // GS tolerance band (±300 ft around the corrected line); cap at canvas width
+  const gsMaxDist = Math.min(PROFILE_MAX_NM, (PROFILE_MAX_FT - gsBaseline) / GS_FT_PER_NM);
   ilsCtx.beginPath();
   ilsCtx.moveTo(distX(0),         altY(gsRef(0) + GS_TOL_FT));
   ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist) + GS_TOL_FT));
@@ -349,17 +349,17 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const corrSign = qnhCorr >= 0 ? '+' : '';
   ilsCtx.fillStyle = '#475569';
   ilsCtx.font      = '9px "Courier New", monospace';
-  ilsCtx.textAlign = 'left';
+  ilsCtx.textAlign = 'right';
   ilsCtx.fillText(
     `GS ref: thr+${WS_THR_ELEVATION_FT}ft  QNH${corrSign}${Math.round(qnhCorr)}ft  trim${WS_GS_OFFSET_FT >= 0 ? '+' : ''}${WS_GS_OFFSET_FT}ft`,
-    M.left + 4, M.top + 10
+    M.left + PW - 4, M.top + 10
   );
 
   // ── Windshear zones ───────────────────────────────────────────────────────
   if (wsDetectionEnabled && shearEvents.length > 0) {
-    const selectedRwy = document.getElementById('ws-ils-rwy').value;
+    const selectedRwyForShear = document.getElementById('ws-ils-rwy').value;
     for (const ev of shearEvents) {
-      if (selectedRwy && ev.rwy !== selectedRwy) continue;
+      if (!matchesRwyFilter(ev.rwy, selectedRwyForShear)) continue;
       const color = ev.severity === 'severe' ? '#ef4444' : '#d97706';
       const yTop  = altY(ev.alt_high);
       const yBot  = altY(ev.alt_low);
@@ -424,7 +424,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const selectedRwy = document.getElementById('ws-ils-rwy').value;
 
   for (const ac of aircraft) {
-    if (selectedRwy && ac.approach_runway !== selectedRwy) continue;
+    if (!matchesRwyFilter(ac.approach_runway, selectedRwy)) continue;
     if (ac.dist_thr_nm == null) continue;
 
     const gs = ac.gs_status || 'FAR';
@@ -478,6 +478,19 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
     ilsCtx.fillText(label, labelX, y - 7);
   }
+}
+
+// ── Runway filter helper ──────────────────────────────────────────────────────
+/**
+ * Returns true if `rwy` matches the selector value.
+ * Supports paired options: "04L&R" matches "04L" or "04R";
+ * "22L&R" matches "22L" or "22R".  Empty selector matches all.
+ */
+function matchesRwyFilter(rwy, filter) {
+  if (!filter) return true;
+  if (filter === '04L&R') return rwy === '04L' || rwy === '04R';
+  if (filter === '22L&R') return rwy === '22L' || rwy === '22R';
+  return rwy === filter;
 }
 
 // ── Flight strips ─────────────────────────────────────────────────────────────
@@ -627,8 +640,11 @@ document.getElementById('ws-det-btn').addEventListener('click', () => {
     lastShearEvents = [];
     updateAlertBanner([]);
     // Redraw strips and profile without shear markers
-    renderStrips(window._lastAircraft || [], []);
-    drawIlsProfile((window._lastAircraft || []).filter(ac => ac.in_corridor), []);
+    renderStrips(lastAircraft, []);
+    drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), []);
+    renderWsLog();  // update log to show "detection off" message
+  } else {
+    renderWsLog();  // update log to show "no events yet" message
   }
 });
 
@@ -654,6 +670,15 @@ function buildStrip(ac, wsSeverity = null) {
   const row = (label, val) =>
     `<div class="ws-sd"><span class="ws-sd-label">${label}</span><span class="ws-sd-val${val == null ? ' ws-sd-nil' : ''}">${val ?? '—'}</span></div>`;
 
+  // Row 2: callsign (always shown, — if unknown) | aircraft type (always shown, — if unknown)
+  const csDisplay   = (ac.callsign && ac.callsign !== ac.icao) ? ac.callsign : '—';
+  const typeDisplay = ac.aircraft_type || '—';
+  const typeNil     = ac.aircraft_type ? '' : ' ws-sd-nil';
+
+  // Row 3: registration · ICAO24 (both always shown)
+  const regDisplay  = ac.registration || '—';
+  const icaoDisplay = ac.icao;
+
   return `
 <div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}" data-icao="${ac.icao}">
   <div class="ws-strip-top">
@@ -663,12 +688,14 @@ function buildStrip(ac, wsSeverity = null) {
     ${wsBadge}
   </div>
   <div class="ws-strip-id">
-    <span class="ws-strip-callsign">${ac.callsign || ac.icao}</span>
-    ${ac.aircraft_type ? `<span class="ws-strip-type">${ac.aircraft_type}</span>` : ''}
+    <span class="ws-strip-callsign">${csDisplay}</span>
+    <span class="ws-strip-type${typeNil}">${typeDisplay}</span>
   </div>
-  <div class="ws-strip-reg">${ac.registration || '—'}</div>
+  <div class="ws-strip-reg">
+    <span>${regDisplay}</span>
+    <span class="ws-strip-icao">${icaoDisplay}</span>
+  </div>
   <div class="ws-strip-data">
-    ${row('CS',   ac.callsign && ac.callsign !== ac.icao ? ac.callsign : null)}
     ${row('Alt',  fmtAlt(ac.altitude))}
     ${row('Dist', fmtDist(ac.dist_thr_nm))}
     ${row('Wind', wind)}
@@ -681,13 +708,19 @@ function buildStrip(ac, wsSeverity = null) {
 }
 
 function renderStrips(aircraft, shearEvents = []) {
-  const container = document.getElementById('ws-strips');
+  const container  = document.getElementById('ws-strips');
+  const selectedRwy = document.getElementById('ws-ils-rwy').value;
 
-  // Only show aircraft that are inside an ILS corridor
-  const onApproach = (aircraft || []).filter(ac => ac.in_corridor);
+  // Only show aircraft that are inside an ILS corridor, filtered by runway selector
+  const onApproach = (aircraft || []).filter(ac =>
+    ac.in_corridor && matchesRwyFilter(ac.approach_runway, selectedRwy)
+  );
 
   if (onApproach.length === 0) {
-    container.innerHTML = '<div class="ws-no-traffic">No aircraft inside ILS corridor</div>';
+    const msg = selectedRwy
+      ? `No aircraft on ${selectedRwy}`
+      : 'No aircraft inside ILS corridor';
+    container.innerHTML = `<div class="ws-no-traffic">${msg}</div>`;
     return;
   }
 
@@ -744,6 +777,72 @@ ilsFilterBtn.addEventListener('click', () => {
   updateMapMarkers(lastAircraft);
 });
 
+// ── Windshear event log ───────────────────────────────────────────────────────
+const WS_LOG_MAX = 50;   // maximum entries kept in memory
+let wsLog = [];          // newest first
+
+/**
+ * Add new shear events to the log, deduplicating by runway + aircraft pair
+ * within a 60-second window so one sustained event doesn't spam the log.
+ */
+function addToWsLog(events) {
+  if (!wsDetectionEnabled || events.length === 0) return;
+
+  const now  = Date.now();
+  const dedup = 60_000; // ms — suppress repeat of same pair within 1 min
+
+  for (const ev of events) {
+    const key = `${ev.rwy}:${ev.icao_low}:${ev.icao_high}`;
+    const last = wsLog.find(e => e._key === key);
+    if (last && (now - last._ts) < dedup) continue;   // still recent — skip
+
+    wsLog.unshift({
+      ...ev,
+      _key:  key,
+      _ts:   now,
+      _time: new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
+  }
+
+  // Trim to max
+  if (wsLog.length > WS_LOG_MAX) wsLog.length = WS_LOG_MAX;
+}
+
+function renderWsLog() {
+  const el = document.getElementById('ws-ws-log-entries');
+  if (!el) return;
+
+  if (wsLog.length === 0) {
+    const msg = wsDetectionEnabled
+      ? 'No windshear events detected'
+      : 'Enable ⚡ detection to start logging';
+    el.innerHTML = `<div class="ws-ws-log-empty">${msg}</div>`;
+    return;
+  }
+
+  el.innerHTML = wsLog.map(e => {
+    const sevCls   = e.severity === 'severe' ? ' ws-log-severe' : '';
+    const hw_low   = e.hw_low  != null ? e.hw_low.toFixed(0)  : '?';
+    const hw_high  = e.hw_high != null ? e.hw_high.toFixed(0) : '?';
+    const gradient = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
+    return `<div class="ws-log-entry${sevCls}">
+  <div class="ws-log-entry-time">${e._time}</div>
+  <div>
+    <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
+    <span class="ws-log-entry-delta">⚡ ${e.delta_kt} kt</span>
+    &nbsp;${gradient}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
+  </div>
+  <div class="ws-log-entry-ac">${e.cs_low} (${hw_low} kt) ↕ ${e.cs_high} (${hw_high} kt)</div>
+</div>`;
+  }).join('');
+}
+
+// Clear button
+document.getElementById('ws-log-clear')?.addEventListener('click', () => {
+  wsLog = [];
+  renderWsLog();
+});
+
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
 
@@ -763,6 +862,8 @@ async function fetchApproachState() {
     updateMapMarkers(aircraft);
     drawIlsProfile(corridor, lastShearEvents);
     updateAlertBanner(lastShearEvents);
+    addToWsLog(lastShearEvents);
+    renderWsLog();
 
     // Summary: count corridor aircraft per runway
     const rwyCounts = {};
@@ -788,9 +889,10 @@ async function fetchApproachState() {
   }
 }
 
-// Runway selector triggers profile redraw
+// Runway selector triggers profile redraw + strip filter
 document.getElementById('ws-ils-rwy').addEventListener('change', () => {
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+  renderStrips(lastAircraft, lastShearEvents);
 });
 
 fetchApproachState();

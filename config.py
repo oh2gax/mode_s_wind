@@ -100,7 +100,7 @@ class Config:
     WINDSHEAR_AIRPORT_LON: float = 24.9634
     # Maximum distance from the airport (NM) for an aircraft to be considered
     # on approach and shown on the Windshear page.
-    WINDSHEAR_RADIUS_NM: float = 30.0
+    WINDSHEAR_RADIUS_NM: float = 15.0
     # Maximum altitude (ft) for approach monitoring.  Aircraft above this
     # value are ignored by the windshear tracker even if they are close.
     WINDSHEAR_MAX_ALT_FT: float = 5000.0

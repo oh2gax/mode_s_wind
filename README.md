@@ -162,7 +162,7 @@ class Config:
     # ── Windshear / Approach monitoring ───────────────────────────────────
     WINDSHEAR_AIRPORT_LAT = 60.3172   # airport reference point (lat)
     WINDSHEAR_AIRPORT_LON = 24.9634   # airport reference point (lon)
-    WINDSHEAR_RADIUS_NM = 30.0        # outer tracking radius (NM)
+    WINDSHEAR_RADIUS_NM = 15.0        # outer tracking radius (NM)
     WINDSHEAR_MAX_ALT_FT = 5000.0     # altitude gate (ft) — ignore aircraft above
     WINDSHEAR_CORRIDOR_HALF_WIDTH_NM = 1.5   # ILS corridor half-width (NM)
     WINDSHEAR_MAX_ILS_NM = 25.0       # max along-track range from threshold
@@ -178,7 +178,7 @@ Key values to change for your installation:
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
-- `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 30 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
+- `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 15 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
 - `WINDSHEAR_THR_ELEVATION_FT` — runway threshold elevation above MSL in feet; used to anchor the 3° glideslope correctly on the ILS vertical profile (EFHK = 179 ft)
 - `WINDSHEAR_GS_OFFSET_FT` — manual calibration trim for the glideslope line; adjust if aircraft you know to be on glideslope still appear consistently high or low after the threshold and QNH corrections are applied
 
@@ -520,11 +520,12 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 #### Layout
 
-The page has three main areas:
+The page has four main areas:
 
-- **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor
-- **Right top** — Leaflet map with ILS centreline overlays, 30 NM range circle, and aircraft markers
-- **Right bottom** — ILS vertical glideslope profile canvas showing all approach aircraft simultaneously
+- **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector
+- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers
+- **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold
+- **Bottom right** — Windshear event log listing all detected shear events with timestamp, runway, magnitude, and the two aircraft involved
 - **Bottom strip** — METAR and TAF for the configured airport
 
 #### ILS corridor detection
@@ -549,15 +550,21 @@ Aircraft that are within the outer radius and altitude limits but outside any IL
 
 #### Flight strips
 
-Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left panel, sorted by distance from threshold (closest first). Strips show:
+Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left panel, sorted by distance from threshold (closest first). The runway selector above the ILS profile canvas also filters the strips — selecting RWY 04L shows only 04L strips; selecting 04L & 04R shows both parallel approaches simultaneously.
+
+The strip layout is fixed — every row is always rendered so the strip never shifts in height as data arrives:
+
+- **Row 1** — Runway designator · vertical rate (fpm) · glideslope badge · WS badge
+- **Row 2** — Callsign · aircraft type (both always shown; `—` when unknown)
+- **Row 3** — Registration · ICAO24 hex code (both always shown)
+- **Data grid** — two-column grid with labelled fields:
 
 | Field | Description |
 |-------|-------------|
 | **RWY** | Large runway designator (04L, 22R, 15, etc.) |
-| **↕ fpm** | Vertical rate — green for descent, amber for climb |
+| **↕ fpm** | Vertical rate — arrow up/down, colour-coded |
 | **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope |
-| **WS badge** | Pulsing amber/red badge when the aircraft is inside a detected windshear layer (visible only when detection is enabled) |
-| **CS** | Callsign |
+| **WS badge** | Pulsing amber/red badge when inside a detected windshear layer (visible only when detection is enabled) |
 | **Alt** | Pressure altitude (ft) |
 | **Dist** | Distance from runway threshold (NM) |
 | **Wind** | Wind direction / speed decoded from EHS or JSON |
@@ -566,13 +573,13 @@ Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left 
 | **GS** | Groundspeed (kt) |
 | **XT** | Cross-track offset from centreline (NM) |
 
-All fields are always present with `—` shown when data has not yet been received, preventing layout shifts as new data arrives.
+Callsign stability — once a callsign has been decoded from either the ADS-B identification message (Beast feed) or the Radarcape JSON `fli` field, it is cached in the tracker and will never revert to the ICAO24 code even if some subsequent sweep cycles arrive without a callsign value.
 
 #### ILS vertical profile
 
-The canvas on the bottom right plots all corridor aircraft on a distance-vs-altitude graph:
+The canvas on the bottom left plots all corridor aircraft on a distance-vs-altitude graph:
 
-- **X axis** — distance from threshold (0 NM at right = threshold, up to 30 NM at left)
+- **X axis** — distance from threshold (0 NM at right = threshold, up to 15 NM at left)
 - **Y axis** — pressure altitude (ft)
 - **Dashed blue line** — 3° ILS glideslope reference, correctly positioned in pressure-altitude space
 - **Blue shaded band** — ±300 ft glideslope tolerance zone
@@ -586,9 +593,27 @@ The glideslope line accounts for two corrections applied at render time so that 
 1. **Threshold elevation** — the glideslope starts at the runway threshold altitude above MSL (configurable via `WINDSHEAR_THR_ELEVATION_FT`; EFHK ≈ 179 ft), not at sea level
 2. **QNH correction** — MODE-S transponders always broadcast pressure altitude (1013.25 hPa reference). The glideslope reference is shifted by `(1013.25 − QNH) × 27 ft` to convert between pressure altitude and geometric altitude. At a QNH of 1000 hPa, this correction is approximately +357 ft. The current QNH is sourced from the live METAR and applied automatically; when QNH changes (polled every 10 minutes) the canvas redraws immediately.
 
-The small annotation at the top-left of the canvas shows the active corrections so you can verify they are being applied — for example: `GS ref: thr+179ft  QNH+223ft  trim+0ft`.
+The small annotation at the top-right of the canvas shows the active corrections so you can verify they are being applied — for example: `GS ref: thr+179ft  QNH+223ft  trim+0ft`.
 
 A **manual trim** (`WINDSHEAR_GS_OFFSET_FT`) is also available for residual calibration errors such as slightly inaccurate threshold coordinates. Positive values shift the line up; negative shift it down.
+
+#### Runway selector
+
+The dropdown above the ILS profile header lets you filter by runway. It acts simultaneously as both a profile filter (only the selected runway's aircraft are drawn on the canvas) and a strip filter (only matching strips appear in the left panel).
+
+Available options: **All runways**, **04L & 04R** (both parallel approaches together), **22L & 22R**, and each runway individually (04L, 04R, 22L, 22R, 15). The paired options are useful during dual-runway operations at EFHK where both parallel runways are in use simultaneously.
+
+#### Windshear event log
+
+The panel to the right of the ILS profile canvas maintains a timestamped log of all detected windshear events during the current session. Entries are listed newest first with the following information for each event:
+
+- **Time** — local time the event was first detected
+- **Runway** — the ILS corridor where shear was detected
+- **Magnitude** — headwind delta in knots (amber = moderate ≥ 15 kt, red = severe ≥ 25 kt) and whether headwind is increasing or decreasing with altitude
+- **Altitude band** — the altitude range (ft) between the two aircraft involved
+- **Aircraft pair** — callsigns and individual headwind components of the lower and upper aircraft
+
+Events are deduplicated — the same aircraft pair on the same runway is logged at most once per 60 seconds even if detection fires on every poll cycle. The log is cleared by the **Clear** button or when the browser tab is refreshed. It does not persist to the database.
 
 #### Map
 
@@ -596,7 +621,7 @@ The Leaflet map shows:
 
 - **ILS centreline overlays** from `overlays/efhk_ils.geojson` — each runway's extended centreline drawn as a line on the map
 - **Airport layout overlay** from `overlays/efhk_apt.geojson` — taxiways and runway markings
-- **30 NM range circle** centred on the configured airport reference point
+- **15 NM range circle** centred on the configured airport reference point
 - **Aircraft markers** with callsign labels; corridor aircraft are brighter and have a higher z-index than non-corridor traffic
 - **Tooltips** showing callsign, matched runway, altitude, and distance from threshold
 
@@ -621,8 +646,9 @@ When detection is active and a shear event is found:
 - An **alert banner** appears at the top of the page showing the runway, altitude band, delta in knots, and the callsigns of the two aircraft involved
 - Both flight strips get a pulsing **WS badge** (amber = moderate, red = severe) and an amber left-border highlight
 - A coloured **horizontal band** is drawn on the ILS profile canvas between the two aircraft's altitudes, labelled with the shear magnitude
+- The event is appended to the **windshear event log** panel (right of the ILS canvas) with a timestamp, magnitude, gradient direction, and both aircraft's headwind components
 
-Turning the toggle OFF immediately clears all alerts and restores the normal display. All data is held in RAM and does not persist.
+Turning the toggle OFF immediately clears all active alerts and restores the normal strip and canvas display. Previously logged events remain visible in the log until cleared manually. All data is held in RAM and does not persist across page refreshes.
 
 #### Stale aircraft removal
 
