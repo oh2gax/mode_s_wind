@@ -21,6 +21,11 @@ const GS_TOL_FT      = 300;
 const PROFILE_MAX_NM = 15;
 const PROFILE_MAX_FT = 5_000;
 
+// Wind barb history accumulation
+const WS_WIND_HIST_MAX    = 40;   // max stored observations per tracked aircraft
+const WS_WIND_MIN_ALT_GAP = 400;  // ft — minimum altitude change before storing a new point
+const WS_WIND_MIN_DIST_GAP = 0.5; // NM — OR minimum distance change (for level segments)
+
 // Windshear detection thresholds (ICAO definition: ≥15 kt headwind change)
 const WS_THRESHOLD_KT   = 15;    // minimum headwind delta to flag shear
 const WS_SEVERE_KT      = 25;    // severe windshear threshold
@@ -478,6 +483,60 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
     ilsCtx.fillText(label, labelX, y - 7);
   }
+
+  // ── Wind barb overlay for selected aircraft ───────────────────────────────
+  if (barbLayerActive && barbSelectedIcao) {
+    const hist = wsWindHistory[barbSelectedIcao] || [];
+    if (hist.length > 0) {
+      // Colour from the aircraft if still tracked; fall back to neutral
+      const selAc = aircraft.find(a => a.icao === barbSelectedIcao);
+      const bColor = selAc ? acColor(selAc.meteo_source) : '#94a3b8';
+      const bLabel = selAc ? (selAc.callsign || barbSelectedIcao) : barbSelectedIcao;
+
+      ilsCtx.save();
+
+      for (const obs of hist) {
+        if (obs.dist_nm == null || obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.alt_ft  == null || obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
+        if (obs.wind_spd == null || obs.wind_dir == null) continue;
+
+        const bx = distX(obs.dist_nm);
+        const by = altY(obs.alt_ft);
+
+        drawWindBarb(ilsCtx, bx, by, obs.wind_spd, obs.wind_dir, bColor);
+
+        // Speed / direction label — draw above the barb base; flip below if too close to top
+        const lblY = (by - 16 < M.top + 6) ? by + 16 : by - 5;
+        ilsCtx.fillStyle  = bColor + 'cc';
+        ilsCtx.font       = '8px "Courier New", monospace';
+        ilsCtx.textAlign  = 'center';
+        ilsCtx.fillText(
+          `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
+          bx, lblY
+        );
+      }
+
+      // Aircraft identifier in the top-left corner of the plot area
+      ilsCtx.fillStyle = bColor;
+      ilsCtx.font      = 'bold 9px "Courier New", monospace';
+      ilsCtx.textAlign = 'left';
+      ilsCtx.fillText(`\u{1F32C} ${bLabel}  (${hist.length} obs)`, M.left + 4, M.top + 22);
+
+      ilsCtx.restore();
+    } else {
+      // Aircraft selected but no history accumulated yet
+      ilsCtx.fillStyle  = '#475569';
+      ilsCtx.font       = '9px "Courier New", monospace';
+      ilsCtx.textAlign  = 'left';
+      ilsCtx.fillText('\u{1F32C} Waiting for wind data…', M.left + 4, M.top + 22);
+    }
+  } else if (barbLayerActive) {
+    // Layer active but no aircraft selected yet
+    ilsCtx.fillStyle  = '#475569';
+    ilsCtx.font       = '9px "Courier New", monospace';
+    ilsCtx.textAlign  = 'left';
+    ilsCtx.fillText('\u{1F32C} Click a strip to show wind barbs', M.left + 4, M.top + 22);
+  }
 }
 
 // ── QNH-corrected glideslope status ──────────────────────────────────────────
@@ -496,6 +555,62 @@ function computeGsStatus(ac) {
   const delta    = ac.altitude - expected;
   if (Math.abs(delta) <= GS_TOL_FT) return 'ON';
   return delta > 0 ? 'HIGH' : 'LOW';
+}
+
+// ── Wind barb drawing ─────────────────────────────────────────────────────────
+/**
+ * Draw a standard meteorological wind barb at canvas position (x, y).
+ *
+ * Staff points FROM the wind direction (meteorological convention).
+ * Pennant = 50 kt, full barb = 10 kt, half barb = 5 kt.
+ */
+function drawWindBarb(ctx, x, y, speedKt, dirFrom, color) {
+  if (speedKt == null || dirFrom == null) return;
+  const spd = Math.round(speedKt / 5) * 5;
+
+  if (spd === 0) {
+    // Calm — open circle
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.stroke();
+    return;
+  }
+
+  const rad  = dirFrom * Math.PI / 180;
+  const sLen = 18;
+  const ex   = x + sLen * Math.sin(rad);
+  const ey   = y - sLen * Math.cos(rad);
+
+  // Staff
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+
+  let rem = spd, pos = 0;
+  const step = 4;
+
+  // Pennants (50 kt) — filled triangle
+  while (rem >= 50) {
+    const sx = ex - pos * Math.sin(rad), sy = ey + pos * Math.cos(rad);
+    const tx = sx + 9 * Math.cos(rad),  ty = sy + 9 * Math.sin(rad);
+    const mx = sx + step * Math.sin(rad), my = sy - step * Math.cos(rad);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.lineTo(mx, my);
+    ctx.closePath(); ctx.fill();
+    pos += step + 2; rem -= 50;
+  }
+  // Full barbs (10 kt)
+  ctx.lineWidth = 1.5;
+  while (rem >= 10) {
+    const sx = ex - pos * Math.sin(rad), sy = ey + pos * Math.cos(rad);
+    const px = sx + 8 * Math.cos(rad),  py = sy + 8 * Math.sin(rad);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
+    pos += step; rem -= 10;
+  }
+  // Half barb (5 kt)
+  if (rem >= 5) {
+    const sx = ex - pos * Math.sin(rad), sy = ey + pos * Math.cos(rad);
+    const px = sx + 4 * Math.cos(rad),  py = sy + 4 * Math.sin(rad);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
+  }
 }
 
 // ── Runway filter helper ──────────────────────────────────────────────────────
@@ -697,8 +812,10 @@ function buildStrip(ac, wsSeverity = null) {
   const regDisplay  = ac.registration || '—';
   const icaoDisplay = ac.icao;
 
+  const barbSelClass = (barbLayerActive && ac.icao === barbSelectedIcao) ? ' ws-strip-barb-sel' : '';
+
   return `
-<div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}" data-icao="${ac.icao}">
+<div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}${barbSelClass}" data-icao="${ac.icao}">
   <div class="ws-strip-top">
     <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
     <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
@@ -862,6 +979,11 @@ document.getElementById('ws-log-clear')?.addEventListener('click', () => {
   renderWsLog();
 });
 
+// ── Wind barb layer state ─────────────────────────────────────────────────────
+const wsWindHistory  = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]
+let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
+let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
+
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
 
@@ -873,6 +995,34 @@ async function fetchApproachState() {
     lastAircraft   = aircraft;
 
     const corridor = aircraft.filter(ac => ac.in_corridor);
+
+    // ── Wind history: remove data for aircraft no longer tracked ──────────
+    const liveIcaos = new Set(aircraft.map(a => a.icao));
+    for (const icao of Object.keys(wsWindHistory)) {
+      if (!liveIcaos.has(icao)) {
+        delete wsWindHistory[icao];
+        if (barbSelectedIcao === icao) barbSelectedIcao = null;
+      }
+    }
+
+    // ── Wind history: accumulate for corridor aircraft with wind data ──────
+    for (const ac of corridor) {
+      if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
+      if (!wsWindHistory[ac.icao]) wsWindHistory[ac.icao] = [];
+      const hist = wsWindHistory[ac.icao];
+      const last = hist[hist.length - 1];
+      const altMoved  = !last || Math.abs(last.alt_ft  - ac.altitude)     >= WS_WIND_MIN_ALT_GAP;
+      const distMoved = !last || Math.abs(last.dist_nm - ac.dist_thr_nm)  >= WS_WIND_MIN_DIST_GAP;
+      if (altMoved || distMoved) {
+        hist.push({
+          dist_nm:  ac.dist_thr_nm,
+          alt_ft:   ac.altitude,
+          wind_spd: ac.best_wind_spd,
+          wind_dir: ac.best_wind_dir,
+        });
+        if (hist.length > WS_WIND_HIST_MAX) hist.shift();
+      }
+    }
 
     // Run windshear detection
     lastShearEvents = detectWindshear(corridor);
@@ -910,6 +1060,28 @@ async function fetchApproachState() {
 
 // Runway selector triggers profile redraw + strip filter
 document.getElementById('ws-ils-rwy').addEventListener('change', () => {
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+  renderStrips(lastAircraft, lastShearEvents);
+});
+
+// ── Wind barb toggle ──────────────────────────────────────────────────────────
+document.getElementById('ws-barb-btn').addEventListener('click', () => {
+  barbLayerActive = !barbLayerActive;
+  document.getElementById('ws-barb-btn').classList.toggle('active', barbLayerActive);
+  if (!barbLayerActive) barbSelectedIcao = null;
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+  renderStrips(lastAircraft, lastShearEvents);
+});
+
+// ── Strip click — select aircraft for barb display ────────────────────────────
+// Event delegation on the scroll container so clicks work after each re-render.
+document.getElementById('ws-strips').addEventListener('click', e => {
+  if (!barbLayerActive) return;
+  const strip = e.target.closest('[data-icao]');
+  if (!strip) return;
+  const icao = strip.dataset.icao;
+  // Toggle: clicking the same strip again deselects
+  barbSelectedIcao = (barbSelectedIcao === icao) ? null : icao;
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });

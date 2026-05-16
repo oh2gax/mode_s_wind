@@ -749,6 +749,27 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ils-filter-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-ils-filter-btn.active { background: #d97706; color: #fff; border-color: #d97706; }
 
+/* Wind barb toggle — same shape as ILS filter button, cyan when active */
+.ws-barb-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.ws-barb-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-barb-btn.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+
+/* Strip highlight when selected as barb source */
+.ws-strip.ws-strip-barb-sel {
+  border-left: 3px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.06);
+}
+
 .ws-map-count {
   font-size: 11px;
   color: var(--text-2);

@@ -573,8 +573,8 @@ function selectAircraft(icao) {
 
   document.getElementById('detail-ac-panel').classList.remove('hidden');
 
-  document.getElementById('detail-callsign').textContent = ac.callsign || ac.icao;
-  document.getElementById('detail-icao').textContent     = ac.callsign ? ac.icao : '';
+  document.getElementById('detail-callsign').textContent = ac.icao;
+  document.getElementById('detail-icao').textContent     = '';
 
   const src   = ac.meteo_source || 'NONE';
   const badge = document.getElementById('detail-bds');

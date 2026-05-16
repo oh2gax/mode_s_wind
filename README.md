@@ -528,7 +528,7 @@ The page has four main areas:
 
 - **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector
 - **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers
-- **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold
+- **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
 - **Bottom right** — Windshear event log listing all detected shear events with timestamp, runway, magnitude, and the two aircraft involved
 - **Bottom strip** — METAR and TAF for the configured airport
 
@@ -609,6 +609,20 @@ A **manual trim** (`WINDSHEAR_GS_OFFSET_FT`) is also available for residual cali
 The dropdown above the ILS profile header lets you filter by runway. It acts simultaneously as both a profile filter (only the selected runway's aircraft are drawn on the canvas) and a strip filter (only matching strips appear in the left panel).
 
 Available options: **All runways**, **04L & 04R** (both parallel approaches together), **22L & 22R**, and each runway individually (04L, 04R, 22L, 22R, 15). The paired options are useful during dual-runway operations at EFHK where both parallel runways are in use simultaneously.
+
+#### Wind barb overlay
+
+The **🌬 Barbs** button, located in the ILS profile header immediately to the right of the runway selector, enables a wind barb layer drawn directly on top of the ILS glideslope canvas. The feature is fully RAM-based — data accumulates while the page is open and is lost when you navigate away, consistent with the rest of the Windshear page.
+
+**Enabling the layer:** click the Barbs button to toggle it on (it turns cyan). While active, the system quietly accumulates wind observations for every aircraft inside the ILS corridor: one observation point is stored whenever an aircraft has descended at least 400 ft or moved at least 0.5 NM along the approach track since the previous stored point. Up to 40 observations are kept per aircraft, which is enough to cover a complete approach from 15 NM to threshold with good altitude resolution.
+
+**Selecting an aircraft:** with Barbs enabled, click any flight strip in the left panel. The selected strip gains a cyan left border and the ILS canvas immediately draws that aircraft's accumulated wind barb history on top of the glideslope profile. Each barb is drawn at the exact (distance from threshold, pressure altitude) position where it was recorded. A small `dir°/spdkt` label appears above each barb showing the decoded wind direction and speed, and the aircraft callsign with total observation count is shown in the top-left corner of the canvas. Clicking the same strip again deselects it and clears the overlay.
+
+**Barb convention:** barb staff points FROM the wind direction (standard meteorological convention). Pennant = 50 kt, full barb = 10 kt, half barb = 5 kt, open circle = calm. The barb colour matches the aircraft's meteo source colour (blue = MRAR, green = COMPUTED, purple = JSON).
+
+**Aircraft departure:** when a tracked aircraft stops transmitting and is removed from the display (typically 30–45 seconds after landing), its wind history is deleted and the barb overlay is cleared automatically. Only one aircraft's barbs are shown at a time — clicking a different strip replaces the current overlay without requiring a manual deselect.
+
+The feature is designed for exploratory use: enable it during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.
 
 #### Windshear event log
 
@@ -822,15 +836,13 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 
 ## Contributing
 
-This project is in active development. Contributions, issue reports and pull requests are welcome.
+This project is in active development. Feedback, observations and bug reports are welcome.
 
-Some areas where contributions would be valuable:
+The most useful contributions are real-world testing and observations:
 
-- Systemd service hardening and auto-restart configuration
-- Export of sounding data to standard formats (e.g. University of Wyoming format)
-- Additional meteo BDS register support
-- Unit tests for the collector and wind calculation modules
-- Support for other Beast-compatible receivers (dump1090, readsb)
+- **UI and display testing** — if something looks wrong, a label is misplaced, a value seems off, or a page behaves unexpectedly in your browser or at your site, please open an issue describing what you saw. Screenshots are very helpful.
+- **Windshear algorithm feedback** — the approach monitoring and shear detection logic is still evolving. Opinions, comments and ideas on how to improve detection accuracy, reduce false positives, or better handle parallel-runway traffic are especially welcome. If you have domain knowledge in aviation meteorology or ATC procedures, your perspective is valuable.
+- **Bug reports** — if the collector crashes, the web interface stalls, or data appears inconsistent, please include the relevant log output and your `config.py` settings (with credentials removed) when reporting.
 
 ---
 
