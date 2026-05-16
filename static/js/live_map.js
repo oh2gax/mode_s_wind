@@ -49,8 +49,11 @@ const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profil
 // localStorage.getItem returns null when key is absent; null !== 'false' → true (default ON)
 let meteoOnly   = localStorage.getItem('ms_meteoOnly')  !== 'false';
 let showLabels  = localStorage.getItem('ms_showLabels') !== 'false';
+let showTrack   = localStorage.getItem('ms_showTrack')  === 'true';   // default OFF
 let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
 let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
+
+let selectedTrackLayer = null;   // Leaflet polyline for selected aircraft's DB track
 
 // ── Source colours ────────────────────────────────────────────────────────
 const SOURCE_COLOR = {
@@ -585,7 +588,7 @@ function selectAircraft(icao) {
   set('d-alt',   ac.altitude    != null ? ac.altitude.toLocaleString()    : null, ' ft');
   set('d-gs',    ac.groundspeed, ' kt');
   set('d-track', ac.track       != null ? ac.track.toFixed(0)             : null, '°');
-  set('d-vr',    ac.vert_rate,   ' ft/min');
+  set('d-vr',    ac.vert_rate,   ' fpm');
   set('d-wsp',   ac.best_wind_spd  != null ? ac.best_wind_spd.toFixed(1)  : null, ' kt');
   set('d-wdir',  ac.best_wind_dir  != null ? ac.best_wind_dir.toFixed(0)  : null, '°');
   set('d-temp',  ac.best_temp      != null ? ac.best_temp.toFixed(1)      : null, '°C');
@@ -626,6 +629,8 @@ function selectAircraft(icao) {
           temp_c:   r.best_temp    ?? null,
           wind_spd: r.best_wind_spd ?? null,
           wind_dir: r.best_wind_dir ?? null,
+          lat:      r.lat  ?? null,
+          lon:      r.lon  ?? null,
         }));
 
         // Prepend DB history; keep any live points already accumulated
@@ -640,10 +645,14 @@ function selectAircraft(icao) {
         if (selectedIcao === icao && miniAcOverlay) {
           miniAcOverlay.windHistory = windHistory[icao];
           drawMiniSounding();
+          drawSelectedTrack(icao);
         }
       })
       .catch(() => {});  // silently ignore network errors
   }
+
+  // Draw track from whatever history is already available (DB fetch may still be in-flight)
+  drawSelectedTrack(icao);
 
   // Update info line below canvas
   const info = document.getElementById('mini-ac-info');
@@ -664,7 +673,32 @@ function selectAircraft(icao) {
 }
 
 
+// ── Selected aircraft DB track polyline ───────────────────────────────────────
+function drawSelectedTrack(icao) {
+  // Remove any existing track layer
+  if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
+  if (!showTrack || !icao) return;
+
+  const history = windHistory[icao] || [];
+  const points  = history
+    .filter(p => p.lat != null && p.lon != null)
+    .map(p => [p.lat, p.lon]);
+
+  if (points.length < 2) return;
+
+  const ac    = aircraftData[icao];
+  const color = ac ? acColor(ac) : '#94a3b8';
+
+  selectedTrackLayer = L.polyline(points, {
+    color,
+    weight:    2,
+    opacity:   0.65,
+    dashArray: '5 4',
+  }).addTo(map);
+}
+
 function closeDetail() {
+  if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
   selectedIcao  = null;
   miniAcOverlay = null;
   drawMiniSounding();
@@ -721,12 +755,19 @@ function connectSSE() {
 // Restore saved state into the DOM controls before first render
 document.getElementById('filter-meteo-only').checked = meteoOnly;
 document.getElementById('toggle-labels').checked     = showLabels;
+document.getElementById('toggle-track').checked      = showTrack;
 document.getElementById('label-mode').value          = labelMode;
 
 document.getElementById('filter-meteo-only').addEventListener('change', e => {
   meteoOnly = e.target.checked;
   localStorage.setItem('ms_meteoOnly', meteoOnly);
   renderList(Object.values(aircraftData));
+});
+
+document.getElementById('toggle-track').addEventListener('change', e => {
+  showTrack = e.target.checked;
+  localStorage.setItem('ms_showTrack', showTrack);
+  drawSelectedTrack(selectedIcao);   // redraw (or clear) immediately
 });
 
 document.getElementById('toggle-labels').addEventListener('change', e => {

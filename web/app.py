@@ -258,7 +258,7 @@ def create_app(
             return jsonify([])
 
         rows = db.execute(
-            """SELECT ts, altitude, best_wind_spd, best_wind_dir, best_temp
+            """SELECT ts, altitude, lat, lon, best_wind_spd, best_wind_dir, best_temp
                FROM observations
                WHERE flight_id = ?
                  AND altitude IS NOT NULL

@@ -361,6 +361,8 @@ Lists all currently visible aircraft sorted alphabetically. Shows callsign, ICAO
 
 The selected label mode persists across browser sessions.
 
+**Track checkbox** — when enabled, selecting an aircraft draws a dashed polyline on the map showing its recorded flight path, built from the latitude/longitude coordinates stored alongside each meteo observation in the database. The polyline is drawn in the aircraft's meteo-source colour and updates automatically each time the DB history is refreshed. The Track setting defaults **off** and persists across browser sessions via localStorage. The polyline is removed when the aircraft is deselected or the Track checkbox is turned off.
+
 #### Bottom strip — METAR / TAF
 
 The bottom of the live map always shows the current METAR and TAF for the configured airport (`AIRPORT_ICAO` in `config.py`, default EFHK). The data is fetched server-side from NOAA and refreshed automatically every 10 minutes. METAR and TAF are displayed side-by-side in a fixed-position panel anchored to the right; selecting an aircraft does not shift or disturb this panel.
@@ -371,7 +373,7 @@ Clicking an aircraft symbol or list entry:
 
 1. **Enlarges the symbol** on the map for easy tracking
 2. **Opens the aircraft detail panel** on the left side of the bottom strip showing all decoded values:
-   - Altitude, ground speed, track, vertical rate
+   - Altitude, ground speed, track, vertical rate (shown in **fpm**)
    - Wind speed and direction
    - Temperature, pressure, humidity
    - Turbulence level and Figure of Merit (FOM) if from MRAR
@@ -568,7 +570,7 @@ The strip layout is fixed — every row is always rendered so the strip never sh
 |-------|-------------|
 | **RWY** | Large runway designator (04L, 22R, 15, etc.) |
 | **↕ fpm** | Vertical rate — arrow up/down, colour-coded |
-| **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope |
+| **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope, computed client-side with full QNH correction applied (same correction as the ILS canvas) so strip badges always agree with the profile canvas |
 | **WS badge** | Pulsing amber/red badge when inside a detected windshear layer (visible only when detection is enabled) |
 | **Alt** | Pressure altitude (ft) |
 | **Dist** | Distance from runway threshold (NM) |
@@ -632,7 +634,7 @@ The Leaflet map shows:
 
 **Map themes** — three tile layer choices accessible via buttons in the map controls overlay: Dark (CartoDB dark), Grey (CartoDB light), Black (pure black background, no labels).
 
-**ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic.
+**ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic. Defaults **on**; state persists across browser sessions.
 
 #### Windshear detection
 
@@ -794,7 +796,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/live/state` | Snapshot of all currently visible aircraft |
 | GET | `/api/live/stream` | Server-Sent Events stream (3-second updates) |
 | GET | `/api/live/aircraft/<icao>` | Last 30 minutes of observations for one aircraft |
-| GET | `/api/aircraft/<icao>/wind_history` | Full wind+temp history for the aircraft's current flight (used to pre-seed the live map atmosphere profile) |
+| GET | `/api/aircraft/<icao>/wind_history` | Full wind+temp history for the aircraft's current flight (used to pre-seed the live map atmosphere profile and aircraft track polyline); response includes `lat` and `lon` fields for each observation |
 | GET | `/api/flights` | Paginated flight list (params: `page`, `per`, `icao`, `callsign`, `meteo`) |
 | GET | `/api/flights/<id>` | Full observation track for one historical flight |
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |

@@ -427,7 +427,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     if (!matchesRwyFilter(ac.approach_runway, selectedRwy)) continue;
     if (ac.dist_thr_nm == null) continue;
 
-    const gs = ac.gs_status || 'FAR';
+    const gs = computeGsStatus(ac);
     const color = GS_COLOR[gs] || GS_COLOR.FAR;
 
     // ── History trail ────────────────────────────────────────────────────────
@@ -478,6 +478,24 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
     ilsCtx.fillText(label, labelX, y - 7);
   }
+}
+
+// ── QNH-corrected glideslope status ──────────────────────────────────────────
+/**
+ * Compute GS badge status in the browser where the live QNH is available.
+ * The server-side gs_status uses pressure altitude against an uncorrected
+ * glideslope, which reads HIGH when QNH is below standard (common in Finnish
+ * winter).  This JS version applies the same QNH shift as the ILS canvas so
+ * the strip badge and the canvas dot always agree.
+ */
+function computeGsStatus(ac) {
+  if (ac.dist_thr_nm == null || ac.dist_thr_nm > 20) return 'FAR';
+  const qnhCorr  = (1013.25 - currentQnh) * 27;
+  const baseline = WS_THR_ELEVATION_FT + WS_GS_OFFSET_FT + qnhCorr;
+  const expected = baseline + ac.dist_thr_nm * GS_FT_PER_NM;
+  const delta    = ac.altitude - expected;
+  if (Math.abs(delta) <= GS_TOL_FT) return 'ON';
+  return delta > 0 ? 'HIGH' : 'LOW';
 }
 
 // ── Runway filter helper ──────────────────────────────────────────────────────
@@ -652,7 +670,7 @@ function buildStrip(ac, wsSeverity = null) {
   const vs     = fmtVs(ac.vert_rate);
   const wind   = fmtWind(ac.best_wind_spd, ac.best_wind_dir);
   const temp   = fmtTemp(ac.best_temp);
-  const gs     = ac.gs_status || 'FAR';
+  const gs     = computeGsStatus(ac);
   const rwyTxt = ac.approach_runway || '?';
   const rwyClass = ac.approach_runway ? '' : 'rwy-none';
 
@@ -769,8 +787,9 @@ fetchWx();
 setInterval(fetchWx, 10 * 60 * 1000);
 
 // ── ILS corridor filter toggle ────────────────────────────────────────────────
-let ilsFilterActive = false;
+let ilsFilterActive = true;                          // ON by default
 const ilsFilterBtn  = document.getElementById('ws-ils-filter');
+ilsFilterBtn.classList.add('active');                // reflect initial state
 ilsFilterBtn.addEventListener('click', () => {
   ilsFilterActive = !ilsFilterActive;
   ilsFilterBtn.classList.toggle('active', ilsFilterActive);
