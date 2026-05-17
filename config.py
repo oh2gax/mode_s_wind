@@ -138,7 +138,7 @@ class Config:
     # inside the corridor before an aircraft is considered "established on
     # approach".  5 cycles = 15 s — prevents brief corridor transits from
     # arming the detector.
-    WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 5
+    WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 8
     # Climb rate (ft/min) required — while still below GA_MAX_ALT_FT — to
     # classify the transition as a go-around rather than a glideslope correction.
     WINDSHEAR_GA_CLIMB_FPM: float         = 500.0

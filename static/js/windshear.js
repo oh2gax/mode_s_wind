@@ -1044,15 +1044,20 @@ function renderWsLog() {
 
 /**
  * Add go-around events from the server to the shared log.
- * Deduplicates by icao + count so the same event is never added twice
- * across successive poll cycles.  GA events are always logged regardless
- * of whether windshear detection is enabled.
+ * Deduplicates by icao + count using a persistent Set that survives log
+ * clears — this prevents cleared GA entries from bouncing back on the next
+ * poll cycle (the server keeps returning the same events from RAM).
+ * GA events are always logged regardless of whether windshear detection
+ * is enabled.
  */
+const wsGaSeenKeys = new Set();   // persists across Clear button presses
+
 function addGaToWsLog(events) {
   if (!events || events.length === 0) return;
   for (const ev of events) {
     const key = `ga:${ev.icao}:${ev.count}`;
-    if (wsLog.find(e => e._key === key)) continue;   // already in log
+    if (wsGaSeenKeys.has(key)) continue;   // already seen — don't re-add after clear
+    wsGaSeenKeys.add(key);
 
     const n = ev.count;
     const ordinal = n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
