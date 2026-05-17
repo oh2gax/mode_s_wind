@@ -889,8 +889,9 @@ function buildStrip(ac, wsSeverity = null) {
     <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
     <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
     <div class="ws-gs-badge ${gsClass(gs)}">${gs}</div>
-    ${sqkBadge}${wsBadge}${sqkFlash}${gaFlash}
+    ${sqkBadge}${wsBadge}
   </div>
+  ${(sqkFlash || gaFlash) ? `<div class="ws-strip-flash-row">${sqkFlash}${gaFlash}</div>` : ''}
   <div class="ws-strip-id">
     <span class="ws-strip-callsign">${csDisplay}</span>
     ${returnBadge}
