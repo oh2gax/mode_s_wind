@@ -857,7 +857,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 - **[Leaflet](https://leafletjs.com/)** — interactive maps
 - **[Chart.js](https://www.chartjs.org/)** — time-series charts
 - **[CartoDB](https://carto.com/)** — dark map tiles
-- **Jetvision Radarcape** — hardware receiver providing Beast binary output and MLAT positions
+- **[Jetvision Radarcape](http://jetvision.de/)** — hardware receiver providing Beast binary output and MLAT positions
 
 ---
 
