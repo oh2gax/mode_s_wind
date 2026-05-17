@@ -112,6 +112,16 @@ def _build_observation(icao: str, ts: float, result: dict,
         "vert_rate":   result.get("vertical_rate"),
     }
 
+    # ── Squawk (Mode-A identity code) from DF5 / DF21 messages ───────────────
+    # pyModeS exposes the code as "squawk" or "ident" depending on message type.
+    # Only write to obs when a valid code is decoded so that the live_state merge
+    # does not overwrite a JSON-sourced squawk with None on non-squawk messages.
+    _sqk_raw = result.get("squawk") or result.get("ident")
+    if _sqk_raw is not None:
+        _sqk_str = str(_sqk_raw).strip().zfill(4)[:4]
+        if _sqk_str.isdigit() and _sqk_str != "0000":
+            obs["squawk"] = _sqk_str
+
     # Merge MRAR fields
     if mrar:
         obs.update(mrar)
