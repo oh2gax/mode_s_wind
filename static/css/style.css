@@ -128,9 +128,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
             text-transform: uppercase; letter-spacing: .5px;
             margin-bottom: 3px; flex-shrink: 0; }
 .wx-label span { color: var(--accent); }
-.wx-text { font-family: 'Courier New', monospace; font-size: 11px; color: var(--text-1);
+.wx-text { font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; color: var(--text-1);
            margin: 0; white-space: pre-wrap; word-break: break-word;
-           overflow-y: auto; flex: 1; line-height: 1.45; }
+           overflow-y: auto; flex: 1; line-height: 1.5; }
 
 /* ── Source badges ──────────────────────────────────────────────────────── */
 .badge-source, .badge-mrar, .badge-comp, .badge-mhr {
