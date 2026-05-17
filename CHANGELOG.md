@@ -1,0 +1,33 @@
+# Changelog
+
+All notable changes to MODE-S Wind are recorded here, newest first.
+No version numbers — entries are organised by date.
+
+---
+
+## 2026-05-17
+
+- Fixed go-around detector false triggers when aircraft join ILS glideslope from below — increased `WINDSHEAR_GA_MIN_DESCENT_POLLS` default from 5 to 8 (24 s confirmed descent required)
+- Fixed Clear button in windshear log — cleared go-around entries no longer bounce back on the next poll cycle
+- Fixed squawk codes not appearing on flight strips — squawk now decoded directly from Beast feed (DF5/DF21 Mode-A replies) in addition to Radarcape JSON feed
+- Changed Live Map METAR/TAF text font to match Windshear page style (system-ui 12.5 px)
+
+## 2026-05-16
+
+- Added squawk code badge on Windshear flight strips — grey pill for normal codes, red pill for emergency codes
+- Added emergency squawk alarm banner for codes 7500 (HIJACK), 7600 (NORDO), 7700 (MAYDAY) with blinking strip label
+- Added go-around detector — server-side state machine detects missed approaches and logs events to the windshear log panel
+- Added 2nd APP / Nx APP return-approach badge on flight strips for aircraft on a subsequent approach
+- Added wind barb overlay on ILS vertical profile canvas — per-aircraft selection by clicking flight strip, barb history accumulated during approach
+
+## 2026-05-15
+
+- Added track polyline on Live Map for selected aircraft — dashed line built from stored observation positions, colour-coded by meteo source
+- Fixed GS badge showing HIGH for RWY 15 approaches — glideslope status now computed client-side with full QNH correction applied, matching the ILS canvas
+- Live Map detail strip now always shows ICAO24 only for display stability
+
+---
+
+## May 2026 — Initial release
+
+Project created. Core features: Beast binary TCP receiver, pyModeS EHS decoding (BDS 4,4 / 4,5 / 5,0 / 6,0), Radarcape JSON/MLAT feed integration, SQLite database, live map with ATC-style aircraft display, historical flights browser, Skew-T atmospheric sounding diagrams, gridded historical wind map, and Windshear approach monitoring page with ILS vertical profile and windshear detection algorithm.
