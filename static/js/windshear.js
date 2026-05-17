@@ -695,6 +695,10 @@ function detectWindshear(aircraft) {
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
     if (ac.headwind_kt == null) continue;
+    // Only include aircraft established on the glideslope (±300 ft tolerance,
+    // QNH-corrected).  Aircraft still intercepting from above or below carry
+    // wind data from a different flight path segment and cause false alerts.
+    if (computeGsStatus(ac) !== 'ON') continue;
     if (!byRwy[ac.approach_runway]) byRwy[ac.approach_runway] = [];
     byRwy[ac.approach_runway].push(ac);
   }
