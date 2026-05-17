@@ -906,8 +906,8 @@ function buildStrip(ac, wsSeverity = null) {
     ${row('Dist', fmtDist(ac.dist_thr_nm))}
     ${row('Wind', wind)}
     ${row('HW',   hw)}
-    ${row('Temp', temp)}
     ${row('GS',   ac.groundspeed != null ? Math.round(ac.groundspeed) + ' kt' : null)}
+    ${row('Temp', temp)}
     ${row('IAS',  ac.ias != null ? ac.ias + ' kt' : null)}
     ${row('XT',   ac.cross_track_nm != null ? ac.cross_track_nm.toFixed(1) + ' NM' : null)}
   </div>
