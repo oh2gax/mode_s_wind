@@ -657,6 +657,12 @@ When a go-around fires:
 - The event is appended to the **windshear event log** with a timestamp, runway, altitude at detection, and ordinal count (1st / 2nd / 3rd go-around this session)
 - Go-around log entries are always recorded even when windshear detection is disabled
 
+**Tuning the detector** — the default values work well at EFHK but may need adjustment depending on traffic mix and local procedures:
+
+- **False positives** (aircraft flagged as go-around when they are not): increase `WINDSHEAR_GA_MIN_DESCENT_POLLS` from the default 5 to 8 or 10. This requires a longer confirmed descent sequence before the state machine advances to APPROACHING, making spurious triggers from level-flight vectoring much less likely.
+- **Missed go-arounds** (aircraft that go around but are not detected): check `WINDSHEAR_GA_MAX_ALT_FT`. If an aircraft initiates a go-around above the 3 000 ft ceiling — for example on a high-energy visual approach or after a late ATC instruction — it will not be detected. Raise the ceiling to 4 000 or 5 000 ft to capture earlier go-arounds, bearing in mind that this also increases the chance of triggering on climbing traffic that enters the corridor from below.
+- **Flash duration**: `WINDSHEAR_GA_FLASH_SEC` (default 60 s) controls how long the blinking label stays on the strip after detection. Increase it if you want the indication to persist longer during a busy sequence.
+
 #### Map
 
 The Leaflet map shows:
