@@ -561,8 +561,8 @@ Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left 
 
 The strip layout is fixed — every row is always rendered so the strip never shifts in height as data arrives:
 
-- **Row 1** — Runway designator · vertical rate (fpm) · glideslope badge · WS badge
-- **Row 2** — Callsign · aircraft type (both always shown; `—` when unknown)
+- **Row 1** — Runway designator · vertical rate (fpm) · glideslope badge · squawk badge · WS badge
+- **Row 2** — Callsign · **2nd APP / Nx APP** return-approach badge · aircraft type (all always shown; `—` when unknown)
 - **Row 3** — Registration · ICAO24 hex code (both always shown)
 - **Data grid** — two-column grid with labelled fields:
 
@@ -571,6 +571,7 @@ The strip layout is fixed — every row is always rendered so the strip never sh
 | **RWY** | Large runway designator (04L, 22R, 15, etc.) |
 | **↕ fpm** | Vertical rate — arrow up/down, colour-coded |
 | **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope, computed client-side with full QNH correction applied (same correction as the ILS canvas) so strip badges always agree with the profile canvas |
+| **Squawk badge** | SSR Mode-A transponder code decoded from Mode-S replies; grey pill for normal codes, red pill for emergency codes (7500 HIJACK, 7600 NORDO, 7700 MAYDAY) |
 | **WS badge** | Pulsing amber/red badge when inside a detected windshear layer (visible only when detection is enabled) |
 | **Alt** | Pressure altitude (ft) |
 | **Dist** | Distance from runway threshold (NM) |
@@ -579,6 +580,8 @@ The strip layout is fixed — every row is always rendered so the strip never sh
 | **Temp** | Temperature (°C) |
 | **GS** | Groundspeed (kt) |
 | **XT** | Cross-track offset from centreline (NM) |
+
+**Emergency squawk alarm** — when any tracked aircraft squawks 7500 (hijacking), 7600 (radio failure / NORDO), or 7700 (general emergency), a blinking red alarm banner appears at the top of the page, a ⚠ flash label blinks on the corresponding flight strip, and the squawk badge turns red. The alarm clears automatically if the code is no longer received. All tracked aircraft are scanned for emergency codes, not only those inside the ILS corridor.
 
 Callsign stability — once a callsign has been decoded from either the ADS-B identification message (Beast feed) or the Radarcape JSON `fli` field, it is cached in the tracker and will never revert to the ICAO24 code even if some subsequent sweep cycles arrive without a callsign value.
 
@@ -635,6 +638,24 @@ The panel to the right of the ILS profile canvas maintains a timestamped log of 
 - **Aircraft pair** — callsigns and individual headwind components of the lower and upper aircraft
 
 Events are deduplicated — the same aircraft pair on the same runway is logged at most once per 60 seconds even if detection fires on every poll cycle. The log is cleared by the **Clear** button or when the browser tab is refreshed. It does not persist to the database.
+
+#### Go-around detector
+
+The tracker continuously monitors each approach aircraft for a go-around (missed approach) using a server-side state machine. Detection requires no user action and runs regardless of whether the windshear detection toggle is enabled.
+
+The state machine works in three stages:
+
+1. **APPROACHING** — the aircraft is descending (vertical rate ≤ −200 fpm) inside the corridor. Consecutive polls confirming descent are counted. Only after a configurable number of descending poll cycles (default 5, configurable via `WINDSHEAR_GA_MIN_DESCENT_POLLS`) does the state advance to APPROACHING — this prevents go-around false triggers from aircraft that are still vectoring in and temporarily levelling.
+
+2. **GO_AROUND detection** — from the APPROACHING state, if the aircraft's vertical rate climbs to ≥ 500 fpm AND its altitude is at or below 3 000 ft, a go-around is declared. Both thresholds are configurable (`WINDSHEAR_GA_CLIMB_FPM`, `WINDSHEAR_GA_MAX_ALT_FT`).
+
+3. **Return approach tracking** — a go-around count is maintained per ICAO24 address for the duration of the page session. An aircraft coming back for a second approach gets a **2nd APP** badge next to its callsign; a third approach shows **3x APP**, and so on.
+
+When a go-around fires:
+
+- A blinking **✈ GO-AROUND** label appears on the flight strip (flashes for up to 60 seconds, configurable via `WINDSHEAR_GA_FLASH_SEC`)
+- The event is appended to the **windshear event log** with a timestamp, runway, altitude at detection, and ordinal count (1st / 2nd / 3rd go-around this session)
+- Go-around log entries are always recorded even when windshear detection is disabled
 
 #### Map
 

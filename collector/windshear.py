@@ -69,6 +69,13 @@ MAX_HISTORY_SEC            = 600.0 # retain 10 min of position history
 STALE_TIMEOUT_SEC          = 30.0  # drop aircraft silent for 30 s
 CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach hdg
 
+# ── Go-around detection defaults ──────────────────────────────────────────────
+GA_MIN_DESCENT_POLLS = 5       # sweeps descending before 'APPROACHING' is set
+GA_CLIMB_FPM         = 500.0   # ft/min climb rate that triggers detection
+GA_MAX_ALT_FT        = 3_000.0 # altitude ceiling for detection
+GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
+GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
+
 # ── EFHK ILS runway definitions ───────────────────────────────────────────────
 EFHK_RUNWAYS = [
     {"name": "04L", "heading": 47,  "thr_lat": 60.3114, "thr_lon": 24.9053},
@@ -215,18 +222,28 @@ class WindshearTracker:
         thr_elevation_ft: float     = 0.0,
         max_track_dev: float        = CORRIDOR_MAX_TRACK_DEV_DEG,
         runways: list               = None,
+        ga_min_descent_polls: int   = GA_MIN_DESCENT_POLLS,
+        ga_climb_fpm: float         = GA_CLIMB_FPM,
+        ga_max_alt_ft: float        = GA_MAX_ALT_FT,
+        ga_flash_sec: float         = GA_FLASH_SEC,
     ):
-        self.airport_lat         = airport_lat
-        self.airport_lon         = airport_lon
-        self.max_dist_nm         = max_dist_nm
-        self.max_alt_ft          = max_alt_ft
-        self.corridor_half_width = corridor_half_width
-        self.max_ils_nm          = max_ils_nm
-        self.thr_elevation_ft    = thr_elevation_ft
-        self.max_track_dev       = max_track_dev
-        self.runways             = runways or EFHK_RUNWAYS
+        self.airport_lat          = airport_lat
+        self.airport_lon          = airport_lon
+        self.max_dist_nm          = max_dist_nm
+        self.max_alt_ft           = max_alt_ft
+        self.corridor_half_width  = corridor_half_width
+        self.max_ils_nm           = max_ils_nm
+        self.thr_elevation_ft     = thr_elevation_ft
+        self.max_track_dev        = max_track_dev
+        self.runways              = runways or EFHK_RUNWAYS
+        self.ga_min_descent_polls = ga_min_descent_polls
+        self.ga_climb_fpm         = ga_climb_fpm
+        self.ga_max_alt_ft        = ga_max_alt_ft
+        self.ga_flash_sec         = ga_flash_sec
 
-        self._state: dict[str, dict] = {}   # icao → approach record
+        self._state: dict[str, dict]  = {}   # icao → approach record
+        self._ga_counts: dict[str, int] = {}  # icao → session go-around count (persists after prune)
+        self._ga_events: list[dict]   = []    # recent go-around events for the API/log
         self._lock  = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -320,6 +337,7 @@ class WindshearTracker:
         wind_spd    = aircraft.get("best_wind_spd")
         wind_dir    = aircraft.get("best_wind_dir")
         temperature = aircraft.get("best_temp")
+        squawk      = aircraft.get("squawk")
         gs_stat     = gs_status(alt, dist_thr, self.thr_elevation_ft) if in_corridor else "FAR"
 
         # Headwind component along the matched runway's approach heading.
@@ -351,6 +369,57 @@ class WindshearTracker:
                     "dist_thr": round(dist_thr, 2),
                 })
 
+            # ── Go-around state machine ───────────────────────────────────────
+            # Carry forward per-aircraft state from the previous sweep.
+            ga_phase         = prev.get("ga_phase", "NONE")
+            ga_descent_polls = prev.get("ga_descent_polls", 0)
+            ga_flash_until   = prev.get("ga_flash_until", 0.0)
+
+            if in_corridor:
+                if ga_phase == "NONE":
+                    # Accumulate descent polls; decay when not descending
+                    if vert_rate <= -200:
+                        ga_descent_polls += 1
+                        if ga_descent_polls >= self.ga_min_descent_polls:
+                            ga_phase = "APPROACHING"
+                    else:
+                        ga_descent_polls = max(0, ga_descent_polls - 1)
+
+                elif ga_phase == "APPROACHING":
+                    if vert_rate >= self.ga_climb_fpm and alt <= self.ga_max_alt_ft:
+                        # ── Go-around detected ────────────────────────────────
+                        self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
+                        count          = self._ga_counts[icao]
+                        ga_phase       = "GO_AROUND"
+                        ga_flash_until = now + self.ga_flash_sec
+                        event = {
+                            "type":     "go_around",
+                            "ts":       now,
+                            "icao":     icao,
+                            "callsign": callsign,
+                            "rwy":      runway or "?",
+                            "alt_ft":   round(alt),
+                            "count":    count,
+                        }
+                        self._ga_events.append(event)
+                        if len(self._ga_events) > GA_EVENTS_MAX:
+                            self._ga_events.pop(0)
+                        log.info(
+                            "GO-AROUND detected: %s (%s) RWY %s at %d ft (GA #%d)",
+                            callsign, icao, runway, round(alt), count,
+                        )
+                # GO_AROUND: stays until aircraft leaves the display entirely
+                # (removed by prune_stale or altitude gate); resets on return.
+            else:
+                # Left the corridor — reset APPROACHING; GO_AROUND persists
+                # so the flash continues during the climb-out phase.
+                if ga_phase == "APPROACHING":
+                    ga_phase         = "NONE"
+                    ga_descent_polls = 0
+
+            ga_count  = self._ga_counts.get(icao, 0)
+            is_return = ga_count > 0 and ga_phase != "GO_AROUND"
+
             self._state[icao] = {
                 "icao":           icao,
                 "callsign":       callsign,
@@ -373,9 +442,17 @@ class WindshearTracker:
                 "cross_track_nm": round(cross_track, 2) if in_corridor else None,
                 "along_track_nm": round(along_track, 2) if in_corridor else None,
                 "headwind_kt":    headwind_kt,
+                "squawk":         squawk,
                 "gs_status":      gs_stat,
                 "history":        history,
                 "last_seen":      now,
+                # Go-around state (consumed by the web UI)
+                "ga_phase":         ga_phase,
+                "ga_descent_polls": ga_descent_polls,
+                "ga_flash_until":   ga_flash_until,
+                "ga_flash":         ga_flash_until > now,
+                "ga_count":         ga_count,
+                "is_return":        is_return,
             }
 
     def prune_stale(self) -> None:
@@ -387,10 +464,17 @@ class WindshearTracker:
                 del self._state[k]
                 log.debug("Windshear: dropped stale %s", k)
 
-    def get_state(self) -> list:
-        """Thread-safe snapshot of all currently tracked approach aircraft."""
+    def get_state(self) -> dict:
+        """
+        Thread-safe snapshot of all currently tracked approach aircraft plus
+        recent go-around events for the web log panel.
+
+        Returns a dict with keys:
+          'aircraft'  — list of aircraft dicts, sorted by distance from threshold
+          'ga_events' — list of go-around event dicts from this session
+        """
         with self._lock:
-            # Return copies sorted by distance from threshold (closest first)
-            items = list(self._state.values())
+            items     = list(self._state.values())
+            ga_events = list(self._ga_events)   # snapshot to avoid race
         items.sort(key=lambda x: x.get("dist_thr_nm") or x.get("dist_apt_nm") or 999)
-        return items
+        return {"aircraft": items, "ga_events": ga_events}

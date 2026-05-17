@@ -79,6 +79,15 @@ def _parse_entry(entry: dict) -> Optional[dict]:
     if wdi is not None and not (0.0 <= wdi <= 360.0):
         wdi = None
 
+    # Squawk (SSR Mode-A code) — Radarcape uses "sqk"; try "squawk" as fallback.
+    # Normalise to a 4-character zero-padded string; discard "0000" (unset).
+    sqk_raw = entry.get("sqk") or entry.get("squawk")
+    if sqk_raw is not None:
+        sqk_str = str(sqk_raw).strip().zfill(4)[:4]
+        squawk  = sqk_str if (sqk_str.isdigit() and sqk_str != "0000") else None
+    else:
+        squawk = None
+
     return {
         "icao":         hex_icao,
         "callsign":     entry.get("fli") or None,  # "" → None (no flight ID set)
@@ -94,6 +103,7 @@ def _parse_entry(entry: dict) -> Optional[dict]:
         "json_wind_dir": wdi,                 # °
         "registration":  entry.get("reg"),
         "aircraft_type": entry.get("typ"),
+        "squawk":        squawk,              # 4-char SSR code string or None
     }
 
 
@@ -148,7 +158,7 @@ def run_json_poller(
                     # ── Basic fields (overwrite only with non-None) ──────────
                     for field in ("callsign", "altitude", "groundspeed",
                                   "track", "vert_rate",
-                                  "registration", "aircraft_type"):
+                                  "registration", "aircraft_type", "squawk"):
                         if parsed.get(field) is not None:
                             merged[field] = parsed[field]
 

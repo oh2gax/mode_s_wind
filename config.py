@@ -133,3 +133,20 @@ class Config:
     # (including those still rolling out of a late vector intercept) while
     # reliably rejecting parallel-runway departures.
     WINDSHEAR_MAX_TRACK_DEV_DEG: float = 60.0
+    # ── Go-around detection ───────────────────────────────────────────────────
+    # Minimum consecutive 3-second sweep cycles with vert_rate ≤ -200 ft/min
+    # inside the corridor before an aircraft is considered "established on
+    # approach".  5 cycles = 15 s — prevents brief corridor transits from
+    # arming the detector.
+    WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 5
+    # Climb rate (ft/min) required — while still below GA_MAX_ALT_FT — to
+    # classify the transition as a go-around rather than a glideslope correction.
+    WINDSHEAR_GA_CLIMB_FPM: float         = 500.0
+    # Altitude ceiling (ft) for go-around detection.  Above this height the
+    # aircraft may be flying a missed-approach procedure that started earlier
+    # and false positives become more likely.
+    WINDSHEAR_GA_MAX_ALT_FT: float        = 3000.0
+    # Seconds the GO-AROUND flash label stays visible on the flight strip.
+    # The aircraft typically climbs above the 5 000 ft gate and leaves the
+    # display within this window.
+    WINDSHEAR_GA_FLASH_SEC: float         = 60.0

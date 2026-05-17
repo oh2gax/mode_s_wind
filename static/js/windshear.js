@@ -760,6 +760,38 @@ function updateAlertBanner(events) {
   banner.innerHTML = `${icon} WINDSHEAR ALERT &nbsp; ${tags}`;
 }
 
+// ── Emergency squawk alarm banner ─────────────────────────────────────────────
+/**
+ * Show/hide the full-page emergency squawk banner.
+ * Scans ALL tracked aircraft (not just corridor) so a squawking aircraft
+ * that is still on radar but outside the ILS corridor is still flagged.
+ */
+function updateSqkAlarm(aircraft) {
+  const alarm = document.getElementById('ws-sqk-alarm');
+  if (!alarm) return;
+
+  const SQK_EMG = { '7500': 'HIJACK', '7600': 'NORDO', '7700': 'MAYDAY' };
+  const emgAc = (aircraft || []).filter(ac => {
+    const sqk = ac.squawk ? String(ac.squawk).padStart(4, '0') : null;
+    return sqk && SQK_EMG[sqk];
+  });
+
+  if (emgAc.length === 0) {
+    alarm.className = 'ws-sqk-alarm ws-sqk-alarm-hidden';
+    return;
+  }
+
+  const tags = emgAc.map(ac => {
+    const sqk  = String(ac.squawk).padStart(4, '0');
+    const type = SQK_EMG[sqk];
+    const cs   = ac.callsign || ac.icao;
+    return `<span class="ws-sqk-alarm-tag">${cs} · ${sqk} ${type}</span>`;
+  }).join(' ');
+
+  alarm.className = 'ws-sqk-alarm';
+  alarm.innerHTML = `⚠ EMERGENCY SQUAWK &nbsp; ${tags}`;
+}
+
 // ── Detection toggle ──────────────────────────────────────────────────────────
 document.getElementById('ws-det-btn').addEventListener('click', () => {
   wsDetectionEnabled = !wsDetectionEnabled;
@@ -793,6 +825,29 @@ function buildStrip(ac, wsSeverity = null) {
     ? `<div class="ws-ws-badge ws-${wsSeverity}">WS</div>`
     : '';
 
+  // Squawk badge
+  const SQK_EMG = { '7500': 'HIJACK', '7600': 'NORDO', '7700': 'MAYDAY' };
+  const sqk     = ac.squawk ? String(ac.squawk).padStart(4, '0') : null;
+  const sqkType = sqk ? SQK_EMG[sqk] : null;
+  const sqkBadge = sqk
+    ? `<span class="ws-sqk-badge${sqkType ? ' ws-sqk-emg' : ''}">${sqk}</span>`
+    : '';
+
+  // Emergency squawk flash (higher priority than GA flash in the label slot)
+  const sqkFlash = sqkType
+    ? `<div class="ws-sqk-flash">⚠ ${sqkType}</div>`
+    : '';
+
+  // Go-around flash label (only shown when no emergency squawk overrides)
+  const gaFlash = (!sqkType && ac.ga_flash)
+    ? `<div class="ws-ga-flash">✈ GO-AROUND</div>`
+    : '';
+
+  // Return-approach badge next to callsign
+  const returnBadge = ac.is_return
+    ? `<span class="ws-return-badge">${ac.ga_count > 1 ? ac.ga_count + 'x' : '2nd'} APP</span>`
+    : '';
+
   // Headwind component label: positive = headwind, negative = tailwind
   const hw = ac.headwind_kt != null
     ? (ac.headwind_kt >= 0
@@ -820,10 +875,11 @@ function buildStrip(ac, wsSeverity = null) {
     <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
     <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
     <div class="ws-gs-badge ${gsClass(gs)}">${gs}</div>
-    ${wsBadge}
+    ${sqkBadge}${wsBadge}${sqkFlash}${gaFlash}
   </div>
   <div class="ws-strip-id">
     <span class="ws-strip-callsign">${csDisplay}</span>
+    ${returnBadge}
     <span class="ws-strip-type${typeNil}">${typeDisplay}</span>
   </div>
   <div class="ws-strip-reg">
@@ -950,13 +1006,26 @@ function renderWsLog() {
 
   if (wsLog.length === 0) {
     const msg = wsDetectionEnabled
-      ? 'No windshear events detected'
-      : 'Enable ⚡ detection to start logging';
+      ? 'No events detected'
+      : 'Enable ⚡ detection — go-arounds logged automatically';
     el.innerHTML = `<div class="ws-ws-log-empty">${msg}</div>`;
     return;
   }
 
   el.innerHTML = wsLog.map(e => {
+    // ── Go-around entry ──────────────────────────────────────────────────
+    if (e._type === 'go_around') {
+      return `<div class="ws-log-entry ws-log-ga">
+  <div class="ws-log-entry-time">${e._time}</div>
+  <div>
+    <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
+    <span class="ws-ga-label">✈ GO-AROUND</span>
+    &nbsp;at ${e.alt_ft} ft &nbsp;·&nbsp; ${e._ordinal} this session
+  </div>
+  <div class="ws-log-entry-ac">${e.callsign || e.icao}</div>
+</div>`;
+    }
+    // ── Windshear entry (existing) ────────────────────────────────────────
     const sevCls   = e.severity === 'severe' ? ' ws-log-severe' : '';
     const hw_low   = e.hw_low  != null ? e.hw_low.toFixed(0)  : '?';
     const hw_high  = e.hw_high != null ? e.hw_high.toFixed(0) : '?';
@@ -971,6 +1040,33 @@ function renderWsLog() {
   <div class="ws-log-entry-ac">${e.cs_low} (${hw_low} kt) ↕ ${e.cs_high} (${hw_high} kt)</div>
 </div>`;
   }).join('');
+}
+
+/**
+ * Add go-around events from the server to the shared log.
+ * Deduplicates by icao + count so the same event is never added twice
+ * across successive poll cycles.  GA events are always logged regardless
+ * of whether windshear detection is enabled.
+ */
+function addGaToWsLog(events) {
+  if (!events || events.length === 0) return;
+  for (const ev of events) {
+    const key = `ga:${ev.icao}:${ev.count}`;
+    if (wsLog.find(e => e._key === key)) continue;   // already in log
+
+    const n = ev.count;
+    const ordinal = n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+    wsLog.unshift({
+      ...ev,
+      _type:    'go_around',
+      _key:     key,
+      _ts:      ev.ts * 1000,
+      _time:    new Date(ev.ts * 1000).toLocaleTimeString('en-GB',
+                  { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      _ordinal: ordinal,
+    });
+  }
+  if (wsLog.length > WS_LOG_MAX) wsLog.length = WS_LOG_MAX;
 }
 
 // Clear button
@@ -991,7 +1087,10 @@ async function fetchApproachState() {
   try {
     const r = await fetch('/api/windshear/state');
     if (!r.ok) return;
-    const aircraft = await r.json();
+    const data     = await r.json();
+    // API returns {aircraft, ga_events}; fall back to plain list for compat
+    const aircraft = Array.isArray(data) ? data : (data.aircraft || []);
+    const gaEvents = Array.isArray(data) ? [] : (data.ga_events  || []);
     lastAircraft   = aircraft;
 
     const corridor = aircraft.filter(ac => ac.in_corridor);
@@ -1031,7 +1130,9 @@ async function fetchApproachState() {
     updateMapMarkers(aircraft);
     drawIlsProfile(corridor, lastShearEvents);
     updateAlertBanner(lastShearEvents);
+    updateSqkAlarm(aircraft);
     addToWsLog(lastShearEvents);
+    addGaToWsLog(gaEvents);
     renderWsLog();
 
     // Summary: count corridor aircraft per runway

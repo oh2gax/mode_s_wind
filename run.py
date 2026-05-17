@@ -119,14 +119,18 @@ def main() -> None:
 
     # ── Start Windshear approach tracker ─────────────────────────────────
     ws_tracker = WindshearTracker(
-        airport_lat          = cfg.WINDSHEAR_AIRPORT_LAT,
-        airport_lon          = cfg.WINDSHEAR_AIRPORT_LON,
-        max_dist_nm          = cfg.WINDSHEAR_RADIUS_NM,
-        max_alt_ft           = cfg.WINDSHEAR_MAX_ALT_FT,
-        corridor_half_width  = cfg.WINDSHEAR_CORRIDOR_HALF_WIDTH_NM,
-        max_ils_nm           = cfg.WINDSHEAR_MAX_ILS_NM,
-        thr_elevation_ft     = cfg.WINDSHEAR_THR_ELEVATION_FT,
-        max_track_dev        = cfg.WINDSHEAR_MAX_TRACK_DEV_DEG,
+        airport_lat           = cfg.WINDSHEAR_AIRPORT_LAT,
+        airport_lon           = cfg.WINDSHEAR_AIRPORT_LON,
+        max_dist_nm           = cfg.WINDSHEAR_RADIUS_NM,
+        max_alt_ft            = cfg.WINDSHEAR_MAX_ALT_FT,
+        corridor_half_width   = cfg.WINDSHEAR_CORRIDOR_HALF_WIDTH_NM,
+        max_ils_nm            = cfg.WINDSHEAR_MAX_ILS_NM,
+        thr_elevation_ft      = cfg.WINDSHEAR_THR_ELEVATION_FT,
+        max_track_dev         = cfg.WINDSHEAR_MAX_TRACK_DEV_DEG,
+        ga_min_descent_polls  = cfg.WINDSHEAR_GA_MIN_DESCENT_POLLS,
+        ga_climb_fpm          = cfg.WINDSHEAR_GA_CLIMB_FPM,
+        ga_max_alt_ft         = cfg.WINDSHEAR_GA_MAX_ALT_FT,
+        ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
     )
     ws_thread = threading.Thread(
         target=_windshear_sweep,
