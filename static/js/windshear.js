@@ -457,31 +457,41 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const x = distX(ac.dist_thr_nm);
     const y = altY(ac.altitude);
 
+    // Near-ground stale: below 1 000 ft AND no data for >20 s.
+    // Signal is likely lost on short final.  Show a dimmed dot without label;
+    // normal tracker pruning (30–45 s) will remove the aircraft shortly after.
+    const nowSec = Date.now() / 1000;
+    const nearStale = ac.altitude < 1_000 && (nowSec - ac.last_seen) > 10;
+
+    const dotColor = nearStale ? 'rgba(56,189,248,0.30)' : color;
+
     // Glow ring
     ilsCtx.beginPath();
     ilsCtx.arc(x, y, 8, 0, Math.PI * 2);
-    ilsCtx.fillStyle = color + '22';
+    ilsCtx.fillStyle = nearStale ? 'rgba(56,189,248,0.08)' : color + '22';
     ilsCtx.fill();
 
     // Dot
     ilsCtx.beginPath();
     ilsCtx.arc(x, y, 5, 0, Math.PI * 2);
-    ilsCtx.fillStyle = color;
+    ilsCtx.fillStyle = dotColor;
     ilsCtx.fill();
-    ilsCtx.strokeStyle = '#000';
+    ilsCtx.strokeStyle = nearStale ? 'rgba(0,0,0,0.4)' : '#000';
     ilsCtx.lineWidth   = 1;
     ilsCtx.stroke();
 
-    // Label: callsign + altitude delta from corrected glideslope reference
-    const delta = Math.round(ac.altitude - gsRef(ac.dist_thr_nm));
-    const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
-    const label = `${ac.callsign || ac.icao} (${deltaStr}ft)`;
+    // Label: omitted when near-stale (callsign/ICAO removed, dot only)
+    if (!nearStale) {
+      const delta = Math.round(ac.altitude - gsRef(ac.dist_thr_nm));
+      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+      const label = `${ac.callsign || ac.icao} (${deltaStr}ft)`;
 
-    ilsCtx.fillStyle = color;
-    ilsCtx.font      = '10px "Courier New", monospace';
-    ilsCtx.textAlign = x > M.left + PW * 0.7 ? 'right' : 'left';
-    const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
-    ilsCtx.fillText(label, labelX, y - 7);
+      ilsCtx.fillStyle = color;
+      ilsCtx.font      = '10px "Courier New", monospace';
+      ilsCtx.textAlign = x > M.left + PW * 0.7 ? 'right' : 'left';
+      const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
+      ilsCtx.fillText(label, labelX, y - 7);
+    }
   }
 
   // ── Wind barb overlay for selected aircraft ───────────────────────────────

@@ -10,7 +10,9 @@ No version numbers — entries are organised by date.
 - Fixed go-around detector false triggers when aircraft join ILS glideslope from below — increased `WINDSHEAR_GA_MIN_DESCENT_POLLS` default from 5 to 8 (24 s confirmed descent required)
 - Fixed Clear button in windshear log — cleared go-around entries no longer bounce back on the next poll cycle
 - Fixed squawk codes not appearing on flight strips — squawk now decoded directly from Beast feed (DF5/DF21 Mode-A replies) in addition to Radarcape JSON feed
-- Changed Live Map METAR/TAF text font to match Windshear page style (system-ui 12.5 px)
+- Fixed windshear detection including aircraft not yet established on glideslope — detection now restricted to aircraft with GS status ON (within ±300 ft of corrected glideslope)
+- Added near-ground stale indicator on ILS vertical profile — aircraft below 1 000 ft with no data received for 10 s are shown as a dimmed blue dot with label removed; normal tracker removal still applies at 30–45 s
+- Increased METAR/TAF font size on both Live Map and Windshear pages; colour unified to match across both pages
 
 ## 2026-05-16
 

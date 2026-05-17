@@ -595,6 +595,7 @@ The canvas on the bottom left plots all corridor aircraft on a distance-vs-altit
 - **Blue shaded band** — ±300 ft glideslope tolerance zone
 - **Coloured dots** — each aircraft, coloured by glideslope status (green = ON, amber = HIGH, red = LOW, grey = FAR)
 - **History trails** — faint white line showing the aircraft's path over the past 10 minutes
+- **Near-ground stale indicator** — when an aircraft is below 1 000 ft and no data has been received for more than 10 seconds (signal likely lost on short final), its dot fades to a dimmed blue and the label is removed. The dot remains at its last known position until the tracker removes it after the normal 30–45 second timeout
 - **Labels** — callsign and current deviation from glideslope in feet (e.g. `FIN3GJ (+85ft)`)
 - **Windshear zones** — amber/red horizontal bands between the altitudes of the two aircraft involved in a detected shear event (visible when detection is enabled)
 
@@ -695,6 +696,8 @@ When detection is active and a shear event is found:
 - Both flight strips get a pulsing **WS badge** (amber = moderate, red = severe) and an amber left-border highlight
 - A coloured **horizontal band** is drawn on the ILS profile canvas between the two aircraft's altitudes, labelled with the shear magnitude
 - The event is appended to the **windshear event log** panel (right of the ILS canvas) with a timestamp, magnitude, gradient direction, and both aircraft's headwind components
+
+Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in the detection. Aircraft still intercepting the glideslope from above or below carry wind data from a different flight path segment and are excluded to prevent false alerts.
 
 Turning the toggle OFF immediately clears all active alerts and restores the normal strip and canvas display. Previously logged events remain visible in the log until cleared manually. All data is held in RAM and does not persist across page refreshes.
 
