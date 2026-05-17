@@ -907,6 +907,7 @@ function buildStrip(ac, wsSeverity = null) {
     ${row('HW',   hw)}
     ${row('Temp', temp)}
     ${row('GS',   ac.groundspeed != null ? Math.round(ac.groundspeed) + ' kt' : null)}
+    ${row('IAS',  ac.ias != null ? ac.ias + ' kt' : null)}
     ${row('XT',   ac.cross_track_nm != null ? ac.cross_track_nm.toFixed(1) + ' NM' : null)}
   </div>
 </div>`;

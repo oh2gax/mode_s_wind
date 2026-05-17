@@ -579,6 +579,7 @@ The strip layout is fixed — every row is always rendered so the strip never sh
 | **HW** | Headwind component along the runway heading (positive = headwind, negative = tailwind) |
 | **Temp** | Temperature (°C) |
 | **GS** | Groundspeed (kt) |
+| **IAS** | Indicated Airspeed (kt) decoded from BDS 6,0 — shown when available, `—` otherwise |
 | **XT** | Cross-track offset from centreline (NM) |
 
 **Emergency squawk alarm** — when any tracked aircraft squawks 7500 (hijacking), 7600 (radio failure / NORDO), or 7700 (general emergency), a blinking red alarm banner appears at the top of the page, a ⚠ flash label blinks on the corresponding flight strip, and the squawk badge turns red. The alarm clears automatically if the code is no longer received. All tracked aircraft are scanned for emergency codes, not only those inside the ILS corridor.

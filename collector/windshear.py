@@ -338,6 +338,7 @@ class WindshearTracker:
         wind_dir    = aircraft.get("best_wind_dir")
         temperature = aircraft.get("best_temp")
         squawk      = aircraft.get("squawk")
+        ias         = aircraft.get("bds60_ias")
         gs_stat     = gs_status(alt, dist_thr, self.thr_elevation_ft) if in_corridor else "FAR"
 
         # Headwind component along the matched runway's approach heading.
@@ -443,6 +444,7 @@ class WindshearTracker:
                 "along_track_nm": round(along_track, 2) if in_corridor else None,
                 "headwind_kt":    headwind_kt,
                 "squawk":         squawk,
+                "ias":            round(ias) if ias is not None else None,
                 "gs_status":      gs_stat,
                 "history":        history,
                 "last_seen":      aircraft.get("last_seen", now),
