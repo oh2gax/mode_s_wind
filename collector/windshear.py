@@ -445,7 +445,7 @@ class WindshearTracker:
                 "squawk":         squawk,
                 "gs_status":      gs_stat,
                 "history":        history,
-                "last_seen":      now,
+                "last_seen":      aircraft.get("last_seen", now),
                 # Go-around state (consumed by the web UI)
                 "ga_phase":         ga_phase,
                 "ga_descent_polls": ga_descent_polls,
