@@ -861,6 +861,12 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 
 ---
 
+## Changelog
+
+A detailed record of all changes, fixes and new features is maintained in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 ## Contributing
 
 This project is in active development. Feedback, observations and bug reports are welcome.
