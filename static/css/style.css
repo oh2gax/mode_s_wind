@@ -55,7 +55,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                 font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 
 /* ── Live layout ──────────────────────────────────────────────────────── */
-.live-layout { display: flex; height: calc(100% - 130px); overflow: hidden; }
+.live-layout { display: flex; height: calc(100% - 165px); overflow: hidden; }
 
 .panel-left  { width: var(--panel-w); background: var(--bg-1);
                border-right: 1px solid var(--border); display: flex;
@@ -92,7 +92,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .toggle-label input { cursor: pointer; }
 
 /* ── Detail strip (bottom) ──────────────────────────────────────────────── */
-.detail-strip { height: 130px; background: var(--bg-1); border-top: 1px solid var(--border);
+.detail-strip { height: 165px; background: var(--bg-1); border-top: 1px solid var(--border);
                 overflow: hidden; flex-shrink: 0; position: relative; }
 .detail-strip.hidden { display: none; }
 
@@ -128,7 +128,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
             text-transform: uppercase; letter-spacing: .5px;
             margin-bottom: 3px; flex-shrink: 0; }
 .wx-label span { color: var(--accent); }
-.wx-text { font-family: system-ui, -apple-system, sans-serif; font-size: 12.5px; color: var(--text-1);
+.wx-text { font-family: system-ui, -apple-system, sans-serif; font-size: 15.5px; color: var(--text-2);
            margin: 0; white-space: pre-wrap; word-break: break-word;
            overflow-y: auto; flex: 1; line-height: 1.5; }
 
@@ -971,7 +971,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* ── Bottom METAR / TAF strip ───────────────────────────────────────────── */
 .ws-wx-strip {
   display: flex;
-  height: 120px;
+  height: 165px;
   border-top: 1px solid var(--border);
   background: var(--bg-1);
   flex-shrink: 0;
@@ -983,6 +983,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   padding: 6px 10px;
   overflow: hidden;
   border-right: 1px solid var(--border);
+  min-width: 0;
 }
 .ws-wx-section:last-child { border-right: none; }
 .ws-wx-label {
@@ -995,11 +996,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   flex-shrink: 0;
 }
 .ws-wx-text {
-  font-size: 12.5px;
+  font-size: 15.5px;
   font-family: system-ui, -apple-system, sans-serif;
   color: var(--text-2);
   white-space: pre-wrap;
-  overflow: hidden;
+  overflow-y: auto;
   line-height: 1.5;
   flex: 1;
 }
