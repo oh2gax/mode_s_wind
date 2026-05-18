@@ -630,7 +630,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   background: #78350f22;
   color: var(--text-1);
 }
-.ws-det-icon { font-size: 11px; }
 .ws-det-state {
   font-weight: 700;
   font-family: 'Courier New', monospace;

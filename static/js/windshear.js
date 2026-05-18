@@ -1303,7 +1303,7 @@ function renderWsLog() {
   if (wsLog.length === 0) {
     const msg = wsDetectionEnabled
       ? 'No events detected'
-      : 'Enable ⚡ detection — go-arounds logged automatically';
+      : 'Enable detection — go-arounds logged automatically';
     el.innerHTML = `<div class="ws-ws-log-empty">${msg}</div>`;
     return;
   }
@@ -1350,7 +1350,7 @@ function renderWsLog() {
   <div>
     <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
     ${algoBadge}
-    <span class="ws-log-entry-delta">⚡ ${e.delta_kt} kt</span>
+    <span class="ws-log-entry-delta">${e.delta_kt} kt</span>
     &nbsp;${trend}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
   </div>
   <div class="ws-log-entry-ac">${acLine}</div>
