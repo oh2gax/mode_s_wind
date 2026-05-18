@@ -1507,7 +1507,7 @@ function drawWindrose() {
   ctx.textBaseline = 'middle';
   for (const [d, lbl] of Object.entries(COMPASS_LABELS)) {
     const rad = Number(d) * Math.PI / 180;
-    ctx.font      = Number(d) % 90 === 0 ? 'bold 9px "Courier New",monospace' : '8px "Courier New",monospace';
+    ctx.font      = Number(d) % 90 === 0 ? 'bold 12px "Courier New",monospace' : '10px "Courier New",monospace';
     ctx.fillStyle = Number(d) % 90 === 0 ? '#94a3b8' : '#475569';
     ctx.fillText(lbl, cx + LR * Math.sin(rad), cy - LR * Math.cos(rad));
   }
@@ -1533,7 +1533,7 @@ function drawWindrose() {
     ctx.strokeStyle = '#2d4a66';
     ctx.stroke();
     // End labels just inside the ring
-    ctx.font      = '8px "Courier New",monospace';
+    ctx.font      = '11px "Courier New",monospace';
     ctx.fillStyle = '#3b6ea0';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const inset = R * 0.78;
@@ -1616,7 +1616,7 @@ function drawWindrose() {
   }
 
   // ── Top-left legend dots ─────────────────────────────────────────────────────
-  ctx.font = '8px "Courier New",monospace';
+  ctx.font = '10px "Courier New",monospace';
   ctx.textBaseline = 'top'; ctx.textAlign = 'left';
   ctx.fillStyle = METAR_COL;
   ctx.fillText('● METAR', 5, 4);
