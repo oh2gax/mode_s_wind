@@ -32,6 +32,11 @@ const WS_SEVERE_KT      = 25;    // severe windshear threshold
 const WS_MAX_ALT_BAND   = 2000;  // max altitude separation (ft) between compared aircraft
 const WS_MIN_ALT_BAND   = 200;   // min altitude separation (ft) — avoid same-level noise
 
+// EFHK runway magnetic headings — used by client-side shear algorithms
+const RWY_HEADINGS = {
+  '04L': 47, '04R': 47, '22L': 227, '22R': 227, '15': 152, '33': 332,
+};
+
 // Meteo-source colour palette (matches live map)
 const SRC_COLOR = {
   MRAR:     '#3b82f6',
@@ -683,69 +688,307 @@ function gsClass(gs) {
 
 // ── Windshear detection engine ────────────────────────────────────────────────
 let wsDetectionEnabled = false;
+let wsDetAlgo          = 'pair';   // active algorithm key
 let lastShearEvents    = [];
 
+// GS history for energy algorithm  icao → [{gs, alt, ts}, …]
+const wsGsHistory = {};
+
+// ── Windshear algorithm helpers ───────────────────────────────────────────────
+
+/** Return the approach magnetic heading for a runway designator, or null. */
+function getRwyHeading(rwy) { return RWY_HEADINGS[rwy] ?? null; }
+
 /**
- * Detect windshear by comparing headwind components between corridor aircraft
- * on the same runway, sorted by altitude.
- *
- * Returns an array of shear event objects:
- *   { rwy, icao_low, icao_high, alt_low, alt_high, hw_low, hw_high,
- *     delta_kt, severity }
- *
- * Detection only runs when wsDetectionEnabled is true.
+ * Headwind component (kt) of a wind observation for a given runway heading.
+ * Positive = headwind, negative = tailwind.
+ * Formula: spd × cos(windDir − rwyHdg)
  */
-function detectWindshear(aircraft) {
-  if (!wsDetectionEnabled) return [];
+function hwKt(windSpd, windDir, rwyHdg) {
+  return windSpd * Math.cos((windDir - rwyHdg) * Math.PI / 180);
+}
 
+// ── Algorithm 1: Pairwise ─────────────────────────────────────────────────────
+/**
+ * Classic ICAO pairwise method.
+ * Compares headwind between two simultaneously tracked corridor aircraft at
+ * different altitudes on the same runway.  Requires ≥2 aircraft on approach.
+ *
+ * Physics: a sudden change in headwind between altitude levels reveals the
+ * presence of a wind shear layer.  ICAO defines windshear as ≥15 kt change.
+ */
+function detectPairwise(aircraft) {
   const events = [];
-
-  // Group corridor aircraft with valid headwind data by runway
-  const byRwy = {};
+  const byRwy  = {};
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
     if (ac.headwind_kt == null) continue;
-    // Only include aircraft established on the glideslope (±300 ft tolerance,
-    // QNH-corrected).  Aircraft still intercepting from above or below carry
-    // wind data from a different flight path segment and cause false alerts.
     if (computeGsStatus(ac) !== 'ON') continue;
     if (!byRwy[ac.approach_runway]) byRwy[ac.approach_runway] = [];
     byRwy[ac.approach_runway].push(ac);
   }
-
-  // For each runway, compare every altitude-adjacent pair
   for (const [rwy, acs] of Object.entries(byRwy)) {
     if (acs.length < 2) continue;
-    acs.sort((a, b) => a.altitude - b.altitude);   // lowest first
-
+    acs.sort((a, b) => a.altitude - b.altitude);
     for (let i = 0; i < acs.length - 1; i++) {
       const low  = acs[i];
       const high = acs[i + 1];
-
       const altDiff = high.altitude - low.altitude;
-      if (altDiff < WS_MIN_ALT_BAND) continue;   // too close — same level
-      if (altDiff > WS_MAX_ALT_BAND) continue;   // too far apart
-
+      if (altDiff < WS_MIN_ALT_BAND || altDiff > WS_MAX_ALT_BAND) continue;
       const delta = Math.abs(high.headwind_kt - low.headwind_kt);
       if (delta < WS_THRESHOLD_KT) continue;
-
       events.push({
+        algo:     'pair',
         rwy,
-        icao_low:   low.icao,
-        icao_high:  high.icao,
-        cs_low:     low.callsign  || low.icao,
-        cs_high:    high.callsign || high.icao,
-        alt_low:    low.altitude,
-        alt_high:   high.altitude,
-        hw_low:     low.headwind_kt,
-        hw_high:    high.headwind_kt,
-        delta_kt:   Math.round(delta),
+        icao_low:  low.icao,
+        icao_high: high.icao,
+        cs_low:    low.callsign  || low.icao,
+        cs_high:   high.callsign || high.icao,
+        alt_low:   low.altitude,
+        alt_high:  high.altitude,
+        hw_low:    low.headwind_kt,
+        hw_high:   high.headwind_kt,
+        delta_kt:  Math.round(delta),
+        severity:  delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      });
+    }
+  }
+  return events;
+}
+
+// ── Algorithm 2: Single-aircraft wind gradient ────────────────────────────────
+/**
+ * Examines the wind barb history accumulated for a single aircraft during
+ * its approach.  For each pair of stored observations separated by
+ * 200–3 000 ft of altitude, computes the headwind change.  The maximum
+ * change found across the whole approach history is reported.
+ *
+ * Physics: a wind gradient (dHW/dz) directly measures the vertical structure
+ * of the low-level wind field.  A gradient exceeding ~15 kt / 1 000 ft is
+ * operationally significant.  Unlike pairwise, this works with a single
+ * aircraft and accumulates evidence as the aircraft descends.
+ */
+function detectGradient(aircraft) {
+  const events   = [];
+  const MIN_BAND = 200;
+  const MAX_BAND = 3_000;
+
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway) continue;
+    const rwyHdg = getRwyHeading(ac.approach_runway);
+    if (rwyHdg == null) continue;
+
+    const hist = wsWindHistory[ac.icao] || [];
+    const pts  = hist
+      .filter(h => h.wind_spd != null && h.wind_dir != null && h.alt_ft != null)
+      .map(h => ({ alt: h.alt_ft, hw: hwKt(h.wind_spd, h.wind_dir, rwyHdg) }))
+      .sort((a, b) => b.alt - a.alt);   // highest first
+
+    if (pts.length < 3) continue;
+
+    let maxDelta = 0, bestHi = null, bestLo = null;
+    for (let i = 0; i < pts.length - 1; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const dAlt  = pts[i].alt - pts[j].alt;
+        if (dAlt < MIN_BAND || dAlt > MAX_BAND) continue;
+        const delta = Math.abs(pts[i].hw - pts[j].hw);
+        if (delta > maxDelta) { maxDelta = delta; bestHi = pts[i]; bestLo = pts[j]; }
+      }
+    }
+
+    if (maxDelta >= WS_THRESHOLD_KT && bestHi && bestLo) {
+      events.push({
+        algo:     'gradient',
+        rwy:      ac.approach_runway,
+        icao:     ac.icao,
+        cs:       ac.callsign || ac.icao,
+        alt_low:  Math.round(bestLo.alt),
+        alt_high: Math.round(bestHi.alt),
+        hw_low:   Math.round(bestLo.hw),
+        hw_high:  Math.round(bestHi.hw),
+        delta_kt: Math.round(maxDelta),
+        severity: maxDelta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      });
+    }
+  }
+  return events;
+}
+
+// ── Algorithm 3: Total energy trend ──────────────────────────────────────────
+/**
+ * Tracks the total mechanical energy proxy of each approach aircraft over a
+ * sliding time window.  Energy is approximated as:
+ *
+ *   E = GS_kt + alt_ft / 100
+ *
+ * On a stable 3° ILS approach at ~140 kt, roughly 100 ft of altitude
+ * corresponds to 1 kt of equivalent kinetic energy (derived from the
+ * glideslope geometry and typical approach speed).  A stable approach
+ * maintains near-constant E.  A rapid decrease signals that the aircraft
+ * is losing more energy than expected — the classic signature of a
+ * microburst or strong windshear event reducing effective headwind.
+ *
+ * Inspired by the energy-rate monitor used in airborne GPWS/EGPWS systems.
+ */
+function detectEnergy(aircraft) {
+  const events      = [];
+  const WINDOW_MS   = 45_000;   // 45-second look-back window
+  const LOSS_KT     = 15;       // kt-equivalent energy loss to flag
+  const MIN_POINTS  = 4;
+
+  const nowMs = Date.now();
+
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (ac.groundspeed == null || ac.altitude == null) continue;
+
+    const hist = (wsGsHistory[ac.icao] || [])
+      .filter(h => (nowMs - h.ts) <= WINDOW_MS);
+    if (hist.length < MIN_POINTS) continue;
+
+    // Energy proxy at each stored point
+    const ePoints = hist.map(h => ({ E: h.gs + h.alt / 100, alt: h.alt, gs: h.gs, ts: h.ts }));
+    const first   = ePoints[0];
+    const last    = ePoints[ePoints.length - 1];
+    const dE      = last.E - first.E;   // negative = energy loss
+
+    if (dE <= -LOSS_KT) {
+      const delta = Math.round(Math.abs(dE));
+      events.push({
+        algo:       'energy',
+        rwy:        ac.approach_runway,
+        icao:       ac.icao,
+        cs:         ac.callsign || ac.icao,
+        alt_low:    Math.round(last.alt),
+        alt_high:   Math.round(first.alt),
+        hw_low:     Math.round(last.gs),    // repurposed: GS at end of window
+        hw_high:    Math.round(first.gs),   // repurposed: GS at start of window
+        delta_kt:   delta,
+        energy_loss: Math.round(dE),
         severity:   delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
       });
     }
   }
-
   return events;
+}
+
+// ── Algorithm 4: Headwind rate of change ─────────────────────────────────────
+/**
+ * Compares a single aircraft's current headwind to the oldest observation
+ * within its recent wind history (up to the last WS_WIND_HIST_MAX points).
+ * A large headwind change over the accumulated approach segment — regardless
+ * of how many altitude feet are involved — indicates a rapid wind shift.
+ *
+ * Physics: even on a short final where altitude change is small, the aircraft
+ * can experience a sudden headwind loss as it enters a shear zone.  The
+ * pairwise and gradient algorithms may miss this if the altitude separation
+ * is too small; the rate algorithm catches purely horizontal/time-based shifts.
+ */
+function detectRate(aircraft) {
+  const events   = [];
+  const LOOKBACK = 6;   // observations to look back through
+
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
+    const rwyHdg = getRwyHeading(ac.approach_runway);
+    if (rwyHdg == null) continue;
+
+    const hist = wsWindHistory[ac.icao] || [];
+    if (hist.length < 2) continue;
+
+    // Take the oldest point within the lookback window as reference
+    const window = hist.slice(-LOOKBACK);
+    const ref    = window[0];
+    if (ref.wind_spd == null || ref.wind_dir == null) continue;
+
+    const refHw  = hwKt(ref.wind_spd, ref.wind_dir, rwyHdg);
+    const delta  = Math.abs(ac.headwind_kt - refHw);
+
+    if (delta >= WS_THRESHOLD_KT) {
+      events.push({
+        algo:     'rate',
+        rwy:      ac.approach_runway,
+        icao:     ac.icao,
+        cs:       ac.callsign || ac.icao,
+        alt_low:  Math.round(ref.alt_ft  || ac.altitude),
+        alt_high: Math.round(ac.altitude),
+        hw_low:   Math.round(refHw),
+        hw_high:  Math.round(ac.headwind_kt),
+        delta_kt: Math.round(delta),
+        severity: delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      });
+    }
+  }
+  return events;
+}
+
+// ── Algorithm 5: Historical baseline deviation ────────────────────────────────
+/**
+ * Builds a vector-averaged baseline wind from the recentLandingWinds buffer
+ * (low-altitude observations harvested from the last 30 minutes of completed
+ * approaches).  Each active corridor aircraft's current headwind is compared
+ * to the expected headwind derived from this baseline.
+ *
+ * Physics: the baseline represents the "background" low-level wind field as
+ * measured by multiple recent aircraft on the same approach path.  A large
+ * deviation for the current aircraft suggests the wind has changed sharply
+ * since the baseline was built — either in space (localised shear zone) or
+ * in time (frontal passage, microburst onset).  Requires at least 5 recent
+ * observations to form a meaningful baseline.
+ */
+function detectBaseline(aircraft) {
+  const events   = [];
+  const MIN_OBS  = 5;
+
+  const nowMs   = Date.now();
+  const recent  = recentLandingWinds.filter(o => (nowMs - o.ts) <= WINDROSE_MAX_AGE_MS);
+  if (recent.length < MIN_OBS) return [];
+
+  const baseline = vectorAvgWind(recent);
+  if (!baseline || baseline.spd < 1) return [];
+
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
+    const rwyHdg = getRwyHeading(ac.approach_runway);
+    if (rwyHdg == null) continue;
+
+    const baselineHw = hwKt(baseline.spd, baseline.dir, rwyHdg);
+    const delta      = Math.abs(ac.headwind_kt - baselineHw);
+
+    if (delta >= WS_THRESHOLD_KT) {
+      events.push({
+        algo:           'baseline',
+        rwy:            ac.approach_runway,
+        icao:           ac.icao,
+        cs:             ac.callsign || ac.icao,
+        alt_low:        Math.round(ac.altitude) - 50,
+        alt_high:       Math.round(ac.altitude) + 50,
+        hw_low:         Math.round(baselineHw),
+        hw_high:        Math.round(ac.headwind_kt),
+        delta_kt:       Math.round(delta),
+        baseline_count: recent.length,
+        severity:       delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      });
+    }
+  }
+  return events;
+}
+
+// ── Algorithm dispatcher ──────────────────────────────────────────────────────
+/**
+ * Route to the active algorithm.  All algorithms return events in a
+ * compatible format with at minimum: { algo, rwy, alt_low, alt_high,
+ * delta_kt, severity } so the canvas shading and log work unchanged.
+ */
+function detectWindshear(aircraft) {
+  if (!wsDetectionEnabled) return [];
+  switch (wsDetAlgo) {
+    case 'gradient': return detectGradient(aircraft);
+    case 'energy':   return detectEnergy(aircraft);
+    case 'rate':     return detectRate(aircraft);
+    case 'baseline': return detectBaseline(aircraft);
+    default:         return detectPairwise(aircraft);
+  }
 }
 
 /**
@@ -763,11 +1006,13 @@ function updateAlertBanner(events) {
   const cls = hasSevere ? 'ws-alert-severe' : 'ws-alert-moderate';
   const icon = hasSevere ? '🔴' : '⚠';
 
+  const ALGO_SHORT = { pair:'Pair', gradient:'Grad', energy:'Engy', rate:'Rate', baseline:'Base' };
   const tags = events.map(e => {
-    const hw = e.hw_high > e.hw_low
-      ? `+${e.delta_kt} kt ↑`   // more headwind higher = normal gradient
-      : `-${e.delta_kt} kt ↑`;  // more tailwind higher = hazardous
-    return `<span class="ws-alert-tag">RWY ${e.rwy} · ${e.delta_kt} kt  ${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft  [${e.cs_low}↕${e.cs_high}]</span>`;
+    const algoLbl = ALGO_SHORT[e.algo] || 'WS';
+    const acInfo  = (e.cs_low && e.cs_high)
+      ? `[${e.cs_low}↕${e.cs_high}]`
+      : `[${e.cs || ''}]`;
+    return `<span class="ws-alert-tag">${algoLbl} · RWY ${e.rwy} · ${e.delta_kt} kt  ${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft  ${acInfo}</span>`;
   }).join(' ');
 
   banner.className = `ws-alert-banner ${cls}`;
@@ -825,6 +1070,26 @@ document.getElementById('ws-det-btn').addEventListener('click', () => {
   } else {
     renderWsLog();  // update log to show "no events yet" message
   }
+});
+
+// ── Algorithm selector ────────────────────────────────────────────────────────
+document.querySelectorAll('.ws-algo-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    wsDetAlgo = btn.dataset.algo;
+    document.querySelectorAll('.ws-algo-btn').forEach(b =>
+      b.classList.toggle('active', b === btn)
+    );
+    // Re-run detection immediately with the new algorithm
+    if (wsDetectionEnabled) {
+      const corridor    = lastAircraft.filter(ac => ac.in_corridor);
+      lastShearEvents   = detectWindshear(corridor);
+      renderStrips(lastAircraft, lastShearEvents);
+      drawIlsProfile(corridor, lastShearEvents);
+      updateAlertBanner(lastShearEvents);
+      addToWsLog(lastShearEvents);
+      renderWsLog();
+    }
+  });
 });
 
 function buildStrip(ac, wsSeverity = null) {
@@ -931,15 +1196,19 @@ function renderStrips(aircraft, shearEvents = []) {
     return;
   }
 
-  // Build a map of icao → highest shear severity for badge rendering
+  // Build a map of icao → highest shear severity for badge rendering.
+  // Pairwise events carry icao_low / icao_high; single-aircraft algorithms
+  // (gradient, energy, rate, baseline) carry icao — handle both.
   const wsMap = new Map();
   for (const ev of shearEvents) {
     const bump = (icao) => {
+      if (!icao) return;
       const cur = wsMap.get(icao);
       if (!cur || ev.severity === 'severe') wsMap.set(icao, ev.severity);
     };
     bump(ev.icao_low);
     bump(ev.icao_high);
+    bump(ev.icao);   // single-aircraft algorithms
   }
 
   // Preserve scroll position
@@ -1014,7 +1283,9 @@ function addToWsLog(events) {
   const dedup = 60_000; // ms — suppress repeat of same pair within 1 min
 
   for (const ev of events) {
-    const key = `${ev.rwy}:${ev.icao_low}:${ev.icao_high}`;
+    // Include algo so switching algorithm doesn't suppress the new detection,
+    // and handle single-aircraft events (icao) alongside pairwise (icao_low/high).
+    const key = `${ev.algo || 'pair'}:${ev.rwy}:${ev.icao_low || ev.icao || ''}:${ev.icao_high || ''}`;
     const last = wsLog.find(e => e._key === key);
     if (last && (now - last._ts) < dedup) continue;   // still recent — skip
 
@@ -1055,19 +1326,39 @@ function renderWsLog() {
   <div class="ws-log-entry-ac">${e.callsign || e.icao}</div>
 </div>`;
     }
-    // ── Windshear entry (existing) ────────────────────────────────────────
-    const sevCls   = e.severity === 'severe' ? ' ws-log-severe' : '';
-    const hw_low   = e.hw_low  != null ? e.hw_low.toFixed(0)  : '?';
-    const hw_high  = e.hw_high != null ? e.hw_high.toFixed(0) : '?';
-    const gradient = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
+    // ── Windshear entry ───────────────────────────────────────────────────
+    const sevCls  = e.severity === 'severe' ? ' ws-log-severe' : '';
+    const hw_low  = e.hw_low  != null ? Number(e.hw_low).toFixed(0)  : '?';
+    const hw_high = e.hw_high != null ? Number(e.hw_high).toFixed(0) : '?';
+    const trend   = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
+
+    // Algorithm badge
+    const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline' };
+    const algoLbl  = ALGO_LABELS[e.algo] || (e.algo || 'WS');
+    const algoBadge = `<span class="ws-log-algo-badge ws-algo-${e.algo || 'pair'}">${algoLbl}</span>`;
+
+    // Aircraft detail line — pairwise has two callsigns; single-aircraft has one
+    let acLine;
+    if (e.cs_low && e.cs_high) {
+      acLine = `${e.cs_low} (${hw_low} kt) ↕ ${e.cs_high} (${hw_high} kt)`;
+    } else if (e.cs) {
+      const detail = e.algo === 'energy'
+        ? `GS ${hw_high}→${hw_low} kt`
+        : `HW ${hw_high}→${hw_low} kt`;
+      acLine = `${e.cs}  ${detail}`;
+    } else {
+      acLine = `${hw_low} kt → ${hw_high} kt`;
+    }
+
     return `<div class="ws-log-entry${sevCls}">
   <div class="ws-log-entry-time">${e._time}</div>
   <div>
     <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
+    ${algoBadge}
     <span class="ws-log-entry-delta">⚡ ${e.delta_kt} kt</span>
-    &nbsp;${gradient}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
+    &nbsp;${trend}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
   </div>
-  <div class="ws-log-entry-ac">${e.cs_low} (${hw_low} kt) ↕ ${e.cs_high} (${hw_high} kt)</div>
+  <div class="ws-log-entry-ac">${acLine}</div>
 </div>`;
   }).join('');
 }
@@ -1410,6 +1701,21 @@ async function fetchApproachState() {
         delete wsWindHistory[icao];
         if (barbSelectedIcao === icao) barbSelectedIcao = null;
       }
+    }
+
+    // Clean up GS history for aircraft no longer tracked
+    for (const icao of Object.keys(wsGsHistory)) {
+      if (!liveIcaos.has(icao)) delete wsGsHistory[icao];
+    }
+
+    // ── GS history: accumulate for energy algorithm ───────────────────────
+    for (const ac of corridor) {
+      if (ac.groundspeed == null || ac.altitude == null) continue;
+      if (!wsGsHistory[ac.icao]) wsGsHistory[ac.icao] = [];
+      wsGsHistory[ac.icao].push({ gs: ac.groundspeed, alt: ac.altitude, ts: nowMs });
+      // Keep a rolling 30-point buffer (~90 s at 3 s polling); the energy
+      // algorithm applies its own 45-second time filter on top.
+      if (wsGsHistory[ac.icao].length > 30) wsGsHistory[ac.icao].shift();
     }
 
     // ── Wind history: accumulate for corridor aircraft with wind data ──────

@@ -652,12 +652,13 @@ The rose is intended to let you quickly judge whether the MODE-S wind profile me
 The panel to the right of the ILS profile canvas maintains a timestamped log of all detected windshear events during the current session. Entries are listed newest first with the following information for each event:
 
 - **Time** — local time the event was first detected
+- **Algorithm badge** — coloured pill showing which algorithm produced the event (Pair, Gradient, Energy, Rate, Baseline)
 - **Runway** — the ILS corridor where shear was detected
 - **Magnitude** — headwind delta in knots (amber = moderate ≥ 15 kt, red = severe ≥ 25 kt) and whether headwind is increasing or decreasing with altitude
-- **Altitude band** — the altitude range (ft) between the two aircraft involved
-- **Aircraft pair** — callsigns and individual headwind components of the lower and upper aircraft
+- **Altitude band** — the altitude range (ft) spanning the shear layer
+- **Aircraft detail** — for Pairwise: callsigns and individual headwind components of both aircraft; for single-aircraft algorithms: callsign and the direction/magnitude of the headwind change (or groundspeed change for the Energy algorithm)
 
-Events are deduplicated — the same aircraft pair on the same runway is logged at most once per 60 seconds even if detection fires on every poll cycle. The log is cleared by the **Clear** button or when the browser tab is refreshed. It does not persist to the database.
+Events are deduplicated per algorithm, runway, and aircraft within a 60-second window. Switching algorithms resets the deduplication so the new algorithm can log events immediately. The log is cleared by the **Clear** button or when the browser tab is refreshed. It does not persist to the database.
 
 #### Go-around detector
 
@@ -699,26 +700,108 @@ The Leaflet map shows:
 
 #### Windshear detection
 
-A windshear detection algorithm can be enabled via the **⚡ Windshear Detection** toggle button in the left panel. It is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection is enabled via the **⚡ Windshear Detection** toggle button in the left panel. It is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
 
-The detection compares the headwind component along the runway approach heading between pairs of aircraft on the same ILS corridor, sorted by altitude. For every pair within a 200–2 000 ft altitude separation window:
+Five independent detection algorithms are available, selectable by the row of compact buttons (`Pair / Gradient / Energy / Rate / Baseline`) that appear immediately below the detection toggle. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time.
+
+All algorithms use the same headwind component formula:
 
 ```
 headwind (kt) = wind_speed × cos(wind_direction − runway_heading)
 ```
 
-If the difference in headwind between two altitudes is ≥ 15 kt (the ICAO windshear definition), a shear event is flagged. Events ≥ 25 kt are classified as **severe**.
+Positive values represent a headwind; negative values represent a tailwind. The runway heading used is the published magnetic approach heading for the matched runway (e.g. 047° for RWY 04L/04R, 227° for RWY 22L/22R).
 
-When detection is active and a shear event is found:
+Events with a headwind change ≥ 15 kt are flagged as **moderate**; events ≥ 25 kt are **severe**. When a shear event is found:
 
-- An **alert banner** appears at the top of the page showing the runway, altitude band, delta in knots, and the callsigns of the two aircraft involved
-- Both flight strips get a pulsing **WS badge** (amber = moderate, red = severe) and an amber left-border highlight
-- A coloured **horizontal band** is drawn on the ILS profile canvas between the two aircraft's altitudes, labelled with the shear magnitude
-- The event is appended to the **windshear event log** panel (right of the ILS canvas) with a timestamp, magnitude, gradient direction, and both aircraft's headwind components
+- An **alert banner** appears at the top of the page with the algorithm name, runway, altitude band, and aircraft information
+- Affected flight strips get a pulsing **WS badge** (amber = moderate, red = severe) with an amber left-border
+- A coloured **horizontal band** is drawn on the ILS profile canvas between the relevant altitudes
+- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail
 
-Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in the detection. Aircraft still intercepting the glideslope from above or below carry wind data from a different flight path segment and are excluded to prevent false alerts.
+Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in detection, preventing false alerts from aircraft still intercepting the glideslope from above or below.
 
-Turning the toggle OFF immediately clears all active alerts and restores the normal strip and canvas display. Previously logged events remain visible in the log until cleared manually. All data is held in RAM and does not persist across page refreshes.
+Turning the toggle OFF immediately clears all active alerts. Previously logged events remain visible until cleared manually. All data is held in RAM and does not persist across page refreshes.
+
+##### Algorithm 1 — Pairwise (classic ICAO method)
+
+**Requires: ≥ 2 aircraft simultaneously on the same approach.**
+
+The Pairwise algorithm is the classical windshear detection technique defined in ICAO Doc 9817 and used operationally by airport LLWAS (Low-Level Windshear Alert Systems). It compares the headwind component between two simultaneously tracked aircraft on the same ILS corridor, one higher and one lower on the glideslope.
+
+For every pair of corridor aircraft within a 200–2 000 ft altitude separation window, the algorithm computes:
+
+```
+ΔHW = headwind(upper aircraft) − headwind(lower aircraft)
+```
+
+A large |ΔHW| reveals the presence of a wind shear layer between the two altitude levels. The 200 ft minimum separation prevents noise from aircraft at nearly the same level; the 2 000 ft maximum limits comparison to physically adjacent approach segments.
+
+**Limitation:** requires two aircraft on approach simultaneously. During low-traffic periods this algorithm produces no output even when real shear is present. It is most powerful during busy arrival sequences with closely stacked aircraft.
+
+##### Algorithm 2 — Gradient (single-aircraft wind history)
+
+**Requires: ≥ 3 stored wind observations for the same aircraft.**
+
+The Gradient algorithm examines the wind history accumulated for a single aircraft during its approach. As an aircraft descends from 3 000 ft to the threshold, the system stores up to 40 wind snapshots at intervals of ≥ 400 ft altitude change or ≥ 0.5 NM distance. The algorithm then finds the pair of observations — within a 200–3 000 ft altitude band — with the largest headwind difference.
+
+This directly measures the **vertical wind gradient** (dHW/dz) in the low-level approach environment. A gradient exceeding ~15 kt over 1 000 ft of altitude is operationally significant and is indicative of a wind shear layer within the approach path.
+
+**Advantage over Pairwise:** works with a single aircraft and accumulates evidence progressively as the aircraft descends through the wind field. Effective during single-runway VMC traffic when only one aircraft is on approach at a time.
+
+**Limitation:** detection sensitivity increases with each new wind observation. The algorithm produces no output for the first few observations (< 3 valid wind points) and improves in accuracy as the aircraft continues its descent.
+
+##### Algorithm 3 — Energy (total energy trend, GPWS-inspired)
+
+**Requires: ≥ 4 groundspeed + altitude observations within the last 45 seconds.**
+
+The Energy algorithm tracks a total mechanical energy proxy for each approach aircraft over a sliding 45-second window. The proxy is:
+
+```
+E = groundspeed (kt) + altitude (ft) / 100
+```
+
+On a stabilised 3° ILS approach at ~140 kt groundspeed, the aircraft descends roughly 318 ft per NM. Geometry and typical approach speeds mean that ~100 ft of altitude corresponds to approximately 1 kt of equivalent kinetic energy along the approach path. On a stable approach, E remains approximately constant as the aircraft trades altitude for forward speed at a predictable rate.
+
+A rapid decrease in E signals that the aircraft is losing more total energy than the normal glideslope geometry predicts — the classic kinematic signature of a microburst or strong headwind loss event. A drop of ≥ 15 kt-equivalent in 45 seconds is flagged.
+
+This algorithm is inspired conceptually by the energy-rate monitor in airborne EGPWS (Enhanced Ground Proximity Warning System) devices, which monitor the rate of total energy change to detect abnormal energy loss states during approach.
+
+**Advantage:** entirely groundspeed-based — no wind decoding required. Effective even when the aircraft's EHS wind registers (BDS 4,4 / 5,0) are not broadcasting.
+
+**Limitation:** any unrelated groundspeed fluctuation (e.g. temporary speed adjustment on ATC instruction) can trigger a false alarm. Works best with stable, consistent groundspeed data.
+
+##### Algorithm 4 — Rate (headwind rate of change)
+
+**Requires: ≥ 2 stored wind observations and a current headwind value.**
+
+The Rate algorithm compares the aircraft's current headwind component to the oldest value in its recent wind history (up to the last 6 observations). Unlike the Gradient algorithm, it is not altitude-filtered — it detects any headwind change along the approach path, whether driven by altitude-related wind structure or by horizontal passage through a shear zone.
+
+A large headwind change over a short segment — regardless of the altitude separation — indicates that the aircraft has rapidly entered a different wind environment. This catches purely horizontal or time-based wind shifts that develop at a fixed altitude level, including the leading edge of a microburst outflow where the shear layer may be nearly horizontal near the surface.
+
+**Advantage:** sensitive to rapid temporal wind changes that have little altitude variation. Particularly useful on short final (< 500 ft) where altitude change between observations is small but wind speed can still shift dramatically.
+
+**Limitation:** uses a short rolling window, so sustained slow changes may not accumulate to the threshold. More prone to transient false alarms than the altitude-separated algorithms.
+
+##### Algorithm 5 — Baseline (historical approach deviation)
+
+**Requires: ≥ 5 low-altitude wind observations from completed approaches in the last 30 minutes.**
+
+The Baseline algorithm constructs a reference wind from recent completed approaches and compares each active corridor aircraft's current headwind to what was expected based on that reference.
+
+When an approach aircraft disappears from the tracker (landed or left the corridor), the system harvests all of its stored wind observations below 2 000 ft and adds them to a rolling 30-minute buffer. The algorithm then vector-averages all observations in this buffer — using U/V component decomposition to handle the 360°/0° directional wrap correctly — to produce a background wind direction and speed. The expected headwind component for the current runway is derived from this averaged wind:
+
+```
+baseline_HW = avg_wind_speed × cos(avg_wind_dir − runway_heading)
+```
+
+If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 15 kt, shear is flagged.
+
+**Physical basis:** the baseline represents the background low-level wind field sampled by multiple recent aircraft on the same approach path. A large deviation for the current aircraft suggests that the wind environment has changed sharply since the baseline was established — either spatially (a localised shear zone has developed) or temporally (a frontal passage or microburst onset has changed the surface wind since the last landing).
+
+**Advantage:** the most context-aware of the five algorithms — it adapts to the actual recent wind environment at the airport rather than using a fixed reference. It can detect wind changes that develop gradually between arrival waves.
+
+**Limitation:** requires landing traffic in the preceding 30 minutes to populate the baseline buffer. The algorithm is silent at the start of a session or after a long traffic gap. Also assumes the baseline is representative of the current runway and direction, which may not hold perfectly when runway direction changes between the baseline and current approaches.
 
 #### Stale aircraft removal
 

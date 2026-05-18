@@ -650,6 +650,51 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   color: #fff;
 }
 
+/* Algorithm selector — compact pill row below the detection toggle */
+.ws-algo-sel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 5px 0 2px;
+}
+.ws-algo-btn {
+  flex: 1 1 auto;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all .15s;
+  text-align: center;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ws-algo-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-algo-btn.active { background: #78350f; color: #fde68a; border-color: #92400e; }
+
+/* Small algo badge inside WS log entries */
+.ws-log-algo-badge {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--bg-3);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  margin-left: 4px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+/* Per-algorithm accent colours for the log badge */
+.ws-log-algo-badge.ws-algo-pair     { background: #1e3a5f; color: #7dd3fc; border-color: #1e40af; }
+.ws-log-algo-badge.ws-algo-gradient { background: #14532d; color: #86efac; border-color: #166534; }
+.ws-log-algo-badge.ws-algo-energy   { background: #431407; color: #fdba74; border-color: #7c2d12; }
+.ws-log-algo-badge.ws-algo-rate     { background: #3b0764; color: #d8b4fe; border-color: #581c87; }
+.ws-log-algo-badge.ws-algo-baseline { background: #164e63; color: #67e8f9; border-color: #0e7490; }
+
 /* Windshear alert banner */
 .ws-alert-banner {
   padding: 8px 16px;
