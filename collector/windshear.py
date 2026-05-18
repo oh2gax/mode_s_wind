@@ -354,6 +354,21 @@ class WindshearTracker:
         rwy_hdg     = next((r["heading"] for r in self.runways if r["name"] == runway), None)
         headwind_kt = _headwind_kt(wind_spd, wind_dir, rwy_hdg) if rwy_hdg is not None else None
 
+        # ── Entry state gate ──────────────────────────────────────────────────────
+        # If this aircraft has never been tracked before AND it is currently
+        # climbing hard (vert_rate > +200 fpm), it is almost certainly a
+        # departing aircraft that has briefly passed the geometric corridor gates
+        # near the threshold.  Reject it before it pollutes the ILS profile.
+        #
+        # Existing tracked aircraft are always exempt: a go-around aircraft will
+        # start climbing while already present in self._state, so the gate never
+        # fires for a legitimate missed approach.
+        #
+        # self._state is written only by this sweep thread, so reading it without
+        # the lock is safe here (RLock is still used for the state update below).
+        if icao not in self._state and vert_rate > 200:
+            return
+
         with self._lock:
             prev    = self._state.get(icao, {})
             history = [h for h in prev.get("history", [])
