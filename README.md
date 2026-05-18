@@ -527,7 +527,7 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 The page has four main areas:
 
 - **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector
-- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers
+- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `🌹 Rose` button overlays the Wind Rose panel in the top-right corner of the map
 - **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
 - **Bottom right** — Windshear event log listing all detected shear events with timestamp, runway, magnitude, and the two aircraft involved
 - **Bottom strip** — METAR and TAF for the configured airport
@@ -632,6 +632,18 @@ The **🌬 Barbs** button, located in the ILS profile header immediately to the 
 **Aircraft departure:** when a tracked aircraft stops transmitting and is removed from the display (typically 30–45 seconds after landing), its wind history is deleted and the barb overlay is cleared automatically. In Auto mode the next lowest aircraft is selected immediately on the same poll cycle. Only one aircraft's barbs are shown at a time — clicking a different strip replaces the current overlay without requiring a manual deselect.
 
 The feature is designed for exploratory use: enable it during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.
+
+#### Wind Rose
+
+The `🌹 Rose` button in the map controls bar toggles a compass rose panel that overlays the top-right corner of the Leaflet map. It is enabled by default. The rose compares two wind sources side by side:
+
+**METAR surface wind (cyan arrow)** is parsed directly from the METAR string returned by `/api/wx` and is available immediately on page load, refreshed every 10 minutes alongside the METAR text. A variable-direction wind (VRB) is shown as a dotted cyan ring at the reported speed radius rather than a directional arrow.
+
+**MODE-S approach wind (green arrow)** is derived from aircraft that have recently completed approaches. When a tracked aircraft disappears from the display (landed and gone stale after 30–45 s), the system automatically harvests any wind observations that were recorded below 2 000 ft and adds them to a 30-minute rolling buffer. The green arrow is the vector average of all observations currently in that buffer. Vector averaging (U/V decomposition) is used throughout so that direction wraparound near 360°/0° is handled correctly. The text readout below the compass shows the averaged direction and speed, total observation count, and how many minutes ago the most recent observation was recorded. The arrow and readout remain hidden until the first low-altitude observation has been collected.
+
+The EFHK runway geometry is drawn on the compass as two plain crossing dashed lines: the 047°/227° line covers all four 04/22 runways (they share the same magnetic heading), and the 152°/332° line covers RWY 15/33. Each end is labelled with its runway designator. Speed-reference rings at 10, 20, and 30 kt are drawn inside the compass to give a visual sense of arrow scale; the full ring radius corresponds to 40 kt.
+
+The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
 #### Windshear event log
 

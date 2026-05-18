@@ -969,6 +969,12 @@ async function fetchWx() {
       // Redraw profile with updated QNH immediately
       drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
     }
+
+    // Update METAR wind for the Windrose and redraw
+    if (d.metar_wind !== undefined) {
+      metarWind = d.metar_wind;
+      drawWindrose();
+    }
   } catch (_) { /* silent */ }
 }
 
@@ -983,6 +989,14 @@ ilsFilterBtn.addEventListener('click', () => {
   ilsFilterActive = !ilsFilterActive;
   ilsFilterBtn.classList.toggle('active', ilsFilterActive);
   updateMapMarkers(lastAircraft);
+});
+
+// ── Wind Rose toggle ──────────────────────────────────────────────────────────
+document.getElementById('ws-windrose-btn').addEventListener('click', () => {
+  windroseEnabled = !windroseEnabled;
+  document.getElementById('ws-windrose-btn').classList.toggle('active', windroseEnabled);
+  document.getElementById('ws-windrose-panel').classList.toggle('ws-windrose-hidden', !windroseEnabled);
+  if (windroseEnabled) drawWindrose();
 });
 
 // ── Windshear event log ───────────────────────────────────────────────────────
@@ -1103,6 +1117,241 @@ let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = n
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
 let barbAutoTarget   = null;   // icao currently held by auto mode (null = none yet)
 
+// ── Wind Rose state ───────────────────────────────────────────────────────────
+const WINDROSE_ALT_MAX    = 2_000;          // ft — ceiling for MODE-S wind samples
+const WINDROSE_MAX_AGE_MS = 30 * 60 * 1000; // 30-minute rolling buffer
+
+let windroseEnabled      = true;   // shown by default
+let metarWind            = null;   // { dir, spd, variable } — updated by fetchWx
+const recentLandingWinds = [];     // { dir, spd, alt, ts } — low-alt obs from departed aircraft
+let prevLiveIcaos        = new Set(); // icao set from previous poll, used to detect departures
+
+// ── Wind Rose helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Vector-average a list of {dir, spd} wind observations.
+ * Uses U/V decomposition to handle 360°→0° wraparound correctly.
+ * Returns { dir, spd, count } or null if the list is empty.
+ */
+function vectorAvgWind(obs) {
+  if (!obs || obs.length === 0) return null;
+  let sumU = 0, sumV = 0;
+  for (const o of obs) {
+    const r = o.dir * Math.PI / 180;
+    sumU += o.spd * Math.sin(r);
+    sumV += o.spd * Math.cos(r);
+  }
+  const avgU = sumU / obs.length;
+  const avgV = sumV / obs.length;
+  const spd  = Math.sqrt(avgU * avgU + avgV * avgV);
+  let   dir  = Math.atan2(avgU, avgV) * 180 / Math.PI;
+  if (dir < 0) dir += 360;
+  return { dir: Math.round(dir), spd: Math.round(spd), count: obs.length };
+}
+
+/**
+ * Draw the EFHK wind rose on the ws-windrose-canvas and update the
+ * text readout div below it.
+ *
+ * Compass convention:
+ *   Arrow tip points TOWARD the direction the wind is coming FROM
+ *   (e.g. a 220° wind draws an arrow pointing to the SW compass position).
+ *   This matches standard meteo vane / ATIS convention.
+ *
+ * Runways drawn as plain crossing lines:
+ *   047°/227°  (04L, 04R, 22L, 22R — same magnetic heading)
+ *   152°/332°  (RWY 15 / RWY 33)
+ */
+function drawWindrose() {
+  const canvas  = document.getElementById('ws-windrose-canvas');
+  const readout = document.getElementById('ws-windrose-readout');
+  if (!canvas || !windroseEnabled) return;
+
+  const ctx = canvas.getContext('2d');
+  const W   = canvas.width;
+  const H   = canvas.height;
+  const cx  = W / 2;
+  const cy  = H / 2;
+  const R   = Math.min(cx, cy) - 22;  // auto-scales with canvas size; 22 px for labels
+  const LR  = R + 14;                 // label radius
+  const MAX_SPD = 40;                  // kt → full radius
+
+  // ── Background ──────────────────────────────────────────────────────────────
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a121c';
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Speed reference rings (10 / 20 / 30 kt) ────────────────────────────────
+  ctx.lineWidth = 0.5;
+  for (const spd of [10, 20, 30]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * spd / MAX_SPD, 0, Math.PI * 2);
+    ctx.strokeStyle = '#1a2d40';
+    ctx.stroke();
+  }
+
+  // ── Compass ring ────────────────────────────────────────────────────────────
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = '#1e3a5f';
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+
+  // ── Tick marks ──────────────────────────────────────────────────────────────
+  for (let deg = 0; deg < 360; deg += 10) {
+    const rad  = deg * Math.PI / 180;
+    const maj  = deg % 90  === 0;
+    const semi = deg % 45  === 0;
+    const len  = maj ? 7 : semi ? 5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(cx + R * Math.sin(rad),       cy - R * Math.cos(rad));
+    ctx.lineTo(cx + (R - len) * Math.sin(rad), cy - (R - len) * Math.cos(rad));
+    ctx.strokeStyle = maj ? '#475569' : '#1e3a5f';
+    ctx.lineWidth   = maj ? 1.5 : 0.75;
+    ctx.stroke();
+  }
+
+  // ── Compass labels ──────────────────────────────────────────────────────────
+  const COMPASS_LABELS = {
+    0: 'N', 45: 'NE', 90: 'E', 135: 'SE',
+    180: 'S', 225: 'SW', 270: 'W', 315: 'NW',
+  };
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [d, lbl] of Object.entries(COMPASS_LABELS)) {
+    const rad = Number(d) * Math.PI / 180;
+    ctx.font      = Number(d) % 90 === 0 ? 'bold 9px "Courier New",monospace' : '8px "Courier New",monospace';
+    ctx.fillStyle = Number(d) % 90 === 0 ? '#94a3b8' : '#475569';
+    ctx.fillText(lbl, cx + LR * Math.sin(rad), cy - LR * Math.cos(rad));
+  }
+
+  // ── Runway lines (plain crossing lines, no arrows) ──────────────────────────
+  // EFHK: 047°/227° covers all 04/22 runways; 152°/332° covers RWY 15/33.
+  const RUNWAY_LINES = [
+    { hdg: 47,  ends: ['04', '22'] },
+    { hdg: 152, ends: ['15', '33'] },
+  ];
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1.5;
+  for (const rl of RUNWAY_LINES) {
+    const r1 = rl.hdg * Math.PI / 180;
+    const r2 = (rl.hdg + 180) * Math.PI / 180;
+    const rLen = R * 0.93;
+    ctx.beginPath();
+    ctx.moveTo(cx + rLen * Math.sin(r1), cy - rLen * Math.cos(r1));
+    ctx.lineTo(cx + rLen * Math.sin(r2), cy - rLen * Math.cos(r2));
+    ctx.strokeStyle = '#2d4a66';
+    ctx.stroke();
+    // End labels just inside the ring
+    ctx.font      = '8px "Courier New",monospace';
+    ctx.fillStyle = '#3b6ea0';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const inset = R * 0.78;
+    ctx.fillText(rl.ends[0], cx + inset * Math.sin(r1), cy - inset * Math.cos(r1));
+    ctx.fillText(rl.ends[1], cx + inset * Math.sin(r2), cy - inset * Math.cos(r2));
+  }
+  ctx.setLineDash([]);
+
+  // ── Center dot ──────────────────────────────────────────────────────────────
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#475569';
+  ctx.fill();
+
+  // ── Wind arrow helper ────────────────────────────────────────────────────────
+  // Arrow points FROM center TOWARD the "from" direction (tip at the source quadrant).
+  function drawArrow(dir, spd, color) {
+    if (dir == null || spd == null) return;
+    const len  = R * Math.min(spd, MAX_SPD) / MAX_SPD;
+    if (len < 2) {
+      // Calm / near-calm — open circle at origin
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      ctx.stroke();
+      return;
+    }
+    const rad = dir * Math.PI / 180;
+    const tx  = cx + len * Math.sin(rad);
+    const ty  = cy - len * Math.cos(rad);
+
+    // Shaft
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(tx, ty);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+
+    // Arrowhead
+    const hLen = 7, hAng = 0.38;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - hLen * Math.sin(rad - hAng), ty + hLen * Math.cos(rad - hAng));
+    ctx.lineTo(tx - hLen * Math.sin(rad + hAng), ty + hLen * Math.cos(rad + hAng));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  // ── METAR wind arrow (cyan) ──────────────────────────────────────────────────
+  const METAR_COL = '#38bdf8';
+  const MODES_COL = '#10b981';
+
+  if (metarWind) {
+    if (metarWind.variable) {
+      // VRB — draw a dotted ring at the speed radius
+      const r = R * Math.min(metarWind.spd || 5, MAX_SPD) / MAX_SPD;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = METAR_COL; ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      drawArrow(metarWind.dir, metarWind.spd, METAR_COL);
+    }
+  }
+
+  // ── MODE-S averaged wind arrow (green) ──────────────────────────────────────
+  const nowMs  = Date.now();
+  const recent = recentLandingWinds.filter(o => (nowMs - o.ts) <= WINDROSE_MAX_AGE_MS);
+  const modesW = vectorAvgWind(recent);
+  if (modesW && modesW.spd > 0) {
+    drawArrow(modesW.dir, modesW.spd, MODES_COL);
+  }
+
+  // ── Top-left legend dots ─────────────────────────────────────────────────────
+  ctx.font = '8px "Courier New",monospace';
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.fillStyle = METAR_COL;
+  ctx.fillText('● METAR', 5, 4);
+  ctx.fillStyle = modesW ? MODES_COL : '#334155';
+  ctx.fillText('● MODE-S', 5, 14);
+
+  // ── Text readout below canvas ────────────────────────────────────────────────
+  if (!readout) return;
+
+  let metarLine = '<span style="color:#38bdf8">MET —</span>';
+  if (metarWind) {
+    const dStr = metarWind.variable
+      ? 'VRB'
+      : String(metarWind.dir).padStart(3, '0') + '°';
+    metarLine = `<span style="color:#38bdf8">MET ${dStr} / ${metarWind.spd} kt</span>`;
+  }
+
+  let modesLine = '<span style="color:#334155">M-S  waiting for data…</span>';
+  if (modesW) {
+    const ageMin  = recent.length > 0
+      ? Math.round((nowMs - Math.max(...recent.map(o => o.ts))) / 60_000)
+      : null;
+    const ageStr  = ageMin != null ? ` · ${ageMin}min ago` : '';
+    modesLine = `<span style="color:#10b981">M-S ${String(modesW.dir).padStart(3,'0')}° / ${modesW.spd} kt  (${modesW.count}obs${ageStr})</span>`;
+  }
+
+  readout.innerHTML = `${metarLine}<br>${modesLine}`;
+}
+
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
 
@@ -1120,6 +1369,34 @@ async function fetchApproachState() {
 
     // ── Wind history: remove data for aircraft no longer tracked ──────────
     const liveIcaos = new Set(aircraft.map(a => a.icao));
+
+    // ── Windrose: save low-altitude wind from aircraft that just left ─────
+    // Do this BEFORE deleting wsWindHistory so we can still read the data.
+    const nowMs = Date.now();
+    for (const icao of prevLiveIcaos) {
+      if (!liveIcaos.has(icao)) {
+        const hist = wsWindHistory[icao] || [];
+        for (const obs of hist) {
+          if (obs.alt_ft  <= WINDROSE_ALT_MAX &&
+              obs.wind_spd != null && obs.wind_dir != null) {
+            recentLandingWinds.push({
+              dir: obs.wind_dir,
+              spd: obs.wind_spd,
+              alt: obs.alt_ft,
+              ts:  nowMs,
+            });
+          }
+        }
+      }
+    }
+    prevLiveIcaos = liveIcaos;
+
+    // Prune observations older than the 30-minute window
+    const windroseCutoff = nowMs - WINDROSE_MAX_AGE_MS;
+    while (recentLandingWinds.length > 0 && recentLandingWinds[0].ts < windroseCutoff) {
+      recentLandingWinds.shift();
+    }
+
     for (const icao of Object.keys(wsWindHistory)) {
       if (!liveIcaos.has(icao)) {
         delete wsWindHistory[icao];
@@ -1160,6 +1437,7 @@ async function fetchApproachState() {
     addToWsLog(lastShearEvents);
     addGaToWsLog(gaEvents);
     renderWsLog();
+    drawWindrose();
 
     // Summary: count corridor aircraft per runway
     const rwyCounts = {};

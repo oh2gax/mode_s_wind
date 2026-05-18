@@ -792,6 +792,48 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   background: rgba(56, 189, 248, 0.06);
 }
 
+/* Wind Rose toggle button — same family as theme buttons */
+.ws-windrose-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.ws-windrose-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-windrose-btn.active { background: #be185d; color: #fff; border-color: #be185d; }
+
+/* Wind Rose panel — absolute overlay inside .ws-map-wrap, below the controls bar */
+.ws-windrose-panel {
+  position: absolute;
+  top: 44px;
+  right: 8px;
+  z-index: 800;
+  background: rgba(10, 18, 28, 0.90);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px;
+  backdrop-filter: blur(4px);
+}
+.ws-windrose-panel.ws-windrose-hidden {
+  display: none;
+}
+#ws-windrose-canvas {
+  display: block;
+}
+.ws-windrose-readout {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  padding: 4px 4px 2px;
+  min-height: 32px;
+  line-height: 1.6;
+}
+
 .ws-map-count {
   font-size: 11px;
   color: var(--text-2);

@@ -49,6 +49,32 @@ def _parse_qnh(metar_text: str) -> float | None:
     return None
 
 
+def _parse_metar_wind(metar_text: str) -> dict | None:
+    """Extract surface wind from a METAR string.
+
+    Returns a dict with keys:
+      'dir'      — integer degrees (0–360), or None for variable direction
+      'spd'      — integer knots
+      'variable' — True when direction is variable (VRB group)
+
+    Returns None if no recognisable wind group is found.
+    """
+    import re
+    # Variable wind: VRBssKT
+    m = re.search(r"\bVRB(\d{2,3})KT\b", metar_text)
+    if m:
+        return {"dir": None, "spd": int(m.group(1)), "variable": True}
+    # Calm: 00000KT
+    m = re.search(r"\b00000KT\b", metar_text)
+    if m:
+        return {"dir": 0, "spd": 0, "variable": False}
+    # Normal: DDDssKT or DDDssGggKT (gusts ignored)
+    m = re.search(r"\b(\d{3})(\d{2,3})(?:G\d+)?KT\b", metar_text)
+    if m:
+        return {"dir": int(m.group(1)), "spd": int(m.group(2)), "variable": False}
+    return None
+
+
 def _check_auth(username: str, password: str, cfg: Config) -> bool:
     return username == cfg.WEB_USER and password == cfg.WEB_PASS
 
@@ -518,6 +544,11 @@ def create_app(
 
         # Include QNH in the response so the windshear page can display it
         result["qnh_hpa"] = _qnh_cache["hpa"] if _qnh_cache["updated"] > 0 else None
+
+        # Parse surface wind from METAR for the Windrose widget
+        result["metar_wind"] = None
+        if result.get("metar") and result["metar"] != "[unavailable]":
+            result["metar_wind"] = _parse_metar_wind(result["metar"])
 
         return jsonify(result)
 
