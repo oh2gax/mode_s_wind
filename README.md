@@ -526,11 +526,11 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 The page has four main areas:
 
-- **Left panel** — QNH display and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector; the full panel height is available to strips
+- **Left panel** — QNH display and ATC-style flight strips for aircraft inside the ILS corridor; strips extend the full height of the screen to maximise capacity during busy arrival sequences; strips are filtered to match the runway selected in the ILS profile selector
 - **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `🌹 Rose` button overlays the Wind Rose panel in the top-right corner of the map
 - **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
-- **Bottom right** — Windshear event log listing all detected shear events with timestamp, runway, magnitude, and the two aircraft involved
-- **Bottom strip** — METAR and TAF for the configured airport
+- **Bottom right** — Windshear event log with inline detection toggle, algorithm dropdown, and Clear button in the header
+- **METAR / TAF strip** — aligned under the map and ILS profile only (right column); does not overlap the flight strips panel
 
 #### ILS corridor detection
 

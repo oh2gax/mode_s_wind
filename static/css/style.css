@@ -379,8 +379,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--navbar-h));
-  margin-top: var(--navbar-h);
+  height: 100%;
   overflow: hidden;
 }
 
@@ -729,7 +728,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 
 /* Map */
 .ws-map-wrap {
-  flex: 0 0 58%;
+  flex: 0 0 calc(58% - 96px); /* 58% of (page − 165px strip) = 58%×page − 58%×165 ≈ 58% − 96px */
   position: relative;
   min-height: 0;
 }

@@ -110,20 +110,20 @@
 
       </div><!-- .ws-bottom-row -->
 
-    </div>
-  </div>
+      <!-- ── METAR + TAF strip — right column only, strips extend full height -->
+      <div class="ws-wx-strip">
+        <div class="ws-wx-section">
+          <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
+          <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
+        </div>
+        <div class="ws-wx-section">
+          <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
+          <pre class="ws-wx-text" id="ws-taf-text">Loading…</pre>
+        </div>
+      </div>
 
-  <!-- ── Bottom strip: METAR + TAF ──────────────────────────────────────── -->
-  <div class="ws-wx-strip">
-    <div class="ws-wx-section">
-      <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
-      <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
-    </div>
-    <div class="ws-wx-section">
-      <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
-      <pre class="ws-wx-text" id="ws-taf-text">Loading…</pre>
-    </div>
-  </div>
+    </div><!-- .ws-right-col -->
+  </div><!-- .ws-body -->
 
 </div>
 {% endblock %}
