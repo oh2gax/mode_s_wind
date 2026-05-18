@@ -1072,24 +1072,19 @@ document.getElementById('ws-det-btn').addEventListener('click', () => {
   }
 });
 
-// ── Algorithm selector ────────────────────────────────────────────────────────
-document.querySelectorAll('.ws-algo-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    wsDetAlgo = btn.dataset.algo;
-    document.querySelectorAll('.ws-algo-btn').forEach(b =>
-      b.classList.toggle('active', b === btn)
-    );
-    // Re-run detection immediately with the new algorithm
-    if (wsDetectionEnabled) {
-      const corridor    = lastAircraft.filter(ac => ac.in_corridor);
-      lastShearEvents   = detectWindshear(corridor);
-      renderStrips(lastAircraft, lastShearEvents);
-      drawIlsProfile(corridor, lastShearEvents);
-      updateAlertBanner(lastShearEvents);
-      addToWsLog(lastShearEvents);
-      renderWsLog();
-    }
-  });
+// ── Algorithm selector (dropdown) ────────────────────────────────────────────
+document.getElementById('ws-algo-select').addEventListener('change', e => {
+  wsDetAlgo = e.target.value;
+  // Re-run detection immediately with the new algorithm
+  if (wsDetectionEnabled) {
+    const corridor  = lastAircraft.filter(ac => ac.in_corridor);
+    lastShearEvents = detectWindshear(corridor);
+    renderStrips(lastAircraft, lastShearEvents);
+    drawIlsProfile(corridor, lastShearEvents);
+    updateAlertBanner(lastShearEvents);
+    addToWsLog(lastShearEvents);
+    renderWsLog();
+  }
 });
 
 function buildStrip(ac, wsSeverity = null) {

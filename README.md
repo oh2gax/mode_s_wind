@@ -526,7 +526,7 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 The page has four main areas:
 
-- **Left panel** — QNH, detection toggle, and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector
+- **Left panel** — QNH display and ATC-style flight strips for aircraft inside the ILS corridor; strips are filtered to match the runway selected in the ILS profile selector; the full panel height is available to strips
 - **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `🌹 Rose` button overlays the Wind Rose panel in the top-right corner of the map
 - **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
 - **Bottom right** — Windshear event log listing all detected shear events with timestamp, runway, magnitude, and the two aircraft involved
@@ -700,9 +700,9 @@ The Leaflet map shows:
 
 #### Windshear detection
 
-Windshear detection is enabled via the **⚡ Windshear Detection** toggle button in the left panel. It is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection is controlled from the **Windshear Log header bar**, which contains three inline controls: the **⚡ OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
 
-Five independent detection algorithms are available, selectable by the row of compact buttons (`Pair / Gradient / Energy / Rate / Baseline`) that appear immediately below the detection toggle. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time.
+Five independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
 
 All algorithms use the same headwind component formula:
 

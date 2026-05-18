@@ -5,6 +5,11 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-18 (continued, 2)
+
+- Moved windshear detection toggle and algorithm selector out of the left panel into the Windshear Log header — toggle and dropdown now sit inline in the log header bar (⚡ Windshear Log · [⚡ OFF] · [Pair ▼] · [Clear]); left panel now uses the full height exclusively for flight strips
+- Changed algorithm selector from five compact pill buttons to a single dropdown (`<select>`) — less space, all five options (Pair, Gradient, Energy, Rate, Baseline) accessible from one control with full description in tooltip
+
 ## 2026-05-18 (continued)
 
 - Added five selectable windshear detection algorithms replacing the single pairwise method — Pairwise (classic ICAO, ≥ 2 aircraft), Gradient (single-aircraft wind history dHW/dz), Energy (groundspeed + altitude proxy, GPWS-inspired), Rate (headwind change over recent observation window), Baseline (compare to vector-averaged recent landing wind); active algorithm selected via a compact button row below the detection toggle

@@ -608,24 +608,21 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-sd-val.no-data { color: var(--text-3); }
 .ws-sd-val.ws-sd-nil { color: var(--text-3); opacity: 0.45; }
 
-/* Windshear detection toggle button */
-.ws-det-wrap {
-  padding: 6px 8px 4px;
-  border-bottom: 1px solid var(--border);
-}
+/* Windshear detection toggle — compact inline version in log header */
 .ws-det-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 8px;
-  border-radius: 4px;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 3px;
   border: 1px solid var(--border);
   background: var(--bg-2);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
   transition: all .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .ws-det-btn:hover { background: var(--bg-3); }
 .ws-det-btn.active {
@@ -633,14 +630,13 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   background: #78350f22;
   color: var(--text-1);
 }
-.ws-det-icon { font-size: 13px; }
-.ws-det-label { flex: 1; text-align: left; }
+.ws-det-icon { font-size: 11px; }
 .ws-det-state {
   font-weight: 700;
   font-family: 'Courier New', monospace;
   font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1px 4px;
+  border-radius: 2px;
   background: var(--bg-3);
   color: var(--text-3);
   letter-spacing: .05em;
@@ -650,29 +646,17 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   color: #fff;
 }
 
-/* Algorithm selector — compact pill row below the detection toggle */
-.ws-algo-sel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 5px 0 2px;
-}
-.ws-algo-btn {
-  flex: 1 1 auto;
+/* Algorithm selector — dropdown in log header */
+.ws-algo-select {
   font-size: 10px;
   padding: 2px 4px;
   border-radius: 3px;
   border: 1px solid var(--border);
   background: var(--bg-2);
-  color: var(--text-3);
+  color: var(--text-2);
   cursor: pointer;
-  transition: all .15s;
-  text-align: center;
-  white-space: nowrap;
-  min-width: 0;
+  flex-shrink: 0;
 }
-.ws-algo-btn:hover  { background: var(--bg-3); color: var(--text-1); }
-.ws-algo-btn.active { background: #78350f; color: #fde68a; border-color: #92400e; }
 
 /* Small algo badge inside WS log entries */
 .ws-log-algo-badge {

@@ -11,7 +11,7 @@
 
   <div class="ws-body">
 
-    <!-- ── Left panel: QNH + detection toggle + flight strips ───────────── -->
+    <!-- ── Left panel: QNH + flight strips ─────────────────────────────── -->
     <aside class="ws-panel-left">
 
       <!-- QNH display -->
@@ -22,27 +22,6 @@
           <span class="ws-qnh-unit">hPa</span>
         </div>
         <div class="ws-ac-summary" id="ws-ac-summary">No approach traffic</div>
-      </div>
-
-      <!-- Windshear detection toggle + algorithm selector -->
-      <div class="ws-det-wrap">
-        <button id="ws-det-btn" class="ws-det-btn" title="Enable windshear detection">
-          <span class="ws-det-icon">⚡</span>
-          <span class="ws-det-label">Windshear Detection</span>
-          <span class="ws-det-state" id="ws-det-state">OFF</span>
-        </button>
-        <div class="ws-algo-sel">
-          <button class="ws-algo-btn active" data-algo="pair"
-            title="Pairwise: compare headwind between two simultaneous aircraft at different altitudes (classic ICAO method — requires ≥2 aircraft)">Pair</button>
-          <button class="ws-algo-btn" data-algo="gradient"
-            title="Gradient: detect headwind change vs altitude along a single aircraft's approach history — works with one aircraft">Gradient</button>
-          <button class="ws-algo-btn" data-algo="energy"
-            title="Energy: track total energy (groundspeed + altitude proxy) over time — rapid loss indicates microburst/shear">Energy</button>
-          <button class="ws-algo-btn" data-algo="rate"
-            title="Rate: headwind rate of change over recent observations — catches rapid wind shifts along the approach">Rate</button>
-          <button class="ws-algo-btn" data-algo="baseline"
-            title="Baseline: compare current headwind against the vector-averaged wind from recent approaches — requires landing history">Baseline</button>
-        </div>
       </div>
 
       <!-- Flight strips -->
@@ -110,6 +89,19 @@
         <div class="ws-ws-log">
           <div class="ws-ws-log-hdr">
             <span class="ws-ws-log-title">⚡ Windshear Log</span>
+            <!-- Detection toggle + algorithm selector moved here from left panel -->
+            <button id="ws-det-btn" class="ws-det-btn" title="Enable windshear detection">
+              <span class="ws-det-icon">⚡</span>
+              <span class="ws-det-state" id="ws-det-state">OFF</span>
+            </button>
+            <select id="ws-algo-select" class="ws-algo-select"
+              title="Pairwise: ≥2 aircraft · Gradient: single AC history · Energy: GS+alt proxy · Rate: recent HW change · Baseline: vs landing history">
+              <option value="pair">Pair</option>
+              <option value="gradient">Gradient</option>
+              <option value="energy">Energy</option>
+              <option value="rate">Rate</option>
+              <option value="baseline">Baseline</option>
+            </select>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <div class="ws-ws-log-entries" id="ws-ws-log-entries">
