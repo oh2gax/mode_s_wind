@@ -749,20 +749,42 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ils-filter-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-ils-filter-btn.active { background: #d97706; color: #fff; border-color: #d97706; }
 
-/* Wind barb toggle — same shape as ILS filter button, cyan when active */
+/* Wind barb split button group  [ 🌬 Barbs | Auto ] */
+.ws-barb-group {
+  display: inline-flex;
+}
 .ws-barb-btn {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 3px;
+  border-radius: 3px 0 0 3px;
   border: 1px solid var(--border);
   background: var(--bg-2);
   color: var(--text-2);
   cursor: pointer;
   transition: all .15s;
   white-space: nowrap;
+  position: relative;
+  z-index: 1;
 }
-.ws-barb-btn:hover  { background: var(--bg-3); color: var(--text-1); }
-.ws-barb-btn.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+.ws-barb-btn:hover  { background: var(--bg-3); color: var(--text-1); z-index: 2; }
+.ws-barb-btn.active { background: #0284c7; color: #fff; border-color: #0284c7; z-index: 2; }
+
+.ws-barb-auto-btn {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 0 3px 3px 0;
+  border: 1px solid var(--border);
+  margin-left: -1px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+.ws-barb-auto-btn:hover  { background: var(--bg-3); color: var(--text-1); z-index: 2; }
+.ws-barb-auto-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; z-index: 2; }
 
 /* Strip highlight when selected as barb source */
 .ws-strip.ws-strip-barb-sel {

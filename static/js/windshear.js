@@ -530,7 +530,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.fillStyle = bColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
-      ilsCtx.fillText(`\u{1F32C} ${bLabel}  (${hist.length} obs)`, M.left + 4, M.top + 22);
+      ilsCtx.fillText(`\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}`, M.left + 4, M.top + 22);
 
       ilsCtx.restore();
     } else {
@@ -1100,6 +1100,8 @@ document.getElementById('ws-log-clear')?.addEventListener('click', () => {
 const wsWindHistory  = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]
 let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
+let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
+let barbAutoTarget   = null;   // icao currently held by auto mode (null = none yet)
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
@@ -1147,6 +1149,9 @@ async function fetchApproachState() {
     // Run windshear detection
     lastShearEvents = detectWindshear(corridor);
 
+    // Auto-barb: update selection before rendering so strips + canvas are in sync
+    runAutoBarbSelection(corridor);
+
     renderStrips(aircraft, lastShearEvents);
     updateMapMarkers(aircraft);
     drawIlsProfile(corridor, lastShearEvents);
@@ -1186,11 +1191,67 @@ document.getElementById('ws-ils-rwy').addEventListener('change', () => {
   renderStrips(lastAircraft, lastShearEvents);
 });
 
+// ── Auto-barb selection ───────────────────────────────────────────────────────
+/**
+ * Called on every poll when barbAutoActive is true.
+ *
+ * Holds the current target as long as it is still alive in the corridor.
+ * When the target goes stale (pruned by the server), picks the new lowest
+ * aircraft (smallest dist_thr_nm).  Assigns barbSelectedIcao so the
+ * existing barb-draw path works without any other changes.
+ */
+function runAutoBarbSelection(corridor) {
+  if (!barbLayerActive || !barbAutoActive) return;
+
+  // Keep existing target if it is still on approach
+  if (barbAutoTarget && corridor.some(ac => ac.icao === barbAutoTarget)) {
+    barbSelectedIcao = barbAutoTarget;
+    return;
+  }
+
+  // Target gone (staled out or left the corridor) — pick lowest
+  const candidates = corridor.filter(ac => ac.dist_thr_nm != null);
+  if (candidates.length === 0) {
+    barbAutoTarget   = null;
+    barbSelectedIcao = null;
+    return;
+  }
+  candidates.sort((a, b) => a.dist_thr_nm - b.dist_thr_nm);
+  barbAutoTarget   = candidates[0].icao;
+  barbSelectedIcao = barbAutoTarget;
+}
+
 // ── Wind barb toggle ──────────────────────────────────────────────────────────
 document.getElementById('ws-barb-btn').addEventListener('click', () => {
   barbLayerActive = !barbLayerActive;
   document.getElementById('ws-barb-btn').classList.toggle('active', barbLayerActive);
-  if (!barbLayerActive) barbSelectedIcao = null;
+  if (!barbLayerActive) {
+    // Turning barbs off — also cancel auto mode
+    barbSelectedIcao = null;
+    barbAutoActive   = false;
+    barbAutoTarget   = null;
+    document.getElementById('ws-barb-auto-btn').classList.remove('active');
+  }
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+  renderStrips(lastAircraft, lastShearEvents);
+});
+
+// Auto segment click: if barbs are off, turn them on then enable auto;
+// if barbs are already on, simply toggle auto.
+document.getElementById('ws-barb-auto-btn').addEventListener('click', () => {
+  if (!barbLayerActive) {
+    barbLayerActive = true;
+    document.getElementById('ws-barb-btn').classList.add('active');
+  }
+  barbAutoActive = !barbAutoActive;
+  document.getElementById('ws-barb-auto-btn').classList.toggle('active', barbAutoActive);
+  if (!barbAutoActive) {
+    barbAutoTarget = null;
+    // Leave barbSelectedIcao as-is so the last barb stays visible after turning off auto
+  } else {
+    // Run a selection immediately so barbs appear without waiting for the next poll
+    runAutoBarbSelection(lastAircraft.filter(ac => ac.in_corridor));
+  }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });
@@ -1202,6 +1263,14 @@ document.getElementById('ws-strips').addEventListener('click', e => {
   const strip = e.target.closest('[data-icao]');
   if (!strip) return;
   const icao = strip.dataset.icao;
+
+  // Manual selection cancels auto mode so the chosen aircraft stays pinned
+  if (barbAutoActive) {
+    barbAutoActive = false;
+    barbAutoTarget = null;
+    document.getElementById('ws-barb-auto-btn').classList.remove('active');
+  }
+
   // Toggle: clicking the same strip again deselects
   barbSelectedIcao = (barbSelectedIcao === icao) ? null : icao;
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
