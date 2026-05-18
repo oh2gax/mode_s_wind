@@ -319,6 +319,14 @@ class WindshearTracker:
         if not (icao and lat is not None and lon is not None and alt is not None):
             return
 
+        # Exclude Finnish helicopters (OH-Hxx) — their base is near RWY 33 at
+        # EFHK and their traffic is irrelevant for approach/windshear monitoring.
+        reg = (aircraft.get("registration") or "").upper()
+        if reg.startswith("OH-H"):
+            with self._lock:
+                self._state.pop(icao, None)
+            return
+
         now = time.time()
 
         # ── Distance and altitude gates ───────────────────────────────────────
