@@ -1154,9 +1154,10 @@ function vectorAvgWind(obs) {
  * text readout div below it.
  *
  * Compass convention:
- *   Arrow tip points TOWARD the direction the wind is coming FROM
- *   (e.g. a 220° wind draws an arrow pointing to the SW compass position).
- *   This matches standard meteo vane / ATIS convention.
+ *   Arrow tip points in the DOWNWIND direction (where the wind is blowing TO).
+ *   e.g. wind FROM 050° → arrow points toward 230° (SW/"04" end), showing
+ *   that RWY 04 approaches have a headwind.  This makes head/tailwind
+ *   assessment immediate: arrowhead toward a runway label = headwind for it.
  *
  * Runways drawn as plain crossing lines:
  *   047°/227°  (04L, 04R, 22L, 22R — same magnetic heading)
@@ -1227,9 +1228,12 @@ function drawWindrose() {
 
   // ── Runway lines (plain crossing lines, no arrows) ──────────────────────────
   // EFHK: 047°/227° covers all 04/22 runways; 152°/332° covers RWY 15/33.
+  // Label convention: each end is labelled with the runway whose approach
+  // flies TOWARD that compass direction (= headwind side for that runway).
+  // e.g. wind FROM NE (047°) = headwind for RWY 22 → '22' at the NE/047° end.
   const RUNWAY_LINES = [
-    { hdg: 47,  ends: ['04', '22'] },
-    { hdg: 152, ends: ['15', '33'] },
+    { hdg: 47,  ends: ['22', '04'] },   // 047° end = RWY 22 headwind side
+    { hdg: 152, ends: ['33', '15'] },   // 152° end = RWY 33 headwind side
   ];
   ctx.setLineDash([4, 4]);
   ctx.lineWidth = 1.5;
@@ -1259,7 +1263,10 @@ function drawWindrose() {
   ctx.fill();
 
   // ── Wind arrow helper ────────────────────────────────────────────────────────
-  // Arrow points FROM center TOWARD the "from" direction (tip at the source quadrant).
+  // Arrow points in the DOWNWIND direction (where the wind is blowing TO).
+  // This means the arrowhead points toward the runway label that receives a
+  // headwind — e.g. wind FROM 050° blows toward 230°/SW, arrow points to the
+  // "04" end, showing RWY 04 has the headwind.
   function drawArrow(dir, spd, color) {
     if (dir == null || spd == null) return;
     const len  = R * Math.min(spd, MAX_SPD) / MAX_SPD;
@@ -1271,7 +1278,8 @@ function drawWindrose() {
       ctx.stroke();
       return;
     }
-    const rad = dir * Math.PI / 180;
+    // Downwind direction = dir + 180°
+    const rad = (dir + 180) * Math.PI / 180;
     const tx  = cx + len * Math.sin(rad);
     const ty  = cy - len * Math.cos(rad);
 
