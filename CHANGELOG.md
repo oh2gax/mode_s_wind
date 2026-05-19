@@ -5,6 +5,10 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-19 (continued)
+
+- Reduced Radarcape JSON poll interval from 5 s to 2 s — cuts worst-case callsign latency from ~8–10 s to ~5 s; typical latency from the JSON path halved
+
 ## 2026-05-19
 
 - Fixed Windshear map labels staying frozen as ICAO24 — label text was only set on marker creation; update path now calls `setIcon` on the label marker each poll so callsign appears as soon as the server has it, without requiring a page reload
