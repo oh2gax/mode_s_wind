@@ -4,6 +4,8 @@ A Python-based system for collecting, decoding and visualising real-time meteoro
 
 Aircraft continuously broadcast meteorological data from their onboard sensors as part of their secondary surveillance transponder output. This system decodes those messages in real time, stores the data in a local SQLite database, and presents it through a dark-themed web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, and a gridded historical wind map.
 
+> **⚠ Note for test users:** Due to heavy GPS jamming originating from the east, GPS-derived positions between approximately 3 000 ft and 1 000 ft are currently intermittently unreliable. Approaches to RWY 04L and 04R are particularly affected. Position data at these altitudes should be interpreted with caution.
+
 ![MODE-S Wind main screen](Mode_S_Wind_Main_Screen_1.png)
 
 ---
