@@ -41,8 +41,28 @@ function tToX(t, p) {
   return base + skewPx * 0.5;  // 0.5 controls skew angle
 }
 
+// ── Theme-aware colour palette for canvas drawing ─────────────────────────
+function skewTTheme() {
+  const light = document.documentElement.dataset.theme === 'light';
+  return {
+    bg:       light ? '#eef2f7' : '#0c1620',
+    isobarMaj: light ? '#c0cdd8' : '#253448',
+    isobarMin: light ? '#d5dfe8' : '#1d2d3f',
+    isotherm0: light ? '#9ab4c8' : '#1e3a5f',
+    isothermN: light ? '#cdd7e0' : '#1a2a3a',
+    isotLabel: light ? '#475569' : '#334155',
+    axisLine:  light ? '#94a3b8' : '#3d5268',
+    label:     light ? '#475569' : '#64748b',
+    barb:      light ? '#64748b' : '#94a3b8',
+    dotRing:   light ? '#1e293b' : '#e2e8f0',
+    noData:    light ? '#64748b' : '#64748b',
+    windOnly:  light ? '#64748b' : '#4b5563',
+  };
+}
+
 // ── Draw grid ──────────────────────────────────────────────────────────────
 function drawGrid(ctx) {
+  const T = skewTTheme();
   ctx.lineWidth = 0.5;
   ctx.font      = '10px monospace';
 
@@ -50,12 +70,12 @@ function drawGrid(ctx) {
   const isobars = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100];
   for (const p of isobars) {
     const y = pToY(p);
-    ctx.strokeStyle = p % 100 === 0 ? '#253448' : '#1d2d3f';
+    ctx.strokeStyle = p % 100 === 0 ? T.isobarMaj : T.isobarMin;
     ctx.beginPath();
     ctx.moveTo(ML, y);
     ctx.lineTo(ML + PLOT_W, y);
     ctx.stroke();
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = T.label;
     ctx.textAlign = 'right';
     ctx.fillText(p, ML - 6, y + 4);
   }
@@ -63,7 +83,7 @@ function drawGrid(ctx) {
   // Isotherms (skewed temperature lines)
   const isotherms = [-80,-70,-60,-50,-40,-30,-20,-10,0,10,20,30];
   for (const t of isotherms) {
-    ctx.strokeStyle = t === 0 ? '#1e3a5f' : '#1a2a3a';
+    ctx.strokeStyle = t === 0 ? T.isotherm0 : T.isothermN;
     ctx.beginPath();
     ctx.moveTo(tToX(t, P_BOTTOM), pToY(P_BOTTOM));
     ctx.lineTo(tToX(t, P_TOP),    pToY(P_TOP));
@@ -71,7 +91,7 @@ function drawGrid(ctx) {
     // Label at bottom
     const x = tToX(t, P_BOTTOM);
     if (x > ML && x < ML + PLOT_W) {
-      ctx.fillStyle = '#334155';
+      ctx.fillStyle = T.isotLabel;
       ctx.textAlign = 'center';
       ctx.fillText(t + '°', x, CANVAS_H - MB + 14);
     }
@@ -88,7 +108,8 @@ function drawBarb(ctx, x, y, speedKt, dirFrom) {
   const endX     = x + staffLen * Math.sin(angle);
   const endY     = y - staffLen * Math.cos(angle);
 
-  ctx.strokeStyle = '#94a3b8';
+  const barbCol = skewTTheme().barb;
+  ctx.strokeStyle = barbCol;
   ctx.lineWidth   = 1;
   ctx.beginPath();
   ctx.moveTo(x, y);
@@ -108,7 +129,7 @@ function drawBarb(ctx, x, y, speedKt, dirFrom) {
     const ty  = sy + 10 * Math.sin(angle);
     const mx  = sx + step * Math.sin(angle);
     const my  = sy - step * Math.cos(angle);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = barbCol;
     ctx.beginPath();
     ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.lineTo(mx, my);
     ctx.closePath(); ctx.fill();
@@ -142,8 +163,9 @@ function renderSounding(levels) {
   const canvas = document.getElementById('skewt-canvas');
   const ctx    = canvas.getContext('2d');
 
+  const T = skewTTheme();
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-  ctx.fillStyle = '#0c1620';
+  ctx.fillStyle = T.bg;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   // Clip to plot area
@@ -155,13 +177,13 @@ function renderSounding(levels) {
   ctx.restore();
 
   // Y axis line
-  ctx.strokeStyle = '#3d5268';
+  ctx.strokeStyle = T.axisLine;
   ctx.lineWidth   = 1;
   ctx.beginPath();
   ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PLOT_H); ctx.stroke();
 
   // Axis labels
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = T.label;
   ctx.font      = '10px monospace';
   ctx.textAlign = 'center';
   ctx.fillText('Temperature (°C)', ML + PLOT_W / 2, CANVAS_H - 4);
@@ -180,7 +202,7 @@ function renderSounding(levels) {
 
   // Nothing to draw at all
   if (tempLevels.length === 0 && windLevels.length === 0) {
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = T.noData;
     ctx.font      = '13px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('No data available', CANVAS_W / 2, CANVAS_H / 2);
@@ -206,7 +228,7 @@ function renderSounding(levels) {
       ctx.beginPath();
       ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#e2e8f0';
+      ctx.fillStyle = T.dotRing;
       ctx.font      = '9px monospace';
       ctx.textAlign = 'left';
       ctx.fillText(l.temp.toFixed(1) + '°', x + 5, y + 3);
@@ -214,7 +236,7 @@ function renderSounding(levels) {
     }
   } else if (tempLevels.length === 0) {
     // Note that only wind data is available
-    ctx.fillStyle = '#4b5563';
+    ctx.fillStyle = T.windOnly;
     ctx.font      = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Wind only — no temperature data', CANVAS_W / 2, MT + 14);
@@ -224,13 +246,20 @@ function renderSounding(levels) {
   const bx = ML + PLOT_W + 20;
   for (const l of windLevels) {
     const y = pToY(l.pressure);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = T.barb;
     ctx.font      = '9px monospace';
     ctx.textAlign = 'left';
     ctx.fillText(Math.round(l.wind_spd) + 'kt', bx + 28, y + 3);
     drawBarb(ctx, bx, y, l.wind_spd, l.wind_dir);
   }
 }
+
+// Called by base.html theme toggle so the diagram redraws with the new palette
+window.onThemeChange = function () {
+  // Re-render only if there is data already displayed (skewt-canvas has content)
+  const sel = document.getElementById('sounding-select');
+  if (sel && sel.value) loadSounding();
+};
 
 // ── Data loading ────────────────────────────────────────────────────────────
 async function loadSounding() {

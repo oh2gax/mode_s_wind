@@ -1185,3 +1185,78 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   background: rgba(239, 68, 68, 0.22);
   border: 1px solid rgba(239, 68, 68, 0.4);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LIGHT THEME
+   Applied by setting data-theme="light" on <html>.
+   The 9 CSS variables below override :root — all ~200 var() references in
+   the stylesheet flip automatically.  The rules after the variable block
+   handle the handful of hardcoded colour values that can't use variables.
+   Dark theme is completely untouched; these rules only activate under
+   [data-theme="light"].
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="light"] {
+  --bg-0:   #dde4ec;
+  --bg-1:   #e6ecf3;
+  --bg-2:   #eef2f7;
+  --bg-3:   #f4f7fa;
+  --border: #b8c8d8;
+  --text-1: #1e293b;
+  --text-2: #475569;
+  --text-3: #64748b;
+  --accent: #2563eb;
+}
+
+/* Leaflet map tile background (hardcoded in .leaflet-container rule) */
+[data-theme="light"] .leaflet-container { background: #dde4ec; }
+
+/* Leaflet chrome — zoom buttons and attribution sit on map, need light bg */
+[data-theme="light"] .leaflet-control-zoom a {
+  background: var(--bg-2); color: var(--text-1); border-color: var(--border);
+}
+[data-theme="light"] .leaflet-control-zoom a:hover { background: var(--bg-3); }
+[data-theme="light"] .leaflet-control-attribution {
+  background: rgba(232,237,244,0.88); color: var(--text-3);
+}
+[data-theme="light"] .leaflet-popup-content-wrapper {
+  background: var(--bg-2); color: var(--text-1); border-color: var(--border);
+}
+[data-theme="light"] .leaflet-popup-tip { background: var(--bg-2); }
+
+/* Map overlay panels (float on top of the tile map, need their own bg) */
+[data-theme="light"] .map-legend      { background: rgba(232,237,244,0.92); }
+[data-theme="light"] .ws-map-controls { background: rgba(232,237,244,0.90); }
+[data-theme="light"] .ws-windrose-panel {
+  background: rgba(228,235,242,0.96);
+}
+
+/* Skew-T canvas background (hardcoded on the canvas element itself) */
+[data-theme="light"] #skewt-canvas { background: #eef2f7; }
+
+/* Aircraft callsign labels on the Leaflet map.
+   Dark mode: light text + dark shadow.  Light mode: dark text + white shadow. */
+[data-theme="light"] .ac-map-label {
+  color: #1e293b;
+  text-shadow: 0 0 3px #fff, 0 0 6px #fff, 1px 1px 0 #fff;
+}
+[data-theme="light"] .ws-ac-label {
+  color: #1e293b;
+  text-shadow: 0 0 3px #fff, 0 0 6px #fff;
+}
+[data-theme="light"] .ws-ac-label-dim { color: #475569; opacity: 0.8; }
+
+/* Navbar theme toggle button — same proportions as other navbar controls */
+.nav-theme-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-theme-btn:hover { background: var(--bg-2); color: var(--text-1); }

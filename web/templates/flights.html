@@ -197,8 +197,10 @@ async function openFlight(id, icao, callsign) {
         animation: false,
         plugins: {legend:{display:false}},
         scales: {
-          x: {ticks:{maxTicksLimit:8, color:'#9ca3af'}, grid:{color:'#1e2a3a'}},
-          y: {ticks:{color:'#9ca3af'}, grid:{color:'#1e2a3a'}}
+          x: {ticks:{maxTicksLimit:8, color: document.documentElement.dataset.theme === 'light' ? '#475569' : '#9ca3af'},
+              grid:{color: document.documentElement.dataset.theme === 'light' ? '#c5d0da' : '#1e2a3a'}},
+          y: {ticks:{color: document.documentElement.dataset.theme === 'light' ? '#475569' : '#9ca3af'},
+              grid:{color: document.documentElement.dataset.theme === 'light' ? '#c5d0da' : '#1e2a3a'}}
         }
       }
     });

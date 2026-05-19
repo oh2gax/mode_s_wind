@@ -18,11 +18,14 @@
 // ── Map init ──────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([RECEIVER_LAT, RECEIVER_LON], 8);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© OSM, © CARTO',
-  subdomains: 'abcd',
-  maxZoom: 18,
-}).addTo(map);
+const TILE_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const TILE_OPTS  = { attribution: '© OSM, © CARTO', subdomains: 'abcd', maxZoom: 18 };
+
+let currentTile = L.tileLayer(
+  document.documentElement.dataset.theme === 'light' ? TILE_LIGHT : TILE_DARK,
+  TILE_OPTS
+).addTo(map);
 
 // Receiver marker
 L.circleMarker([RECEIVER_LAT, RECEIVER_LON], {
@@ -214,15 +217,34 @@ function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
 }
 
 
+// ── Theme-aware colour palette for mini Skew-T canvas ────────────────────
+function miniSkewTTheme() {
+  const light = document.documentElement.dataset.theme === 'light';
+  return {
+    bg:        light ? '#eef2f7' : '#0c1620',
+    isobarMaj: light ? '#c5d0da' : '#1e2a3a',
+    isobarMin: light ? '#d8e0e8' : '#172030',
+    isotherm0: light ? '#9ab4c8' : '#1e3a5f',
+    isothermN: light ? '#cdd7e0' : '#182030',
+    isotLabel: light ? '#64748b' : '#374151',
+    axisLine:  light ? '#94a3b8' : '#2d3f52',
+    isa:       light ? '#9ab4c8' : '#1e3a5f',
+    label:     light ? '#475569' : '#374151',
+    hint:      light ? '#64748b' : '#374151',
+    dotRing:   light ? '#1e293b' : '#ffffff',
+  };
+}
+
 function drawMiniSounding() {
   const canvas = document.getElementById('mini-sounding-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const { W, H, ML, MR, MT, MB, PW, PH, TL, TR, PT, PB } = MSK;
   const barbX = ML + PW + 6;   // X start of wind barb column
+  const T = miniSkewTTheme();
 
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0c1620';
+  ctx.fillStyle = T.bg;
   ctx.fillRect(0, 0, W, H);
 
   // ── Clip to plot + barb area for grid ──────────────────────────────────
@@ -237,10 +259,10 @@ function drawMiniSounding() {
   for (const p of isobars) {
     if (p < PT || p > PB) continue;
     const y = mskY(p);
-    ctx.strokeStyle = p % 100 === 0 ? '#1e2a3a' : '#172030';
+    ctx.strokeStyle = p % 100 === 0 ? T.isobarMaj : T.isobarMin;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
-    ctx.fillStyle = '#4b5563';
+    ctx.fillStyle = T.isotLabel;
     ctx.fillText(p, ML - 3, y + 3);
   }
 
@@ -248,12 +270,12 @@ function drawMiniSounding() {
   for (const t of [-70, -60, -50, -40, -30, -20, -10, 0, 10, 20]) {
     const x1 = mskX(t, PB), y1 = mskY(PB);
     const x2 = mskX(t, PT), y2 = mskY(PT);
-    ctx.strokeStyle = t === 0 ? '#1e3a5f' : '#182030';
+    ctx.strokeStyle = t === 0 ? T.isotherm0 : T.isothermN;
     ctx.lineWidth   = t === 0 ? 1.2 : 0.7;
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     // Temperature label at bottom of plot
     if (x1 >= ML && x1 <= ML + PW) {
-      ctx.fillStyle = '#374151'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+      ctx.fillStyle = T.isotLabel; ctx.font = '8px monospace'; ctx.textAlign = 'center';
       ctx.fillText(t + '°', x1, MT + PH + 14);
     }
   }
@@ -261,12 +283,12 @@ function drawMiniSounding() {
   ctx.restore();
 
   // Y axis line
-  ctx.strokeStyle = '#2d3f52'; ctx.lineWidth = 1;
+  ctx.strokeStyle = T.axisLine; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.stroke();
 
   // ── ISA reference (dashed blue) ─────────────────────────────────────────
   const isaPs = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
-  ctx.strokeStyle = '#1e3a5f'; ctx.lineWidth = 1.2;
+  ctx.strokeStyle = T.isa; ctx.lineWidth = 1.2;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();
   let isaFirst = true;
@@ -284,7 +306,7 @@ function drawMiniSounding() {
 
   // ── No aircraft selected hint ───────────────────────────────────────────
   if (!miniAcOverlay) {
-    ctx.fillStyle = '#374151'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+    ctx.fillStyle = T.hint; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Click an aircraft', ML + PW / 2, MT + PH / 2 - 6);
     ctx.fillText('to show profile',   ML + PW / 2, MT + PH / 2 + 8);
   }
@@ -354,7 +376,7 @@ function drawMiniSounding() {
       // Circle on temperature profile (only if temp available)
       if (temp_c != null) {
         const x = mskX(temp_c, p);
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = T.dotRing; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
         ctx.fillStyle = color;
         ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
@@ -841,3 +863,13 @@ if (_mskWrap) {
 } else {
   drawMiniSounding();   // fallback: draw with default dimensions
 }
+
+// Redraw mini Skew-T and swap map tile when the global page theme changes
+window.onThemeChange = function () {
+  map.removeLayer(currentTile);
+  currentTile = L.tileLayer(
+    document.documentElement.dataset.theme === 'light' ? TILE_LIGHT : TILE_DARK,
+    TILE_OPTS
+  ).addTo(map);
+  drawMiniSounding();
+};

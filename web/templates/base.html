@@ -6,6 +6,13 @@
   <title>{% block title %}MODE-S Wind{% endblock %}</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Apply saved theme before first paint to prevent flash of wrong theme -->
+  <script>
+    (function(){
+      if (localStorage.getItem('ms_theme') === 'light')
+        document.documentElement.dataset.theme = 'light';
+    })();
+  </script>
 </head>
 <body>
 
@@ -26,6 +33,7 @@
     <span class="config-badge badge-storage-{{ storage_mode | lower }}"
           title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
   </div>
+  <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
     <span id="status-text">Connecting…</span>
@@ -43,6 +51,32 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 {% block scripts %}{% endblock %}
 <script>
+// ── Theme toggle ────────────────────────────────────────────────────────────
+(function () {
+  var btn = document.getElementById('nav-theme-btn');
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.dataset.theme = 'light';
+      btn.textContent = 'Dark';
+    } else {
+      delete document.documentElement.dataset.theme;
+      btn.textContent = 'Light';
+    }
+    // Let each page redraw its canvases with the new palette
+    if (typeof window.onThemeChange === 'function') window.onThemeChange();
+  }
+
+  // Sync button label with whatever the head script already applied
+  if (document.documentElement.dataset.theme === 'light') btn.textContent = 'Dark';
+
+  btn.addEventListener('click', function () {
+    var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('ms_theme', next);
+    applyTheme(next);
+  });
+})();
+
 // Global stats refresh (navbar)
 async function refreshStats() {
   const dot  = document.getElementById('status-dot');

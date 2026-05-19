@@ -336,6 +336,32 @@ new ResizeObserver(() => {
 }).observe(ilsCanvas.parentElement);
 resizeIlsCanvas();
 
+// ── Theme-aware colour palette for the ILS and Wind Rose canvases ─────────
+function wsCanvasTheme() {
+  const light = document.documentElement.dataset.theme === 'light';
+  return {
+    bg:         light ? '#eef2f7' : '#0f1923',
+    grid:       light ? '#c5d0da' : '#1e2d40',
+    gsband:     light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.07)',
+    gsline:     light ? '#2563eb' : '#38bdf8',
+    annot:      light ? '#475569' : '#475569',
+    axisLabel:  light ? '#475569' : '#64748b',
+    noTraffic:  light ? '#64748b' : '#334155',
+    trail:      light ? 'rgba(0,0,0,0.10)'      : 'rgba(255,255,255,0.12)',
+    staleRing:  light ? 'rgba(37,99,235,0.30)'  : 'rgba(56,189,248,0.30)',
+    staleGlow:  light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.08)',
+    dotBorder:  '#000',
+    barbHint:   light ? '#64748b' : '#475569',
+    // Wind Rose
+    roseBg:     light ? '#e8edf3' : '#0a121c',
+    roseOuter:  light ? '#b8c8d8' : '#1a2d40',
+    roseRing:   light ? '#94a3b8' : '#1e3a5f',
+    roseSpeed:  light ? '#94a3b8' : '#475569',
+    roseInner:  light ? '#c5d5e5' : '#3b6ea0',
+    roseLabel:  light ? '#475569' : '#475569',
+  };
+}
+
 function drawIlsProfile(aircraft, shearEvents = []) {
   const W = ilsCanvas.width;
   const H = ilsCanvas.height;
@@ -343,9 +369,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const PH = H - M.top  - M.bottom;
 
   ilsCtx.clearRect(0, 0, W, H);
+  const CT = wsCanvasTheme();
 
   // Background
-  ilsCtx.fillStyle = '#0f1923';
+  ilsCtx.fillStyle = CT.bg;
   ilsCtx.fillRect(0, 0, W, H);
 
   if (PW < 20 || PH < 20) return;
@@ -357,7 +384,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const altY  = a => M.top  + (1 - a / PROFILE_MAX_FT) * PH;
 
   // ── Grid ──────────────────────────────────────────────────────────────────
-  ilsCtx.strokeStyle = '#1e2d40';
+  ilsCtx.strokeStyle = CT.grid;
   ilsCtx.lineWidth   = 1;
 
   // Altitude grid lines (every 500 ft)
@@ -399,14 +426,14 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist) - GS_TOL_FT));
   ilsCtx.lineTo(distX(0),         altY(gsRef(0) - GS_TOL_FT));
   ilsCtx.closePath();
-  ilsCtx.fillStyle = 'rgba(56,189,248,0.07)';
+  ilsCtx.fillStyle = CT.gsband;
   ilsCtx.fill();
 
   // Glideslope centreline
   ilsCtx.beginPath();
   ilsCtx.moveTo(distX(0),         altY(gsRef(0)));
   ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist)));
-  ilsCtx.strokeStyle  = '#38bdf8';
+  ilsCtx.strokeStyle  = CT.gsline;
   ilsCtx.lineWidth    = 1.5;
   ilsCtx.setLineDash([6, 4]);
   ilsCtx.globalAlpha = 0.7;
@@ -416,7 +443,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
   // Small annotation: active corrections
   const corrSign = qnhCorr >= 0 ? '+' : '';
-  ilsCtx.fillStyle = '#475569';
+  ilsCtx.fillStyle = CT.annot;
   ilsCtx.font      = '9px "Courier New", monospace';
   ilsCtx.textAlign = 'right';
   ilsCtx.fillText(
@@ -459,7 +486,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   }
 
   // ── Axis labels ───────────────────────────────────────────────────────────
-  ilsCtx.fillStyle  = '#64748b';
+  ilsCtx.fillStyle  = CT.axisLabel;
   ilsCtx.font       = '10px "Courier New", monospace';
   ilsCtx.textAlign  = 'right';
   for (let a = 0; a <= PROFILE_MAX_FT; a += 500) {
@@ -483,7 +510,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
   // ── Plot aircraft ─────────────────────────────────────────────────────────
   if (!aircraft || aircraft.length === 0) {
-    ilsCtx.fillStyle  = '#334155';
+    ilsCtx.fillStyle  = CT.noTraffic;
     ilsCtx.font       = '12px system-ui, sans-serif';
     ilsCtx.textAlign  = 'center';
     ilsCtx.fillText('No approach traffic', M.left + PW / 2, M.top + PH / 2);
@@ -510,7 +537,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
         if (first) { ilsCtx.moveTo(hx, hy); first = false; }
         else ilsCtx.lineTo(hx, hy);
       }
-      ilsCtx.strokeStyle  = 'rgba(255,255,255,0.12)';
+      ilsCtx.strokeStyle  = CT.trail;
       ilsCtx.lineWidth    = 1;
       ilsCtx.stroke();
     }
@@ -527,12 +554,12 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const nowSec = Date.now() / 1000;
     const nearStale = ac.altitude < 1_000 && (nowSec - ac.last_seen) > 10;
 
-    const dotColor = nearStale ? 'rgba(56,189,248,0.30)' : color;
+    const dotColor = nearStale ? CT.staleRing : color;
 
     // Glow ring
     ilsCtx.beginPath();
     ilsCtx.arc(x, y, 8, 0, Math.PI * 2);
-    ilsCtx.fillStyle = nearStale ? 'rgba(56,189,248,0.08)' : color + '22';
+    ilsCtx.fillStyle = nearStale ? CT.staleGlow : color + '22';
     ilsCtx.fill();
 
     // Dot
@@ -540,7 +567,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.arc(x, y, 5, 0, Math.PI * 2);
     ilsCtx.fillStyle = dotColor;
     ilsCtx.fill();
-    ilsCtx.strokeStyle = nearStale ? 'rgba(0,0,0,0.4)' : '#000';
+    ilsCtx.strokeStyle = CT.dotBorder;
     ilsCtx.lineWidth   = 1;
     ilsCtx.stroke();
 
@@ -599,14 +626,14 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.restore();
     } else {
       // Aircraft selected but no history accumulated yet
-      ilsCtx.fillStyle  = '#475569';
+      ilsCtx.fillStyle  = CT.barbHint;
       ilsCtx.font       = '9px "Courier New", monospace';
       ilsCtx.textAlign  = 'left';
       ilsCtx.fillText('\u{1F32C} Waiting for wind data…', M.left + 4, M.top + 22);
     }
   } else if (barbLayerActive) {
     // Layer active but no aircraft selected yet
-    ilsCtx.fillStyle  = '#475569';
+    ilsCtx.fillStyle  = CT.barbHint;
     ilsCtx.font       = '9px "Courier New", monospace';
     ilsCtx.textAlign  = 'left';
     ilsCtx.fillText('\u{1F32C} Click a strip to show wind barbs', M.left + 4, M.top + 22);
@@ -1521,10 +1548,11 @@ function drawWindrose() {
   const R   = Math.min(cx, cy) - 22;  // auto-scales with canvas size; 22 px for labels
   const LR  = R + 14;                 // label radius
   const MAX_SPD = 40;                  // kt → full radius
+  const CT  = wsCanvasTheme();
 
   // ── Background ──────────────────────────────────────────────────────────────
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0a121c';
+  ctx.fillStyle = CT.roseBg;
   ctx.fillRect(0, 0, W, H);
 
   // ── Speed reference rings (10 / 20 / 30 kt) ────────────────────────────────
@@ -1532,14 +1560,14 @@ function drawWindrose() {
   for (const spd of [10, 20, 30]) {
     ctx.beginPath();
     ctx.arc(cx, cy, R * spd / MAX_SPD, 0, Math.PI * 2);
-    ctx.strokeStyle = '#1a2d40';
+    ctx.strokeStyle = CT.roseOuter;
     ctx.stroke();
   }
 
   // ── Compass ring ────────────────────────────────────────────────────────────
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.strokeStyle = '#1e3a5f';
+  ctx.strokeStyle = CT.roseRing;
   ctx.lineWidth   = 1.5;
   ctx.stroke();
 
@@ -1552,7 +1580,7 @@ function drawWindrose() {
     ctx.beginPath();
     ctx.moveTo(cx + R * Math.sin(rad),       cy - R * Math.cos(rad));
     ctx.lineTo(cx + (R - len) * Math.sin(rad), cy - (R - len) * Math.cos(rad));
-    ctx.strokeStyle = maj ? '#475569' : '#1e3a5f';
+    ctx.strokeStyle = maj ? CT.roseSpeed : CT.roseRing;
     ctx.lineWidth   = maj ? 1.5 : 0.75;
     ctx.stroke();
   }
@@ -1567,7 +1595,7 @@ function drawWindrose() {
   for (const [d, lbl] of Object.entries(COMPASS_LABELS)) {
     const rad = Number(d) * Math.PI / 180;
     ctx.font      = Number(d) % 90 === 0 ? 'bold 12px "Courier New",monospace' : '10px "Courier New",monospace';
-    ctx.fillStyle = Number(d) % 90 === 0 ? '#94a3b8' : '#475569';
+    ctx.fillStyle = CT.roseLabel;
     ctx.fillText(lbl, cx + LR * Math.sin(rad), cy - LR * Math.cos(rad));
   }
 
@@ -1589,11 +1617,11 @@ function drawWindrose() {
     ctx.beginPath();
     ctx.moveTo(cx + rLen * Math.sin(r1), cy - rLen * Math.cos(r1));
     ctx.lineTo(cx + rLen * Math.sin(r2), cy - rLen * Math.cos(r2));
-    ctx.strokeStyle = '#2d4a66';
+    ctx.strokeStyle = CT.roseSpeed;
     ctx.stroke();
     // End labels just inside the ring
     ctx.font      = '11px "Courier New",monospace';
-    ctx.fillStyle = '#3b6ea0';
+    ctx.fillStyle = CT.roseInner;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const inset = R * 0.78;
     ctx.fillText(rl.ends[0], cx + inset * Math.sin(r1), cy - inset * Math.cos(r1));
@@ -1604,7 +1632,7 @@ function drawWindrose() {
   // ── Center dot ──────────────────────────────────────────────────────────────
   ctx.beginPath();
   ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#475569';
+  ctx.fillStyle = CT.roseSpeed;
   ctx.fill();
 
   // ── Wind arrow helper ────────────────────────────────────────────────────────
@@ -1679,7 +1707,7 @@ function drawWindrose() {
   ctx.textBaseline = 'top'; ctx.textAlign = 'left';
   ctx.fillStyle = METAR_COL;
   ctx.fillText('● METAR', 5, 4);
-  ctx.fillStyle = modesW ? MODES_COL : '#334155';
+  ctx.fillStyle = modesW ? MODES_COL : CT.roseSpeed;
   ctx.fillText('● MODE-S', 5, 14);
 
   // ── Text readout below canvas ────────────────────────────────────────────────
@@ -1693,7 +1721,8 @@ function drawWindrose() {
     metarLine = `<span style="color:#38bdf8">MET ${dStr} / ${metarWind.spd} kt</span>`;
   }
 
-  let modesLine = '<span style="color:#334155">M-S  waiting for data…</span>';
+  const waitCol = document.documentElement.dataset.theme === 'light' ? '#64748b' : '#334155';
+  let modesLine = `<span style="color:${waitCol}">M-S  waiting for data…</span>`;
   if (modesW) {
     const ageMin  = recent.length > 0
       ? Math.round((nowMs - Math.max(...recent.map(o => o.ts))) / 60_000)
@@ -1925,3 +1954,9 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 
 fetchApproachState();
 setInterval(fetchApproachState, 3_000);
+
+// Redraw both canvases when the global page theme changes (Dark ↔ Light)
+window.onThemeChange = function () {
+  drawIlsProfile(lastAircraft, lastShearEvents);
+  drawWindRose();
+};
