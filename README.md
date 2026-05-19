@@ -698,7 +698,11 @@ The Leaflet map shows:
 - **Aircraft markers** with callsign labels; corridor aircraft are brighter and have a higher z-index than non-corridor traffic
 - **Tooltips** showing callsign, matched runway, altitude, and distance from threshold
 
-**Map themes** — three tile layer choices accessible via buttons in the map controls overlay: Dark (CartoDB dark), Grey (CartoDB light), Black (pure black background, no labels).
+**Map themes** — four tile layer choices accessible via buttons in the map controls overlay: Dark (CartoDB dark), Grey (CartoDB light), ATC (flat `#cfcfcf` radar grey, no tile imagery), Black (pure black background, no labels).
+
+The **ATC** and **Black** themes support **overlay cycling** — clicking the active button a second time does not re-apply the theme but instead cycles through three overlay levels: ILS centrelines only → ILS + coastline (`efhk_coast.geojson`) → ILS + coastline + water polygons (`efhk_aqua.geojson`). The button label reflects the current level (ATC / ATC+C / ATC+CA and Black / Black+C / Black+CA). A further click wraps back to ILS only. Each theme remembers its overlay level independently, so switching between ATC and Black retains the previous level for each.
+
+Overlay layers on ATC use muted navy/steel colours that contrast clearly against the grey radar background; on Black the same layers use deep blue tones against the dark canvas.
 
 **ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic. Defaults **on**; state persists across browser sessions.
 
@@ -929,7 +933,9 @@ mode_s_wind/
 │       └── windshear.js       # Approach strips, ILS profile, windshear detection
 ├── overlays/                  # GeoJSON overlays served to the Windshear map
 │   ├── efhk_ils.geojson       # EFHK ILS centreline geometry (all runways)
-│   └── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
+│   ├── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
+│   ├── efhk_coast.geojson     # Coastline overlay (ATC+C / Black+C overlay level)
+│   └── efhk_aqua.geojson      # Water / aqua polygons (ATC+CA / Black+CA overlay level)
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library

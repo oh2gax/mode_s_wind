@@ -761,6 +761,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-theme-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-theme-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ws-theme-btn.active[data-theme="atc"]   { background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; }
 
 /* ILS corridor filter toggle — same shape as theme buttons but amber when active */
 .ws-ils-filter-btn {

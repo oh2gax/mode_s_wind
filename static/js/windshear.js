@@ -72,11 +72,24 @@ const TILES = {
     'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
   ),
+  atc: L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
+      opacity: 0.0 }     // tiles hidden, bg = #cfcfcf (ATC radar grey)
+  ),
   black: L.tileLayer(
     'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
-      opacity: 0.0 }     // pure black — tiles hidden, bg = #000
+      opacity: 0.0 }     // tiles hidden, bg = #000
   ),
+};
+
+// Overlay cycling state for ATC and Black themes.
+// Level 0 = ILS only, 1 = + coast, 2 = + coast + aqua
+const overlayLevelByTheme = { atc: 0, black: 0 };
+const OVERLAY_LEVEL_LABELS = {
+  atc:   ['ATC', 'ATC+C', 'ATC+CA'],
+  black: ['Black', 'Black+C', 'Black+CA'],
 };
 
 let currentTheme = 'dark';
@@ -99,49 +112,65 @@ L.circle([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
 
 // ── GeoJSON overlays ──────────────────────────────────────────────────────────
 
-let ilsLayer  = null;
-let aptLayer  = null;
+let ilsLayer   = null;
+let aptLayer   = null;
+let coastLayer = null;
+let aquaLayer  = null;
 
 function ilsStyle(theme) {
-  return {
-    color:     theme === 'grey' ? '#64748b' : '#38bdf8',
-    weight:    1.5,
-    opacity:   theme === 'grey' ? 0.7 : 0.6,
-    dashArray: '6 5',
-    fillOpacity: 0,
-  };
+  if (theme === 'atc')  return { color: '#1a3a6b', weight: 2,   opacity: 0.9, dashArray: '6 5', fillOpacity: 0 };
+  if (theme === 'grey') return { color: '#64748b', weight: 1.5, opacity: 0.7, dashArray: '6 5', fillOpacity: 0 };
+  return                       { color: '#38bdf8', weight: 1.5, opacity: 0.6, dashArray: '6 5', fillOpacity: 0 };
 }
 function aptStyle(theme) {
-  return {
-    color:   theme === 'grey' ? '#475569' : '#94a3b8',
-    weight:  1,
-    opacity: 0.5,
-    fillOpacity: 0,
-  };
+  if (theme === 'atc')  return { color: '#2d4a6b', weight: 1, opacity: 0.7, fillOpacity: 0 };
+  if (theme === 'grey') return { color: '#475569', weight: 1, opacity: 0.5, fillOpacity: 0 };
+  return                       { color: '#94a3b8', weight: 1, opacity: 0.5, fillOpacity: 0 };
+}
+function coastStyle(theme) {
+  if (theme === 'atc') return { color: '#4a6080', weight: 1,   opacity: 0.8, fillOpacity: 0 };
+  return                      { color: '#2a4060', weight: 1,   opacity: 0.7, fillOpacity: 0 };
+}
+function aquaStyle(theme) {
+  if (theme === 'atc') return { color: '#7098b8', weight: 0.5, opacity: 0.6, fillColor: '#b8d0e8', fillOpacity: 0.35 };
+  return                      { color: '#1a3a60', weight: 0.5, opacity: 0.5, fillColor: '#0a1e3a', fillOpacity: 0.45 };
 }
 
-async function loadOverlays(theme) {
-  // Remove existing overlay layers
-  if (ilsLayer) { map.removeLayer(ilsLayer); ilsLayer = null; }
-  if (aptLayer) { map.removeLayer(aptLayer); aptLayer = null; }
+async function loadOverlays(theme, level = 0) {
+  // Remove all overlay layers
+  if (ilsLayer)   { map.removeLayer(ilsLayer);   ilsLayer   = null; }
+  if (aptLayer)   { map.removeLayer(aptLayer);   aptLayer   = null; }
+  if (coastLayer) { map.removeLayer(coastLayer); coastLayer = null; }
+  if (aquaLayer)  { map.removeLayer(aquaLayer);  aquaLayer  = null; }
 
   try {
-    const [ilsResp, aptResp] = await Promise.all([
-      fetch('/overlays/efhk_ils.geojson'),
-      fetch('/overlays/efhk_apt.geojson'),
-    ]);
-    const [ilsGeo, aptGeo] = await Promise.all([ilsResp.json(), aptResp.json()]);
-
-    // Filter ILS to EFHK features only (properties.airport === 'EFHK')
+    // ILS — always loaded; filtered to EFHK features
+    const ilsGeo = await fetch('/overlays/efhk_ils.geojson').then(r => r.json());
     const efhkIls = {
       type: 'FeatureCollection',
       features: ilsGeo.features.filter(
         f => f.properties && f.properties.airport === 'EFHK'
       ),
     };
-
     ilsLayer = L.geoJSON(efhkIls, { style: ilsStyle(theme) }).addTo(map);
-    aptLayer = L.geoJSON(aptGeo,  { style: aptStyle(theme)  }).addTo(map);
+
+    // Airport layout — only for tile-based themes (dark / grey)
+    if (theme === 'dark' || theme === 'grey') {
+      const aptGeo = await fetch('/overlays/efhk_apt.geojson').then(r => r.json());
+      aptLayer = L.geoJSON(aptGeo, { style: aptStyle(theme) }).addTo(map);
+    }
+
+    // Level 1+: coastline
+    if (level >= 1) {
+      const coastGeo = await fetch('/overlays/efhk_coast.geojson').then(r => r.json());
+      coastLayer = L.geoJSON(coastGeo, { style: coastStyle(theme) }).addTo(map);
+    }
+
+    // Level 2: water / aqua polygons
+    if (level >= 2) {
+      const aquaGeo = await fetch('/overlays/efhk_aqua.geojson').then(r => r.json());
+      aquaLayer = L.geoJSON(aquaGeo, { style: aquaStyle(theme) }).addTo(map);
+    }
   } catch (e) {
     console.warn('Overlay load failed:', e);
   }
@@ -151,24 +180,47 @@ loadOverlays(currentTheme);
 
 // ── Theme switching ───────────────────────────────────────────────────────────
 
+function updateThemeButtons() {
+  document.querySelectorAll('.ws-theme-btn').forEach(b => {
+    const t = b.dataset.theme;
+    b.classList.toggle('active', t === currentTheme);
+    // Show cycling level label for ATC / Black when active
+    if (OVERLAY_LEVEL_LABELS[t]) {
+      const level = overlayLevelByTheme[t] ?? 0;
+      b.textContent = (t === currentTheme)
+        ? OVERLAY_LEVEL_LABELS[t][level]
+        : OVERLAY_LEVEL_LABELS[t][0];
+    }
+  });
+}
+
 function applyTheme(theme) {
+  const container = document.getElementById('ws-map');
+
+  // ATC / Black: if already active, cycle overlay level instead of re-switching
+  if ((theme === 'atc' || theme === 'black') && currentTheme === theme) {
+    overlayLevelByTheme[theme] = (overlayLevelByTheme[theme] + 1) % 3;
+    loadOverlays(theme, overlayLevelByTheme[theme]);
+    updateThemeButtons();
+    return;
+  }
+
   currentTheme = theme;
 
   // Swap tile layer
   Object.values(TILES).forEach(t => map.removeLayer(t));
   TILES[theme].addTo(map);
 
-  // Black theme: kill tile opacity, force container background
-  const container = document.getElementById('ws-map');
-  container.style.background = theme === 'black' ? '#000' : '';
+  // Flat-colour themes: set background; tile-based themes: clear it
+  if (theme === 'black') container.style.background = '#000';
+  else if (theme === 'atc') container.style.background = '#cfcfcf';
+  else container.style.background = '';
 
-  // Reload overlays with matching style
-  loadOverlays(theme);
+  // Load overlays at the stored level for this theme (resets to 0 on first switch)
+  const level = overlayLevelByTheme[theme] ?? 0;
+  loadOverlays(theme, level);
 
-  // Update buttons
-  document.querySelectorAll('.ws-theme-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.theme === theme);
-  });
+  updateThemeButtons();
 
   // Redraw ILS canvas with updated colours
   drawIlsProfile(lastAircraft);
