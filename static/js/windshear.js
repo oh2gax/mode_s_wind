@@ -228,6 +228,13 @@ function updateMapMarkers(aircraft) {
       acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.meteo_source));
       acMarkers[ac.icao].marker.setTooltipContent(tip);
       acMarkers[ac.icao].label.setLatLng([ac.lat, ac.lon]);
+      // Refresh label text so callsign appears as soon as the server provides it,
+      // rather than staying frozen as ICAO24 from the first poll.
+      acMarkers[ac.icao].label.setIcon(L.divIcon({
+        html: `<div class="ws-ac-label${ac.in_corridor ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}</div>`,
+        className: '',
+        iconAnchor: [-10, 5],
+      }));
     } else {
       const marker = L.marker([ac.lat, ac.lon], {
         icon: makeAcIcon(ac.meteo_source),
