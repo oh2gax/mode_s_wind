@@ -44,7 +44,7 @@ from typing import Optional
 
 log = logging.getLogger("modes.json_poller")
 
-POLL_INTERVAL: float = 5.0   # seconds between HTTP requests
+POLL_INTERVAL: float = 2.0   # seconds between HTTP requests
 HTTP_TIMEOUT:  float = 4.0   # per-request timeout
 
 
