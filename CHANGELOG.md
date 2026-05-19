@@ -5,6 +5,11 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-19
+
+- Fixed Windshear map labels staying frozen as ICAO24 — label text was only set on marker creation; update path now calls `setIcon` on the label marker each poll so callsign appears as soon as the server has it, without requiring a page reload
+- Changed Wind Rose toggle button label from "🌹 Rose" to "Windrose" — no symbol, same active colour
+
 ## 2026-05-18 (continued, 3)
 
 - Restructured Windshear page layout — flight strips now extend to the full bottom of the screen; METAR/TAF strip moved inside the right column so it aligns only under the map and ILS profile, not under the strips

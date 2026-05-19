@@ -527,7 +527,7 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 The page has four main areas:
 
 - **Left panel** — QNH display and ATC-style flight strips for aircraft inside the ILS corridor; strips extend the full height of the screen to maximise capacity during busy arrival sequences; strips are filtered to match the runway selected in the ILS profile selector
-- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `🌹 Rose` button overlays the Wind Rose panel in the top-right corner of the map
+- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `Windrose` button overlays the Wind Rose panel in the top-right corner of the map
 - **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
 - **Bottom right** — Windshear event log with inline detection toggle, algorithm dropdown, and Clear button in the header
 - **METAR / TAF strip** — aligned under the map and ILS profile only (right column); does not overlap the flight strips panel
@@ -635,7 +635,7 @@ The feature is designed for exploratory use: enable it during an active approach
 
 #### Wind Rose
 
-The `🌹 Rose` button in the map controls bar toggles a compass rose panel that overlays the top-right corner of the Leaflet map. It is enabled by default. The rose compares two wind sources side by side:
+The `Windrose` button in the map controls bar toggles a compass rose panel that overlays the top-right corner of the Leaflet map. It is enabled by default. The rose compares two wind sources side by side:
 
 **METAR surface wind (cyan arrow)** is parsed directly from the METAR string returned by `/api/wx` and is available immediately on page load, refreshed every 10 minutes alongside the METAR text. A variable-direction wind (VRB) is shown as a dotted cyan ring at the reported speed radius rather than a directional arrow.
 
