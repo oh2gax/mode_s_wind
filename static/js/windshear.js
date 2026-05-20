@@ -780,6 +780,9 @@ let lastShearEvents    = [];
 // GS history for energy algorithm  icao → [{gs, alt, ts}, …]
 const wsGsHistory = {};
 
+// IAS−GS differential history for kinematic algorithm  icao → [{ias, gs, ts}, …]
+const wsKinHistory = {};
+
 // ── Windshear algorithm helpers ───────────────────────────────────────────────
 
 /** Return the approach magnetic heading for a runway designator, or null. */
@@ -1060,6 +1063,67 @@ function detectBaseline(aircraft) {
   return events;
 }
 
+// ── Algorithm 6: Kinematic IAS−GS differential ───────────────────────────────
+/**
+ * Detects windshear by tracking the rate of change of the IAS−GS differential
+ * over a 45-second sliding window.
+ *
+ * Physics: at low altitude, air density is close to sea-level so IAS ≈ TAS.
+ * The difference (IAS − GS) therefore approximates the headwind component the
+ * aircraft is experiencing along its track.  A sudden change in this
+ * differential — without any wind direction decoding — directly measures the
+ * magnitude of a headwind loss or gain that the aircraft has flown through.
+ *
+ * Advantages over traditional algorithms:
+ *  • Works for a single aircraft in the corridor (no pair required)
+ *  • No wind vector decoding needed; uses raw BDS 6,0 IAS and ADS-B GS
+ *  • Robust at low altitude where IAS ≈ TAS is most accurate
+ *  • Insensitive to heading errors and magnetic variation
+ *
+ * Thresholds: ≥15 kt change = moderate, ≥25 kt change = severe (ICAO FAA JAWS).
+ * Window: 45 seconds (oldest vs newest sample within the window).
+ */
+function detectKinematic(aircraft) {
+  const events    = [];
+  const WINDOW_MS = 45_000;   // 45-second look-back window
+
+  for (const ac of aircraft) {
+    if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (computeGsStatus(ac) !== 'ON') continue;
+
+    const hist = wsKinHistory[ac.icao];
+    if (!hist || hist.length < 2) continue;
+
+    const nowMs = Date.now();
+    // Filter to entries within the 45-second window
+    const window = hist.filter(p => (nowMs - p.ts) <= WINDOW_MS);
+    if (window.length < 2) continue;
+
+    const oldest = window[0];
+    const newest = window[window.length - 1];
+
+    const diffOld = oldest.ias - oldest.gs;   // IAS−GS at start of window
+    const diffNew = newest.ias - newest.gs;   // IAS−GS at end of window
+    const delta   = Math.abs(diffNew - diffOld);
+
+    if (delta < WS_THRESHOLD_KT) continue;
+
+    events.push({
+      algo:     'kinematic',
+      rwy:      ac.approach_runway,
+      icao:     ac.icao,
+      cs:       ac.callsign || ac.icao,
+      alt_low:  Math.round(oldest.gs != null ? ac.altitude - 50 : ac.altitude),
+      alt_high: Math.round(ac.altitude),
+      hw_low:   Math.round(diffOld),   // repurposed: IAS−GS at window start
+      hw_high:  Math.round(diffNew),   // repurposed: IAS−GS at window end
+      delta_kt: Math.round(delta),
+      severity: delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+    });
+  }
+  return events;
+}
+
 // ── Algorithm dispatcher ──────────────────────────────────────────────────────
 /**
  * Route to the active algorithm.  All algorithms return events in a
@@ -1069,11 +1133,12 @@ function detectBaseline(aircraft) {
 function detectWindshear(aircraft) {
   if (!wsDetectionEnabled) return [];
   switch (wsDetAlgo) {
-    case 'gradient': return detectGradient(aircraft);
-    case 'energy':   return detectEnergy(aircraft);
-    case 'rate':     return detectRate(aircraft);
-    case 'baseline': return detectBaseline(aircraft);
-    default:         return detectPairwise(aircraft);
+    case 'gradient':  return detectGradient(aircraft);
+    case 'energy':    return detectEnergy(aircraft);
+    case 'rate':      return detectRate(aircraft);
+    case 'baseline':  return detectBaseline(aircraft);
+    case 'kinematic': return detectKinematic(aircraft);
+    default:          return detectPairwise(aircraft);
   }
 }
 
@@ -1092,7 +1157,7 @@ function updateAlertBanner(events) {
   const cls = hasSevere ? 'ws-alert-severe' : 'ws-alert-moderate';
   const icon = hasSevere ? '🔴' : '⚠';
 
-  const ALGO_SHORT = { pair:'Pair', gradient:'Grad', energy:'Engy', rate:'Rate', baseline:'Base' };
+  const ALGO_SHORT = { pair:'Pair', gradient:'Grad', energy:'Engy', rate:'Rate', baseline:'Base', kinematic:'Kinem' };
   const tags = events.map(e => {
     const algoLbl = ALGO_SHORT[e.algo] || 'WS';
     const acInfo  = (e.cs_low && e.cs_high)
@@ -1414,7 +1479,7 @@ function renderWsLog() {
     const trend   = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
 
     // Algorithm badge
-    const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline' };
+    const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline', kinematic:'Kinematic' };
     const algoLbl  = ALGO_LABELS[e.algo] || (e.algo || 'WS');
     const algoBadge = `<span class="ws-log-algo-badge ws-algo-${e.algo || 'pair'}">${algoLbl}</span>`;
 
@@ -1790,6 +1855,10 @@ async function fetchApproachState() {
     for (const icao of Object.keys(wsGsHistory)) {
       if (!liveIcaos.has(icao)) delete wsGsHistory[icao];
     }
+    // Clean up kinematic history for aircraft no longer tracked
+    for (const icao of Object.keys(wsKinHistory)) {
+      if (!liveIcaos.has(icao)) delete wsKinHistory[icao];
+    }
 
     // ── GS history: accumulate for energy algorithm ───────────────────────
     for (const ac of corridor) {
@@ -1799,6 +1868,16 @@ async function fetchApproachState() {
       // Keep a rolling 30-point buffer (~90 s at 3 s polling); the energy
       // algorithm applies its own 45-second time filter on top.
       if (wsGsHistory[ac.icao].length > 30) wsGsHistory[ac.icao].shift();
+    }
+
+    // ── Kinematic history: accumulate IAS−GS differential for corridor aircraft
+    //    Requires IAS from BDS 6,0.  Only stored when aircraft is in corridor.
+    for (const ac of corridor) {
+      if (ac.ias == null || ac.groundspeed == null) continue;
+      if (!wsKinHistory[ac.icao]) wsKinHistory[ac.icao] = [];
+      wsKinHistory[ac.icao].push({ ias: ac.ias, gs: ac.groundspeed, ts: nowMs });
+      // 30-point rolling buffer (~90 s at 3 s polling); algorithm applies 45 s filter
+      if (wsKinHistory[ac.icao].length > 30) wsKinHistory[ac.icao].shift();
     }
 
     // ── Wind history: accumulate for corridor aircraft with wind data ──────

@@ -675,7 +675,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-log-algo-badge.ws-algo-gradient { background: #14532d; color: #86efac; border-color: #166534; }
 .ws-log-algo-badge.ws-algo-energy   { background: #431407; color: #fdba74; border-color: #7c2d12; }
 .ws-log-algo-badge.ws-algo-rate     { background: #3b0764; color: #d8b4fe; border-color: #581c87; }
-.ws-log-algo-badge.ws-algo-baseline { background: #164e63; color: #67e8f9; border-color: #0e7490; }
+.ws-log-algo-badge.ws-algo-baseline  { background: #164e63; color: #67e8f9; border-color: #0e7490; }
+.ws-log-algo-badge.ws-algo-kinematic { background: #4c0519; color: #fda4af; border-color: #9f1239; }
 
 /* Windshear alert banner */
 .ws-alert-banner {

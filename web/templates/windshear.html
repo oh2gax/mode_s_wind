@@ -95,12 +95,13 @@
               <span class="ws-det-state" id="ws-det-state">OFF</span>
             </button>
             <select id="ws-algo-select" class="ws-algo-select"
-              title="Pairwise: ≥2 aircraft · Gradient: single AC history · Energy: GS+alt proxy · Rate: recent HW change · Baseline: vs landing history">
+              title="Pairwise: ≥2 aircraft · Gradient: single AC history · Energy: GS+alt proxy · Rate: recent HW change · Baseline: vs landing history · Kinematic: IAS−GS differential rate">
               <option value="pair">Pair</option>
               <option value="gradient">Gradient</option>
               <option value="energy">Energy</option>
               <option value="rate">Rate</option>
               <option value="baseline">Baseline</option>
+              <option value="kinematic">Kinematic</option>
             </select>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>

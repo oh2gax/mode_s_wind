@@ -657,7 +657,7 @@ The rose is intended to let you quickly judge whether the MODE-S wind profile me
 The panel to the right of the ILS profile canvas maintains a timestamped log of all detected windshear events during the current session. Entries are listed newest first with the following information for each event:
 
 - **Time** — local time the event was first detected
-- **Algorithm badge** — coloured pill showing which algorithm produced the event (Pair, Gradient, Energy, Rate, Baseline)
+- **Algorithm badge** — coloured pill showing which algorithm produced the event (Pair, Gradient, Energy, Rate, Baseline, Kinematic)
 - **Runway** — the ILS corridor where shear was detected
 - **Magnitude** — headwind delta in knots (amber = moderate ≥ 15 kt, red = severe ≥ 25 kt) and whether headwind is increasing or decreasing with altitude
 - **Altitude band** — the altitude range (ft) spanning the shear layer
@@ -709,9 +709,9 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 #### Windshear detection
 
-Windshear detection is controlled from the **Windshear Log header bar**, which contains three inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection is controlled from the **Windshear Log header bar**, which contains three inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
 
-Five independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
+Six independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
 
 All algorithms use the same headwind component formula:
 
@@ -811,6 +811,32 @@ If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 15 
 **Advantage:** the most context-aware of the five algorithms — it adapts to the actual recent wind environment at the airport rather than using a fixed reference. It can detect wind changes that develop gradually between arrival waves.
 
 **Limitation:** requires landing traffic in the preceding 30 minutes to populate the baseline buffer. The algorithm is silent at the start of a session or after a long traffic gap. Also assumes the baseline is representative of the current runway and direction, which may not hold perfectly when runway direction changes between the baseline and current approaches.
+
+##### Algorithm 6 — Kinematic (IAS − GS differential rate)
+
+**Requires: a single aircraft in the ILS corridor with BDS 6,0 IAS data available.**
+
+The Kinematic algorithm detects windshear by monitoring the rate of change of the difference between Indicated Airspeed (IAS) and GPS groundspeed (GS) over a 45-second sliding window.
+
+At low altitude, air density is close to sea-level ISA conditions, so IAS ≈ TAS (True Airspeed). The identity `IAS − GS ≈ headwind component along track` therefore holds without requiring any wind direction decoding. If the aircraft is flying into a headwind the differential is positive; a tailwind makes it negative. A sudden change in this differential is a direct kinematic measurement of a windshear encounter:
+
+```
+differential(t) = IAS(t) − GS(t)
+delta = |differential_now − differential_45s_ago|
+```
+
+If `delta ≥ 15 kt` the event is flagged as moderate; `≥ 25 kt` is severe.
+
+**Physical basis:** the approach phase is the only flight phase where a sudden change in `IAS − GS` can reliably be attributed to a wind shear and not to a deliberate speed change, because:
+- the aircraft is flying a stabilised approach at a fixed target IAS;
+- any large unintended IAS change is caused by an aerodynamic disturbance (gust, shear, microburst), not a throttle input;
+- GS reflects the aircraft's inertial motion, which lags momentarily behind the aerodynamic change, creating a measurable differential.
+
+A microburst headwind-loss encounter produces a rapid decrease in the differential (IAS drops faster than GS responds), while a headwind-gain event produces the opposite.
+
+**Advantage:** the most dataflow-simple of all algorithms — uses only two raw Mode S fields (BDS 6,0 airspeed, ADS-B groundspeed) with no wind vector reconstruction. Works with a single aircraft. No runway heading or wind direction needed.
+
+**Limitation:** requires BDS 6,0 Indicated Airspeed to be broadcast by the aircraft, which most modern jets do but is not mandatory. The IAS ≈ TAS approximation breaks down above ~6 000 ft (density altitude effect), but the algorithm is gated to GS-status-ON aircraft which are already on the glideslope well below that altitude.
 
 #### Stale aircraft removal
 
