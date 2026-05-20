@@ -47,7 +47,8 @@ log = logging.getLogger("modes.gps_quality")
 # Altitude is pressure altitude in feet (ADS-B barometric altitude).
 # FL = pressure altitude / 100, so FL050 = 5 000 ft.
 FL_BANDS = [
-    (     0,  5_000, "000-050"),
+    ( 1_000,  3_000, "010-030"),
+    ( 3_000,  5_000, "030-050"),
     ( 5_000, 10_000, "050-100"),
     (10_000, 15_000, "100-150"),
     (15_000, 20_000, "150-200"),
@@ -107,12 +108,14 @@ class GpsQualityTracker:
         freeze_polls:   int   = 3,
         gap_sec:        float = 45.0,
         min_gs_kt:      float = 50.0,
+        min_alt_ft:     float = 500.0,
         db_path:        str   = "",
     ):
         self.nacp_threshold = nacp_threshold
         self.freeze_polls   = freeze_polls
         self.gap_sec        = gap_sec
         self.min_gs_kt      = min_gs_kt
+        self.min_alt_ft     = min_alt_ft
         self._db_path       = db_path
 
         # Per-aircraft tracking state
@@ -251,6 +254,13 @@ class GpsQualityTracker:
         with self._lock:
             self._record_seen(icao)
 
+            # Skip degradation signal checks below the minimum altitude gate.
+            # Aircraft below ~500 ft are on very short final or have just landed;
+            # the receiver loses them at 300–400 ft while their last-known GS is
+            # still ~140 kt, which would cause spurious Freeze events.
+            if alt is not None and alt < self.min_alt_ft:
+                return
+
             prev = self._ac_state.get(icao, {})
             flags: list[str] = []
 
@@ -328,6 +338,12 @@ class GpsQualityTracker:
                 cs    = ac.get("callsign") or icao
 
                 if not icao:
+                    continue
+
+                # Same altitude gate as update() — skip signal checks below
+                # minimum altitude to avoid false positives from landing aircraft
+                # that the receiver has lost line-of-sight with.
+                if alt is not None and alt < self.min_alt_ft:
                     continue
 
                 prev  = self._ac_state.get(icao, {})

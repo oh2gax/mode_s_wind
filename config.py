@@ -168,5 +168,12 @@ class Config:
     # Below this speed the aircraft may be taxiing or holding — position
     # stability is expected and should not be flagged.
     GPS_MIN_GS_KT: float = 50.0
+    # Minimum altitude (ft, pressure altitude) for GPS degradation signal checks.
+    # Aircraft below this altitude are counted as "seen" but are not checked for
+    # NACp / Freeze / Gap signals.  This prevents false Freeze events when the
+    # receiver loses line-of-sight with a landing aircraft at ~300–400 ft and the
+    # last-known groundspeed (still ~140 kt) + frozen lat/lon would otherwise
+    # trigger the freeze detector for up to 60 seconds after last reception.
+    GPS_MIN_ALT_FT: float = 1000.0
     # Sweep interval (seconds) for the GPS quality background thread.
     GPS_SWEEP_SEC: float = 5.0

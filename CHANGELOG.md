@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-20 (GPS Quality altitude gate)
+
+- Added **minimum altitude gate** for GPS degradation signal checks — aircraft below `GPS_MIN_ALT_FT` (default 1 000 ft / FL010) are counted as seen in the hourly bucket but are not checked for NACp / Freeze / Gap signals; prevents spurious Freeze events from landing aircraft that the receiver loses line-of-sight with at ~300–400 ft while their last-known groundspeed is still ~140 kt
+- Gate applied in both `GpsQualityTracker.update()` and `rebuild_live()` so the live degraded table is also clean
+- Added `GPS_MIN_ALT_FT: float = 500.0` to `config.py`
+- Updated `run.py` to pass `cfg.GPS_MIN_ALT_FT` to `GpsQualityTracker`
+
+## 2026-05-20 (GPS Quality heatmap FL bands)
+
+- Split lowest FL band in GPS Quality heatmap from `000-050` into two bands: `000-030` (ground to 3 000 ft) and `030-050` (3 000–5 000 ft) — heatmap now has 8 rows instead of 7; gives better resolution in the critical approach and initial climb phase where low-level jamming effects are most operationally significant
+- Change is backward-compatible with stored DB rows — historical buckets using the old `000-050` label will show 0 for the two new bands; new data is correctly bucketed from the next sweep onward
+
 ## 2026-05-20 (GPS Quality DB persistence)
 
 - Added **`gps_quality_hours` SQLite table** — one row per completed UTC hour storing `ts`, `events`, `total` aircraft, `degraded` aircraft, and a JSON `fl_bands` object with per-FL-band event counts; `INSERT OR REPLACE` primary key on `ts` makes the write idempotent
