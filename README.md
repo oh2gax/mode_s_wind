@@ -545,13 +545,19 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 #### Layout
 
-The page has four main areas:
+The page is divided into five main areas:
 
-- **Left panel** — QNH display and ATC-style flight strips for aircraft inside the ILS corridor; strips extend the full height of the screen to maximise capacity during busy arrival sequences; strips are filtered to match the runway selected in the ILS profile selector
-- **Right top** — Leaflet map with ILS centreline overlays, 15 NM range circle, and aircraft markers; the `Windrose` button overlays the Wind Rose panel in the top-right corner of the map
-- **Bottom left** — ILS vertical glideslope profile canvas covering 0–15 NM from threshold, with an optional wind barb overlay selectable per aircraft
-- **Bottom right** — Windshear event log with inline detection toggle, algorithm dropdown, and Clear button in the header
-- **METAR / TAF strip** — aligned under the map and ILS profile only (right column); does not overlap the flight strips panel
+- **Left panel** — QNH display, approach traffic count summary, and ATC-style flight strips for all aircraft inside an ILS corridor. Strips extend the full height of the screen to maximise capacity during busy arrival sequences and are filtered to match the runway selected in the ILS profile dropdown.
+
+- **Map (right top)** — Leaflet map showing all tracked aircraft with ATC-style callsign labels, ILS centreline overlays for all configured runways, and a 15 NM range circle centred on the airport. A map controls bar overlaid on the map provides: an aircraft count, an `ILS Only` filter that hides non-corridor traffic, four map theme buttons (`Dark` / `Grey` / `ATC` / `Black` — ATC and Black support overlay cycling through ILS-only, ILS+coastline, and ILS+coastline+water with repeated button presses), and the `Windrose` toggle.
+
+- **Wind Rose** — a compass rose panel overlaid on the top-right corner of the map, toggled by the `Windrose` button (enabled by default). Displays METAR surface wind as a cyan arrow and the MODE-S derived approach wind as a green arrow, both pointing in the downwind direction. The MODE-S wind is vector-averaged from low-altitude observations (≤ 2 000 ft) harvested from aircraft that have completed approaches in the last 30 minutes. Runway end labels are shown at the correct threshold positions. A numeric readout below the rose shows direction, speed, observation count, and age for each source.
+
+- **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach.
+
+- **Windshear event log (bottom right)** — a timestamped log of all windshear events and go-around detections during the current page session. The log header contains the detection ON/OFF toggle, the algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic), and the Clear button. Each log entry shows the time, a coloured algorithm badge, runway, altitude band, headwind delta, and aircraft callsign(s).
+
+- **METAR / TAF strip** — displayed below the map and ILS profile in the right column, showing the latest decoded METAR and TAF for the configured airport. Does not overlap the flight strips panel.
 
 #### ILS corridor detection
 
