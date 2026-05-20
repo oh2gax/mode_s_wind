@@ -33,6 +33,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS approach, with flight strips, an ILS glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
+- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour time-series chart and a 7-day × 7 FL-band heatmap; see [GPS Quality](#gps-quality--gps) below
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -71,14 +72,15 @@ Radarcape receiver (192.168.0.119)
                                               │
                              ┌────────────────┼──────────────────┐
                              │                │                  │
-                       database/       windshear sweep     web/app.py
-                       writer thread   daemon (3 s)        Flask + SSE
-                       (SQLite WAL)         │               │
-                             │       WindshearTracker       ├─ /           Live map
-                             │       (RAM only, no DB)      ├─ /flights    History
-                             │                              ├─ /sounding   Skew-T
-                       data/modes_meteo.db                  ├─ /windmap    Wind map
-                                                            └─ /windshear  Approach
+                       database/       windshear sweep     gps sweep      web/app.py
+                       writer thread   daemon (3 s)         daemon (5 s)   Flask + SSE
+                       (SQLite WAL)         │                    │          │
+                             │       WindshearTracker    GpsQualityTracker  ├─ /           Live map
+                             │       (RAM only, no DB)   (RAM only, no DB)  ├─ /flights    History
+                             │                                              ├─ /sounding   Skew-T
+                       data/modes_meteo.db                                  ├─ /windmap    Wind map
+                                                                            ├─ /windshear  Approach
+                                                                            └─ /gps        GPS Quality
 ```
 
 ### Data source priority
@@ -176,6 +178,13 @@ class Config:
     WINDSHEAR_THR_ELEVATION_FT = 179.0        # runway threshold elevation MSL (ft)
     WINDSHEAR_GS_OFFSET_FT = 0.0      # manual glideslope calibration trim (ft)
     WINDSHEAR_MAX_TRACK_DEV_DEG = 60.0        # max track deviation from approach hdg (°)
+
+    # ── GPS Quality monitoring ────────────────────────────────────────────
+    GPS_NACP_THRESHOLD = 6       # NACp ≤ this value is flagged as degraded
+    GPS_FREEZE_POLLS   = 3       # consecutive same-position polls to flag freeze
+    GPS_GAP_SEC        = 45.0    # seconds without position (EHS still active) → gap
+    GPS_MIN_GS_KT      = 50.0    # minimum groundspeed for freeze detection
+    GPS_SWEEP_SEC      = 5.0     # sweep interval for GPS quality thread
 ```
 
 Key values to change for your installation:
@@ -903,6 +912,58 @@ Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight o
 
 ---
 
+### GPS Quality  `/gps`
+
+An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. All data is held entirely in RAM — no database writes are made. The page auto-refreshes every 30 seconds.
+
+> **Why "GPS Quality" and not "GPS Jamming"?** The page detects and displays objective signal quality parameters — it does not assert a cause. True GPS jamming, spoofing, receiver failure, and genuine satellite outages can all produce the same observable signatures. The term "GPS Quality" is deliberately neutral.
+
+#### Detection signals
+
+The tracker watches every aircraft in the live_state snapshot on each 5-second sweep and flags aircraft showing any of three degradation signals:
+
+| Signal | Badge | Condition | Typical cause |
+|--------|-------|-----------|---------------|
+| **NACp** | Blue | Navigation Accuracy Category ≤ 6 (horizontal accuracy worse than ~0.1 NM) | GPS degradation reported by the aircraft avionics themselves; sourced from TC=29 / TC=31 ADS-B messages |
+| **Freeze** | Cyan | Identical lat/lon across ≥ 3 consecutive sweeps while groundspeed > 50 kt | GPS receiver output is frozen at the last valid fix; the aircraft is clearly moving but its position is not updating |
+| **Gap** | Purple | No ADS-B position message for ≥ 45 seconds while EHS data (altitude / groundspeed) is still arriving | GPS source has dropped out entirely; the transponder is alive and broadcasting EHS replies but is not producing position messages |
+
+NACp is extracted from TC=29 (Target State & Status) and TC=31 (Aircraft Operational Status) ADS-B messages broadcast periodically by modern Mode S transponders. Older transponders that do not transmit these message types will show `—` in the NACp column and can only be detected via the Freeze or Gap signals.
+
+**NACp scale reference:**
+
+| NACp | Horizontal accuracy | Interpretation |
+|------|---------------------|----------------|
+| 0 | Unknown | No position accuracy information available |
+| 1–3 | > 10 NM | Very poor — GPS effectively unusable |
+| 4–6 | 0.1 – 10 NM | Degraded — flagged by the tracker (threshold ≤ 6) |
+| 7–9 | 0.1 – 0.05 NM | Good to excellent |
+| 10–11 | < 30 m | Highest accuracy |
+
+#### Layout
+
+The page has three main panels:
+
+**24-hour time-series chart (left top)** — a bar chart showing GPS degradation event count per hour (red bars) alongside total aircraft seen per hour divided by 10 (grey line) for the last 24 rolling hours. Displaying both on the same scale immediately normalises for traffic volume — a busy hour naturally produces more events, so spikes above the aircraft count line indicate genuine elevated degradation rather than traffic density. The chart updates on each 30-second poll.
+
+**7-day FL-band heatmap (left bottom)** — a colour-coded grid with seven rows (FL bands: FL000–050 / FL050–100 / FL100–150 / FL150–200 / FL200–250 / FL250–300 / FL300+) and one column per day for the last seven days. Cell colour ranges from near-background (no events) through blue, amber, and red to dark red (high activity). The event count is printed inside non-zero cells. This view is most useful for identifying which altitude layers are most affected on which days — low-level bands being consistently darker than high-level bands is a signature of ground-based jamming that affects climb/descent phases more than cruise.
+
+**Live degraded aircraft table (right)** — shows all aircraft currently flagged by any detection signal, sorted highest altitude first. Columns: callsign, ICAO24, FL band, altitude (ft), groundspeed (kt), NACp value, and active flag badges. Refreshes every 30 seconds.
+
+**Summary bar** — across the top of the page: total events in the last 24 hours, number of unique aircraft affected, peak hour, and current live degraded count.
+
+**Signal key panel (right bottom)** — explains each detection signal with its threshold values and the full NACp scale for reference.
+
+#### Interpreting the data
+
+The heatmap and time series together provide complementary views. The heatmap answers "which days and altitude layers had the most degradation?" — useful for spotting multi-day patterns and altitude-dependent effects. The time series answers "what time of day does degradation tend to peak?" — useful for identifying scheduled jamming exercises or dawn/dusk atmospheric effects.
+
+At EFHK, GPS interference from the east tends to affect low-altitude bands (FL000–100) most heavily since the geometry between aircraft at low altitude and a ground-based jammer to the east is most favourable. High-altitude aircraft in cruise on the same routes may show weaker effects. The FL-band heatmap makes this altitude dependence immediately visible — something that site-aggregated sources like gpsjam.org cannot provide.
+
+The page starts accumulating data from the moment the server is started. The heatmap will be sparse for the first few hours; a meaningful pattern typically emerges after 12–24 hours of traffic.
+
+---
+
 ## Database
 
 The SQLite database is stored at the path configured in `DB_PATH` (default: `data/modes_meteo.db`). It uses WAL journal mode for safe concurrent access.
@@ -981,10 +1042,11 @@ mode_s_wind/
 │   ├── db.py                  # SQLite connection management
 │   └── schema.sql             # Database schema
 ├── collector/
-│   ├── receiver.py            # Beast TCP connection + EHS decoder
+│   ├── receiver.py            # Beast TCP connection + EHS decoder (incl. NACp extraction)
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind
 │   ├── windshear.py           # RAM-only approach tracker + windshear detection
+│   ├── gps_quality.py         # RAM-only area-wide GPS quality monitor
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
@@ -997,14 +1059,16 @@ mode_s_wind/
 │       ├── flights.html       # Flights browser page
 │       ├── sounding.html      # Skew-T sounding page
 │       ├── windmap.html       # Gridded wind map page
-│       └── windshear.html     # Approach monitoring + windshear page
+│       ├── windshear.html     # Approach monitoring + windshear page
+│       └── gps_quality.html   # GPS quality monitoring page
 ├── static/
-│   ├── css/style.css          # Dark theme stylesheet
+│   ├── css/style.css          # Dark/light theme stylesheet
 │   └── js/
 │       ├── live_map.js        # Live map, ATC display, atmosphere profile
 │       ├── sounding.js        # Skew-T canvas renderer
 │       ├── windmap.js         # Wind map barb rendering + controls
-│       └── windshear.js       # Approach strips, ILS profile, windshear detection
+│       ├── windshear.js       # Approach strips, ILS profile, windshear detection
+│       └── gps_quality.js     # GPS quality charts, heatmap, live table
 ├── overlays/                  # GeoJSON overlays served to the Windshear map
 │   ├── efhk_ils.geojson       # EFHK ILS centreline geometry (all runways)
 │   ├── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
@@ -1036,6 +1100,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
+| GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, 24h time series, 7-day FL heatmap (RAM-only, no DB) |
 | GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
 
 ---
