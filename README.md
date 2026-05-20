@@ -1013,7 +1013,7 @@ A detailed record of all changes, fixes and new features is maintained in [CHANG
 
 ## Contributing
 
-This project is in active development. Feedback, observations and bug reports are welcome.
+This project is developed and maintained by **Otso Laakso / OH2GAX**. In active development. Feedback, observations and bug reports are welcome.
 
 The most useful contributions are real-world testing and observations:
 
