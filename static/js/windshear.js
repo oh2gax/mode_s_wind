@@ -1517,11 +1517,13 @@ function renderWsLog() {
  * GA events are always logged regardless of whether windshear detection
  * is enabled.
  */
-const wsGaSeenKeys = new Set();   // persists across Clear button presses
+const wsGaSeenKeys   = new Set();          // persists across Clear button presses
+const wsSessionStart = Date.now() / 1000;  // Unix seconds — gate for historical events
 
 function addGaToWsLog(events) {
   if (!events || events.length === 0) return;
   for (const ev of events) {
+    if (ev.ts < wsSessionStart) continue;  // occurred before this page session — skip
     const key = `ga:${ev.icao}:${ev.count}`;
     if (wsGaSeenKeys.has(key)) continue;   // already seen — don't re-add after clear
     wsGaSeenKeys.add(key);
