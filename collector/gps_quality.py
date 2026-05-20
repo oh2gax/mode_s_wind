@@ -284,17 +284,20 @@ class GpsQualityTracker:
                 freeze_count = prev.get("freeze_count", 0)
 
             # ── Signal 3: Position gap ───────────────────────────────────
-            # Aircraft has altitude or groundspeed (EHS alive) but no
-            # position message for GPS_GAP_SEC seconds.
-            has_ehs = alt is not None or gs is not None
-            if has_ehs and lat is None:
+            # Aircraft is actively transmitting (guaranteed — update() is only
+            # called for aircraft seen within the last 60 s in any Mode-S
+            # message) but has had no GPS position for GPS_GAP_SEC seconds.
+            # We do not require EHS-specific fields here: any Mode-S traffic
+            # (DF11 squitter, DF4/DF20 surveillance reply, identification
+            # message, etc.) is sufficient evidence that the transponder is
+            # alive and the GPS source has dropped out.
+            if lat is None:
                 last_pos_ts = prev.get("last_pos_ts")
                 if last_pos_ts is not None and (now - last_pos_ts) >= self.gap_sec:
                     flags.append("gap")
-                elif last_pos_ts is None:
-                    # First time we see this aircraft without a position;
-                    # note the time so we can flag it after GPS_GAP_SEC.
-                    pass   # will be gated on next sweep
+                # If last_pos_ts is None this aircraft has never sent a
+                # position — could be a ground vehicle or non-ADS-B
+                # transponder; gap detection requires a prior position.
 
             # Update per-aircraft state
             new_state = {
@@ -357,9 +360,8 @@ class GpsQualityTracker:
                         and prev.get("freeze_count", 0) >= self.freeze_polls):
                     flags.append("freeze")
 
-                has_ehs     = alt is not None or gs is not None
                 last_pos_ts = prev.get("last_pos_ts")
-                if (has_ehs and lat is None and last_pos_ts is not None
+                if (lat is None and last_pos_ts is not None
                         and (now - last_pos_ts) >= self.gap_sec):
                     flags.append("gap")
 

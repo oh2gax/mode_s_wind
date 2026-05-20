@@ -928,7 +928,7 @@ The tracker watches every aircraft in the live_state snapshot on each 5-second s
 |--------|-------|-----------|---------------|
 | **NACp** | Blue | Navigation Accuracy Category ≤ 6 (horizontal accuracy worse than ~0.1 NM) | GPS degradation reported by the aircraft avionics themselves; sourced from TC=29 / TC=31 ADS-B messages |
 | **Freeze** | Cyan | Identical lat/lon across ≥ 3 consecutive sweeps while groundspeed > 50 kt | GPS receiver output is frozen at the last valid fix; the aircraft is clearly moving but its position is not updating |
-| **Gap** | Purple | No ADS-B position message for ≥ 45 seconds while EHS data (altitude / groundspeed) is still arriving | GPS source has dropped out entirely; the transponder is alive and broadcasting EHS replies but is not producing position messages |
+| **Gap** | Purple | No ADS-B position message for ≥ 45 seconds while the aircraft is still visible in any Mode-S message (surveillance replies, squitters, identification frames, etc.) | GPS source has dropped out entirely; the transponder is alive and transmitting but is not producing position messages |
 
 NACp is extracted from TC=29 (Target State & Status) and TC=31 (Aircraft Operational Status) ADS-B messages broadcast periodically by modern Mode S transponders. Older transponders that do not transmit these message types will show `—` in the NACp column and can only be detected via the Freeze or Gap signals.
 
