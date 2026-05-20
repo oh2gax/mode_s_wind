@@ -646,7 +646,7 @@ Available options: **All runways**, **04L & 04R** (both parallel approaches toge
 
 #### Wind barb overlay
 
-The **🌬 Barbs** button, located in the ILS profile header immediately to the right of the runway selector, enables a wind barb layer drawn directly on top of the ILS glideslope canvas. The feature is fully RAM-based — data accumulates while the page is open and is lost when you navigate away, consistent with the rest of the Windshear page.
+The **Barbs** button, located in the ILS profile header immediately to the right of the runway selector, enables a wind barb layer drawn directly on top of the ILS glideslope canvas. The feature is fully RAM-based — data accumulates while the page is open and is lost when you navigate away, consistent with the rest of the Windshear page.
 
 **Enabling the layer:** click the Barbs button to toggle it on (it turns cyan). While active, the system quietly accumulates wind observations for every aircraft inside the ILS corridor: one observation point is stored whenever an aircraft has descended at least 400 ft or moved at least 0.5 NM along the approach track since the previous stored point. Up to 40 observations are kept per aircraft, which is enough to cover a complete approach from 15 NM to threshold with good altitude resolution.
 

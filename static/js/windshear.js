@@ -636,7 +636,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.fillStyle  = CT.barbHint;
     ilsCtx.font       = '9px "Courier New", monospace';
     ilsCtx.textAlign  = 'left';
-    ilsCtx.fillText('\u{1F32C} Click a strip to show wind barbs', M.left + 4, M.top + 22);
+    ilsCtx.fillText('Click a strip to show wind barbs', M.left + 4, M.top + 22);
   }
 }
 
