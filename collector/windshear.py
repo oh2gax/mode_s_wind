@@ -71,8 +71,8 @@ CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach h
 
 # ── Go-around detection defaults ──────────────────────────────────────────────
 GA_MIN_DESCENT_POLLS = 5       # sweeps descending before 'APPROACHING' is set
-GA_CLIMB_FPM         = 500.0   # ft/min climb rate that triggers detection
-GA_MAX_ALT_FT        = 3_000.0 # altitude ceiling for detection
+GA_CLIMB_FPM         = 600.0   # ft/min climb rate that triggers detection
+GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
 GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 

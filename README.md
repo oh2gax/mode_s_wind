@@ -685,9 +685,9 @@ The tracker continuously monitors each approach aircraft for a go-around (missed
 
 The state machine works in three stages:
 
-1. **APPROACHING** — the aircraft is descending (vertical rate ≤ −200 fpm) inside the corridor. Consecutive polls confirming descent are counted. Only after a configurable number of descending poll cycles (default 5, configurable via `WINDSHEAR_GA_MIN_DESCENT_POLLS`) does the state advance to APPROACHING — this prevents go-around false triggers from aircraft that are still vectoring in and temporarily levelling.
+1. **APPROACHING** — the aircraft is descending (vertical rate ≤ −200 fpm) inside the corridor. Consecutive polls confirming descent are counted. Only after a configurable number of descending poll cycles (default 8, configurable via `WINDSHEAR_GA_MIN_DESCENT_POLLS`) does the state advance to APPROACHING — this prevents go-around false triggers from aircraft that are still vectoring in and temporarily levelling.
 
-2. **GO_AROUND detection** — from the APPROACHING state, if the aircraft's vertical rate climbs to ≥ 500 fpm AND its altitude is at or below 3 000 ft, a go-around is declared. Both thresholds are configurable (`WINDSHEAR_GA_CLIMB_FPM`, `WINDSHEAR_GA_MAX_ALT_FT`).
+2. **GO_AROUND detection** — from the APPROACHING state, if the aircraft's vertical rate climbs to ≥ 600 fpm AND its altitude is at or below 2 200 ft, a go-around is declared. Both thresholds are configurable (`WINDSHEAR_GA_CLIMB_FPM`, `WINDSHEAR_GA_MAX_ALT_FT`).
 
 3. **Return approach tracking** — a go-around count is maintained per ICAO24 address for the duration of the page session. An aircraft coming back for a second approach gets a **2nd APP** badge next to its callsign; a third approach shows **3x APP**, and so on.
 
@@ -699,8 +699,8 @@ When a go-around fires:
 
 **Tuning the detector** — the default values work well at EFHK but may need adjustment depending on traffic mix and local procedures:
 
-- **False positives** (aircraft flagged as go-around when they are not): increase `WINDSHEAR_GA_MIN_DESCENT_POLLS` from the default 5 to 8 or 10. This requires a longer confirmed descent sequence before the state machine advances to APPROACHING, making spurious triggers from level-flight vectoring much less likely.
-- **Missed go-arounds** (aircraft that go around but are not detected): check `WINDSHEAR_GA_MAX_ALT_FT`. If an aircraft initiates a go-around above the 3 000 ft ceiling — for example on a high-energy visual approach or after a late ATC instruction — it will not be detected. Raise the ceiling to 4 000 or 5 000 ft to capture earlier go-arounds, bearing in mind that this also increases the chance of triggering on climbing traffic that enters the corridor from below.
+- **False positives** (aircraft flagged as go-around when they are not): increase `WINDSHEAR_GA_MIN_DESCENT_POLLS` (default 8) or `WINDSHEAR_GA_CLIMB_FPM` (default 600 fpm). More descent polls require a longer confirmed descent sequence before the state machine arms; a higher climb rate threshold ignores shallow climbs from glideslope corrections or level-offs.
+- **Missed go-arounds** (aircraft that go around but are not detected): check `WINDSHEAR_GA_MAX_ALT_FT`. If an aircraft initiates a go-around above the 2 200 ft ceiling — for example on a high-energy visual approach or after a late ATC instruction — it will not be detected. Raise the ceiling to 3 000 or 4 000 ft to capture earlier go-arounds, bearing in mind that this also increases the chance of triggering on climbing traffic that enters the corridor from below.
 - **Flash duration**: `WINDSHEAR_GA_FLASH_SEC` (default 60 s) controls how long the blinking label stays on the strip after detection. Increase it if you want the indication to persist longer during a busy sequence.
 
 #### Map

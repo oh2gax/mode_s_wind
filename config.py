@@ -141,11 +141,11 @@ class Config:
     WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 8
     # Climb rate (ft/min) required — while still below GA_MAX_ALT_FT — to
     # classify the transition as a go-around rather than a glideslope correction.
-    WINDSHEAR_GA_CLIMB_FPM: float         = 500.0
+    WINDSHEAR_GA_CLIMB_FPM: float         = 600.0
     # Altitude ceiling (ft) for go-around detection.  Above this height the
     # aircraft may be flying a missed-approach procedure that started earlier
     # and false positives become more likely.
-    WINDSHEAR_GA_MAX_ALT_FT: float        = 3000.0
+    WINDSHEAR_GA_MAX_ALT_FT: float        = 2200.0
     # Seconds the GO-AROUND flash label stays visible on the flight strip.
     # The aircraft typically climbs above the 5 000 ft gate and leaves the
     # display within this window.
