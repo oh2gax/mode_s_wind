@@ -175,6 +175,7 @@ def main() -> None:
         freeze_polls   = cfg.GPS_FREEZE_POLLS,
         gap_sec        = cfg.GPS_GAP_SEC,
         min_gs_kt      = cfg.GPS_MIN_GS_KT,
+        db_path        = cfg.DB_PATH,
     )
     gps_thread = threading.Thread(
         target=_gps_quality_sweep,

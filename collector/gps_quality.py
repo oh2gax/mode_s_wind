@@ -16,10 +16,13 @@ analyses every tracked aircraft for signs of GPS degradation:
      seconds while EHS (altitude + groundspeed) data is still arriving.
      The transponder is alive but the GPS source has dropped out.
 
-All data is kept in RAM.  No database writes are made during normal
-operation.  Historical hourly buckets (up to 7 days × 24 h = 168 entries)
-accumulate in a rolling deque so the web page can render a time-series
-chart and a 7-day × 7-FL-band heatmap without any DB query.
+Hourly bucket data is persisted to the SQLite ``gps_quality_hours`` table
+so that history survives process restarts.  Only *completed* hours are
+written — exactly 24 rows per day — so the write load is negligible.
+On startup the tracker reloads the last 7 days from the DB, restoring the
+time-series chart and heatmap instantly.  The current (incomplete) hour
+lives in RAM only and is lost on an unplanned restart, but that is an
+acceptable trade-off (≤ 59 minutes of data).
 
 Thread safety
 -------------
@@ -28,11 +31,14 @@ Thread safety
   to take a snapshot; the sweep thread holds the lock only during update().
 """
 
+import json
 import math
 import threading
 import time
 import logging
 from collections import deque
+
+from database.db import get_db
 
 log = logging.getLogger("modes.gps_quality")
 
@@ -101,11 +107,13 @@ class GpsQualityTracker:
         freeze_polls:   int   = 3,
         gap_sec:        float = 45.0,
         min_gs_kt:      float = 50.0,
+        db_path:        str   = "",
     ):
         self.nacp_threshold = nacp_threshold
         self.freeze_polls   = freeze_polls
         self.gap_sec        = gap_sec
         self.min_gs_kt      = min_gs_kt
+        self._db_path       = db_path
 
         # Per-aircraft tracking state
         # icao → {last_lat, last_lon, last_pos_ts, freeze_count, last_seen}
@@ -119,12 +127,34 @@ class GpsQualityTracker:
 
         self._lock = threading.RLock()
 
+        # Restore history from DB (completed hours only)
+        if db_path:
+            self._load_from_db()
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _current_bucket(self) -> dict:
-        """Return the bucket for the current hour, creating it if needed."""
+        """Return the bucket for the current hour, creating it if needed.
+
+        When the hour rolls over, the previous bucket is complete: flush it
+        to the DB before opening the new one.  Flush is called without the
+        lock so it doesn't block the sweep thread while waiting for disk I/O.
+        """
         now_hour = _bucket_hour(time.time())
         if not self._buckets or self._buckets[-1]["ts"] < now_hour:
+            # Capture and persist the completed bucket before replacing it
+            if self._buckets and self._db_path:
+                completed = self._buckets[-1]
+                # Flush outside the lock; take a shallow copy so the sets
+                # (_seen, _deg) are not needed — only the scalar fields.
+                flush_copy = {
+                    "ts":       completed["ts"],
+                    "events":   completed["events"],
+                    "total":    completed["total"],
+                    "degraded": completed["degraded"],
+                    "fl_bands": dict(completed["fl_bands"]),
+                }
+                self._flush_to_db(flush_copy)
             self._buckets.append(_empty_bucket(now_hour))
         return self._buckets[-1]
 
@@ -143,6 +173,61 @@ class GpsQualityTracker:
         bucket = self._current_bucket()
         bucket["_seen"].add(icao)
         bucket["total"] = len(bucket["_seen"])
+
+    # ── Database persistence ──────────────────────────────────────────────────
+
+    def _flush_to_db(self, bucket: dict) -> None:
+        """
+        Write one completed hourly bucket to gps_quality_hours.
+        Uses INSERT OR REPLACE so repeated flushes of the same ts are safe.
+        Called without the lock held (bucket is a completed, immutable row).
+        """
+        try:
+            fl_json = json.dumps(bucket["fl_bands"])
+            conn = get_db()
+            conn.execute(
+                """INSERT OR REPLACE INTO gps_quality_hours
+                   (ts, events, total, degraded, fl_bands)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (bucket["ts"], bucket["events"], bucket["total"],
+                 bucket["degraded"], fl_json),
+            )
+            conn.commit()
+            log.debug("GPS quality: persisted bucket ts=%d events=%d",
+                      bucket["ts"], bucket["events"])
+        except Exception as exc:
+            log.warning("GPS quality: failed to persist bucket ts=%s: %s",
+                        bucket.get("ts"), exc)
+
+    def _load_from_db(self) -> None:
+        """
+        Reload historical hourly buckets from the DB at startup.
+        Loads completed hours only (ts < current hour start).
+        Populates _buckets so charts and heatmap are immediately available.
+        """
+        try:
+            now_hour = _bucket_hour(time.time())
+            cutoff   = now_hour - (MAX_BUCKETS - 1) * BUCKET_SEC
+            conn     = get_db()
+            rows     = conn.execute(
+                """SELECT ts, events, total, degraded, fl_bands
+                   FROM gps_quality_hours
+                   WHERE ts >= ? AND ts < ?
+                   ORDER BY ts ASC""",
+                (int(cutoff), int(now_hour)),
+            ).fetchall()
+            for row in rows:
+                fl   = json.loads(row["fl_bands"] or "{}")
+                b    = _empty_bucket(row["ts"])
+                b["events"]   = row["events"]
+                b["total"]    = row["total"]
+                b["degraded"] = row["degraded"]
+                b["fl_bands"] = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                self._buckets.append(b)
+            log.info("GPS quality: loaded %d historical hour buckets from DB",
+                     len(rows))
+        except Exception as exc:
+            log.warning("GPS quality: failed to load history from DB: %s", exc)
 
     # ── Public interface ──────────────────────────────────────────────────────
 

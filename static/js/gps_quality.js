@@ -75,16 +75,17 @@ function initTsChart() {
           yAxisID:         'y',
         },
         {
-          label:           'Aircraft (÷10)',
+          label:           'Aircraft',
           data:            [],
           type:            'line',
           borderColor:     '#94a3b8',
           borderWidth:     1.5,
-          pointRadius:     0,
+          pointRadius:     2,
+          pointBackgroundColor: '#94a3b8',
           fill:            false,
           tension:         0.3,
           order:           0,
-          yAxisID:         'y',
+          yAxisID:         'y2',
         },
       ],
     },
@@ -99,7 +100,7 @@ function initTsChart() {
             title: items => items[0].label + ' UTC',
             label: item => {
               if (item.datasetIndex === 0) return ` Events: ${item.raw}`;
-              return ` Aircraft ÷10: ${item.raw}`;
+              return ` Aircraft: ${item.raw}`;
             },
           },
         },
@@ -111,9 +112,17 @@ function initTsChart() {
         },
         y: {
           beginAtZero: true,
-          ticks:  { color: th.axisLabel, font: { size: 10 } },
+          position: 'left',
+          ticks:  { color: '#ef4444', font: { size: 10 } },
           grid:   { color: th.grid },
-          title:  { display: true, text: 'Count', color: th.axisLabel, font: { size: 10 } },
+          title:  { display: true, text: 'Events', color: '#ef4444', font: { size: 10 } },
+        },
+        y2: {
+          beginAtZero: true,
+          position: 'right',
+          ticks:  { color: '#94a3b8', font: { size: 10 } },
+          grid:   { drawOnChartArea: false },
+          title:  { display: true, text: 'Aircraft', color: '#94a3b8', font: { size: 10 } },
         },
       },
     },
@@ -139,8 +148,8 @@ function updateTsChart(timeSeries) {
     const d = new Date(ts * 1000);
     return d.getUTCHours().toString().padStart(2, '0') + ':00';
   });
-  const events  = buckets.map(ts => (dataMap[ts] ? dataMap[ts].events   : 0));
-  const aircraft = buckets.map(ts => (dataMap[ts] ? (dataMap[ts].total / 10) : 0));
+  const events   = buckets.map(ts => (dataMap[ts] ? dataMap[ts].events : 0));
+  const aircraft = buckets.map(ts => (dataMap[ts] ? dataMap[ts].total  : 0));
 
   tsChart.data.labels              = labels;
   tsChart.data.datasets[0].data    = events;
@@ -337,11 +346,9 @@ window.onThemeChange = function () {
   // Update Chart.js colours
   if (tsChart) {
     const th = canvasTheme();
-    tsChart.options.scales.x.ticks.color  = th.axisLabel;
-    tsChart.options.scales.x.grid.color   = th.grid;
-    tsChart.options.scales.y.ticks.color  = th.axisLabel;
-    tsChart.options.scales.y.grid.color   = th.grid;
-    tsChart.options.scales.y.title.color  = th.axisLabel;
+    tsChart.options.scales.x.ticks.color    = th.axisLabel;
+    tsChart.options.scales.x.grid.color     = th.grid;
+    tsChart.options.scales.y.grid.color     = th.grid;
     tsChart.update('none');
   }
   // Redraw heatmap with new theme

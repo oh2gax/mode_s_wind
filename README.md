@@ -76,7 +76,7 @@ Radarcape receiver (192.168.0.119)
                        writer thread   daemon (3 s)         daemon (5 s)   Flask + SSE
                        (SQLite WAL)         │                    │          │
                              │       WindshearTracker    GpsQualityTracker  ├─ /           Live map
-                             │       (RAM only, no DB)   (RAM only, no DB)  ├─ /flights    History
+                             │       (RAM only, no DB)   (RAM+DB persist)   ├─ /flights    History
                              │                                              ├─ /sounding   Skew-T
                        data/modes_meteo.db                                  ├─ /windmap    Wind map
                                                                             ├─ /windshear  Approach
@@ -914,7 +914,9 @@ Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight o
 
 ### GPS Quality  `/gps`
 
-An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. All data is held entirely in RAM — no database writes are made. The page auto-refreshes every 30 seconds.
+An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. The page auto-refreshes every 30 seconds.
+
+Hourly summary data is persisted to the SQLite `gps_quality_hours` table so that the 24-hour time-series chart and 7-day heatmap survive process restarts. Only completed hours are written to the database (exactly 24 rows per day), so the write load is negligible. On startup the tracker reloads the last 7 days of history automatically — the charts are immediately populated from stored data. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data).
 
 > **Why "GPS Quality" and not "GPS Jamming"?** The page detects and displays objective signal quality parameters — it does not assert a cause. True GPS jamming, spoofing, receiver failure, and genuine satellite outages can all produce the same observable signatures. The term "GPS Quality" is deliberately neutral.
 
@@ -960,7 +962,7 @@ The heatmap and time series together provide complementary views. The heatmap an
 
 At EFHK, GPS interference from the east tends to affect low-altitude bands (FL000–100) most heavily since the geometry between aircraft at low altitude and a ground-based jammer to the east is most favourable. High-altitude aircraft in cruise on the same routes may show weaker effects. The FL-band heatmap makes this altitude dependence immediately visible — something that site-aggregated sources like gpsjam.org cannot provide.
 
-The page starts accumulating data from the moment the server is started. The heatmap will be sparse for the first few hours; a meaningful pattern typically emerges after 12–24 hours of traffic.
+After the first restart, completed hourly buckets are restored from the database and the charts are populated immediately. On a brand-new installation the heatmap will be sparse for the first few hours; a meaningful pattern typically emerges after 12–24 hours of traffic.
 
 ---
 
@@ -981,6 +983,18 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | max_altitude / min_altitude | Altitude range observed (ft) |
 | obs_count | Total raw observations stored |
 | meteo_count | Observations with any meteo data |
+
+**`gps_quality_hours`** — one row per completed UTC hour of GPS degradation monitoring:
+
+| Column | Description |
+|--------|-------------|
+| ts | Unix timestamp of the hour start (UTC) — primary key |
+| events | Total GPS degradation event count this hour |
+| total | Unique aircraft seen this hour |
+| degraded | Unique aircraft with at least one degradation event |
+| fl_bands | JSON object mapping FL band labels to per-band event counts |
+
+Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore the 7-day heatmap and 24-hour time-series chart after a restart.
 
 **`observations`** — one row per decoded message with useful data:
 
@@ -1046,7 +1060,7 @@ mode_s_wind/
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind
 │   ├── windshear.py           # RAM-only approach tracker + windshear detection
-│   ├── gps_quality.py         # RAM-only area-wide GPS quality monitor
+│   ├── gps_quality.py         # Area-wide GPS quality monitor (RAM + DB persistence)
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
@@ -1100,7 +1114,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
-| GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, 24h time series, 7-day FL heatmap (RAM-only, no DB) |
+| GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, 24h time series, 7-day FL heatmap; completed hours persisted in `gps_quality_hours` and reloaded on restart |
 | GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
 
 ---

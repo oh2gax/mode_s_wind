@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-20 (GPS Quality DB persistence)
+
+- Added **`gps_quality_hours` SQLite table** — one row per completed UTC hour storing `ts`, `events`, `total` aircraft, `degraded` aircraft, and a JSON `fl_bands` object with per-FL-band event counts; `INSERT OR REPLACE` primary key on `ts` makes the write idempotent
+- Added **`GpsQualityTracker._flush_to_db()`** — called automatically when the hour rolls over inside `_current_bucket()`; writes exactly 24 rows per day; a shallow copy of the completed bucket is passed so the lock is not held during disk I/O
+- Added **`GpsQualityTracker._load_from_db()`** — called once in `__init__()` if `db_path` is provided; loads the last 7 days of completed hours from `gps_quality_hours` into `_buckets`, restoring the time-series chart and heatmap after a restart in ~0 seconds
+- Updated `GpsQualityTracker.__init__()` to accept optional `db_path` parameter (defaults to `""`)
+- Updated `run.py` to pass `cfg.DB_PATH` to `GpsQualityTracker`
+- Updated `database/schema.sql` with `CREATE TABLE IF NOT EXISTS gps_quality_hours`; applied automatically by `init_db()` on first startup with this version
+
 ## 2026-05-20 (GPS Quality page)
 
 - Added **GPS Quality monitoring page** (`/gps`) — area-wide GPS degradation monitor covering all tracked aircraft at all altitudes
