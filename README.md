@@ -539,6 +539,8 @@ For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the dat
 
 A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. All tracking data is held entirely in RAM — the Windshear page does not write to the database and has no dependency on historical stored data.
 
+> **Keep the page open for best results.** All client-side history buffers — wind barb accumulation, kinematic IAS−GS differential history, the windshear event log, and the go-around log — exist only in the browser tab running the page. Navigating to another page or closing the tab clears these buffers entirely. When the Windshear page is reopened, it starts fresh: aircraft currently on approach will appear immediately, but any history built up during the previous session (wind profiles along the approach path, earlier windshear events, go-around events from before the page was opened) is gone. If you are monitoring an active approach sequence or want to study the windshear log over multiple arrival waves, keep the Windshear page as a dedicated open tab.
+
 ![MODE-S Wind Approach / Windshear screen](https://raw.githubusercontent.com/oh2gax/mode_s_wind/master/Mode_S_Wind_Approach_Screen_1.png)
 
 #### Layout
