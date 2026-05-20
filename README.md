@@ -760,7 +760,7 @@ When a confirmed shear event meets the active alert level:
 - An **alert banner** appears at the top of the page with the algorithm name, runway, altitude band, and aircraft information
 - Affected flight strips get a pulsing **WS badge** (blue = monitor, amber = warning, red = alarm) — monitor badges do not pulse
 - A coloured **horizontal band** (blue / amber / red) is drawn on the ILS profile canvas between the relevant altitudes
-- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail; Kinematic entries additionally show an **F-factor** value (e.g. `F=0.12`) — a dimensionless performance-scaled hazard index where F ≥ 0.10 is operationally significant and F ≥ 0.15 is severe
+- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail; Kinematic entries additionally show an **F-factor** value (e.g. `F=0.12`) — see [What is F-factor?](#what-is-f-factor) below for a full explanation
 
 Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in detection, preventing false alerts from aircraft still intercepting the glideslope from above or below.
 
@@ -871,6 +871,31 @@ A microburst headwind-loss encounter produces a rapid decrease in the differenti
 **Advantage:** the most dataflow-simple of all algorithms — uses only two raw Mode S fields (BDS 6,0 airspeed, ADS-B groundspeed) with no wind vector reconstruction. Works with a single aircraft. No runway heading or wind direction needed.
 
 **Limitation:** requires BDS 6,0 Indicated Airspeed to be broadcast by the aircraft, which most modern jets do but is not mandatory. The IAS ≈ TAS approximation breaks down above ~6 000 ft (density altitude effect), but the algorithm is gated to GS-status-ON aircraft which are already on the glideslope well below that altitude.
+
+#### What is F-factor?
+
+Kinematic log entries display an F-factor value alongside the kt delta (for example `18 kt · F=0.12`). F-factor is a dimensionless number that answers the question: *how fast is the headwind changing relative to gravity?*
+
+```
+F = (headwind change in m/s) / (time window in seconds) / 9.81
+```
+
+Gravity (9.81 m/s²) is used as the normaliser because aircraft performance is ultimately governed by it — a headwind loss creates a sink rate, and that sink rate competes with the aircraft's ability to maintain the glideslope. An F-factor of 0.1 means the headwind is decaying at one-tenth of gravitational acceleration, which is the point where most approach aircraft start to struggle to maintain energy.
+
+**Reference thresholds from NASA/FAA JAWS research:**
+
+| F-factor | Interpretation |
+|----------|----------------|
+| < 0.05   | Negligible — normal approach variation |
+| 0.05–0.10 | Noticeable — pilot may sense it |
+| ≥ 0.10   | Operationally significant — performance impact likely |
+| ≥ 0.15   | Severe — significant control input needed |
+
+These thresholds come from the Joint Airport Weather Studies (JAWS) programme which established F-factor as the standard hazard metric used in airborne windshear warning systems (GPWS/EGPWS).
+
+**Why F-factor adds information beyond the kt value:** two events could both show `18 kt Warning` but have very different F-factors depending on how quickly the 18 kt was lost. An aircraft that lost 18 kt of headwind over 40 seconds (`F ≈ 0.06`) is a very different situation from one that lost it over 8 seconds (`F ≈ 0.30`). The kt value tells you the magnitude; the F-factor tells you the rate, which is what determines whether the crew had time to respond.
+
+F-factor is currently displayed as supplementary information only — severity classification and alerting are still driven by the kt thresholds. It is only shown for Kinematic detections because that algorithm has well-defined entry and exit timestamps for the measurement window, making the rate calculation meaningful. The value is stored in the event object as `f_factor` should future logic wish to use it directly for severity decisions.
 
 #### Stale aircraft removal
 
