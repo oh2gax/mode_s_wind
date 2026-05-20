@@ -103,6 +103,12 @@
               <option value="baseline">Baseline</option>
               <option value="kinematic">Kinematic</option>
             </select>
+            <select id="ws-alert-level" class="ws-algo-select"
+              title="Minimum severity that triggers the alert banner and flight strip WS badge. The log always shows all levels.">
+              <option value="monitor">Mon ≥10kt</option>
+              <option value="warning" selected>Warn ≥15kt</option>
+              <option value="alarm">Alarm ≥25kt</option>
+            </select>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <div class="ws-ws-log-entries" id="ws-ws-log-entries">

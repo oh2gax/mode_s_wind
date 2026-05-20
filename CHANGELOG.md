@@ -7,6 +7,11 @@ No version numbers — entries are organised by date.
 
 ## 2026-05-20 (continued)
 
+- Added **three-level windshear severity system** replacing the previous two-level moderate/severe scale — events are now classified as **Monitor** (≥10 kt, informational blue), **Warning** (≥15 kt, amber) or **Alarm** (≥25 kt, red); all six detection algorithms updated to use the new `wsSeverity()` helper and the lower 10 kt detection floor
+- Added **user-selectable alert level** dropdown in the Windshear Log header (`Mon ≥10kt` / `Warn ≥15kt` / `Alarm ≥25kt`) — controls the minimum severity that triggers the alert banner and flight strip WS badge; the log always shows all three levels; preference is stored in `localStorage` as `ms_ws_alert_level`, default Warning
+- Added **confidence gating** — all algorithms now require 2 consecutive poll cycles (≈6 seconds) detecting the same event before it is promoted to the log and banner; eliminates single-poll false positives; hit counters reset immediately when an event disappears, so genuine brief shear still fires on the 2nd confirmation
+- Added **F-factor** display to Kinematic log entries — computed as `(Δ IAS−GS in m/s) / (window_secs × 9.81)`, displayed as `F=x.xx` in italic after the kt delta; F≥0.1 is operationally significant, F≥0.15 is severe; F-factor is stored in the event object as `f_factor`
+- ILS profile canvas windshear zone bands now show three colours: blue (Monitor), amber (Warning), red (Alarm)
 - Removed wind symbol (🌬) from the Barbs button label — button now reads plain `Barbs`, consistent with the Windrose button style; canvas hint text updated to match
 - Fixed historical go-around events flooding the log for new users — added `wsSessionStart` timestamp gate in `addGaToWsLog()`; events that occurred before the current page load are silently skipped, so a fresh page open against a long-running server never surfaces days-old events
 - Tightened go-around detection defaults to reduce false alarms — altitude ceiling lowered from 3 000 ft to **2 200 ft** (`WINDSHEAR_GA_MAX_ALT_FT`), minimum climb rate raised from 500 fpm to **600 fpm** (`WINDSHEAR_GA_CLIMB_FPM`); both values updated in `config.py` and `collector/windshear.py`

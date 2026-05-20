@@ -26,11 +26,19 @@ const WS_WIND_HIST_MAX    = 40;   // max stored observations per tracked aircraf
 const WS_WIND_MIN_ALT_GAP = 400;  // ft — minimum altitude change before storing a new point
 const WS_WIND_MIN_DIST_GAP = 0.5; // NM — OR minimum distance change (for level segments)
 
-// Windshear detection thresholds (ICAO definition: ≥15 kt headwind change)
-const WS_THRESHOLD_KT   = 15;    // minimum headwind delta to flag shear
-const WS_SEVERE_KT      = 25;    // severe windshear threshold
+// Windshear detection thresholds
+const WS_MONITOR_KT     = 10;    // sub-threshold informational level (Monitor)
+const WS_WARNING_KT     = 15;    // ICAO windshear threshold (Warning)
+const WS_ALARM_KT       = 25;    // severe windshear threshold (Alarm)
 const WS_MAX_ALT_BAND   = 2000;  // max altitude separation (ft) between compared aircraft
 const WS_MIN_ALT_BAND   = 200;   // min altitude separation (ft) — avoid same-level noise
+
+/** Map a delta_kt value to one of three severity levels. */
+function wsSeverity(delta) {
+  if (delta >= WS_ALARM_KT)   return 'alarm';
+  if (delta >= WS_WARNING_KT) return 'warning';
+  return 'monitor';
+}
 
 // EFHK runway magnetic headings — used by client-side shear algorithms
 const RWY_HEADINGS = {
@@ -456,7 +464,9 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const selectedRwyForShear = document.getElementById('ws-ils-rwy').value;
     for (const ev of shearEvents) {
       if (!matchesRwyFilter(ev.rwy, selectedRwyForShear)) continue;
-      const color = ev.severity === 'severe' ? '#ef4444' : '#d97706';
+      const color = ev.severity === 'alarm'   ? '#ef4444'
+                  : ev.severity === 'warning' ? '#d97706'
+                  : '#3b82f6';  // monitor — blue informational band
       const yTop  = altY(ev.alt_high);
       const yBot  = altY(ev.alt_low);
       const zoneH = yBot - yTop;
@@ -777,6 +787,44 @@ let wsDetectionEnabled = false;
 let wsDetAlgo          = 'pair';   // active algorithm key
 let lastShearEvents    = [];
 
+/**
+ * Confidence gate — require WS_CONFIDENCE_HITS consecutive poll cycles
+ * detecting the same event before it is promoted to the confirmed set.
+ * This eliminates single-poll false positives without adding latency for
+ * sustained shear (which will fire on the 2nd poll, ~3 s after the 1st).
+ *
+ * Hit counters are keyed by algo:rwy:icao (or algo:rwy:icao_low:icao_high
+ * for pairwise events) and are reset to zero whenever a poll cycle produces
+ * no matching event, preventing stale counts from carrying over.
+ */
+const WS_CONFIDENCE_HITS = 2;
+const wsHitCounts = {};   // key → consecutive hit count
+
+function makeConfKey(ev) {
+  if (ev.icao_low && ev.icao_high)
+    return `${ev.algo}:${ev.rwy}:${ev.icao_low}:${ev.icao_high}`;
+  return `${ev.algo}:${ev.rwy}:${ev.icao || ev.cs || ''}`;
+}
+
+function applyConfidenceGate(events) {
+  const confirmed   = [];
+  const currentKeys = new Set();
+
+  for (const ev of events) {
+    const key = makeConfKey(ev);
+    currentKeys.add(key);
+    wsHitCounts[key] = (wsHitCounts[key] || 0) + 1;
+    if (wsHitCounts[key] >= WS_CONFIDENCE_HITS) confirmed.push(ev);
+  }
+
+  // Reset counters for any event that did not appear this cycle
+  for (const key of Object.keys(wsHitCounts)) {
+    if (!currentKeys.has(key)) delete wsHitCounts[key];
+  }
+
+  return confirmed;
+}
+
 // GS history for energy algorithm  icao → [{gs, alt, ts}, …]
 const wsGsHistory = {};
 
@@ -825,7 +873,7 @@ function detectPairwise(aircraft) {
       const altDiff = high.altitude - low.altitude;
       if (altDiff < WS_MIN_ALT_BAND || altDiff > WS_MAX_ALT_BAND) continue;
       const delta = Math.abs(high.headwind_kt - low.headwind_kt);
-      if (delta < WS_THRESHOLD_KT) continue;
+      if (delta < WS_MONITOR_KT) continue;
       events.push({
         algo:     'pair',
         rwy,
@@ -838,7 +886,7 @@ function detectPairwise(aircraft) {
         hw_low:    low.headwind_kt,
         hw_high:   high.headwind_kt,
         delta_kt:  Math.round(delta),
-        severity:  delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        severity:  wsSeverity(delta),
       });
     }
   }
@@ -885,7 +933,7 @@ function detectGradient(aircraft) {
       }
     }
 
-    if (maxDelta >= WS_THRESHOLD_KT && bestHi && bestLo) {
+    if (maxDelta >= WS_MONITOR_KT && bestHi && bestLo) {
       events.push({
         algo:     'gradient',
         rwy:      ac.approach_runway,
@@ -922,7 +970,7 @@ function detectGradient(aircraft) {
 function detectEnergy(aircraft) {
   const events      = [];
   const WINDOW_MS   = 45_000;   // 45-second look-back window
-  const LOSS_KT     = 15;       // kt-equivalent energy loss to flag
+  const LOSS_KT     = WS_MONITOR_KT;  // kt-equivalent energy loss to flag (monitor threshold)
   const MIN_POINTS  = 4;
 
   const nowMs = Date.now();
@@ -993,7 +1041,7 @@ function detectRate(aircraft) {
     const refHw  = hwKt(ref.wind_spd, ref.wind_dir, rwyHdg);
     const delta  = Math.abs(ac.headwind_kt - refHw);
 
-    if (delta >= WS_THRESHOLD_KT) {
+    if (delta >= WS_MONITOR_KT) {
       events.push({
         algo:     'rate',
         rwy:      ac.approach_runway,
@@ -1044,7 +1092,7 @@ function detectBaseline(aircraft) {
     const baselineHw = hwKt(baseline.spd, baseline.dir, rwyHdg);
     const delta      = Math.abs(ac.headwind_kt - baselineHw);
 
-    if (delta >= WS_THRESHOLD_KT) {
+    if (delta >= WS_MONITOR_KT) {
       events.push({
         algo:           'baseline',
         rwy:            ac.approach_runway,
@@ -1080,7 +1128,7 @@ function detectBaseline(aircraft) {
  *  • Robust at low altitude where IAS ≈ TAS is most accurate
  *  • Insensitive to heading errors and magnetic variation
  *
- * Thresholds: ≥15 kt change = moderate, ≥25 kt change = severe (ICAO FAA JAWS).
+ * Thresholds: ≥10 kt = monitor, ≥15 kt = warning, ≥25 kt = alarm (ICAO FAA JAWS).
  * Window: 45 seconds (oldest vs newest sample within the window).
  */
 function detectKinematic(aircraft) {
@@ -1106,7 +1154,13 @@ function detectKinematic(aircraft) {
     const diffNew = newest.ias - newest.gs;   // IAS−GS at end of window
     const delta   = Math.abs(diffNew - diffOld);
 
-    if (delta < WS_THRESHOLD_KT) continue;
+    if (delta < WS_MONITOR_KT) continue;
+
+    // F-factor: (headwind rate of change in m/s²) / g — dimensionless performance hazard index
+    const windowSecs = (newest.ts - oldest.ts) / 1000;
+    const fFactor    = windowSecs > 1
+      ? Math.round(((delta * 0.51444) / windowSecs / 9.81) * 100) / 100
+      : null;
 
     events.push({
       algo:     'kinematic',
@@ -1118,7 +1172,8 @@ function detectKinematic(aircraft) {
       hw_low:   Math.round(diffOld),   // repurposed: IAS−GS at window start
       hw_high:  Math.round(diffNew),   // repurposed: IAS−GS at window end
       delta_kt: Math.round(delta),
-      severity: delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+      f_factor: fFactor,
+      severity: wsSeverity(delta),
     });
   }
   return events;
@@ -1142,23 +1197,42 @@ function detectWindshear(aircraft) {
   }
 }
 
+// ── Alert level selector ──────────────────────────────────────────────────────
+/**
+ * Controls the minimum severity that triggers the alert banner and flight
+ * strip WS badge.  The log always shows all three severity levels regardless.
+ *
+ * Levels:  'monitor'  — banner/badge fires at ≥10 kt (all events)
+ *          'warning'  — banner/badge fires at ≥15 kt (default)
+ *          'alarm'    — banner/badge fires at ≥25 kt only
+ */
+const SEV_ORDER = { monitor: 0, warning: 1, alarm: 2 };
+let wsAlertLevel = localStorage.getItem('ms_ws_alert_level') || 'warning';
+
+function severityMeetsLevel(severity) {
+  return (SEV_ORDER[severity] ?? 0) >= (SEV_ORDER[wsAlertLevel] ?? 1);
+}
+
 /**
  * Update the alert banner at the top of the page.
- * Hidden when wsDetectionEnabled is false or no events.
+ * Hidden when wsDetectionEnabled is false, no events, or all events are
+ * below the active alert level.
  */
 function updateAlertBanner(events) {
   const banner = document.getElementById('ws-alert-banner');
-  if (!wsDetectionEnabled || events.length === 0) {
+  const active = events.filter(e => severityMeetsLevel(e.severity));
+
+  if (!wsDetectionEnabled || active.length === 0) {
     banner.className = 'ws-alert-banner ws-alert-hidden';
     return;
   }
 
-  const hasSevere = events.some(e => e.severity === 'severe');
-  const cls = hasSevere ? 'ws-alert-severe' : 'ws-alert-moderate';
-  const icon = hasSevere ? '🔴' : '⚠';
+  const hasAlarm = active.some(e => e.severity === 'alarm');
+  const cls  = hasAlarm ? 'ws-alert-severe' : 'ws-alert-moderate';
+  const icon = hasAlarm ? '🔴' : '⚠';
 
   const ALGO_SHORT = { pair:'Pair', gradient:'Grad', energy:'Engy', rate:'Rate', baseline:'Base', kinematic:'Kinem' };
-  const tags = events.map(e => {
+  const tags = active.map(e => {
     const algoLbl = ALGO_SHORT[e.algo] || 'WS';
     const acInfo  = (e.cs_low && e.cs_high)
       ? `[${e.cs_low}↕${e.cs_high}]`
@@ -1229,7 +1303,7 @@ document.getElementById('ws-algo-select').addEventListener('change', e => {
   // Re-run detection immediately with the new algorithm
   if (wsDetectionEnabled) {
     const corridor  = lastAircraft.filter(ac => ac.in_corridor);
-    lastShearEvents = detectWindshear(corridor);
+    lastShearEvents = applyConfidenceGate(detectWindshear(corridor));
     renderStrips(lastAircraft, lastShearEvents);
     drawIlsProfile(corridor, lastShearEvents);
     updateAlertBanner(lastShearEvents);
@@ -1237,6 +1311,20 @@ document.getElementById('ws-algo-select').addEventListener('change', e => {
     renderWsLog();
   }
 });
+
+// ── Alert level selector (dropdown) ──────────────────────────────────────────
+(function () {
+  const sel = document.getElementById('ws-alert-level');
+  // Restore saved preference
+  if (wsAlertLevel) sel.value = wsAlertLevel;
+  sel.addEventListener('change', e => {
+    wsAlertLevel = e.target.value;
+    localStorage.setItem('ms_ws_alert_level', wsAlertLevel);
+    // Re-apply immediately to banner and strips without re-running detection
+    renderStrips(lastAircraft, lastShearEvents);
+    updateAlertBanner(lastShearEvents);
+  });
+})();
 
 function buildStrip(ac, wsSeverity = null) {
   const vs     = fmtVs(ac.vert_rate);
@@ -1343,18 +1431,19 @@ function renderStrips(aircraft, shearEvents = []) {
   }
 
   // Build a map of icao → highest shear severity for badge rendering.
-  // Pairwise events carry icao_low / icao_high; single-aircraft algorithms
-  // (gradient, energy, rate, baseline) carry icao — handle both.
+  // Only events at or above the active alert level get a strip badge.
+  // Pairwise events carry icao_low / icao_high; single-aircraft carry icao.
   const wsMap = new Map();
   for (const ev of shearEvents) {
+    if (!severityMeetsLevel(ev.severity)) continue;
     const bump = (icao) => {
       if (!icao) return;
       const cur = wsMap.get(icao);
-      if (!cur || ev.severity === 'severe') wsMap.set(icao, ev.severity);
+      if (!cur || SEV_ORDER[ev.severity] > SEV_ORDER[cur]) wsMap.set(icao, ev.severity);
     };
     bump(ev.icao_low);
     bump(ev.icao_high);
-    bump(ev.icao);   // single-aircraft algorithms
+    bump(ev.icao);
   }
 
   // Preserve scroll position
@@ -1473,10 +1562,15 @@ function renderWsLog() {
 </div>`;
     }
     // ── Windshear entry ───────────────────────────────────────────────────
-    const sevCls  = e.severity === 'severe' ? ' ws-log-severe' : '';
+    const sevCls  = e.severity === 'alarm'   ? ' ws-log-alarm'
+                  : e.severity === 'warning' ? ' ws-log-warning'
+                  : ' ws-log-monitor';
     const hw_low  = e.hw_low  != null ? Number(e.hw_low).toFixed(0)  : '?';
     const hw_high = e.hw_high != null ? Number(e.hw_high).toFixed(0) : '?';
     const trend   = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
+    const fTag    = (e.algo === 'kinematic' && e.f_factor != null)
+      ? ` <span class="ws-log-ffactor" title="F-factor: performance-scaled hazard index">F=${e.f_factor.toFixed(2)}</span>`
+      : '';
 
     // Algorithm badge
     const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline', kinematic:'Kinematic' };
@@ -1501,7 +1595,7 @@ function renderWsLog() {
   <div>
     <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
     ${algoBadge}
-    <span class="ws-log-entry-delta">${e.delta_kt} kt</span>
+    <span class="ws-log-entry-delta">${e.delta_kt} kt</span>${fTag}
     &nbsp;${trend}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
   </div>
   <div class="ws-log-entry-ac">${acLine}</div>
@@ -1901,8 +1995,8 @@ async function fetchApproachState() {
       }
     }
 
-    // Run windshear detection
-    lastShearEvents = detectWindshear(corridor);
+    // Run windshear detection — apply confidence gate (requires N consecutive hits)
+    lastShearEvents = applyConfidenceGate(detectWindshear(corridor));
 
     // Auto-barb: update selection before rendering so strips + canvas are in sync
     runAutoBarbSelection(corridor);

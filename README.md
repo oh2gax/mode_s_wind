@@ -743,12 +743,24 @@ headwind (kt) = wind_speed × cos(wind_direction − runway_heading)
 
 Positive values represent a headwind; negative values represent a tailwind. The runway heading used is the published magnetic approach heading for the matched runway (e.g. 047° for RWY 04L/04R, 227° for RWY 22L/22R).
 
-Events with a headwind change ≥ 15 kt are flagged as **moderate**; events ≥ 25 kt are **severe**. When a shear event is found:
+Events are classified into three severity levels based on headwind change magnitude:
+
+| Level | Threshold | Colour | Meaning |
+|-------|-----------|--------|---------|
+| **Monitor** | ≥ 10 kt | Blue | Informational — sub-threshold variation worth watching |
+| **Warning** | ≥ 15 kt | Amber | ICAO windshear threshold — operationally significant |
+| **Alarm**   | ≥ 25 kt | Red   | Severe windshear — significant aircraft performance impact |
+
+A **confidence gate** requires 2 consecutive poll cycles (≈ 6 seconds) both detecting the same event before it is promoted to the log or banner. This eliminates single-poll false positives from transient data artefacts without meaningfully delaying alerts for real sustained shear.
+
+The **alert level selector** dropdown in the log header (`Mon ≥10kt` / `Warn ≥15kt` / `Alarm ≥25kt`) controls the minimum severity that activates the banner and flight strip WS badge. The log always shows all three levels regardless of this setting. The preference is saved across sessions. Default is Warning.
+
+When a confirmed shear event meets the active alert level:
 
 - An **alert banner** appears at the top of the page with the algorithm name, runway, altitude band, and aircraft information
-- Affected flight strips get a pulsing **WS badge** (amber = moderate, red = severe) with an amber left-border
-- A coloured **horizontal band** is drawn on the ILS profile canvas between the relevant altitudes
-- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail
+- Affected flight strips get a pulsing **WS badge** (blue = monitor, amber = warning, red = alarm) — monitor badges do not pulse
+- A coloured **horizontal band** (blue / amber / red) is drawn on the ILS profile canvas between the relevant altitudes
+- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail; Kinematic entries additionally show an **F-factor** value (e.g. `F=0.12`) — a dimensionless performance-scaled hazard index where F ≥ 0.10 is operationally significant and F ≥ 0.15 is severe
 
 Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in detection, preventing false alerts from aircraft still intercepting the glideslope from above or below.
 
