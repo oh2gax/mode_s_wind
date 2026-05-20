@@ -92,6 +92,7 @@ def create_app(
     live_state: dict,
     live_lock: threading.RLock,
     ws_tracker=None,
+    gps_tracker=None,
 ) -> Flask:
     """
     Build and return the Flask application.
@@ -163,6 +164,12 @@ def create_app(
                                radius_nm=cfg.WINDSHEAR_RADIUS_NM,
                                thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
                                gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
+
+    @app.route("/gps")
+    def gps_page():
+        return render_template("gps_quality.html",
+                               airport_icao=cfg.AIRPORT_ICAO,
+                               nacp_threshold=cfg.GPS_NACP_THRESHOLD)
 
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.
@@ -507,6 +514,26 @@ def create_app(
         if ws_tracker is None:
             return jsonify([])
         return jsonify(ws_tracker.get_state())
+
+    @app.route("/api/gps/state")
+    def gps_state_api():
+        """
+        Return GPS quality monitoring data as JSON.
+
+        Data is maintained in RAM by the background GPS quality sweep thread.
+        No database access required.  Returns:
+          live        — aircraft currently showing degraded GPS
+          time_series — last 24 hourly event buckets
+          heatmap     — up to 7 days of hourly buckets with FL-band breakdown
+          fl_bands    — ordered FL band labels
+          stats       — 24-hour summary counts
+        """
+        if gps_tracker is None:
+            return jsonify({
+                "live": [], "time_series": [], "heatmap": [],
+                "fl_bands": [], "stats": {},
+            })
+        return jsonify(gps_tracker.get_state())
 
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 

@@ -1267,3 +1267,273 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   flex-shrink: 0;
 }
 .nav-theme-btn:hover { background: var(--bg-2); color: var(--text-1); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GPS Quality page
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Heatmap colour variables — set dynamically by gps_quality.js */
+:root {
+  --gps-heat-0: #1e293b;
+  --gps-heat-1: #1e3a5f;
+  --gps-heat-2: #b45309;
+  --gps-heat-3: #dc2626;
+  --gps-heat-4: #7f1d1d;
+}
+
+.gps-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Summary bar ─────────────────────────────────────────────────────────── */
+.gps-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.35rem 1rem;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.gps-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.gps-summary-label {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.gps-summary-val {
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.gps-updated {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* ── Body layout ─────────────────────────────────────────────────────────── */
+.gps-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* ── Left column ─────────────────────────────────────────────────────────── */
+.gps-left-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ── Right column ────────────────────────────────────────────────────────── */
+.gps-right-col {
+  width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Panel header ────────────────────────────────────────────────────────── */
+.gps-panel-hdr {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0.75rem;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.gps-panel-title {
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gps-panel-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-3);
+  font-size: 11px;
+  margin-left: auto;
+}
+.gps-leg-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.gps-leg-scale {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.gps-leg-cell {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+/* ── Time series chart ───────────────────────────────────────────────────── */
+.gps-chart-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+}
+.gps-chart-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem;
+  position: relative;
+}
+.gps-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ── Heatmap ─────────────────────────────────────────────────────────────── */
+.gps-heatmap-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.gps-heatmap-panel canvas {
+  display: block;
+  width: 100%;
+}
+
+/* ── Live table ──────────────────────────────────────────────────────────── */
+.gps-live-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.gps-live-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+.gps-live-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.gps-live-table thead th {
+  background: var(--bg-2);
+  color: var(--text-3);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border);
+}
+.gps-live-table tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+.gps-live-table tbody tr:hover {
+  background: var(--bg-2);
+}
+.gps-live-table td {
+  padding: 0.3rem 0.4rem;
+  color: var(--text-1);
+  vertical-align: middle;
+}
+.gps-td-cs   { font-weight: 600; color: var(--text-1); }
+.gps-td-icao { color: var(--text-3); font-size: 11px; font-family: monospace; }
+.gps-no-data {
+  text-align: center;
+  color: var(--text-3);
+  padding: 1.5rem;
+  font-style: italic;
+}
+
+/* ── Signal flag badges ──────────────────────────────────────────────────── */
+.gps-flag {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.gps-flag-nacp   { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; }
+.gps-flag-freeze { background: #0f3460; color: #67e8f9; border: 1px solid #0891b2; }
+.gps-flag-gap    { background: #4a1942; color: #f0abfc; border: 1px solid #7e22ce; }
+.gps-flag-legend {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* ── Signal key panel ────────────────────────────────────────────────────── */
+.gps-key-panel {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.gps-key-content {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.gps-key-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.gps-key-desc {
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.gps-key-note {
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  padding-top: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+/* ── Light theme overrides ───────────────────────────────────────────────── */
+[data-theme="light"] {
+  --gps-heat-0: #e2e8f0;
+  --gps-heat-1: #bfdbfe;
+  --gps-heat-2: #fde68a;
+  --gps-heat-3: #fca5a5;
+  --gps-heat-4: #f87171;
+}
+[data-theme="light"] .gps-flag-nacp   { background: #dbeafe; color: #1d4ed8; border-color: #3b82f6; }
+[data-theme="light"] .gps-flag-freeze { background: #cffafe; color: #0e7490; border-color: #06b6d4; }
+[data-theme="light"] .gps-flag-gap    { background: #fae8ff; color: #7e22ce; border-color: #a855f7; }
+[data-theme="light"] .gps-key-desc    { color: #475569; }
+[data-theme="light"] .gps-key-note    { color: #64748b; }
+[data-theme="light"] .gps-no-data     { color: #94a3b8; }

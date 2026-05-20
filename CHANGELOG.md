@@ -5,6 +5,22 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-20 (GPS Quality page)
+
+- Added **GPS Quality monitoring page** (`/gps`) — area-wide GPS degradation monitor covering all tracked aircraft at all altitudes
+- Added **NACp extraction** in `collector/receiver.py` — Navigation Accuracy Category decoded from TC=29 (Target State & Status) and TC=31 (Aircraft Operational Status) ADS-B messages; stored as `nac_p` in `live_state` and persists until next TC=29/31 is received
+- Added **`collector/gps_quality.py`** — new `GpsQualityTracker` RAM tracker; detects three degradation signals: NACp ≤ 6 (accuracy degraded), position freeze (identical lat/lon across ≥3 sweeps while GS > 50 kt), and position gap (no ADS-B position for ≥45 s while EHS altitude/GS still arriving); all data in RAM, no DB writes
+- Added **24-hour time-series chart** (Chart.js) — hourly event count (red bars) and aircraft count ÷10 (grey line) for the last 24 hours; shows whether events are clustered at specific times of day
+- Added **7-day FL-band heatmap** (Canvas) — rows = 7 FL bands (FL000–FL300+), columns = days, cell colour = event intensity; reveals which altitude layers and which days had the most GPS degradation
+- Added **live degraded aircraft table** — callsign, ICAO24, FL band, altitude, groundspeed, NACp value, and per-aircraft signal flags (NACp / Freeze / Gap) updated every 30 seconds
+- Added **summary bar** with 24-hour event count, affected aircraft count, peak hour, and live degraded count
+- Added **signal key panel** explaining detection thresholds and NACp scale for operational reference
+- Added `GPS_NACP_THRESHOLD`, `GPS_FREEZE_POLLS`, `GPS_GAP_SEC`, `GPS_MIN_GS_KT`, `GPS_SWEEP_SEC` constants to `config.py`
+- Added GPS Quality sweep thread in `run.py` (5-second interval, daemon)
+- Added `/gps` page route and `/api/gps/state` endpoint in `web/app.py`
+- Added GPS Quality nav link to `base.html`
+- Full light/dark theme support — heatmap palette, chart colours, and flag badges all theme-aware
+
 ## 2026-05-20 (continued)
 
 - Added **Kinematic F-factor gate** — a dedicated dropdown (`F: Off / F ≥0.05 / F ≥0.08 / F ≥0.10 / F ≥0.15`) in the windshear log header that sets a minimum F-factor threshold for Kinematic detections; events whose computed F-factor falls below the gate are suppressed before reaching the log, banner or strip badge; the control is automatically disabled when any other algorithm is active; preference is stored in `localStorage` as `ms_ws_kin_f_gate`, default Off; if the window is too short to compute a valid F-factor and the gate is active, the event is also suppressed

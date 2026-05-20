@@ -39,7 +39,34 @@ from database.db import init_db
 from collector.receiver import run_collector
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
+from collector.gps_quality import GpsQualityTracker
 from web.app import create_app
+
+
+def _gps_quality_sweep(
+    live_state: dict,
+    live_lock: threading.RLock,
+    tracker: GpsQualityTracker,
+    sweep_sec: float = 5.0,
+) -> None:
+    """
+    Background daemon: sweeps live_state every sweep_sec seconds, feeds
+    each aircraft into the GPS quality tracker, then rebuilds the live
+    degraded-aircraft list.
+    """
+    while True:
+        try:
+            with live_lock:
+                snapshot = list(live_state.values())
+            now = time.time()
+            recent = [ac for ac in snapshot if now - ac.get("last_seen", 0) < 60]
+            for ac in recent:
+                tracker.update(ac)
+            tracker.prune_stale()
+            tracker.rebuild_live(recent)
+        except Exception as exc:
+            log.debug("GPS quality sweep error: %s", exc)
+        time.sleep(sweep_sec)
 
 
 def _windshear_sweep(
@@ -142,11 +169,28 @@ def main() -> None:
     log.info("Windshear sweep thread started (radius=%.0f NM, max_alt=%.0f ft)",
              cfg.WINDSHEAR_RADIUS_NM, cfg.WINDSHEAR_MAX_ALT_FT)
 
+    # ── Start GPS Quality monitor ─────────────────────────────────────────
+    gps_tracker = GpsQualityTracker(
+        nacp_threshold = cfg.GPS_NACP_THRESHOLD,
+        freeze_polls   = cfg.GPS_FREEZE_POLLS,
+        gap_sec        = cfg.GPS_GAP_SEC,
+        min_gs_kt      = cfg.GPS_MIN_GS_KT,
+    )
+    gps_thread = threading.Thread(
+        target=_gps_quality_sweep,
+        args=(live_state, live_lock, gps_tracker, cfg.GPS_SWEEP_SEC),
+        name="gps_sweep",
+        daemon=True,
+    )
+    gps_thread.start()
+    log.info("GPS quality sweep thread started (NACp threshold=%d, sweep=%.0f s)",
+             cfg.GPS_NACP_THRESHOLD, cfg.GPS_SWEEP_SEC)
+
     # Give the collector a moment to connect before Flask starts accepting
     time.sleep(1)
 
     # ── Create Flask app ──────────────────────────────────────────────────
-    app = create_app(cfg, live_state, live_lock, ws_tracker)
+    app = create_app(cfg, live_state, live_lock, ws_tracker, gps_tracker)
 
     log.info("Web interface starting on http://0.0.0.0:%d", cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)

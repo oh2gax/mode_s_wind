@@ -20,6 +20,7 @@ import time
 import threading
 from typing import Optional
 
+import pyModeS as pms
 from pyModeS import PipeDecoder
 from pyModeS.cli._source import NetworkSource
 from pyModeS.position._cpr import airborne_position_with_ref
@@ -110,6 +111,7 @@ def _build_observation(icao: str, ts: float, result: dict,
         "groundspeed": result.get("groundspeed"),
         "track":       result.get("track") or result.get("true_track"),
         "vert_rate":   result.get("vertical_rate"),
+        "nac_p":       result.get("nac_p"),   # Navigation Accuracy Category (position) — decoded from TC=29/31
     }
 
     # ── Squawk (Mode-A identity code) from DF5 / DF21 messages ───────────────
@@ -214,6 +216,21 @@ def run_collector(
                     continue
 
                 df = result.get("df", 0)
+
+                # ── NACp extraction from TC=29 / TC=31 DF17 messages ─────
+                # Aircraft Operational Status (TC=31) and Target State &
+                # Status (TC=29) carry the Navigation Accuracy Category for
+                # Position.  These messages are broadcast periodically by
+                # modern Mode S transponders.  The value persists in
+                # live_state until the next TC=29/31 is received.
+                if df == 17:
+                    try:
+                        _tc = pms.adsb.typecode(msg_hex)
+                        if _tc in (29, 31):
+                            _nacp, _, _ = pms.adsb.nac_p(msg_hex)
+                            result["nac_p"] = _nacp
+                    except Exception:
+                        pass
 
                 # Update BDS 5,0 / 6,0 cache for wind pairing
                 bds = result.get("bds")

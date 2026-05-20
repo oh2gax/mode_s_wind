@@ -150,3 +150,23 @@ class Config:
     # The aircraft typically climbs above the 5 000 ft gate and leaves the
     # display within this window.
     WINDSHEAR_GA_FLASH_SEC: float         = 60.0
+
+    # ── GPS Quality monitoring ─────────────────────────────────────────────────
+    # NACp (Navigation Accuracy Category for Position) threshold.
+    # Observations at or below this value are flagged as degraded GPS quality.
+    # NACp scale: 0 = unknown, 1–3 = poor, 4–6 = moderate, 7–11 = excellent.
+    # NACp ≤ 6 corresponds to horizontal accuracy worse than ~0.1 NM (185 m).
+    GPS_NACP_THRESHOLD: int = 6
+    # Consecutive sweep polls with the same lat/lon (while groundspeed is above
+    # GPS_MIN_GS_KT) before an aircraft is flagged as having a frozen position.
+    # 3 polls × 5 s sweep interval ≈ 15 s of frozen position.
+    GPS_FREEZE_POLLS: int = 3
+    # Seconds since last received ADS-B position message before an aircraft
+    # is flagged as a GPS gap (EHS data still arriving, position lost).
+    GPS_GAP_SEC: float = 45.0
+    # Minimum groundspeed (kt) for position freeze detection.
+    # Below this speed the aircraft may be taxiing or holding — position
+    # stability is expected and should not be flagged.
+    GPS_MIN_GS_KT: float = 50.0
+    # Sweep interval (seconds) for the GPS quality background thread.
+    GPS_SWEEP_SEC: float = 5.0

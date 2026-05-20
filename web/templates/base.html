@@ -26,6 +26,7 @@
     <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
     <a href="/windmap"   class="nav-link {% if request.endpoint == 'windmap_page'   %}active{% endif %}">Wind Map</a>
     <a href="/windshear" class="nav-link {% if request.endpoint == 'windshear_page' %}active{% endif %}">Windshear</a>
+    <a href="/gps"       class="nav-link {% if request.endpoint == 'gps_page'       %}active{% endif %}">GPS Quality</a>
   </div>
   <div class="nav-config-badges">
     <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"
