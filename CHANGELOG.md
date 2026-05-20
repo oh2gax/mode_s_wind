@@ -5,8 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-20 (bugfix)
+
+- Fixed **windshear page fully unresponsive after F-factor gate addition** — `let wsKinFGate` was declared at line 1660 but read synchronously by the F-gate IIFE at line 1344; JavaScript's temporal dead zone (TDZ) in strict mode raised a `ReferenceError` that killed all further script execution before `fetchWx()` or `fetchApproachState()` were ever called, leaving every panel frozen on its HTML placeholder despite the API returning valid data; fix: moved the `wsKinFGate` declaration to immediately above the IIFE that uses it; also added a null guard to the alert level IIFE for robustness
+
 ## 2026-05-20 (continued)
 
+- Added **Kinematic F-factor gate** — a dedicated dropdown (`F: Off / F ≥0.05 / F ≥0.08 / F ≥0.10 / F ≥0.15`) in the windshear log header that sets a minimum F-factor threshold for Kinematic detections; events whose computed F-factor falls below the gate are suppressed before reaching the log, banner or strip badge; the control is automatically disabled when any other algorithm is active; preference is stored in `localStorage` as `ms_ws_kin_f_gate`, default Off; if the window is too short to compute a valid F-factor and the gate is active, the event is also suppressed
 - Added **three-level windshear severity system** replacing the previous two-level moderate/severe scale — events are now classified as **Monitor** (≥10 kt, informational blue), **Warning** (≥15 kt, amber) or **Alarm** (≥25 kt, red); all six detection algorithms updated to use the new `wsSeverity()` helper and the lower 10 kt detection floor
 - Added **user-selectable alert level** dropdown in the Windshear Log header (`Mon ≥10kt` / `Warn ≥15kt` / `Alarm ≥25kt`) — controls the minimum severity that triggers the alert banner and flight strip WS badge; the log always shows all three levels; preference is stored in `localStorage` as `ms_ws_alert_level`, default Warning
 - Added **confidence gating** — all algorithms now require 2 consecutive poll cycles (≈6 seconds) detecting the same event before it is promoted to the log and banner; eliminates single-poll false positives; hit counters reset immediately when an event disappears, so genuine brief shear still fires on the 2nd confirmation

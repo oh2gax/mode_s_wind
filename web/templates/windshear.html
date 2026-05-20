@@ -109,6 +109,14 @@
               <option value="warning" selected>Warn ≥15kt</option>
               <option value="alarm">Alarm ≥25kt</option>
             </select>
+            <select id="ws-kin-f-gate" class="ws-algo-select"
+              title="Kinematic only: minimum F-factor required before an event is logged. Disabled when another algorithm is active. Off = no F-factor filtering.">
+              <option value="off">F: Off</option>
+              <option value="0.05">F ≥0.05</option>
+              <option value="0.08">F ≥0.08</option>
+              <option value="0.10">F ≥0.10</option>
+              <option value="0.15">F ≥0.15</option>
+            </select>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <div class="ws-ws-log-entries" id="ws-ws-log-entries">

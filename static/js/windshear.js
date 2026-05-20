@@ -1162,6 +1162,12 @@ function detectKinematic(aircraft) {
       ? Math.round(((delta * 0.51444) / windowSecs / 9.81) * 100) / 100
       : null;
 
+    // Apply F-factor gate — if enabled, skip events that don't meet the minimum
+    if (wsKinFGate !== 'off') {
+      const minF = parseFloat(wsKinFGate);
+      if (fFactor === null || fFactor < minF) continue;
+    }
+
     events.push({
       algo:     'kinematic',
       rwy:      ac.approach_runway,
@@ -1315,6 +1321,7 @@ document.getElementById('ws-algo-select').addEventListener('change', e => {
 // ── Alert level selector (dropdown) ──────────────────────────────────────────
 (function () {
   const sel = document.getElementById('ws-alert-level');
+  if (!sel) return;   // guard: element missing if HTML not yet updated
   // Restore saved preference
   if (wsAlertLevel) sel.value = wsAlertLevel;
   sel.addEventListener('change', e => {
@@ -1324,6 +1331,45 @@ document.getElementById('ws-algo-select').addEventListener('change', e => {
     renderStrips(lastAircraft, lastShearEvents);
     updateAlertBanner(lastShearEvents);
   });
+})();
+
+// ── Kinematic F-factor gate ───────────────────────────────────────────────────
+// Minimum F-factor required before a Kinematic event is emitted.
+// 'off' disables the gate (all events pass through regardless of F-factor).
+// Stored in localStorage so the research setting survives page reloads.
+// IMPORTANT: must be declared BEFORE the IIFE below that reads it synchronously.
+let wsKinFGate = localStorage.getItem('ms_ws_kin_f_gate') || 'off';
+
+// ── Kinematic F-factor gate selector (dropdown) ───────────────────────────────
+(function () {
+  const sel     = document.getElementById('ws-kin-f-gate');
+  const algoSel = document.getElementById('ws-algo-select');
+  if (!sel || !algoSel) return;   // guard: element missing if HTML not yet updated
+
+  // Restore saved preference and sync enabled state with current algo
+  sel.value = wsKinFGate;
+  function syncEnabled() {
+    sel.disabled = algoSel.value !== 'kinematic';
+  }
+  syncEnabled();
+
+  sel.addEventListener('change', e => {
+    wsKinFGate = e.target.value;
+    localStorage.setItem('ms_ws_kin_f_gate', wsKinFGate);
+    // Re-run detection immediately so the new gate takes effect without waiting
+    if (wsDetectionEnabled) {
+      const corridor  = lastAircraft.filter(ac => ac.in_corridor);
+      lastShearEvents = applyConfidenceGate(detectWindshear(corridor));
+      renderStrips(lastAircraft, lastShearEvents);
+      drawIlsProfile(corridor, lastShearEvents);
+      updateAlertBanner(lastShearEvents);
+      addToWsLog(lastShearEvents);
+      renderWsLog();
+    }
+  });
+
+  // Keep enabled state in sync when algorithm is changed
+  algoSel.addEventListener('change', syncEnabled);
 })();
 
 function buildStrip(ac, wsSeverity = null) {
