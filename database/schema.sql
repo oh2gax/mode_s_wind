@@ -100,11 +100,14 @@ CREATE INDEX IF NOT EXISTS idx_obs_meteo     ON observations(meteo_source, ts DE
 -- fl_bands is a JSON object mapping FL band labels to event counts.
 -- Using INSERT OR REPLACE so restarts never create duplicate rows.
 CREATE TABLE IF NOT EXISTS gps_quality_hours (
-    ts          INTEGER PRIMARY KEY,   -- Unix epoch of hour start (UTC)
-    events      INTEGER NOT NULL DEFAULT 0,   -- total event count this hour
-    total       INTEGER NOT NULL DEFAULT 0,   -- unique aircraft seen this hour
-    degraded    INTEGER NOT NULL DEFAULT 0,   -- unique aircraft with ≥1 event
-    fl_bands    TEXT    NOT NULL DEFAULT '{}'  -- JSON: {band_label: count}
+    ts              INTEGER PRIMARY KEY,   -- Unix epoch of hour start (UTC)
+    events          INTEGER NOT NULL DEFAULT 0,   -- total event count this hour
+    total           INTEGER NOT NULL DEFAULT 0,   -- unique aircraft seen this hour
+    degraded        INTEGER NOT NULL DEFAULT 0,   -- unique aircraft with ≥1 event
+    fl_bands        TEXT    NOT NULL DEFAULT '{}', -- JSON: {band_label: count}
+    nacp_events     INTEGER NOT NULL DEFAULT 0,   -- events flagged by NACp signal
+    freeze_events   INTEGER NOT NULL DEFAULT 0,   -- events flagged by Freeze signal
+    gap_events      INTEGER NOT NULL DEFAULT 0    -- events flagged by Gap signal
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);

@@ -66,12 +66,47 @@ function initTsChart() {
       labels:   [],
       datasets: [
         {
-          label:           'Events',
+          label:           'NACp',
           data:            [],
-          backgroundColor: 'rgba(56,189,248,0.75)',
+          backgroundColor: 'rgba(251,146,60,0.85)',   // amber
+          borderColor:     '#fb923c',
+          borderWidth:     1,
+          stack:           'events',
+          order:           2,
+          yAxisID:         'y',
+        },
+        {
+          label:           'Freeze',
+          data:            [],
+          backgroundColor: 'rgba(56,189,248,0.85)',   // sky blue
           borderColor:     '#38bdf8',
           borderWidth:     1,
-          order:           1,
+          stack:           'events',
+          order:           3,
+          yAxisID:         'y',
+        },
+        {
+          label:           'Gap',
+          data:            [],
+          backgroundColor: 'rgba(167,139,250,0.85)',  // violet
+          borderColor:     '#a78bfa',
+          borderWidth:     1,
+          stack:           'events',
+          order:           4,
+          yAxisID:         'y',
+        },
+        {
+          // Fallback for historical hours recorded before per-signal breakdown
+          // was introduced.  Shows the legacy 'events' total when all three
+          // signal counts are zero.  Will disappear naturally as old hours age
+          // out of the 24-hour window.
+          label:           'Unknown',
+          data:            [],
+          backgroundColor: 'rgba(100,116,139,0.65)',  // slate grey
+          borderColor:     '#64748b',
+          borderWidth:     1,
+          stack:           'events',
+          order:           5,
           yAxisID:         'y',
         },
         {
@@ -94,32 +129,37 @@ function initTsChart() {
       maintainAspectRatio: false,
       animation:           { duration: 300 },
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          labels: { color: th.text, font: { size: 11 }, boxWidth: 12, padding: 8 },
+        },
         tooltip: {
           callbacks: {
             title: items => items[0].label + ' UTC',
             label: item => {
-              if (item.datasetIndex === 0) return ` Events: ${item.raw}`;
-              return ` Aircraft: ${item.raw}`;
+              const names = ['NACp', 'Freeze', 'Gap', 'Unknown', 'Aircraft'];
+              return ` ${names[item.datasetIndex]}: ${item.raw}`;
             },
           },
         },
       },
       scales: {
         x: {
+          stacked: true,
           ticks:  { color: th.axisLabel, maxRotation: 45, font: { size: 10 } },
           grid:   { color: th.grid },
         },
         y: {
+          stacked:     true,
           beginAtZero: true,
-          position: 'left',
-          ticks:  { color: '#38bdf8', font: { size: 10 } },
+          position:    'left',
+          ticks:  { color: th.axisLabel, font: { size: 10 } },
           grid:   { color: th.grid },
-          title:  { display: true, text: 'Events', color: '#38bdf8', font: { size: 10 } },
+          title:  { display: true, text: 'Events', color: th.axisLabel, font: { size: 10 } },
         },
         y2: {
           beginAtZero: true,
-          position: 'right',
+          position:    'right',
           ticks:  { color: '#94a3b8', font: { size: 10 } },
           grid:   { drawOnChartArea: false },
           title:  { display: true, text: 'Aircraft', color: '#94a3b8', font: { size: 10 } },
@@ -144,16 +184,29 @@ function updateTsChart(timeSeries) {
   const dataMap = {};
   for (const b of timeSeries) dataMap[b.ts] = b;
 
-  const labels  = buckets.map(ts => {
+  const labels   = buckets.map(ts => {
     const d = new Date(ts * 1000);
     return d.getUTCHours().toString().padStart(2, '0') + ':00';
   });
-  const events   = buckets.map(ts => (dataMap[ts] ? dataMap[ts].events : 0));
-  const aircraft = buckets.map(ts => (dataMap[ts] ? dataMap[ts].total  : 0));
+  const nacp     = buckets.map(ts => (dataMap[ts] ? dataMap[ts].nacp_events   : 0));
+  const freeze   = buckets.map(ts => (dataMap[ts] ? dataMap[ts].freeze_events : 0));
+  const gap      = buckets.map(ts => (dataMap[ts] ? dataMap[ts].gap_events    : 0));
+  // 'Unknown' shows legacy event totals for hours that predate per-signal tracking.
+  // A bucket is "legacy" when all three signal counters are zero but events > 0.
+  const unknown  = buckets.map(ts => {
+    if (!dataMap[ts]) return 0;
+    const b = dataMap[ts];
+    const hasBreakdown = (b.nacp_events || 0) + (b.freeze_events || 0) + (b.gap_events || 0) > 0;
+    return hasBreakdown ? 0 : (b.events || 0);
+  });
+  const aircraft = buckets.map(ts => (dataMap[ts] ? dataMap[ts].total         : 0));
 
   tsChart.data.labels              = labels;
-  tsChart.data.datasets[0].data    = events;
-  tsChart.data.datasets[1].data    = aircraft;
+  tsChart.data.datasets[0].data    = nacp;
+  tsChart.data.datasets[1].data    = freeze;
+  tsChart.data.datasets[2].data    = gap;
+  tsChart.data.datasets[3].data    = unknown;
+  tsChart.data.datasets[4].data    = aircraft;
   tsChart.update('none');
 }
 
@@ -346,9 +399,12 @@ window.onThemeChange = function () {
   // Update Chart.js colours
   if (tsChart) {
     const th = canvasTheme();
-    tsChart.options.scales.x.ticks.color    = th.axisLabel;
-    tsChart.options.scales.x.grid.color     = th.grid;
-    tsChart.options.scales.y.grid.color     = th.grid;
+    tsChart.options.plugins.legend.labels.color  = th.text;
+    tsChart.options.scales.x.ticks.color         = th.axisLabel;
+    tsChart.options.scales.x.grid.color          = th.grid;
+    tsChart.options.scales.y.ticks.color         = th.axisLabel;
+    tsChart.options.scales.y.grid.color          = th.grid;
+    tsChart.options.scales.y.title.color         = th.axisLabel;
     tsChart.update('none');
   }
   // Redraw heatmap with new theme

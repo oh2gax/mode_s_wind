@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-21 (GPS Quality per-signal event breakdown)
+
+- **Per-signal breakdown** added to hourly GPS quality buckets — each completed hour now records `nacp_events`, `freeze_events`, and `gap_events` separately in addition to the total `events` count
+- **Stacked bar chart** — the 24-hour time-series chart now shows three stacked bars per hour: NACp (amber), Freeze (sky blue), Gap (violet); the total bar height still represents all events but the split immediately shows which signal type dominates
+- **DB schema migration** — `database/db.py` `init_db()` applies `ALTER TABLE gps_quality_hours ADD COLUMN` for the three new columns on first startup; existing rows default to zero and continue loading correctly
+- **Chart.js legend** replaces the old hardcoded HTML legend; the legend now auto-labels NACp / Freeze / Gap / Aircraft with matching colours
+
+---
+
 ## 2026-05-20 (GPS Quality Gap detection fix)
 
 - Fixed **Gap signal detection** — removed the `has_ehs` precondition (`alt is not None or gs is not None`) from the Gap check; since `update()` is only called for aircraft seen within the last 60 seconds in any Mode-S message, the aircraft being in the sweep is already proof it is transmitting; the old condition could silently suppress Gap events when GPS jamming also stopped ADS-B velocity messages (making `gs` None) and the aircraft happened to have no recent barometric altitude either; now any aircraft that previously had a GPS position but has not sent one for ≥ 45 s will be flagged regardless of which other Mode-S fields are present

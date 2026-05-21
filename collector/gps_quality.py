@@ -76,13 +76,16 @@ def _fl_band(altitude_ft: float | None) -> str | None:
 def _empty_bucket(ts: float) -> dict:
     """Return a zeroed hourly bucket starting at timestamp ts."""
     return {
-        "ts":      int(ts),
-        "total":   0,                          # unique aircraft seen this hour
-        "degraded": 0,                         # aircraft with ≥1 event this hour
-        "events":  0,                          # total event count this hour
+        "ts":            int(ts),
+        "total":         0,                        # unique aircraft seen this hour
+        "degraded":      0,                        # aircraft with ≥1 event this hour
+        "events":        0,                        # total event count this hour
+        "nacp_events":   0,                        # events from NACp signal
+        "freeze_events": 0,                        # events from Freeze signal
+        "gap_events":    0,                        # events from Gap signal
         "fl_bands": {lbl: 0 for lbl in FL_BAND_LABELS},   # events per FL band
-        "_seen":   set(),                      # transient: icaos seen this hour
-        "_deg":    set(),                      # transient: icaos with event
+        "_seen":   set(),                          # transient: icaos seen this hour
+        "_deg":    set(),                          # transient: icaos with event
     }
 
 
@@ -161,12 +164,17 @@ class GpsQualityTracker:
             self._buckets.append(_empty_bucket(now_hour))
         return self._buckets[-1]
 
-    def _record_event(self, icao: str, altitude: float | None) -> None:
+    def _record_event(self, icao: str, altitude: float | None,
+                      flags: list[str]) -> None:
         """Increment event counters in the current hourly bucket."""
         bucket = self._current_bucket()
         bucket["events"] += 1
         bucket["_deg"].add(icao)
         bucket["degraded"] = len(bucket["_deg"])
+        # Per-signal breakdown
+        if "nacp"   in flags: bucket["nacp_events"]   += 1
+        if "freeze" in flags: bucket["freeze_events"] += 1
+        if "gap"    in flags: bucket["gap_events"]    += 1
         fl = _fl_band(altitude)
         if fl:
             bucket["fl_bands"][fl] = bucket["fl_bands"].get(fl, 0) + 1
@@ -190,10 +198,14 @@ class GpsQualityTracker:
             conn = get_db()
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_hours
-                   (ts, events, total, degraded, fl_bands)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   (ts, events, total, degraded, fl_bands,
+                    nacp_events, freeze_events, gap_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], bucket["events"], bucket["total"],
-                 bucket["degraded"], fl_json),
+                 bucket["degraded"], fl_json,
+                 bucket.get("nacp_events",   0),
+                 bucket.get("freeze_events", 0),
+                 bucket.get("gap_events",    0)),
             )
             conn.commit()
             log.debug("GPS quality: persisted bucket ts=%d events=%d",
@@ -213,7 +225,8 @@ class GpsQualityTracker:
             cutoff   = now_hour - (MAX_BUCKETS - 1) * BUCKET_SEC
             conn     = get_db()
             rows     = conn.execute(
-                """SELECT ts, events, total, degraded, fl_bands
+                """SELECT ts, events, total, degraded, fl_bands,
+                          nacp_events, freeze_events, gap_events
                    FROM gps_quality_hours
                    WHERE ts >= ? AND ts < ?
                    ORDER BY ts ASC""",
@@ -222,10 +235,13 @@ class GpsQualityTracker:
             for row in rows:
                 fl   = json.loads(row["fl_bands"] or "{}")
                 b    = _empty_bucket(row["ts"])
-                b["events"]   = row["events"]
-                b["total"]    = row["total"]
-                b["degraded"] = row["degraded"]
-                b["fl_bands"] = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                b["events"]        = row["events"]
+                b["total"]         = row["total"]
+                b["degraded"]      = row["degraded"]
+                b["fl_bands"]      = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                b["nacp_events"]   = row["nacp_events"]   or 0
+                b["freeze_events"] = row["freeze_events"] or 0
+                b["gap_events"]    = row["gap_events"]    or 0
                 self._buckets.append(b)
             log.info("GPS quality: loaded %d historical hour buckets from DB",
                      len(rows))
@@ -311,7 +327,7 @@ class GpsQualityTracker:
 
             # Record events in hourly buckets
             if flags:
-                self._record_event(icao, alt)
+                self._record_event(icao, alt, flags)
 
     def prune_stale(self, max_age_sec: float = 90.0) -> None:
         """Remove aircraft not updated for max_age_sec seconds."""
@@ -398,11 +414,14 @@ class GpsQualityTracker:
         # Strip internal sets before serialising; freeze into plain counts
         def _clean(b: dict) -> dict:
             return {
-                "ts":      b["ts"],
-                "total":   b["total"],
-                "degraded": b["degraded"],
-                "events":  b["events"],
-                "fl_bands": dict(b["fl_bands"]),
+                "ts":            b["ts"],
+                "total":         b["total"],
+                "degraded":      b["degraded"],
+                "events":        b["events"],
+                "nacp_events":   b.get("nacp_events",   0),
+                "freeze_events": b.get("freeze_events", 0),
+                "gap_events":    b.get("gap_events",    0),
+                "fl_bands":      dict(b["fl_bands"]),
             }
 
         cleaned = [_clean(b) for b in buckets]
