@@ -33,7 +33,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS approach, with flight strips, an ILS glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
-- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour time-series chart and a 7-day × 7 FL-band heatmap; see [GPS Quality](#gps-quality--gps) below
+- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour stacked bar chart (NACp / Freeze / Gap signal breakdown per hour) and a 7-day × 8 FL-band heatmap; see [GPS Quality](#gps-quality--gps) below
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -946,7 +946,7 @@ NACp is extracted from TC=29 (Target State & Status) and TC=31 (Aircraft Operati
 
 The page has three main panels:
 
-**24-hour time-series chart (left top)** — a bar chart showing GPS degradation event count per hour (red bars) alongside total aircraft seen per hour divided by 10 (grey line) for the last 24 rolling hours. Displaying both on the same scale immediately normalises for traffic volume — a busy hour naturally produces more events, so spikes above the aircraft count line indicate genuine elevated degradation rather than traffic density. The chart updates on each 30-second poll.
+**24-hour time-series chart (left top)** — a stacked bar chart for the last 24 rolling hours with three colour-coded segments per hour showing the per-signal event breakdown: **NACp** (amber), **Freeze** (sky blue), and **Gap** (violet). The total bar height represents all events that hour; the segment proportions immediately reveal which detection signal is dominant. A grey **Aircraft** line (right Y-axis) overlays total aircraft count for traffic normalisation — a busy hour naturally produces more events, so bars consistently taller than the aircraft line suggest genuine elevated degradation rather than traffic density alone. Historical hours recorded before per-signal tracking was introduced are shown as a neutral grey **Unknown** segment. The chart updates on each 30-second poll.
 
 **7-day FL-band heatmap (left bottom)** — a colour-coded grid with eight rows (FL bands: FL010–030 / FL030–050 / FL050–100 / FL100–150 / FL150–200 / FL200–250 / FL250–300 / FL300+) and one column per day for the last seven days. Cell colour ranges from near-background (no events) through blue, amber, and red to dark red (high activity). The event count is printed inside non-zero cells. This view is most useful for identifying which altitude layers are most affected on which days — low-level bands being consistently darker than high-level bands is a signature of ground-based jamming that affects climb/descent phases more than cruise.
 
@@ -993,8 +993,11 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | total | Unique aircraft seen this hour |
 | degraded | Unique aircraft with at least one degradation event |
 | fl_bands | JSON object mapping FL band labels to per-band event counts |
+| nacp_events | Events flagged by the NACp signal this hour |
+| freeze_events | Events flagged by the Freeze signal this hour |
+| gap_events | Events flagged by the Gap signal this hour |
 
-Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore the 7-day heatmap and 24-hour time-series chart after a restart.
+Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore the 7-day heatmap and 24-hour time-series chart after a restart. The three per-signal columns were added in May 2026; existing rows carry 0 for these columns and are displayed as grey "Unknown" bars in the chart until they age out of the 24-hour window.
 
 **`observations`** — one row per decoded message with useful data:
 
