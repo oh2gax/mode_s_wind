@@ -68,8 +68,8 @@ function initTsChart() {
         {
           label:           'Events',
           data:            [],
-          backgroundColor: 'rgba(239,68,68,0.75)',
-          borderColor:     '#ef4444',
+          backgroundColor: 'rgba(56,189,248,0.75)',
+          borderColor:     '#38bdf8',
           borderWidth:     1,
           order:           1,
           yAxisID:         'y',
@@ -113,9 +113,9 @@ function initTsChart() {
         y: {
           beginAtZero: true,
           position: 'left',
-          ticks:  { color: '#ef4444', font: { size: 10 } },
+          ticks:  { color: '#38bdf8', font: { size: 10 } },
           grid:   { color: th.grid },
-          title:  { display: true, text: 'Events', color: '#ef4444', font: { size: 10 } },
+          title:  { display: true, text: 'Events', color: '#38bdf8', font: { size: 10 } },
         },
         y2: {
           beginAtZero: true,
