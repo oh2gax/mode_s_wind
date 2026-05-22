@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-22 (Windshear ILS profile — HW/TW barb annotation)
+
+- Added **HW toggle button** to the ILS profile header, immediately to the right of the `Barbs · Auto` split button — annotates each wind barb on the glideslope canvas with the headwind/tailwind component for the matched runway
+- When **HW is on**, each barb shows two lines: the signed headwind component as the primary label (e.g. `+15kt` or `−8kt`) colour-coded **green** (headwind > +5 kt), **red** (tailwind < −5 kt), or **amber** (near-zero ±5 kt); the raw `dir°/spd` is shown in smaller dimmer text on a second line below for reference
+- When **HW is off** (default), existing behaviour is unchanged — only `248°/24kt` shown
+- The runway heading used for the computation is sourced from the selected aircraft's `approach_runway` field (most precise); falls back to the runway filter dropdown value if the aircraft is no longer tracked; HW annotation is silently suppressed per-barb if no valid heading can be resolved
+- The active runway reference is shown in the corner label (e.g. `· HW ref 04L (47°)`) so the reference heading is always visible
+- The HW button is visually greyed out (pointer-events disabled) when Barbs are off; turning Barbs off also resets HW to inactive
+
+---
+
 ## 2026-05-22 (GPS Quality per-signal flush fix)
 
 - Fixed **per-signal counts not persisted on hour rollover** — `_current_bucket()` built a `flush_copy` dict that omitted `nacp_events`, `freeze_events`, and `gap_events`; `_flush_to_db` therefore always wrote zero for all three fields even though the in-memory bucket had the correct counts; the three fields are now included in `flush_copy`; this caused all completed-hour rows in the DB to show as the grey "Unknown" bar in the chart rather than the coloured NACp / Freeze / Gap stacked breakdown — hours flushed before this fix will remain as grey bars (the in-memory data is gone), but all new completed hours will persist correctly going forward

@@ -665,6 +665,13 @@ The **Barbs** button, located in the ILS profile header immediately to the right
 
 **Barb convention:** barb staff points FROM the wind direction (standard meteorological convention). Pennant = 50 kt, full barb = 10 kt, half barb = 5 kt, open circle = calm. The barb colour matches the aircraft's meteo source colour (blue = MRAR, green = COMPUTED, purple = JSON).
 
+**HW/TW annotation:** the **HW** button, immediately to the right of the `Barbs · Auto` split button, toggles a headwind/tailwind overlay on each barb. When active, two lines are shown at each barb point:
+
+- **Primary** — the signed headwind component in knots: `+15kt` (headwind) or `−8kt` (tailwind), colour-coded **green** (headwind > +5 kt), **red** (tailwind < −5 kt), or **amber** (near-zero)
+- **Secondary** — the raw `dir°/spd` in smaller, dimmer text for reference
+
+The headwind component is computed as `wind_spd × cos(wind_dir − runway_heading)` using the matched runway's magnetic approach heading. The runway used as reference is shown in the corner label (e.g. `· HW ref 04L (47°)`). The HW button is greyed out when Barbs are off and is reset to inactive when Barbs are turned off.
+
 **Aircraft departure:** when a tracked aircraft stops transmitting and is removed from the display (typically 30–45 seconds after landing), its wind history is deleted and the barb overlay is cleared automatically. In Auto mode the next lowest aircraft is selected immediately on the same poll cycle. Only one aircraft's barbs are shown at a time — clicking a different strip replaces the current overlay without requiring a manual deselect.
 
 The feature is designed for exploratory use: enable it during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.

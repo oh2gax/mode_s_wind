@@ -816,6 +816,23 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-barb-auto-btn:hover  { background: var(--bg-3); color: var(--text-1); z-index: 2; }
 .ws-barb-auto-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; z-index: 2; }
 
+/* HW/TW annotation toggle — sits to the right of the Barbs·Auto group */
+.ws-barb-hw-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.ws-barb-hw-btn:hover               { background: var(--bg-3); color: var(--text-1); }
+.ws-barb-hw-btn.active               { background: #d97706; color: #fff; border-color: #d97706; }
+.ws-barb-hw-btn.ws-barb-hw-off       { opacity: 0.38; cursor: default; pointer-events: none; }
+
 /* Strip highlight when selected as barb source */
 .ws-strip.ws-strip-barb-sel {
   border-left: 3px solid #38bdf8;

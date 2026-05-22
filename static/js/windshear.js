@@ -604,6 +604,16 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       const bColor = selAc ? acColor(selAc.meteo_source) : '#94a3b8';
       const bLabel = selAc ? (selAc.callsign || barbSelectedIcao) : barbSelectedIcao;
 
+      // Resolve runway heading for HW/TW annotation (once, before the loop).
+      // Priority: matched runway of the selected aircraft → runway filter dropdown.
+      // If neither resolves to a single known heading, HW annotation is suppressed.
+      let barbRwyHdg = null;
+      if (selAc?.approach_runway) {
+        barbRwyHdg = getRwyHeading(selAc.approach_runway);
+      } else {
+        barbRwyHdg = getRwyHeading(document.getElementById('ws-ils-rwy').value) ?? null;
+      }
+
       ilsCtx.save();
 
       for (const obs of hist) {
@@ -616,22 +626,51 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
         drawWindBarb(ilsCtx, bx, by, obs.wind_spd, obs.wind_dir, bColor);
 
-        // Speed / direction label — draw above the barb base; flip below if too close to top
-        const lblY = (by - 16 < M.top + 6) ? by + 16 : by - 5;
-        ilsCtx.fillStyle  = bColor + 'cc';
-        ilsCtx.font       = '8px "Courier New", monospace';
-        ilsCtx.textAlign  = 'center';
-        ilsCtx.fillText(
-          `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
-          bx, lblY
-        );
+        // Label — flip below the barb base when too close to top of canvas
+        const nearTop = by - 24 < M.top + 6;
+        ilsCtx.textAlign = 'center';
+
+        if (barbHwActive && barbRwyHdg != null) {
+          // ── HW mode: primary = signed headwind value, secondary = dir°/spd ──
+          const hw      = hwKt(obs.wind_spd, obs.wind_dir, barbRwyHdg);
+          const hwRound = Math.round(hw);
+          // Green = headwind, red = tailwind, amber = near-zero (±5 kt)
+          const hwColor = hw > 5 ? '#4ade80' : hw < -5 ? '#f87171' : '#fbbf24';
+          const line1Y  = nearTop ? by + 16 : by - 14;
+          const line2Y  = nearTop ? by + 25 : by - 5;
+
+          ilsCtx.fillStyle = hwColor;
+          ilsCtx.font      = 'bold 9px "Courier New", monospace';
+          ilsCtx.fillText(`${hwRound >= 0 ? '+' : ''}${hwRound}kt`, bx, line1Y);
+
+          ilsCtx.fillStyle = bColor + '88';
+          ilsCtx.font      = '7px "Courier New", monospace';
+          ilsCtx.fillText(
+            `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
+            bx, line2Y
+          );
+        } else {
+          // ── Default: dir°/spd only ────────────────────────────────────────
+          const lblY = nearTop ? by + 16 : by - 5;
+          ilsCtx.fillStyle = bColor + 'cc';
+          ilsCtx.font      = '8px "Courier New", monospace';
+          ilsCtx.fillText(
+            `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
+            bx, lblY
+          );
+        }
       }
 
       // Aircraft identifier in the top-left corner of the plot area
+      const hwTag = (barbHwActive && barbRwyHdg != null)
+        ? `  · HW ref ${selAc?.approach_runway ?? '?'} (${barbRwyHdg}°)` : '';
       ilsCtx.fillStyle = bColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
-      ilsCtx.fillText(`\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}`, M.left + 4, M.top + 22);
+      ilsCtx.fillText(
+        `\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}${hwTag}`,
+        M.left + 4, M.top + 22
+      );
 
       ilsCtx.restore();
     } else {
@@ -1695,6 +1734,7 @@ let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
 let barbAutoTarget   = null;   // icao currently held by auto mode (null = none yet)
+let barbHwActive     = false;  // toggle: annotate each barb with headwind/tailwind value
 
 // ── Wind Rose state ───────────────────────────────────────────────────────────
 const WINDROSE_ALT_MAX    = 2_000;          // ft — ceiling for MODE-S wind samples
@@ -2117,19 +2157,32 @@ function runAutoBarbSelection(corridor) {
   barbSelectedIcao = barbAutoTarget;
 }
 
-// ── Wind barb toggle ──────────────────────────────────────────────────────────
+// ── Wind barb toggle ──────────────────────────────────────────────────────────────
 document.getElementById('ws-barb-btn').addEventListener('click', () => {
   barbLayerActive = !barbLayerActive;
   document.getElementById('ws-barb-btn').classList.toggle('active', barbLayerActive);
   if (!barbLayerActive) {
-    // Turning barbs off — also cancel auto mode
+    // Turning barbs off — also cancel auto mode and HW annotation
     barbSelectedIcao = null;
     barbAutoActive   = false;
     barbAutoTarget   = null;
+    barbHwActive     = false;
     document.getElementById('ws-barb-auto-btn').classList.remove('active');
+    document.getElementById('ws-barb-hw-btn').classList.remove('active');
+    document.getElementById('ws-barb-hw-btn').classList.add('ws-barb-hw-off');
+  } else {
+    document.getElementById('ws-barb-hw-btn').classList.remove('ws-barb-hw-off');
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
+});
+
+// ── HW/TW annotation toggle ────────────────────────────────────────────────────────────────────────────
+document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
+  if (!barbLayerActive) return;   // button is visually disabled when barbs are off
+  barbHwActive = !barbHwActive;
+  document.getElementById('ws-barb-hw-btn').classList.toggle('active', barbHwActive);
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
 // Auto segment click: if barbs are off, turn them on then enable auto;
@@ -2152,7 +2205,7 @@ document.getElementById('ws-barb-auto-btn').addEventListener('click', () => {
   renderStrips(lastAircraft, lastShearEvents);
 });
 
-// ── Strip click — select aircraft for barb display ────────────────────────────
+// ── Strip click — select aircraft for barb display ────────────────────────────────────────────
 // Event delegation on the scroll container so clicks work after each re-render.
 document.getElementById('ws-strips').addEventListener('click', e => {
   if (!barbLayerActive) return;
@@ -2175,9 +2228,3 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 
 fetchApproachState();
 setInterval(fetchApproachState, 3_000);
-
-// Redraw both canvases when the global page theme changes (Dark ↔ Light)
-window.onThemeChange = function () {
-  drawIlsProfile(lastAircraft, lastShearEvents);
-  drawWindRose();
-};
