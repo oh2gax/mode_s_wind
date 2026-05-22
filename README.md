@@ -672,9 +672,9 @@ The **Barbs** button, located in the ILS profile header immediately to the right
 
 The headwind component is computed as `wind_spd × cos(wind_dir − runway_heading)` using the matched runway's magnetic approach heading. The runway used as reference is shown in the corner label (e.g. `· HW ref 04L (47°)`). The HW button is greyed out when Barbs are off and is reset to inactive when Barbs are turned off.
 
-**Aircraft departure:** when a tracked aircraft stops transmitting and is removed from the display (typically 30–45 seconds after landing), its wind history is deleted and the barb overlay is cleared automatically. In Auto mode the next lowest aircraft is selected immediately on the same poll cycle. Only one aircraft's barbs are shown at a time — clicking a different strip replaces the current overlay without requiring a manual deselect.
+**Track lifetime:** only one aircraft's barbs are displayed at a time. Clicking a different flight strip immediately replaces the current overlay — no need to deselect first. When the selected aircraft lands and stops transmitting (typically 30–45 seconds after touchdown), its stored wind history is discarded and the overlay clears automatically. In Auto mode the next aircraft furthest along the approach is picked up on the same poll cycle, so the barb display stays continuous as long as there is approach traffic.
 
-The feature is designed for exploratory use: enable it during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.
+Enable the barb layer during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.
 
 #### Wind Rose
 
