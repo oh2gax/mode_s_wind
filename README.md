@@ -916,7 +916,7 @@ Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight o
 
 An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. The page auto-refreshes every 30 seconds.
 
-Hourly summary data is persisted to the SQLite `gps_quality_hours` table so that the 24-hour time-series chart and 7-day heatmap survive process restarts. Only completed hours are written to the database (exactly 24 rows per day), so the write load is negligible. On startup the tracker reloads the last 7 days of history automatically — the charts are immediately populated from stored data. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data).
+Hourly summary data is persisted to the SQLite `gps_quality_hours` table so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (exactly 24 rows per day), so the write load is negligible. On startup the tracker reloads the last **31 days** of history automatically — the charts are immediately populated from stored data. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data).
 
 > **Why "GPS Quality" and not "GPS Jamming"?** The page detects and displays objective signal quality parameters — it does not assert a cause. True GPS jamming, spoofing, receiver failure, and genuine satellite outages can all produce the same observable signatures. The term "GPS Quality" is deliberately neutral.
 
@@ -946,9 +946,21 @@ NACp is extracted from TC=29 (Target State & Status) and TC=31 (Aircraft Operati
 
 The page has three main panels:
 
-**24-hour time-series chart (left top)** — a stacked bar chart for the last 24 rolling hours with three colour-coded segments per hour showing the per-signal event breakdown: **NACp** (amber), **Freeze** (sky blue), and **Gap** (violet). The total bar height represents all events that hour; the segment proportions immediately reveal which detection signal is dominant. A grey **Aircraft** line (right Y-axis) overlays total aircraft count for traffic normalisation — a busy hour naturally produces more events, so bars consistently taller than the aircraft line suggest genuine elevated degradation rather than traffic density alone. Historical hours recorded before per-signal tracking was introduced are shown as a neutral grey **Unknown** segment. The chart updates on each 30-second poll.
+**Time-series chart (left top)** — a stacked bar chart with three colour-coded segments per bar showing the per-signal event breakdown: **NACp** (amber), **Freeze** (sky blue), and **Gap** (violet). The total bar height represents all events in that period; the segment proportions immediately reveal which detection signal is dominant. A grey **Aircraft** line (right Y-axis) overlays aircraft count for traffic normalisation — bars consistently taller than the aircraft line suggest genuine elevated degradation rather than traffic density alone. Historical hours recorded before per-signal tracking was introduced are shown as a neutral grey **Unknown** segment. The chart updates on each 30-second poll.
 
-**7-day FL-band heatmap (left bottom)** — a colour-coded grid with eight rows (FL bands: FL010–030 / FL030–050 / FL050–100 / FL100–150 / FL150–200 / FL200–250 / FL250–300 / FL300+) and one column per day for the last seven days. Cell colour ranges from near-background (no events) through blue, amber, and red to dark red (high activity). The event count is printed inside non-zero cells. This view is most useful for identifying which altitude layers are most affected on which days — low-level bands being consistently darker than high-level bands is a signature of ground-based jamming that affects climb/descent phases more than cruise.
+A **range selector** in the chart header controls how much history is displayed:
+
+| Button | Granularity | Description |
+|--------|-------------|-------------|
+| `1d` | Hourly bars | Last 24 hours — default view |
+| `2d` | Hourly bars | Last 48 hours; date prefix shown at midnight boundaries |
+| `3d` | Hourly bars | Last 72 hours |
+| `1w` | Daily bars | Last 7 days aggregated per day |
+| `1m` | Daily bars | Last 31 days aggregated per day |
+
+For the daily views (`1w` / `1m`) the Aircraft line shows the **peak hourly aircraft count** per day rather than a sum, giving a meaningful sense of traffic volume. The selected range is remembered across browser sessions via `localStorage`.
+
+**FL-band heatmap (left bottom)** — a colour-coded grid with eight rows (FL bands: FL010–030 / FL030–050 / FL050–100 / FL100–150 / FL150–200 / FL200–250 / FL250–300 / FL300+) and one column per day for the last seven days. Cell colour ranges from near-background (no events) through blue, amber, and red to dark red (high activity). The event count is printed inside non-zero cells. This view is most useful for identifying which altitude layers are most affected on which days — low-level bands being consistently darker than high-level bands is a signature of ground-based jamming that affects climb/descent phases more than cruise.
 
 **Live degraded aircraft table (right)** — shows all aircraft currently flagged by any detection signal, sorted highest altitude first. Columns: callsign, ICAO24, FL band, altitude (ft), groundspeed (kt), NACp value, and active flag badges. Refreshes every 30 seconds.
 

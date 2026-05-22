@@ -5,6 +5,24 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-22 (GPS Quality per-signal flush fix)
+
+- Fixed **per-signal counts not persisted on hour rollover** — `_current_bucket()` built a `flush_copy` dict that omitted `nacp_events`, `freeze_events`, and `gap_events`; `_flush_to_db` therefore always wrote zero for all three fields even though the in-memory bucket had the correct counts; the three fields are now included in `flush_copy`; this caused all completed-hour rows in the DB to show as the grey "Unknown" bar in the chart rather than the coloured NACp / Freeze / Gap stacked breakdown — hours flushed before this fix will remain as grey bars (the in-memory data is gone), but all new completed hours will persist correctly going forward
+
+---
+
+## 2026-05-22 (GPS Quality chart range selector)
+
+- Added **time range selector** to the GPS Quality bar chart — five buttons (`1d` / `2d` / `3d` / `1w` / `1m`) in the chart panel header let the user choose how much history is displayed
+- **1d / 2d / 3d** — hourly bars; 2d and 3d labels include the date prefix (`M/D`) at midnight boundaries so each day is clearly identified; `maxTicksLimit` is halved for 2d/3d to prevent label crowding
+- **1w / 1m** — aggregate to daily bars with day-of-week labels; the Aircraft line shows the peak hourly aircraft count per day (more meaningful than a sum of hourly counts)
+- Selected range is persisted in `localStorage` (`ms_gps_range`) and restored on page load
+- Chart panel title updates dynamically to match the active range (e.g. "GPS Degradation Events — Last 7 Days")
+- Extended `MAX_BUCKETS` in `gps_quality.py` from `7 × 24` to `31 × 24` to support month-long retention; `_load_from_db` cutoff extended to match
+- `get_state()` now returns all available cleaned buckets in `time_series` (previously capped at 24 h); the 24 h cap is now applied frontend-side only for the `1d` range; summary stats (Events 24h, Aircraft affected 24h, Peak hour) remain computed server-side from the last 24 h and are unchanged
+
+---
+
 ## 2026-05-21 (GPS Quality per-signal event breakdown)
 
 - **Per-signal breakdown** added to hourly GPS quality buckets — each completed hour now records `nacp_events`, `freeze_events`, and `gap_events` separately in addition to the total `events` count

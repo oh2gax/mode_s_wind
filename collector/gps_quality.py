@@ -60,7 +60,7 @@ FL_BAND_LABELS = [b[2] for b in FL_BANDS]
 
 # ── Bucket duration ───────────────────────────────────────────────────────────
 BUCKET_SEC    = 3_600          # one hour per bucket
-MAX_BUCKETS   = 7 * 24         # 7 days rolling
+MAX_BUCKETS   = 31 * 24        # 31 days rolling
 
 
 def _fl_band(altitude_ft: float | None) -> str | None:
@@ -154,11 +154,14 @@ class GpsQualityTracker:
                 # Flush outside the lock; take a shallow copy so the sets
                 # (_seen, _deg) are not needed — only the scalar fields.
                 flush_copy = {
-                    "ts":       completed["ts"],
-                    "events":   completed["events"],
-                    "total":    completed["total"],
-                    "degraded": completed["degraded"],
-                    "fl_bands": dict(completed["fl_bands"]),
+                    "ts":            completed["ts"],
+                    "events":        completed["events"],
+                    "total":         completed["total"],
+                    "degraded":      completed["degraded"],
+                    "fl_bands":      dict(completed["fl_bands"]),
+                    "nacp_events":   completed.get("nacp_events",   0),
+                    "freeze_events": completed.get("freeze_events", 0),
+                    "gap_events":    completed.get("gap_events",    0),
                 }
                 self._flush_to_db(flush_copy)
             self._buckets.append(_empty_bucket(now_hour))
@@ -426,7 +429,7 @@ class GpsQualityTracker:
 
         cleaned = [_clean(b) for b in buckets]
 
-        # Last 24 hours for time series
+        # Last 24 hours for stats
         now_hour = _bucket_hour(time.time())
         ts_24h   = [b for b in cleaned
                     if b["ts"] >= now_hour - (23 * BUCKET_SEC)]
@@ -445,8 +448,8 @@ class GpsQualityTracker:
 
         return {
             "live":        self._live_events,
-            "time_series": ts_24h,
-            "heatmap":     cleaned,       # all available buckets (up to 7 days)
+            "time_series": cleaned,       # all available buckets — frontend filters by range
+            "heatmap":     cleaned,       # all available buckets (up to 31 days)
             "fl_bands":    FL_BAND_LABELS,
             "stats": {
                 "events_24h":   events_24h,

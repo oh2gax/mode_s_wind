@@ -54,6 +54,30 @@ function applyHeatCssVars() {
   palette.forEach((c, i) => root.style.setProperty(`--gps-heat-${i}`, c));
 }
 
+// ── Range selector state ──────────────────────────────────────────────────────
+const RANGE_CONFIG = {
+  '1d': { hours: 24,  aggregate: 'hour', title: 'Last 24 Hours',  maxTicks: 24 },
+  '2d': { hours: 48,  aggregate: 'hour', title: 'Last 2 Days',    maxTicks: 12 },
+  '3d': { hours: 72,  aggregate: 'hour', title: 'Last 3 Days',    maxTicks: 12 },
+  '1w': { hours: 168, aggregate: 'day',  title: 'Last 7 Days',    maxTicks: 7  },
+  '1m': { hours: 744, aggregate: 'day',  title: 'Last 31 Days',   maxTicks: 31 },
+};
+let currentRange = localStorage.getItem('ms_gps_range') || '1d';
+let lastFullTimeSeries = [];
+
+function applyRange(range) {
+  if (!RANGE_CONFIG[range]) return;
+  currentRange = range;
+  localStorage.setItem('ms_gps_range', range);
+  document.querySelectorAll('.gps-range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+  const cfg = RANGE_CONFIG[range];
+  const titleEl = document.getElementById('gps-chart-title');
+  if (titleEl) titleEl.textContent = 'GPS Degradation Events — ' + cfg.title;
+  if (lastFullTimeSeries.length > 0) updateTsChart(lastFullTimeSeries);
+}
+
 // ── Chart.js time-series ──────────────────────────────────────────────────────
 let tsChart = null;
 
@@ -169,44 +193,97 @@ function initTsChart() {
   });
 }
 
-function updateTsChart(timeSeries) {
-  if (!tsChart) return;
-  if (!timeSeries || timeSeries.length === 0) return;
+function _unknownEvents(b) {
+  // Legacy hours where per-signal breakdown is absent: show events total as 'Unknown'
+  const hasBreakdown = (b.nacp_events || 0) + (b.freeze_events || 0) + (b.gap_events || 0) > 0;
+  return hasBreakdown ? 0 : (b.events || 0);
+}
 
-  // Generate labels for all 24 hours, filling gaps with zeros
-  const now     = Date.now() / 1000;
-  const buckets = [];
-  for (let i = 23; i >= 0; i--) {
-    const hourTs = Math.floor((now - i * 3600) / 3600) * 3600;
-    buckets.push(hourTs);
+function updateTsChart(allBuckets) {
+  if (!tsChart) return;
+  if (!allBuckets || allBuckets.length === 0) return;
+
+  lastFullTimeSeries = allBuckets;
+
+  const cfg    = RANGE_CONFIG[currentRange] || RANGE_CONFIG['1d'];
+  const now    = Date.now() / 1000;
+  const cutoff = now - cfg.hours * 3600;
+
+  // Build a lookup of all incoming buckets
+  const dataMap = {};
+  for (const b of allBuckets) dataMap[b.ts] = b;
+
+  let labels, nacp, freeze, gap, unknown, aircraft;
+
+  if (cfg.aggregate === 'hour') {
+    // ── Hourly bars ──────────────────────────────────────────────────────────
+    const nowHour = Math.floor(now / 3600) * 3600;
+    const slots   = [];
+    for (let i = cfg.hours - 1; i >= 0; i--) slots.push(nowHour - i * 3600);
+
+    labels = slots.map(ts => {
+      const d  = new Date(ts * 1000);
+      const hh = d.getUTCHours().toString().padStart(2, '0');
+      if (cfg.hours <= 24) {
+        return hh + ':00';
+      }
+      // 2d / 3d: prefix with month/day when hour = 0 (midnight) or first slot
+      const isFirst    = ts === slots[0];
+      const isMidnight = d.getUTCHours() === 0;
+      const prefix     = (isFirst || isMidnight)
+        ? `${d.getUTCMonth() + 1}/${d.getUTCDate()} ` : '';
+      return prefix + hh + 'h';
+    });
+
+    nacp     = slots.map(ts => dataMap[ts]?.nacp_events   || 0);
+    freeze   = slots.map(ts => dataMap[ts]?.freeze_events || 0);
+    gap      = slots.map(ts => dataMap[ts]?.gap_events    || 0);
+    unknown  = slots.map(ts => dataMap[ts] ? _unknownEvents(dataMap[ts]) : 0);
+    aircraft = slots.map(ts => dataMap[ts]?.total         || 0);
+
+  } else {
+    // ── Daily aggregate bars ─────────────────────────────────────────────────
+    const nowDay = Math.floor(now / 86400) * 86400;
+    const nDays  = cfg.hours / 24;
+    const days   = [];
+    for (let i = nDays - 1; i >= 0; i--) days.push(nowDay - i * 86400);
+
+    // Aggregate hourly buckets into day bins
+    const dayMap = {};
+    for (const b of allBuckets) {
+      if (b.ts < cutoff) continue;
+      const dayTs = Math.floor(b.ts / 86400) * 86400;
+      if (!dayMap[dayTs]) dayMap[dayTs] = { nacp: 0, freeze: 0, gap: 0, unknown: 0, maxTotal: 0 };
+      dayMap[dayTs].nacp    += b.nacp_events   || 0;
+      dayMap[dayTs].freeze  += b.freeze_events || 0;
+      dayMap[dayTs].gap     += b.gap_events    || 0;
+      dayMap[dayTs].unknown += _unknownEvents(b);
+      // Peak hourly aircraft count = best proxy for daily traffic volume
+      dayMap[dayTs].maxTotal = Math.max(dayMap[dayTs].maxTotal, b.total || 0);
+    }
+
+    const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    labels = days.map(ts => {
+      const d = new Date(ts * 1000);
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${DOW[d.getUTCDay()]}`;
+    });
+
+    nacp     = days.map(ts => dayMap[ts]?.nacp     || 0);
+    freeze   = days.map(ts => dayMap[ts]?.freeze   || 0);
+    gap      = days.map(ts => dayMap[ts]?.gap      || 0);
+    unknown  = days.map(ts => dayMap[ts]?.unknown  || 0);
+    aircraft = days.map(ts => dayMap[ts]?.maxTotal || 0);
   }
 
-  const dataMap = {};
-  for (const b of timeSeries) dataMap[b.ts] = b;
+  // Adjust x-axis tick density for the active range
+  tsChart.options.scales.x.ticks.maxTicksLimit = cfg.maxTicks;
 
-  const labels   = buckets.map(ts => {
-    const d = new Date(ts * 1000);
-    return d.getUTCHours().toString().padStart(2, '0') + ':00';
-  });
-  const nacp     = buckets.map(ts => (dataMap[ts] ? dataMap[ts].nacp_events   : 0));
-  const freeze   = buckets.map(ts => (dataMap[ts] ? dataMap[ts].freeze_events : 0));
-  const gap      = buckets.map(ts => (dataMap[ts] ? dataMap[ts].gap_events    : 0));
-  // 'Unknown' shows legacy event totals for hours that predate per-signal tracking.
-  // A bucket is "legacy" when all three signal counters are zero but events > 0.
-  const unknown  = buckets.map(ts => {
-    if (!dataMap[ts]) return 0;
-    const b = dataMap[ts];
-    const hasBreakdown = (b.nacp_events || 0) + (b.freeze_events || 0) + (b.gap_events || 0) > 0;
-    return hasBreakdown ? 0 : (b.events || 0);
-  });
-  const aircraft = buckets.map(ts => (dataMap[ts] ? dataMap[ts].total         : 0));
-
-  tsChart.data.labels              = labels;
-  tsChart.data.datasets[0].data    = nacp;
-  tsChart.data.datasets[1].data    = freeze;
-  tsChart.data.datasets[2].data    = gap;
-  tsChart.data.datasets[3].data    = unknown;
-  tsChart.data.datasets[4].data    = aircraft;
+  tsChart.data.labels           = labels;
+  tsChart.data.datasets[0].data = nacp;
+  tsChart.data.datasets[1].data = freeze;
+  tsChart.data.datasets[2].data = gap;
+  tsChart.data.datasets[3].data = unknown;
+  tsChart.data.datasets[4].data = aircraft;
   tsChart.update('none');
 }
 
@@ -320,7 +397,8 @@ function drawHeatmap(heatmapData, flBands) {
   }
 }
 
-// ── Live table ────────────────────────────────────────────────────────────────
+
+// ── Live table ──────────────────────────────────────────────────────────────────────────────
 const FLAG_HTML = {
   nacp:   '<span class="gps-flag gps-flag-nacp">NACp</span>',
   freeze: '<span class="gps-flag gps-flag-freeze">Freeze</span>',
@@ -356,14 +434,14 @@ function renderLiveTable(liveEvents) {
   }).join('');
 }
 
-// ── Summary bar ───────────────────────────────────────────────────────────────
+// ── Summary bar ─────────────────────────────────────────────────────────────────────────────
 function renderStats(stats) {
   document.getElementById('gps-events-24h').textContent   = stats.events_24h   ?? '—';
   document.getElementById('gps-degraded-24h').textContent = stats.degraded_24h ?? '—';
   document.getElementById('gps-peak-hour').textContent    = stats.peak_hour    || 'None';
 }
 
-// ── Main poll loop ────────────────────────────────────────────────────────────
+// ── Main poll loop ────────────────────────────────────────────────────────────────────────────
 let lastFlBands = [];
 
 async function fetchGpsState() {
@@ -387,9 +465,17 @@ async function fetchGpsState() {
   } catch (_) { /* silent */ }
 }
 
-// ── Initialise ────────────────────────────────────────────────────────────────
+// ── Initialise ────────────────────────────────────────────────────────────────────────────────
 applyHeatCssVars();
 initTsChart();
+
+// Wire up range selector buttons
+document.querySelectorAll('.gps-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyRange(btn.dataset.range));
+});
+// Restore saved range (updates button state + chart title without data yet)
+applyRange(currentRange);
+
 fetchGpsState();
 setInterval(fetchGpsState, 30_000);
 

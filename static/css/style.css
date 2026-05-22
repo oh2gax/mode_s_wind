@@ -1392,6 +1392,29 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   border-radius: 2px;
 }
 
+/* ── Chart range selector ────────────────────────────────────────────────── */
+.gps-range-btns {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.gps-range-btn {
+  background: var(--bg-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  line-height: 1.6;
+  transition: background 0.1s, color 0.1s;
+}
+.gps-range-btn:hover  { background: var(--bg-4, var(--bg-3)); color: var(--text-1); }
+.gps-range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ── Time series chart ───────────────────────────────────────────────────── */
 .gps-chart-panel {
   display: flex;

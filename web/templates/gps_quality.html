@@ -30,10 +30,17 @@
     <!-- ── Left column: time series + heatmap ──────────────────────────── -->
     <div class="gps-left-col">
 
-      <!-- 24-hour time series chart -->
+      <!-- Time series chart with range selector -->
       <div class="gps-chart-panel">
         <div class="gps-panel-hdr">
-          <span class="gps-panel-title">GPS Degradation Events — Last 24 Hours</span>
+          <span class="gps-panel-title" id="gps-chart-title">GPS Degradation Events — Last 24 Hours</span>
+          <div class="gps-range-btns" id="gps-range-btns">
+            <button class="gps-range-btn active" data-range="1d">1d</button>
+            <button class="gps-range-btn" data-range="2d">2d</button>
+            <button class="gps-range-btn" data-range="3d">3d</button>
+            <button class="gps-range-btn" data-range="1w">1w</button>
+            <button class="gps-range-btn" data-range="1m">1m</button>
+          </div>
         </div>
         <div class="gps-chart-wrap">
           <canvas id="gps-timeseries-canvas"></canvas>
