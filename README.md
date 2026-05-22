@@ -12,6 +12,8 @@ All decoded observations are stored in a local SQLite database and presented thr
 
 ![MODE-S Wind main screen](Mode_S_Wind_Main_Screen_1.png)
 
+> **Display note:** the web interface is optimised for **1920 × 1080** desktop resolution. On mobile phones the layout will adapt but the experience is limited. On tablets, horizontal (landscape) orientation gives significantly better results — an iPad in landscape mode works reasonably well.
+
 ---
 
 ## Features
