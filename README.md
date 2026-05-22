@@ -566,7 +566,7 @@ The page is divided into five main areas:
 
 - **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach.
 
-- **Windshear event log (bottom right)** — a timestamped log of all windshear events and go-around detections during the current page session. The log header contains the detection ON/OFF toggle, the algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic), and the Clear button. Each log entry shows the time, a coloured algorithm badge, runway, altitude band, headwind delta, and aircraft callsign(s).
+- **Windshear Alert (bottom right)** — a timestamped log of all windshear events and go-around detections during the current page session. The panel header contains the detection ON/OFF toggle, the algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic), and the Clear button. Each entry shows the time, a coloured algorithm badge, runway, altitude band, headwind delta, and aircraft callsign(s).
 
 - **METAR / TAF strip** — displayed below the map and ILS profile in the right column, showing the latest decoded METAR and TAF for the configured airport. Does not overlap the flight strips panel.
 
@@ -692,7 +692,7 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
-#### Windshear event log
+#### Windshear Alert
 
 The panel to the right of the ILS profile canvas maintains a timestamped log of all detected windshear events during the current session. Entries are listed newest first with the following information for each event:
 
@@ -749,7 +749,7 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 #### Windshear detection
 
-Windshear detection is controlled from the **Windshear Log header bar**, which contains three inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection is controlled from the **Windshear Alert header bar**, which contains three inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
 
 Six independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
 

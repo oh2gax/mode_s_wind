@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-22 (Windshear panel — label rename)
+
+- Renamed the **Windshear Log** panel title to **Windshear Alert** — better reflects that the alert level selector controls the banner and flight strip badges, while the log itself always records all severity levels regardless of the selected threshold
+
+---
+
 ## 2026-05-22 (Windshear ILS profile — HW/TW barb annotation)
 
 - Added **HW toggle button** to the ILS profile header, immediately to the right of the `Barbs · Auto` split button — annotates each wind barb on the glideslope canvas with the headwind/tailwind component for the matched runway
