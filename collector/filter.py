@@ -28,6 +28,20 @@ def is_blocked_icao(icao: str, prefixes: tuple | list) -> bool:
     return any(upper.startswith(p.upper()) for p in prefixes)
 
 
+def is_blocked_registration(registration: str, prefixes: tuple | list) -> bool:
+    """Return True if registration matches any blocked prefix.
+
+    Used to silently drop aircraft whose registrations indicate they should
+    be excluded system-wide — e.g. Finnish helicopters (OH-H) whose
+    continuous manoeuvring produces unreliable meteo observations.
+    Comparison is case-insensitive.
+    """
+    if not registration or not prefixes:
+        return False
+    upper = registration.upper()
+    return any(upper.startswith(p.upper()) for p in prefixes)
+
+
 def extract_mb(msg_hex: str) -> Optional[int]:
     """
     Extract the 56-bit MB (Message Block) payload from a DF20/21 hex string.

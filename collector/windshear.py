@@ -55,6 +55,8 @@ import threading
 import time
 import logging
 
+from collector.filter import is_blocked_registration
+
 log = logging.getLogger("modes.windshear")
 
 # ── Physical constants ────────────────────────────────────────────────────────
@@ -230,6 +232,7 @@ class WindshearTracker:
         ga_climb_fpm: float         = GA_CLIMB_FPM,
         ga_max_alt_ft: float        = GA_MAX_ALT_FT,
         ga_flash_sec: float         = GA_FLASH_SEC,
+        blocked_reg_prefixes: tuple = (),
     ):
         self.airport_lat          = airport_lat
         self.airport_lon          = airport_lon
@@ -246,6 +249,7 @@ class WindshearTracker:
         self.ga_climb_fpm         = ga_climb_fpm
         self.ga_max_alt_ft        = ga_max_alt_ft
         self.ga_flash_sec         = ga_flash_sec
+        self.blocked_reg_prefixes = blocked_reg_prefixes
 
         self._state: dict[str, dict]  = {}   # icao → approach record
         self._ga_counts: dict[str, int] = {}  # icao → session go-around count (persists after prune)
@@ -325,10 +329,13 @@ class WindshearTracker:
         if not (icao and lat is not None and lon is not None and alt is not None):
             return
 
-        # Exclude Finnish helicopters (OH-Hxx) — their base is near RWY 33 at
-        # EFHK and their traffic is irrelevant for approach/windshear monitoring.
-        reg = (aircraft.get("registration") or "").upper()
-        if reg.startswith("OH-H"):
+        # Exclude registration-blocked aircraft (e.g. helicopters) — they are
+        # filtered system-wide from live_state via the JSON poller, but may
+        # briefly appear here on Beast-only messages before the JSON poller
+        # has populated their registration.  Belt-and-suspenders: prune them
+        # from the windshear tracker state as well.
+        reg = (aircraft.get("registration") or "")
+        if is_blocked_registration(reg, self.blocked_reg_prefixes):
             with self._lock:
                 self._state.pop(icao, None)
             return

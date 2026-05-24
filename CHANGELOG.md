@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (System-wide registration blocklist — helicopter filter)
+
+- Added **`BLOCKED_REG_PREFIXES`** to `config.py` — a tuple of registration prefixes that are silently dropped system-wide, complementing the existing `BLOCKED_ICAO_PREFIXES` ICAO24 filter
+- Default entry: `("OH-H",)` — covers Finnish helicopters whose continuous manoeuvring near EFHK (especially around RWY 33) produces unreliable BDS 5,0/6,0 computed wind and false meteo observations
+- New helper `is_blocked_registration()` added to `collector/filter.py`; applied at both live_state entry points:
+  - **JSON/MLAT poller** (`radarcape_json.py`) — drops the aircraft and removes any existing live_state entry as soon as the registration is known from the JSON feed; this is the primary filter path since registration is only available from the Radarcape JSON endpoint
+  - **Beast TCP receiver** (`receiver.py`) — after the live_state merge, removes the aircraft and skips the DB write if the registration (previously populated by the JSON poller) matches a blocked prefix; provides belt-and-suspenders coverage for the window between first Beast message and first JSON poll
+- `WindshearTracker` hardcoded `OH-H` string replaced with the config-driven `blocked_reg_prefixes` parameter — the tracker now uses `is_blocked_registration()` for consistency; `run.py` wires `cfg.BLOCKED_REG_PREFIXES` into the constructor
+- Adding further registration prefixes to the tuple in `config.py` requires no code changes
+
+---
+
 ## 2026-05-24 (System-wide WAM ground station filter)
 
 - Added **ICAO24 prefix blocklist** (`BLOCKED_ICAO_PREFIXES` in `config.py`) — any ICAO24 address whose prefix matches an entry in the list is silently dropped at both live\_state entry points before it can affect any subsystem

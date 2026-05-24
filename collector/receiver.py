@@ -25,7 +25,7 @@ from pyModeS import PipeDecoder
 from pyModeS.cli._source import NetworkSource
 from pyModeS.position._cpr import airborne_position_with_ref
 
-from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao
+from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao, is_blocked_registration
 from collector.wind_calc import try_compute_wind
 from collector.writer import BatchWriter
 from config import Config
@@ -315,6 +315,17 @@ def run_collector(
                               if v is not None}
                     merged["icao"] = icao
                     merged["last_seen"] = ts
+
+                    # ── Registration blocklist ───────────────────────────────
+                    # Registration is provided by the JSON poller (not the Beast
+                    # feed), so it may not be set on the very first messages.
+                    # Once the JSON poller has populated it, drop the aircraft
+                    # from live_state entirely and skip the DB write.
+                    _reg = merged.get("registration") or ""
+                    if is_blocked_registration(_reg, cfg.BLOCKED_REG_PREFIXES):
+                        live_state.pop(icao, None)
+                        continue
+
                     live_state[icao] = merged
 
                 # Push to SSE queue (non-blocking)

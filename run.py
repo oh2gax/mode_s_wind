@@ -137,7 +137,7 @@ def main() -> None:
     # ── Start Radarcape JSON poller thread ────────────────────────────────
     json_thread = threading.Thread(
         target=run_json_poller,
-        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock, cfg.METEO_SOURCE_MODE, cfg.BLOCKED_ICAO_PREFIXES),
+        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock, cfg.METEO_SOURCE_MODE, cfg.BLOCKED_ICAO_PREFIXES, cfg.BLOCKED_REG_PREFIXES),
         name="json_poller",
         daemon=True,
     )
@@ -160,6 +160,7 @@ def main() -> None:
         ga_climb_fpm          = cfg.WINDSHEAR_GA_CLIMB_FPM,
         ga_max_alt_ft         = cfg.WINDSHEAR_GA_MAX_ALT_FT,
         ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
+        blocked_reg_prefixes  = cfg.BLOCKED_REG_PREFIXES,
     )
     ws_thread = threading.Thread(
         target=_windshear_sweep,

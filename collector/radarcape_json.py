@@ -42,7 +42,7 @@ import time
 import urllib.request
 from typing import Optional
 
-from collector.filter import is_blocked_icao
+from collector.filter import is_blocked_icao, is_blocked_registration
 
 log = logging.getLogger("modes.json_poller")
 
@@ -117,6 +117,7 @@ def run_json_poller(
     live_lock: threading.RLock,
     source_mode: str = "HYBRID",
     blocked_icao_prefixes: tuple = (),
+    blocked_reg_prefixes: tuple = (),
 ) -> None:
     """
     Daemon thread: polls the Radarcape JSON endpoint and merges data into
@@ -156,6 +157,12 @@ def run_json_poller(
 
                     icao    = parsed["icao"]
                     if is_blocked_icao(icao, blocked_icao_prefixes):
+                        continue
+                    reg = parsed.get("registration") or ""
+                    if is_blocked_registration(reg, blocked_reg_prefixes):
+                        # Remove from live_state if a previous Beast message
+                        # already created an entry for this aircraft.
+                        live_state.pop(icao, None)
                         continue
                     src     = parsed["json_src"]
                     existing = live_state.get(icao, {})

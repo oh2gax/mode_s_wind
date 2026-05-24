@@ -32,6 +32,15 @@ class Config:
     # infrastructure, not aircraft, and pollute GPS quality and traffic counts.
     BLOCKED_ICAO_PREFIXES: tuple = ("T40",)
 
+    # ── Registration blocklist ────────────────────────────────────────────
+    # Prefixes of aircraft registrations that should be silently dropped
+    # system-wide before entering live_state.  Add additional prefixes as
+    # needed.
+    # OH-H — Finnish helicopters; their continuous manoeuvring near the
+    # airport (especially close to RWY 33) produces unreliable BDS 5,0/6,0
+    # computed wind and false meteo observations unsuitable for any analysis.
+    BLOCKED_REG_PREFIXES: tuple = ("OH-H",)
+
     # ── Receiver location ─────────────────────────────────────────────────
     # Approximate EFHK area — used for surface CPR reference and sounding radius
     RECEIVER_LAT: float = 60.317
