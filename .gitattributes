@@ -1,0 +1,15 @@
+# Enforce LF line endings for all text files.
+# The deployment target is Linux (Raspberry Pi), so LF is canonical.
+# This prevents Git on Windows from converting to CRLF and causing
+# spurious diffs when files are edited via the Linux sandbox.
+
+* text=auto eol=lf
+
+# Explicitly binary — never touch line endings
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.db   binary
+*.pyc  binary
