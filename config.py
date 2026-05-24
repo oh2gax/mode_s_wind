@@ -24,6 +24,14 @@ class Config:
     # Recommend moving to USB SSD later: /mnt/usb/modes_meteo.db
     DB_PATH: str = os.path.join(BASE_DIR, "data", "modes_meteo.db")
 
+    # ── ICAO24 blocklist ─────────────────────────────────────────────────
+    # Prefixes of ICAO24 addresses that should be silently dropped system-wide
+    # before entering live_state.  Add additional prefixes as needed.
+    # T40xxx — Finnish Air Navigation Services WAM (Wide Area Multilateration)
+    # ground interrogator stations; they produce Mode-S signals but are fixed
+    # infrastructure, not aircraft, and pollute GPS quality and traffic counts.
+    BLOCKED_ICAO_PREFIXES: tuple = ("T40",)
+
     # ── Receiver location ─────────────────────────────────────────────────
     # Approximate EFHK area — used for surface CPR reference and sounding radius
     RECEIVER_LAT: float = 60.317

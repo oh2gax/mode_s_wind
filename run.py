@@ -137,7 +137,7 @@ def main() -> None:
     # ── Start Radarcape JSON poller thread ────────────────────────────────
     json_thread = threading.Thread(
         target=run_json_poller,
-        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock, cfg.METEO_SOURCE_MODE),
+        args=(cfg.RADARCAPE_JSON_URL, live_state, live_lock, cfg.METEO_SOURCE_MODE, cfg.BLOCKED_ICAO_PREFIXES),
         name="json_poller",
         daemon=True,
     )

@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (System-wide WAM ground station filter)
+
+- Added **ICAO24 prefix blocklist** (`BLOCKED_ICAO_PREFIXES` in `config.py`) — any ICAO24 address whose prefix matches an entry in the list is silently dropped at both live\_state entry points before it can affect any subsystem
+- Default blocklist: `("T40",)` — covers Finnish Air Navigation Services **Wide Area Multilateration (WAM)** ground interrogator stations whose ICAO24 codes begin with `T40`; these fixed infrastructure nodes produce valid Mode-S replies but are not aircraft and previously inflated the GPS quality "total aircraft seen" count and could trigger spurious Gap events
+- New helper `is_blocked_icao()` added to `collector/filter.py`; called in both `collector/receiver.py` (Beast TCP feed) and `collector/radarcape_json.py` (JSON/MLAT poller) immediately after ICAO extraction — no blocked address can enter live\_state through either path
+- Comparison is case-insensitive; additional prefixes can be added to the tuple as needed without code changes
+
+---
+
 ## 2026-05-24 (Go-around detector — minimum altitude gain check)
 
 - Added a second AND condition to the go-around confirmation: the aircraft must have gained at least **50 ft of actual pressure altitude** since the climb started (`WINDSHEAR_GA_MIN_ALT_GAIN_FT`, default 50 ft)

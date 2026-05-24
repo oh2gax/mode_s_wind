@@ -15,6 +15,19 @@ from pyModeS.decoder.bds.bds45 import is_bds45, decode_bds45
 log = logging.getLogger("modes.filter")
 
 
+def is_blocked_icao(icao: str, prefixes: tuple | list) -> bool:
+    """Return True if icao matches any blocked prefix.
+
+    Used to silently drop non-aircraft Mode-S emitters — e.g. Finnish WAM
+    ground interrogator stations whose ICAO24 codes start with 'T40'.
+    Comparison is case-insensitive.
+    """
+    if not icao or not prefixes:
+        return False
+    upper = icao.upper()
+    return any(upper.startswith(p.upper()) for p in prefixes)
+
+
 def extract_mb(msg_hex: str) -> Optional[int]:
     """
     Extract the 56-bit MB (Message Block) payload from a DF20/21 hex string.

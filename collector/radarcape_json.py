@@ -42,6 +42,8 @@ import time
 import urllib.request
 from typing import Optional
 
+from collector.filter import is_blocked_icao
+
 log = logging.getLogger("modes.json_poller")
 
 POLL_INTERVAL: float = 2.0   # seconds between HTTP requests
@@ -114,19 +116,21 @@ def run_json_poller(
     live_state: dict,
     live_lock: threading.RLock,
     source_mode: str = "HYBRID",
+    blocked_icao_prefixes: tuple = (),
 ) -> None:
     """
     Daemon thread: polls the Radarcape JSON endpoint and merges data into
     live_state.
 
     Args:
-        url         : full HTTP URL, e.g. "http://192.168.0.119/aircraftlist.json"
-        live_state  : shared dict {icao: {...}} maintained by the collector
-        live_lock   : RLock protecting live_state
-        source_mode : "EHS" | "JSON" | "HYBRID" — controls meteo injection
-                      EHS    → positions only, never inject JSON meteo
-                      JSON   → always inject JSON meteo, overwrite EHS values
-                      HYBRID → inject JSON meteo only when EHS has nothing yet
+        url                   : full HTTP URL, e.g. "http://192.168.0.119/aircraftlist.json"
+        live_state            : shared dict {icao: {...}} maintained by the collector
+        live_lock             : RLock protecting live_state
+        source_mode           : "EHS" | "JSON" | "HYBRID" — controls meteo injection
+                                EHS    → positions only, never inject JSON meteo
+                                JSON   → always inject JSON meteo, overwrite EHS values
+                                HYBRID → inject JSON meteo only when EHS has nothing yet
+        blocked_icao_prefixes : ICAO24 prefixes to silently drop (e.g. WAM stations)
     """
     log.info("JSON poller starting — %s (every %.0f s) [source_mode=%s]",
              url, POLL_INTERVAL, source_mode)
@@ -151,6 +155,8 @@ def run_json_poller(
                         continue
 
                     icao    = parsed["icao"]
+                    if is_blocked_icao(icao, blocked_icao_prefixes):
+                        continue
                     src     = parsed["json_src"]
                     existing = live_state.get(icao, {})
                     merged  = dict(existing)

@@ -25,7 +25,7 @@ from pyModeS import PipeDecoder
 from pyModeS.cli._source import NetworkSource
 from pyModeS.position._cpr import airborne_position_with_ref
 
-from collector.filter import check_mrar, check_mhr, best_meteo
+from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao
 from collector.wind_calc import try_compute_wind
 from collector.writer import BatchWriter
 from config import Config
@@ -213,6 +213,8 @@ def run_collector(
 
                 icao = result.get("icao", "")
                 if not icao:
+                    continue
+                if is_blocked_icao(icao, cfg.BLOCKED_ICAO_PREFIXES):
                     continue
 
                 df = result.get("df", 0)

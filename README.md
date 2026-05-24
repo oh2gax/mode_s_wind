@@ -36,6 +36,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS approach, with flight strips, an ILS glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
 - **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour stacked bar chart (NACp / Freeze / Gap signal breakdown per hour) and a 7-day × 8 FL-band heatmap; see [GPS Quality](#gps-quality--gps) below
+- **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -142,6 +143,9 @@ class Config:
     # ── Database path ─────────────────────────────────────────────────────
     DB_PATH = "data/modes_meteo.db"    # relative to project root
     # For USB SSD: "/mnt/usb/modes_meteo.db"
+
+    # ── ICAO24 blocklist ──────────────────────────────────────────────────
+    BLOCKED_ICAO_PREFIXES = ("T40",)   # Finnish WAM ground interrogators — not aircraft
 
     # ── Receiver location ─────────────────────────────────────────────────
     RECEIVER_LAT = 60.317              # decimal degrees N
@@ -980,6 +984,10 @@ For the daily views (`1w` / `1m`) the Aircraft line shows the **peak hourly airc
 **Summary bar** — across the top of the page: total events in the last 24 hours, number of unique aircraft affected, peak hour, and current live degraded count.
 
 **Signal key panel (right bottom)** — explains each detection signal with its threshold values and the full NACp scale for reference.
+
+#### WAM ground station filtering
+
+The Finnish Air Navigation Services operate a network of Wide Area Multilateration (WAM) ground interrogator stations that transmit Mode-S replies detectable by the Radarcape. Their ICAO24 addresses begin with `T40`. These are fixed ground infrastructure — not aircraft — but without filtering they would be included in the "total aircraft seen" count every hour and could generate spurious Gap events (a WAM station never transmits ADS-B position, so it would immediately satisfy the Gap condition once seen). The system filters all `T40` prefixed addresses system-wide at both live\_state entry points (`BLOCKED_ICAO_PREFIXES` in `config.py`) so WAM stations never reach the GPS quality tracker or any other subsystem.
 
 #### Interpreting the data
 
