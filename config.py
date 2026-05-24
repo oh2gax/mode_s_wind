@@ -139,6 +139,11 @@ class Config:
     # approach".  5 cycles = 15 s — prevents brief corridor transits from
     # arming the detector.
     WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 8
+    # Consecutive 3-second sweep cycles with vert_rate ≥ GA_CLIMB_FPM required
+    # before a go-around event is fired.  Prevents a single gust-induced
+    # vert_rate spike from triggering a false detection in turbulent conditions.
+    # 3 cycles = 9 s of sustained climb (aircraft climbs ≥ 90 ft at 600 fpm).
+    WINDSHEAR_GA_MIN_CLIMB_POLLS: int     = 3
     # Climb rate (ft/min) required — while still below GA_MAX_ALT_FT — to
     # classify the transition as a go-around rather than a glideslope correction.
     WINDSHEAR_GA_CLIMB_FPM: float         = 600.0

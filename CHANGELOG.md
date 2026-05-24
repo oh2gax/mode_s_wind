@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (Go-around detector — sustained climb gate)
+
+- Fixed **false go-around detections in gusty / turbulent conditions** — the APPROACHING → GO_AROUND transition previously fired on a single poll where vertical rate ≥ 600 fpm; a momentary updraft or gust-induced vert_rate spike was enough to trigger a false event
+- Added a **sustained climb gate** (`WINDSHEAR_GA_MIN_CLIMB_POLLS`, default 3): the detector now requires 3 consecutive 3-second poll cycles all reporting vert_rate ≥ 600 fpm before declaring a go-around — equivalent to 9 seconds of sustained climbing and a minimum altitude gain of ~90 ft
+- The climb counter resets to zero on any poll that falls below the climb threshold or above the altitude ceiling, so a transient spike during an otherwise normal approach cannot accumulate across poll gaps
+- The corridor-exit handler also resets the climb counter alongside the existing descent counter reset
+- New parameter `WINDSHEAR_GA_MIN_CLIMB_POLLS` added to `config.py` and wired through `run.py` — raise to 4 or 5 in particularly gusty environments; lower to 2 if go-arounds are being missed
+
+---
+
 ## 2026-05-24 (Navigation bar — UTC clock)
 
 - Added a **live UTC clock** to the right side of the navigation bar on all pages, immediately to the left of the Online / Live status indicator — displays the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format, updated every second using the browser clock; uses a monospace font to prevent layout shift as digits change
