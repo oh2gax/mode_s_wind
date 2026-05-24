@@ -35,7 +35,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg-0); color: var
              text-decoration: none; transition: all .15s; }
 .nav-link:hover  { background: var(--bg-3); color: var(--text-1); }
 .nav-link.active { background: var(--accent); color: #fff; }
-.nav-status { margin-left: auto; display: flex; align-items: center; gap: 6px;
+.nav-utc-clock { margin-left: auto; font-family: "Courier New", monospace;
+                  font-size: 12px; color: var(--text-2); white-space: nowrap; letter-spacing: 0.03em; }
+.nav-status { margin-left: 16px; display: flex; align-items: center; gap: 6px;
               color: var(--text-2); font-size: 12px; white-space: nowrap; }
 .status-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .status-live        { background: var(--green); box-shadow: 0 0 6px var(--green); }
@@ -832,6 +834,23 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-barb-hw-btn:hover               { background: var(--bg-3); color: var(--text-1); }
 .ws-barb-hw-btn.active               { background: #d97706; color: #fff; border-color: #d97706; }
 .ws-barb-hw-btn.ws-barb-hw-off       { opacity: 0.38; cursor: default; pointer-events: none; }
+
+/* Dcl (declutter) label placement button */
+.ws-barb-dcl-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.ws-barb-dcl-btn:hover              { background: var(--bg-3); color: var(--text-1); }
+.ws-barb-dcl-btn.active             { background: #0d9488; color: #fff; border-color: #0d9488; }
+.ws-barb-dcl-btn.ws-barb-dcl-off    { opacity: 0.38; cursor: default; pointer-events: none; }
 
 /* Hi-resolution barb mode button — sits inside the ws-barb-group split button */
 .ws-barb-hi-btn {

@@ -5,6 +5,23 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (Navigation bar — UTC clock)
+
+- Added a **live UTC clock** to the right side of the navigation bar on all pages, immediately to the left of the Online / Live status indicator — displays the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format, updated every second using the browser clock; uses a monospace font to prevent layout shift as digits change
+
+---
+
+## 2026-05-24 (Windshear ILS profile — Dcl label placement toggle)
+
+- Added **Dcl button** to the ILS profile header, immediately to the right of the `HW` button — toggles a declutter label layout for wind barb annotations
+- When **Dcl is on** and HW is active, labels are split to opposite sides of each barb: raw `dir°/spd` appears above the barb, signed headwind value (`+15kt`) appears below — the barb staff acts as a natural visual separator between the two labels, reducing overlap on dense approaches
+- When **Dcl is off** (default), both labels remain on the same side (above the barb, flipping below near the top edge) — existing behaviour unchanged
+- Edge cases: near the top of the canvas both labels stack below the barb (HW first); near the bottom both labels stack above the barb (HW closest to barb)
+- Canvas corner label gains a `· DCL` tag when Dcl is active alongside HW
+- Dcl button is greyed out when HW is off; turning HW off also resets Dcl to inactive; turning Barbs off resets both
+
+---
+
 ## 2026-05-24 (Windshear ILS profile — Hi-resolution barb mode)
 
 - Added **Hi-resolution barb mode** — a `Hi` segment inserted between `Barbs` and `Auto` in the split button group toggles the barb canvas between two independent wind observation buffers

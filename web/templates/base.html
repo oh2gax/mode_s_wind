@@ -35,6 +35,7 @@
           title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
   </div>
   <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
+  <span id="nav-utc-clock" class="nav-utc-clock"></span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
     <span id="status-text">Connecting…</span>
@@ -101,6 +102,20 @@ async function refreshStats() {
 }
 refreshStats();
 setInterval(refreshStats, 15000);
+
+// ── UTC clock ────────────────────────────────────────────────────────────────
+(function () {
+  const el = document.getElementById('nav-utc-clock');
+  function tick() {
+    const n = new Date();
+    const pad = v => String(v).padStart(2, '0');
+    el.textContent =
+      `${n.getUTCFullYear()}-${pad(n.getUTCMonth()+1)}-${pad(n.getUTCDate())}`
+      + ` ${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())} UTC`;
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
 </script>
 </body>
 </html>

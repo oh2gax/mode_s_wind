@@ -335,7 +335,7 @@ The top navigation bar always shows the connection status:
 - 🟢 **Online** — web API responding (Flights and Sounding pages)
 - 🔴 **Reconnecting…** — connection lost, retrying automatically
 
-The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), and the **Dark / Light** theme toggle button which applies to all pages.
+The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), a **live UTC clock** displaying the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format (updated every second), and the **Dark / Light** theme toggle button which applies to all pages.
 
 ---
 
@@ -673,6 +673,8 @@ The **Barbs** button, located in the ILS profile header immediately to the right
 - **Secondary** — the raw `dir°/spd` in smaller, dimmer text for reference
 
 The headwind component is computed as `wind_spd × cos(wind_dir − runway_heading)` using the matched runway's magnetic approach heading. The runway used as reference is shown in the corner label (e.g. `· HW ref 04L (47°)`). The HW button is greyed out when Barbs are off and is reset to inactive when Barbs are turned off.
+
+**Dcl (declutter) label placement:** the `Dcl` button, immediately to the right of `HW`, is active only when HW annotation is on. When enabled, the two labels at each barb are split to opposite sides: the raw `dir°/spd` moves above the barb and the signed headwind value moves below it, using the barb staff itself as a visual separator. This significantly reduces label overlap when barbs are close together, particularly in Hi-resolution mode. Near the top of the canvas both labels stack below the barb (HW first); near the bottom both stack above. The corner label shows `· DCL` to confirm the mode. Turning HW off resets Dcl automatically.
 
 **Hi-resolution mode:** the `Hi` segment sits inside the `Barbs · Hi · Auto` split button. Clicking it switches the canvas from the standard Lo buffer to the Hi buffer — a denser accumulation that stores a new observation whenever the aircraft has moved at least 150 ft in altitude or 0.2 NM along the track (versus 400 ft / 0.5 NM for Lo). The Hi buffer holds up to 100 observations per aircraft, enough to cover a full 15 NM approach at fine resolution. Because both buffers accumulate simultaneously, switching to Hi immediately shows the denser dataset already built up since the Barbs layer was enabled — there is no need to wait for a new approach. The Hi buffer is for research and visual inspection only; it is never used by any of the windshear detection algorithms, so enabling it has no effect on alert behaviour. The `Hi` button turns violet when active and the canvas corner label shows `· HI` to confirm the mode.
 
