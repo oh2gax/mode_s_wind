@@ -72,6 +72,7 @@ CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach h
 # ── Go-around detection defaults ──────────────────────────────────────────────
 GA_MIN_DESCENT_POLLS = 5       # sweeps descending before 'APPROACHING' is set
 GA_MIN_CLIMB_POLLS   = 3       # consecutive sweeps climbing before GO-AROUND fires
+GA_MIN_ALT_GAIN_FT   = 50.0   # minimum actual altitude gain (ft) required to confirm
 GA_CLIMB_FPM         = 600.0   # ft/min climb rate that triggers detection
 GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
@@ -225,6 +226,7 @@ class WindshearTracker:
         runways: list               = None,
         ga_min_descent_polls: int   = GA_MIN_DESCENT_POLLS,
         ga_min_climb_polls: int     = GA_MIN_CLIMB_POLLS,
+        ga_min_alt_gain_ft: float   = GA_MIN_ALT_GAIN_FT,
         ga_climb_fpm: float         = GA_CLIMB_FPM,
         ga_max_alt_ft: float        = GA_MAX_ALT_FT,
         ga_flash_sec: float         = GA_FLASH_SEC,
@@ -240,6 +242,7 @@ class WindshearTracker:
         self.runways              = runways or EFHK_RUNWAYS
         self.ga_min_descent_polls = ga_min_descent_polls
         self.ga_min_climb_polls   = ga_min_climb_polls
+        self.ga_min_alt_gain_ft   = ga_min_alt_gain_ft
         self.ga_climb_fpm         = ga_climb_fpm
         self.ga_max_alt_ft        = ga_max_alt_ft
         self.ga_flash_sec         = ga_flash_sec
@@ -398,10 +401,11 @@ class WindshearTracker:
 
             # ── Go-around state machine ───────────────────────────────────────
             # Carry forward per-aircraft state from the previous sweep.
-            ga_phase         = prev.get("ga_phase", "NONE")
-            ga_descent_polls = prev.get("ga_descent_polls", 0)
-            ga_climb_polls   = prev.get("ga_climb_polls", 0)
-            ga_flash_until   = prev.get("ga_flash_until", 0.0)
+            ga_phase           = prev.get("ga_phase", "NONE")
+            ga_descent_polls   = prev.get("ga_descent_polls", 0)
+            ga_climb_polls     = prev.get("ga_climb_polls", 0)
+            ga_climb_start_alt = prev.get("ga_climb_start_alt", None)
+            ga_flash_until     = prev.get("ga_flash_until", 0.0)
 
             if in_corridor:
                 if ga_phase == "NONE":
@@ -419,14 +423,19 @@ class WindshearTracker:
                         # polls above the climb threshold before firing.  This prevents
                         # a single gust-induced vert_rate spike from triggering a false
                         # go-around detection in turbulent / gusty conditions.
+                        if ga_climb_polls == 0:
+                            ga_climb_start_alt = alt   # record altitude at climb onset
                         ga_climb_polls += 1
-                        if ga_climb_polls >= self.ga_min_climb_polls:
+                        alt_gained = (alt - ga_climb_start_alt) if ga_climb_start_alt is not None else 0
+                        if (ga_climb_polls >= self.ga_min_climb_polls
+                                and alt_gained >= self.ga_min_alt_gain_ft):
                             # ── Go-around confirmed ───────────────────────────
                             self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
-                            count          = self._ga_counts[icao]
-                            ga_phase       = "GO_AROUND"
-                            ga_climb_polls = 0
-                            ga_flash_until = now + self.ga_flash_sec
+                            count              = self._ga_counts[icao]
+                            ga_phase           = "GO_AROUND"
+                            ga_climb_polls     = 0
+                            ga_climb_start_alt = None
+                            ga_flash_until     = now + self.ga_flash_sec
                             event = {
                                 "type":     "go_around",
                                 "ts":       now,
@@ -440,21 +449,25 @@ class WindshearTracker:
                             if len(self._ga_events) > GA_EVENTS_MAX:
                                 self._ga_events.pop(0)
                             log.info(
-                                "GO-AROUND detected: %s (%s) RWY %s at %d ft (GA #%d)",
-                                callsign, icao, runway, round(alt), count,
+                                "GO-AROUND detected: %s (%s) RWY %s at %d ft "
+                                "(gained %d ft, GA #%d)",
+                                callsign, icao, runway, round(alt),
+                                round(alt_gained), count,
                             )
                     else:
-                        # Not climbing (or above altitude ceiling) — reset climb counter
-                        ga_climb_polls = 0
+                        # Not climbing or above ceiling — reset both climb counters
+                        ga_climb_polls     = 0
+                        ga_climb_start_alt = None
                 # GO_AROUND: stays until aircraft leaves the display entirely
                 # (removed by prune_stale or altitude gate); resets on return.
             else:
                 # Left the corridor — reset APPROACHING; GO_AROUND persists
                 # so the flash continues during the climb-out phase.
                 if ga_phase == "APPROACHING":
-                    ga_phase         = "NONE"
-                    ga_descent_polls = 0
-                    ga_climb_polls   = 0
+                    ga_phase           = "NONE"
+                    ga_descent_polls   = 0
+                    ga_climb_polls     = 0
+                    ga_climb_start_alt = None
 
             ga_count  = self._ga_counts.get(icao, 0)
             is_return = ga_count > 0 and ga_phase != "GO_AROUND"
@@ -487,10 +500,11 @@ class WindshearTracker:
                 "history":        history,
                 "last_seen":      aircraft.get("last_seen", now),
                 # Go-around state (consumed by the web UI)
-                "ga_phase":         ga_phase,
-                "ga_descent_polls": ga_descent_polls,
-                "ga_climb_polls":   ga_climb_polls,
-                "ga_flash_until":   ga_flash_until,
+                "ga_phase":           ga_phase,
+                "ga_descent_polls":   ga_descent_polls,
+                "ga_climb_polls":     ga_climb_polls,
+                "ga_climb_start_alt": ga_climb_start_alt,
+                "ga_flash_until":     ga_flash_until,
                 "ga_flash":         ga_flash_until > now,
                 "ga_count":         ga_count,
                 "is_return":        is_return,

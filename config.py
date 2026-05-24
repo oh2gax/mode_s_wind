@@ -144,6 +144,12 @@ class Config:
     # vert_rate spike from triggering a false detection in turbulent conditions.
     # 3 cycles = 9 s of sustained climb (aircraft climbs ≥ 90 ft at 600 fpm).
     WINDSHEAR_GA_MIN_CLIMB_POLLS: int     = 3
+    # Minimum actual altitude gain (ft) measured from climb onset to confirmation.
+    # Works alongside GA_MIN_CLIMB_POLLS as a second AND condition — the aircraft
+    # must have gained at least this much real altitude during the climbing polls,
+    # guarding against barometric lag or vert_rate quantization producing a high
+    # reported rate without meaningful actual altitude change.
+    WINDSHEAR_GA_MIN_ALT_GAIN_FT: float  = 50.0
     # Climb rate (ft/min) required — while still below GA_MAX_ALT_FT — to
     # classify the transition as a go-around rather than a glideslope correction.
     WINDSHEAR_GA_CLIMB_FPM: float         = 600.0

@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (Go-around detector — minimum altitude gain check)
+
+- Added a second AND condition to the go-around confirmation: the aircraft must have gained at least **50 ft of actual pressure altitude** since the climb started (`WINDSHEAR_GA_MIN_ALT_GAIN_FT`, default 50 ft)
+- Guards against barometric lag and vert_rate quantization noise where the reported climb rate is high for multiple polls but the aircraft's actual altitude barely changes — both the poll counter and the altitude gain check must pass simultaneously before a go-around fires
+- `ga_climb_start_alt` is recorded on the first climbing poll and cleared on reset; the log line now includes the measured altitude gain for easier post-event review
+
+---
+
 ## 2026-05-24 (Go-around detector — sustained climb gate)
 
 - Fixed **false go-around detections in gusty / turbulent conditions** — the APPROACHING → GO_AROUND transition previously fired on a single poll where vertical rate ≥ 600 fpm; a momentary updraft or gust-induced vert_rate spike was enough to trigger a false event

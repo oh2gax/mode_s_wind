@@ -156,6 +156,7 @@ def main() -> None:
         max_track_dev         = cfg.WINDSHEAR_MAX_TRACK_DEV_DEG,
         ga_min_descent_polls  = cfg.WINDSHEAR_GA_MIN_DESCENT_POLLS,
         ga_min_climb_polls    = cfg.WINDSHEAR_GA_MIN_CLIMB_POLLS,
+        ga_min_alt_gain_ft    = cfg.WINDSHEAR_GA_MIN_ALT_GAIN_FT,
         ga_climb_fpm          = cfg.WINDSHEAR_GA_CLIMB_FPM,
         ga_max_alt_ft         = cfg.WINDSHEAR_GA_MAX_ALT_FT,
         ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
