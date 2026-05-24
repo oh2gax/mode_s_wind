@@ -5,6 +5,19 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-24 (Windshear ILS profile — Hi-resolution barb mode)
+
+- Added **Hi-resolution barb mode** — a `Hi` segment inserted between `Barbs` and `Auto` in the split button group toggles the barb canvas between two independent wind observation buffers
+- **Lo buffer** (unchanged, default): 400 ft / 0.5 NM accumulation gate, 40-observation cap — behaviour identical to before
+- **Hi buffer** (new, research mode): 150 ft / 0.2 NM gate, 100-observation cap — approximately 3–4× denser; covers a full 15 NM approach with fine altitude resolution
+- Both buffers accumulate in parallel every poll cycle regardless of which is selected — switching to Hi immediately shows the denser data already collected since page load
+- The Hi buffer is **display-only** and is never read by any windshear detection algorithm; all six detection algorithms continue to use the Lo buffer exclusively, preserving existing detection behaviour
+- `Hi` button turns **violet** when active; canvas corner label gains a `· HI` tag to confirm the mode
+- `Hi` button is greyed out (pointer-events disabled) when Barbs are off; turning Barbs off also resets Hi to inactive
+- Cleanup on aircraft departure (`delete wsWindHiHistory[icao]`) runs alongside the existing Lo buffer cleanup
+
+---
+
 ## 2026-05-22 (Windshear panel — label rename)
 
 - Renamed the **Windshear Log** panel title to **Windshear Alert** — better reflects that the alert level selector controls the banner and flight strip badges, while the log itself always records all severity levels regardless of the selected threshold

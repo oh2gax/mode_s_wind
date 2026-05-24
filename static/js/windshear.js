@@ -21,10 +21,15 @@ const GS_TOL_FT      = 300;
 const PROFILE_MAX_NM = 15;
 const PROFILE_MAX_FT = 5_000;
 
-// Wind barb history accumulation
+// Wind barb history accumulation — standard (Lo) resolution
 const WS_WIND_HIST_MAX    = 40;   // max stored observations per tracked aircraft
 const WS_WIND_MIN_ALT_GAP = 400;  // ft — minimum altitude change before storing a new point
 const WS_WIND_MIN_DIST_GAP = 0.5; // NM — OR minimum distance change (for level segments)
+
+// Wind barb history accumulation — high (Hi) resolution (research mode, separate buffer)
+const WS_WIND_HI_HIST_MAX    = 100;  // larger buffer — covers full 15 NM approach at Hi density
+const WS_WIND_HI_MIN_ALT_GAP = 150;  // ft — tighter altitude gate
+const WS_WIND_HI_MIN_DIST_GAP = 0.2; // NM — tighter distance gate (~3–4× denser than Lo)
 
 // Windshear detection thresholds
 const WS_MONITOR_KT     = 10;    // sub-threshold informational level (Monitor)
@@ -597,7 +602,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
   // ── Wind barb overlay for selected aircraft ───────────────────────────────
   if (barbLayerActive && barbSelectedIcao) {
-    const hist = wsWindHistory[barbSelectedIcao] || [];
+    const hist = (barbHiResActive ? wsWindHiHistory : wsWindHistory)[barbSelectedIcao] || [];
     if (hist.length > 0) {
       // Colour from the aircraft if still tracked; fall back to neutral
       const selAc = aircraft.find(a => a.icao === barbSelectedIcao);
@@ -662,13 +667,14 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       }
 
       // Aircraft identifier in the top-left corner of the plot area
-      const hwTag = (barbHwActive && barbRwyHdg != null)
+      const hwTag  = (barbHwActive && barbRwyHdg != null)
         ? `  · HW ref ${selAc?.approach_runway ?? '?'} (${barbRwyHdg}°)` : '';
+      const hiTag  = barbHiResActive ? '  · HI' : '';
       ilsCtx.fillStyle = bColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
       ilsCtx.fillText(
-        `\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}${hwTag}`,
+        `\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}${hiTag}${hwTag}`,
         M.left + 4, M.top + 22
       );
 
@@ -1729,12 +1735,14 @@ document.getElementById('ws-log-clear')?.addEventListener('click', () => {
 });
 
 // ── Wind barb layer state ─────────────────────────────────────────────────────
-const wsWindHistory  = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]
+const wsWindHistory   = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Lo buffer
+const wsWindHiHistory = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Hi buffer (research, display-only)
 let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
 let barbAutoTarget   = null;   // icao currently held by auto mode (null = none yet)
 let barbHwActive     = false;  // toggle: annotate each barb with headwind/tailwind value
+let barbHiResActive  = false;  // toggle: use Hi-resolution buffer instead of Lo for barb display
 
 // ── Wind Rose state ───────────────────────────────────────────────────────────
 const WINDROSE_ALT_MAX    = 2_000;          // ft — ceiling for MODE-S wind samples
@@ -2029,6 +2037,7 @@ async function fetchApproachState() {
     for (const icao of Object.keys(wsWindHistory)) {
       if (!liveIcaos.has(icao)) {
         delete wsWindHistory[icao];
+        delete wsWindHiHistory[icao];
         if (barbSelectedIcao === icao) barbSelectedIcao = null;
       }
     }
@@ -2062,7 +2071,7 @@ async function fetchApproachState() {
       if (wsKinHistory[ac.icao].length > 30) wsKinHistory[ac.icao].shift();
     }
 
-    // ── Wind history: accumulate for corridor aircraft with wind data ──────
+    // ── Wind history (Lo): accumulate for corridor aircraft with wind data ─
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
       if (!wsWindHistory[ac.icao]) wsWindHistory[ac.icao] = [];
@@ -2078,6 +2087,27 @@ async function fetchApproachState() {
           wind_dir: ac.best_wind_dir,
         });
         if (hist.length > WS_WIND_HIST_MAX) hist.shift();
+      }
+    }
+
+    // ── Wind history (Hi): parallel high-resolution buffer — display only ──
+    // Tighter thresholds (150 ft / 0.2 NM), larger cap (100 obs).
+    // Never read by any detection algorithm — safe to accumulate independently.
+    for (const ac of corridor) {
+      if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
+      if (!wsWindHiHistory[ac.icao]) wsWindHiHistory[ac.icao] = [];
+      const hiHist = wsWindHiHistory[ac.icao];
+      const hiLast = hiHist[hiHist.length - 1];
+      const hiAltMoved  = !hiLast || Math.abs(hiLast.alt_ft  - ac.altitude)    >= WS_WIND_HI_MIN_ALT_GAP;
+      const hiDistMoved = !hiLast || Math.abs(hiLast.dist_nm - ac.dist_thr_nm) >= WS_WIND_HI_MIN_DIST_GAP;
+      if (hiAltMoved || hiDistMoved) {
+        hiHist.push({
+          dist_nm:  ac.dist_thr_nm,
+          alt_ft:   ac.altitude,
+          wind_spd: ac.best_wind_spd,
+          wind_dir: ac.best_wind_dir,
+        });
+        if (hiHist.length > WS_WIND_HI_HIST_MAX) hiHist.shift();
       }
     }
 
@@ -2162,26 +2192,42 @@ document.getElementById('ws-barb-btn').addEventListener('click', () => {
   barbLayerActive = !barbLayerActive;
   document.getElementById('ws-barb-btn').classList.toggle('active', barbLayerActive);
   if (!barbLayerActive) {
-    // Turning barbs off — also cancel auto mode and HW annotation
+    // Turning barbs off — also cancel auto mode, HW annotation and Hi-res mode
     barbSelectedIcao = null;
     barbAutoActive   = false;
     barbAutoTarget   = null;
     barbHwActive     = false;
+    barbHiResActive  = false;
     document.getElementById('ws-barb-auto-btn').classList.remove('active');
     document.getElementById('ws-barb-hw-btn').classList.remove('active');
     document.getElementById('ws-barb-hw-btn').classList.add('ws-barb-hw-off');
+    document.getElementById('ws-barb-hi-btn').classList.remove('active');
+    document.getElementById('ws-barb-hi-btn').classList.add('ws-barb-hi-off');
   } else {
     document.getElementById('ws-barb-hw-btn').classList.remove('ws-barb-hw-off');
+    document.getElementById('ws-barb-hi-btn').classList.remove('ws-barb-hi-off');
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });
 
-// ── HW/TW annotation toggle ────────────────────────────────────────────────────────────────────────────
+// ── HW/TW annotation toggle ───────────────────────────────────────────────────
 document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
   if (!barbLayerActive) return;   // button is visually disabled when barbs are off
   barbHwActive = !barbHwActive;
   document.getElementById('ws-barb-hw-btn').classList.toggle('active', barbHwActive);
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+});
+
+// ── Hi-resolution barb mode toggle ───────────────────────────────────────────
+// Switches the canvas from the Lo buffer (wsWindHistory, 400 ft / 0.5 NM / 40 obs)
+// to the Hi buffer (wsWindHiHistory, 150 ft / 0.2 NM / 100 obs).
+// The Hi buffer is accumulated every poll regardless of this toggle — switching
+// modes shows the denser data that has already built up since page load.
+document.getElementById('ws-barb-hi-btn').addEventListener('click', () => {
+  if (!barbLayerActive) return;   // button is visually disabled when barbs are off
+  barbHiResActive = !barbHiResActive;
+  document.getElementById('ws-barb-hi-btn').classList.toggle('active', barbHiResActive);
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
