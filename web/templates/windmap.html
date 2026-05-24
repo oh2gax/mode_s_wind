@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Wind Map – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="windmap-page">
+
+  <!-- ── Control strip ──────────────────────────────────────────────── -->
+  <div class="windmap-controls">
+
+    <div class="wm-group">
+      <label class="wm-label">FL</label>
+      <select id="wm-fl" class="wm-select">
+        <option value="10">1 000 ft</option>
+        <option value="20">2 000 ft</option>
+        <option value="30">3 000 ft</option>
+        <option value="40">4 000 ft</option>
+        <option value="50">FL050</option>
+        <option value="100">FL100</option>
+        <option value="150">FL150</option>
+        <option value="200">FL200</option>
+        <option value="250">FL250</option>
+        <option value="300">FL300</option>
+        <option value="350" selected>FL350</option>
+        <option value="400">FL400</option>
+        <option value="450">FL450</option>
+      </select>
+    </div>
+
+    <div class="wm-group">
+      <label class="wm-label">±</label>
+      <select id="wm-tol" class="wm-select">
+        <option value="500">500 ft</option>
+        <option value="1000" selected>1 000 ft</option>
+        <option value="2000">2 000 ft</option>
+        <option value="3000">3 000 ft</option>
+      </select>
+    </div>
+
+    <div class="wm-group">
+      <label class="wm-label">Period</label>
+      <select id="wm-period" class="wm-select">
+        <option value="60">Last 1 h</option>
+        <option value="180" selected>Last 3 h</option>
+        <option value="360">Last 6 h</option>
+        <option value="720">Last 12 h</option>
+        <option value="1440">Last 24 h</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </div>
+
+    <div id="wm-custom-range" class="wm-group wm-hidden">
+      <input type="datetime-local" id="wm-start" class="wm-datetime">
+      <span class="wm-label wm-arrow">→</span>
+      <input type="datetime-local" id="wm-end" class="wm-datetime">
+    </div>
+
+    <div class="wm-group">
+      <label class="wm-label">Grid</label>
+      <select id="wm-grid" class="wm-select">
+        <option value="0.25">0.25°</option>
+        <option value="0.5" selected>0.5°</option>
+        <option value="1.0">1.0°</option>
+      </select>
+    </div>
+
+    <button id="wm-load" class="btn-primary wm-load-btn">▶ Load</button>
+
+    <div class="wm-legend">
+      <span class="wm-dot" style="background:#6ee7b7"></span> &lt;15 kt
+      <span class="wm-dot" style="background:#3b82f6"></span> 15–30 kt
+      <span class="wm-dot" style="background:#f59e0b"></span> 30–50 kt
+      <span class="wm-dot" style="background:#ef4444"></span> &gt;50 kt
+    </div>
+
+    <div id="wm-status" class="wm-status">Select parameters and click Load</div>
+
+  </div>
+
+  <!-- ── Map ────────────────────────────────────────────────────────── -->
+  <div id="wm-map" class="windmap-map"></div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RECEIVER_LAT = {{ receiver_lat }};
+const RECEIVER_LON = {{ receiver_lon }};
+</script>
+<script src="{{ url_for('static', filename='js/windmap.js') }}"></script>
+{% endblock %}

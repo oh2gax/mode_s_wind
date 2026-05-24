@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MODE-S Wind{% endblock %}</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Apply saved theme before first paint to prevent flash of wrong theme -->
+  <script>
+    (function(){
+      if (localStorage.getItem('ms_theme') === 'light')
+        document.documentElement.dataset.theme = 'light';
+    })();
+  </script>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-brand">
+    <span>MODE-S Wind</span>
+  </div>
+  <div class="nav-links">
+    <a href="/"        class="nav-link {% if request.endpoint == 'index'        %}active{% endif %}">Live Map</a>
+    <a href="/flights" class="nav-link {% if request.endpoint == 'flights_page' %}active{% endif %}">Flights</a>
+    <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
+    <a href="/windmap"   class="nav-link {% if request.endpoint == 'windmap_page'   %}active{% endif %}">Wind Map</a>
+    <a href="/windshear" class="nav-link {% if request.endpoint == 'windshear_page' %}active{% endif %}">Windshear</a>
+    <a href="/gps"       class="nav-link {% if request.endpoint == 'gps_page'       %}active{% endif %}">GPS Quality</a>
+  </div>
+  <div class="nav-config-badges">
+    <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"
+          title="Meteo source mode: {{ meteo_source_mode }}">{{ meteo_source_mode }}</span>
+    <span class="config-badge badge-storage-{{ storage_mode | lower }}"
+          title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
+  </div>
+  <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
+  <span id="nav-utc-clock" class="nav-utc-clock"></span>
+  <div class="nav-status">
+    <span id="status-dot" class="status-dot status-connecting"></span>
+    <span id="status-text">Connecting…</span>
+    &nbsp;|&nbsp;
+    <span id="nav-live-count">–</span> live &nbsp;
+    <span id="nav-meteo-count" class="badge-meteo">–</span> meteo
+  </div>
+</nav>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% block scripts %}{% endblock %}
+<script>
+// ── Theme toggle ────────────────────────────────────────────────────────────
+(function () {
+  var btn = document.getElementById('nav-theme-btn');
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.dataset.theme = 'light';
+      btn.textContent = 'Dark';
+    } else {
+      delete document.documentElement.dataset.theme;
+      btn.textContent = 'Light';
+    }
+    // Let each page redraw its canvases with the new palette
+    if (typeof window.onThemeChange === 'function') window.onThemeChange();
+  }
+
+  // Sync button label with whatever the head script already applied
+  if (document.documentElement.dataset.theme === 'light') btn.textContent = 'Dark';
+
+  btn.addEventListener('click', function () {
+    var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('ms_theme', next);
+    applyTheme(next);
+  });
+})();
+
+// Global stats refresh (navbar)
+async function refreshStats() {
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('nav-live-count').textContent  = d.live_aircraft   ?? '–';
+    document.getElementById('nav-meteo-count').textContent = d.live_with_meteo ?? '–';
+    // Only update if SSE hasn't already set it to 'Live'
+    if (!dot.classList.contains('status-live')) {
+      dot.className   = 'status-dot status-live';
+      text.textContent = 'Online';
+    }
+  } catch(e) {
+    if (!dot.classList.contains('status-live')) {
+      dot.className   = 'status-dot status-error';
+      text.textContent = 'Error';
+    }
+  }
+}
+refreshStats();
+setInterval(refreshStats, 15000);
+
+// ── UTC clock ────────────────────────────────────────────────────────────────
+(function () {
+  const el = document.getElementById('nav-utc-clock');
+  function tick() {
+    const n = new Date();
+    const pad = v => String(v).padStart(2, '0');
+    el.textContent =
+      `${n.getUTCFullYear()}-${pad(n.getUTCMonth()+1)}-${pad(n.getUTCDate())}`
+      + ` ${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())} UTC`;
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
