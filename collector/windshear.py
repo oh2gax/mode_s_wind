@@ -28,18 +28,21 @@ below WINDSHEAR_MAX_ALT_FT, this module:
 
 EFHK runway thresholds
 -----------------------
-Threshold coordinates are extracted from the innermost end of segment 1 of
-each ILS centreline in overlays/efhk_ils.geojson.  The "inner" end is the
-point closest to the runway threshold (i.e. where the aircraft crosses when
-landing).
+Threshold coordinates sourced from FINTRAFFIC ANS EFHK ADC (AD 2.4-1,
+16 APR 2026).  Threshold elevations from the same chart.
 
-  RWY 04L — threshold [lat 60.3114, lon 24.9053]  approach hdg  047°
-  RWY 04R — threshold [lat 60.3086, lon 24.9350]  approach hdg  047°
-  RWY 22L — threshold [lat 60.3306, lon 24.9792]  approach hdg  227°
-  RWY 22R — threshold [lat 60.3311, lon 24.9439]  approach hdg  227°
-  RWY 15  — threshold [lat 60.3300, lon 24.9636]  approach hdg  152°
+  RWY 04L — threshold [lat 60.3129, lon 24.9039]  approach hdg  047°  elev 179 ft
+  RWY 04R — threshold [lat 60.3113, lon 24.9364]  approach hdg  047°  elev 179 ft
+  RWY 22L — threshold [lat 60.3307, lon 24.9791]  approach hdg  227°  elev 179 ft
+  RWY 22R — threshold [lat 60.3311, lon 24.9439]  approach hdg  227°  elev 179 ft
+  RWY 15  — threshold [lat 60.3303, lon 24.9645]  approach hdg  152°  elev 179 ft
+  RWY 33  — threshold [lat 60.3071, lon 24.9883]  approach hdg  323°  elev 148 ft
 
-RWY 33 has no ILS (VOR/GPS approaches only) and is omitted.
+RWY 33 uses an RNP approach (no ILS) with a standard 3.00° vertical path
+angle — identical glideslope geometry to the ILS runways; no special
+handling required.  Its lower threshold elevation (148 ft vs ~179 ft for
+the other runways) is stored per-runway so the glideslope reference line
+is correctly anchored for each runway independently.
 
 Glideslope reference
 ---------------------
@@ -80,13 +83,17 @@ GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
 GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 
-# ── EFHK ILS runway definitions ───────────────────────────────────────────────
+# ── EFHK runway definitions ──────────────────────────────────────────────────
+# Coordinates and threshold elevations from FINTRAFFIC ANS EFHK ADC
+# (AD 2.4-1, 16 APR 2026).  thr_elevation_ft is used to anchor the 3°
+# glideslope reference correctly for each runway.
 EFHK_RUNWAYS = [
-    {"name": "04L", "heading": 47,  "thr_lat": 60.3114, "thr_lon": 24.9053},
-    {"name": "04R", "heading": 47,  "thr_lat": 60.3086, "thr_lon": 24.9350},
-    {"name": "22L", "heading": 227, "thr_lat": 60.3306, "thr_lon": 24.9792},
-    {"name": "22R", "heading": 227, "thr_lat": 60.3311, "thr_lon": 24.9439},
-    {"name": "15",  "heading": 152, "thr_lat": 60.3300, "thr_lon": 24.9636},
+    {"name": "04L", "heading":  47, "thr_lat": 60.3129, "thr_lon": 24.9039, "thr_elevation_ft": 179},
+    {"name": "04R", "heading":  47, "thr_lat": 60.3113, "thr_lon": 24.9364, "thr_elevation_ft": 179},
+    {"name": "22L", "heading": 227, "thr_lat": 60.3307, "thr_lon": 24.9791, "thr_elevation_ft": 179},
+    {"name": "22R", "heading": 227, "thr_lat": 60.3311, "thr_lon": 24.9439, "thr_elevation_ft": 179},
+    {"name": "15",  "heading": 152, "thr_lat": 60.3303, "thr_lon": 24.9645, "thr_elevation_ft": 179},
+    {"name": "33",  "heading": 323, "thr_lat": 60.3071, "thr_lon": 24.9883, "thr_elevation_ft": 148},
 ]
 
 
@@ -360,7 +367,11 @@ class WindshearTracker:
         temperature = aircraft.get("best_temp")
         squawk      = aircraft.get("squawk")
         ias         = aircraft.get("bds60_ias")
-        gs_stat     = gs_status(alt, dist_thr, self.thr_elevation_ft) if in_corridor else "FAR"
+        rwy_thr_elev = next(
+            (r.get("thr_elevation_ft", self.thr_elevation_ft) for r in self.runways if r["name"] == runway),
+            self.thr_elevation_ft,
+        )
+        gs_stat     = gs_status(alt, dist_thr, rwy_thr_elev) if in_corridor else "FAR"
 
         # Headwind component along the matched runway's approach heading.
         # Used by the JS windshear detection algorithm.

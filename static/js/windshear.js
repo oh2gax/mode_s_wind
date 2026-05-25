@@ -47,7 +47,7 @@ function wsSeverity(delta) {
 
 // EFHK runway magnetic headings — used by client-side shear algorithms
 const RWY_HEADINGS = {
-  '04L': 47, '04R': 47, '22L': 227, '22R': 227, '15': 152, '33': 332,
+  '04L': 47, '04R': 47, '22L': 227, '22R': 227, '15': 152, '33': 323,
 };
 
 // Meteo-source colour palette (matches live map)
@@ -131,9 +131,15 @@ let coastLayer = null;
 let aquaLayer  = null;
 
 function ilsStyle(theme) {
-  if (theme === 'atc')  return { color: '#1a3a6b', weight: 2,   opacity: 0.9, dashArray: '6 5', fillOpacity: 0 };
-  if (theme === 'grey') return { color: '#64748b', weight: 1.5, opacity: 0.7, dashArray: '6 5', fillOpacity: 0 };
-  return                       { color: '#38bdf8', weight: 1.5, opacity: 0.6, dashArray: '6 5', fillOpacity: 0 };
+  if (theme === 'atc')  return { color: '#1a3a6b', weight: 2,   opacity: 0.9, dashArray: '6 5',  fillOpacity: 0 };
+  if (theme === 'grey') return { color: '#64748b', weight: 1.5, opacity: 0.7, dashArray: '6 5',  fillOpacity: 0 };
+  return                       { color: '#38bdf8', weight: 1.5, opacity: 0.6, dashArray: '6 5',  fillOpacity: 0 };
+}
+// RNP approach centreline — amber, longer dash, visually distinct from ILS
+function rnpStyle(theme) {
+  if (theme === 'atc')  return { color: '#92400e', weight: 2,   opacity: 0.9, dashArray: '10 5', fillOpacity: 0 };
+  if (theme === 'grey') return { color: '#a8a29e', weight: 1.5, opacity: 0.7, dashArray: '10 5', fillOpacity: 0 };
+  return                       { color: '#f59e0b', weight: 1.5, opacity: 0.7, dashArray: '10 5', fillOpacity: 0 };
 }
 function aptStyle(theme) {
   if (theme === 'atc')  return { color: '#2d4a6b', weight: 1, opacity: 0.7, fillOpacity: 0 };
@@ -165,7 +171,9 @@ async function loadOverlays(theme, level = 0) {
         f => f.properties && f.properties.airport === 'EFHK'
       ),
     };
-    ilsLayer = L.geoJSON(efhkIls, { style: ilsStyle(theme) }).addTo(map);
+    ilsLayer = L.geoJSON(efhkIls, {
+      style: f => f.properties?.approach_type === 'RNP' ? rnpStyle(theme) : ilsStyle(theme),
+    }).addTo(map);
 
     // Airport layout — only for tile-based themes (dark / grey)
     if (theme === 'dark' || theme === 'grey') {

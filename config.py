@@ -131,9 +131,10 @@ class Config:
     # Maximum along-track distance (NM) from the threshold for a corridor
     # match.  Aircraft further out are shown on the map only (not in strips).
     WINDSHEAR_MAX_ILS_NM: float = 25.0
-    # Threshold elevation (ft MSL) used to anchor the 3° glideslope reference.
-    # EFHK runways are all ~179 ft MSL.  Without this the GS line is drawn from
-    # 0 ft (sea level) and every aircraft appears ~179 ft above it.
+    # Threshold elevation (ft MSL) — fallback used when a runway definition
+    # does not carry its own thr_elevation_ft value.  In practice each runway
+    # in EFHK_RUNWAYS now has an explicit value, so this setting is only
+    # relevant if you supply a custom runway list without the field.
     WINDSHEAR_THR_ELEVATION_FT: float = 179.0
     # Manual glideslope offset (ft) for calibration.  Positive shifts the GS
     # line up (aircraft appear lower relative to it); negative shifts it down.

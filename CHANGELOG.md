@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-25 (Windshear — RWY 33 RNP approach support)
+
+- Added **RWY 33** to the windshear approach tracker and runway selector — aircraft established on the RNP approach to RWY 33 are now tracked, displayed on the ILS glideslope canvas, and shown in flight strips exactly like the five ILS runways
+- RWY 33 uses a standard **3.00° vertical path angle** (identical to the ILS glidepaths); no special glideslope logic was required — the existing `GS_FT_PER_NM = 318.5` calculation applies without modification
+- Threshold coordinates updated to exact AIP values from FINTRAFFIC ANS EFHK ADC (AD 2.4-1, 16 APR 2026) for all six runways; RWY 33 threshold: `60.3071°N, 24.9883°E`, approach heading 323°
+- **Per-runway threshold elevation** — `thr_elevation_ft` added as a field in each runway dict; the global `WINDSHEAR_THR_ELEVATION_FT` config value is now a fallback only; RWY 33 is anchored at **148 ft MSL** (vs ~179 ft for the other EFHK runways), ensuring the glideslope reference line is correctly positioned for each runway independently; the `gs_status()` call now resolves the elevation from the matched runway rather than the global setting
+- **RWY 33 approach centreline added to the Windshear map** — three GeoJSON line segments in `overlays/efhk_ils.geojson` extend the RNP final approach track from the threshold outbound to 25 NM; styled in amber (`#f59e0b`) with a longer dash pattern (`10 5`) so the RNP line is visually distinct from the ILS centrelines (blue `#38bdf8`, short dash `6 5`); the Leaflet style callback routes on the `approach_type: "RNP"` property
+- Centreline bearing uses the **true geographic runway axis (153.1°T outbound)** derived from the published approach chart value of 333.1°T for the inbound track — not the magnetic heading (323°) and not the uncorrected magnetic reciprocal (143°); using the correct true bearing eliminates the ~10° angular error (≈4.4 NM lateral offset at 25 NM) that would result from directly reversing the magnetic approach heading
+
+---
+
 ## 2026-05-24 (System-wide registration blocklist — helicopter filter)
 
 - Added **`BLOCKED_REG_PREFIXES`** to `config.py` — a tuple of registration prefixes that are silently dropped system-wide, complementing the existing `BLOCKED_ICAO_PREFIXES` ICAO24 filter

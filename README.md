@@ -34,7 +34,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
-- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS approach, with flight strips, an ILS glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
+- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
 - **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour stacked bar chart (NACp / Freeze / Gap signal breakdown per hour) and a 7-day × 8 FL-band heatmap; see [GPS Quality](#gps-quality--gps) below
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
 - **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide; default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
@@ -183,7 +183,7 @@ class Config:
     WINDSHEAR_MAX_ALT_FT = 5000.0     # altitude gate (ft) — ignore aircraft above
     WINDSHEAR_CORRIDOR_HALF_WIDTH_NM = 1.5   # ILS corridor half-width (NM)
     WINDSHEAR_MAX_ILS_NM = 25.0       # max along-track range from threshold
-    WINDSHEAR_THR_ELEVATION_FT = 179.0        # runway threshold elevation MSL (ft)
+    WINDSHEAR_THR_ELEVATION_FT = 179.0        # fallback threshold elevation (per-runway values in EFHK_RUNWAYS)
     WINDSHEAR_GS_OFFSET_FT = 0.0      # manual glideslope calibration trim (ft)
     WINDSHEAR_MAX_TRACK_DEV_DEG = 60.0        # max track deviation from approach hdg (°)
 
@@ -743,7 +743,7 @@ When a go-around fires:
 
 The Leaflet map shows:
 
-- **ILS centreline overlays** from `overlays/efhk_ils.geojson` — each runway's extended centreline drawn as a line on the map
+- **Approach centreline overlays** from `overlays/efhk_ils.geojson` — each runway's extended centreline drawn as a line on the map; ILS runways (04L, 04R, 22L, 22R, 15) are styled in blue (`#38bdf8`) with a short dash pattern; the RNP approach to RWY 33 is styled in amber (`#f59e0b`) with a longer dash pattern so the two approach types are immediately visually distinct; the Leaflet style callback routes on the `approach_type: "RNP"` property in the GeoJSON feature; the RWY 33 centreline uses the true geographic runway axis (153.1°T outbound / 333.1°T inbound) as published on the approach chart — not the magnetic heading
 - **Airport layout overlay** from `overlays/efhk_apt.geojson` — taxiways and runway markings
 - **15 NM range circle** centred on the configured airport reference point
 - **Aircraft markers** with callsign labels; corridor aircraft are brighter and have a higher z-index than non-corridor traffic
