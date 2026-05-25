@@ -1003,6 +1003,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-aphist-time  { color: var(--text-3); font-family: 'Courier New', monospace; }
 .ws-aphist-cs    { color: #7dd3fc; text-align: left; }
+.ws-aphist-reg   { color: var(--text-2); }
+.ws-aphist-type  { color: var(--text-2); }
 .ws-aphist-rwy   { color: #fcd34d; }
 .ws-aphist-nil   { color: var(--text-3); }
 .ws-aphist-hw-pos  { color: #6ee7b7; font-weight: 600; }

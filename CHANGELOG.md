@@ -8,7 +8,7 @@ No version numbers — entries are organised by date.
 ## 2026-05-25 (Windshear — Approach History panel)
 
 - Added a new **Approach History** floating overlay panel on the Windshear page, toggled by the **Apch Hist** button in the map controls bar
-- The panel shows a scrollable table of recently landed aircraft (newest first, up to 25 entries) with columns: **UTC time**, **Callsign**, **Runway**, and wind at **1000 / 1500 / 2000 / 2500 / 3000 ft**
+- The panel shows a scrollable table of recently landed aircraft (newest first, up to 25 entries) with columns: **UTC time**, **Callsign**, **Registration**, **Type**, **Runway**, and wind at **1000 / 1500 / 2000 / 2500 / 3000 ft**; Registration and Type show `—` when not available
 - Data is accumulated in RAM only while the page is running; it clears on server restart or when the **Clear** button is pressed
 - A **Wind / HW** toggle button switches the five altitude columns between raw wind display (`270°/15`) and headwind component (`+12` / `-5` kt); headwind positive = into the aircraft, colour-coded green / red / amber for immediate situational awareness
 - **Landing detection**: when an aircraft that was established on approach (APPROACHING state) goes ADS-B-silent — typically at 200–400 ft on final where receiver line-of-sight is lost — the 30-second stale timeout fires and the record is committed; the UTC timestamp reflects this moment, which closely approximates actual touchdown; aircraft that go around (GO_AROUND state) are automatically excluded

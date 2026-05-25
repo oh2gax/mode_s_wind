@@ -2350,7 +2350,7 @@ document.getElementById('ws-aphist-clear-btn').addEventListener('click', async (
     await fetch('/api/windshear/approach-history/clear', { method: 'POST' });
   } catch (_) { /* silent */ }
   document.getElementById('ws-aphist-table-body').innerHTML =
-    '<tr><td colspan="8" class="ws-aphist-empty">No approaches logged yet</td></tr>';
+    '<tr><td colspan="10" class="ws-aphist-empty">No approaches logged yet</td></tr>';
 });
 
 /**
@@ -2389,6 +2389,8 @@ function renderApproachHistory(entries) {
     return `<tr>
       <td class="ws-aphist-cell ws-aphist-time">${e.time_utc}</td>
       <td class="ws-aphist-cell ws-aphist-cs">${e.callsign}</td>
+      <td class="ws-aphist-cell ws-aphist-reg">${e.registration || "—"}</td>
+      <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || "—"}</td>
       <td class="ws-aphist-cell ws-aphist-rwy">${e.runway}</td>
       ${bandCells}
     </tr>`;

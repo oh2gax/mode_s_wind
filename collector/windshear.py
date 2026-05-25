@@ -582,12 +582,14 @@ class WindshearTracker:
                         None,
                     )
                     record = {
-                        "time_utc":    f"{t.tm_hour:02d}:{t.tm_min:02d}",
-                        "callsign":    bw.get("callsign") or entry.get("callsign") or k,
-                        "icao":        k,
-                        "runway":      rwy,
-                        "rwy_heading": rwy_hdg,
-                        "bands":       bw.get("bands", {}),
+                        "time_utc":      f"{t.tm_hour:02d}:{t.tm_min:02d}",
+                        "callsign":      bw.get("callsign") or entry.get("callsign") or k,
+                        "icao":          k,
+                        "registration":  entry.get("registration"),
+                        "aircraft_type": entry.get("aircraft_type"),
+                        "runway":        rwy,
+                        "rwy_heading":   rwy_hdg,
+                        "bands":         bw.get("bands", {}),
                     }
                     self._approach_history.insert(0, record)
                     if len(self._approach_history) > APPROACH_HISTORY_MAX:

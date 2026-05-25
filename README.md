@@ -759,7 +759,7 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 **Windrose toggle** — shows a compass rose overlay (top-right of the map) comparing METAR surface wind direction with low-altitude MODE-S wind observations from recent approach traffic.
 
-**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile at five altitude bands for each completed approach during the current session. Columns: UTC time, callsign, runway, and wind at 1000 / 1500 / 2000 / 2500 / 3000 ft. A **Wind / HW** button in the panel header toggles between raw wind (`dir°/spd kt`) and headwind component (`+12` / `-5` kt), colour-coded green (headwind) / red (tailwind) / amber (near-zero). A **Clear** button empties the list. Up to 25 entries are retained; data is RAM-only and clears on server restart.
+**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile at five altitude bands for each completed approach during the current session. Columns: UTC time, callsign, registration, aircraft type, runway, and wind at 1000 / 1500 / 2000 / 2500 / 3000 ft; registration and type show `—` when not available. A **Wind / HW** button in the panel header toggles between raw wind (`dir°/spd kt`) and headwind component (`+12` / `-5` kt), colour-coded green (headwind) / red (tailwind) / amber (near-zero). A **Clear** button empties the list. Up to 25 entries are retained; data is RAM-only and clears on server restart.
 
 #### Windshear detection
 
