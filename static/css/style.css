@@ -945,8 +945,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   border-radius: 6px;
   padding: 6px 7px;
   backdrop-filter: blur(4px);
-  max-width: 430px;
-  min-width: 280px;
+  max-width: 560px;
+  min-width: 360px;
 }
 .ws-aphist-panel.ws-aphist-hidden { display: none; }
 
