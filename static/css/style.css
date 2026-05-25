@@ -976,7 +976,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-aphist-ctrl-btn:hover { background: var(--bg-3); color: var(--text-1); }
 
 .ws-aphist-scroll {
-  max-height: 210px;
+  max-height: 250px;
   overflow-y: auto;
 }
 .ws-aphist-table {
