@@ -562,13 +562,15 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 #### Layout
 
-The page is divided into five main areas:
+The page is divided into seven main areas:
 
 - **Left panel** — QNH display, approach traffic count summary, and ATC-style flight strips for all aircraft inside an ILS corridor. Strips extend the full height of the screen to maximise capacity during busy arrival sequences and are filtered to match the runway selected in the ILS profile dropdown.
 
-- **Map (right top)** — Leaflet map showing all tracked aircraft with ATC-style callsign labels, ILS centreline overlays for all configured runways, and a 15 NM range circle centred on the airport. A map controls bar overlaid on the map provides: an aircraft count, an `ILS Only` filter that hides non-corridor traffic, four map theme buttons (`Dark` / `Grey` / `ATC` / `Black` — ATC and Black support overlay cycling through ILS-only, ILS+coastline, and ILS+coastline+water with repeated button presses), and the `Windrose` toggle.
+- **Map (right top)** — Leaflet map showing all tracked aircraft with ATC-style callsign labels, ILS centreline overlays for all configured runways, and a 15 NM range circle centred on the airport. A map controls bar overlaid on the map provides: an aircraft count, an `ILS Only` filter that hides non-corridor traffic, four map theme buttons (`Dark` / `Grey` / `ATC` / `Black` — ATC and Black support overlay cycling through ILS-only, ILS+coastline, and ILS+coastline+water with repeated button presses), the `Windrose` toggle, and the `Apch Hist` toggle.
 
 - **Wind Rose** — a compass rose panel overlaid on the top-right corner of the map, toggled by the `Windrose` button (enabled by default). Displays METAR surface wind as a cyan arrow and the MODE-S derived approach wind as a green arrow, both pointing in the downwind direction. The MODE-S wind is vector-averaged from low-altitude observations (≤ 2 000 ft) harvested from aircraft that have completed approaches in the last 30 minutes. Runway end labels are shown at the correct threshold positions. A numeric readout below the rose shows direction, speed, observation count, and age for each source.
+
+- **Approach History** — a scrollable table panel overlaid on the top-left corner of the map, toggled by the `Apch Hist` button (hidden by default). Logs each completed landing approach during the current session (up to 25 entries, newest first) with columns: UTC time, callsign, registration, aircraft type, runway, and wind at 1 000 / 1 500 / 2 000 / 2 500 / 3 000 ft. A `Wind / HW` toggle switches the altitude columns between raw wind (`270°/15 kt`) and headwind component (`+12` / `-5` kt), colour-coded green / red / amber. A `Clear` button resets the list. Data is RAM-only and does not persist across server restarts.
 
 - **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach.
 
