@@ -515,6 +515,29 @@ def create_app(
             return jsonify([])
         return jsonify(ws_tracker.get_state())
 
+    @app.route("/api/windshear/approach-history")
+    def windshear_approach_history_api():
+        """
+        Return the in-session landed approach history as a JSON list.
+
+        Each entry contains: time_utc, callsign, icao, runway, rwy_heading,
+        and a bands dict keyed by altitude (ft as string) with dir/spd values
+        or null when no wind data was captured at that band.
+
+        Data is RAM-only and cleared on server restart or when the user presses
+        the Clear button (POST to this endpoint).
+        """
+        if ws_tracker is None:
+            return jsonify([])
+        return jsonify(ws_tracker.get_approach_history())
+
+    @app.route("/api/windshear/approach-history/clear", methods=["POST"])
+    def windshear_approach_history_clear_api():
+        """Clear the landed approach history list."""
+        if ws_tracker is not None:
+            ws_tracker.clear_approach_history()
+        return jsonify({"ok": True})
+
     @app.route("/api/gps/state")
     def gps_state_api():
         """

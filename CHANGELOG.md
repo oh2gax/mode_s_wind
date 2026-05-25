@@ -5,6 +5,19 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-25 (Windshear — Approach History panel)
+
+- Added a new **Approach History** floating overlay panel on the Windshear page, toggled by the **Apch Hist** button in the map controls bar
+- The panel shows a scrollable table of recently landed aircraft (newest first, up to 25 entries) with columns: **UTC time**, **Callsign**, **Runway**, and wind at **1000 / 1500 / 2000 / 2500 / 3000 ft**
+- Data is accumulated in RAM only while the page is running; it clears on server restart or when the **Clear** button is pressed
+- A **Wind / HW** toggle button switches the five altitude columns between raw wind display (`270°/15`) and headwind component (`+12` / `-5` kt); headwind positive = into the aircraft, colour-coded green / red / amber for immediate situational awareness
+- **Landing detection**: when an aircraft that was established on approach (APPROACHING state) goes ADS-B-silent — typically at 200–400 ft on final where receiver line-of-sight is lost — the 30-second stale timeout fires and the record is committed; the UTC timestamp reflects this moment, which closely approximates actual touchdown; aircraft that go around (GO_AROUND state) are automatically excluded
+- **Band capture**: as each approach aircraft descends through the corridor, the first wind reading within ±150 ft of each target altitude is recorded; once a band is captured it is locked (highest-altitude reading wins); bands with no wind data (aircraft not BDS 6,0 equipped or meteo not decoded at that level) show `—`
+- No effect on any existing windshear detection, barb display, go-around detector, or map calculations — the history list is a passive accumulator fed entirely by existing live_state data
+- Backend: `WindshearTracker` gains `_approach_history` list and `_band_winds` per-aircraft dict; two new Flask routes `GET /api/windshear/approach-history` and `POST /api/windshear/approach-history/clear`
+
+---
+
 ## 2026-05-25 (Windshear — RWY 33 RNP approach support)
 
 - Added **RWY 33** to the windshear approach tracker and runway selector — aircraft established on the RNP approach to RWY 33 are now tracked, displayed on the ILS glideslope canvas, and shown in flight strips exactly like the five ILS runways

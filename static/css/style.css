@@ -919,6 +919,109 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   line-height: 1.6;
 }
 
+/* ── Approach History panel ──────────────────────────────────────────────── */
+.ws-aphist-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.ws-aphist-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-aphist-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
+
+/* Floating overlay — top-left of the map, below Leaflet zoom controls */
+.ws-aphist-panel {
+  position: absolute;
+  top: 90px;
+  left: 8px;
+  z-index: 800;
+  background: rgba(15, 23, 42, 0.93);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 7px;
+  backdrop-filter: blur(4px);
+  max-width: 430px;
+  min-width: 280px;
+}
+.ws-aphist-panel.ws-aphist-hidden { display: none; }
+
+.ws-aphist-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+}
+.ws-aphist-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  flex: 1;
+  white-space: nowrap;
+}
+.ws-aphist-ctrl-btn {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background .12s;
+}
+.ws-aphist-ctrl-btn:hover { background: var(--bg-3); color: var(--text-1); }
+
+.ws-aphist-scroll {
+  max-height: 210px;
+  overflow-y: auto;
+}
+.ws-aphist-table {
+  border-collapse: collapse;
+  font-size: 10px;
+  width: 100%;
+  white-space: nowrap;
+}
+.ws-aphist-th {
+  color: var(--text-3);
+  padding: 2px 5px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.97);
+}
+.ws-aphist-cell {
+  color: var(--text-1);
+  padding: 2px 5px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.ws-aphist-time  { color: var(--text-3); font-family: 'Courier New', monospace; }
+.ws-aphist-cs    { color: #7dd3fc; text-align: left; }
+.ws-aphist-rwy   { color: #fcd34d; }
+.ws-aphist-nil   { color: var(--text-3); }
+.ws-aphist-hw-pos  { color: #6ee7b7; font-weight: 600; }
+.ws-aphist-hw-neg  { color: #fca5a5; font-weight: 600; }
+.ws-aphist-hw-zero { color: var(--text-2); }
+.ws-aphist-empty {
+  color: var(--text-3);
+  text-align: center;
+  padding: 10px 8px;
+  font-style: italic;
+}
+
+[data-theme="light"] .ws-aphist-panel {
+  background: rgba(228, 235, 242, 0.96);
+}
+[data-theme="light"] .ws-aphist-th {
+  background: rgba(228, 235, 242, 0.99);
+}
+
 .ws-map-count {
   font-size: 11px;
   color: var(--text-2);

@@ -2325,5 +2325,86 @@ document.getElementById('ws-strips').addEventListener('click', e => {
   renderStrips(lastAircraft, lastShearEvents);
 });
 
+
+// ── Approach History panel ────────────────────────────────────────────────────
+let approachHistoryEnabled = false;
+let approachHistoryMode    = 'wind';   // 'wind' | 'hw'
+const APPROACH_BANDS       = [1000, 1500, 2000, 2500, 3000];
+
+document.getElementById('ws-aphist-btn').addEventListener('click', () => {
+  approachHistoryEnabled = !approachHistoryEnabled;
+  document.getElementById('ws-aphist-btn').classList.toggle('active', approachHistoryEnabled);
+  document.getElementById('ws-aphist-panel').classList.toggle('ws-aphist-hidden', !approachHistoryEnabled);
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
+document.getElementById('ws-aphist-mode-btn').addEventListener('click', () => {
+  approachHistoryMode = approachHistoryMode === 'wind' ? 'hw' : 'wind';
+  document.getElementById('ws-aphist-mode-btn').textContent =
+    approachHistoryMode === 'wind' ? 'Wind' : 'HW';
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
+document.getElementById('ws-aphist-clear-btn').addEventListener('click', async () => {
+  try {
+    await fetch('/api/windshear/approach-history/clear', { method: 'POST' });
+  } catch (_) { /* silent */ }
+  document.getElementById('ws-aphist-table-body').innerHTML =
+    '<tr><td colspan="8" class="ws-aphist-empty">No approaches logged yet</td></tr>';
+});
+
+/**
+ * Format one altitude-band cell.
+ * In 'wind' mode: "270°/15"  (direction / speed kt)
+ * In 'hw' mode:  "+12"  or "-5"  (headwind component, green/red/amber)
+ */
+function formatBandCell(band, rwyHdg) {
+  if (!band) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
+  if (approachHistoryMode === 'hw') {
+    const hw = (rwyHdg != null)
+      ? Math.round(band.spd * Math.cos((band.dir - rwyHdg) * Math.PI / 180))
+      : null;
+    if (hw == null) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
+    const cls = hw >=  5 ? 'ws-aphist-hw-pos'
+              : hw <= -5 ? 'ws-aphist-hw-neg'
+              :             'ws-aphist-hw-zero';
+    return `<td class="ws-aphist-cell ${cls}">${hw > 0 ? '+' : ''}${hw}</td>`;
+  }
+  // Wind mode: dir°/spd
+  return `<td class="ws-aphist-cell">${band.dir}°/${band.spd}</td>`;
+}
+
+function renderApproachHistory(entries) {
+  const tbody = document.getElementById('ws-aphist-table-body');
+  if (!entries || entries.length === 0) {
+    tbody.innerHTML =
+      '<tr><td colspan="8" class="ws-aphist-empty">No approaches logged yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map(e => {
+    const rwyHdg   = e.rwy_heading;
+    const bandCells = APPROACH_BANDS
+      .map(b => formatBandCell(e.bands[String(b)], rwyHdg))
+      .join('');
+    return `<tr>
+      <td class="ws-aphist-cell ws-aphist-time">${e.time_utc}</td>
+      <td class="ws-aphist-cell ws-aphist-cs">${e.callsign}</td>
+      <td class="ws-aphist-cell ws-aphist-rwy">${e.runway}</td>
+      ${bandCells}
+    </tr>`;
+  }).join('');
+}
+
+async function fetchApproachHistory() {
+  if (!approachHistoryEnabled) return;
+  try {
+    const r = await fetch('/api/windshear/approach-history');
+    if (!r.ok) return;
+    renderApproachHistory(await r.json());
+  } catch (_) { /* silent */ }
+}
+
 fetchApproachState();
+fetchApproachHistory();
 setInterval(fetchApproachState, 3_000);
+setInterval(fetchApproachHistory, 15_000);

@@ -47,12 +47,41 @@
           <button class="ws-theme-btn"        data-theme="atc">ATC</button>
           <button class="ws-theme-btn"        data-theme="black">Black</button>
           <button class="ws-windrose-btn active" id="ws-windrose-btn" title="Toggle Wind Rose — METAR surface wind vs MODE-S approach wind">Windrose</button>
+          <button class="ws-aphist-btn" id="ws-aphist-btn" title="Toggle Approach History — altitude-band wind profile for each completed approach this session">Apch Hist</button>
         </div>
 
         <!-- Wind rose panel — absolute overlay below map controls -->
         <div class="ws-windrose-panel" id="ws-windrose-panel">
           <canvas id="ws-windrose-canvas" width="265" height="265"></canvas>
           <div id="ws-windrose-readout" class="ws-windrose-readout"></div>
+        </div>
+
+        <!-- Approach History panel — absolute overlay top-left of map -->
+        <div class="ws-aphist-panel ws-aphist-hidden" id="ws-aphist-panel">
+          <div class="ws-aphist-header">
+            <span class="ws-aphist-title">Approach History</span>
+            <button class="ws-aphist-ctrl-btn" id="ws-aphist-mode-btn" title="Toggle between raw wind (dir°/spd kt) and headwind component">Wind</button>
+            <button class="ws-aphist-ctrl-btn" id="ws-aphist-clear-btn" title="Clear history">Clear</button>
+          </div>
+          <div class="ws-aphist-scroll">
+            <table class="ws-aphist-table">
+              <thead>
+                <tr>
+                  <th class="ws-aphist-th">UTC</th>
+                  <th class="ws-aphist-th">Callsign</th>
+                  <th class="ws-aphist-th">Rwy</th>
+                  <th class="ws-aphist-th">1000</th>
+                  <th class="ws-aphist-th">1500</th>
+                  <th class="ws-aphist-th">2000</th>
+                  <th class="ws-aphist-th">2500</th>
+                  <th class="ws-aphist-th">3000</th>
+                </tr>
+              </thead>
+              <tbody id="ws-aphist-table-body">
+                <tr><td colspan="8" class="ws-aphist-empty">No approaches logged yet</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

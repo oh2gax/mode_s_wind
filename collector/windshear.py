@@ -83,6 +83,11 @@ GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
 GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 
+# ── Approach history ─────────────────────────────────────────────────────────
+APPROACH_HISTORY_MAX   = 25           # maximum landed approach records kept
+APPROACH_HISTORY_BANDS = (1000, 1500, 2000, 2500, 3000)  # ft MSL altitude bands
+BAND_TOL_FT            = 150          # ±ft window for band wind capture
+
 # ── EFHK runway definitions ──────────────────────────────────────────────────
 # Coordinates and threshold elevations from FINTRAFFIC ANS EFHK ADC
 # (AD 2.4-1, 16 APR 2026).  thr_elevation_ft is used to anchor the 3°
@@ -261,6 +266,8 @@ class WindshearTracker:
         self._state: dict[str, dict]  = {}   # icao → approach record
         self._ga_counts: dict[str, int] = {}  # icao → session go-around count (persists after prune)
         self._ga_events: list[dict]   = []    # recent go-around events for the API/log
+        self._approach_history: list[dict] = []   # landed approach records (newest first)
+        self._band_winds: dict[str, dict]  = {}   # icao → in-flight band capture state
         self._lock  = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -345,6 +352,7 @@ class WindshearTracker:
         if is_blocked_registration(reg, self.blocked_reg_prefixes):
             with self._lock:
                 self._state.pop(icao, None)
+                self._band_winds.pop(icao, None)
             return
 
         now = time.time()
@@ -354,6 +362,7 @@ class WindshearTracker:
         if dist_apt > self.max_dist_nm or alt > self.max_alt_ft:
             with self._lock:
                 self._state.pop(icao, None)
+                self._band_winds.pop(icao, None)
             return
 
         # ── ILS corridor detection ────────────────────────────────────────────
@@ -419,6 +428,7 @@ class WindshearTracker:
 
             # ── Go-around state machine ───────────────────────────────────────
             # Carry forward per-aircraft state from the previous sweep.
+            prev_ga_phase      = prev.get("ga_phase", "NONE")
             ga_phase           = prev.get("ga_phase", "NONE")
             ga_descent_polls   = prev.get("ga_descent_polls", 0)
             ga_climb_polls     = prev.get("ga_climb_polls", 0)
@@ -490,6 +500,27 @@ class WindshearTracker:
             ga_count  = self._ga_counts.get(icao, 0)
             is_return = ga_count > 0 and ga_phase != "GO_AROUND"
 
+            # ── Approach history: altitude-band wind capture ──────────────────────
+            # Capture the first wind reading within ±BAND_TOL_FT of each target
+            # altitude while the aircraft is in the corridor with valid wind data.
+            # Bands are locked once captured so we record the highest-altitude
+            # reading at each level, not the last one.
+            if in_corridor and wind_spd is not None and wind_dir is not None:
+                bw = self._band_winds.setdefault(icao, {
+                    "icao": icao, "callsign": callsign, "runway": runway,
+                    "bands": {str(b): None for b in APPROACH_HISTORY_BANDS},
+                })
+                bw["callsign"] = callsign   # update once callsign becomes known
+                bw["runway"]   = runway     # track most-recently matched runway
+                for band in APPROACH_HISTORY_BANDS:
+                    key = str(band)
+                    if bw["bands"][key] is None and abs(alt - band) <= BAND_TOL_FT:
+                        bw["bands"][key] = {"dir": round(wind_dir), "spd": round(wind_spd, 1)}
+            # Reset band state when established aircraft leaves the corridor
+            # (vectored-off, overflight, missed approach leaving laterally).
+            if not in_corridor and prev_ga_phase == "APPROACHING":
+                self._band_winds.pop(icao, None)
+
             self._state[icao] = {
                 "icao":           icao,
                 "callsign":       callsign,
@@ -529,13 +560,44 @@ class WindshearTracker:
             }
 
     def prune_stale(self) -> None:
-        """Remove aircraft not updated within STALE_TIMEOUT_SEC."""
+        """Remove aircraft not updated within STALE_TIMEOUT_SEC.
+
+        When a corridor aircraft in APPROACHING state goes stale it is assumed
+        to have landed (ADS-B contact typically lost at 200-400 ft on final).
+        Its accumulated altitude-band wind data is committed to _approach_history.
+        Aircraft in GO_AROUND state are not committed.
+        """
         cutoff = time.time() - STALE_TIMEOUT_SEC
         with self._lock:
             stale = [k for k, v in self._state.items() if v["last_seen"] < cutoff]
             for k in stale:
-                del self._state[k]
-                log.debug("Windshear: dropped stale %s", k)
+                entry = self._state.pop(k)
+                bw    = self._band_winds.pop(k, None)
+                # Commit to approach history if established on approach when lost.
+                if entry.get("ga_phase") == "APPROACHING" and bw:
+                    t   = time.gmtime()
+                    rwy = bw.get("runway") or entry.get("approach_runway") or "?"
+                    rwy_hdg = next(
+                        (r["heading"] for r in self.runways if r["name"] == rwy),
+                        None,
+                    )
+                    record = {
+                        "time_utc":    f"{t.tm_hour:02d}:{t.tm_min:02d}",
+                        "callsign":    bw.get("callsign") or entry.get("callsign") or k,
+                        "icao":        k,
+                        "runway":      rwy,
+                        "rwy_heading": rwy_hdg,
+                        "bands":       bw.get("bands", {}),
+                    }
+                    self._approach_history.insert(0, record)
+                    if len(self._approach_history) > APPROACH_HISTORY_MAX:
+                        self._approach_history.pop()
+                    log.info(
+                        "Approach history: %s (%s) RWY %s — bands captured: %s",
+                        record["callsign"], k, rwy,
+                        [ft for ft, v in record["bands"].items() if v],
+                    )
+                log.debug("Windshear: dropped stale %s (ga_phase=%s)", k, entry.get("ga_phase"))
 
     def get_state(self) -> dict:
         """
@@ -551,3 +613,13 @@ class WindshearTracker:
             ga_events = list(self._ga_events)   # snapshot to avoid race
         items.sort(key=lambda x: x.get("dist_thr_nm") or x.get("dist_apt_nm") or 999)
         return {"aircraft": items, "ga_events": ga_events}
+
+    def get_approach_history(self) -> list:
+        """Thread-safe snapshot of the landed approach history list (newest first)."""
+        with self._lock:
+            return list(self._approach_history)
+
+    def clear_approach_history(self) -> None:
+        """Clear the approach history list (called by the web Clear button)."""
+        with self._lock:
+            self._approach_history.clear()
