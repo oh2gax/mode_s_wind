@@ -14,6 +14,7 @@ No version numbers — entries are organised by date.
 - **RAM cap increased** from 25 → **500 entries** to cover ~24 h of typical EFHK approach traffic in memory
 - **Time filter UI** — a row of five compact buttons (`1h · 3h · 6h · 12h · 1d`) appears between the panel title row and the table; the active window is highlighted in blue; default is **3 h**; switching window immediately refetches from DB via `GET /api/windshear/approach-history?window=<seconds>`
 - **API updated**: `GET /api/windshear/approach-history?window=N` now queries the DB directly for the requested time window; without the `window` param the RAM list is returned (backward compat); `POST /api/windshear/approach-history/clear` now deletes all rows from the DB table in addition to clearing the RAM list so the panel stays empty after a page refresh
+- **Smart UTC timestamp display** — the UTC column shows plain `HH:MM` for approaches from today; approaches from a previous UTC date show `D.M HH:MM` (e.g. `26.5 14:32`) so multi-day views in the 6h/12h/1d windows are unambiguous; computed client-side from the `ts` Unix timestamp already present in every record, no backend change required
 
 ---
 
