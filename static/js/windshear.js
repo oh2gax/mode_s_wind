@@ -2457,14 +2457,6 @@ document.getElementById('ws-aphist-hi-btn').addEventListener('click', () => {
   if (approachHistoryEnabled) fetchApproachHistory();
 });
 
-document.getElementById('ws-aphist-clear-btn').addEventListener('click', async () => {
-  try {
-    await fetch('/api/windshear/approach-history/clear', { method: 'POST' });
-  } catch (_) { /* silent */ }
-  document.getElementById('ws-aphist-table-body').innerHTML =
-    `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
-});
-
 // Time window selector — delegate clicks on the timerow div
 document.querySelector('.ws-aphist-timerow').addEventListener('click', e => {
   const btn = e.target.closest('.ws-aphist-time-btn');
