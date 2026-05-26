@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-26 (Windshear — wind data quality gates for barb display, Windrose and Approach History)
+
+- **Per-barb quality colouring on the ILS glideslope canvas** — each wind barb now carries the `meteo_source` tag from the moment it was captured; barbs recorded during a grey (NONE) period remain grey permanently even after the aircraft's data recovers, instead of being retroactively recoloured green; this makes the canvas an honest record of data quality throughout the approach rather than reflecting only the aircraft's current state
+- **NONE-period entries excluded from wind history buffers** — both the Lo and Hi accumulation loops now skip any poll where `meteo_source === 'NONE'`; stale non-null `best_wind_spd` values that linger in `live_state` from a previous good computation can no longer enter `wsWindHistory` or `wsWindHiHistory` during a grey phase; a gap appears on the canvas where data was absent, rather than a repeated stale position
+- **Windrose no longer receives grey-period observations** — the Windrose harvests low-altitude wind from `wsWindHistory` when an aircraft leaves the tracked set; because NONE entries are now excluded from that buffer at accumulation time, they cannot flow into the Windrose rolling average
+- **Approach History band capture excludes NONE-period data** — the Python-side band capture gate (`collector/windshear.py`) skips any sweep where `meteo_source == "NONE"`, preventing stale wind values that persist in `live_state` from being locked into the altitude-band history record for a landing approach
+- Root cause of all four fixes: the `live_state` merge in `receiver.py` is non-destructive — new observations only overwrite existing fields with non-`None` values; when a wind computation is discarded (result > 150 kt, quality gate failure, or insufficient BDS data), `best_wind_spd` retains its previous value while `meteo_source` correctly updates to `"NONE"`; the fixes use `meteo_source` as the authoritative quality signal at every consumer
+
+---
+
 ## 2026-05-25 (Windshear — Approach History panel)
 
 - Added a new **Approach History** floating overlay panel on the Windshear page, toggled by the **Apch Hist** button in the map controls bar

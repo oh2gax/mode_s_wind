@@ -612,9 +612,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   if (barbLayerActive && barbSelectedIcao) {
     const hist = (barbHiResActive ? wsWindHiHistory : wsWindHistory)[barbSelectedIcao] || [];
     if (hist.length > 0) {
-      // Colour from the aircraft if still tracked; fall back to neutral
+      // Label and fallback colour from current aircraft state (callsign may not
+      // be in the history entry).  Each barb is coloured from its own captured
+      // src tag so grey observations stay grey even after the aircraft recovers.
       const selAc = aircraft.find(a => a.icao === barbSelectedIcao);
-      const bColor = selAc ? acColor(selAc.meteo_source) : '#94a3b8';
       const bLabel = selAc ? (selAc.callsign || barbSelectedIcao) : barbSelectedIcao;
 
       // Resolve runway heading for HW/TW annotation (once, before the loop).
@@ -637,6 +638,9 @@ function drawIlsProfile(aircraft, shearEvents = []) {
         const bx = distX(obs.dist_nm);
         const by = altY(obs.alt_ft);
 
+        // Colour each barb from its own captured quality tag.
+        // Falls back to neutral grey when src is absent (old buffer entries).
+        const bColor = (obs.src && obs.src !== 'NONE') ? acColor(obs.src) : '#94a3b8';
         drawWindBarb(ilsCtx, bx, by, obs.wind_spd, obs.wind_dir, bColor);
 
         // Label placement — edge detection for canvas boundaries
@@ -2105,6 +2109,7 @@ async function fetchApproachState() {
     // ── Wind history (Lo): accumulate for corridor aircraft with wind data ─
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
+      if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
       if (!wsWindHistory[ac.icao]) wsWindHistory[ac.icao] = [];
       const hist = wsWindHistory[ac.icao];
       const last = hist[hist.length - 1];
@@ -2116,6 +2121,7 @@ async function fetchApproachState() {
           alt_ft:   ac.altitude,
           wind_spd: ac.best_wind_spd,
           wind_dir: ac.best_wind_dir,
+          src:      ac.meteo_source,  // quality tag — used for per-barb colouring
         });
         if (hist.length > WS_WIND_HIST_MAX) hist.shift();
       }
@@ -2126,6 +2132,7 @@ async function fetchApproachState() {
     // Never read by any detection algorithm — safe to accumulate independently.
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
+      if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
       if (!wsWindHiHistory[ac.icao]) wsWindHiHistory[ac.icao] = [];
       const hiHist = wsWindHiHistory[ac.icao];
       const hiLast = hiHist[hiHist.length - 1];
@@ -2137,6 +2144,7 @@ async function fetchApproachState() {
           alt_ft:   ac.altitude,
           wind_spd: ac.best_wind_spd,
           wind_dir: ac.best_wind_dir,
+          src:      ac.meteo_source,  // quality tag — used for per-barb colouring
         });
         if (hiHist.length > WS_WIND_HI_HIST_MAX) hiHist.shift();
       }

@@ -505,7 +505,8 @@ class WindshearTracker:
             # altitude while the aircraft is in the corridor with valid wind data.
             # Bands are locked once captured so we record the highest-altitude
             # reading at each level, not the last one.
-            if in_corridor and wind_spd is not None and wind_dir is not None:
+            if (in_corridor and wind_spd is not None and wind_dir is not None
+                    and aircraft.get("meteo_source", "NONE") != "NONE"):
                 bw = self._band_winds.setdefault(icao, {
                     "icao": icao, "callsign": callsign, "runway": runway,
                     "bands": {str(b): None for b in APPROACH_HISTORY_BANDS},
