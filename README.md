@@ -688,6 +688,8 @@ The headwind component is computed as `wind_spd × cos(wind_dir − runway_headi
 
 **Track lifetime:** only one aircraft's barbs are displayed at a time. Clicking a different flight strip immediately replaces the current overlay — no need to deselect first. When the selected aircraft lands and stops transmitting (typically 30–45 seconds after touchdown), its stored wind history is discarded and the overlay clears automatically. In Auto mode the next aircraft furthest along the approach is picked up on the same poll cycle, so the barb display stays continuous as long as there is approach traffic.
 
+**NONE position markers:** in addition to coloured wind barbs, the canvas draws **small grey hollow circles** at every position where the selected aircraft's wind computation was suspended (`meteo_source === 'NONE'`). These circles use the same grey colour as the aircraft's NONE-state icon and appear alongside valid barbs, or alone if the entire visible approach has been in NONE state. The canvas hint text includes a `(N pos-only)` count when NONE positions are accumulating but no valid wind data has arrived yet. This is particularly useful for GPS-jamming monitoring: a trail of hollow circles through the glideslope profile confirms that ADS-B position messages (BDS 0,5/0,6) are still arriving normally, even while the wind computation derived from BDS 5,0/6,0 data is suspended — the absence of circles would indicate a genuine position outage rather than just a data-quality hold.
+
 Enable the barb layer during an active approach sequence to study how the wind profile evolves along the final approach path and correlate it with the glideslope position and any detected windshear zones.
 
 #### Wind Rose

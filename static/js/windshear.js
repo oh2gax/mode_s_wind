@@ -714,11 +714,34 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
       ilsCtx.restore();
     } else {
-      // Aircraft selected but no history accumulated yet
+      // Aircraft selected but no wind history yet — show hint, noting any NONE-position data
+      const noneHintCount = (wsNoneHistory[barbSelectedIcao] || []).length;
+      const hintSuffix    = noneHintCount > 0 ? `  (${noneHintCount} pos-only)` : '';
       ilsCtx.fillStyle  = CT.barbHint;
       ilsCtx.font       = '9px "Courier New", monospace';
       ilsCtx.textAlign  = 'left';
-      ilsCtx.fillText('\u{1F32C} Waiting for wind data…', M.left + 4, M.top + 22);
+      ilsCtx.fillText(`\u{1F32C} Waiting for wind data…${hintSuffix}`, M.left + 4, M.top + 22);
+    }
+
+    // ── NONE position markers: grey open circles for observations where wind
+    //    computation was suspended (meteo_source === 'NONE').  These appear
+    //    alongside regular wind barbs (or alone) so the user can see that the
+    //    aircraft was still transmitting valid position data during grey periods.
+    //    Useful for GPS-jamming detection: hollow circles confirm position data
+    //    is arriving normally even while wind decoding is suspended.
+    const noneObs = wsNoneHistory[barbSelectedIcao] || [];
+    if (noneObs.length > 0) {
+      ilsCtx.save();
+      ilsCtx.strokeStyle = SRC_COLOR.NONE;   // #6b7280 — same grey as NONE aircraft icons
+      ilsCtx.lineWidth   = 1.5;
+      for (const obs of noneObs) {
+        if (obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
+        ilsCtx.beginPath();
+        ilsCtx.arc(distX(obs.dist_nm), altY(obs.alt_ft), 3, 0, 2 * Math.PI);
+        ilsCtx.stroke();
+      }
+      ilsCtx.restore();
     }
   } else if (barbLayerActive) {
     // Layer active but no aircraft selected yet
@@ -1771,6 +1794,7 @@ document.getElementById('ws-log-clear')?.addEventListener('click', () => {
 // ── Wind barb layer state ─────────────────────────────────────────────────────
 const wsWindHistory   = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Lo buffer
 const wsWindHiHistory = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Hi buffer (research, display-only)
+const wsNoneHistory   = {};     // icao → [{dist_nm, alt_ft}, …]  position-only buffer for NONE-state aircraft
 let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
@@ -2076,6 +2100,16 @@ async function fetchApproachState() {
         if (barbSelectedIcao === icao) barbSelectedIcao = null;
       }
     }
+    // wsNoneHistory has its own cleanup loop so that:
+    // (a) aircraft that were NONE for their entire approach (never got a wsWindHistory
+    //     entry) are still pruned when they leave the display, and
+    // (b) wsNoneHistory entries survive brief reception gaps that happen to coincide
+    //     with the aircraft's transition from NONE to valid state — previously the
+    //     shared loop would see the first wsWindHistory entry, find the aircraft
+    //     momentarily absent from liveIcaos, and delete wsNoneHistory prematurely.
+    for (const icao of Object.keys(wsNoneHistory)) {
+      if (!liveIcaos.has(icao)) delete wsNoneHistory[icao];
+    }
 
     // Clean up GS history for aircraft no longer tracked
     for (const icao of Object.keys(wsGsHistory)) {
@@ -2147,6 +2181,25 @@ async function fetchApproachState() {
           src:      ac.meteo_source,  // quality tag — used for per-barb colouring
         });
         if (hiHist.length > WS_WIND_HI_HIST_MAX) hiHist.shift();
+      }
+    }
+
+    // ── Position history (NONE): track corridor aircraft whose wind computation
+    //    has failed (meteo_source === 'NONE') so their positions can be drawn as
+    //    grey open circles on the ILS profile.  Useful for detecting GPS-jamming
+    //    periods: a hollow-circle trail shows the aircraft was receiving position
+    //    data normally even while wind decoding was suspended.
+    for (const ac of corridor) {
+      if (ac.meteo_source !== 'NONE') continue;
+      if (ac.dist_thr_nm == null || ac.altitude == null) continue;
+      if (!wsNoneHistory[ac.icao]) wsNoneHistory[ac.icao] = [];
+      const noneHist = wsNoneHistory[ac.icao];
+      const noneLast = noneHist[noneHist.length - 1];
+      const noneAltMoved  = !noneLast || Math.abs(noneLast.alt_ft  - ac.altitude)    >= WS_WIND_MIN_ALT_GAP;
+      const noneDistMoved = !noneLast || Math.abs(noneLast.dist_nm - ac.dist_thr_nm) >= WS_WIND_MIN_DIST_GAP;
+      if (noneAltMoved || noneDistMoved) {
+        noneHist.push({ dist_nm: ac.dist_thr_nm, alt_ft: ac.altitude });
+        if (noneHist.length > WS_WIND_HIST_MAX) noneHist.shift();
       }
     }
 

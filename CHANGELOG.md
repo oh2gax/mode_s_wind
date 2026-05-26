@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-26 (Windshear — NONE position markers on ILS glideslope canvas)
+
+- When the barb layer is active and an aircraft is selected, the ILS glideslope canvas now draws **grey hollow circles** (3 px radius, `#6b7280` stroke) at every position where wind computation was suspended (`meteo_source === 'NONE'`); circles appear alongside the coloured wind barbs from valid periods, or alone when the entire approach has been in NONE state
+- A new `wsNoneHistory` per-aircraft buffer accumulates these position-only observations during the poll cycle; entries are stored whenever the aircraft is in the ILS corridor, `meteo_source === 'NONE'`, and valid `dist_thr_nm` + `altitude` are present; the same 400 ft / 0.5 NM gate and 40-entry cap as the Lo wind buffer are applied to keep marker density consistent
+- When no valid wind history exists yet but NONE-position entries are already accumulated, the canvas hint text changes from `Waiting for wind data…` to `Waiting for wind data…  (N pos-only)` so it is immediately clear that position data is arriving even though wind decoding has not started
+- The feature is useful for **GPS-jamming situational awareness**: a trail of hollow circles through the glideslope profile confirms that ADS-B position messages (BDS 0,5/0,6) are being received normally during a grey phase, even while wind computation (BDS 5,0/6,0) is suspended; the absence of circles would indicate a genuine position data gap rather than just a meteo quality issue
+- No change to any windshear detection algorithm, Windrose, Approach History, or flight strip rendering — `wsNoneHistory` is consumed only by the ILS canvas draw path and has no effect on any alert or analysis logic
+
+---
+
 ## 2026-05-26 (Windshear — wind data quality gates for barb display, Windrose and Approach History)
 
 - **Per-barb quality colouring on the ILS glideslope canvas** — each wind barb now carries the `meteo_source` tag from the moment it was captured; barbs recorded during a grey (NONE) period remain grey permanently even after the aircraft's data recovers, instead of being retroactively recoloured green; this makes the canvas an honest record of data quality throughout the approach rather than reflecting only the aircraft's current state
