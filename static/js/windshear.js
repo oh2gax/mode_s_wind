@@ -2394,8 +2394,42 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 
 // ── Approach History panel ────────────────────────────────────────────────────
 let approachHistoryEnabled = false;
-let approachHistoryMode    = 'wind';   // 'wind' | 'hw'
-const APPROACH_BANDS       = [1000, 1500, 2000, 2500, 3000];
+let approachHistoryMode    = 'wind';  // 'wind' | 'hw'
+let aphHistHiMode          = false;   // false = Lo (5 bands), true = Hi (15 bands)
+
+// Lo: every 500 ft from 1000–3000;  Hi: every 200 ft from 200–3000
+const APHIST_BANDS_LO = [1000, 1500, 2000, 2500, 3000];
+const APHIST_BANDS_HI = [
+   200,  400,  600,  800, 1000,
+  1200, 1400, 1600, 1800, 2000,
+  2200, 2400, 2600, 2800, 3000,
+];
+
+/** Return the active band list based on Hi/Lo mode. */
+function aphBands() { return aphHistHiMode ? APHIST_BANDS_HI : APHIST_BANDS_LO; }
+
+/** Total column count: 5 fixed cols (UTC/CS/Reg/Type/Rwy) + band cols. */
+function aphColspan() { return 5 + aphBands().length; }
+
+/** Rebuild the <thead> row to match the current Lo/Hi band selection. */
+function renderApproachHistoryHeader() {
+  const thead = document.getElementById('ws-aphist-thead');
+  if (!thead) return;
+  const bandThs = aphBands()
+    .map(b => `<th class="ws-aphist-th">${b}</th>`)
+    .join('');
+  thead.innerHTML = `<tr>
+    <th class="ws-aphist-th">UTC</th>
+    <th class="ws-aphist-th">Callsign</th>
+    <th class="ws-aphist-th">Reg</th>
+    <th class="ws-aphist-th">Type</th>
+    <th class="ws-aphist-th">Rwy</th>
+    ${bandThs}
+  </tr>`;
+}
+
+// Build header on load
+renderApproachHistoryHeader();
 
 document.getElementById('ws-aphist-btn').addEventListener('click', () => {
   approachHistoryEnabled = !approachHistoryEnabled;
@@ -2411,12 +2445,23 @@ document.getElementById('ws-aphist-mode-btn').addEventListener('click', () => {
   if (approachHistoryEnabled) fetchApproachHistory();
 });
 
+document.getElementById('ws-aphist-hi-btn').addEventListener('click', () => {
+  aphHistHiMode = !aphHistHiMode;
+  const btn   = document.getElementById('ws-aphist-hi-btn');
+  const panel = document.getElementById('ws-aphist-panel');
+  btn.textContent = aphHistHiMode ? 'Hi' : 'Lo';
+  btn.classList.toggle('active', aphHistHiMode);
+  panel.classList.toggle('ws-aphist-hi', aphHistHiMode);
+  renderApproachHistoryHeader();
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
 document.getElementById('ws-aphist-clear-btn').addEventListener('click', async () => {
   try {
     await fetch('/api/windshear/approach-history/clear', { method: 'POST' });
   } catch (_) { /* silent */ }
   document.getElementById('ws-aphist-table-body').innerHTML =
-    '<tr><td colspan="10" class="ws-aphist-empty">No approaches logged yet</td></tr>';
+    `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
 });
 
 /**
@@ -2444,12 +2489,12 @@ function renderApproachHistory(entries) {
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!entries || entries.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="8" class="ws-aphist-empty">No approaches logged yet</td></tr>';
+      `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
     return;
   }
   tbody.innerHTML = entries.map(e => {
     const rwyHdg   = e.rwy_heading;
-    const bandCells = APPROACH_BANDS
+    const bandCells = aphBands()
       .map(b => formatBandCell(e.bands[String(b)], rwyHdg))
       .join('');
     return `<tr>
@@ -2472,7 +2517,35 @@ async function fetchApproachHistory() {
   } catch (_) { /* silent */ }
 }
 
+// ── Windrose pre-population from server buffer ────────────────────────────────
+/**
+ * On first page load, fetch any low-altitude wind observations collected by
+ * the server during the last 30 minutes (from approaches completed before this
+ * browser session opened).  Pre-populates recentLandingWinds so the windrose
+ * is immediately meaningful rather than starting cold.
+ *
+ * The server returns { ts, dir, spd, alt } — identical shape to what JS pushes
+ * into recentLandingWinds itself — so we can inject entries directly.
+ * Entries already outside the 30-minute WINDROSE_MAX_AGE_MS window are skipped.
+ */
+async function fetchWindroseObs() {
+  try {
+    const r = await fetch('/api/windshear/windrose-obs');
+    if (!r.ok) return;
+    const obs = await r.json();
+    const nowMs = Date.now();
+    for (const o of obs) {
+      const tsMs = o.ts * 1000;   // server sends Unix seconds; JS uses ms
+      if (nowMs - tsMs > WINDROSE_MAX_AGE_MS) continue;
+      recentLandingWinds.push({ dir: o.dir, spd: o.spd, alt: o.alt, ts: tsMs });
+    }
+    // Keep chronological order (server sends oldest→newest already)
+    if (obs.length > 0) drawWindrose();
+  } catch (_) { /* silent */ }
+}
+
 fetchApproachState();
 fetchApproachHistory();
+fetchWindroseObs();
 setInterval(fetchApproachState, 3_000);
 setInterval(fetchApproachHistory, 15_000);

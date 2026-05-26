@@ -948,6 +948,12 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   max-width: 560px;
   min-width: 360px;
 }
+/* Hi mode — all 15 band columns + 5 fixed columns; no width cap so table
+   sizes to content naturally; the map area beneath absorbs the extra width */
+.ws-aphist-panel.ws-aphist-hi {
+  max-width: none;
+  width: max-content;
+}
 .ws-aphist-panel.ws-aphist-hidden { display: none; }
 
 .ws-aphist-header {
@@ -973,11 +979,13 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   cursor: pointer;
   transition: background .12s;
 }
-.ws-aphist-ctrl-btn:hover { background: var(--bg-3); color: var(--text-1); }
+.ws-aphist-ctrl-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-aphist-ctrl-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
 
 .ws-aphist-scroll {
   max-height: 250px;
   overflow-y: auto;
+  overflow-x: auto;
 }
 .ws-aphist-table {
   border-collapse: collapse;

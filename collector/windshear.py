@@ -88,8 +88,25 @@ GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 
 # ── Approach history ─────────────────────────────────────────────────────────
 APPROACH_HISTORY_MAX   = 25           # maximum landed approach records kept
-APPROACH_HISTORY_BANDS = (1000, 1500, 2000, 2500, 3000)  # ft MSL altitude bands
-BAND_TOL_FT            = 150          # ±ft window for band wind capture
+APPROACH_HISTORY_BANDS = (
+    200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800,
+    2000, 2200, 2400, 2600, 2800, 3000,
+)                                     # 15 bands at 200 ft resolution, ft MSL
+BAND_TOL_FT            = 100          # ±ft window for band wind capture
+
+# ── Windrose low-altitude observation buffer ──────────────────────────────────
+# Per-aircraft rolling buffer that mirrors the JS Lo-buffer gate exactly
+# (same 400 ft / 0.5 NM min-gap thresholds) so that observations harvested
+# here match what the browser would accumulate client-side.  Observations are
+# collected in sweep() whenever the aircraft is in the corridor, below
+# WINDROSE_OBS_MAX_ALT_FT, with valid (non-NONE) wind.  On landing the list is
+# flushed to _windrose_buffer with timestamps so a fresh browser session can
+# pre-populate recentLandingWinds instead of starting cold.
+WINDROSE_OBS_MAX_ALT_FT  = 2_000.0   # ft — mirror of JS WINDROSE_ALT_MAX
+WINDROSE_MIN_ALT_GAP_FT  = 400.0     # ft — mirror of JS WS_WIND_MIN_ALT_GAP
+WINDROSE_MIN_DIST_GAP_NM = 0.5       # NM — mirror of JS WS_WIND_MIN_DIST_GAP
+WINDROSE_OBS_CAP         = 40        # per-aircraft obs cap (same as JS Lo buf)
+WINDROSE_BUFFER_MAX_SEC  = 1_800.0   # 30 min — purge older entries
 
 # ── EFHK runway definitions ──────────────────────────────────────────────────
 # Coordinates and threshold elevations from FINTRAFFIC ANS EFHK ADC
@@ -274,6 +291,8 @@ class WindshearTracker:
         self._ga_events: list[dict]   = []    # recent go-around events for the API/log
         self._approach_history: list[dict] = []   # landed approach records (newest first)
         self._band_winds: dict[str, dict]  = {}   # icao → in-flight band capture state
+        self._windrose_obs: dict[str, list] = {}  # icao → in-flight low-alt wind obs list
+        self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
         self._lock  = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -360,6 +379,7 @@ class WindshearTracker:
             with self._lock:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
+                self._windrose_obs.pop(icao, None)
             return
 
         now = time.time()
@@ -370,6 +390,7 @@ class WindshearTracker:
             with self._lock:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
+                self._windrose_obs.pop(icao, None)
             return
 
         # ── ILS corridor detection ────────────────────────────────────────────
@@ -547,6 +568,32 @@ class WindshearTracker:
             if not in_corridor and prev_ga_phase == "APPROACHING":
                 self._band_winds.pop(icao, None)
 
+            # ── Windrose low-altitude observation buffer ──────────────────────
+            # Mirror the JS Lo-buffer gate: accumulate one obs per 400 ft of
+            # altitude change OR 0.5 NM of along-track progress, capped at 40
+            # entries per aircraft.  Requirements: in corridor, alt ≤ 2 000 ft,
+            # valid non-NONE wind — identical conditions to JS wsWindHistory.
+            if (in_corridor
+                    and alt <= WINDROSE_OBS_MAX_ALT_FT
+                    and wind_spd is not None
+                    and wind_dir is not None
+                    and aircraft.get("meteo_source", "NONE") != "NONE"):
+                wr_hist = self._windrose_obs.setdefault(icao, [])
+                wr_last = wr_hist[-1] if wr_hist else None
+                wr_alt_moved  = (not wr_last
+                                 or abs(wr_last["alt_ft"]  - alt)          >= WINDROSE_MIN_ALT_GAP_FT)
+                wr_dist_moved = (not wr_last
+                                 or abs(wr_last["dist_nm"] - dist_thr)     >= WINDROSE_MIN_DIST_GAP_NM)
+                if wr_alt_moved or wr_dist_moved:
+                    wr_hist.append({
+                        "dist_nm":  round(dist_thr, 2),
+                        "alt_ft":   round(alt),
+                        "wind_dir": round(wind_dir),
+                        "wind_spd": round(wind_spd, 1),
+                    })
+                    if len(wr_hist) > WINDROSE_OBS_CAP:
+                        wr_hist.pop(0)
+
             self._state[icao] = {
                 "icao":           icao,
                 "callsign":       callsign,
@@ -594,11 +641,32 @@ class WindshearTracker:
         Aircraft in GO_AROUND state are not committed.
         """
         cutoff = time.time() - STALE_TIMEOUT_SEC
+        now    = time.time()
         with self._lock:
             stale = [k for k, v in self._state.items() if v["last_seen"] < cutoff]
             for k in stale:
                 entry = self._state.pop(k)
                 bw    = self._band_winds.pop(k, None)
+                wr    = self._windrose_obs.pop(k, None)
+
+                # Harvest windrose observations when the aircraft goes stale
+                # while APPROACHING (assumed landed).  Each obs gets the current
+                # wall-clock timestamp so the JS 30-minute rolling window works
+                # correctly in a fresh browser session.
+                if wr and entry.get("ga_phase") == "APPROACHING":
+                    for obs in wr:
+                        self._windrose_buffer.append({
+                            "ts":       now,
+                            "dir":      obs["wind_dir"],
+                            "spd":      obs["wind_spd"],
+                            "alt":      obs["alt_ft"],
+                        })
+
+                # Purge windrose entries older than 30 minutes
+                wr_cutoff = now - WINDROSE_BUFFER_MAX_SEC
+                while self._windrose_buffer and self._windrose_buffer[0]["ts"] < wr_cutoff:
+                    self._windrose_buffer.pop(0)
+
                 # Commit to approach history if established on approach when lost.
                 # bw may be None when the aircraft never produced valid wind data
                 # (e.g. no IAS available, meteo_source always NONE) — still record
@@ -655,3 +723,22 @@ class WindshearTracker:
         """Clear the approach history list (called by the web Clear button)."""
         with self._lock:
             self._approach_history.clear()
+
+    def get_windrose_obs(self) -> list:
+        """
+        Thread-safe snapshot of the rolling windrose observation buffer.
+
+        Returns a list of dicts, newest last, each with keys:
+          ts   — Unix timestamp (float) of harvest time
+          dir  — wind direction (°, integer)
+          spd  — wind speed (kt, float)
+          alt  — altitude at observation (ft, integer)
+
+        Entries older than WINDROSE_BUFFER_MAX_SEC are pruned here as well as
+        in prune_stale() so that stale data is removed even between landings.
+        """
+        cutoff = time.time() - WINDROSE_BUFFER_MAX_SEC
+        with self._lock:
+            while self._windrose_buffer and self._windrose_buffer[0]["ts"] < cutoff:
+                self._windrose_buffer.pop(0)
+            return list(self._windrose_buffer)

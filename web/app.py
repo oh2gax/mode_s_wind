@@ -538,6 +538,28 @@ def create_app(
             ws_tracker.clear_approach_history()
         return jsonify({"ok": True})
 
+    @app.route("/api/windshear/windrose-obs")
+    def windshear_windrose_obs_api():
+        """
+        Return the rolling 30-minute windrose observation buffer as a JSON list.
+
+        Each entry is a low-altitude wind observation harvested from a recently
+        landed approach (alt ≤ 2 000 ft, valid non-NONE meteo source).  Used
+        by the windshear page on initial load to pre-populate the windrose widget
+        with data from approaches that occurred before the browser session started.
+
+        Returns a list of dicts with keys:
+          ts   — Unix timestamp (float seconds since epoch) of harvest
+          dir  — wind direction (°)
+          spd  — wind speed (kt)
+          alt  — altitude at observation (ft)
+
+        Data is RAM-only; cleared on server restart.
+        """
+        if ws_tracker is None:
+            return jsonify([])
+        return jsonify(ws_tracker.get_windrose_obs())
+
     @app.route("/api/gps/state")
     def gps_state_api():
         """
