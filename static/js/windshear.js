@@ -2505,13 +2505,26 @@ function renderApproachHistory(entries) {
       `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
     return;
   }
+  // Midnight UTC of today — used to detect entries from a previous date
+  const todayMidnightUtc = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+
   tbody.innerHTML = entries.map(e => {
     const rwyHdg   = e.rwy_heading;
     const bandCells = aphBands()
       .map(b => formatBandCell(e.bands[String(b)], rwyHdg))
       .join('');
+    // Show "D.M HH:MM" for entries from a previous UTC date, plain "HH:MM" for today
+    let timeLabel = e.time_utc;
+    if (e.ts && e.ts * 1000 < todayMidnightUtc) {
+      const d = new Date(e.ts * 1000);
+      timeLabel = `${d.getUTCDate()}.${d.getUTCMonth() + 1} ${e.time_utc}`;
+    }
     return `<tr>
-      <td class="ws-aphist-cell ws-aphist-time">${e.time_utc}</td>
+      <td class="ws-aphist-cell ws-aphist-time">${timeLabel}</td>
       <td class="ws-aphist-cell ws-aphist-cs">${e.callsign}</td>
       <td class="ws-aphist-cell ws-aphist-reg">${e.registration || "—"}</td>
       <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || "—"}</td>
