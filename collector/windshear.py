@@ -73,6 +73,9 @@ ILS_MAX_RANGE_NM           = 25.0  # default max along-track distance from thr
 MAX_HISTORY_SEC            = 600.0 # retain 10 min of position history
 STALE_TIMEOUT_SEC          = 30.0  # drop aircraft silent for 30 s
 CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach hdg
+CORRIDOR_GS_FLOOR_FT      = 1000.0 # reject corridor match when aircraft is more than
+                                    # this many ft below the theoretical 3° glidepath;
+                                    # filters overflying traffic vectored to other runways
 
 # ── Go-around detection defaults ──────────────────────────────────────────────
 GA_MIN_DESCENT_POLLS = 5       # sweeps descending before 'APPROACHING' is set
@@ -98,7 +101,10 @@ EFHK_RUNWAYS = [
     {"name": "22L", "heading": 227, "thr_lat": 60.3307, "thr_lon": 24.9791, "thr_elevation_ft": 179},
     {"name": "22R", "heading": 227, "thr_lat": 60.3311, "thr_lon": 24.9439, "thr_elevation_ft": 179},
     {"name": "15",  "heading": 152, "thr_lat": 60.3303, "thr_lon": 24.9645, "thr_elevation_ft": 179},
-    {"name": "33",  "heading": 323, "thr_lat": 60.3071, "thr_lon": 24.9883, "thr_elevation_ft": 148},
+    {"name": "33",  "heading": 323, "thr_lat": 60.3071, "thr_lon": 24.9883, "thr_elevation_ft": 148,
+     "max_track_dev": 45},  # tighter than default 60° — RNP approach, no localizer;
+                            # aircraft vectored to 22L/22R from south fly ~000°-020°
+                            # (47°-57° from 323°) and must be excluded
 ]
 
 
@@ -315,7 +321,8 @@ class WindshearTracker:
             # Skipped when track is unavailable (None) to preserve behaviour for
             # aircraft that do not broadcast ground track on short final.
             if track is not None:
-                if _hdg_diff(track, rwy["heading"]) > self.max_track_dev:
+                track_limit = rwy.get("max_track_dev", self.max_track_dev)
+                if _hdg_diff(track, rwy["heading"]) > track_limit:
                     continue
 
             if abs(xt) < best_abs_xt:
@@ -368,6 +375,24 @@ class WindshearTracker:
         # ── ILS corridor detection ────────────────────────────────────────────
         track  = aircraft.get("track")
         runway, dist_thr, cross_track, along_track = self._best_runway(lat, lon, track)
+
+        # Glideslope floor gate — reject the corridor match when the aircraft is
+        # more than CORRIDOR_GS_FLOOR_FT below the theoretical 3° glidepath.
+        # Primary filter for traffic overflying the RWY 33 approach area while
+        # vectored to 22L/22R: at 12–15 NM they are 1 000–2 000 ft below the
+        # glidepath and would otherwise pass all geometric and heading gates.
+        # Legitimate approaches always clear this gate; an aircraft 800 ft low
+        # of the glidepath still has a 200 ft margin at any distance.
+        if runway is not None and dist_thr is not None:
+            _floor_thr_elev = next(
+                (r.get("thr_elevation_ft", self.thr_elevation_ft)
+                 for r in self.runways if r["name"] == runway),
+                self.thr_elevation_ft,
+            )
+            _gs_expected = _floor_thr_elev + dist_thr * GS_FT_PER_NM
+            if alt < _gs_expected - CORRIDOR_GS_FLOOR_FT:
+                runway = dist_thr = cross_track = along_track = None
+
         in_corridor = runway is not None
 
         vert_rate   = aircraft.get("vert_rate") or 0

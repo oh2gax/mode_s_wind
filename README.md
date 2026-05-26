@@ -585,17 +585,22 @@ Aircraft are accepted into the display using precise geometric corridor matching
 - **Cross-track offset** — perpendicular distance from the extended ILS centreline (signed: positive = right of centreline, negative = left)
 - **Along-track distance** — projection along the centreline from the runway threshold (positive = aircraft is approaching, not yet at threshold)
 
-An aircraft matches a runway only when all three conditions hold:
+An aircraft matches a runway only when all conditions hold:
 
 ```
-|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 1.5 NM)
+|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 2.5 NM)
 0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM                (default 25 NM)
-|track − approach_heading| ≤ WINDSHEAR_MAX_TRACK_DEV_DEG       (default 60°, when track available)
+|track − approach_heading| ≤ max_track_dev                     (default 60°, RWY 33: 45°, when track available)
+altitude ≥ (thr_elevation + dist_thr × GS_FT_PER_NM) − 1 000 ft   (glideslope floor)
 ```
 
 The along-track gate excludes aircraft that have already passed through the threshold (negative along-track), such as aircraft that have landed and are rolling out. The track heading gate is the primary defence against **parallel-runway departures**: at EFHK, the two parallel runway pairs (04L/22R and 04R/22L) are only about 0.9 NM apart — well within the cross-track corridor — so a departure on 22L flying ~220° would otherwise pass the geometric gates for the 04L corridor (approaching its threshold from the north). The 60° track tolerance rejects it immediately since 220° is ~173° from the 04L approach heading of 047°. The same logic applies to all configured runways automatically.
 
-The track check is skipped when track data is not available for an aircraft (rare at low altitude); those aircraft fall back to geometry-only matching, which is the same behaviour as before the check was added.
+**RWY 33 uses a tighter 45° heading gate** (vs the default 60°) because it is an RNP approach with no ILS localizer, making it more vulnerable to false detections from traffic vectored to RWY 22L/22R from the south. Such aircraft typically fly northward headings of ~010°–020° (47°–57° from RWY 33's 323° heading), which pass the 60° gate but are rejected by the 45° gate. The per-runway gate is set via a `max_track_dev` field in the runway definition; runways without this field use the global default.
+
+**The glideslope floor** rejects any corridor match where the aircraft is more than 1 000 ft below the theoretical 3° glidepath at its current distance from the threshold. This is the primary filter for traffic overflying the RWY 33 approach area at 12–15 NM while being vectored to other runways: at those distances such traffic is typically 1 000–2 500 ft below the glidepath. Legitimate approach aircraft always clear this gate — even an aircraft 800 ft low of the glidepath has a 200 ft margin. The floor applies to all runways but has no practical effect on the five ILS runways under normal operations.
+
+The track check is skipped when track data is not available for an aircraft (rare at low altitude); those aircraft fall back to geometry-only and floor-only matching.
 
 For airports with parallel runways (EFHK has 04L/04R and 22L/22R), the correct runway is identified by the sign of the cross-track offset: positive → right-hand runway (04R, 22R), negative → left-hand runway (04L, 22L).
 

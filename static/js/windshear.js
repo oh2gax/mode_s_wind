@@ -2108,7 +2108,12 @@ async function fetchApproachState() {
     //     shared loop would see the first wsWindHistory entry, find the aircraft
     //     momentarily absent from liveIcaos, and delete wsNoneHistory prematurely.
     for (const icao of Object.keys(wsNoneHistory)) {
-      if (!liveIcaos.has(icao)) delete wsNoneHistory[icao];
+      if (!liveIcaos.has(icao)) {
+        delete wsNoneHistory[icao];
+        // Clear selection if this was a NONE-only aircraft (never had a wsWindHistory
+        // entry, so the selection reset above never fired for it).
+        if (barbSelectedIcao === icao) barbSelectedIcao = null;
+      }
     }
 
     // Clean up GS history for aircraft no longer tracked

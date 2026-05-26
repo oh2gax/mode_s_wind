@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-26 (Windshear — RWY 33 corridor false-detection filters)
+
+- **Glideslope floor gate** added to corridor detection in `collector/windshear.py`: after `_best_runway()` matches an aircraft to a runway, the match is discarded if the aircraft is more than `CORRIDOR_GS_FLOOR_FT` (1 000 ft) below the theoretical 3° glidepath at its current distance from the threshold; this is the primary filter for traffic overflying the RWY 33 approach area at 12–15 NM while being vectored to RWY 22L/22R — at those distances such traffic is typically 1 000–2 500 ft below the glidepath and would otherwise pass all geometric and heading gates; legitimate approaches always clear this gate with at least 200 ft margin
+- **Per-runway heading gate** — `_best_runway()` now reads an optional `max_track_dev` field from the runway definition, falling back to the global `CORRIDOR_MAX_TRACK_DEV_DEG` (60°) when absent; RWY 33 is set to **45°** (vs the default 60°) because aircraft vectored northward to RWY 22 from the south typically fly heading ~010°–020°, which is 47°–57° from RWY 33's approach heading of 323° — these headings pass the 60° gate but are correctly rejected by the 45° gate; all five ILS runways retain the existing 60° gate via the fallback
+- The two filters are complementary: distant overflights (12–15 NM at 2 000–3 000 ft) are caught by the glideslope floor regardless of heading; mid-range cases (8–10 NM, ~010° heading) are caught by the tighter heading gate even when altitude slips above the floor; GPS-jammed frozen-position scenarios where track is unavailable are partially mitigated by the floor gate alone (track check is skipped when `track is None`, existing behaviour preserved)
+- No change to ILS runway behaviour — the glideslope floor applies to all runways but has no practical effect on aircraft correctly established on approach; the per-runway heading gate applies only to RWY 33
+
+---
+
 ## 2026-05-26 (Windshear — NONE position markers on ILS glideslope canvas)
 
 - When the barb layer is active and an aircraft is selected, the ILS glideslope canvas now draws **grey hollow circles** (3 px radius, `#6b7280` stroke) at every position where wind computation was suspended (`meteo_source === 'NONE'`); circles appear alongside the coloured wind barbs from valid periods, or alone when the entire approach has been in NONE state
