@@ -1050,6 +1050,24 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 
 Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore the 7-day heatmap and 24-hour time-series chart after a restart. The three per-signal columns were added in May 2026; existing rows carry 0 for these columns and are displayed as grey "Unknown" bars in the chart until they age out of the 24-hour window.
 
+**`approach_history`** — one row per completed landing approach (persisted by `WindshearTracker` via callback hook in `run.py`):
+
+| Column | Description |
+|--------|-------------|
+| id | Auto-increment primary key |
+| ts | Unix timestamp (UTC) of landing / stale-out moment |
+| date_utc | `"YYYY-MM-DD"` — used for date-based filtering |
+| time_utc | `"HH:MM"` — display time |
+| icao | ICAO24 hex address |
+| callsign | Flight callsign |
+| registration | Aircraft registration (if known) |
+| aircraft_type | Aircraft type code (if known) |
+| runway | Runway designator, e.g. `"22L"` |
+| rwy_heading | Runway approach heading (°) |
+| bands_json | JSON object keyed by altitude ft (as string); value is `{"dir": int, "spd": float}` or `null` when no wind was captured at that level; e.g. `{"200": {"dir": 270, "spd": 15}, "400": null, …}` |
+
+Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
+
 **`observations`** — one row per decoded message with useful data:
 
 - Position: `lat`, `lon`, `altitude` (ft)
@@ -1084,6 +1102,30 @@ ORDER BY ts DESC LIMIT 20;
 SELECT icao, callsign, meteo_count, max_altitude, min_altitude,
        datetime(first_seen,'unixepoch') AS first, datetime(last_seen,'unixepoch') AS last
 FROM flights ORDER BY meteo_count DESC LIMIT 20;
+
+-- All approaches today
+SELECT time_utc, callsign, registration, aircraft_type, runway
+FROM approach_history
+WHERE date_utc = date('now')
+ORDER BY ts DESC;
+
+-- Wind at 800 ft and 1000 ft for RWY 22L over the last 7 days
+SELECT time_utc, callsign,
+       json_extract(bands_json, '$.800.dir')  AS dir_800,
+       json_extract(bands_json, '$.800.spd')  AS spd_800,
+       json_extract(bands_json, '$.1000.dir') AS dir_1000,
+       json_extract(bands_json, '$.1000.spd') AS spd_1000
+FROM approach_history
+WHERE runway = '22L'
+  AND ts > unixepoch('now', '-7 days')
+ORDER BY ts DESC;
+
+-- Approach count by runway today
+SELECT runway, COUNT(*) AS approaches
+FROM approach_history
+WHERE date_utc = date('now')
+GROUP BY runway
+ORDER BY approaches DESC;
 ```
 
 ---
@@ -1168,6 +1210,9 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
+| GET | `/api/windshear/approach-history` | Landed approach history from RAM (no `window` param) or from the persistent `approach_history` DB table (`?window=<seconds>`, e.g. `?window=10800` for 3 h); each entry includes `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, and a `bands` dict keyed by altitude ft |
+| POST | `/api/windshear/approach-history/clear` | Delete all rows from the `approach_history` DB table and clear the RAM list (administrative use; no UI button exposes this) |
+| GET | `/api/windshear/windrose-obs` | Rolling 30-minute buffer of low-altitude wind observations (alt ≤ 2 000 ft, non-NONE, in-corridor) harvested from recently landed aircraft; used by the browser on page load to pre-populate the Windrose; each entry: `ts`, `dir`, `spd`, `alt` |
 | GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, 24h time series, 7-day FL heatmap; completed hours persisted in `gps_quality_hours` and reloaded on restart |
 | GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
 
