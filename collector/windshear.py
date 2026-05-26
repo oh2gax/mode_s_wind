@@ -575,22 +575,26 @@ class WindshearTracker:
                 entry = self._state.pop(k)
                 bw    = self._band_winds.pop(k, None)
                 # Commit to approach history if established on approach when lost.
-                if entry.get("ga_phase") == "APPROACHING" and bw:
+                # bw may be None when the aircraft never produced valid wind data
+                # (e.g. no IAS available, meteo_source always NONE) — still record
+                # the landing with all band values as None so it appears in the
+                # Approach History table with "—" in the wind columns.
+                if entry.get("ga_phase") == "APPROACHING":
                     t   = time.gmtime()
-                    rwy = bw.get("runway") or entry.get("approach_runway") or "?"
+                    rwy = (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
                     rwy_hdg = next(
                         (r["heading"] for r in self.runways if r["name"] == rwy),
                         None,
                     )
                     record = {
                         "time_utc":      f"{t.tm_hour:02d}:{t.tm_min:02d}",
-                        "callsign":      bw.get("callsign") or entry.get("callsign") or k,
+                        "callsign":      (bw.get("callsign") if bw else None) or entry.get("callsign") or k,
                         "icao":          k,
                         "registration":  entry.get("registration"),
                         "aircraft_type": entry.get("aircraft_type"),
                         "runway":        rwy,
                         "rwy_heading":   rwy_hdg,
-                        "bands":         bw.get("bands", {}),
+                        "bands":         bw.get("bands", {}) if bw else {str(b): None for b in APPROACH_HISTORY_BANDS},
                     }
                     self._approach_history.insert(0, record)
                     if len(self._approach_history) > APPROACH_HISTORY_MAX:
