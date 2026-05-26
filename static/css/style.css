@@ -982,6 +982,28 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-aphist-ctrl-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-aphist-ctrl-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
 
+.ws-aphist-timerow {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.ws-aphist-time-btn {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background .12s;
+}
+.ws-aphist-time-btn:hover         { background: var(--bg-3); color: var(--text-1); }
+.ws-aphist-time-btn.ws-aphist-time-active {
+  background: #0369a1;
+  color: #fff;
+  border-color: #0369a1;
+}
+
 .ws-aphist-scroll {
   max-height: 278px;
   overflow-y: auto;

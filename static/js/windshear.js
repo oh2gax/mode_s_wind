@@ -2395,7 +2395,8 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 // ── Approach History panel ────────────────────────────────────────────────────
 let approachHistoryEnabled = false;
 let approachHistoryMode    = 'wind';  // 'wind' | 'hw'
-let aphHistHiMode          = false;   // false = Lo (5 bands), true = Hi (15 bands)
+let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
+let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
 
 // Lo: every 500 ft from 1000–3000;  Hi: every 200 ft from 200–3000
 const APHIST_BANDS_LO = [800, 1000, 1400, 1800, 2200, 2600, 3000];
@@ -2464,6 +2465,18 @@ document.getElementById('ws-aphist-clear-btn').addEventListener('click', async (
     `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
 });
 
+// Time window selector — delegate clicks on the timerow div
+document.querySelector('.ws-aphist-timerow').addEventListener('click', e => {
+  const btn = e.target.closest('.ws-aphist-time-btn');
+  if (!btn) return;
+  aphHistWindow = parseInt(btn.dataset.window, 10);
+  // Update active highlight
+  document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
+    b.classList.toggle('ws-aphist-time-active', b === btn)
+  );
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
 /**
  * Format one altitude-band cell.
  * In 'wind' mode: "270°/15"  (direction / speed kt)
@@ -2511,7 +2524,7 @@ function renderApproachHistory(entries) {
 async function fetchApproachHistory() {
   if (!approachHistoryEnabled) return;
   try {
-    const r = await fetch('/api/windshear/approach-history');
+    const r = await fetch(`/api/windshear/approach-history?window=${aphHistWindow}`);
     if (!r.ok) return;
     renderApproachHistory(await r.json());
   } catch (_) { /* silent */ }

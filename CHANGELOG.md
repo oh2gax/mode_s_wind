@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-26 (Windshear — Approach History DB persistence + time filter)
+
+- **Approach History is now persisted to SQLite** — a new `approach_history` table stores one row per completed landing approach; data survives server restarts and accumulates indefinitely, making multi-hour and full-day queries practical
+- **New DB table schema**: `ts` (Unix epoch), `date_utc` (YYYY-MM-DD), `time_utc` (HH:MM), `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands_json` (JSON object keyed by altitude ft); three indexes on `ts`, `date_utc`, and `runway` for fast filtering; data volume is under 1 MB/year at EFHK approach rates
+- **Callback hook** — `WindshearTracker` accepts an optional `on_approach_committed` callable; called from the windshear sweep thread immediately when an APPROACHING aircraft goes stale; the callback (`_on_approach_committed` in `run.py`) writes to the DB using the sweep thread's own thread-local connection — `WindshearTracker` remains DB-free; a `"ts"` Unix timestamp field is now included in every approach record
+- **Startup preload** — `_preload_approach_history()` in `run.py` queries the last 24 h of DB records and calls `ws_tracker.preload_approach_history()` before the sweep thread starts; the RAM approach history list is immediately populated on server restart rather than waiting for the first landing
+- **RAM cap increased** from 25 → **500 entries** to cover ~24 h of typical EFHK approach traffic in memory
+- **Time filter UI** — a row of five compact buttons (`1h · 3h · 6h · 12h · 1d`) appears between the panel title row and the table; the active window is highlighted in blue; default is **3 h**; switching window immediately refetches from DB via `GET /api/windshear/approach-history?window=<seconds>`
+- **API updated**: `GET /api/windshear/approach-history?window=N` now queries the DB directly for the requested time window; without the `window` param the RAM list is returned (backward compat); `POST /api/windshear/approach-history/clear` now deletes all rows from the DB table in addition to clearing the RAM list so the panel stays empty after a page refresh
+
+---
+
 ## 2026-05-26 (Windshear — Approach History 200 ft resolution + Windrose server-side buffer)
 
 - **Approach History resolution increased to 200 ft** — `APPROACH_HISTORY_BANDS` in `collector/windshear.py` expanded from 5 bands (1 000–3 000 ft at 500 ft spacing) to **15 bands at 200 ft spacing** (200, 400, 600 … 3 000 ft); `BAND_TOL_FT` tightened from ±150 ft to **±100 ft** so bands at 200 ft resolution do not overlap

@@ -518,24 +518,55 @@ def create_app(
     @app.route("/api/windshear/approach-history")
     def windshear_approach_history_api():
         """
-        Return the in-session landed approach history as a JSON list.
+        Return landed approach history as a JSON list, newest first.
 
-        Each entry contains: time_utc, callsign, icao, runway, rwy_heading,
-        and a bands dict keyed by altitude (ft as string) with dir/spd values
-        or null when no wind data was captured at that band.
+        Optional query parameter:
+          window — time window in seconds (e.g. 10800 for 3 h).
+                   When present the response is sourced from the persistent
+                   approach_history DB table so data survives server restarts.
+                   When absent the in-RAM list is returned (backward compat).
 
-        Data is RAM-only and cleared on server restart or when the user presses
-        the Clear button (POST to this endpoint).
+        Each entry contains: ts, time_utc, callsign, icao, registration,
+        aircraft_type, runway, rwy_heading, and a bands dict keyed by altitude
+        (ft as string) with {dir, spd} values or null when no wind was captured.
         """
+        window = request.args.get("window", type=int)
+        if window is not None:
+            import json as _json
+            cutoff = time.time() - window
+            db     = get_db()
+            rows   = db.execute(
+                """SELECT ts, time_utc, icao, callsign, registration,
+                          aircraft_type, runway, rwy_heading, bands_json
+                   FROM approach_history
+                   WHERE ts > ?
+                   ORDER BY ts DESC""",
+                (cutoff,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                r = dict(row)
+                r["bands"] = _json.loads(r.pop("bands_json"))
+                result.append(r)
+            return jsonify(result)
+        # No window param — serve from RAM (backward compat / internal use)
         if ws_tracker is None:
             return jsonify([])
         return jsonify(ws_tracker.get_approach_history())
 
     @app.route("/api/windshear/approach-history/clear", methods=["POST"])
     def windshear_approach_history_clear_api():
-        """Clear the landed approach history list."""
+        """
+        Clear the landed approach history.
+
+        Clears both the in-RAM list and the persistent DB table so that
+        the panel stays empty on a page refresh after clearing.
+        """
         if ws_tracker is not None:
             ws_tracker.clear_approach_history()
+        db = get_db()
+        db.execute("DELETE FROM approach_history")
+        db.commit()
         return jsonify({"ok": True})
 
     @app.route("/api/windshear/windrose-obs")

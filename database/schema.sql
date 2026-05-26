@@ -111,3 +111,28 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
+
+-- ── approach_history ──────────────────────────────────────────────────────────
+-- One row per completed landing approach.
+-- Committed by WindshearTracker when an APPROACHING aircraft goes ADS-B-silent
+-- (assumed landed).  bands_json is a JSON object keyed by altitude (ft as
+-- string) with {"dir": int, "spd": float} values or null when no wind was
+-- captured at that level.
+-- Data volume: ~200–400 rows/day at EFHK; <1 MB/year.
+CREATE TABLE IF NOT EXISTS approach_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            REAL    NOT NULL,    -- Unix epoch (UTC) of landing / stale-out
+    date_utc      TEXT    NOT NULL,    -- "YYYY-MM-DD" for date-based queries
+    time_utc      TEXT    NOT NULL,    -- "HH:MM"
+    icao          TEXT    NOT NULL,
+    callsign      TEXT,
+    registration  TEXT,
+    aircraft_type TEXT,
+    runway        TEXT    NOT NULL,
+    rwy_heading   INTEGER,
+    bands_json    TEXT    NOT NULL     -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}
+);
+
+CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_aphist_date ON approach_history(date_utc);
+CREATE INDEX IF NOT EXISTS idx_aphist_rwy  ON approach_history(runway);

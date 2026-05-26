@@ -11,6 +11,7 @@ Or in the background:
 Press Ctrl-C to stop.
 """
 
+import json
 import logging
 import os
 import queue
@@ -94,6 +95,82 @@ def _windshear_sweep(
         time.sleep(3)
 
 
+def _on_approach_committed(record: dict) -> None:
+    """
+    Callback wired into WindshearTracker.on_approach_committed.
+
+    Called from the ws_sweep thread each time an APPROACHING aircraft goes
+    stale (assumed landed).  Writes the approach record to the persistent
+    approach_history table using the sweep thread's own thread-local DB
+    connection (get_db() is thread-local so this is safe).
+    """
+    from database.db import get_db
+    db   = get_db()
+    ts   = record.get("ts", time.time())
+    t    = time.gmtime(ts)
+    date = f"{t.tm_year:04d}-{t.tm_mon:02d}-{t.tm_mday:02d}"
+    try:
+        db.execute(
+            """INSERT INTO approach_history
+               (ts, date_utc, time_utc, icao, callsign, registration,
+                aircraft_type, runway, rwy_heading, bands_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                ts,
+                date,
+                record.get("time_utc", ""),
+                record.get("icao", ""),
+                record.get("callsign"),
+                record.get("registration"),
+                record.get("aircraft_type"),
+                record.get("runway", "?"),
+                record.get("rwy_heading"),
+                json.dumps(record.get("bands", {})),
+            ),
+        )
+        db.commit()
+    except Exception as exc:
+        log.warning("approach_history DB write failed: %s", exc)
+
+
+def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None:
+    """
+    Load the last `hours` of approach records from the DB into the tracker's
+    RAM list on startup.  Called once from main() before the sweep thread
+    starts so the RAM list is immediately populated (no wait for first landing).
+    """
+    from database.db import get_db
+    cutoff = time.time() - hours * 3600
+    try:
+        db   = get_db()
+        rows = db.execute(
+            """SELECT ts, time_utc, icao, callsign, registration,
+                      aircraft_type, runway, rwy_heading, bands_json
+               FROM approach_history
+               WHERE ts > ?
+               ORDER BY ts DESC
+               LIMIT 500""",
+            (cutoff,),
+        ).fetchall()
+        records = [
+            {
+                "ts":           row["ts"],
+                "time_utc":     row["time_utc"],
+                "icao":         row["icao"],
+                "callsign":     row["callsign"],
+                "registration": row["registration"],
+                "aircraft_type": row["aircraft_type"],
+                "runway":       row["runway"],
+                "rwy_heading":  row["rwy_heading"],
+                "bands":        json.loads(row["bands_json"]),
+            }
+            for row in rows
+        ]
+        ws_tracker.preload_approach_history(records)
+    except Exception as exc:
+        log.warning("approach_history preload failed: %s", exc)
+
+
 def main() -> None:
     cfg = Config()
 
@@ -161,7 +238,13 @@ def main() -> None:
         ga_max_alt_ft         = cfg.WINDSHEAR_GA_MAX_ALT_FT,
         ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
         blocked_reg_prefixes  = cfg.BLOCKED_REG_PREFIXES,
+        on_approach_committed = _on_approach_committed,
     )
+
+    # Pre-populate RAM approach history from the last 24 h of DB records so
+    # the list is immediately available without waiting for the first landing.
+    _preload_approach_history(ws_tracker, cfg.DB_PATH, hours=24)
+
     ws_thread = threading.Thread(
         target=_windshear_sweep,
         args=(live_state, live_lock, ws_tracker),

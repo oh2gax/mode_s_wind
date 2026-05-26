@@ -87,7 +87,7 @@ GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
 GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 
 # ── Approach history ─────────────────────────────────────────────────────────
-APPROACH_HISTORY_MAX   = 25           # maximum landed approach records kept
+APPROACH_HISTORY_MAX   = 500          # RAM cap — covers ~24 h at typical EFHK load
 APPROACH_HISTORY_BANDS = (
     200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800,
     2000, 2200, 2400, 2600, 2800, 3000,
@@ -268,6 +268,7 @@ class WindshearTracker:
         ga_max_alt_ft: float        = GA_MAX_ALT_FT,
         ga_flash_sec: float         = GA_FLASH_SEC,
         blocked_reg_prefixes: tuple = (),
+        on_approach_committed       = None,
     ):
         self.airport_lat          = airport_lat
         self.airport_lon          = airport_lon
@@ -284,7 +285,8 @@ class WindshearTracker:
         self.ga_climb_fpm         = ga_climb_fpm
         self.ga_max_alt_ft        = ga_max_alt_ft
         self.ga_flash_sec         = ga_flash_sec
-        self.blocked_reg_prefixes = blocked_reg_prefixes
+        self.blocked_reg_prefixes     = blocked_reg_prefixes
+        self._on_approach_committed   = on_approach_committed  # optional callback(record)
 
         self._state: dict[str, dict]  = {}   # icao → approach record
         self._ga_counts: dict[str, int] = {}  # icao → session go-around count (persists after prune)
@@ -673,13 +675,14 @@ class WindshearTracker:
                 # the landing with all band values as None so it appears in the
                 # Approach History table with "—" in the wind columns.
                 if entry.get("ga_phase") == "APPROACHING":
-                    t   = time.gmtime()
+                    t   = time.gmtime(now)
                     rwy = (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
                     rwy_hdg = next(
                         (r["heading"] for r in self.runways if r["name"] == rwy),
                         None,
                     )
                     record = {
+                        "ts":            now,
                         "time_utc":      f"{t.tm_hour:02d}:{t.tm_min:02d}",
                         "callsign":      (bw.get("callsign") if bw else None) or entry.get("callsign") or k,
                         "icao":          k,
@@ -692,6 +695,14 @@ class WindshearTracker:
                     self._approach_history.insert(0, record)
                     if len(self._approach_history) > APPROACH_HISTORY_MAX:
                         self._approach_history.pop()
+                    # Notify the DB writer callback (wired in run.py) so the
+                    # record is persisted immediately without coupling this
+                    # class to the database layer directly.
+                    if self._on_approach_committed is not None:
+                        try:
+                            self._on_approach_committed(record)
+                        except Exception as cb_exc:
+                            log.warning("approach_committed callback failed: %s", cb_exc)
                     log.info(
                         "Approach history: %s (%s) RWY %s — bands captured: %s",
                         record["callsign"], k, rwy,
@@ -718,6 +729,20 @@ class WindshearTracker:
         """Thread-safe snapshot of the landed approach history list (newest first)."""
         with self._lock:
             return list(self._approach_history)
+
+    def preload_approach_history(self, records: list) -> None:
+        """
+        Pre-populate _approach_history from DB records on server startup.
+
+        Called once from run.py after the tracker is created but before the
+        sweep thread starts.  Records must already be sorted newest-first
+        (i.e. ORDER BY ts DESC from the DB query).  The on_approach_committed
+        callback is intentionally NOT called here — these records are already
+        in the DB.
+        """
+        with self._lock:
+            self._approach_history = list(records[:APPROACH_HISTORY_MAX])
+        log.info("Approach history: pre-loaded %d records from DB", len(records))
 
     def clear_approach_history(self) -> None:
         """Clear the approach history list (called by the web Clear button)."""
