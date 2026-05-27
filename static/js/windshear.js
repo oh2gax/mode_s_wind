@@ -2397,6 +2397,8 @@ let approachHistoryEnabled = false;
 let approachHistoryMode    = 'wind';  // 'wind' | 'hw'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
+let aphHistDateMode        = false;   // true when a specific date is selected
+let aphHistDate            = '';      // YYYY-MM-DD selected by the user
 
 // Lo: every 500 ft from 1000–3000;  Hi: every 200 ft from 200–3000
 const APHIST_BANDS_LO = [800, 1000, 1400, 1800, 2200, 2600, 3000];
@@ -2462,9 +2464,84 @@ document.querySelector('.ws-aphist-timerow').addEventListener('click', e => {
   const btn = e.target.closest('.ws-aphist-time-btn');
   if (!btn) return;
   aphHistWindow = parseInt(btn.dataset.window, 10);
+  // Exit date mode when a time-window button is clicked
+  aphHistDateMode = false;
+  aphHistDate     = '';
+  document.getElementById('ws-aphist-date').value        = '';
+  document.getElementById('ws-aphist-date-picker').value = '';
+  _aphHistSyncDateModeUI();
   // Update active highlight
   document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
     b.classList.toggle('ws-aphist-time-active', b === btn)
+  );
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
+/** Sync dimmed / active state of time buttons and Live button to current mode. */
+function _aphHistSyncDateModeUI() {
+  const inDate = aphHistDateMode;
+  document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
+    b.classList.toggle('ws-aphist-time-dimmed', inDate)
+  );
+  document.getElementById('ws-aphist-live-btn').classList.toggle('ws-aphist-live-active', !inDate);
+}
+
+// Calendar button — opens the hidden native date picker
+document.getElementById('ws-aphist-cal-btn').addEventListener('click', () => {
+  try { document.getElementById('ws-aphist-date-picker').showPicker(); } catch (_) {}
+});
+
+// Hidden date picker — when user picks a date via calendar, fill the text field
+document.getElementById('ws-aphist-date-picker').addEventListener('change', e => {
+  const val = e.target.value; // YYYY-MM-DD
+  if (!val) return;
+  const [yyyy, mm, dd] = val.split('-');
+  document.getElementById('ws-aphist-date').value = `${dd}.${mm}.${yyyy}`;
+  aphHistDate     = val;
+  aphHistDateMode = true;
+  document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
+    b.classList.remove('ws-aphist-time-active')
+  );
+  _aphHistSyncDateModeUI();
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
+// Date text input — dd.mm.yyyy text mask; auto-queries when a full valid date is typed
+document.getElementById('ws-aphist-date').addEventListener('input', e => {
+  // Strip everything that isn't a digit, keep up to 8 digits
+  const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+  // Rebuild dd.mm.yyyy progressively
+  let formatted = digits.slice(0, 2);
+  if (digits.length > 2) formatted += '.' + digits.slice(2, 4);
+  if (digits.length > 4) formatted += '.' + digits.slice(4, 8);
+  e.target.value = formatted;
+
+  // Fire query only when all 8 digits are present
+  if (digits.length < 8) return;
+  const dd = digits.slice(0, 2), mm = digits.slice(2, 4), yyyy = digits.slice(4, 8);
+  // Basic validity check via Date object
+  const d = new Date(`${yyyy}-${mm}-${dd}`);
+  if (isNaN(d.getTime())) return; // invalid date — wait for user to correct
+  aphHistDate     = `${yyyy}-${mm}-${dd}`;
+  aphHistDateMode = true;
+  document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
+    b.classList.remove('ws-aphist-time-active')
+  );
+  _aphHistSyncDateModeUI();
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
+
+// Live button — revert to rolling window
+document.getElementById('ws-aphist-live-btn').addEventListener('click', () => {
+  aphHistDateMode = false;
+  aphHistDate     = '';
+  document.getElementById('ws-aphist-date').value        = '';
+  document.getElementById('ws-aphist-date-picker').value = '';
+  _aphHistSyncDateModeUI();
+  // Re-activate the time button that matches the current window
+  document.querySelectorAll('.ws-aphist-time-btn').forEach(b =>
+    b.classList.toggle('ws-aphist-time-active',
+      parseInt(b.dataset.window, 10) === aphHistWindow)
   );
   if (approachHistoryEnabled) fetchApproachHistory();
 });
@@ -2529,7 +2606,10 @@ function renderApproachHistory(entries) {
 async function fetchApproachHistory() {
   if (!approachHistoryEnabled) return;
   try {
-    const r = await fetch(`/api/windshear/approach-history?window=${aphHistWindow}`);
+    const url = aphHistDateMode
+      ? `/api/windshear/approach-history?date=${aphHistDate}`
+      : `/api/windshear/approach-history?window=${aphHistWindow}`;
+    const r = await fetch(url);
     if (!r.ok) return;
     renderApproachHistory(await r.json());
   } catch (_) { /* silent */ }

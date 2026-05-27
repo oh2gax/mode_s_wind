@@ -520,19 +520,23 @@ def create_app(
         """
         Return landed approach history as a JSON list, newest first.
 
-        Optional query parameter:
+        Optional query parameters (mutually exclusive; window takes precedence):
           window — time window in seconds (e.g. 10800 for 3 h).
                    When present the response is sourced from the persistent
                    approach_history DB table so data survives server restarts.
                    When absent the in-RAM list is returned (backward compat).
+          date   — calendar date in YYYY-MM-DD format (UTC).
+                   Returns all approaches whose date_utc matches exactly.
+                   Ignored when window is also supplied.
 
         Each entry contains: ts, time_utc, callsign, icao, registration,
         aircraft_type, runway, rwy_heading, and a bands dict keyed by altitude
         (ft as string) with {dir, spd} values or null when no wind was captured.
         """
+        import json as _json
         window = request.args.get("window", type=int)
+        date   = request.args.get("date", type=str)   # YYYY-MM-DD or None
         if window is not None:
-            import json as _json
             cutoff = time.time() - window
             db     = get_db()
             rows   = db.execute(
@@ -549,7 +553,27 @@ def create_app(
                 r["bands"] = _json.loads(r.pop("bands_json"))
                 result.append(r)
             return jsonify(result)
-        # No window param — serve from RAM (backward compat / internal use)
+        if date is not None:
+            # Validate format loosely: expect YYYY-MM-DD
+            import re as _re
+            if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+            db   = get_db()
+            rows = db.execute(
+                """SELECT ts, time_utc, icao, callsign, registration,
+                          aircraft_type, runway, rwy_heading, bands_json
+                   FROM approach_history
+                   WHERE date_utc = ?
+                   ORDER BY ts DESC""",
+                (date,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                r = dict(row)
+                r["bands"] = _json.loads(r.pop("bands_json"))
+                result.append(r)
+            return jsonify(result)
+        # No window or date param — serve from RAM (backward compat / internal use)
         if ws_tracker is None:
             return jsonify([])
         return jsonify(ws_tracker.get_approach_history())

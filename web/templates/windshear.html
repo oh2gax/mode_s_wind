@@ -69,6 +69,13 @@
             <button class="ws-aphist-time-btn" data-window="21600">6h</button>
             <button class="ws-aphist-time-btn" data-window="43200">12h</button>
             <button class="ws-aphist-time-btn" data-window="86400">1d</button>
+            <span class="ws-aphist-sep"></span>
+            <span class="ws-aphist-date-wrap">
+              <input type="text" id="ws-aphist-date" class="ws-aphist-date-input" maxlength="10" placeholder="dd.mm.yyyy" autocomplete="off" title="Type dd.mm.yyyy or click the calendar button">
+              <button id="ws-aphist-cal-btn" class="ws-aphist-cal-btn" title="Open calendar picker">&#128197;</button>
+              <input type="date" id="ws-aphist-date-picker" class="ws-aphist-date-picker-hidden" tabindex="-1" aria-hidden="true">
+            </span>
+            <button id="ws-aphist-live-btn" class="ws-aphist-live-btn ws-aphist-live-active" title="Back to live rolling window">Live</button>
           </div>
           <div class="ws-aphist-scroll">
             <table class="ws-aphist-table">

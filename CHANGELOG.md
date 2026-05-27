@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-27 (Windshear — Approach History dynamic panel height + date query)
+
+- **Dynamic Approach History panel height** — the Approach History overlay now stretches automatically with the map container instead of being clipped to a fixed 264 px maximum; the panel is anchored top (`90px`) and bottom (`8px`) inside the positioned `.ws-map-wrap` container and uses a flex-column layout so the scrollable table fills all remaining space; on a 1080p display the visible table area roughly doubles, and on higher resolutions it grows proportionally; no layout or backend changes were required — only `static/css/style.css` was modified
+- **Approach History custom date query** — a date picker control is added to the right of the `1d` time-filter button; it consists of a `dd.mm.yyyy` text field, a calendar (📅) icon button, and a `Live` button; entering a date or picking one from the calendar switches the panel into **date mode**: the panel loads all approaches for that full UTC day from the DB (`GET /api/windshear/approach-history?date=YYYY-MM-DD`), the five time-window buttons are dimmed, and the `Live` button becomes highlighted; clicking `Live` or any time-window button exits date mode and resumes live rolling-window queries; the `Live` button is highlighted (blue) in live mode and muted in date mode, so the active mode is always unambiguous
+- **Locale-independent `dd.mm.yyyy` input** — the date field is a plain `<input type="text">` with a JS input mask that auto-inserts dots and accepts digits only, ensuring the `dd.mm.yyyy` format is displayed consistently regardless of the user's OS locale (e.g. Finnish Windows shows `pp.kk.vvvv` with a native `<input type="date">`); the hidden `<input type="date">` behind the 📅 button is never visible — it serves only as a calendar UI trigger via `showPicker()`; the text field additionally accepts typed input directly for keyboard users
+- **New backend query parameter** — `GET /api/windshear/approach-history?date=YYYY-MM-DD` added to `web/app.py`; queries `WHERE date_utc = ?` on the indexed `date_utc` column; returns all approaches for that calendar day, newest first; the existing `?window=<seconds>` parameter is unchanged; a loose format check (`\d{4}-\d{2}-\d{2}`) rejects malformed inputs with HTTP 400
+
+---
+
 ## 2026-05-26 (Windshear — Approach History DB persistence + time filter)
 
 - **Approach History is now persisted to SQLite** — a new `approach_history` table stores one row per completed landing approach; data survives server restarts and accumulates indefinitely, making multi-hour and full-day queries practical

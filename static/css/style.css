@@ -1006,6 +1006,90 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   color: #fff;
   border-color: #0369a1;
 }
+.ws-aphist-time-btn.ws-aphist-time-dimmed {
+  opacity: 0.35;
+}
+
+/* Separator between time buttons and date controls */
+.ws-aphist-sep {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  align-self: center;
+  margin: 0 2px;
+}
+
+/* Wrapper keeps text field + calendar button together */
+.ws-aphist-date-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+/* Hidden native date picker — invisible but still reachable via showPicker() */
+.ws-aphist-date-picker-hidden {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: none;
+}
+
+/* Date text input — compact, matches button row aesthetic; always dd.mm.yyyy */
+.ws-aphist-date-input {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: text;
+  height: 20px;
+  width: 82px;
+  font-family: inherit;
+}
+.ws-aphist-date-input::placeholder { color: var(--text-3); }
+.ws-aphist-date-input:focus {
+  outline: none;
+  border-color: #0369a1;
+}
+
+/* Calendar icon button */
+.ws-aphist-cal-btn {
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  height: 20px;
+  transition: background .12s;
+}
+.ws-aphist-cal-btn:hover { background: var(--bg-3); color: var(--text-1); }
+
+/* Live button */
+.ws-aphist-live-btn {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background .12s;
+}
+.ws-aphist-live-btn:hover        { background: var(--bg-3); color: var(--text-1); }
+.ws-aphist-live-btn.ws-aphist-live-active {
+  background: #0369a1;
+  color: #fff;
+  border-color: #0369a1;
+}
 
 .ws-aphist-scroll {
   flex: 1;
