@@ -938,6 +938,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-aphist-panel {
   position: absolute;
   top: 90px;
+  bottom: 8px;
   left: 8px;
   z-index: 800;
   background: rgba(15, 23, 42, 0.93);
@@ -947,6 +948,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   backdrop-filter: blur(4px);
   max-width: 630px;
   min-width: 360px;
+  display: flex;
+  flex-direction: column;
 }
 /* Hi mode — all 15 band columns + 5 fixed columns; no width cap so table
    sizes to content naturally; the map area beneath absorbs the extra width */
@@ -1005,7 +1008,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 
 .ws-aphist-scroll {
-  max-height: 264px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
 }
