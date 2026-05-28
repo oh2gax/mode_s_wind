@@ -2148,7 +2148,6 @@ async function fetchApproachState() {
       if (!liveIcaos.has(icao)) {
         const hist = wsWindHistory[icao] || [];
         const below2k = hist.filter(o => o.alt_ft <= WINDROSE_ALT_MAX && o.wind_spd != null);
-        console.log(`[Windrose] ${icao} staled out — wsWindHistory: ${hist.length} total obs, ${below2k.length} below ${WINDROSE_ALT_MAX} ft for harvest`);
         for (const obs of below2k) {
           recentLandingWinds.push({
             dir: obs.wind_dir,
@@ -2760,7 +2759,6 @@ async function fetchWindroseObs() {
       if (ts < cutoff) windroseServerTsSeen.delete(ts);
     }
     // Keep chronological order (server sends oldest→newest already)
-    console.log(`[Windrose] fetchWindroseObs: server returned ${obs.length} obs, ${newObs} new → recentLandingWinds now ${recentLandingWinds.length}`);
     if (newObs > 0) drawWindrose();
   } catch (_) { /* silent */ }
 }
