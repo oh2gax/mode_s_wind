@@ -717,6 +717,10 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 **Arrow convention:** both arrows point in the **downwind direction** — where the wind is blowing toward, not where it is coming from. This means the arrowhead always points toward the runway label that has a headwind. For example, wind from 050° produces an arrow pointing toward the SW/`04` end, instantly showing that RWY 04 approaches have the headwind. When both METAR and MODE-S arrows align with the same runway end, conditions are consistent; a divergence between the two arrows is a prompt to investigate further.
 
+**Canvas timestamps** — the top-right corner of the compass canvas shows a UTC HH:MM timestamp alongside each source label: the cyan time is the METAR **issue time** parsed from the `DDHHMM Z` group in the raw METAR string (e.g. `281550Z` → `15:50`), and the green time is the timestamp of the **most recent MODE-S observation** currently in the 30-minute rolling buffer. Both use the same font and colour as the left-side dot labels. `--:--` is shown when no data is available for that source.
+
+**METAR staleness colouring** — the METAR text in the weather strip below the map changes colour when the observation is getting old: **orange** at ≥ 60 minutes, **red** at ≥ 90 minutes, normal colour when fresh. Age is measured from the METAR issue time (same timestamp shown in the canvas corner), not from the browser's last fetch. The colour is re-evaluated every minute independently of the 10-minute fetch cycle so the transition happens on time.
+
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
 #### Windshear Alert

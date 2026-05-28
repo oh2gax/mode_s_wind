@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-28 (Windshear — METAR staleness indicator + Windrose timestamps)
+
+- **METAR staleness colour** — the METAR text in the weather strip changes colour based on how old the issued observation is: **orange** when ≥ 60 minutes old, **red** when ≥ 90 minutes old, normal colour when fresh; age is measured from the `DDHHMM Z` issue time parsed directly from the raw METAR string (e.g. `281550Z`), not from the browser's last fetch time, so the indicator correctly reflects the actual age of the meteorological observation
+- **Colour transitions are timely** — `checkMetarAge()` is called both immediately after every `fetchWx()` and independently every minute via `setInterval`; this ensures the colour changes at the correct wall-clock moment even when no new METAR arrives between the 10-minute fetch cycles
+- **Windrose canvas timestamps** — the top-right corner of the Wind Rose canvas now shows UTC HH:MM issue/observation times alongside the existing top-left source labels: cyan `HH:MM` for the METAR issue time, green `HH:MM` for the timestamp of the most recent MODE-S observation currently in the 30-minute rolling buffer; `--:--` is shown when no data is available; same font and colour as the left-side dot labels so the pair reads as a natural key
+
+---
+
 ## 2026-05-28 (Windshear — Windrose auto-update fix)
 
 - **Windrose server buffer now re-fetched every 60 seconds** — previously `fetchWindroseObs()` was called only once on page load, so approaches that landed mid-session were never reflected in the Windrose until the user refreshed the whole page; a new `setInterval(fetchWindroseObs, 60_000)` ensures the browser re-syncs with the server's rolling 30-minute observation buffer within one minute of any new landing

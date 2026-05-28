@@ -1604,6 +1604,54 @@ function renderStrips(aircraft, shearEvents = []) {
 // QNH kept as a module-level variable so drawIlsProfile() can use it.
 let currentQnh = 1013.25;
 
+// ── METAR staleness indicator ─────────────────────────────────────────────────
+let metarIssuedMs = null;   // UTC timestamp (ms) of the most recently parsed METAR issue time
+
+/**
+ * Parse the DDHHMM Z group from a raw METAR string (e.g. "EFHK 281550Z …")
+ * and return a UTC Date timestamp in milliseconds, or null on failure.
+ */
+function parseMetarTime(metarStr) {
+  if (!metarStr) return null;
+  const m = metarStr.match(/\b(\d{2})(\d{2})(\d{2})Z\b/);
+  if (!m) return null;
+  const day = parseInt(m[1], 10);
+  const hr  = parseInt(m[2], 10);
+  const mn  = parseInt(m[3], 10);
+  const now = new Date();
+  let   yr  = now.getUTCFullYear();
+  let   mo  = now.getUTCMonth();   // 0-based
+  // If reported day is ahead of today by more than 1 (clock skew / month boundary),
+  // the METAR belongs to the previous month.
+  if (day > now.getUTCDate() + 1) {
+    mo -= 1;
+    if (mo < 0) { mo = 11; yr -= 1; }
+  }
+  return Date.UTC(yr, mo, day, hr, mn, 0, 0);
+}
+
+/**
+ * Apply or remove the staleness colour class on the METAR <pre> element
+ * based on how many minutes have passed since the METAR was issued.
+ * Called after every fetchWx() AND every minute via setInterval so the
+ * colour transitions happen on time even when no new METAR arrives.
+ */
+function checkMetarAge() {
+  const el = document.getElementById('ws-metar-text');
+  if (!el) return;
+  if (metarIssuedMs == null) { el.classList.remove('ws-metar-stale-orange', 'ws-metar-stale-red'); return; }
+  const ageMin = (Date.now() - metarIssuedMs) / 60_000;
+  if (ageMin >= 90) {
+    el.classList.remove('ws-metar-stale-orange');
+    el.classList.add('ws-metar-stale-red');
+  } else if (ageMin >= 60) {
+    el.classList.remove('ws-metar-stale-red');
+    el.classList.add('ws-metar-stale-orange');
+  } else {
+    el.classList.remove('ws-metar-stale-orange', 'ws-metar-stale-red');
+  }
+}
+
 async function fetchWx() {
   try {
     const r = await fetch('/api/wx');
@@ -1614,6 +1662,10 @@ async function fetchWx() {
     const tafEl   = document.getElementById('ws-taf-text');
     if (metarEl) metarEl.textContent = d.metar || '—';
     if (tafEl)   tafEl.textContent   = d.taf   || '—';
+
+    // Parse the METAR issue time and immediately update the staleness colour
+    metarIssuedMs = parseMetarTime(d.metar);
+    checkMetarAge();
 
     if (d.qnh_hpa != null) {
       currentQnh = d.qnh_hpa;
@@ -1631,7 +1683,8 @@ async function fetchWx() {
 }
 
 fetchWx();
-setInterval(fetchWx, 10 * 60 * 1000);
+setInterval(fetchWx,       10 * 60 * 1000);
+setInterval(checkMetarAge,      60 * 1000);  // re-check age every minute for timely colour transitions
 
 // ── ILS corridor filter toggle ────────────────────────────────────────────────
 let ilsFilterActive = true;                          // ON by default
@@ -2021,13 +2074,30 @@ function drawWindrose() {
     drawArrow(modesW.dir, modesW.spd, MODES_COL);
   }
 
-  // ── Top-left legend dots ─────────────────────────────────────────────────────
+  // ── Top-left legend dots + top-right timestamps (UTC HH:MM) ────────────────
+  const fmtUtcHHMM = ms => {
+    if (ms == null) return '--:--';
+    const d = new Date(ms);
+    return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+  };
+  const latestModesMs = recent.length > 0 ? Math.max(...recent.map(o => o.ts)) : null;
+
   ctx.font = '10px "Courier New",monospace';
-  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  // Left: coloured dot + source label
+  ctx.textAlign = 'left';
   ctx.fillStyle = METAR_COL;
   ctx.fillText('● METAR', 5, 4);
   ctx.fillStyle = modesW ? MODES_COL : CT.roseSpeed;
   ctx.fillText('● MODE-S', 5, 14);
+
+  // Right: UTC issue / observation time
+  ctx.textAlign = 'right';
+  ctx.fillStyle = METAR_COL;
+  ctx.fillText(fmtUtcHHMM(metarIssuedMs), W - 5, 4);
+  ctx.fillStyle = modesW ? MODES_COL : CT.roseSpeed;
+  ctx.fillText(fmtUtcHHMM(latestModesMs), W - 5, 14);
 
   // ── Text readout below canvas ────────────────────────────────────────────────
   if (!readout) return;
@@ -2077,16 +2147,15 @@ async function fetchApproachState() {
     for (const icao of prevLiveIcaos) {
       if (!liveIcaos.has(icao)) {
         const hist = wsWindHistory[icao] || [];
-        for (const obs of hist) {
-          if (obs.alt_ft  <= WINDROSE_ALT_MAX &&
-              obs.wind_spd != null && obs.wind_dir != null) {
-            recentLandingWinds.push({
-              dir: obs.wind_dir,
-              spd: obs.wind_spd,
-              alt: obs.alt_ft,
-              ts:  nowMs,
-            });
-          }
+        const below2k = hist.filter(o => o.alt_ft <= WINDROSE_ALT_MAX && o.wind_spd != null);
+        console.log(`[Windrose] ${icao} staled out — wsWindHistory: ${hist.length} total obs, ${below2k.length} below ${WINDROSE_ALT_MAX} ft for harvest`);
+        for (const obs of below2k) {
+          recentLandingWinds.push({
+            dir: obs.wind_dir,
+            spd: obs.wind_spd,
+            alt: obs.alt_ft,
+            ts:  nowMs,
+          });
         }
       }
     }
@@ -2691,6 +2760,7 @@ async function fetchWindroseObs() {
       if (ts < cutoff) windroseServerTsSeen.delete(ts);
     }
     // Keep chronological order (server sends oldest→newest already)
+    console.log(`[Windrose] fetchWindroseObs: server returned ${obs.length} obs, ${newObs} new → recentLandingWinds now ${recentLandingWinds.length}`);
     if (newObs > 0) drawWindrose();
   } catch (_) { /* silent */ }
 }
