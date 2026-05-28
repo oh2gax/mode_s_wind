@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-28 (Windshear — GPS position-freeze gate for Approach History and Windrose)
+
+- **Position-freeze gate** added to `collector/windshear.py` — protects the Approach History altitude-band capture and the Windrose low-altitude observation buffer from wind data computed while an aircraft's ADS-B position is frozen by GPS jamming
+- **How it works**: a new `_pos_track` dict (keyed by ICAO) records the most recent `{dist_thr, alt}` for every in-corridor aircraft on every sweep, regardless of meteo quality; before writing a band or a Windrose observation, the gate checks whether altitude has dropped more than `BAND_TOL_FT` (100 ft) since the previous sweep while `dist_thr` has not advanced by at least `POS_FREEZE_MIN_NM` (0.05 NM) — the characteristic signature of a frozen GPS position descending through the glideslope; if true, `pos_frozen = True` and the write is skipped, leaving the affected bands as `None` (displayed as `—`) rather than filling them with partially stale wind
+- **Why 0.05 NM**: on a 3° glideslope a 100 ft altitude drop corresponds to ~0.31 NM of forward movement; 0.05 NM is well below normal aircraft advance speed, so the gate only fires when there is genuinely zero position change over a meaningful altitude descent; it does not fire during normal GPS update jitter or brief position-message gaps
+- **NONE-gap robustness**: `_pos_track` is updated on every in-corridor sweep — even during `meteo_source = NONE` periods — so the tracker does not false-fire when EHS wind data recovers after a legitimate meteo gap; the position history stays current through NONE windows
+- **Windrose also protected**: the same `pos_frozen` flag gates the Windrose per-aircraft accumulation loop, preventing stale-groundspeed wind from entering the rolling buffer and corrupting the Windrose average
+- **No effect on normal operations**: the gate never fires for aircraft with functioning GPS; all band captures and Windrose observations for unjammed approaches are identical to before; `POS_FREEZE_MIN_NM` constant added to the approach history constants section
+- **Cleanup**: `_pos_track` entries are removed in all the same places as `_band_winds` — blocked registration early return, distance/altitude gate early return, aircraft leaves corridor while APPROACHING, and `prune_stale()` — preventing any memory leak for long-tracked aircraft
+
+---
+
 ## 2026-05-27 (Windshear — Approach History dynamic panel height + date query)
 
 - **Dynamic Approach History panel height** — the Approach History overlay now stretches automatically with the map container instead of being clipped to a fixed 264 px maximum; the panel is anchored top (`90px`) and bottom (`8px`) inside the positioned `.ws-map-wrap` container and uses a flex-column layout so the scrollable table fills all remaining space; on a 1080p display the visible table area roughly doubles, and on higher resolutions it grows proportionally; no layout or backend changes were required — only `static/css/style.css` was modified

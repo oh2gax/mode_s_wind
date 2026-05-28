@@ -94,6 +94,13 @@ APPROACH_HISTORY_BANDS = (
 )                                     # 15 bands at 200 ft resolution, ft MSL
 BAND_TOL_FT            = 100          # ±ft window for band wind capture
 
+# Position-freeze gate — protects band capture and windrose from GPS-frozen
+# positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
+# On a 3° glideslope, BAND_TOL_FT of altitude drop ≙ ~0.31 NM forward
+# movement; 0.05 NM is well below this, so the gate only fires when there
+# is genuinely zero position change over a meaningful altitude descent.
+POS_FREEZE_MIN_NM      = 0.05         # NM; minimum dist change per BAND_TOL_FT altitude drop
+
 # ── Windrose low-altitude observation buffer ──────────────────────────────────
 # Per-aircraft rolling buffer that mirrors the JS Lo-buffer gate exactly
 # (same 400 ft / 0.5 NM min-gap thresholds) so that observations harvested
@@ -295,6 +302,7 @@ class WindshearTracker:
         self._band_winds: dict[str, dict]  = {}   # icao → in-flight band capture state
         self._windrose_obs: dict[str, list] = {}  # icao → in-flight low-alt wind obs list
         self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
+        self._pos_track: dict[str, dict]   = {}   # icao → {dist, alt} for position-freeze detection
         self._lock  = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -382,6 +390,7 @@ class WindshearTracker:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
+                self._pos_track.pop(icao, None)
             return
 
         now = time.time()
@@ -393,6 +402,7 @@ class WindshearTracker:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
+                self._pos_track.pop(icao, None)
             return
 
         # ── ILS corridor detection ────────────────────────────────────────────
@@ -548,12 +558,38 @@ class WindshearTracker:
             ga_count  = self._ga_counts.get(icao, 0)
             is_return = ga_count > 0 and ga_phase != "GO_AROUND"
 
+            # ── Position-freeze detection ─────────────────────────────────────
+            # Update the per-aircraft position tracker on every in-corridor
+            # sweep — even during NONE periods — so the detector stays current
+            # through meteo gaps and does not false-fire when wind data recovers
+            # after a legitimate NONE window.
+            #
+            # pos_frozen is True when altitude has dropped more than BAND_TOL_FT
+            # since the previous sweep but dist_thr has not advanced by at least
+            # POS_FREEZE_MIN_NM — the signature of a GPS-jammed frozen position.
+            # Wind computed in this state is based on a stale groundspeed vector
+            # and must not be written to Approach History or the Windrose buffer.
+            pos_frozen = False
+            if in_corridor and dist_thr is not None:
+                prev_pos = self._pos_track.get(icao)
+                if prev_pos is not None:
+                    alt_drop   = prev_pos["alt"] - alt
+                    dist_moved = abs(dist_thr - prev_pos["dist"])
+                    if alt_drop > BAND_TOL_FT and dist_moved < POS_FREEZE_MIN_NM:
+                        pos_frozen = True
+                self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
+            elif not in_corridor:
+                self._pos_track.pop(icao, None)
+
             # ── Approach history: altitude-band wind capture ──────────────────────
             # Capture the first wind reading within ±BAND_TOL_FT of each target
             # altitude while the aircraft is in the corridor with valid wind data.
             # Bands are locked once captured so we record the highest-altitude
             # reading at each level, not the last one.
-            if (in_corridor and wind_spd is not None and wind_dir is not None
+            # pos_frozen guards against GPS-jammed frozen-position sweeps where
+            # EHS wind may be computed from a stale groundspeed vector.
+            if (in_corridor and not pos_frozen
+                    and wind_spd is not None and wind_dir is not None
                     and aircraft.get("meteo_source", "NONE") != "NONE"):
                 bw = self._band_winds.setdefault(icao, {
                     "icao": icao, "callsign": callsign, "runway": runway,
@@ -575,7 +611,8 @@ class WindshearTracker:
             # altitude change OR 0.5 NM of along-track progress, capped at 40
             # entries per aircraft.  Requirements: in corridor, alt ≤ 2 000 ft,
             # valid non-NONE wind — identical conditions to JS wsWindHistory.
-            if (in_corridor
+            # pos_frozen guard matches the band capture gate above.
+            if (in_corridor and not pos_frozen
                     and alt <= WINDROSE_OBS_MAX_ALT_FT
                     and wind_spd is not None
                     and wind_dir is not None
@@ -650,6 +687,7 @@ class WindshearTracker:
                 entry = self._state.pop(k)
                 bw    = self._band_winds.pop(k, None)
                 wr    = self._windrose_obs.pop(k, None)
+                self._pos_track.pop(k, None)
 
                 # Harvest windrose observations when the aircraft goes stale
                 # while APPROACHING (assumed landed).  Each obs gets the current
