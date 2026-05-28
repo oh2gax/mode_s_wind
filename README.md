@@ -1247,4 +1247,18 @@ A detailed record of all changes, fixes and new features is maintained in [CHANG
 
 ## Contributing
 
-This project is developed and maintained by **Otso Laakso / OH2GAX**. In active development. Feedback, observations a
+This project is developed and maintained by **Otso Laakso / OH2GAX**. In active development. Feedback, observations and bug reports — especially from UI testing and real-world operational use — are welcome. If you encounter unexpected behaviour, display glitches, or data quality issues, please describe the conditions (runway in use, weather, time UTC) so they can be reproduced against the live feed.
+
+This is a personal research tool built around a specific hardware setup at EFHK. External pull requests are not currently accepted, but well-described issue reports and suggestions for improvement are appreciated.
+
+---
+
+## License
+
+Copyright © 2024–2026 Otso Laakso / OH2GAX.
+
+This project is licensed under the **GNU General Public License v3.0**. You are free to use, study, modify and distribute this software under the terms of the GPLv3. Any derivative work must also be distributed under the same license.
+
+See the [LICENSE](LICENSE) file for the full license text, or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
+
+The project uses several open-source libraries (pyModeS, Leaflet, Chart.js) which retain their own respective licenses — see the Acknowledgements section.
