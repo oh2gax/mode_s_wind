@@ -2401,9 +2401,9 @@ let aphHistDateMode        = false;   // true when a specific date is selected
 let aphHistDate            = '';      // YYYY-MM-DD selected by the user
 
 // Lo: every 500 ft from 1000–3000;  Hi: every 200 ft from 200–3000
-const APHIST_BANDS_LO = [800, 1000, 1400, 1800, 2200, 2600, 3000];
+const APHIST_BANDS_LO = [600, 800, 1000, 1400, 1800, 2200, 2600, 3000];
 const APHIST_BANDS_HI = [
-   200,  400,  600,  800, 1000,
+   600,  800, 1000,
   1200, 1400, 1600, 1800, 2000,
   2200, 2400, 2600, 2800, 3000,
 ];
