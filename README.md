@@ -1249,7 +1249,7 @@ A detailed record of all changes, fixes and new features is maintained in [CHANG
 
 This project is developed and maintained by **Otso Laakso / OH2GAX**. In active development. Feedback, observations and bug reports — especially from UI testing and real-world operational use — are welcome. If you encounter unexpected behaviour, display glitches, or data quality issues, please describe the conditions (runway in use, weather, time UTC) so they can be reproduced against the live feed.
 
-This is a personal research tool built around a specific hardware setup at EFHK. External pull requests are not currently accepted, but well-described issue reports and suggestions for improvement are appreciated.
+This is a personal research tool built around a specific hardware setup at EFHK. Well-described issue reports and suggestions for improvement are appreciated.
 
 ---
 
