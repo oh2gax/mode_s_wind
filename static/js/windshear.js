@@ -2394,7 +2394,7 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 
 // ── Approach History panel ────────────────────────────────────────────────────
 let approachHistoryEnabled = false;
-let approachHistoryMode    = 'wind';  // 'wind' | 'hw'
+let approachHistoryMode    = 'hw';    // 'wind' | 'hw'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
 let aphHistDateMode        = false;   // true when a specific date is selected
@@ -2441,10 +2441,8 @@ document.getElementById('ws-aphist-btn').addEventListener('click', () => {
   if (approachHistoryEnabled) fetchApproachHistory();
 });
 
-document.getElementById('ws-aphist-mode-btn').addEventListener('click', () => {
-  approachHistoryMode = approachHistoryMode === 'wind' ? 'hw' : 'wind';
-  document.getElementById('ws-aphist-mode-btn').textContent =
-    approachHistoryMode === 'wind' ? 'Wind' : 'HW';
+document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
+  approachHistoryMode = e.target.value;
   if (approachHistoryEnabled) fetchApproachHistory();
 });
 
@@ -2548,22 +2546,63 @@ document.getElementById('ws-aphist-live-btn').addEventListener('click', () => {
 
 /**
  * Format one altitude-band cell.
- * In 'wind' mode: "270°/15"  (direction / speed kt)
- * In 'hw' mode:  "+12"  or "-5"  (headwind component, green/red/amber)
+ *   'wind'  — "270°/15"   raw wind (direction / speed kt)
+ *   'hw'    — "+12"/"-5"  headwind component, colour-coded green/red/amber
+ *   'xw'    — "←8"/"→3"  crosswind component, colour-coded; ← = from left, → = from right
+ *   'hwxw'  — two-line: HW on top, XW below
+ *
+ * Sign convention (both components):
+ *   HW positive = headwind, negative = tailwind
+ *   XW positive = wind from right of centreline, negative = from left
  */
+function _hwVal(band, rwyHdg) {
+  if (band == null || rwyHdg == null) return null;
+  return Math.round(band.spd * Math.cos((band.dir - rwyHdg) * Math.PI / 180));
+}
+function _xwVal(band, rwyHdg) {
+  if (band == null || rwyHdg == null) return null;
+  return Math.round(band.spd * Math.sin((band.dir - rwyHdg) * Math.PI / 180));
+}
+function _hwHtml(hw) {
+  const cls = hw >=  5 ? 'ws-aphist-hw-pos'
+            : hw <= -5 ? 'ws-aphist-hw-neg'
+            :             'ws-aphist-hw-zero';
+  return `<span class="${cls}">${hw > 0 ? '+' : ''}${hw}</span>`;
+}
+function _xwHtml(xw) {
+  const abs = Math.abs(xw);
+  const cls = abs >= 10 ? 'ws-aphist-xw-strong'
+            : abs >=  5 ? 'ws-aphist-xw-mod'
+            :              'ws-aphist-xw-light';
+  const arrow = xw < 0 ? '←' : '→';
+  return `<span class="${cls}">${arrow}${abs}</span>`;
+}
+
 function formatBandCell(band, rwyHdg) {
   if (!band) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
+
   if (approachHistoryMode === 'hw') {
-    const hw = (rwyHdg != null)
-      ? Math.round(band.spd * Math.cos((band.dir - rwyHdg) * Math.PI / 180))
-      : null;
+    const hw = _hwVal(band, rwyHdg);
     if (hw == null) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
-    const cls = hw >=  5 ? 'ws-aphist-hw-pos'
-              : hw <= -5 ? 'ws-aphist-hw-neg'
-              :             'ws-aphist-hw-zero';
-    return `<td class="ws-aphist-cell ${cls}">${hw > 0 ? '+' : ''}${hw}</td>`;
+    return `<td class="ws-aphist-cell">${_hwHtml(hw)}</td>`;
   }
-  // Wind mode: dir°/spd
+
+  if (approachHistoryMode === 'xw') {
+    const xw = _xwVal(band, rwyHdg);
+    if (xw == null) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
+    return `<td class="ws-aphist-cell">${_xwHtml(xw)}</td>`;
+  }
+
+  if (approachHistoryMode === 'hwxw') {
+    const hw = _hwVal(band, rwyHdg);
+    const xw = _xwVal(band, rwyHdg);
+    if (hw == null || xw == null) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>';
+    return `<td class="ws-aphist-cell">` +
+      `<div class="ws-aphist-hwxw">${_hwHtml(hw)}<span class="ws-aphist-hwxw-sep"></span>${_xwHtml(xw)}</div>` +
+      `</td>`;
+  }
+
+  // 'wind' mode: dir°/spd
   return `<td class="ws-aphist-cell">${band.dir}°/${band.spd}</td>`;
 }
 

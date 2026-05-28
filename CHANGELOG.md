@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-28 (Windshear — Approach History crosswind component + layout tidy)
+
+- **Crosswind component added to Approach History** — the altitude-band column display now supports four modes selectable from a new inline dropdown in the control row: **Wind** (raw `dir°/spd kt`), **HW** (headwind component, default), **XW** (crosswind component), and **HW+XW** (both components stacked in a two-line cell with a hairline separator)
+- **Crosswind display convention** — XW shows the magnitude in knots with a directional arrow: `←` means the crosswind is coming **from the left** of the aircraft on approach; `→` means from the **right**; the number is the crosswind component magnitude. Example: `←17` on RWY 04L with wind from 310° means 17 kt crosswind from the left — the aircraft drifts right and must crab left to maintain centreline. The arrow always indicates the **source side** of the wind, not the direction it is blowing across the runway. Colour coding: green (< 5 kt, light), amber (5–9 kt, moderate), red (≥ 10 kt, strong)
+- **HW+XW two-line cell** — Option A layout: headwind component on the top line, crosswind on the bottom line, separated by a thin hairline rule; both values are colour-coded independently; the cell height increases slightly in this mode to accommodate both values cleanly
+- **Crosswind formula** — `XW = wind_speed × sin(wind_dir − runway_heading)`; positive = from right, negative = from left; computed client-side from the existing `{dir, spd}` band data and `rwy_heading` already present in every Approach History record — no backend changes required
+- **Control row layout tidy** — the mode dropdown and Lo/Hi button moved from the header row into the time-filter row, placed after the Live button with a thin separator; the panel header now contains only the title, saving one row of vertical space and keeping all interactive controls together on one line
+
+---
+
 ## 2026-05-28 (Windshear — GPS position-freeze gate for Approach History and Windrose)
 
 - **Position-freeze gate** added to `collector/windshear.py` — protects the Approach History altitude-band capture and the Windrose low-altitude observation buffer from wind data computed while an aircraft's ADS-B position is frozen by GPS jamming

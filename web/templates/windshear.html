@@ -60,8 +60,6 @@
         <div class="ws-aphist-panel ws-aphist-hidden" id="ws-aphist-panel">
           <div class="ws-aphist-header">
             <span class="ws-aphist-title">Approach History</span>
-            <button class="ws-aphist-ctrl-btn" id="ws-aphist-mode-btn" title="Toggle between raw wind (dir°/spd kt) and headwind component">Wind</button>
-            <button class="ws-aphist-ctrl-btn" id="ws-aphist-hi-btn" title="Toggle Hi resolution (15 bands, 200 ft) vs Lo resolution (7 bands, 400 ft)">Lo</button>
           </div>
           <div class="ws-aphist-timerow">
             <button class="ws-aphist-time-btn" data-window="3600">1h</button>
@@ -76,6 +74,14 @@
               <input type="date" id="ws-aphist-date-picker" class="ws-aphist-date-picker-hidden" tabindex="-1" aria-hidden="true">
             </span>
             <button id="ws-aphist-live-btn" class="ws-aphist-live-btn ws-aphist-live-active" title="Back to live rolling window">Live</button>
+            <span class="ws-aphist-sep"></span>
+            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both">
+              <option value="wind">Wind</option>
+              <option value="hw" selected>HW</option>
+              <option value="xw">XW</option>
+              <option value="hwxw">HW+XW</option>
+            </select>
+            <button class="ws-aphist-ctrl-btn" id="ws-aphist-hi-btn" title="Toggle Hi resolution (15 bands, 200 ft) vs Lo resolution (7 bands, 400 ft)">Lo</button>
           </div>
           <div class="ws-aphist-scroll">
             <table class="ws-aphist-table">
