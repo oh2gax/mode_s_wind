@@ -1648,7 +1648,11 @@ document.getElementById('ws-windrose-btn').addEventListener('click', () => {
   windroseEnabled = !windroseEnabled;
   document.getElementById('ws-windrose-btn').classList.toggle('active', windroseEnabled);
   document.getElementById('ws-windrose-panel').classList.toggle('ws-windrose-hidden', !windroseEnabled);
-  if (windroseEnabled) drawWindrose();
+  if (windroseEnabled) {
+    // Re-sync the server windrose buffer immediately on open so the panel
+    // always shows the freshest available data (mirrors the periodic 60 s poll).
+    fetchWindroseObs().then(drawWindrose);
+  }
 });
 
 // ── Windshear event log ───────────────────────────────────────────────────────
@@ -1809,8 +1813,9 @@ const WINDROSE_MAX_AGE_MS = 30 * 60 * 1000; // 30-minute rolling buffer
 
 let windroseEnabled      = true;   // shown by default
 let metarWind            = null;   // { dir, spd, variable } — updated by fetchWx
-const recentLandingWinds = [];     // { dir, spd, alt, ts } — low-alt obs from departed aircraft
-let prevLiveIcaos        = new Set(); // icao set from previous poll, used to detect departures
+const recentLandingWinds    = [];          // { dir, spd, alt, ts } — low-alt obs from departed aircraft
+const windroseServerTsSeen  = new Set();   // Unix-ms ts values already ingested from the server buffer
+let prevLiveIcaos            = new Set();  // icao set from previous poll, used to detect departures
 
 // ── Wind Rose helpers ─────────────────────────────────────────────────────────
 
@@ -2670,19 +2675,29 @@ async function fetchWindroseObs() {
     const r = await fetch('/api/windshear/windrose-obs');
     if (!r.ok) return;
     const obs = await r.json();
-    const nowMs = Date.now();
+    const nowMs  = Date.now();
+    let   newObs = 0;
     for (const o of obs) {
-      const tsMs = o.ts * 1000;   // server sends Unix seconds; JS uses ms
+      const tsMs = o.ts * 1000;              // server sends Unix seconds; JS uses ms
       if (nowMs - tsMs > WINDROSE_MAX_AGE_MS) continue;
+      if (windroseServerTsSeen.has(tsMs))     continue;  // already ingested this cycle
+      windroseServerTsSeen.add(tsMs);
       recentLandingWinds.push({ dir: o.dir, spd: o.spd, alt: o.alt, ts: tsMs });
+      newObs++;
+    }
+    // Prune seen-set: drop entries older than the windrose window
+    const cutoff = nowMs - WINDROSE_MAX_AGE_MS;
+    for (const ts of windroseServerTsSeen) {
+      if (ts < cutoff) windroseServerTsSeen.delete(ts);
     }
     // Keep chronological order (server sends oldest→newest already)
-    if (obs.length > 0) drawWindrose();
+    if (newObs > 0) drawWindrose();
   } catch (_) { /* silent */ }
 }
 
 fetchApproachState();
 fetchApproachHistory();
 fetchWindroseObs();
-setInterval(fetchApproachState, 3_000);
+setInterval(fetchApproachState,   3_000);
 setInterval(fetchApproachHistory, 15_000);
+setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s

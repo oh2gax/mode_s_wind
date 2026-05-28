@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-28 (Windshear — Windrose auto-update fix)
+
+- **Windrose server buffer now re-fetched every 60 seconds** — previously `fetchWindroseObs()` was called only once on page load, so approaches that landed mid-session were never reflected in the Windrose until the user refreshed the whole page; a new `setInterval(fetchWindroseObs, 60_000)` ensures the browser re-syncs with the server's rolling 30-minute observation buffer within one minute of any new landing
+- **Deduplication via `windroseServerTsSeen` set** — each server observation is keyed by its Unix-ms timestamp; re-fetches skip already-ingested entries so observations are never double-counted in the vector average; stale keys are pruned from the set in sync with the 30-minute rolling window
+- **Toggle (open) also triggers an immediate re-fetch** — the Windrose panel toggle handler now calls `fetchWindroseObs()` before `drawWindrose()` when opening the panel; this explains the user-observed behaviour where toggling always showed fresh data (it now does so explicitly rather than by coincidence) and ensures the panel is always maximally current on open
+- **Root cause**: after the GPS position-freeze gate was added (2026-05-28), approaches with frozen ADS-B positions produced no windrose observations on either the server path (gate blocks `_windrose_obs` accumulation) or the JS harvest path (`meteo_source === 'NONE'` filter); the page-load-only `fetchWindroseObs()` could not pick up data from aircraft that staled out after page load; the periodic re-fetch closes this gap by polling the server buffer where any pre-freeze valid observations are still stored
+
+---
+
 ## 2026-05-28 (Windshear — Approach History crosswind component + layout tidy)
 
 - **Crosswind component added to Approach History** — the altitude-band column display now supports four modes selectable from a new inline dropdown in the control row: **Wind** (raw `dir°/spd kt`), **HW** (headwind component, default), **XW** (crosswind component), and **HW+XW** (both components stacked in a two-line cell with a hairline separator)
