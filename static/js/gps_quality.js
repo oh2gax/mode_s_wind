@@ -56,11 +56,12 @@ function applyHeatCssVars() {
 
 // ── Range selector state ──────────────────────────────────────────────────────
 const RANGE_CONFIG = {
-  '1d': { hours: 24,  aggregate: 'hour', title: 'Last 24 Hours',  maxTicks: 24 },
-  '2d': { hours: 48,  aggregate: 'hour', title: 'Last 2 Days',    maxTicks: 12 },
-  '3d': { hours: 72,  aggregate: 'hour', title: 'Last 3 Days',    maxTicks: 12 },
-  '1w': { hours: 168, aggregate: 'day',  title: 'Last 7 Days',    maxTicks: 7  },
-  '1m': { hours: 744, aggregate: 'day',  title: 'Last 31 Days',   maxTicks: 31 },
+  '1d': { hours:   24, aggregate: 'hour', title: 'Last 24 Hours',  maxTicks: 24 },
+  '2d': { hours:   48, aggregate: 'hour', title: 'Last 2 Days',    maxTicks: 12 },
+  '3d': { hours:   72, aggregate: 'hour', title: 'Last 3 Days',    maxTicks: 12 },
+  '1w': { hours:  168, aggregate: 'hour', title: 'Last 7 Days',    maxTicks:  7 },
+  '2w': { hours:  336, aggregate: 'day',  title: 'Last 14 Days',   maxTicks: 14 },
+  '1m': { hours:  744, aggregate: 'day',  title: 'Last 31 Days',   maxTicks: 31 },
 };
 let currentRange = localStorage.getItem('ms_gps_range') || '1d';
 let lastFullTimeSeries = [];

@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (GPS Quality — time-series range selector: 1w hourly + new 2w button)
+
+- **`1w` range changed to hourly bars** — the 7-day range now shows one bar per hour (168 bars total) matching the same style as `1d`, `2d`, and `3d`; previously it aggregated to one bar per day, hiding intra-day patterns; the X-axis shows 7 day-boundary tick labels for orientation
+- **New `2w` range button** — shows the last 14 days aggregated to one bar per calendar day (14 bars); fills the gap between the hourly 7-day view and the 31-day monthly view; the Aircraft line in the 2w view shows peak hourly aircraft count per day, consistent with the other daily-aggregate views (`1m`)
+
+---
+
 ## 2026-05-29 (GPS Quality — 14-day heatmap + FL band donut + 14-day stats panel)
 
 - **Heatmap extended to 14 days** — the FL Band Heatmap now shows the most recent 14 calendar days instead of 7; the backend already stored up to 31 days so no DB or API changes were required; `drawHeatmap()` now slices to the last 14 days via `allDayKeys.slice(-14)` before rendering; the panel header label updated accordingly

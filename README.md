@@ -999,10 +999,11 @@ A **range selector** in the chart header controls how much history is displayed:
 | `1d` | Hourly bars | Last 24 hours — default view |
 | `2d` | Hourly bars | Last 48 hours; date prefix shown at midnight boundaries |
 | `3d` | Hourly bars | Last 72 hours |
-| `1w` | Daily bars | Last 7 days aggregated per day |
-| `1m` | Daily bars | Last 31 days aggregated per day |
+| `1w` | Hourly bars | Last 7 days — full hourly resolution, 7 day-boundary tick labels |
+| `2w` | Daily bars  | Last 14 days aggregated per calendar day |
+| `1m` | Daily bars  | Last 31 days aggregated per calendar day |
 
-For the daily views (`1w` / `1m`) the Aircraft line shows the **peak hourly aircraft count** per day rather than a sum, giving a meaningful sense of traffic volume. The selected range is remembered across browser sessions via `localStorage`.
+For the daily-aggregate views (`2w` / `1m`) the Aircraft line shows the **peak hourly aircraft count** per day rather than a sum, giving a meaningful sense of traffic volume. The selected range is remembered across browser sessions via `localStorage`.
 
 **FL-band heatmap (left bottom)** — a colour-coded grid with eight rows (FL bands: FL010–030 / FL030–050 / FL050–100 / FL100–150 / FL150–200 / FL200–250 / FL250–300 / FL300+) and one column per day for the **last 14 days**. Cell colour ranges from near-background (no events) through blue, amber, and red to dark red (high activity). The event count is printed inside non-zero cells. This view is most useful for identifying which altitude layers are most affected on which days — low-level bands being consistently darker than high-level bands is a signature of ground-based jamming that affects climb/descent phases more than cruise.
 
