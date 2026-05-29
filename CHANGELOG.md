@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (GPS Quality — 14-day heatmap + FL band donut + 14-day stats panel)
+
+- **Heatmap extended to 14 days** — the FL Band Heatmap now shows the most recent 14 calendar days instead of 7; the backend already stored up to 31 days so no DB or API changes were required; `drawHeatmap()` now slices to the last 14 days via `allDayKeys.slice(-14)` before rendering; the panel header label updated accordingly
+- **FL Band Analysis panel added** — a new panel in the right column (below the live degraded aircraft table) shows a Chart.js doughnut chart of GPS degradation events broken down by FL band across the 14-day window; FL band labels are displayed as a vertical list on the left side of the chart for compactness; each segment is colour-coded with a distinct per-band colour; hover tooltips show the event count and percentage for each band
+- **14-day summary stats** — below the donut, six key figures are shown for the same 14-day window: total events, most affected FL band (with count), worst single day (with count), and a NACp / Freeze / Gap signal breakdown with event counts and percentage of total
+- **Donut refresh rate** — the donut and stats are drawn once on page load and then refreshed every **60 minutes** via `setInterval`; they are intentionally decoupled from the 30-second main poll cycle since the 14-day aggregates change slowly; the live table and time-series chart continue to update every 30 seconds as before
+- **Live degraded aircraft table** capped at **7 rows** of visible height (approximately 248 px); additional rows are accessible via an in-panel scrollbar; this reserves space in the right column for the donut and stats panel without requiring the overall column to scroll
+- **Sharp donut rendering** — removed CSS `width: 100% !important` and `height: auto !important` overrides on the donut canvas; these were preventing Chart.js from applying the correct `devicePixelRatio` scaling, causing blurry text in the legend and tooltips on HiDPI displays; Chart.js now manages canvas pixel dimensions directly
+
+---
+
 ## 2026-05-28 (Windshear — METAR staleness indicator + Windrose timestamps)
 
 - **METAR staleness colour** — the METAR text in the weather strip changes colour based on how old the issued observation is: **orange** when ≥ 60 minutes old, **red** when ≥ 90 minutes old, normal colour when fresh; age is measured from the `DDHHMM Z` issue time parsed directly from the raw METAR string (e.g. `281550Z`), not from the browser's last fetch time, so the indicator correctly reflects the actual age of the meteorological observation

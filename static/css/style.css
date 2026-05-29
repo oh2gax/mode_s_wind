@@ -1660,7 +1660,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ── Panel header ────────────────────────────────────────────────────────── */
@@ -1760,12 +1761,61 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   width: 100%;
 }
 
+/* ── FL band donut + 14-day stats (right column panel) ───────────────────── */
+.gps-analysis-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.gps-analysis-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.gps-donut-wrap {
+  padding: 0.4rem 0.75rem 0.2rem;
+}
+.gps-donut-wrap canvas {
+  display: block;
+  /* No CSS size overrides — Chart.js manages canvas pixel dimensions
+     including devicePixelRatio scaling for sharp text on HiDPI displays. */
+}
+.gps-stats-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.gps-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 11px;
+}
+.gps-stat-label {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.gps-stat-val {
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.gps-stat-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
 /* ── Live table ──────────────────────────────────────────────────────────── */
 .gps-live-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 248px;
   border-bottom: 1px solid var(--border);
   overflow: hidden;
 }

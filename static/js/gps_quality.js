@@ -3,7 +3,7 @@
  *
  * Polls /api/gps/state every 30 seconds and renders:
  *   • 24-hour time-series chart  (Chart.js)
- *   • 7-day × 7 FL-band heatmap  (Canvas)
+ *   • 14-day × 8 FL-band heatmap  (Canvas)
  *   • Live degraded aircraft table
  */
 
@@ -311,7 +311,10 @@ function drawHeatmap(heatmapData, flBands) {
     }
   }
 
-  const dayKeys = Object.keys(dayMap).map(Number).sort();
+  const HEATMAP_MAX_DAYS = 14;
+  const allDayKeys = Object.keys(dayMap).map(Number).sort();
+  // Keep only the most recent 14 days
+  const dayKeys = allDayKeys.slice(-HEATMAP_MAX_DAYS);
   const nDays   = dayKeys.length;
   if (nDays === 0) return;
 
@@ -434,6 +437,120 @@ function renderLiveTable(liveEvents) {
   }).join('');
 }
 
+// ── FL band donut + 14-day stats panel ───────────────────────────────────────
+let donutChart = null;
+
+const DONUT_COLORS = [
+  '#38bdf8',  // 010-030  sky blue
+  '#818cf8',  // 030-050  indigo
+  '#34d399',  // 050-100  emerald
+  '#fb923c',  // 100-150  orange
+  '#f472b6',  // 150-200  pink
+  '#a78bfa',  // 200-250  violet
+  '#fbbf24',  // 250-300  amber
+  '#94a3b8',  // 300+     slate
+];
+
+function drawDonutAndStats(heatmapData, flBands) {
+  if (!heatmapData || heatmapData.length === 0 || !flBands || flBands.length === 0) return;
+
+  // Limit to most recent 14 days (mirror heatmap cap)
+  const DAY_SEC = 86_400;
+  const cutoff  = (Date.now() / 1000) - 14 * DAY_SEC;
+  const recent  = heatmapData.filter(b => b.ts >= cutoff);
+  if (recent.length === 0) return;
+
+  // Accumulate per-band and per-signal totals
+  const bandTotals = Object.fromEntries(flBands.map(b => [b, 0]));
+  const dayTotals  = {};
+  let totalEvents = 0, totalNacp = 0, totalFreeze = 0, totalGap = 0;
+
+  for (const b of recent) {
+    totalEvents += b.events;
+    totalNacp   += b.nacp_events   || 0;
+    totalFreeze += b.freeze_events || 0;
+    totalGap    += b.gap_events    || 0;
+    for (const band of flBands) bandTotals[band] += b.fl_bands[band] || 0;
+    const dayTs = Math.floor(b.ts / DAY_SEC) * DAY_SEC;
+    dayTotals[dayTs] = (dayTotals[dayTs] || 0) + b.events;
+  }
+
+  // Worst day
+  let worstDayTs = null, worstDayCount = 0;
+  for (const [ts, cnt] of Object.entries(dayTotals)) {
+    if (cnt > worstDayCount) { worstDayCount = cnt; worstDayTs = Number(ts); }
+  }
+
+  // Most affected FL band
+  let topBand = flBands[0], topBandCount = 0;
+  for (const band of flBands) {
+    if (bandTotals[band] > topBandCount) { topBandCount = bandTotals[band]; topBand = band; }
+  }
+
+  // ── Donut chart ──────────────────────────────────────────────────────────
+  const canvas = document.getElementById('gps-donut-canvas');
+  if (canvas) {
+    const isLight = document.documentElement.dataset.theme === 'light';
+    const legendColor = isLight ? '#334155' : '#94a3b8';
+    const borderColor = isLight ? '#dde4ec' : '#0f172a';
+
+    if (donutChart) { donutChart.destroy(); donutChart = null; }
+    donutChart = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels:   flBands.map(b => 'FL' + b),
+        datasets: [{
+          data:            flBands.map(b => bandTotals[b]),
+          backgroundColor: DONUT_COLORS.slice(0, flBands.length),
+          borderColor:     borderColor,
+          borderWidth:     2,
+        }],
+      },
+      options: {
+        responsive:          true,
+        maintainAspectRatio: true,
+        aspectRatio:         1.5,   // width:height — legend on left so more vertical room for donut
+        cutout:              '58%',
+        plugins: {
+          legend: {
+            position: 'left',
+            labels: {
+              color:    legendColor,
+              font:     { size: 10, family: 'monospace' },
+              boxWidth: 11,
+              padding:  5,
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const pct = totalEvents > 0 ? Math.round(ctx.raw / totalEvents * 100) : 0;
+                return ` ${ctx.raw.toLocaleString()} events (${pct}%)`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ── Stats panel ──────────────────────────────────────────────────────────
+  const pct = (n, tot) => tot > 0 ? ` (${Math.round(n / tot * 100)}%)` : '';
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  const worstDayStr = worstDayTs
+    ? new Date(worstDayTs * 1000).toLocaleDateString('en-GB',
+        { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    : '—';
+
+  set('gps-stat-total',     totalEvents > 0 ? totalEvents.toLocaleString() : '—');
+  set('gps-stat-top-band',  topBandCount > 0 ? `FL${topBand}  (${topBandCount.toLocaleString()})` : '—');
+  set('gps-stat-worst-day', worstDayCount > 0 ? `${worstDayStr}  (${worstDayCount.toLocaleString()})` : '—');
+  set('gps-stat-nacp',   totalNacp   > 0 ? `${totalNacp.toLocaleString()}${pct(totalNacp,   totalEvents)}` : '—');
+  set('gps-stat-freeze', totalFreeze > 0 ? `${totalFreeze.toLocaleString()}${pct(totalFreeze, totalEvents)}` : '—');
+  set('gps-stat-gap',    totalGap    > 0 ? `${totalGap.toLocaleString()}${pct(totalGap,    totalEvents)}` : '—');
+}
+
 // ── Summary bar ─────────────────────────────────────────────────────────────────────────────
 function renderStats(stats) {
   document.getElementById('gps-events-24h').textContent   = stats.events_24h   ?? '—';
@@ -442,7 +559,9 @@ function renderStats(stats) {
 }
 
 // ── Main poll loop ────────────────────────────────────────────────────────────────────────────
-let lastFlBands = [];
+let lastFlBands    = [];
+let lastHeatmapData = [];   // retained for hourly donut refresh
+let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick
 
 async function fetchGpsState() {
   try {
@@ -450,11 +569,14 @@ async function fetchGpsState() {
     if (!r.ok) return;
     const d = await r.json();
 
-    lastFlBands = d.fl_bands || lastFlBands;
+    lastFlBands    = d.fl_bands || lastFlBands;
+    lastHeatmapData = d.heatmap || lastHeatmapData;
 
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
     drawHeatmap(d.heatmap || [], lastFlBands);
+    // Donut drawn only on first load; hourly interval handles subsequent refreshes
+    if (!donutDrawn) { drawDonutAndStats(lastHeatmapData, lastFlBands); donutDrawn = true; }
     renderLiveTable(d.live || []);
 
     const now = new Date();
@@ -478,6 +600,7 @@ applyRange(currentRange);
 
 fetchGpsState();
 setInterval(fetchGpsState, 30_000);
+setInterval(() => drawDonutAndStats(lastHeatmapData, lastFlBands), 60 * 60 * 1000); // hourly
 
 // Redraw canvases on theme change
 window.onThemeChange = function () {

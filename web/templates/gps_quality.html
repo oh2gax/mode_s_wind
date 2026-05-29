@@ -47,10 +47,10 @@
         </div>
       </div>
 
-      <!-- 7-day FL-band heatmap -->
+      <!-- 14-day FL-band heatmap -->
       <div class="gps-heatmap-panel">
         <div class="gps-panel-hdr">
-          <span class="gps-panel-title">FL Band Heatmap — Last 7 Days</span>
+          <span class="gps-panel-title">FL Band Heatmap — Last 14 Days</span>
           <span class="gps-panel-legend">
             <span class="gps-leg-scale">
               <span class="gps-leg-cell" style="background:var(--gps-heat-0)"></span>
@@ -95,6 +95,45 @@
               <tr><td colspan="7" class="gps-no-data">No degraded aircraft</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- FL band donut + 14-day stats -->
+      <div class="gps-analysis-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">FL Band Analysis — 14 Days</span>
+        </div>
+        <div class="gps-analysis-inner">
+          <div class="gps-donut-wrap">
+            <canvas id="gps-donut-canvas"></canvas>
+          </div>
+          <div class="gps-stats-body">
+            <div class="gps-stat-row">
+              <span class="gps-stat-label">Total events</span>
+              <span class="gps-stat-val" id="gps-stat-total">—</span>
+            </div>
+            <div class="gps-stat-row">
+              <span class="gps-stat-label">Top band</span>
+              <span class="gps-stat-val" id="gps-stat-top-band">—</span>
+            </div>
+            <div class="gps-stat-row">
+              <span class="gps-stat-label">Worst day</span>
+              <span class="gps-stat-val" id="gps-stat-worst-day">—</span>
+            </div>
+            <div class="gps-stat-divider"></div>
+            <div class="gps-stat-row">
+              <span class="gps-stat-label"><span class="gps-flag gps-flag-nacp">NACp</span></span>
+              <span class="gps-stat-val" id="gps-stat-nacp">—</span>
+            </div>
+            <div class="gps-stat-row">
+              <span class="gps-stat-label"><span class="gps-flag gps-flag-freeze">Freeze</span></span>
+              <span class="gps-stat-val" id="gps-stat-freeze">—</span>
+            </div>
+            <div class="gps-stat-row">
+              <span class="gps-stat-label"><span class="gps-flag gps-flag-gap">Gap</span></span>
+              <span class="gps-stat-val" id="gps-stat-gap">—</span>
+            </div>
+          </div>
         </div>
       </div>
 
