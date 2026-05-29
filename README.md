@@ -960,7 +960,7 @@ Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight o
 
 An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. The page auto-refreshes every 30 seconds.
 
-Hourly summary data is persisted to the SQLite `gps_quality_hours` table so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (exactly 24 rows per day), so the write load is negligible. On startup the tracker reloads the last **31 days** of history automatically — the charts are immediately populated from stored data. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data).
+Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zone) and `gps_quality_zone_hours` table (50 nm and 20 nm zones) so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (up to 72 rows per hour rollover — 24 per day for All, up to 24 per day per distance zone), so the write load is negligible. On startup the tracker reloads the last **31 days** of history automatically — the charts are immediately populated from stored data. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data).
 
 > **Why "GPS Quality" and not "GPS Jamming"?** The page detects and displays objective signal quality parameters — it does not assert a cause. True GPS jamming, spoofing, receiver failure, and genuine satellite outages can all produce the same observable signatures. The term "GPS Quality" is deliberately neutral.
 
@@ -1064,7 +1064,23 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | freeze_events | Events flagged by the Freeze signal this hour |
 | gap_events | Events flagged by the Gap signal this hour |
 
-Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore the 7-day heatmap and 24-hour time-series chart after a restart. The three per-signal columns were added in May 2026; existing rows carry 0 for these columns and are displayed as grey "Unknown" bars in the chart until they age out of the 24-hour window.
+Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore up to 31 days of heatmap and time-series history. The three per-signal columns were added in May 2026; existing rows carry 0 for these columns and are displayed as grey "Unknown" bars in the chart until they age out of the 24-hour window.
+
+**`gps_quality_zone_hours`** — same structure as `gps_quality_hours` but with an additional `zone` column and a composite `PRIMARY KEY (ts, zone)`; stores hourly buckets for the **50 nm** and **20 nm** distance zones separately from the All view:
+
+| Column | Description |
+|--------|-------------|
+| ts | Unix timestamp of the hour start (UTC) |
+| zone | Zone identifier: `'50nm'` or `'20nm'` |
+| events | Total GPS degradation event count this hour within the zone |
+| total | Unique aircraft seen this hour within the zone |
+| degraded | Unique aircraft with at least one event within the zone |
+| fl_bands | JSON object mapping FL band labels to per-band event counts |
+| nacp_events | Events flagged by NACp within the zone |
+| freeze_events | Events flagged by Freeze within the zone |
+| gap_events | Events flagged by Gap within the zone |
+
+Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extra rows per hour — one per zone). Zone data begins accumulating from the first deployment of this feature; the `gps_quality_hours` table is not modified. Loaded on startup via a separate query per zone.
 
 **`approach_history`** — one row per completed landing approach (persisted by `WindshearTracker` via callback hook in `run.py`):
 
@@ -1229,7 +1245,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft) |
 | POST | `/api/windshear/approach-history/clear` | Delete all rows from the `approach_history` DB table and clear the RAM list (administrative use; no UI button exposes this) |
 | GET | `/api/windshear/windrose-obs` | Rolling 30-minute buffer of low-altitude wind observations (alt ≤ 2 000 ft, non-NONE, in-corridor) harvested from recently landed aircraft; used by the browser on page load and re-fetched every 60 s to keep the Windrose current mid-session; each entry: `ts`, `dir`, `spd`, `alt` |
-| GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, 24h time series, 7-day FL heatmap; completed hours persisted in `gps_quality_hours` and reloaded on restart |
+| GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, time series, 14-day FL heatmap, FL band summary stats; optional `?zone=50nm` or `?zone=20nm` filters data to aircraft within that radius from the airport (default `all`); completed hours persisted in `gps_quality_hours` and `gps_quality_zone_hours` and reloaded on restart |
 | GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
 
 ---
