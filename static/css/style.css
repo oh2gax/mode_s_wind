@@ -1903,6 +1903,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .gps-flag-nacp   { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; }
 .gps-flag-freeze { background: #0f3460; color: #67e8f9; border: 1px solid #0891b2; }
 .gps-flag-gap    { background: #4a1942; color: #f0abfc; border: 1px solid #7e22ce; }
+.gps-flag-adsb   { background: #0d3d38; color: #5eead4; border: 1px solid #0d9488; }
 .gps-flag-legend {
   display: flex;
   gap: 0.4rem;

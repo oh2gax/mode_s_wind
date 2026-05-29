@@ -40,9 +40,11 @@ def init_db(db_path: str) -> None:
     # SQLite does not support ALTER TABLE … ADD COLUMN IF NOT EXISTS, so we
     # attempt each ALTER and silently ignore "duplicate column" errors.
     _migrations = [
-        "ALTER TABLE gps_quality_hours ADD COLUMN nacp_events   INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE gps_quality_hours ADD COLUMN freeze_events INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE gps_quality_hours ADD COLUMN gap_events    INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_hours ADD COLUMN nacp_events        INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_hours ADD COLUMN freeze_events      INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_hours ADD COLUMN gap_events         INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_hours ADD COLUMN adsb_loss_events   INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_zone_hours ADD COLUMN adsb_loss_events INTEGER NOT NULL DEFAULT 0",
     ]
     for sql in _migrations:
         try:

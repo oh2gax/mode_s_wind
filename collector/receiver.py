@@ -266,6 +266,13 @@ def run_collector(
                 # ── Build observation ────────────────────────────────────
                 obs = _build_observation(icao, ts, result, msg_hex, wind, mrar, mhr)
 
+                # Track whether THIS message contains a fresh ADS-B GPS position
+                # (decoded directly from TC=9-18/20-22 by pyModeS) before any
+                # enrichment from cached state.  Used to maintain
+                # last_adsb_pos_ts in live_state so the GPS quality tracker can
+                # detect when MLAT is covering for a GPS/ADS-B position dropout.
+                _fresh_adsb_pos = obs.get("lat") is not None
+
                 # ── Enrich observation with cached position / motion ──────
                 # When the current message is a BDS 5,0 / 6,0 reply it
                 # carries no lat/lon/altitude; fill from last known state.
@@ -304,6 +311,7 @@ def run_collector(
                                     and abs(_lon - cfg.RECEIVER_LON) < 8.0):
                                 obs["lat"] = round(_lat, 6)
                                 obs["lon"] = round(_lon, 6)
+                                _fresh_adsb_pos = True  # CPR decoded a fresh position
                         except Exception:
                             pass
 
@@ -313,8 +321,14 @@ def run_collector(
                     # Merge: only overwrite with non-None values
                     merged = {k: v for k, v in {**existing, **obs}.items()
                               if v is not None}
-                    merged["icao"] = icao
+                    merged["icao"]      = icao
                     merged["last_seen"] = ts
+                    # Record when the aircraft last transmitted its own GPS-derived
+                    # ADS-B position (TC=9-18/20-22 in Beast feed).  Used by the
+                    # GPS quality tracker to detect ADS-B position loss while MLAT
+                    # continues to provide coverage (adsb_loss signal).
+                    if _fresh_adsb_pos:
+                        merged["last_adsb_pos_ts"] = ts
 
                     # ── Registration blocklist ───────────────────────────────
                     # Registration is provided by the JSON poller (not the Beast

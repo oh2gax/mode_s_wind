@@ -105,9 +105,10 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
     total           INTEGER NOT NULL DEFAULT 0,   -- unique aircraft seen this hour
     degraded        INTEGER NOT NULL DEFAULT 0,   -- unique aircraft with ≥1 event
     fl_bands        TEXT    NOT NULL DEFAULT '{}', -- JSON: {band_label: count}
-    nacp_events     INTEGER NOT NULL DEFAULT 0,   -- events flagged by NACp signal
-    freeze_events   INTEGER NOT NULL DEFAULT 0,   -- events flagged by Freeze signal
-    gap_events      INTEGER NOT NULL DEFAULT 0    -- events flagged by Gap signal
+    nacp_events       INTEGER NOT NULL DEFAULT 0,   -- events flagged by NACp signal
+    freeze_events     INTEGER NOT NULL DEFAULT 0,   -- events flagged by Freeze signal
+    gap_events        INTEGER NOT NULL DEFAULT 0,   -- events flagged by Gap signal
+    adsb_loss_events  INTEGER NOT NULL DEFAULT 0    -- events flagged by ADS-B loss (MLAT covering for GPS dropout)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
@@ -126,9 +127,10 @@ CREATE TABLE IF NOT EXISTS gps_quality_zone_hours (
     total           INTEGER NOT NULL DEFAULT 0,
     degraded        INTEGER NOT NULL DEFAULT 0,
     fl_bands        TEXT    NOT NULL DEFAULT '{}',
-    nacp_events     INTEGER NOT NULL DEFAULT 0,
-    freeze_events   INTEGER NOT NULL DEFAULT 0,
-    gap_events      INTEGER NOT NULL DEFAULT 0,
+    nacp_events       INTEGER NOT NULL DEFAULT 0,
+    freeze_events     INTEGER NOT NULL DEFAULT 0,
+    gap_events        INTEGER NOT NULL DEFAULT 0,
+    adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss
     PRIMARY KEY (ts, zone)
 );
 

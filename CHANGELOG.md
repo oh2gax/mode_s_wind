@@ -5,6 +5,19 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (GPS Quality — ADS-B position loss detection via Beast feed timestamp)
+
+- **New `adsb_loss` detection signal** — detects when an aircraft's own GPS-derived ADS-B position has dropped out while the Radarcape MLAT system continues to keep it visible; this is the dominant GPS-jamming signature at EFHK where MLAT coverage is strong enough that the plain `gap` signal (requiring `lat is None`) almost never fires
+- **Root cause of missing Gap events identified** — investigation showed that when GPS jamming causes ADS-B position loss, the Radarcape JSON/MLAT poller immediately overwrites `lat`/`lon` in `live_state` with MLAT-derived positions (comment in `radarcape_json.py`: "MLAT: always preferred — GPS-jamming immune"), so `lat` is never `None` and the Gap condition never fires for MLAT-covered aircraft
+- **Implementation — Option B (Beast feed timestamp)** — `collector/receiver.py` now sets `merged["last_adsb_pos_ts"] = ts` in `live_state` whenever a TC=9-18/20-22 ADS-B airborne-position message is decoded from the Beast feed (either by pyModeS PipeDecoder or the CPR fallback); this timestamp is set only for genuine aircraft-transmitted GPS positions, never for BDS 5,0/6,0 replies or cached state enrichment
+- **Detection in GPS quality tracker** — `collector/gps_quality.py` reads `ac.get("last_adsb_pos_ts")` directly from `live_state` and fires `adsb_loss` when `lat is not None` (still visible via MLAT) AND `(now - last_adsb_pos_ts) >= gap_sec` (45 seconds without a real ADS-B position); the `lat is not None` guard ensures `adsb_loss` and `gap` are mutually exclusive
+- **Why not `pos_src`** — an earlier attempt used `pos_src == "MLAT"` as the detection mechanism but this was found to be unreliable: the JSON poller sets `pos_src = "MLAT"` on every poll for any MLAT-tracked aircraft regardless of whether their GPS is working, causing false positives for all aircraft in MLAT coverage
+- **Frontend unchanged** — the teal **ADS-B** badge, time-series chart segment, 14-day stats row, and signal key description added in the initial implementation remain exactly as deployed; only the backend detection logic changed
+- **DB and schema unchanged** — `adsb_loss_events` column in both `gps_quality_hours` and `gps_quality_zone_hours` is correct and unchanged; existing rows default to 0 as expected
+- **No effect on other systems** — `receiver.py` adds one new key to `live_state`; all other consumers (windshear tracker, ILS profile, windrose, approach history) ignore keys they don't read; `gps_quality.py` changes are isolated to the GPS quality tracker only
+
+---
+
 ## 2026-05-29 (Windshear — NONE position marker colour-coding by reason)
 
 - **NONE position circles on ILS profile now colour-coded by cause** — previously all hollow circles were the same grey regardless of why wind data was unavailable; they are now split into two visually distinct types to help the user immediately distinguish normal maneuvering from a potential GPS problem

@@ -76,6 +76,13 @@ ZONE_LIMITS_NM: dict[str, float] = {
 # for an aircraft on final approach to remain within the zone boundary.
 LAST_POS_MAX_AGE_SEC = 120.0
 
+# ── ADS-B loss detection ──────────────────────────────────────────────────────
+# Fires when the aircraft still has a visible position (kept alive by MLAT) but
+# its own Beast-feed ADS-B GPS position timestamp has not been updated for
+# ≥ gap_sec seconds.  The timestamp is maintained by receiver.py whenever a
+# TC=9-18/20-22 airborne-position message arrives in the Beast feed.
+# No debounce counter is needed — the gap_sec time threshold is sufficient.
+
 
 def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Return the great-circle distance in nautical miles between two points."""
@@ -105,9 +112,10 @@ def _empty_bucket(ts: float) -> dict:
         "total":         0,                        # unique aircraft seen this hour
         "degraded":      0,                        # aircraft with ≥1 event this hour
         "events":        0,                        # total event count this hour
-        "nacp_events":   0,                        # events from NACp signal
-        "freeze_events": 0,                        # events from Freeze signal
-        "gap_events":    0,                        # events from Gap signal
+        "nacp_events":      0,   # events from NACp signal
+        "freeze_events":    0,   # events from Freeze signal
+        "gap_events":       0,   # events from Gap signal
+        "adsb_loss_events": 0,   # events from ADS-B loss (MLAT covering GPS dropout)
         "fl_bands": {lbl: 0 for lbl in FL_BAND_LABELS},   # events per FL band
         "_seen":   set(),                          # transient: icaos seen this hour
         "_deg":    set(),                          # transient: icaos with event
@@ -187,14 +195,15 @@ class GpsQualityTracker:
             if self._buckets and self._db_path:
                 completed = self._buckets[-1]
                 flush_copy = {
-                    "ts":            completed["ts"],
-                    "events":        completed["events"],
-                    "total":         completed["total"],
-                    "degraded":      completed["degraded"],
-                    "fl_bands":      dict(completed["fl_bands"]),
-                    "nacp_events":   completed.get("nacp_events",   0),
-                    "freeze_events": completed.get("freeze_events", 0),
-                    "gap_events":    completed.get("gap_events",    0),
+                    "ts":               completed["ts"],
+                    "events":           completed["events"],
+                    "total":            completed["total"],
+                    "degraded":         completed["degraded"],
+                    "fl_bands":         dict(completed["fl_bands"]),
+                    "nacp_events":      completed.get("nacp_events",      0),
+                    "freeze_events":    completed.get("freeze_events",    0),
+                    "gap_events":       completed.get("gap_events",       0),
+                    "adsb_loss_events": completed.get("adsb_loss_events", 0),
                 }
                 self._flush_to_db(flush_copy)
             self._buckets.append(_empty_bucket(now_hour))
@@ -208,14 +217,15 @@ class GpsQualityTracker:
             if zb and self._db_path:
                 completed = zb[-1]
                 flush_copy = {
-                    "ts":            completed["ts"],
-                    "events":        completed["events"],
-                    "total":         completed["total"],
-                    "degraded":      completed["degraded"],
-                    "fl_bands":      dict(completed["fl_bands"]),
-                    "nacp_events":   completed.get("nacp_events",   0),
-                    "freeze_events": completed.get("freeze_events", 0),
-                    "gap_events":    completed.get("gap_events",    0),
+                    "ts":               completed["ts"],
+                    "events":           completed["events"],
+                    "total":            completed["total"],
+                    "degraded":         completed["degraded"],
+                    "fl_bands":         dict(completed["fl_bands"]),
+                    "nacp_events":      completed.get("nacp_events",      0),
+                    "freeze_events":    completed.get("freeze_events",    0),
+                    "gap_events":       completed.get("gap_events",       0),
+                    "adsb_loss_events": completed.get("adsb_loss_events", 0),
                 }
                 self._flush_zone_to_db(flush_copy, zone)
             zb.append(_empty_bucket(now_hour))
@@ -228,9 +238,10 @@ class GpsQualityTracker:
         bucket["events"] += 1
         bucket["_deg"].add(icao)
         bucket["degraded"] = len(bucket["_deg"])
-        if "nacp"   in flags: bucket["nacp_events"]   += 1
-        if "freeze" in flags: bucket["freeze_events"] += 1
-        if "gap"    in flags: bucket["gap_events"]    += 1
+        if "nacp"      in flags: bucket["nacp_events"]      += 1
+        if "freeze"    in flags: bucket["freeze_events"]    += 1
+        if "gap"       in flags: bucket["gap_events"]       += 1
+        if "adsb_loss" in flags: bucket["adsb_loss_events"] += 1
         fl = _fl_band(altitude)
         if fl:
             bucket["fl_bands"][fl] = bucket["fl_bands"].get(fl, 0) + 1
@@ -267,13 +278,14 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_hours
                    (ts, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
-                 bucket.get("nacp_events",   0),
-                 bucket.get("freeze_events", 0),
-                 bucket.get("gap_events",    0)),
+                 bucket.get("nacp_events",      0),
+                 bucket.get("freeze_events",    0),
+                 bucket.get("gap_events",       0),
+                 bucket.get("adsb_loss_events", 0)),
             )
             conn.commit()
             log.debug("GPS quality: persisted bucket ts=%d events=%d",
@@ -290,13 +302,14 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_zone_hours
                    (ts, zone, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], zone, bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
-                 bucket.get("nacp_events",   0),
-                 bucket.get("freeze_events", 0),
-                 bucket.get("gap_events",    0)),
+                 bucket.get("nacp_events",      0),
+                 bucket.get("freeze_events",    0),
+                 bucket.get("gap_events",       0),
+                 bucket.get("adsb_loss_events", 0)),
             )
             conn.commit()
             log.debug("GPS quality: persisted zone=%s bucket ts=%d events=%d",
@@ -317,7 +330,7 @@ class GpsQualityTracker:
             conn     = get_db()
             rows     = conn.execute(
                 """SELECT ts, events, total, degraded, fl_bands,
-                          nacp_events, freeze_events, gap_events
+                          nacp_events, freeze_events, gap_events, adsb_loss_events
                    FROM gps_quality_hours
                    WHERE ts >= ? AND ts < ?
                    ORDER BY ts ASC""",
@@ -326,13 +339,14 @@ class GpsQualityTracker:
             for row in rows:
                 fl   = json.loads(row["fl_bands"] or "{}")
                 b    = _empty_bucket(row["ts"])
-                b["events"]        = row["events"]
-                b["total"]         = row["total"]
-                b["degraded"]      = row["degraded"]
-                b["fl_bands"]      = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
-                b["nacp_events"]   = row["nacp_events"]   or 0
-                b["freeze_events"] = row["freeze_events"] or 0
-                b["gap_events"]    = row["gap_events"]    or 0
+                b["events"]           = row["events"]
+                b["total"]            = row["total"]
+                b["degraded"]         = row["degraded"]
+                b["fl_bands"]         = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                b["nacp_events"]      = row["nacp_events"]        or 0
+                b["freeze_events"]    = row["freeze_events"]      or 0
+                b["gap_events"]       = row["gap_events"]         or 0
+                b["adsb_loss_events"] = row["adsb_loss_events"]   or 0
                 self._buckets.append(b)
             log.info("GPS quality: loaded %d historical hour buckets from DB",
                      len(rows))
@@ -348,7 +362,7 @@ class GpsQualityTracker:
             for zone in ZONE_LIMITS_NM:
                 rows = conn.execute(
                     """SELECT ts, events, total, degraded, fl_bands,
-                              nacp_events, freeze_events, gap_events
+                              nacp_events, freeze_events, gap_events, adsb_loss_events
                        FROM gps_quality_zone_hours
                        WHERE zone = ? AND ts >= ? AND ts < ?
                        ORDER BY ts ASC""",
@@ -357,13 +371,14 @@ class GpsQualityTracker:
                 for row in rows:
                     fl = json.loads(row["fl_bands"] or "{}")
                     b  = _empty_bucket(row["ts"])
-                    b["events"]        = row["events"]
-                    b["total"]         = row["total"]
-                    b["degraded"]      = row["degraded"]
-                    b["fl_bands"]      = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
-                    b["nacp_events"]   = row["nacp_events"]   or 0
-                    b["freeze_events"] = row["freeze_events"] or 0
-                    b["gap_events"]    = row["gap_events"]    or 0
+                    b["events"]           = row["events"]
+                    b["total"]            = row["total"]
+                    b["degraded"]         = row["degraded"]
+                    b["fl_bands"]         = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                    b["nacp_events"]      = row["nacp_events"]      or 0
+                    b["freeze_events"]    = row["freeze_events"]    or 0
+                    b["gap_events"]       = row["gap_events"]       or 0
+                    b["adsb_loss_events"] = row["adsb_loss_events"] or 0
                     self._zone_buckets[zone].append(b)
                 log.info("GPS quality: loaded %d zone=%s buckets from DB", len(rows), zone)
         except Exception as exc:
@@ -444,13 +459,26 @@ class GpsQualityTracker:
                 if last_pos_ts is not None and (now - last_pos_ts) >= self.gap_sec:
                     flags.append("gap")
 
+            # ── Signal 4: ADS-B position loss (MLAT covering GPS dropout) ──
+            # Fires when the aircraft still has a visible position (lat is not
+            # None — kept alive by MLAT) but its own Beast-feed ADS-B position
+            # timestamp (set by receiver.py whenever a TC=9-18/20-22 message
+            # arrives) has not been updated for ≥ gap_sec seconds.
+            # This cleanly separates "MLAT covering a GPS dropout" from the
+            # normal Gap signal (lat is None = completely invisible).
+            last_adsb_ts = ac.get("last_adsb_pos_ts")
+            if (lat is not None
+                    and last_adsb_ts is not None
+                    and (now - last_adsb_ts) >= self.gap_sec):
+                flags.append("adsb_loss")
+
             # Update per-aircraft state
             new_state = {
-                "last_lat":    lat  if lat  is not None else prev.get("last_lat"),
-                "last_lon":    lon  if lon  is not None else prev.get("last_lon"),
-                "last_pos_ts": now  if lat  is not None else prev.get("last_pos_ts"),
+                "last_lat":     lat  if lat  is not None else prev.get("last_lat"),
+                "last_lon":     lon  if lon  is not None else prev.get("last_lon"),
+                "last_pos_ts":  now  if lat  is not None else prev.get("last_pos_ts"),
                 "freeze_count": freeze_count,
-                "last_seen":   last_seen,
+                "last_seen":    last_seen,
             }
             self._ac_state[icao] = new_state
 
@@ -510,6 +538,12 @@ class GpsQualityTracker:
                         and (now - last_pos_ts) >= self.gap_sec):
                     flags.append("gap")
 
+                last_adsb_ts = ac.get("last_adsb_pos_ts")
+                if (lat is not None
+                        and last_adsb_ts is not None
+                        and (now - last_adsb_ts) >= self.gap_sec):
+                    flags.append("adsb_loss")
+
                 if flags:
                     live.append({
                         "icao":       icao,
@@ -551,14 +585,15 @@ class GpsQualityTracker:
         # Strip internal sets before serialising; freeze into plain counts
         def _clean(b: dict) -> dict:
             return {
-                "ts":            b["ts"],
-                "total":         b["total"],
-                "degraded":      b["degraded"],
-                "events":        b["events"],
-                "nacp_events":   b.get("nacp_events",   0),
-                "freeze_events": b.get("freeze_events", 0),
-                "gap_events":    b.get("gap_events",    0),
-                "fl_bands":      dict(b["fl_bands"]),
+                "ts":               b["ts"],
+                "total":            b["total"],
+                "degraded":         b["degraded"],
+                "events":           b["events"],
+                "nacp_events":      b.get("nacp_events",      0),
+                "freeze_events":    b.get("freeze_events",    0),
+                "gap_events":       b.get("gap_events",       0),
+                "adsb_loss_events": b.get("adsb_loss_events", 0),
+                "fl_bands":         dict(b["fl_bands"]),
             }
 
         cleaned = [_clean(b) for b in buckets]
