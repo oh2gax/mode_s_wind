@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (GPS Quality — distance zone filtering: All / 50 nm / 20 nm)
+
+- **Distance zone selector** added to the GPS Quality page — three buttons in the summary bar (**All · 50 nm · 20 nm**) filter all charts, heatmap, donut, and stats to show only aircraft within the selected radius from the airport (EFHK); the selection persists across browser sessions via `localStorage` and defaults to **All** on first use; switching zones re-fetches all data immediately
+- **Parallel zone bucket storage** — a new `gps_quality_zone_hours` SQLite table stores hourly buckets for each distance zone with `PRIMARY KEY (ts, zone)`; the existing `gps_quality_hours` table is completely unchanged so all historical **All** data is preserved; zone buckets start accumulating from first deployment — no backfill of historical data is possible or attempted
+- **Zone assignment logic** (`collector/gps_quality.py`) — each aircraft is assigned to zones using a haversine distance calculation from the configured airport coordinates on every 5-second sweep; for **Position Gap** events (no current ADS-B position) the aircraft's last-known position is used if it is no more than 120 seconds old, ensuring that aircraft experiencing a full GPS drop-out near the airport still contribute to the 20 nm and 50 nm zone counts; aircraft with no known position at all are counted in **All** only
+- **Zone-aware recording** — both the "seen" count (total aircraft) and event counts (NACp / Freeze / Gap) are recorded independently into each qualifying zone bucket alongside the existing **All** bucket; the `_write_event_to_bucket()` static method handles generic bucket updates shared across zones
+- **Airport coordinates** passed from `cfg.WINDSHEAR_AIRPORT_LAT` / `cfg.WINDSHEAR_AIRPORT_LON` into `GpsQualityTracker` via two new constructor parameters (`airport_lat`, `airport_lon`); `run.py` wires these from the existing config constants already used by the windshear tracker
+- **API** — `GET /api/gps/state?zone=50nm` (or `20nm`) returns data from the corresponding zone bucket; `?zone=all` or no parameter returns the existing **All** data (backward compatible); the active zone name is echoed back in the JSON response as `"zone"`
+- **DB migration** — the new `gps_quality_zone_hours` table is created automatically by `schema.sql` via `CREATE TABLE IF NOT EXISTS`; no manual migration steps are needed; existing installations upgrade transparently on next restart
+
+---
+
 ## 2026-05-29 (GPS Quality — time-series range selector: 1w hourly + new 2w button)
 
 - **`1w` range changed to hourly bars** — the 7-day range now shows one bar per hour (168 bars total) matching the same style as `1d`, `2d`, and `3d`; previously it aggregated to one bar per day, hiding intra-day patterns; the X-axis shows 7 day-boundary tick labels for orientation

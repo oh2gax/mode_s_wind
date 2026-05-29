@@ -54,6 +54,19 @@ function applyHeatCssVars() {
   palette.forEach((c, i) => root.style.setProperty(`--gps-heat-${i}`, c));
 }
 
+// ── Zone selector state ───────────────────────────────────────────────────────
+let currentZone = localStorage.getItem('ms_gps_zone') || 'all';
+
+function applyZone(zone) {
+  currentZone = zone;
+  localStorage.setItem('ms_gps_zone', zone);
+  document.querySelectorAll('.gps-zone-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.zone === zone);
+  });
+  // Re-fetch immediately so charts update without waiting for the next interval
+  fetchGpsState();
+}
+
 // ── Range selector state ──────────────────────────────────────────────────────
 const RANGE_CONFIG = {
   '1d': { hours:   24, aggregate: 'hour', title: 'Last 24 Hours',  maxTicks: 24 },
@@ -330,12 +343,19 @@ function drawHeatmap(heatmapData, flBands) {
   const cellW = plotW / nDays;
   const cellH = plotH / nBands;
 
-  // Find max for normalisation
-  let maxVal = 1;
-  for (const dt of dayKeys) {
-    for (const band of flBands) {
-      maxVal = Math.max(maxVal, dayMap[dt][band] || 0);
+  // Per-band maximum for row-independent normalisation.
+  // Each FL band is coloured relative to its own worst day so that low-altitude
+  // bands (e.g. FL010-030) use the full colour range even when high-altitude
+  // bands (e.g. FL300+) have far higher absolute counts.  The event count
+  // printed inside each cell still shows the absolute number for comparison.
+  const bandMaxVals = {};
+  for (const band of flBands) {
+    let m = 1;   // floor at 1 to avoid division by zero for empty bands
+    for (const dt of dayKeys) {
+      const v = dayMap[dt][band] || 0;
+      if (v > m) m = v;
     }
+    bandMaxVals[band] = m;
   }
 
   // Background
@@ -346,7 +366,7 @@ function drawHeatmap(heatmapData, flBands) {
   dayKeys.forEach((dt, xi) => {
     flBands.forEach((band, yi) => {
       const val  = dayMap[dt][band] || 0;
-      const norm = val / maxVal;
+      const norm = val / bandMaxVals[band];
       const x    = MARGIN_L + xi * cellW;
       const y    = MARGIN_T + yi * cellH;
       ctx.fillStyle = heatColor(norm);
@@ -566,7 +586,8 @@ let donutDrawn     = false; // draw once on first load; thereafter only on hourl
 
 async function fetchGpsState() {
   try {
-    const r = await fetch('/api/gps/state');
+    const url = currentZone === 'all' ? '/api/gps/state' : `/api/gps/state?zone=${currentZone}`;
+    const r = await fetch(url);
     if (!r.ok) return;
     const d = await r.json();
 
@@ -598,6 +619,15 @@ document.querySelectorAll('.gps-range-btn').forEach(btn => {
 });
 // Restore saved range (updates button state + chart title without data yet)
 applyRange(currentRange);
+
+// Wire up zone selector buttons
+document.querySelectorAll('.gps-zone-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyZone(btn.dataset.zone));
+});
+// Restore saved zone (updates button active state)
+document.querySelectorAll('.gps-zone-btn').forEach(btn => {
+  btn.classList.toggle('active', btn.dataset.zone === currentZone);
+});
 
 fetchGpsState();
 setInterval(fetchGpsState, 30_000);

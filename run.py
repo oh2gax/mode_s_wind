@@ -263,6 +263,8 @@ def main() -> None:
         min_gs_kt      = cfg.GPS_MIN_GS_KT,
         min_alt_ft     = cfg.GPS_MIN_ALT_FT,
         db_path        = cfg.DB_PATH,
+        airport_lat    = cfg.WINDSHEAR_AIRPORT_LAT,
+        airport_lon    = cfg.WINDSHEAR_AIRPORT_LON,
     )
     gps_thread = threading.Thread(
         target=_gps_quality_sweep,

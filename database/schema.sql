@@ -112,6 +112,28 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
 
+-- ── gps_quality_zone_hours ────────────────────────────────────────────────────
+-- Distance-zone filtered variant of gps_quality_hours.
+-- Same structure but PRIMARY KEY is (ts, zone) so multiple zones can share
+-- the same timestamp.  Zones: '50nm' and '20nm' (radius from airport).
+-- Only aircraft whose last-known position is within the zone radius are counted.
+-- The 'all' zone continues to use gps_quality_hours (unchanged).
+-- Data starts accumulating from first deployment; no backfill of historical data.
+CREATE TABLE IF NOT EXISTS gps_quality_zone_hours (
+    ts              INTEGER NOT NULL,         -- Unix epoch of hour start (UTC)
+    zone            TEXT    NOT NULL,         -- '50nm' or '20nm'
+    events          INTEGER NOT NULL DEFAULT 0,
+    total           INTEGER NOT NULL DEFAULT 0,
+    degraded        INTEGER NOT NULL DEFAULT 0,
+    fl_bands        TEXT    NOT NULL DEFAULT '{}',
+    nacp_events     INTEGER NOT NULL DEFAULT 0,
+    freeze_events   INTEGER NOT NULL DEFAULT 0,
+    gap_events      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ts, zone)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gps_zone_hours_ts ON gps_quality_zone_hours(ts DESC, zone);
+
 -- ── approach_history ──────────────────────────────────────────────────────────
 -- One row per completed landing approach.
 -- Committed by WindshearTracker when an APPROACHING aircraft goes ADS-B-silent

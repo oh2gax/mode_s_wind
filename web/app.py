@@ -631,9 +631,12 @@ def create_app(
         if gps_tracker is None:
             return jsonify({
                 "live": [], "time_series": [], "heatmap": [],
-                "fl_bands": [], "stats": {},
+                "fl_bands": [], "stats": {}, "zone": "all",
             })
-        return jsonify(gps_tracker.get_state())
+        zone = request.args.get("zone", "all")
+        if zone not in ("all", "50nm", "20nm"):
+            zone = "all"
+        return jsonify(gps_tracker.get_state(zone=zone))
 
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 

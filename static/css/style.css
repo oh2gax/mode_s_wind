@@ -1634,6 +1634,32 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-size: 11px;
 }
 
+/* ── Zone selector (summary bar) ─────────────────────────────────────────── */
+.gps-zone-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.gps-zone-btns {
+  display: flex;
+  gap: 2px;
+}
+.gps-zone-btn {
+  background: var(--bg-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  line-height: 1.6;
+  transition: background 0.1s, color 0.1s;
+}
+.gps-zone-btn:hover  { background: var(--bg-4, var(--bg-3)); color: var(--text-1); }
+.gps-zone-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ── Body layout ─────────────────────────────────────────────────────────── */
 .gps-body {
   display: flex;

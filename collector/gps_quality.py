@@ -62,6 +62,31 @@ FL_BAND_LABELS = [b[2] for b in FL_BANDS]
 BUCKET_SEC    = 3_600          # one hour per bucket
 MAX_BUCKETS   = 31 * 24        # 31 days rolling
 
+# ── Distance-zone filtering ───────────────────────────────────────────────────
+# Zone names and their radius limits in nautical miles.
+# 'all' zone uses the existing gps_quality_hours table (no filtering).
+# Distance zones use gps_quality_zone_hours and count only aircraft whose
+# last-known position is within the specified radius from the airport.
+ZONE_LIMITS_NM: dict[str, float] = {
+    "50nm": 50.0,
+    "20nm": 20.0,
+}
+# Maximum age of a last-known position to be used for zone assignment when
+# the current position is absent (Position Gap events).  2 minutes is enough
+# for an aircraft on final approach to remain within the zone boundary.
+LAST_POS_MAX_AGE_SEC = 120.0
+
+
+def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return the great-circle distance in nautical miles between two points."""
+    R_NM = 3_440.065   # Earth mean radius in nautical miles
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlon / 2) ** 2)
+    return R_NM * 2 * math.asin(math.sqrt(a))
+
 
 def _fl_band(altitude_ft: float | None) -> str | None:
     """Return the FL band label for a pressure altitude, or None if unknown."""
@@ -113,6 +138,8 @@ class GpsQualityTracker:
         min_gs_kt:      float = 50.0,
         min_alt_ft:     float = 500.0,
         db_path:        str   = "",
+        airport_lat:    float | None = None,
+        airport_lon:    float | None = None,
     ):
         self.nacp_threshold = nacp_threshold
         self.freeze_polls   = freeze_polls
@@ -120,6 +147,8 @@ class GpsQualityTracker:
         self.min_gs_kt      = min_gs_kt
         self.min_alt_ft     = min_alt_ft
         self._db_path       = db_path
+        self._airport_lat   = airport_lat
+        self._airport_lon   = airport_lon
 
         # Per-aircraft tracking state
         # icao → {last_lat, last_lon, last_pos_ts, freeze_count, last_seen}
@@ -128,14 +157,20 @@ class GpsQualityTracker:
         # Live degraded aircraft (rebuilt every sweep)
         self._live_events: list[dict] = []
 
-        # Rolling hourly buckets — oldest first
+        # Rolling hourly buckets for 'all' zone — oldest first
         self._buckets: deque = deque(maxlen=MAX_BUCKETS)
+
+        # Rolling hourly buckets for each distance zone
+        self._zone_buckets: dict[str, deque] = {
+            zone: deque(maxlen=MAX_BUCKETS) for zone in ZONE_LIMITS_NM
+        }
 
         self._lock = threading.RLock()
 
         # Restore history from DB (completed hours only)
         if db_path:
             self._load_from_db()
+            self._load_zones_from_db()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -151,8 +186,6 @@ class GpsQualityTracker:
             # Capture and persist the completed bucket before replacing it
             if self._buckets and self._db_path:
                 completed = self._buckets[-1]
-                # Flush outside the lock; take a shallow copy so the sets
-                # (_seen, _deg) are not needed — only the scalar fields.
                 flush_copy = {
                     "ts":            completed["ts"],
                     "events":        completed["events"],
@@ -167,14 +200,34 @@ class GpsQualityTracker:
             self._buckets.append(_empty_bucket(now_hour))
         return self._buckets[-1]
 
-    def _record_event(self, icao: str, altitude: float | None,
-                      flags: list[str]) -> None:
-        """Increment event counters in the current hourly bucket."""
-        bucket = self._current_bucket()
+    def _current_zone_bucket(self, zone: str) -> dict:
+        """Return the current hourly bucket for a distance zone, flushing on rollover."""
+        now_hour = _bucket_hour(time.time())
+        zb = self._zone_buckets[zone]
+        if not zb or zb[-1]["ts"] < now_hour:
+            if zb and self._db_path:
+                completed = zb[-1]
+                flush_copy = {
+                    "ts":            completed["ts"],
+                    "events":        completed["events"],
+                    "total":         completed["total"],
+                    "degraded":      completed["degraded"],
+                    "fl_bands":      dict(completed["fl_bands"]),
+                    "nacp_events":   completed.get("nacp_events",   0),
+                    "freeze_events": completed.get("freeze_events", 0),
+                    "gap_events":    completed.get("gap_events",    0),
+                }
+                self._flush_zone_to_db(flush_copy, zone)
+            zb.append(_empty_bucket(now_hour))
+        return zb[-1]
+
+    @staticmethod
+    def _write_event_to_bucket(bucket: dict, icao: str,
+                               altitude: float | None, flags: list[str]) -> None:
+        """Increment event counters in an arbitrary bucket dict."""
         bucket["events"] += 1
         bucket["_deg"].add(icao)
         bucket["degraded"] = len(bucket["_deg"])
-        # Per-signal breakdown
         if "nacp"   in flags: bucket["nacp_events"]   += 1
         if "freeze" in flags: bucket["freeze_events"] += 1
         if "gap"    in flags: bucket["gap_events"]    += 1
@@ -182,11 +235,23 @@ class GpsQualityTracker:
         if fl:
             bucket["fl_bands"][fl] = bucket["fl_bands"].get(fl, 0) + 1
 
-    def _record_seen(self, icao: str) -> None:
-        """Mark an aircraft as seen in the current bucket."""
+    def _record_event(self, icao: str, altitude: float | None,
+                      flags: list[str], zones: list[str]) -> None:
+        """Increment event counters in the 'all' bucket and any qualifying zone buckets."""
+        self._write_event_to_bucket(self._current_bucket(), icao, altitude, flags)
+        for zone in zones:
+            self._write_event_to_bucket(
+                self._current_zone_bucket(zone), icao, altitude, flags)
+
+    def _record_seen(self, icao: str, zones: list[str]) -> None:
+        """Mark an aircraft as seen in the 'all' bucket and any qualifying zone buckets."""
         bucket = self._current_bucket()
         bucket["_seen"].add(icao)
         bucket["total"] = len(bucket["_seen"])
+        for zone in zones:
+            zb = self._current_zone_bucket(zone)
+            zb["_seen"].add(icao)
+            zb["total"] = len(zb["_seen"])
 
     # ── Database persistence ──────────────────────────────────────────────────
 
@@ -216,6 +281,29 @@ class GpsQualityTracker:
         except Exception as exc:
             log.warning("GPS quality: failed to persist bucket ts=%s: %s",
                         bucket.get("ts"), exc)
+
+    def _flush_zone_to_db(self, bucket: dict, zone: str) -> None:
+        """Write one completed zone hourly bucket to gps_quality_zone_hours."""
+        try:
+            fl_json = json.dumps(bucket["fl_bands"])
+            conn = get_db()
+            conn.execute(
+                """INSERT OR REPLACE INTO gps_quality_zone_hours
+                   (ts, zone, events, total, degraded, fl_bands,
+                    nacp_events, freeze_events, gap_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (bucket["ts"], zone, bucket["events"], bucket["total"],
+                 bucket["degraded"], fl_json,
+                 bucket.get("nacp_events",   0),
+                 bucket.get("freeze_events", 0),
+                 bucket.get("gap_events",    0)),
+            )
+            conn.commit()
+            log.debug("GPS quality: persisted zone=%s bucket ts=%d events=%d",
+                      zone, bucket["ts"], bucket["events"])
+        except Exception as exc:
+            log.warning("GPS quality: failed to persist zone=%s bucket ts=%s: %s",
+                        zone, bucket.get("ts"), exc)
 
     def _load_from_db(self) -> None:
         """
@@ -251,6 +339,36 @@ class GpsQualityTracker:
         except Exception as exc:
             log.warning("GPS quality: failed to load history from DB: %s", exc)
 
+    def _load_zones_from_db(self) -> None:
+        """Reload historical zone buckets from gps_quality_zone_hours at startup."""
+        try:
+            now_hour = _bucket_hour(time.time())
+            cutoff   = now_hour - (MAX_BUCKETS - 1) * BUCKET_SEC
+            conn     = get_db()
+            for zone in ZONE_LIMITS_NM:
+                rows = conn.execute(
+                    """SELECT ts, events, total, degraded, fl_bands,
+                              nacp_events, freeze_events, gap_events
+                       FROM gps_quality_zone_hours
+                       WHERE zone = ? AND ts >= ? AND ts < ?
+                       ORDER BY ts ASC""",
+                    (zone, int(cutoff), int(now_hour)),
+                ).fetchall()
+                for row in rows:
+                    fl = json.loads(row["fl_bands"] or "{}")
+                    b  = _empty_bucket(row["ts"])
+                    b["events"]        = row["events"]
+                    b["total"]         = row["total"]
+                    b["degraded"]      = row["degraded"]
+                    b["fl_bands"]      = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+                    b["nacp_events"]   = row["nacp_events"]   or 0
+                    b["freeze_events"] = row["freeze_events"] or 0
+                    b["gap_events"]    = row["gap_events"]    or 0
+                    self._zone_buckets[zone].append(b)
+                log.info("GPS quality: loaded %d zone=%s buckets from DB", len(rows), zone)
+        except Exception as exc:
+            log.warning("GPS quality: failed to load zone history from DB: %s", exc)
+
     # ── Public interface ──────────────────────────────────────────────────────
 
     def update(self, ac: dict) -> None:
@@ -271,7 +389,26 @@ class GpsQualityTracker:
         last_seen = ac.get("last_seen", now)
 
         with self._lock:
-            self._record_seen(icao)
+            prev = self._ac_state.get(icao, {})
+
+            # ── Zone membership ─────────────────────────────────────────
+            # Determine which distance zones this aircraft qualifies for.
+            # For Position Gap events (no current position) we fall back to
+            # the last-known position if it is recent enough.
+            active_zones: list[str] = []
+            if self._airport_lat is not None:
+                pos_lat = lat if lat is not None else prev.get("last_lat")
+                pos_lon = lon if lon is not None else prev.get("last_lon")
+                pos_ts  = now if lat is not None else (prev.get("last_pos_ts") or 0)
+                if (pos_lat is not None and pos_lon is not None
+                        and (now - pos_ts) <= LAST_POS_MAX_AGE_SEC):
+                    dist_nm = _haversine_nm(
+                        self._airport_lat, self._airport_lon, pos_lat, pos_lon)
+                    for zone, limit in ZONE_LIMITS_NM.items():
+                        if dist_nm <= limit:
+                            active_zones.append(zone)
+
+            self._record_seen(icao, active_zones)
 
             # Skip degradation signal checks below the minimum altitude gate.
             # Aircraft below ~500 ft are on very short final or have just landed;
@@ -280,7 +417,6 @@ class GpsQualityTracker:
             if alt is not None and alt < self.min_alt_ft:
                 return
 
-            prev = self._ac_state.get(icao, {})
             flags: list[str] = []
 
             # ── Signal 1: NACp degradation ──────────────────────────────
@@ -303,20 +439,10 @@ class GpsQualityTracker:
                 freeze_count = prev.get("freeze_count", 0)
 
             # ── Signal 3: Position gap ───────────────────────────────────
-            # Aircraft is actively transmitting (guaranteed — update() is only
-            # called for aircraft seen within the last 60 s in any Mode-S
-            # message) but has had no GPS position for GPS_GAP_SEC seconds.
-            # We do not require EHS-specific fields here: any Mode-S traffic
-            # (DF11 squitter, DF4/DF20 surveillance reply, identification
-            # message, etc.) is sufficient evidence that the transponder is
-            # alive and the GPS source has dropped out.
             if lat is None:
                 last_pos_ts = prev.get("last_pos_ts")
                 if last_pos_ts is not None and (now - last_pos_ts) >= self.gap_sec:
                     flags.append("gap")
-                # If last_pos_ts is None this aircraft has never sent a
-                # position — could be a ground vehicle or non-ADS-B
-                # transponder; gap detection requires a prior position.
 
             # Update per-aircraft state
             new_state = {
@@ -328,9 +454,9 @@ class GpsQualityTracker:
             }
             self._ac_state[icao] = new_state
 
-            # Record events in hourly buckets
+            # Record events in 'all' bucket and any qualifying zone buckets
             if flags:
-                self._record_event(icao, alt, flags)
+                self._record_event(icao, alt, flags, active_zones)
 
     def prune_stale(self, max_age_sec: float = 90.0) -> None:
         """Remove aircraft not updated for max_age_sec seconds."""
@@ -400,19 +526,27 @@ class GpsQualityTracker:
             live.sort(key=lambda x: x.get("altitude") or 0, reverse=True)
             self._live_events = live
 
-    def get_state(self) -> dict:
+    def get_state(self, zone: str = "all") -> dict:
         """
         Return a JSON-serialisable snapshot for the API endpoint.
 
+        Args:
+          zone: 'all' (default) uses the main bucket set; '50nm' or '20nm'
+                uses the corresponding distance-filtered zone bucket set.
+
         Returns:
           live        — aircraft currently showing degraded GPS (list)
-          time_series — last 24 hourly buckets (list, oldest first)
-          heatmap     — all buckets with FL-band breakdown (list)
+          time_series — hourly buckets for the requested zone (oldest first)
+          heatmap     — all available buckets for the zone (up to 31 days)
           fl_bands    — ordered list of FL band label strings
           stats       — summary counts for the last 24 hours
+          zone        — the active zone name (echoed back to the frontend)
         """
         with self._lock:
-            buckets = list(self._buckets)
+            if zone in self._zone_buckets:
+                buckets = list(self._zone_buckets[zone])
+            else:
+                buckets = list(self._buckets)
 
         # Strip internal sets before serialising; freeze into plain counts
         def _clean(b: dict) -> dict:
@@ -448,9 +582,10 @@ class GpsQualityTracker:
 
         return {
             "live":        self._live_events,
-            "time_series": cleaned,       # all available buckets — frontend filters by range
-            "heatmap":     cleaned,       # all available buckets (up to 31 days)
+            "time_series": cleaned,
+            "heatmap":     cleaned,
             "fl_bands":    FL_BAND_LABELS,
+            "zone":        zone,
             "stats": {
                 "events_24h":   events_24h,
                 "degraded_24h": degraded_24h,
