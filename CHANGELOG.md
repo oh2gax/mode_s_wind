@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (GPS Quality — donut chart updates on zone switch)
+
+- **FL Band Analysis donut now redraws on zone change** — previously the donut was drawn once on page load and then only refreshed on the hourly tick, so switching zones (All / 50 nm / 20 nm) updated the heatmap and time series but left the donut showing All-zone data; a new `lastDonutZone` variable tracks which zone the donut was last drawn for; `fetchGpsState()` now redraws the donut whenever `lastDonutZone !== currentZone`, i.e. exactly once per zone switch immediately after the zone's data arrives; the hourly background refresh continues unchanged
+
+---
+
 ## 2026-05-29 (GPS Quality — distance zone filtering: All / 50 nm / 20 nm)
 
 - **Distance zone selector** added to the GPS Quality page — three buttons in the summary bar (**All · 50 nm · 20 nm**) filter all charts, heatmap, donut, and stats to show only aircraft within the selected radius from the airport (EFHK); the selection persists across browser sessions via `localStorage` and defaults to **All** on first use; switching zones re-fetches all data immediately

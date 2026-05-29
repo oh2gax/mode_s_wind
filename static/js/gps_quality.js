@@ -582,7 +582,8 @@ function renderStats(stats) {
 // ── Main poll loop ────────────────────────────────────────────────────────────────────────────
 let lastFlBands    = [];
 let lastHeatmapData = [];   // retained for hourly donut refresh
-let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick
+let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick or zone change
+let lastDonutZone  = null;  // zone the donut was last drawn for; triggers redraw on zone switch
 
 async function fetchGpsState() {
   try {
@@ -597,8 +598,12 @@ async function fetchGpsState() {
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
     drawHeatmap(d.heatmap || [], lastFlBands);
-    // Donut drawn only on first load; hourly interval handles subsequent refreshes
-    if (!donutDrawn) { drawDonutAndStats(lastHeatmapData, lastFlBands); donutDrawn = true; }
+    // Donut drawn on first load and whenever the zone changes; hourly interval handles the rest
+    if (!donutDrawn || lastDonutZone !== currentZone) {
+      drawDonutAndStats(lastHeatmapData, lastFlBands);
+      donutDrawn    = true;
+      lastDonutZone = currentZone;
+    }
     renderLiveTable(d.live || []);
 
     const now = new Date();
