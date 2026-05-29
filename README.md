@@ -1258,8 +1258,6 @@ This is a personal research tool built around a specific hardware setup at EFHK.
 
 ## License
 
-Copyright © 2024–2026 Otso Laakso / OH2GAX.
-
 This project is licensed under the **GNU General Public License v3.0**. You are free to use, study, modify and distribute this software under the terms of the GPLv3. Any derivative work must also be distributed under the same license.
 
 See the [LICENSE](LICENSE) file for the full license text, or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
