@@ -1071,8 +1071,9 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | nacp_events | Events flagged by the NACp signal this hour |
 | freeze_events | Events flagged by the Freeze signal this hour |
 | gap_events | Events flagged by the Gap signal this hour |
+| adsb_loss_events | Events flagged by the ADS-B loss signal this hour (MLAT covering GPS dropout) |
 
-Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore up to 31 days of heatmap and time-series history. The three per-signal columns were added in May 2026; existing rows carry 0 for these columns and are displayed as grey "Unknown" bars in the chart until they age out of the 24-hour window.
+Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore up to 31 days of heatmap and time-series history. The per-signal columns were added progressively in May 2026; existing rows carry 0 for any columns added after they were written and are displayed as grey "Unknown" bars in the chart until they age out.
 
 **`gps_quality_zone_hours`** — same structure as `gps_quality_hours` but with an additional `zone` column and a composite `PRIMARY KEY (ts, zone)`; stores hourly buckets for the **50 nm** and **20 nm** distance zones separately from the All view:
 
@@ -1087,6 +1088,7 @@ Written automatically when each hour rolls over (24 writes per day). Loaded on s
 | nacp_events | Events flagged by NACp within the zone |
 | freeze_events | Events flagged by Freeze within the zone |
 | gap_events | Events flagged by Gap within the zone |
+| adsb_loss_events | Events flagged by ADS-B loss within the zone |
 
 Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extra rows per hour — one per zone). Zone data begins accumulating from the first deployment of this feature; the `gps_quality_hours` table is not modified. Loaded on startup via a separate query per zone.
 
