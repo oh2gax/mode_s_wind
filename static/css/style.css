@@ -1377,6 +1377,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ils-leg-dot {
   width: 8px; height: 8px; border-radius: 50%;
 }
+.ws-ils-leg-ring {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid; background: transparent; flex-shrink: 0;
+}
 
 #ws-ils-canvas {
   flex: 1;

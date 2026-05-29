@@ -633,6 +633,26 @@ class WindshearTracker:
                     if len(wr_hist) > WINDROSE_OBS_CAP:
                         wr_hist.pop(0)
 
+            # ── NONE reason classification ──────────────────────────────────
+            # Classifies why meteo_source is NONE so the frontend can draw
+            # different symbols for normal maneuvering vs GPS-related issues.
+            #   'qc'     — pyModeS quality rejection (turn, high bank angle, etc.);
+            #              the aircraft has a valid, updating GPS position so this
+            #              is entirely expected and operationally normal.
+            #   'freeze' — our position-freeze gate fired; GPS position is stuck
+            #              while altitude descends, a signature of GPS jamming.
+            #   'gap'    — no ADS-B position message; GPS source has dropped out.
+            #   None     — meteo_source is not NONE; classification not applicable.
+            _meteo_src = aircraft.get("meteo_source", "NONE")
+            if _meteo_src != "NONE":
+                none_reason = None
+            elif pos_frozen:
+                none_reason = "freeze"
+            elif lat is None:
+                none_reason = "gap"
+            else:
+                none_reason = "qc"
+
             self._state[icao] = {
                 "icao":           icao,
                 "callsign":       callsign,
@@ -647,7 +667,8 @@ class WindshearTracker:
                 "best_wind_spd":  wind_spd,
                 "best_wind_dir":  wind_dir,
                 "best_temp":      temperature,
-                "meteo_source":   aircraft.get("meteo_source", "NONE"),
+                "meteo_source":   _meteo_src,
+                "none_reason":    none_reason,
                 "in_corridor":    in_corridor,
                 "approach_runway":runway,
                 "dist_apt_nm":    round(dist_apt, 1),

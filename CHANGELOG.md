@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (Windshear — NONE position marker colour-coding by reason)
+
+- **NONE position circles on ILS profile now colour-coded by cause** — previously all hollow circles were the same grey regardless of why wind data was unavailable; they are now split into two visually distinct types to help the user immediately distinguish normal maneuvering from a potential GPS problem
+- **Amber hollow circle — `'qc'` (EHS quality rejection)** — pyModeS suppressed the wind computation because the aircraft's bank angle or roll rate exceeded its quality threshold during a turn; the aircraft has a valid, actively updating GPS position and this is entirely expected during localizer intercept; seeing amber circles during the initial approach join is normal and requires no action
+- **Grey hollow circle — `'freeze'` / `'gap'` (GPS-related)** — either our position-freeze gate fired (`pos_frozen = True`: altitude descending while lat/lon is static — a GPS jamming signature) or the aircraft has no ADS-B position at all; grey circles on established final approach are worth investigating
+- **Classification logic** (`collector/windshear.py`) — a `none_reason` field is added to every aircraft's state dict entry; value is `None` when `meteo_source != 'NONE'`; when NONE: `'freeze'` if `pos_frozen` is True, `'gap'` if `lat is None`, otherwise `'qc'`; all existing upstream logic (wind computation, windrose, band capture, GPS quality DB) is completely unchanged — the classification is a read-only label derived from values already computed
+- **`wsNoneHistory` extended** — each stored observation now carries a `reason` field (`'qc'` / `'freeze'` / `'gap'`); the canvas draws loop picks the stroke colour per-observation rather than using a single fixed colour for the whole trail; older entries without a reason field default to `'qc'`
+- **ILS profile legend updated** — two new hollow-ring legend items added: **Turn** (amber ring) and **GPS** (grey ring), rendered with the new `.ws-ils-leg-ring` CSS class (border-only circle, transparent fill)
+
+---
+
 ## 2026-05-29 (GPS Quality — donut chart updates on zone switch)
 
 - **FL Band Analysis donut now redraws on zone change** — previously the donut was drawn once on page load and then only refreshed on the hourly tick, so switching zones (All / 50 nm / 20 nm) updated the heatmap and time series but left the donut showing All-zone data; a new `lastDonutZone` variable tracks which zone the donut was last drawn for; `fetchGpsState()` now redraws the donut whenever `lastDonutZone !== currentZone`, i.e. exactly once per zone switch immediately after the zone's data arrives; the hourly background refresh continues unchanged

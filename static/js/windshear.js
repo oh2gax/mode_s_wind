@@ -723,20 +723,28 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.fillText(`\u{1F32C} Waiting for wind data…${hintSuffix}`, M.left + 4, M.top + 22);
     }
 
-    // ── NONE position markers: grey open circles for observations where wind
-    //    computation was suspended (meteo_source === 'NONE').  These appear
-    //    alongside regular wind barbs (or alone) so the user can see that the
-    //    aircraft was still transmitting valid position data during grey periods.
-    //    Useful for GPS-jamming detection: hollow circles confirm position data
-    //    is arriving normally even while wind decoding is suspended.
+    // ── NONE position markers: hollow circles colour-coded by reason ────────
+    //    'qc'     → amber  — pyModeS quality rejection (turn / high bank angle);
+    //               normal maneuvering, no GPS issue.
+    //    'freeze' → grey   — our position-freeze gate fired; GPS likely jammed.
+    //    'gap'    → grey   — no ADS-B position at all; GPS source dropped out.
+    //
+    //    Amber circles during localizer intercept are expected and operationally
+    //    normal.  Grey circles on established final are worth investigating.
+    const NONE_COLOR_QC     = '#fb923c';   // amber  — EHS quality rejection (turns)
+    const NONE_COLOR_FREEZE = '#6b7280';   // grey   — position freeze (GPS jamming)
+    const NONE_COLOR_GAP    = '#6b7280';   // grey   — position gap   (GPS drop-out)
+
     const noneObs = wsNoneHistory[barbSelectedIcao] || [];
     if (noneObs.length > 0) {
       ilsCtx.save();
-      ilsCtx.strokeStyle = SRC_COLOR.NONE;   // #6b7280 — same grey as NONE aircraft icons
-      ilsCtx.lineWidth   = 1.5;
+      ilsCtx.lineWidth = 1.5;
       for (const obs of noneObs) {
         if (obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
         if (obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
+        ilsCtx.strokeStyle = obs.reason === 'qc' ? NONE_COLOR_QC
+                           : obs.reason === 'gap' ? NONE_COLOR_GAP
+                           : NONE_COLOR_FREEZE;
         ilsCtx.beginPath();
         ilsCtx.arc(distX(obs.dist_nm), altY(obs.alt_ft), 3, 0, 2 * Math.PI);
         ilsCtx.stroke();
@@ -2276,7 +2284,11 @@ async function fetchApproachState() {
       const noneAltMoved  = !noneLast || Math.abs(noneLast.alt_ft  - ac.altitude)    >= WS_WIND_MIN_ALT_GAP;
       const noneDistMoved = !noneLast || Math.abs(noneLast.dist_nm - ac.dist_thr_nm) >= WS_WIND_MIN_DIST_GAP;
       if (noneAltMoved || noneDistMoved) {
-        noneHist.push({ dist_nm: ac.dist_thr_nm, alt_ft: ac.altitude });
+        noneHist.push({
+          dist_nm: ac.dist_thr_nm,
+          alt_ft:  ac.altitude,
+          reason:  ac.none_reason || 'qc',   // 'qc' | 'freeze' | 'gap'
+        });
         if (noneHist.length > WS_WIND_HIST_MAX) noneHist.shift();
       }
     }
