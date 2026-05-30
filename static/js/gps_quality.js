@@ -581,13 +581,18 @@ function drawDonutAndStats(heatmapData, flBands) {
         { day: 'numeric', month: 'short', timeZone: 'UTC' })
     : '—';
 
+  // Use total signal firings as denominator so percentages sum to 100%.
+  // One aircraft sweep can trigger multiple signals simultaneously (e.g. both
+  // Freeze and ADS-B), so totalEvents < sum of individual signal counts.
+  const totalSignals = totalNacp + totalFreeze + totalGap + totalAdsbLoss;
+
   set('gps-stat-total',     totalEvents > 0 ? totalEvents.toLocaleString() : '—');
   set('gps-stat-top-band',  topBandCount > 0 ? `FL${topBand}  (${topBandCount.toLocaleString()})` : '—');
   set('gps-stat-worst-day', worstDayCount > 0 ? `${worstDayStr}  (${worstDayCount.toLocaleString()})` : '—');
-  set('gps-stat-nacp',   totalNacp     > 0 ? `${totalNacp.toLocaleString()}${pct(totalNacp,     totalEvents)}` : '—');
-  set('gps-stat-freeze', totalFreeze   > 0 ? `${totalFreeze.toLocaleString()}${pct(totalFreeze,   totalEvents)}` : '—');
-  set('gps-stat-gap',    totalGap      > 0 ? `${totalGap.toLocaleString()}${pct(totalGap,      totalEvents)}` : '—');
-  set('gps-stat-adsb',   totalAdsbLoss > 0 ? `${totalAdsbLoss.toLocaleString()}${pct(totalAdsbLoss, totalEvents)}` : '—');
+  set('gps-stat-nacp',   totalNacp     > 0 ? `${totalNacp.toLocaleString()}${pct(totalNacp,     totalSignals)}` : '—');
+  set('gps-stat-freeze', totalFreeze   > 0 ? `${totalFreeze.toLocaleString()}${pct(totalFreeze,   totalSignals)}` : '—');
+  set('gps-stat-gap',    totalGap      > 0 ? `${totalGap.toLocaleString()}${pct(totalGap,      totalSignals)}` : '—');
+  set('gps-stat-adsb',   totalAdsbLoss > 0 ? `${totalAdsbLoss.toLocaleString()}${pct(totalAdsbLoss, totalSignals)}` : '—');
 }
 
 // ── Summary bar ─────────────────────────────────────────────────────────────────────────────
