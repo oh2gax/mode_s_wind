@@ -41,7 +41,26 @@ from collector.receiver import run_collector
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
+from database import maintenance as maint
 from web.app import create_app
+
+
+def _autopurge_thread(db_path: str, interval_sec: float = 3_600.0) -> None:
+    """
+    Background daemon: checks autopurge configuration once per hour and
+    runs flight/observation data purge when it is due (at most once per day).
+    Approach history and GPS quality data are never auto-purged.
+    """
+    import time as _time
+    from database.db import get_db as _get_db
+    log = logging.getLogger("modes.autopurge")
+    while True:
+        try:
+            conn = _get_db()
+            maint.run_autopurge_if_needed(conn, db_path)
+        except Exception as exc:
+            log.warning("Autopurge error: %s", exc)
+        _time.sleep(interval_sec)
 
 
 def _gps_quality_sweep(
@@ -275,6 +294,16 @@ def main() -> None:
     gps_thread.start()
     log.info("GPS quality sweep thread started (NACp threshold=%d, sweep=%.0f s)",
              cfg.GPS_NACP_THRESHOLD, cfg.GPS_SWEEP_SEC)
+
+    # ── Autopurge background thread ───────────────────────────────────────
+    autopurge_thread = threading.Thread(
+        target=_autopurge_thread,
+        args=(cfg.DB_PATH,),
+        name="autopurge",
+        daemon=True,
+    )
+    autopurge_thread.start()
+    log.info("Autopurge thread started (checks every hour)")
 
     # Give the collector a moment to connect before Flask starts accepting
     time.sleep(1)

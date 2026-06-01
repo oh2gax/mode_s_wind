@@ -250,14 +250,13 @@ function updateTsChart(allBuckets) {
       const d  = new Date(ts * 1000);
       const hh = d.getUTCHours().toString().padStart(2, '0');
       if (cfg.hours <= 24) {
+        // 1d: plain HH:00 — all bars are within one known day
         return hh + ':00';
       }
-      // 2d / 3d: prefix with month/day when hour = 0 (midnight) or first slot
-      const isFirst    = ts === slots[0];
-      const isMidnight = d.getUTCHours() === 0;
-      const prefix     = (isFirst || isMidnight)
-        ? `${d.getUTCMonth() + 1}/${d.getUTCDate()} ` : '';
-      return prefix + hh + 'h';
+      // 2d / 3d / 1w: always include M/D so every tick label is self-contained.
+      // Chart.js may skip any tick based on maxTicksLimit, so relying on only
+      // midnight bars carrying the date prefix made most labels unreadable.
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}h`;
     });
 
     nacp     = slots.map(ts => dataMap[ts]?.nacp_events        || 0);

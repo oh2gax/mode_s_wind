@@ -19,8 +19,11 @@ from flask import (
     jsonify, stream_with_context, send_from_directory,
 )
 
+import hmac
+
 from config import Config
 from database.db import get_db
+from database import maintenance as maint
 
 log = logging.getLogger("modes.web")
 
@@ -680,6 +683,93 @@ def create_app(
         if result.get("metar") and result["metar"] != "[unavailable]":
             result["metar_wind"] = _parse_metar_wind(result["metar"])
 
+        return jsonify(result)
+
+    # ── Maintenance page ──────────────────────────────────────────────────
+
+    def _check_maint_auth(username: str, password: str) -> bool:
+        """Validate credentials against MAINTENANCE_AUTH_FILE (username:password)."""
+        path = cfg.MAINTENANCE_AUTH_FILE
+        if not path or not os.path.exists(path):
+            return False
+        try:
+            with open(path) as f:
+                line = f.read().strip()
+            file_user, file_pass = line.split(":", 1)
+            return (hmac.compare_digest(username.strip(), file_user.strip()) and
+                    hmac.compare_digest(password.strip(), file_pass.strip()))
+        except Exception:
+            return False
+
+    def _maint_auth_required(data: dict) -> bool:
+        return _check_maint_auth(
+            data.get("username", ""),
+            data.get("password", ""),
+        )
+
+    @app.route("/maintenance")
+    def maintenance_page():
+        return render_template("maintenance.html")
+
+    @app.route("/api/maintenance/stats", methods=["POST"])
+    def maintenance_stats():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        conn = get_db()
+        return jsonify(maint.get_stats(conn, cfg.DB_PATH))
+
+    @app.route("/api/maintenance/flight/preview", methods=["POST"])
+    def maintenance_flight_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 30))
+        return jsonify(maint.preview_flight_purge(get_db(), days))
+
+    @app.route("/api/maintenance/flight/purge", methods=["POST"])
+    def maintenance_flight_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 30))
+        return jsonify(maint.purge_flight_data(get_db(), days))
+
+    @app.route("/api/maintenance/flight/autopurge", methods=["POST"])
+    def maintenance_flight_autopurge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        enabled = bool(data.get("enabled", False))
+        days    = int(data.get("days", 30))
+        maint.set_autopurge_config(get_db(), enabled, days)
+        return jsonify({"ok": True, "enabled": enabled, "days": days})
+
+    @app.route("/api/maintenance/flight/autopurge-config", methods=["POST"])
+    def maintenance_autopurge_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        return jsonify(maint.get_autopurge_config(get_db()))
+
+    @app.route("/api/maintenance/gps/preview", methods=["POST"])
+    def maintenance_gps_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 90))
+        return jsonify(maint.preview_gps_purge(get_db(), days))
+
+    @app.route("/api/maintenance/gps/purge", methods=["POST"])
+    def maintenance_gps_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days   = int(data.get("days", 90))
+        result = maint.purge_gps_data(get_db(), days)
+        # Reload in-RAM cache so the GPS Quality page reflects the purge immediately
+        if gps_tracker is not None:
+            gps_tracker.reload_from_db()
         return jsonify(result)
 
     return app

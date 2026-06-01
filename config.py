@@ -206,3 +206,10 @@ class Config:
     GPS_MIN_ALT_FT: float = 1000.0
     # Sweep interval (seconds) for the GPS quality background thread.
     GPS_SWEEP_SEC: float = 5.0
+
+    # ── Maintenance page ───────────────────────────────────────────────────
+    # Path to the maintenance authentication file.
+    # File format: a single line  username:password
+    # Keep this file outside the project directory and out of version control.
+    # Example: /home/rspi22/mode_s_wind/dbauth.txt
+    MAINTENANCE_AUTH_FILE: str = ""

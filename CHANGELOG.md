@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-05-29 (Maintenance page + GPS Quality chart and purge fixes)
+
+- **Maintenance page** added at `/maintenance` — administrator tool for database housekeeping; protected by a separate credential file (`MAINTENANCE_AUTH_FILE` in config) independent of the main web authentication; credentials are never stored in a session and are submitted with each operation
+- **Flight & Meteo data purge** — removes records from `observations` and `flights` older than a configurable number of days; approach history is never touched; a preview step shows the exact row counts and date range before any deletion is executed
+- **GPS Quality data purge** — separately removes rows from `gps_quality_hours` and `gps_quality_zone_hours` older than a configurable threshold; no autopurge for GPS quality data
+- **Autopurge** — optional scheduled purge for flight/meteo data; when enabled, runs automatically once per day via a background thread; threshold (days) is configurable from the maintenance page; settings persisted in the new `maintenance_config` DB table
+- **Database statistics panel** — shows row counts, oldest and newest record timestamps, and SQLite file size for all tables; refreshed on demand
+- **GPS quality purge now reloads in-RAM cache** — previously purging GPS quality data removed rows from the DB but the live GPS Quality page continued to show the old data from the in-RAM bucket cache until next server restart; the purge route now calls `GpsQualityTracker.reload_from_db()` immediately after deletion
+- **GPS Quality chart X-axis labels fixed** — for multi-day hourly views (2d / 3d / 1w) the tick labels now always show `M/D HHh` format; previously only midnight and the first slot carried a date prefix, so when Chart.js chose which ticks to display the remaining labels showed bare hour numbers with no day context
+
+---
+
 ## 2026-05-29 (GPS Quality — ADS-B position loss detection + stats percentage fix)
 
 - **New `adsb_loss` detection signal** — detects when an aircraft's own GPS-derived ADS-B position has dropped out while the Radarcape MLAT system continues to keep it visible; this is the most common GPS-jamming signature at EFHK where MLAT coverage is strong enough that the plain `gap` signal (requiring `lat is None`) almost never fires; `adsb_loss` and `gap` are mutually exclusive by design

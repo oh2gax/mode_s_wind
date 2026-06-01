@@ -384,6 +384,20 @@ class GpsQualityTracker:
         except Exception as exc:
             log.warning("GPS quality: failed to load zone history from DB: %s", exc)
 
+    def reload_from_db(self) -> None:
+        """
+        Reload all historical buckets from DB, replacing the in-RAM cache.
+        Called after a maintenance purge so the live charts reflect the new
+        DB state immediately without requiring a server restart.
+        """
+        with self._lock:
+            self._buckets.clear()
+            for zb in self._zone_buckets.values():
+                zb.clear()
+        self._load_from_db()
+        self._load_zones_from_db()
+        log.info("GPS quality: in-RAM cache reloaded from DB after maintenance purge")
+
     # ── Public interface ──────────────────────────────────────────────────────
 
     def update(self, ac: dict) -> None:

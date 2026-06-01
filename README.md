@@ -1110,6 +1110,15 @@ Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extr
 
 Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
+**`maintenance_config`** — key/value store for maintenance page settings:
+
+| Column | Description |
+|--------|-------------|
+| key | Setting name (primary key) |
+| value | Setting value as text |
+
+Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (integer as text), `autopurge_last_run` (Unix timestamp as text). Written by the maintenance API; read by the autopurge background thread.
+
 **`observations`** — one row per decoded message with useful data:
 
 - Position: `lat`, `lon`, `altitude` (ft)
@@ -1257,6 +1266,16 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windshear/windrose-obs` | Rolling 30-minute buffer of low-altitude wind observations (alt ≤ 2 000 ft, non-NONE, in-corridor) harvested from recently landed aircraft; used by the browser on page load and re-fetched every 60 s to keep the Windrose current mid-session; each entry: `ts`, `dir`, `spd`, `alt` |
 | GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, time series, 14-day FL heatmap, FL band summary stats; optional `?zone=50nm` or `?zone=20nm` filters data to aircraft within that radius from the airport (default `all`); completed hours persisted in `gps_quality_hours` and `gps_quality_zone_hours` and reloaded on restart |
 | GET | `/overlays/<filename>` | Serves GeoJSON overlay files from the project-level `overlays/` directory |
+| GET | `/maintenance` | Maintenance page (HTML) — requires separate maintenance credentials for all operations |
+| POST | `/api/maintenance/stats` | Database statistics: row counts, date ranges, file size for all tables |
+| POST | `/api/maintenance/flight/preview` | Preview flight/observation rows that would be deleted for a given day threshold |
+| POST | `/api/maintenance/flight/purge` | Delete observations and flights older than N days; approach history untouched |
+| POST | `/api/maintenance/flight/autopurge` | Save autopurge settings (enabled, days threshold) to `maintenance_config` |
+| POST | `/api/maintenance/flight/autopurge-config` | Read current autopurge settings |
+| POST | `/api/maintenance/gps/preview` | Preview GPS quality rows that would be deleted for a given day threshold |
+| POST | `/api/maintenance/gps/purge` | Delete GPS quality hourly rows older than N days; reloads in-RAM cache after deletion |
+
+All `/api/maintenance/*` endpoints require `username` and `password` fields in the JSON request body, validated against the `MAINTENANCE_AUTH_FILE` credential file.
 
 ---
 

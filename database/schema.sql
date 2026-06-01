@@ -160,3 +160,11 @@ CREATE TABLE IF NOT EXISTS approach_history (
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_aphist_date ON approach_history(date_utc);
 CREATE INDEX IF NOT EXISTS idx_aphist_rwy  ON approach_history(runway);
+
+-- ── maintenance_config ────────────────────────────────────────────────────────
+-- Key-value store for maintenance page settings (autopurge configuration).
+-- Written by the maintenance API; read by the autopurge background thread.
+CREATE TABLE IF NOT EXISTS maintenance_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
