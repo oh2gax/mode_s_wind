@@ -1882,9 +1882,9 @@ function _statsUrl() {
 }
 
 function _statsLabel() {
-  if (wsStatsRange === 'yesterday') return 'Yesterday UTC';
+  if (wsStatsRange === 'yesterday') return 'Yesterday';
   if (wsStatsRange === '1w')        return 'Last 7 Days';
-  return 'Today UTC';
+  return 'Today';
 }
 
 function _syncStatsButtons() {
@@ -1895,6 +1895,7 @@ function _syncStatsButtons() {
   const typeLbl = document.getElementById('ws-stats-type-label');
   if (rwyLbl)  rwyLbl.textContent  = `Runway Usage · ${lbl}`;
   if (typeLbl) typeLbl.textContent = `Aircraft Types · ${lbl}`;
+  // Totals are appended by renderTodayStats after data loads
 }
 
 async function fetchTodayStats() {
@@ -1913,7 +1914,7 @@ function renderTodayStats(approaches) {
 
   const total = approaches.length;
   if (total === 0) {
-    rwyEl.innerHTML  = '<span class="ws-stats-empty">No landings yet today</span>';
+    rwyEl.innerHTML  = '<span class="ws-stats-empty">No landings yet</span>';
     typeEl.innerHTML = '<span class="ws-stats-empty">No data</span>';
     return;
   }
@@ -1933,7 +1934,7 @@ function renderTodayStats(approaches) {
   rwyEl.innerHTML = rwySorted.map(([rwy, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxRwy * 100);
-    const tip  = `RWY ${rwy}: ${cnt} landing${cnt !== 1 ? 's' : ''} today`;
+    const tip  = `RWY ${rwy}: ${cnt} landing${cnt !== 1 ? 's' : ''}`;
     return `<div class="ws-stats-row" data-tip="${tip}">
   <span class="ws-stats-rwy-name">${rwy}</span>
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:var(--accent)"></div></div>
@@ -1947,13 +1948,21 @@ function renderTodayStats(approaches) {
   typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxType * 100);
-    const tip  = `${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''} today`;
+    const tip  = `${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''}`;
     return `<div class="ws-stats-row" data-tip="${tip}">
   <span class="ws-stats-type-name">${type}</span>
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:#10b981"></div></div>
   <span class="ws-stats-pct">${pct}%</span>
 </div>`;
   }).join('');
+
+  // Update section labels with totals
+  const totalTypes = Object.keys(typeCounts).length;
+  const lbl = _statsLabel();
+  const rwyLblEl  = document.getElementById('ws-stats-rwy-label');
+  const typLblEl  = document.getElementById('ws-stats-type-label');
+  if (rwyLblEl)  rwyLblEl.textContent  = `Runway Usage · ${lbl}  Total: ${total}`;
+  if (typLblEl)  typLblEl.textContent  = `Aircraft Types · ${lbl}  Total types: ${totalTypes}`;
 
   // Wire hover tooltips (reuse the existing log tooltip element and helpers)
   [rwyEl, typeEl].forEach(container => {

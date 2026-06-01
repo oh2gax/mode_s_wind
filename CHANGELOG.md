@@ -10,6 +10,7 @@ No version numbers — entries are organised by date.
 - **Statistics time range selector** — three compact buttons added to the statistics panel: **Live** (today's UTC data, default), **Yest** (previous UTC day), **1w** (last 7 days via `?window=604800`); switching range immediately re-fetches and updates both Runway Usage and Aircraft Types sections and updates the section labels accordingly; selected range persisted to `localStorage` (`ms_ws_stats_range`)
 - **Runway Usage section now scrollable** — previously the runway section used an incorrect CSS selector (`first-of-type`) that matched nothing, silently clipping any rows that exceeded the available height; fixed to use `:not(:last-child)` which correctly targets the runway section; all runway rows are now reachable via scrollbar when more runways are active than can fit
 - **Runway Usage section taller** — flex weight increased from 1 to 1.4 (Aircraft Types remains at 2) so approximately one extra runway row is always visible without scrolling; useful when all EFHK runway directions are active simultaneously
+- **Total counts shown in section labels** — Runway Usage label now shows the total landing count (e.g. "Runway Usage · Today  Total: 89") and Aircraft Types label shows the number of distinct types seen (e.g. "Aircraft Types · Today  Total types: 23"); counts update whenever data refreshes or the time range changes; "UTC" removed from labels as all times in the system are UTC by convention; hover tooltip "today" text removed since it was misleading for Yesterday and 1w ranges
 
 ---
 
