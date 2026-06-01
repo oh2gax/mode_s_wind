@@ -37,25 +37,34 @@ def get_stats(conn, db_path: str) -> dict:
             return None
         return datetime.datetime.utcfromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M UTC")
 
-    def _table_stats(table: str, ts_col: str) -> dict:
+    def _table_stats(table: str, ts_col: str, days_expr: str | None = None) -> dict:
         row = conn.execute(
             f"SELECT COUNT(*), MIN({ts_col}), MAX({ts_col}) FROM {table}"
         ).fetchone()
+        days = None
+        if days_expr:
+            d = conn.execute(f"SELECT COUNT(DISTINCT {days_expr}) FROM {table}").fetchone()
+            days = d[0] if d else None
         return {
             "rows":   row[0] or 0,
+            "days":   days,
             "oldest": _fmt_ts(row[1]),
             "newest": _fmt_ts(row[2]),
         }
 
-    obs    = _table_stats("observations",        "ts")
-    flt    = _table_stats("flights",             "last_seen")
-    aph    = _table_stats("approach_history",    "ts")
-    gps    = _table_stats("gps_quality_hours",   "ts")
+    obs = _table_stats("observations",     "ts",        "date(ts, 'unixepoch')")
+    flt = _table_stats("flights",          "last_seen", "date(last_seen, 'unixepoch')")
+    aph = _table_stats("approach_history", "ts",        "date_utc")
+    gps = _table_stats("gps_quality_hours", "ts",       "date(ts, 'unixepoch')")
     gpsz_r = conn.execute(
         "SELECT COUNT(*), MIN(ts), MAX(ts) FROM gps_quality_zone_hours"
     ).fetchone()
+    gpsz_days = conn.execute(
+        "SELECT COUNT(DISTINCT date(ts, 'unixepoch')) FROM gps_quality_zone_hours"
+    ).fetchone()
     gpsz = {
         "rows":   gpsz_r[0] or 0,
+        "days":   gpsz_days[0] if gpsz_days else None,
         "oldest": _fmt_ts(gpsz_r[1]),
         "newest": _fmt_ts(gpsz_r[2]),
     }

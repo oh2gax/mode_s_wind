@@ -1248,7 +1248,7 @@ Authentication is handled separately from the main web credentials — all opera
 
 **Operations:**
 
-- **Database statistics** — read-only view of row counts, oldest/newest record dates, and SQLite file size for all tables; refreshed on demand
+- **Database statistics** — read-only view showing for each table: row count, number of distinct calendar days with data, oldest and newest record dates, and total SQLite file size; refreshed on demand; the days count helps choosing an appropriate purge threshold
 - **Flight & Meteo data purge** — deletes records from `observations` and `flights` older than a configurable number of days; a preview step shows exact counts before any deletion; `approach_history` is never touched by any maintenance operation
 - **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` older than a configurable threshold; the in-RAM GPS quality cache is reloaded immediately after so the GPS Quality page reflects the change without a server restart
 - **Autopurge** — optional daily scheduled purge for flight/meteo data; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality and Approach History data are never auto-purged

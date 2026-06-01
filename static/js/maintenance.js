@@ -47,10 +47,11 @@ async function loadStats() {
       const row = document.getElementById(rowId);
       if (!row) return;
       const cells = row.querySelectorAll('span');
-      if (cells.length >= 4) {
+      if (cells.length >= 5) {
         cells[1].textContent = _fmt(stat.rows);
-        cells[2].textContent = stat.oldest || '—';
-        cells[3].textContent = stat.newest || '—';
+        cells[2].textContent = stat.days != null ? stat.days : '—';
+        cells[3].textContent = stat.oldest || '—';
+        cells[4].textContent = stat.newest || '—';
       }
     }
 

@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Maintenance — days-of-data column in statistics table)
+
+- **Days column added to the maintenance statistics table** — the database statistics panel now shows a **Days** column between Rows and Oldest record for each table; computed as `COUNT(DISTINCT date(...))` on the relevant timestamp column so it reflects the true number of calendar days with data, not just the span between oldest and newest; helps the user choose an appropriate purge threshold before entering the day count in the purge field
+- Statistics grid updated from 4 to 5 columns: **Table · Rows · Days · Oldest record · Newest record**
+
+---
+
 ## 2026-06-01 (Windshear — today's statistics panel + compact alert log)
 
 - **Windshear alert panel split 55/45** — the right side of the bottom row is now divided: the left 55% remains the windshear alert log; the right 45% is a new **Today's Statistics** panel showing runway usage and aircraft type distributions for the current UTC day
