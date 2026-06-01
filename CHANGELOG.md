@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Windshear — algorithm selection persisted across page reloads)
+
+- **Windshear algorithm selection now saved to localStorage** — previously the detection algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic) always reset to Pair on every page reload; the selected algorithm is now stored under the `ms_ws_algo` key and restored on page load, matching the existing behaviour of the alert level and F-factor gate dropdowns; first visit still defaults to Pair
+
+---
+
 ## 2026-06-01 (Maintenance — days-of-data column in statistics table)
 
 - **Days column added to the maintenance statistics table** — the database statistics panel now shows a **Days** column between Rows and Oldest record for each table; computed as `COUNT(DISTINCT date(...))` on the relevant timestamp column so it reflects the true number of calendar days with data, not just the span between oldest and newest; helps the user choose an appropriate purge threshold before entering the day count in the purge field

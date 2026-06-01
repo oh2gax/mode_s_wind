@@ -915,7 +915,7 @@ function gsClass(gs) {
 
 // ── Windshear detection engine ────────────────────────────────────────────────
 let wsDetectionEnabled = false;
-let wsDetAlgo          = 'pair';   // active algorithm key
+let wsDetAlgo = localStorage.getItem('ms_ws_algo') || 'pair';   // active algorithm key — persisted
 let lastShearEvents    = [];
 
 /**
@@ -1435,8 +1435,15 @@ document.getElementById('ws-det-btn').addEventListener('click', () => {
 });
 
 // ── Algorithm selector (dropdown) ────────────────────────────────────────────
+// Restore saved algorithm on page load
+(function () {
+  const algoEl = document.getElementById('ws-algo-select');
+  if (algoEl && wsDetAlgo) algoEl.value = wsDetAlgo;
+})();
+
 document.getElementById('ws-algo-select').addEventListener('change', e => {
   wsDetAlgo = e.target.value;
+  localStorage.setItem('ms_ws_algo', wsDetAlgo);
   // Re-run detection immediately with the new algorithm
   if (wsDetectionEnabled) {
     const corridor  = lastAircraft.filter(ac => ac.in_corridor);
