@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Windshear — statistics time range selector + runway section fixes)
+
+- **Statistics time range selector** — three compact buttons added to the statistics panel: **Live** (today's UTC data, default), **Yest** (previous UTC day), **1w** (last 7 days via `?window=604800`); switching range immediately re-fetches and updates both Runway Usage and Aircraft Types sections and updates the section labels accordingly; selected range persisted to `localStorage` (`ms_ws_stats_range`)
+- **Runway Usage section now scrollable** — previously the runway section used an incorrect CSS selector (`first-of-type`) that matched nothing, silently clipping any rows that exceeded the available height; fixed to use `:not(:last-child)` which correctly targets the runway section; all runway rows are now reachable via scrollbar when more runways are active than can fit
+- **Runway Usage section taller** — flex weight increased from 1 to 1.4 (Aircraft Types remains at 2) so approximately one extra runway row is always visible without scrolling; useful when all EFHK runway directions are active simultaneously
+
+---
+
 ## 2026-06-01 (Windshear — algorithm selection persisted across page reloads)
 
 - **Windshear algorithm selection now saved to localStorage** — previously the detection algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic) always reset to Pair on every page reload; the selected algorithm is now stored under the `ms_ws_algo` key and restored on page load, matching the existing behaviour of the alert level and F-factor gate dropdowns; first visit still defaults to Pair

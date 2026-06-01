@@ -1867,11 +1867,39 @@ function renderWsLog() {
 }
 
 // ── Today's approach statistics ───────────────────────────────────────────────
+// ── Stats range state ────────────────────────────────────────────────────────
+let wsStatsRange = localStorage.getItem('ms_ws_stats_range') || 'live';
+
+function _statsUrl() {
+  const now = new Date();
+  const fmt = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  if (wsStatsRange === 'yesterday') {
+    return `/api/windshear/approach-history?date=${fmt(new Date(now - 86_400_000))}`;
+  } else if (wsStatsRange === '1w') {
+    return `/api/windshear/approach-history?window=604800`;
+  }
+  return `/api/windshear/approach-history?date=${fmt(now)}`;
+}
+
+function _statsLabel() {
+  if (wsStatsRange === 'yesterday') return 'Yesterday UTC';
+  if (wsStatsRange === '1w')        return 'Last 7 Days';
+  return 'Today UTC';
+}
+
+function _syncStatsButtons() {
+  document.querySelectorAll('.ws-stats-time-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.statsRange === wsStatsRange));
+  const lbl = _statsLabel();
+  const rwyLbl  = document.getElementById('ws-stats-rwy-label');
+  const typeLbl = document.getElementById('ws-stats-type-label');
+  if (rwyLbl)  rwyLbl.textContent  = `Runway Usage · ${lbl}`;
+  if (typeLbl) typeLbl.textContent = `Aircraft Types · ${lbl}`;
+}
+
 async function fetchTodayStats() {
   try {
-    const now = new Date();
-    const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
-    const r = await fetch(`/api/windshear/approach-history?date=${dateStr}`);
+    const r = await fetch(_statsUrl());
     if (!r.ok) return;
     const data = await r.json();
     renderTodayStats(Array.isArray(data) ? data : []);
@@ -2940,6 +2968,18 @@ async function fetchApproachHistory() {
     renderApproachHistory(await r.json());
   } catch (_) {}
 }
+
+// ── Stats time range button handlers ─────────────────────────────────────────
+document.querySelectorAll('.ws-stats-time-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    wsStatsRange = btn.dataset.statsRange;
+    localStorage.setItem('ms_ws_stats_range', wsStatsRange);
+    _syncStatsButtons();
+    fetchTodayStats();
+  });
+});
+// Restore saved range on page load
+_syncStatsButtons();
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 fetchApproachState();

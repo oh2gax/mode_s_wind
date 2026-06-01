@@ -1298,6 +1298,16 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   border-right: 1px solid var(--border);
 }
 
+
+/* ── Stats panel time range buttons ─────────────────────────────────────── */
+.ws-stats-timerow { display: flex; gap: 3px; padding: 4px 8px 0; flex-shrink: 0; }
+.ws-stats-time-btn {
+  background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 600;
+  cursor: pointer; line-height: 1.5; transition: background 0.1s;
+}
+.ws-stats-time-btn:hover  { color: var(--text-1); }
+.ws-stats-time-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
 /* ── Today's statistics panel (right 45%) ────────────────────────────────── */
 .ws-stats-panel {
   flex: 0 0 45%;
@@ -2092,6 +2102,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* Aircraft types section gets 2x vertical space with scrollable content */
 .ws-stats-section:last-child { flex: 2; display: flex; flex-direction: column; }
 .ws-stats-section:last-child .ws-stats-content { flex: 1; min-height: 0; overflow-y: auto; }
+/* Runway section: scrollable, flex 1.4 to show one extra row vs base flex:1 */
+.ws-stats-section:not(:last-child) { flex: 1.4; display: flex; flex-direction: column; }
+.ws-stats-section:not(:last-child) .ws-stats-content { flex: 1; min-height: 0; overflow-y: auto; }
 .ws-stats-divider { height: 1px; background: var(--border); flex-shrink: 0; }
 .ws-stats-label { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
 .ws-stats-content { display: flex; flex-direction: column; gap: 2px; }

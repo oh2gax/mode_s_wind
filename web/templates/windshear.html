@@ -170,13 +170,18 @@
               <div class="ws-ws-log-empty">Enable detection to start logging</div>
             </div>
             <div class="ws-stats-panel">
+              <div class="ws-stats-timerow">
+                <button class="ws-stats-time-btn active" data-stats-range="live">Live</button>
+                <button class="ws-stats-time-btn" data-stats-range="yesterday">Yest</button>
+                <button class="ws-stats-time-btn" data-stats-range="1w">1w</button>
+              </div>
               <div class="ws-stats-section">
-                <div class="ws-stats-label">Runway Usage · Today UTC</div>
+                <div class="ws-stats-label" id="ws-stats-rwy-label">Runway Usage · Today UTC</div>
                 <div id="ws-stats-rwy" class="ws-stats-content"><span class="ws-stats-empty">Loading…</span></div>
               </div>
               <div class="ws-stats-divider"></div>
               <div class="ws-stats-section">
-                <div class="ws-stats-label">Aircraft Types · Today UTC</div>
+                <div class="ws-stats-label" id="ws-stats-type-label">Aircraft Types · Today UTC</div>
                 <div id="ws-stats-types" class="ws-stats-content"><span class="ws-stats-empty">Loading…</span></div>
               </div>
             </div>
