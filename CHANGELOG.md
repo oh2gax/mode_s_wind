@@ -5,7 +5,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-29 (Maintenance page + GPS Quality chart and purge fixes)
+## 2026-06-01 (Maintenance page + GPS Quality chart and purge fixes)
 
 - **Maintenance page** added at `/maintenance` — administrator tool for database housekeeping; protected by a separate credential file (`MAINTENANCE_AUTH_FILE` in config) independent of the main web authentication; credentials are never stored in a session and are submitted with each operation
 - **Flight & Meteo data purge** — removes records from `observations` and `flights` older than a configurable number of days; approach history is never touched; a preview step shows the exact row counts and date range before any deletion is executed
