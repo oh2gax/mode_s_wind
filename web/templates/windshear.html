@@ -96,8 +96,9 @@
         </div>
       </div>
 
-      <!-- Bottom row: ILS profile (left) + Windshear event log (right) -->
-      <div class="ws-bottom-row">
+      <!-- Bottom grid: left col (ILS + wx-strip) | right col (alerts + stats, full height) -->
+      <div class="ws-bottom-grid">
+      <div class="ws-bottom-left">
 
         <!-- ILS vertical profile -->
         <div class="ws-ils-panel">
@@ -132,7 +133,21 @@
           <canvas id="ws-ils-canvas"></canvas>
         </div>
 
-        <!-- Windshear event log + today's statistics -->
+        <!-- METAR + TAF strip — inside left column, below ILS canvas -->
+        <div class="ws-wx-strip">
+          <div class="ws-wx-section">
+            <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
+            <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
+          </div>
+          <div class="ws-wx-section ws-taf-narrow">
+            <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
+            <pre class="ws-wx-text" id="ws-taf-text">Loading…</pre>
+          </div>
+        </div>
+
+      </div><!-- .ws-bottom-left -->
+
+        <!-- Windshear event log + today's statistics — full height right column -->
         <div class="ws-ws-log">
           <div class="ws-ws-log-hdr">
             <span class="ws-ws-log-title">Windshear Alert</span>
@@ -191,19 +206,8 @@
         <!-- Tooltip for compact windshear log entries -->
         <div id="ws-log-tooltip" class="ws-log-tooltip" style="display:none"></div>
 
-      </div><!-- .ws-bottom-row -->
-
-      <!-- ── METAR + TAF strip — right column only, strips extend full height -->
-      <div class="ws-wx-strip">
-        <div class="ws-wx-section">
-          <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
-          <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
-        </div>
-        <div class="ws-wx-section">
-          <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
-          <pre class="ws-wx-text" id="ws-taf-text">Loading…</pre>
-        </div>
-      </div>
+      </div><!-- .ws-ws-log -->
+      </div><!-- .ws-bottom-grid -->
 
     </div><!-- .ws-right-col -->
   </div><!-- .ws-body -->

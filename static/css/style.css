@@ -1190,6 +1190,65 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   border-top: 1px solid var(--border);
 }
 
+/* ── New bottom grid layout: left col (ILS+wx) | right col (alerts+stats, full height) ── */
+.ws-bottom-grid {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+.ws-bottom-left {
+  flex: 0 0 60%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  overflow: visible;   /* allow wx-strip to overflow into alerts column */
+  padding-bottom: 165px;  /* reserve space for absolute wx-strip */
+  z-index: 1;  /* ensures overflowing wx-strip renders above ws-ws-log background */
+}
+/* ILS canvas fills available height above wx-strip */
+.ws-bottom-left .ws-ils-panel {
+  flex: 1;
+  min-height: 0;
+  border-right: 1px solid var(--border);  /* divider at top portion only */
+}
+/* wx-strip: absolute, extends beyond left column to align TAF under alerts */
+.ws-bottom-left .ws-wx-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 136.67%;      /* 60% + 22% alerts = 82% of page, expressed as % of 60% container */
+  height: 165px;
+  border-top: 1px solid var(--border);
+  z-index: 2;
+}
+/* METAR and TAF share wx-strip equally (50/50) */
+.ws-bottom-left .ws-wx-strip .ws-wx-section:first-child {
+  flex: 1;
+}
+/* TAF section: fills remaining width — aligns under alerts column */
+.ws-taf-narrow {
+  flex: 1 !important;
+}
+/* TAF section narrower — aligns visually with alerts column */
+.ws-taf-narrow {
+  flex: 1 !important;  /* same as METAR — 50/50 split in left column */
+}
+/* ws-ws-log spans full height of bottom-grid (ILS height + wx-strip height) */
+.ws-bottom-grid > .ws-ws-log {
+  flex: 1;
+  border-top: none;
+}
+/* Alerts stays its natural height; stats stretches to fill all remaining space */
+.ws-ws-log-entries {
+  /* Alerts stays approx old height; stats fills the extra 165px below */
+  min-height: calc(100% - 165px);
+  max-height: calc(100% - 165px);
+  overflow-y: auto;
+}
+
 /* ILS vertical profile panel — left 60% */
 .ws-ils-panel {
   flex: 0 0 60%;
@@ -1295,7 +1354,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  border-right: 1px solid var(--border);
 }
 
 
@@ -1311,6 +1369,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* ── Today's statistics panel (right 45%) ────────────────────────────────── */
 .ws-stats-panel {
   flex: 0 0 45%;
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1551,6 +1610,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   min-width: 0;
 }
 .ws-wx-section:last-child { border-right: none; }
+
+.ws-wx-taf-divider { height: 1px; background: var(--border); margin: 2px 0; flex-shrink: 0; }
 .ws-wx-label {
   font-size: 10px;
   font-weight: 600;
@@ -2072,7 +2133,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ws-log-entries {
   flex: 0 0 55%; overflow-y: auto; padding: 4px 6px;
   display: flex; flex-direction: column; gap: 3px;
-  border-right: 1px solid var(--border);
 }
 .ws-log-entry-compact {
   background: var(--bg-2); border-left: 3px solid var(--amber);
