@@ -1888,7 +1888,7 @@ function renderTodayStats(approaches) {
   const typeCounts = {};
   for (const ap of approaches) {
     if (ap.runway)       rwyCounts[ap.runway]                     = (rwyCounts[ap.runway]       || 0) + 1;
-    const t = ap.aircraft_type || 'Unknown';
+    const t = ap.aircraft_type || 'NIL';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   }
 
@@ -1907,7 +1907,7 @@ function renderTodayStats(approaches) {
   }).join('');
 
   // Render top 10 aircraft types (sorted by count desc)
-  const typeSorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]).slice(0, 10);
+  const typeSorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]);
   const maxType = typeSorted[0]?.[1] || 1;
   typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
     const pct = Math.round(cnt / total * 100);

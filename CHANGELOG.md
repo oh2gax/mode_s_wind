@@ -13,6 +13,8 @@ No version numbers — entries are organised by date.
 - **Aircraft Types section** — top 10 aircraft types by approach count with percentage bars; `Unknown` used when `aircraft_type` is absent in the record; section given double the vertical space of the runway section for readability
 - **`fetchTodayStats()`** — new async function fetching `/api/windshear/approach-history?date=YYYY-MM-DD` at page load and every 5 minutes; statistics update automatically as new approaches are committed throughout the day; independent of the approach history panel enable state
 - **Hover tooltips on stats rows** — hovering over any runway or aircraft type row shows the exact approach count for today (e.g. "RWY 22L: 18 landings today", "A320: 7 approaches today"); uses the same positioned tooltip element already in place for the compact windshear alert entries
+- **Aircraft Types shows all types with scrollbar** — removed the top-10 cap; all distinct aircraft types seen today are listed sorted by frequency with a vertical scrollbar so none are hidden; the label row stays fixed while the list scrolls
+- **Unknown aircraft type label shortened to NIL** — aircraft records without a decoded type code are shown as `NIL` instead of `Unknown` for a cleaner visual fit in the narrow stats column
 
 ---
 

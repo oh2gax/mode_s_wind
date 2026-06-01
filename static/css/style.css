@@ -1312,9 +1312,17 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   overflow: hidden;
   padding: 5px 8px;
 }
-/* Aircraft types section gets 2× the vertical space of runway section */
+/* Aircraft types section gets 2× the vertical space of runway section,
+   with a scrollable content area so all types are reachable */
 .ws-stats-section:last-child {
   flex: 2;
+  display: flex;
+  flex-direction: column;
+}
+.ws-stats-section:last-child .ws-stats-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .ws-stats-divider {
   height: 1px;
