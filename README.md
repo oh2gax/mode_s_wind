@@ -36,6 +36,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
 - **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a 24-hour stacked bar chart (NACp / Freeze / Gap signal breakdown per hour), a 14-day × 8 FL-band heatmap, a FL band distribution doughnut chart, a 14-day summary stats panel, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
+- **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data with approach history always preserved; see [Maintenance](#maintenance--maintenance) below
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
 - **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide; default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
@@ -1239,6 +1240,21 @@ mode_s_wind/
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library
 ```
+
+---
+
+## Maintenance  `/maintenance`
+
+An administrator page for database housekeeping. It is accessible at `/maintenance` and rendered by `web/templates/maintenance.html`.
+
+Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt`). Credentials are submitted with every operation and never stored in a server session.
+
+**Operations:**
+
+- **Database statistics** — read-only view of row counts, oldest/newest record dates, and SQLite file size for all tables; refreshed on demand
+- **Flight & Meteo data purge** — deletes records from `observations` and `flights` older than a configurable number of days; a preview step shows exact counts before any deletion; `approach_history` is never touched by any maintenance operation
+- **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` older than a configurable threshold; the in-RAM GPS quality cache is reloaded immediately after so the GPS Quality page reflects the change without a server restart
+- **Autopurge** — optional daily scheduled purge for flight/meteo data; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality and Approach History data are never auto-purged
 
 ---
 
