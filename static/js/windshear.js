@@ -1770,6 +1770,29 @@ function addToWsLog(events) {
   if (wsLog.length > WS_LOG_MAX) wsLog.length = WS_LOG_MAX;
 }
 
+// ── Compact log tooltip ───────────────────────────────────────────────────────
+const _wsTooltipEl = () => document.getElementById('ws-log-tooltip');
+
+function _showLogTooltip(ev, html) {
+  const tip = _wsTooltipEl(); if (!tip) return;
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  _posLogTooltip(ev);
+}
+function _posLogTooltip(ev) {
+  const tip = _wsTooltipEl(); if (!tip) return;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + tw > vw - 8) x = ev.clientX - tw - 14;
+  if (y + th > vh - 8) y = ev.clientY - th - 14;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+function _hideLogTooltip() {
+  const tip = _wsTooltipEl(); if (tip) tip.style.display = 'none';
+}
+
 function renderWsLog() {
   const el = document.getElementById('ws-ws-log-entries');
   if (!el) return;
@@ -1782,57 +1805,116 @@ function renderWsLog() {
     return;
   }
 
+  const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline', kinematic:'Kinematic' };
+
   el.innerHTML = wsLog.map(e => {
-    // ── Go-around entry ──────────────────────────────────────────────────
+    // ── Go-around entry (compact) ─────────────────────────────────────────
     if (e._type === 'go_around') {
-      return `<div class="ws-log-entry ws-log-ga">
-  <div class="ws-log-entry-time">${e._time}</div>
-  <div>
-    <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
-    <span class="ws-ga-label">✈ GO-AROUND</span>
-    &nbsp;at ${e.alt_ft} ft &nbsp;·&nbsp; ${e._ordinal} this session
-  </div>
-  <div class="ws-log-entry-ac">${e.callsign || e.icao}</div>
-</div>`;
+      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} this session\nAlt: ${e.alt_ft} ft\nAircraft: ${e.callsign || e.icao}`;
+      return `<div class="ws-log-entry-compact ws-log-ga"
+  data-tip="${tip.replace(/"/g,'&quot;')}"
+>${e._time} ✈ GA ${e.rwy}  ${e.callsign || e.icao}</div>`;
     }
-    // ── Windshear entry ───────────────────────────────────────────────────
+
+    // ── Windshear entry (compact) ─────────────────────────────────────────
     const sevCls  = e.severity === 'alarm'   ? ' ws-log-alarm'
                   : e.severity === 'warning' ? ' ws-log-warning'
                   : ' ws-log-monitor';
     const hw_low  = e.hw_low  != null ? Number(e.hw_low).toFixed(0)  : '?';
     const hw_high = e.hw_high != null ? Number(e.hw_high).toFixed(0) : '?';
-    const trend   = e.hw_high > e.hw_low ? '▼ decr HW' : '▲ incr TW';
-    const fTag    = (e.algo === 'kinematic' && e.f_factor != null)
-      ? ` <span class="ws-log-ffactor" title="F-factor: performance-scaled hazard index">F=${e.f_factor.toFixed(2)}</span>`
-      : '';
+    const trend   = e.hw_high > e.hw_low ? '↓' : '↑';
+    const algoLbl = ALGO_LABELS[e.algo] || (e.algo || 'WS');
 
-    // Algorithm badge
-    const ALGO_LABELS = { pair:'Pair', gradient:'Gradient', energy:'Energy', rate:'Rate', baseline:'Baseline', kinematic:'Kinematic' };
-    const algoLbl  = ALGO_LABELS[e.algo] || (e.algo || 'WS');
-    const algoBadge = `<span class="ws-log-algo-badge ws-algo-${e.algo || 'pair'}">${algoLbl}</span>`;
+    // Compact one-liner
+    let acShort;
+    if (e.cs_low && e.cs_high) acShort = `${e.cs_low}/${e.cs_high}`;
+    else if (e.cs) acShort = e.cs;
+    else acShort = '';
+    const compact = `${e._time} [${algoLbl}] ${e.rwy} ${e.delta_kt}kt${trend} ${acShort}`;
 
-    // Aircraft detail line — pairwise has two callsigns; single-aircraft has one
-    let acLine;
+    // Full tooltip
+    const trendFull = e.hw_high > e.hw_low ? '▼ headwind decrease' : '▲ tailwind increase';
+    let acFull;
     if (e.cs_low && e.cs_high) {
-      acLine = `${e.cs_low} (${hw_low} kt) ↕ ${e.cs_high} (${hw_high} kt)`;
+      acFull = `${e.cs_low}: ${hw_low} kt  ↕  ${e.cs_high}: ${hw_high} kt`;
     } else if (e.cs) {
-      const detail = e.algo === 'energy'
-        ? `GS ${hw_high}→${hw_low} kt`
-        : `HW ${hw_high}→${hw_low} kt`;
-      acLine = `${e.cs}  ${detail}`;
+      const detail = e.algo === 'energy' ? `GS ${hw_high}→${hw_low} kt` : `HW ${hw_high}→${hw_low} kt`;
+      acFull = `${e.cs}  ${detail}`;
     } else {
-      acLine = `${hw_low} kt → ${hw_high} kt`;
+      acFull = `${hw_low} kt → ${hw_high} kt`;
     }
+    const fLine = (e.algo === 'kinematic' && e.f_factor != null) ? `\nF-factor: ${e.f_factor.toFixed(2)}` : '';
+    const tip = `${e._time} UTC  ·  RWY ${e.rwy}  ·  ${algoLbl}\n${e.delta_kt} kt ${trendFull}\nAlt: ${Math.round(e.alt_low/100)*100}–${Math.round(e.alt_high/100)*100} ft${fLine}\n${acFull}`;
 
-    return `<div class="ws-log-entry${sevCls}">
-  <div class="ws-log-entry-time">${e._time}</div>
-  <div>
-    <span class="ws-log-entry-rwy">RWY ${e.rwy}</span>
-    ${algoBadge}
-    <span class="ws-log-entry-delta">${e.delta_kt} kt</span>${fTag}
-    &nbsp;${trend}&nbsp;·&nbsp;${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft
-  </div>
-  <div class="ws-log-entry-ac">${acLine}</div>
+    return `<div class="ws-log-entry-compact${sevCls}"
+  data-tip="${tip.replace(/"/g,'&quot;')}"
+>${compact}</div>`;
+  }).join('');
+
+  // Wire tooltip events
+  el.querySelectorAll('[data-tip]').forEach(row => {
+    row.addEventListener('mouseenter', ev => _showLogTooltip(ev, row.dataset.tip.replace(/\n/g,'<br>')));
+    row.addEventListener('mousemove',  ev => _posLogTooltip(ev));
+    row.addEventListener('mouseleave', _hideLogTooltip);
+  });
+}
+
+// ── Today's approach statistics ───────────────────────────────────────────────
+async function fetchTodayStats() {
+  try {
+    const now = new Date();
+    const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+    const r = await fetch(`/api/windshear/approach-history?date=${dateStr}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTodayStats(Array.isArray(data) ? data : []);
+  } catch (_) {}
+}
+
+function renderTodayStats(approaches) {
+  const rwyEl  = document.getElementById('ws-stats-rwy');
+  const typeEl = document.getElementById('ws-stats-types');
+  if (!rwyEl || !typeEl) return;
+
+  const total = approaches.length;
+  if (total === 0) {
+    rwyEl.innerHTML  = '<span class="ws-stats-empty">No landings yet today</span>';
+    typeEl.innerHTML = '<span class="ws-stats-empty">No data</span>';
+    return;
+  }
+
+  // Count per runway and per aircraft type
+  const rwyCounts  = {};
+  const typeCounts = {};
+  for (const ap of approaches) {
+    if (ap.runway)       rwyCounts[ap.runway]                     = (rwyCounts[ap.runway]       || 0) + 1;
+    const t = ap.aircraft_type || 'Unknown';
+    typeCounts[t] = (typeCounts[t] || 0) + 1;
+  }
+
+  // Render runway bars (sorted by count desc)
+  const rwySorted = Object.entries(rwyCounts).sort((a,b) => b[1]-a[1]);
+  const maxRwy = rwySorted[0]?.[1] || 1;
+  rwyEl.innerHTML = rwySorted.map(([rwy, cnt]) => {
+    const pct = Math.round(cnt / total * 100);
+    const barW = Math.round(cnt / maxRwy * 100);
+    return `<div class="ws-stats-row">
+  <span class="ws-stats-rwy-name">${rwy}</span>
+  <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:var(--accent)"></div></div>
+  <span class="ws-stats-pct">${pct}%</span>
+</div>`;
+  }).join('');
+
+  // Render top 10 aircraft types (sorted by count desc)
+  const typeSorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]).slice(0, 10);
+  const maxType = typeSorted[0]?.[1] || 1;
+  typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
+    const pct = Math.round(cnt / total * 100);
+    const barW = Math.round(cnt / maxType * 100);
+    return `<div class="ws-stats-row">
+  <span class="ws-stats-type-name">${type}</span>
+  <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:#10b981"></div></div>
+  <span class="ws-stats-pct">${pct}%</span>
 </div>`;
   }).join('');
 }
@@ -2759,63 +2841,51 @@ function formatBandCell(band, rwyHdg) {
 
 function renderApproachHistory(entries) {
   const tbody = document.getElementById('ws-aphist-table-body');
+  if (!tbody) return;
   if (!entries || entries.length === 0) {
     tbody.innerHTML =
       `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
     return;
   }
-  // Midnight UTC of today — used to detect entries from a previous date
+
+  // Midnight UTC of today — entries from a previous date get a D.M prefix on the time
   const todayMidnightUtc = Date.UTC(
     new Date().getUTCFullYear(),
     new Date().getUTCMonth(),
     new Date().getUTCDate(),
   );
 
+  const bands = aphBands();
+
   tbody.innerHTML = entries.map(e => {
-    const rwyHdg   = e.rwy_heading;
-    const bandCells = aphBands()
-      .map(b => formatBandCell(e.bands[String(b)], rwyHdg))
+    const tsMs    = (e.ts || 0) * 1000;
+    const isToday = tsMs >= todayMidnightUtc;
+    const timeStr = isToday
+      ? (e.time_utc || '—')
+      : (() => {
+          const d = new Date(tsMs);
+          return `${d.getUTCDate()}.${d.getUTCMonth() + 1} ${e.time_utc || ''}`;
+        })();
+
+    const rwyHdg   = e.rwy_heading ?? null;
+    const bandCells = bands
+      .map(b => formatBandCell(e.bands ? e.bands[String(b)] : null, rwyHdg))
       .join('');
-    // Show "D.M HH:MM" for entries from a previous UTC date, plain "HH:MM" for today
-    let timeLabel = e.time_utc;
-    if (e.ts && e.ts * 1000 < todayMidnightUtc) {
-      const d = new Date(e.ts * 1000);
-      timeLabel = `${d.getUTCDate()}.${d.getUTCMonth() + 1} ${e.time_utc}`;
-    }
+
     return `<tr>
-      <td class="ws-aphist-cell ws-aphist-time">${timeLabel}</td>
-      <td class="ws-aphist-cell ws-aphist-cs">${e.callsign}</td>
-      <td class="ws-aphist-cell ws-aphist-reg">${e.registration || "—"}</td>
-      <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || "—"}</td>
-      <td class="ws-aphist-cell ws-aphist-rwy">${e.runway}</td>
-      ${bandCells}
-    </tr>`;
+  <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
+  <td class="ws-aphist-cell ws-aphist-cs">${e.callsign      || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-rwy">${e.runway       || '—'}</td>
+  ${bandCells}
+</tr>`;
   }).join('');
 }
 
-async function fetchApproachHistory() {
-  if (!approachHistoryEnabled) return;
-  try {
-    const url = aphHistDateMode
-      ? `/api/windshear/approach-history?date=${aphHistDate}`
-      : `/api/windshear/approach-history?window=${aphHistWindow}`;
-    const r = await fetch(url);
-    if (!r.ok) return;
-    renderApproachHistory(await r.json());
-  } catch (_) { /* silent */ }
-}
 
-// ── Windrose pre-population from server buffer ────────────────────────────────
-/**
- * On first page load, fetch any low-altitude wind observations collected by
- * the server during the last 30 minutes (from approaches completed before this
- * browser session opened).  Pre-populates recentLandingWinds so the windrose
- * is immediately meaningful rather than starting cold.
- *
- * The server returns { ts, dir, spd, alt } — identical shape to what JS pushes
- * into recentLandingWinds itself — so we can inject entries directly.
- * Entries already outside the 30-minute WINDROSE_MAX_AGE_MS window are skipped.
- */
+
+// ── Windrose server buffer fetch ─────────────────────────────────────────────
 async function fetchWindroseObs() {
   try {
     const r = await fetch('/api/windshear/windrose-obs');
@@ -2836,14 +2906,29 @@ async function fetchWindroseObs() {
     for (const ts of windroseServerTsSeen) {
       if (ts < cutoff) windroseServerTsSeen.delete(ts);
     }
-    // Keep chronological order (server sends oldest→newest already)
     if (newObs > 0) drawWindrose();
   } catch (_) { /* silent */ }
 }
 
+// ── Approach history fetch ────────────────────────────────────────────────────
+async function fetchApproachHistory() {
+  if (!approachHistoryEnabled) return;
+  try {
+    const url = aphHistDateMode
+      ? `/api/windshear/approach-history?date=${aphHistDate}`
+      : `/api/windshear/approach-history?window=${aphHistWindow}`;
+    const r = await fetch(url);
+    if (!r.ok) return;
+    renderApproachHistory(await r.json());
+  } catch (_) {}
+}
+
+// ── Startup ───────────────────────────────────────────────────────────────────
 fetchApproachState();
 fetchApproachHistory();
 fetchWindroseObs();
+fetchTodayStats();
 setInterval(fetchApproachState,   3_000);
 setInterval(fetchApproachHistory, 15_000);
 setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s
+setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 5 min

@@ -581,7 +581,7 @@ The page is divided into seven main areas:
 There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
 - **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach. Each barb is coloured from the `meteo_source` at the time it was captured — barbs recorded during a grey (NONE) period remain grey permanently even after the aircraft's data recovers, so the canvas gives an honest picture of data quality throughout the approach; observations from grey periods are not added to the barb buffer at all, leaving a visible gap rather than a repeated stale position.
 
-- **Windshear Alert (bottom right)** — a timestamped log of all windshear events and go-around detections during the current page session. The panel header contains the detection ON/OFF toggle, the algorithm dropdown (Pair / Gradient / Energy / Rate / Baseline / Kinematic), and the Clear button. Each entry shows the time, a coloured algorithm badge, runway, altitude band, headwind delta, and aircraft callsign(s).
+- **Windshear Alert + Today's Statistics (bottom right)** — the right portion of the bottom row is split 55/45: the left side is the windshear alert log (compact one-line entries with hover tooltip for full detail); the right side is a statistics panel showing today's runway usage and top aircraft types as percentage bars, refreshed every 5 minutes from the approach history database.
 
 - **METAR / TAF strip** — displayed below the map and ILS profile in the right column, showing the latest decoded METAR and TAF for the configured airport. Does not overlap the flight strips panel.
 
@@ -731,18 +731,13 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
-#### Windshear Alert
+#### Windshear Alert + Today's Statistics
 
-The panel to the right of the ILS profile canvas maintains a timestamped log of all detected windshear events during the current session. Entries are listed newest first with the following information for each event:
+The bottom-right area is split into two panels side by side (55 % / 45 %).
 
-- **Time** — local time the event was first detected
-- **Algorithm badge** — coloured pill showing which algorithm produced the event (Pair, Gradient, Energy, Rate, Baseline, Kinematic)
-- **Runway** — the ILS corridor where shear was detected
-- **Magnitude** — headwind delta in knots (amber = moderate ≥ 15 kt, red = severe ≥ 25 kt) and whether headwind is increasing or decreasing with altitude
-- **Altitude band** — the altitude range (ft) spanning the shear layer
-- **Aircraft detail** — for Pairwise: callsigns and individual headwind components of both aircraft; for single-aircraft algorithms: callsign and the direction/magnitude of the headwind change (or groundspeed change for the Energy algorithm)
+**Left — Windshear Alert log:** maintains a compact timestamped log of all detected windshear events and go-around detections during the current session, newest first. Each entry is a single line showing time, algorithm badge, runway, magnitude, and callsign(s). Hovering over an entry shows a full tooltip with algorithm, altitude band, individual headwind components, and exact timestamp. Events are deduplicated per algorithm, runway, and aircraft within a 60-second window. The log is cleared by the **Clear** button or on page refresh and does not persist to the database.
 
-Events are deduplicated per algorithm, runway, and aircraft within a 60-second window. Switching algorithms resets the deduplication so the new algorithm can log events immediately. The log is cleared by the **Clear** button or when the browser tab is refreshed. It does not persist to the database.
+**Right — Today's Statistics:** shows two sections refreshed every 5 minutes from the `approach_history` database for the current UTC calendar day. **Runway Usage** lists each runway with a percentage bar representing its share of today's completed approaches. **Aircraft Types** shows the top 10 aircraft types by approach count with percentage bars. Both sections update automatically as new approaches are committed; no manual refresh is needed.
 
 #### Go-around detector
 

@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Windshear — today's statistics panel + compact alert log)
+
+- **Windshear alert panel split 55/45** — the right side of the bottom row is now divided: the left 55% remains the windshear alert log; the right 45% is a new **Today's Statistics** panel showing runway usage and aircraft type distributions for the current UTC day
+- **Compact windshear alert entries** — each log entry is now a single compact line (`HH:MM [Algo] RWY NNkt↑/↓ CS1/CS2`); hovering over any entry shows a positioned tooltip with the full original detail (algorithm, altitude band, individual headwind components, exact timestamp); go-around entries similarly condensed with hover for full context
+- **Runway Usage section** — counts completed approaches per runway since UTC midnight and displays each as a horizontal percentage bar sorted by frequency; data computed client-side from the existing `approach_history` API so no new backend endpoint was needed
+- **Aircraft Types section** — top 10 aircraft types by approach count with percentage bars; `Unknown` used when `aircraft_type` is absent in the record; section given double the vertical space of the runway section for readability
+- **`fetchTodayStats()`** — new async function fetching `/api/windshear/approach-history?date=YYYY-MM-DD` at page load and every 5 minutes; statistics update automatically as new approaches are committed throughout the day; independent of the approach history panel enable state
+
+---
+
 ## 2026-06-01 (Windshear — pre-corridor NONE circle visualisation)
 
 - **Pre-corridor NONE circles on ILS profile** — small dashed amber circles now appear on the ILS canvas during the wide localizer intercept turn phase, before the aircraft is established in the ILS corridor; previously this phase was completely invisible, making a normal turn look identical to a GPS-jamming gap

@@ -132,11 +132,10 @@
           <canvas id="ws-ils-canvas"></canvas>
         </div>
 
-        <!-- Windshear event log -->
+        <!-- Windshear event log + today's statistics -->
         <div class="ws-ws-log">
           <div class="ws-ws-log-hdr">
             <span class="ws-ws-log-title">Windshear Alert</span>
-            <!-- Detection toggle + algorithm selector moved here from left panel -->
             <button id="ws-det-btn" class="ws-det-btn" title="Enable windshear detection">
               <span class="ws-det-state" id="ws-det-state">OFF</span>
             </button>
@@ -165,10 +164,27 @@
             </select>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
-          <div class="ws-ws-log-entries" id="ws-ws-log-entries">
-            <div class="ws-ws-log-empty">Enable detection to start logging</div>
+          <!-- 55/45 split: alerts left, today's stats right -->
+          <div class="ws-ws-log-body">
+            <div class="ws-ws-log-entries" id="ws-ws-log-entries">
+              <div class="ws-ws-log-empty">Enable detection to start logging</div>
+            </div>
+            <div class="ws-stats-panel">
+              <div class="ws-stats-section">
+                <div class="ws-stats-label">Runway Usage · Today UTC</div>
+                <div id="ws-stats-rwy" class="ws-stats-content"><span class="ws-stats-empty">Loading…</span></div>
+              </div>
+              <div class="ws-stats-divider"></div>
+              <div class="ws-stats-section">
+                <div class="ws-stats-label">Aircraft Types · Today UTC</div>
+                <div id="ws-stats-types" class="ws-stats-content"><span class="ws-stats-empty">Loading…</span></div>
+              </div>
+            </div>
           </div>
         </div>
+
+        <!-- Tooltip for compact windshear log entries -->
+        <div id="ws-log-tooltip" class="ws-log-tooltip" style="display:none"></div>
 
       </div><!-- .ws-bottom-row -->
 
