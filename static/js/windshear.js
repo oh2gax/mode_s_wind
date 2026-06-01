@@ -751,6 +751,27 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       }
       ilsCtx.restore();
     }
+
+    // ── Pre-corridor NONE markers: smaller amber circles ─────────────────
+    // Drawn for the selected aircraft when it was outside the corridor
+    // (e.g. wide localizer intercept turn) — only 'qc' reason.
+    // Smaller radius (2px vs 3px) distinguishes these from corridor circles.
+    const preObs = wsPreCorridorHistory[barbSelectedIcao] || [];
+    if (preObs.length > 0) {
+      ilsCtx.save();
+      ilsCtx.strokeStyle = NONE_COLOR_QC;   // amber — always qc in this buffer
+      ilsCtx.lineWidth   = 1.2;
+      ilsCtx.setLineDash([2, 2]);            // dashed outline to further distinguish
+      for (const obs of preObs) {
+        if (obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
+        ilsCtx.beginPath();
+        ilsCtx.arc(distX(obs.dist_nm), altY(obs.alt_ft), 2, 0, 2 * Math.PI);
+        ilsCtx.stroke();
+      }
+      ilsCtx.setLineDash([]);
+      ilsCtx.restore();
+    }
   } else if (barbLayerActive) {
     // Layer active but no aircraft selected yet
     ilsCtx.fillStyle  = CT.barbHint;
@@ -1857,9 +1878,10 @@ document.getElementById('ws-log-clear')?.addEventListener('click', () => {
 });
 
 // ── Wind barb layer state ─────────────────────────────────────────────────────
-const wsWindHistory   = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Lo buffer
-const wsWindHiHistory = {};     // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Hi buffer (research, display-only)
-const wsNoneHistory   = {};     // icao → [{dist_nm, alt_ft}, …]  position-only buffer for NONE-state aircraft
+const wsWindHistory        = {};  // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Lo buffer
+const wsWindHiHistory      = {};  // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Hi buffer (research, display-only)
+const wsNoneHistory        = {};  // icao → [{dist_nm, alt_ft, reason}, …]  in-corridor NONE positions
+const wsPreCorridorHistory = {};  // icao → [{dist_nm, alt_ft, reason}, …]  pre-corridor NONE positions (e.g. wide turns)
 let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
@@ -2195,6 +2217,36 @@ async function fetchApproachState() {
         // entry, so the selection reset above never fired for it).
         if (barbSelectedIcao === icao) barbSelectedIcao = null;
       }
+    }
+
+    // ── Pre-corridor NONE history: accumulate for non-corridor aircraft ───
+    // Captures positions where meteo_source is NONE but the aircraft is NOT
+    // in the ILS corridor — the typical wide localizer intercept turn.
+    // Uses dist_nearest_thr_nm (server-computed) for the X-axis position.
+    // Only 'qc' reason is accumulated (quality rejection from bank angle = turn)
+    // to avoid showing GPS-jamming events outside the corridor.
+    // Drawn on the ILS canvas as smaller amber circles when the aircraft
+    // is selected, clearly distinct from full-size corridor circles.
+    for (const ac of aircraft) {
+      if (ac.in_corridor) continue;                        // corridor handled by wsNoneHistory
+      if (ac.meteo_source !== 'NONE') continue;
+      if (ac.none_reason !== 'qc') continue;               // only turn-related NONE
+      if (ac.dist_nearest_thr_nm == null) continue;        // need valid X-position
+      if (ac.altitude == null) continue;
+      if (ac.dist_nearest_thr_nm > PROFILE_MAX_NM) continue; // outside canvas range
+      if (!wsPreCorridorHistory[ac.icao]) wsPreCorridorHistory[ac.icao] = [];
+      const pcHist = wsPreCorridorHistory[ac.icao];
+      const pcLast = pcHist[pcHist.length - 1];
+      const pcAltMoved  = !pcLast || Math.abs(pcLast.alt_ft  - ac.altitude)            >= WS_WIND_MIN_ALT_GAP;
+      const pcDistMoved = !pcLast || Math.abs(pcLast.dist_nm - ac.dist_nearest_thr_nm) >= WS_WIND_MIN_DIST_GAP;
+      if (pcAltMoved || pcDistMoved) {
+        pcHist.push({ dist_nm: ac.dist_nearest_thr_nm, alt_ft: ac.altitude, reason: 'qc' });
+        if (pcHist.length > WS_WIND_HIST_MAX) pcHist.shift();
+      }
+    }
+    // Prune pre-corridor history for aircraft no longer tracked
+    for (const icao of Object.keys(wsPreCorridorHistory)) {
+      if (!liveIcaos.has(icao)) delete wsPreCorridorHistory[icao];
     }
 
     // Clean up GS history for aircraft no longer tracked

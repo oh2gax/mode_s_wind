@@ -1381,6 +1381,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   width: 8px; height: 8px; border-radius: 50%;
   border: 1.5px solid; background: transparent; flex-shrink: 0;
 }
+.ws-ils-leg-ring-dashed {
+  border-style: dashed;
+}
 
 #ws-ils-canvas {
   flex: 1;

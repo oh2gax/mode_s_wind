@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Windshear — pre-corridor NONE circle visualisation)
+
+- **Pre-corridor NONE circles on ILS profile** — small dashed amber circles now appear on the ILS canvas during the wide localizer intercept turn phase, before the aircraft is established in the ILS corridor; previously this phase was completely invisible, making a normal turn look identical to a GPS-jamming gap
+- **Only `qc` reason accumulated** — pre-corridor circles are shown only when `none_reason === 'qc'` (pyModeS quality rejection due to bank angle) meaning the aircraft has valid GPS but the wind computation is suppressed; GPS-related NONE events outside the corridor are intentionally not shown as they would be ambiguous
+- **`dist_nearest_thr_nm` field added to windshear state** — `collector/windshear.py` now computes the distance to the nearest runway threshold for non-corridor aircraft (using the existing `_haversine_nm` helper and `self.runways` data); this read-only field provides the ILS canvas X-axis position for pre-corridor circles; all existing band capture, windrose, windshear detection and approach history logic is completely unchanged
+- **Visual distinction** — pre-corridor circles are smaller (2 px radius vs 3 px for corridor circles) and use a dashed stroke outline, making them clearly distinguishable from established-approach NONE markers; colour remains amber consistent with the `qc` Turn symbol
+- **`wsPreCorridorHistory` buffer** — parallel to `wsNoneHistory` but keyed on non-corridor aircraft; accumulates with the same 400 ft / 0.5 NM minimum-gap thresholds; drawn only for the currently selected barb aircraft; pruned when the aircraft leaves `liveIcaos`
+- **ILS legend updated** — new **Pre-ILS** entry with a dashed amber ring added to the legend row
+
+---
+
 ## 2026-06-01 (Maintenance page + GPS Quality chart and purge fixes)
 
 - **Maintenance page** added at `/maintenance` — administrator tool for database housekeeping; protected by a separate credential file (`MAINTENANCE_AUTH_FILE` in config) independent of the main web authentication; credentials are never stored in a session and are submitted with each operation

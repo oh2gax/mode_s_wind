@@ -673,6 +673,16 @@ class WindshearTracker:
                 "approach_runway":runway,
                 "dist_apt_nm":    round(dist_apt, 1),
                 "dist_thr_nm":    round(dist_thr, 2) if in_corridor else None,
+                # Distance to the nearest runway threshold regardless of corridor
+                # membership — used by the frontend to place pre-corridor NONE
+                # circles on the ILS canvas X-axis for non-corridor aircraft
+                # (e.g. during a wide localizer intercept turn).
+                # None when position is unavailable.
+                "dist_nearest_thr_nm": round(
+                    min(_haversine_nm(lat, lon, r["thr_lat"], r["thr_lon"])
+                        for r in self.runways),
+                    2,
+                ) if (not in_corridor and lat is not None) else None,
                 "cross_track_nm": round(cross_track, 2) if in_corridor else None,
                 "along_track_nm": round(along_track, 2) if in_corridor else None,
                 "headwind_kt":    headwind_kt,
