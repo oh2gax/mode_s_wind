@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-01 (Windshear — statistics panel extended to full page height)
+
+- **Statistics panel now extends to the bottom of the page** — the bottom area of the Windshear page is restructured so the right column (Alerts + Statistics) spans the full height including the area previously occupied by METAR/TAF on the right; Statistics gains the extra ~165px previously lost to the wx-strip, giving all runway rows and many more aircraft type rows visible space without scrolling
+- **METAR and TAF moved to left column** — the wx-strip is now absolutely positioned inside the left column (ILS side) and extended to 136.67% of the left column width so it covers both the ILS area (METAR, left half) and the alerts area (TAF, right half); METAR and TAF share the strip equally (50/50)
+- **Clean single border lines** — careful removal of duplicate border declarations ensures exactly one 1px divider line appears between: alerts bottom and TAF top (horizontal), and alerts right and statistics left (vertical)
+- **Layout structure**: `ws-bottom-grid` (new flex-row wrapper) contains `ws-bottom-left` (ILS canvas + absolute wx-strip) and `ws-ws-log` (alerts capped at original height + statistics fills remaining full height)
+
+---
+
 ## 2026-06-01 (Windshear — statistics time range selector + runway section fixes)
 
 - **Statistics time range selector** — three compact buttons added to the statistics panel: **Live** (today's UTC data, default), **Yest** (previous UTC day), **1w** (last 7 days via `?window=604800`); switching range immediately re-fetches and updates both Runway Usage and Aircraft Types sections and updates the section labels accordingly; selected range persisted to `localStorage` (`ms_ws_stats_range`)

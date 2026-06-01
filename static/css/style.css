@@ -2162,8 +2162,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* Aircraft types section gets 2x vertical space with scrollable content */
 .ws-stats-section:last-child { flex: 2; display: flex; flex-direction: column; }
 .ws-stats-section:last-child .ws-stats-content { flex: 1; min-height: 0; overflow-y: auto; }
-/* Runway section: scrollable, flex 1.4 to show one extra row vs base flex:1 */
-.ws-stats-section:not(:last-child) { flex: 1.4; display: flex; flex-direction: column; }
+/* Runway section: scrollable, flex 1.0 — two rows shorter, gives more space to Aircraft Types */
+.ws-stats-section:not(:last-child) { flex: 1.0; display: flex; flex-direction: column; }
 .ws-stats-section:not(:last-child) .ws-stats-content { flex: 1; min-height: 0; overflow-y: auto; }
 .ws-stats-divider { height: 1px; background: var(--border); flex-shrink: 0; }
 .ws-stats-label { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 4px; }
