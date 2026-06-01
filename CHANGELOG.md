@@ -12,6 +12,7 @@ No version numbers — entries are organised by date.
 - **Runway Usage section** — counts completed approaches per runway since UTC midnight and displays each as a horizontal percentage bar sorted by frequency; data computed client-side from the existing `approach_history` API so no new backend endpoint was needed
 - **Aircraft Types section** — top 10 aircraft types by approach count with percentage bars; `Unknown` used when `aircraft_type` is absent in the record; section given double the vertical space of the runway section for readability
 - **`fetchTodayStats()`** — new async function fetching `/api/windshear/approach-history?date=YYYY-MM-DD` at page load and every 5 minutes; statistics update automatically as new approaches are committed throughout the day; independent of the approach history panel enable state
+- **Hover tooltips on stats rows** — hovering over any runway or aircraft type row shows the exact approach count for today (e.g. "RWY 22L: 18 landings today", "A320: 7 approaches today"); uses the same positioned tooltip element already in place for the compact windshear alert entries
 
 ---
 

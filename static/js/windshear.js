@@ -1898,7 +1898,8 @@ function renderTodayStats(approaches) {
   rwyEl.innerHTML = rwySorted.map(([rwy, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxRwy * 100);
-    return `<div class="ws-stats-row">
+    const tip  = `RWY ${rwy}: ${cnt} landing${cnt !== 1 ? 's' : ''} today`;
+    return `<div class="ws-stats-row" data-tip="${tip}">
   <span class="ws-stats-rwy-name">${rwy}</span>
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:var(--accent)"></div></div>
   <span class="ws-stats-pct">${pct}%</span>
@@ -1911,12 +1912,22 @@ function renderTodayStats(approaches) {
   typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxType * 100);
-    return `<div class="ws-stats-row">
+    const tip  = `${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''} today`;
+    return `<div class="ws-stats-row" data-tip="${tip}">
   <span class="ws-stats-type-name">${type}</span>
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:#10b981"></div></div>
   <span class="ws-stats-pct">${pct}%</span>
 </div>`;
   }).join('');
+
+  // Wire hover tooltips (reuse the existing log tooltip element and helpers)
+  [rwyEl, typeEl].forEach(container => {
+    container.querySelectorAll('[data-tip]').forEach(row => {
+      row.addEventListener('mouseenter', ev => _showLogTooltip(ev, row.dataset.tip));
+      row.addEventListener('mousemove',  ev => _posLogTooltip(ev));
+      row.addEventListener('mouseleave', _hideLogTooltip);
+    });
+  });
 }
 
 /**
