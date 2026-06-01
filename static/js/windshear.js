@@ -1882,6 +1882,10 @@ const wsWindHistory        = {};  // icao → [{dist_nm, alt_ft, wind_spd, wind_
 const wsWindHiHistory      = {};  // icao → [{dist_nm, alt_ft, wind_spd, wind_dir}, …]  Hi buffer (research, display-only)
 const wsNoneHistory        = {};  // icao → [{dist_nm, alt_ft, reason}, …]  in-corridor NONE positions
 const wsPreCorridorHistory = {};  // icao → [{dist_nm, alt_ft, reason}, …]  pre-corridor NONE positions (e.g. wide turns)
+const wsNoneHistLastSeen   = {};  // icao → ms timestamp — guards against brief poll gaps clearing NONE history
+// How long (ms) an icao must be absent from the live feed before its NONE history is cleared.
+// Matches the server's ~30-45 s stale-out window so circles survive GPS-jamming reception gaps.
+const WS_NONE_HIST_STALE_MS = 45_000;
 let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
@@ -2210,12 +2214,27 @@ async function fetchApproachState() {
     //     with the aircraft's transition from NONE to valid state — previously the
     //     shared loop would see the first wsWindHistory entry, find the aircraft
     //     momentarily absent from liveIcaos, and delete wsNoneHistory prematurely.
+    // Update last-seen timestamps for all currently tracked aircraft so the
+    // stale-timeout cleanup below has accurate timing data.
+    for (const icao of liveIcaos) wsNoneHistLastSeen[icao] = nowMs;
+
+    // Prune NONE circle history only after the aircraft has been absent for
+    // WS_NONE_HIST_STALE_MS (45 s), matching the server stale-out window.
+    // A brief 1-poll absence (GPS-jamming reception gap) no longer wipes the
+    // history — circles correctly persist alongside the returning valid barbs.
     for (const icao of Object.keys(wsNoneHistory)) {
-      if (!liveIcaos.has(icao)) {
+      const lastSeen = wsNoneHistLastSeen[icao] || 0;
+      if ((nowMs - lastSeen) > WS_NONE_HIST_STALE_MS) {
         delete wsNoneHistory[icao];
-        // Clear selection if this was a NONE-only aircraft (never had a wsWindHistory
-        // entry, so the selection reset above never fired for it).
+        delete wsNoneHistLastSeen[icao];
+        // Clear selection if this was a NONE-only aircraft.
         if (barbSelectedIcao === icao) barbSelectedIcao = null;
+      }
+    }
+    for (const icao of Object.keys(wsPreCorridorHistory)) {
+      const lastSeen = wsNoneHistLastSeen[icao] || 0;
+      if ((nowMs - lastSeen) > WS_NONE_HIST_STALE_MS) {
+        delete wsPreCorridorHistory[icao];
       }
     }
 
@@ -2244,11 +2263,6 @@ async function fetchApproachState() {
         if (pcHist.length > WS_WIND_HIST_MAX) pcHist.shift();
       }
     }
-    // Prune pre-corridor history for aircraft no longer tracked
-    for (const icao of Object.keys(wsPreCorridorHistory)) {
-      if (!liveIcaos.has(icao)) delete wsPreCorridorHistory[icao];
-    }
-
     // Clean up GS history for aircraft no longer tracked
     for (const icao of Object.keys(wsGsHistory)) {
       if (!liveIcaos.has(icao)) delete wsGsHistory[icao];

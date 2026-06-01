@@ -13,6 +13,7 @@ No version numbers — entries are organised by date.
 - **Visual distinction** — pre-corridor circles are smaller (2 px radius vs 3 px for corridor circles) and use a dashed stroke outline, making them clearly distinguishable from established-approach NONE markers; colour remains amber consistent with the `qc` Turn symbol
 - **`wsPreCorridorHistory` buffer** — parallel to `wsNoneHistory` but keyed on non-corridor aircraft; accumulates with the same 400 ft / 0.5 NM minimum-gap thresholds; drawn only for the currently selected barb aircraft; pruned when the aircraft leaves `liveIcaos`
 - **ILS legend updated** — new **Pre-ILS** entry with a dashed amber ring added to the legend row
+- **NONE circle history no longer cleared by brief reception gaps** — previously `wsNoneHistory` and `wsPreCorridorHistory` were deleted the moment an aircraft missed a single 3-second poll cycle; during GPS jamming an aircraft can briefly drop from the feed and reappear, which caused all accumulated circles to vanish when valid wind data resumed (appearing as if circles were removed by the valid data); fixed by replacing the per-poll immediate deletion with a 45-second stale-timeout (`WS_NONE_HIST_STALE_MS`) matching the server stale-out window — circles now correctly persist alongside returning green barbs for the full duration of the approach
 
 ---
 
