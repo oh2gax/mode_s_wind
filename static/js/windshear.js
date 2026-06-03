@@ -533,11 +533,22 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
   // ── Plot aircraft ─────────────────────────────────────────────────────────
   if (!aircraft || aircraft.length === 0) {
-    ilsCtx.fillStyle  = CT.noTraffic;
-    ilsCtx.font       = '12px system-ui, sans-serif';
-    ilsCtx.textAlign  = 'center';
-    ilsCtx.fillText('No approach traffic', M.left + PW / 2, M.top + PH / 2);
-    return;
+    // Only return early if there are no NONE circles to draw for the selected
+    // aircraft.  When an aircraft briefly exits the corridor geometry during a
+    // wide localizer intercept (while transitioning from NONE to valid meteo),
+    // the corridor list becomes empty but the NONE history is still valid.
+    // Returning here would hide those circles for the duration of the gap.
+    const hasNoneToShow = barbLayerActive && barbSelectedIcao &&
+      ((wsNoneHistory[barbSelectedIcao]        || []).length > 0 ||
+       (wsPreCorridorHistory[barbSelectedIcao] || []).length > 0);
+    if (!hasNoneToShow) {
+      ilsCtx.fillStyle  = CT.noTraffic;
+      ilsCtx.font       = '12px system-ui, sans-serif';
+      ilsCtx.textAlign  = 'center';
+      ilsCtx.fillText('No approach traffic', M.left + PW / 2, M.top + PH / 2);
+      return;
+    }
+    // Fall through: draw the grid and NONE circles even with no corridor dots.
   }
 
   const selectedRwy = document.getElementById('ws-ils-rwy').value;
@@ -2500,7 +2511,7 @@ async function fetchApproachState() {
     lastShearEvents = applyConfidenceGate(detectWindshear(corridor));
 
     // Auto-barb: update selection before rendering so strips + canvas are in sync
-    runAutoBarbSelection(corridor);
+    runAutoBarbSelection(corridor, aircraft);
 
     renderStrips(aircraft, lastShearEvents);
     updateMapMarkers(aircraft);
@@ -2550,17 +2561,35 @@ document.getElementById('ws-ils-rwy').addEventListener('change', () => {
  * When the target goes stale (pruned by the server), picks the new lowest
  * aircraft (smallest dist_thr_nm).  Assigns barbSelectedIcao so the
  * existing barb-draw path works without any other changes.
+ *
+ * allAircraft (optional) — the full tracked aircraft list (corridor + non-corridor).
+ * Used to keep the current target alive when it briefly exits the corridor
+ * geometry (e.g. wide localizer intercept turn) without switching to another
+ * aircraft prematurely.
  */
-function runAutoBarbSelection(corridor) {
+function runAutoBarbSelection(corridor, allAircraft = []) {
   if (!barbLayerActive || !barbAutoActive) return;
 
-  // Keep existing target if it is still on approach
+  // Keep existing target if it is still inside the corridor.
   if (barbAutoTarget && corridor.some(ac => ac.icao === barbAutoTarget)) {
     barbSelectedIcao = barbAutoTarget;
     return;
   }
 
-  // Target gone (staled out or left the corridor) — pick lowest
+  // Keep existing target if it is still tracked AND not climbing away
+  // (brief corridor gap — e.g. wide localizer intercept that momentarily
+  // crosses the corridor boundary while transitioning from NONE to valid
+  // meteo data).  The vert_rate guard (<+400 fpm) prevents a departing or
+  // go-around aircraft from being held as the target after it leaves the
+  // corridor on a climb-out; those will have strongly positive vert_rate
+  // and fall through so the selection switches to the next corridor aircraft.
+  if (barbAutoTarget && allAircraft.some(
+        ac => ac.icao === barbAutoTarget && (ac.vert_rate ?? 0) < 400)) {
+    barbSelectedIcao = barbAutoTarget;
+    return;
+  }
+
+  // Target truly gone (pruned by server) — pick lowest corridor aircraft.
   const candidates = corridor.filter(ac => ac.dist_thr_nm != null);
   if (candidates.length === 0) {
     barbAutoTarget   = null;
@@ -2652,7 +2681,7 @@ document.getElementById('ws-barb-auto-btn').addEventListener('click', () => {
     // Leave barbSelectedIcao as-is so the last barb stays visible after turning off auto
   } else {
     // Run a selection immediately so barbs appear without waiting for the next poll
-    runAutoBarbSelection(lastAircraft.filter(ac => ac.in_corridor));
+    runAutoBarbSelection(lastAircraft.filter(ac => ac.in_corridor), lastAircraft);
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
