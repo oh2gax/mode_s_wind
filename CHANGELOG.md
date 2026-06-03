@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-03 (Windshear — NONE circle persistence fix)
+
+- **Orange NONE circles and pre-corridor dashed circles now persist correctly after aircraft transitions from NONE to valid meteo data** — two related bugs caused both circle types to disappear the moment an aircraft started providing good wind data during or just after the localizer intercept turn
+- **Root cause 1 — auto-barb lost its target during brief corridor gap**: `runAutoBarbSelection` immediately switched away from `barbAutoTarget` when the aircraft was not found in the corridor list, even if the aircraft was still tracked in the full aircraft list; this happened when a wide intercept turn briefly crossed the corridor boundary at the same moment meteo data became valid; fixed by adding a second guard that keeps the current target if it is still in `allAircraft` and its `vert_rate` is below +400 fpm (descending or level = still on approach); aircraft climbing above +400 fpm (departures, go-arounds) correctly fall through so the selection switches as before
+- **Root cause 2 — `drawIlsProfile` early return suppressed circles when corridor was momentarily empty**: when the corridor aircraft list was empty the function returned immediately with "No approach traffic", skipping all NONE circle drawing even though `wsNoneHistory` and `wsPreCorridorHistory` still held valid entries for the selected aircraft; fixed by checking for NONE history before returning — if circles exist for `barbSelectedIcao` the function falls through and draws the grid and circles with no aircraft dots
+- **Departure filtering preserved**: the +400 fpm `vert_rate` gate in the auto-barb guard ensures that departing aircraft whose ICAO was previously tracked on approach are not mistakenly held as the barb target; pre-corridor circles for departing aircraft are therefore not shown
+
+---
+
 ## 2026-06-01 (Windshear — statistics panel extended to full page height)
 
 - **Statistics panel now extends to the bottom of the page** — the bottom area of the Windshear page is restructured so the right column (Alerts + Statistics) spans the full height including the area previously occupied by METAR/TAF on the right; Statistics gains the extra ~165px previously lost to the wx-strip, giving all runway rows and many more aircraft type rows visible space without scrolling
