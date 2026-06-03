@@ -2394,6 +2394,12 @@ async function fetchApproachState() {
     // to avoid showing GPS-jamming events outside the corridor.
     // Drawn on the ILS canvas as smaller amber circles when the aircraft
     // is selected, clearly distinct from full-size corridor circles.
+    //
+    // Time-based fallback: a level-altitude turn barely changes dist_nearest_thr_nm
+    // or altitude, so the standard alt/dist gates would store only the first
+    // observation for the entire duration of the turn.  The 15-second fallback
+    // ensures at least one new circle per 15 s regardless of movement, giving
+    // 3–5 circles across a typical 45–60 s localizer intercept.
     for (const ac of aircraft) {
       if (ac.in_corridor) continue;                        // corridor handled by wsNoneHistory
       if (ac.meteo_source !== 'NONE') continue;
@@ -2406,8 +2412,9 @@ async function fetchApproachState() {
       const pcLast = pcHist[pcHist.length - 1];
       const pcAltMoved  = !pcLast || Math.abs(pcLast.alt_ft  - ac.altitude)            >= WS_WIND_MIN_ALT_GAP;
       const pcDistMoved = !pcLast || Math.abs(pcLast.dist_nm - ac.dist_nearest_thr_nm) >= WS_WIND_MIN_DIST_GAP;
-      if (pcAltMoved || pcDistMoved) {
-        pcHist.push({ dist_nm: ac.dist_nearest_thr_nm, alt_ft: ac.altitude, reason: 'qc' });
+      const pcTimeMoved = !pcLast || (nowMs - (pcLast.ts || 0)) >= 15_000;
+      if (pcAltMoved || pcDistMoved || pcTimeMoved) {
+        pcHist.push({ dist_nm: ac.dist_nearest_thr_nm, alt_ft: ac.altitude, reason: 'qc', ts: nowMs });
         if (pcHist.length > WS_WIND_HIST_MAX) pcHist.shift();
       }
     }
@@ -2489,6 +2496,11 @@ async function fetchApproachState() {
     //    grey open circles on the ILS profile.  Useful for detecting GPS-jamming
     //    periods: a hollow-circle trail shows the aircraft was receiving position
     //    data normally even while wind decoding was suspended.
+    //
+    //    Time-based fallback: same rationale as wsPreCorridorHistory above —
+    //    a level-altitude turn within the corridor (e.g. late ILS capture)
+    //    barely moves along-track or altitude, so only the first observation
+    //    would be stored without the 15-second time gate.
     for (const ac of corridor) {
       if (ac.meteo_source !== 'NONE') continue;
       if (ac.dist_thr_nm == null || ac.altitude == null) continue;
@@ -2497,11 +2509,13 @@ async function fetchApproachState() {
       const noneLast = noneHist[noneHist.length - 1];
       const noneAltMoved  = !noneLast || Math.abs(noneLast.alt_ft  - ac.altitude)    >= WS_WIND_MIN_ALT_GAP;
       const noneDistMoved = !noneLast || Math.abs(noneLast.dist_nm - ac.dist_thr_nm) >= WS_WIND_MIN_DIST_GAP;
-      if (noneAltMoved || noneDistMoved) {
+      const noneTimeMoved = !noneLast || (nowMs - (noneLast.ts || 0)) >= 15_000;
+      if (noneAltMoved || noneDistMoved || noneTimeMoved) {
         noneHist.push({
           dist_nm: ac.dist_thr_nm,
           alt_ft:  ac.altitude,
           reason:  ac.none_reason || 'qc',   // 'qc' | 'freeze' | 'gap'
+          ts:      nowMs,
         });
         if (noneHist.length > WS_WIND_HIST_MAX) noneHist.shift();
       }

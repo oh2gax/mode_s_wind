@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-03 (Windshear — pre-corridor NONE circle improvements)
+
+- **Pre-corridor circles now plot at the correct X-axis position** — previously `dist_nearest_thr_nm` was computed as the raw minimum distance to any runway threshold, which for a RWY15 intercept could snap to a RWY22 threshold (physically closer) and plot the circles at the wrong location on the ILS canvas; fixed by selecting the threshold with a priority order: (1) previously matched approach runway stored in aircraft state, (2) runways whose approach heading is within 90° of the aircraft's current track, (3) all runways as a final fallback when track is unavailable
+- **Level-altitude turns now generate multiple circles** — the altitude/distance minimum-gap thresholds (400 ft / 0.5 NM) meant a level localizer intercept stored only the very first observation and silently skipped all subsequent polls; a 15-second time-based fallback is now added to both `wsNoneHistory` and `wsPreCorridorHistory` accumulation loops so at least one new circle is stored every 15 s regardless of altitude or distance movement, giving 3–5 visible circles across a typical 45–60 s intercept turn; wind barb accumulation (`wsWindHistory`) is unchanged
+
+---
+
 ## 2026-06-03 (Windshear — NONE circle persistence fix)
 
 - **Orange NONE circles and pre-corridor dashed circles now persist correctly after aircraft transitions from NONE to valid meteo data** — two related bugs caused both circle types to disappear the moment an aircraft started providing good wind data during or just after the localizer intercept turn

@@ -673,16 +673,47 @@ class WindshearTracker:
                 "approach_runway":runway,
                 "dist_apt_nm":    round(dist_apt, 1),
                 "dist_thr_nm":    round(dist_thr, 2) if in_corridor else None,
-                # Distance to the nearest runway threshold regardless of corridor
-                # membership — used by the frontend to place pre-corridor NONE
-                # circles on the ILS canvas X-axis for non-corridor aircraft
+                # Distance to the most-likely approach runway threshold for
+                # non-corridor aircraft — used by the frontend to place
+                # pre-corridor NONE circles on the ILS canvas X-axis
                 # (e.g. during a wide localizer intercept turn).
-                # None when position is unavailable.
-                "dist_nearest_thr_nm": round(
-                    min(_haversine_nm(lat, lon, r["thr_lat"], r["thr_lon"])
-                        for r in self.runways),
-                    2,
-                ) if (not in_corridor and lat is not None) else None,
+                #
+                # Selection priority:
+                #   1. Previously matched runway still stored in state — the
+                #      aircraft was just in the corridor for that runway so
+                #      using its threshold gives the most coherent X-axis.
+                #   2. Runways whose approach heading is within 90° of the
+                #      aircraft's current track — filters out opposite-direction
+                #      runways (e.g. a RWY15 intercept won't snap to a RWY22
+                #      threshold because 22 is ~75° away from 15 but its
+                #      threshold can be physically closer).
+                #   3. All runways — fallback when track is unavailable.
+                #
+                # None when position is unavailable or aircraft is in corridor
+                # (in-corridor aircraft use dist_thr_nm for the X-axis).
+                "dist_nearest_thr_nm": (lambda: (
+                    None if (in_corridor or lat is None) else
+                    round(
+                        min(
+                            (_haversine_nm(lat, lon, r["thr_lat"], r["thr_lon"])
+                             for r in (
+                                 # Priority 1: previously matched runway
+                                 [r for r in self.runways
+                                  if r["name"] == prev.get("approach_runway")]
+                                 # Priority 2: heading-compatible runways (track within 90°)
+                                 or (
+                                     [r for r in self.runways
+                                      if track is not None
+                                      and _hdg_diff(track, r["heading"]) <= 90]
+                                 )
+                                 # Priority 3: all runways (track unavailable)
+                                 or self.runways
+                             )
+                            )
+                        ),
+                        2,
+                    )
+                ))(),
                 "cross_track_nm": round(cross_track, 2) if in_corridor else None,
                 "along_track_nm": round(along_track, 2) if in_corridor else None,
                 "headwind_kt":    headwind_kt,
