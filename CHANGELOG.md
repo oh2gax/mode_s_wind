@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-04 (Windshear — Trk trail toggle button)
+
+- **New Trk button** added to the ILS glideslope toolbar after Dcl — toggles the aircraft position history trail on the ILS profile canvas on/off; trail is visible by default (matches previous behaviour); button turns teal when active, matches the style of HW and Dcl buttons
+- **Independent of barb mode** — Trk can be toggled at any time regardless of whether Barbs is on or off
+- **Preference persisted** to `localStorage` (`ms_ws_trk`) so the setting survives page reloads
+
+---
+
 ## 2026-06-04 (Windshear — suppress vertical wind barb stacking during GPS freeze)
 
 - **Wind barbs no longer accumulate during GPS position freeze** — when a GPS jam freezes the aircraft's ADS-B position, the barometric altitude continues to decrease while `dist_thr_nm` stays constant; without a guard the JS wind history buffers would collect observations at the same horizontal position but decreasing altitudes, producing a vertical column of barbs that falsely suggests valid wind data; fixed by adding `"pos_frozen": pos_frozen` to the per-aircraft state dict sent by the server and adding `if (ac.pos_frozen) continue` to both the Lo and Hi wind history accumulation loops in the JS; the `pos_frozen` flag is already computed by the server for band capture and windrose protection — this change simply exposes it to the client for the same purpose

@@ -852,6 +852,22 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-barb-dcl-btn.active             { background: #0d9488; color: #fff; border-color: #0d9488; }
 .ws-barb-dcl-btn.ws-barb-dcl-off    { opacity: 0.38; cursor: default; pointer-events: none; }
 
+/* Trail toggle button — independent of barb mode, always clickable */
+.ws-trk-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.ws-trk-btn:hover   { background: var(--bg-3); color: var(--text-1); }
+.ws-trk-btn.active  { background: #0d9488; color: #fff; border-color: #0d9488; }
+
 /* Hi-resolution barb mode button — sits inside the ws-barb-group split button */
 .ws-barb-hi-btn {
   font-size: 11px;

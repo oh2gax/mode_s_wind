@@ -567,7 +567,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     // line connecting across the outage.  Normal polling jitter is 3–6 s so
     // 10 s cleanly separates real gaps from minor timing variation.
     const TRAIL_GAP_SEC = 10;
-    if (ac.history && ac.history.length > 1) {
+    if (trkActive && ac.history && ac.history.length > 1) {
       ilsCtx.beginPath();
       let first = true;
       let prevTs = null;
@@ -2050,6 +2050,7 @@ let barbAutoTarget   = null;   // icao currently held by auto mode (null = none 
 let barbHwActive     = false;  // toggle: annotate each barb with headwind/tailwind value
 let barbHiResActive  = false;  // toggle: use Hi-resolution buffer instead of Lo for barb display
 let barbDclActive    = false;  // toggle: split HW/raw labels above+below barb for readability
+let trkActive        = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
 
 // ── Wind Rose state ───────────────────────────────────────────────────────────
 const WINDROSE_ALT_MAX    = 2_000;          // ft — ceiling for MODE-S wind samples
@@ -2679,6 +2680,19 @@ document.getElementById('ws-barb-dcl-btn').addEventListener('click', () => {
   document.getElementById('ws-barb-dcl-btn').classList.toggle('active', barbDclActive);
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
+
+// ── Trail toggle ─────────────────────────────────────────────────────────────
+// Shows or hides the position history trail on the ILS glideslope canvas.
+// State is persisted to localStorage so the preference survives page reloads.
+document.getElementById('ws-trk-btn').addEventListener('click', () => {
+  trkActive = !trkActive;
+  localStorage.setItem('ms_ws_trk', trkActive);
+  document.getElementById('ws-trk-btn').classList.toggle('active', trkActive);
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+});
+
+// Restore saved trail state on page load
+document.getElementById('ws-trk-btn').classList.toggle('active', trkActive);
 
 // ── Hi-resolution barb mode toggle ───────────────────────────────────────────
 // Switches the canvas from the Lo buffer (wsWindHistory, 400 ft / 0.5 NM / 40 obs)
