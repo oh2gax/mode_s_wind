@@ -1888,11 +1888,16 @@ function renderWsLog() {
 
 // ── Today's approach statistics ───────────────────────────────────────────────
 // ── Stats range state ────────────────────────────────────────────────────────
-let wsStatsRange = localStorage.getItem('ms_ws_stats_range') || 'live';
+let wsStatsRange    = localStorage.getItem('ms_ws_stats_range') || 'live';
+let wsStatsDateMode = false;   // true when a specific date is selected via calendar
+let wsStatsDate     = '';      // YYYY-MM-DD selected date (empty when not in date mode)
 
 function _statsUrl() {
   const now = new Date();
   const fmt = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  if (wsStatsDateMode && wsStatsDate) {
+    return `/api/windshear/approach-history?date=${wsStatsDate}`;
+  }
   if (wsStatsRange === 'yesterday') {
     return `/api/windshear/approach-history?date=${fmt(new Date(now - 86_400_000))}`;
   } else if (wsStatsRange === '1w') {
@@ -1902,19 +1907,36 @@ function _statsUrl() {
 }
 
 function _statsLabel() {
+  if (wsStatsDateMode && wsStatsDate) {
+    // Format YYYY-MM-DD → "01 Jun 2026" for display in section labels
+    const [y, m, d] = wsStatsDate.split('-');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${d} ${months[Number(m) - 1]} ${y}`;
+  }
   if (wsStatsRange === 'yesterday') return 'Yesterday';
   if (wsStatsRange === '1w')        return 'Last 7 Days';
   return 'Today';
 }
 
 function _syncStatsButtons() {
+  // Range buttons are deactivated when a specific date is selected
   document.querySelectorAll('.ws-stats-time-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.statsRange === wsStatsRange));
+    b.classList.toggle('active', !wsStatsDateMode && b.dataset.statsRange === wsStatsRange));
   const lbl = _statsLabel();
   const rwyLbl  = document.getElementById('ws-stats-rwy-label');
   const typeLbl = document.getElementById('ws-stats-type-label');
   if (rwyLbl)  rwyLbl.textContent  = `Runway Usage · ${lbl}`;
   if (typeLbl) typeLbl.textContent = `Aircraft Types · ${lbl}`;
+  // Show/hide the date badge
+  const badge = document.getElementById('ws-stats-date-badge');
+  if (badge) {
+    if (wsStatsDateMode && wsStatsDate) {
+      badge.innerHTML = `${lbl} <span class="ws-stats-date-clear" title="Clear date, return to Live">×</span>`;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
   // Totals are appended by renderTodayStats after data loads
 }
 
@@ -3049,12 +3071,51 @@ async function fetchApproachHistory() {
 // ── Stats time range button handlers ─────────────────────────────────────────
 document.querySelectorAll('.ws-stats-time-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    // Clicking a range button always clears any active date selection
+    wsStatsDateMode = false;
+    wsStatsDate     = '';
+    document.getElementById('ws-stats-date-picker').value = '';
     wsStatsRange = btn.dataset.statsRange;
     localStorage.setItem('ms_ws_stats_range', wsStatsRange);
     _syncStatsButtons();
     fetchTodayStats();
   });
 });
+
+// ── Stats calendar picker handlers ───────────────────────────────────────────
+const _statsCalBtn    = document.getElementById('ws-stats-cal-btn');
+const _statsDateInput = document.getElementById('ws-stats-date-picker');
+const _statsDateBadge = document.getElementById('ws-stats-date-badge');
+
+if (_statsCalBtn) {
+  _statsCalBtn.addEventListener('click', () => {
+    try { _statsDateInput && _statsDateInput.showPicker(); } catch (_) {}
+  });
+}
+
+if (_statsDateInput) {
+  _statsDateInput.addEventListener('change', e => {
+    const val = e.target.value;   // YYYY-MM-DD
+    if (!val) return;
+    wsStatsDate     = val;
+    wsStatsDateMode = true;
+    _syncStatsButtons();
+    fetchTodayStats();
+  });
+}
+
+// Clear button inside the date badge — returns to the active range mode
+if (_statsDateBadge) {
+  _statsDateBadge.addEventListener('click', e => {
+    if (!e.target.classList.contains('ws-stats-date-clear')) return;
+    wsStatsDateMode = false;
+    wsStatsDate     = '';
+    if (_statsDateInput) _statsDateInput.value = '';
+    _syncStatsButtons();
+    fetchTodayStats();
+  });
+}
+
 // Restore saved range on page load
 _syncStatsButtons();
 

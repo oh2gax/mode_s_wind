@@ -1382,6 +1382,24 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-stats-time-btn:hover  { color: var(--text-1); }
 .ws-stats-time-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
+/* Calendar icon button in stats timerow */
+.ws-stats-cal-btn {
+  background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 1px 5px; font-size: 10px; cursor: pointer;
+  line-height: 1.5; transition: background 0.1s;
+}
+.ws-stats-cal-btn:hover { color: var(--text-1); }
+/* Date badge shown when a specific date is selected */
+.ws-stats-date-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #0369a1; color: #fff; border: 1px solid #0369a1;
+  border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 600;
+  line-height: 1.5;
+}
+.ws-stats-date-clear {
+  cursor: pointer; opacity: 0.8; font-weight: 700; font-size: 11px; line-height: 1;
+}
+.ws-stats-date-clear:hover { opacity: 1; }
 /* ── Today's statistics panel (right 45%) ────────────────────────────────── */
 .ws-stats-panel {
   flex: 0 0 45%;

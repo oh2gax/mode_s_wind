@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-04 (Windshear — statistics panel date picker)
+
+- **Calendar date picker added to the statistics panel** — a small 📅 button placed after the `1w` button in the stats timerow opens the native browser date picker; selecting any date in history switches both Runway Usage and Aircraft Types sections to show data for that specific UTC day using the existing `?date=YYYY-MM-DD` API parameter
+- **Date badge with clear button** — when a date is active, a compact blue badge showing the formatted date (e.g. `04 Jun 2026`) appears in the timerow with an inline `×` button; clicking `×` clears the date selection and returns to whichever Live / Yest / 1w range was previously active
+- **Range buttons deactivate during date mode** — Live, Yest, and 1w buttons lose their active highlight when a date is selected; clicking any of them clears the date and switches to that range
+- **No persistence** — date mode is intentionally not saved to localStorage; the stats panel always opens on the last-used Live/Yest/1w range, which is the more useful default for operational monitoring
+
+---
+
 ## 2026-06-04 (Windshear — Trk trail toggle button)
 
 - **New Trk button** added to the ILS glideslope toolbar after Dcl — toggles the aircraft position history trail on the ILS profile canvas on/off; trail is visible by default (matches previous behaviour); button turns teal when active, matches the style of HW and Dcl buttons

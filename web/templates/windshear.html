@@ -190,6 +190,9 @@
                 <button class="ws-stats-time-btn active" data-stats-range="live">Live</button>
                 <button class="ws-stats-time-btn" data-stats-range="yesterday">Yest</button>
                 <button class="ws-stats-time-btn" data-stats-range="1w">1w</button>
+                <button id="ws-stats-cal-btn" class="ws-stats-cal-btn" title="Pick a specific date to query historical statistics">&#128197;</button>
+                <input type="date" id="ws-stats-date-picker" class="ws-aphist-date-picker-hidden" tabindex="-1" aria-hidden="true">
+                <span id="ws-stats-date-badge" class="ws-stats-date-badge" style="display:none"></span>
               </div>
               <div class="ws-stats-section">
                 <div class="ws-stats-label" id="ws-stats-rwy-label">Runway Usage · Today UTC</div>
@@ -203,7 +206,6 @@
             </div>
           </div>
         </div>
-
         <!-- Tooltip for compact windshear log entries -->
         <div id="ws-log-tooltip" class="ws-log-tooltip" style="display:none"></div>
 
