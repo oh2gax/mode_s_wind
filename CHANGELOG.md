@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-04 (Windshear — ILS profile trail gap detection, extended)
+
+- **GPS-freeze periods now also produce a visible gap in the trail** — the previous fix only broke the trail for ADS-B dropout (timestamp gap in history); GPS freeze was not covered because the server continued appending history entries with the frozen (unchanging) position at regular 3-second intervals, so no timestamp gap existed; fixed by moving `history.append` to after the `pos_frozen` computation in `windshear.py` and adding `and not pos_frozen` to the append condition — frozen-position sweeps are now excluded from the history array, creating a timestamp gap that the existing JS 10-second gap detector converts to a `moveTo` break in the trail
+
+---
+
+## 2026-06-04 (Windshear — ILS profile trail gap detection)
+
+- **History trail no longer connects across position outages** — previously the ILS glideslope canvas drew a straight line between the last known position before a GPS freeze or ADS-B dropout and the first position after it, making an outage look like a normal continuous track; the trail drawing loop now checks the timestamp gap between consecutive history entries and uses `moveTo` instead of `lineTo` when the gap exceeds 10 seconds; the 10-second threshold comfortably separates real outages from normal 3–6 s polling jitter; the blank space in the trail makes the outage duration immediately visible
+
+---
+
 ## 2026-06-04 (GPS Quality — FL Band Analysis donut follows time-range selector)
 
 - **FL Band Analysis donut and stats panel now follow the active time-range selector** — previously the donut was hard-coded to a 14-day window regardless of the range buttons (1d / 2d / 3d / 1w / 2w / 1m); the cutoff now uses `RANGE_CONFIG[currentRange].hours` so the donut always shows the same period as the GPS degradation events chart

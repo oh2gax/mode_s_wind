@@ -475,14 +475,9 @@ class WindshearTracker:
             else:
                 callsign = icao      # nothing known yet
 
-            if in_corridor:
-                history.append({
-                    "ts":       now,
-                    "lat":      lat,
-                    "lon":      lon,
-                    "altitude": alt,
-                    "dist_thr": round(dist_thr, 2),
-                })
+            # NOTE: history.append is deferred to after pos_frozen is computed
+            # (see below) so that frozen-position sweeps are excluded from the
+            # trail and produce a visible gap on the ILS canvas.
 
             # ── Go-around state machine ───────────────────────────────────────
             # Carry forward per-aircraft state from the previous sweep.
@@ -580,6 +575,21 @@ class WindshearTracker:
                 self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
             elif not in_corridor:
                 self._pos_track.pop(icao, None)
+
+            # ── ILS profile position history ──────────────────────────────────
+            # Append only when in corridor AND position is not frozen.
+            # Excluding frozen sweeps means consecutive history entries will
+            # have a timestamp gap whenever GPS is jammed, which the JS trail
+            # renderer detects (>10 s gap → moveTo instead of lineTo) and shows
+            # as a visible blank rather than a straight line across the outage.
+            if in_corridor and not pos_frozen:
+                history.append({
+                    "ts":       now,
+                    "lat":      lat,
+                    "lon":      lon,
+                    "altitude": alt,
+                    "dist_thr": round(dist_thr, 2),
+                })
 
             # ── Approach history: altitude-band wind capture ──────────────────────
             # Capture the first wind reading within ±BAND_TOL_FT of each target

@@ -368,7 +368,7 @@ function wsCanvasTheme() {
     annot:      light ? '#475569' : '#475569',
     axisLabel:  light ? '#475569' : '#64748b',
     noTraffic:  light ? '#64748b' : '#334155',
-    trail:      light ? 'rgba(0,0,0,0.18)'      : 'rgba(255,255,255,0.22)',
+    trail:      light ? 'rgba(0,0,0,0.26)'      : 'rgba(255,255,255,0.32)',
     staleRing:  light ? 'rgba(37,99,235,0.30)'  : 'rgba(56,189,248,0.30)',
     staleGlow:  light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.08)',
     dotBorder:  '#000',
@@ -561,15 +561,24 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     const color = GS_COLOR[gs] || GS_COLOR.FAR;
 
     // ── History trail ────────────────────────────────────────────────────────
+    // A gap of >10 s between consecutive history points indicates a position
+    // outage (GPS freeze or ADS-B dropout).  Use moveTo instead of lineTo at
+    // those breaks so the trail shows a visible blank rather than a straight
+    // line connecting across the outage.  Normal polling jitter is 3–6 s so
+    // 10 s cleanly separates real gaps from minor timing variation.
+    const TRAIL_GAP_SEC = 10;
     if (ac.history && ac.history.length > 1) {
       ilsCtx.beginPath();
       let first = true;
+      let prevTs = null;
       for (const h of ac.history) {
         if (h.dist_thr > PROFILE_MAX_NM || h.altitude > PROFILE_MAX_FT) continue;
         const hx = distX(h.dist_thr);
         const hy = altY(h.altitude);
-        if (first) { ilsCtx.moveTo(hx, hy); first = false; }
+        const isGap = prevTs !== null && (h.ts - prevTs) > TRAIL_GAP_SEC;
+        if (first || isGap) { ilsCtx.moveTo(hx, hy); first = false; }
         else ilsCtx.lineTo(hx, hy);
+        prevTs = h.ts;
       }
       ilsCtx.strokeStyle  = CT.trail;
       ilsCtx.lineWidth    = 1;
