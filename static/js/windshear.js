@@ -2460,6 +2460,7 @@ async function fetchApproachState() {
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
       if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
+      if (ac.pos_frozen) continue;                // skip GPS-frozen position — barb would stack vertically
       if (!wsWindHistory[ac.icao]) wsWindHistory[ac.icao] = [];
       const hist = wsWindHistory[ac.icao];
       const last = hist[hist.length - 1];
@@ -2483,6 +2484,7 @@ async function fetchApproachState() {
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
       if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
+      if (ac.pos_frozen) continue;                // skip GPS-frozen position — barb would stack vertically
       if (!wsWindHiHistory[ac.icao]) wsWindHiHistory[ac.icao] = [];
       const hiHist = wsWindHiHistory[ac.icao];
       const hiLast = hiHist[hiHist.length - 1];

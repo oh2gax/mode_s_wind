@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-04 (Windshear — suppress vertical wind barb stacking during GPS freeze)
+
+- **Wind barbs no longer accumulate during GPS position freeze** — when a GPS jam freezes the aircraft's ADS-B position, the barometric altitude continues to decrease while `dist_thr_nm` stays constant; without a guard the JS wind history buffers would collect observations at the same horizontal position but decreasing altitudes, producing a vertical column of barbs that falsely suggests valid wind data; fixed by adding `"pos_frozen": pos_frozen` to the per-aircraft state dict sent by the server and adding `if (ac.pos_frozen) continue` to both the Lo and Hi wind history accumulation loops in the JS; the `pos_frozen` flag is already computed by the server for band capture and windrose protection — this change simply exposes it to the client for the same purpose
+- Approach History, Windrose, windshear detection algorithms and all other features are unaffected
+
+---
+
 ## 2026-06-04 (Windshear — ILS profile trail gap detection, extended)
 
 - **GPS-freeze periods now also produce a visible gap in the trail** — the previous fix only broke the trail for ADS-B dropout (timestamp gap in history); GPS freeze was not covered because the server continued appending history entries with the frozen (unchanging) position at regular 3-second intervals, so no timestamp gap existed; fixed by moving `history.append` to after the `pos_frozen` computation in `windshear.py` and adding `and not pos_frozen` to the append condition — frozen-position sweeps are now excluded from the history array, creating a timestamp gap that the existing JS 10-second gap detector converts to a `moveTo` break in the trail

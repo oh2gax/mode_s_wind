@@ -679,6 +679,7 @@ class WindshearTracker:
                 "best_temp":      temperature,
                 "meteo_source":   _meteo_src,
                 "none_reason":    none_reason,
+                "pos_frozen":     pos_frozen,
                 "in_corridor":    in_corridor,
                 "approach_runway":runway,
                 "dist_apt_nm":    round(dist_apt, 1),
