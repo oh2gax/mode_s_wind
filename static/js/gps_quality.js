@@ -90,6 +90,9 @@ function applyRange(range) {
   const titleEl = document.getElementById('gps-chart-title');
   if (titleEl) titleEl.textContent = 'GPS Degradation Events — ' + cfg.title;
   if (lastFullTimeSeries.length > 0) updateTsChart(lastFullTimeSeries);
+  // Redraw donut immediately with the new range window (no new fetch needed —
+  // lastHeatmapData already holds the full history received from the server).
+  if (lastHeatmapData.length > 0) drawDonutAndStats(lastHeatmapData, lastFlBands);
 }
 
 // ── Chart.js time-series ──────────────────────────────────────────────────────
@@ -490,11 +493,17 @@ const DONUT_COLORS = [
 function drawDonutAndStats(heatmapData, flBands) {
   if (!heatmapData || heatmapData.length === 0 || !flBands || flBands.length === 0) return;
 
-  // Limit to most recent 14 days (mirror heatmap cap)
-  const DAY_SEC = 86_400;
-  const cutoff  = (Date.now() / 1000) - 14 * DAY_SEC;
-  const recent  = heatmapData.filter(b => b.ts >= cutoff);
+  // Cutoff follows the active time-range selector (same window as the time-series chart).
+  // Falls back to 14 days if the range config is somehow unavailable.
+  const DAY_SEC   = 86_400;
+  const rangeCfg  = RANGE_CONFIG[currentRange];
+  const cutoffSec = (Date.now() / 1000) - (rangeCfg ? rangeCfg.hours * 3600 : 14 * DAY_SEC);
+  const recent    = heatmapData.filter(b => b.ts >= cutoffSec);
   if (recent.length === 0) return;
+
+  // Update panel title to reflect the active range
+  const titleEl = document.getElementById('gps-donut-title');
+  if (titleEl) titleEl.textContent = 'FL Band Analysis — ' + (rangeCfg ? rangeCfg.title : '14 Days');
 
   // Accumulate per-band and per-signal totals
   const bandTotals = Object.fromEntries(flBands.map(b => [b, 0]));
@@ -604,8 +613,9 @@ function renderStats(stats) {
 // ── Main poll loop ────────────────────────────────────────────────────────────────────────────
 let lastFlBands    = [];
 let lastHeatmapData = [];   // retained for hourly donut refresh
-let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick or zone change
+let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick, zone or range change
 let lastDonutZone  = null;  // zone the donut was last drawn for; triggers redraw on zone switch
+let lastDonutRange = null;  // range the donut was last drawn for; triggers redraw on range switch
 
 async function fetchGpsState() {
   try {
@@ -620,11 +630,12 @@ async function fetchGpsState() {
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
     drawHeatmap(d.heatmap || [], lastFlBands);
-    // Donut drawn on first load and whenever the zone changes; hourly interval handles the rest
-    if (!donutDrawn || lastDonutZone !== currentZone) {
+    // Donut drawn on first load and whenever the zone or range changes; hourly interval handles the rest
+    if (!donutDrawn || lastDonutZone !== currentZone || lastDonutRange !== currentRange) {
       drawDonutAndStats(lastHeatmapData, lastFlBands);
       donutDrawn    = true;
       lastDonutZone = currentZone;
+      lastDonutRange = currentRange;
     }
     renderLiveTable(d.live || []);
 

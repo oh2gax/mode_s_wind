@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-04 (GPS Quality — FL Band Analysis donut follows time-range selector)
+
+- **FL Band Analysis donut and stats panel now follow the active time-range selector** — previously the donut was hard-coded to a 14-day window regardless of the range buttons (1d / 2d / 3d / 1w / 2w / 1m); the cutoff now uses `RANGE_CONFIG[currentRange].hours` so the donut always shows the same period as the GPS degradation events chart
+- **Panel title updates dynamically** — the "FL Band Analysis" header now appends the active range label (e.g. "FL Band Analysis — Last 24 Hours") and updates immediately when the range changes
+- **Instant redraw on range switch** — `applyRange` now calls `drawDonutAndStats` immediately after switching so the donut updates without waiting for the next hourly tick or poll cycle; data is taken from the in-memory `lastHeatmapData` buffer so no new API request is needed
+- **Hourly refresh unchanged** — the existing hourly `setInterval` continues to fire and will automatically use whatever range is active at that time
+- **`lastDonutRange` guard added** — `fetchGpsState` now tracks the last range used for the donut (alongside the existing `lastDonutZone` guard) so a range change detected in the poll loop also triggers a redraw
+
+---
+
 ## 2026-06-03 (Windshear — pre-corridor NONE circle improvements)
 
 - **Pre-corridor circles now plot at the correct X-axis position** — previously `dist_nearest_thr_nm` was computed as the raw minimum distance to any runway threshold, which for a RWY15 intercept could snap to a RWY22 threshold (physically closer) and plot the circles at the wrong location on the ILS canvas; fixed by selecting the threshold with a priority order: (1) previously matched approach runway stored in aircraft state, (2) runways whose approach heading is within 90° of the aircraft's current track, (3) all runways as a final fallback when track is unavailable

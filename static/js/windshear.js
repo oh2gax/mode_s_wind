@@ -368,7 +368,7 @@ function wsCanvasTheme() {
     annot:      light ? '#475569' : '#475569',
     axisLabel:  light ? '#475569' : '#64748b',
     noTraffic:  light ? '#64748b' : '#334155',
-    trail:      light ? 'rgba(0,0,0,0.10)'      : 'rgba(255,255,255,0.12)',
+    trail:      light ? 'rgba(0,0,0,0.18)'      : 'rgba(255,255,255,0.22)',
     staleRing:  light ? 'rgba(37,99,235,0.30)'  : 'rgba(56,189,248,0.30)',
     staleGlow:  light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.08)',
     dotBorder:  '#000',
