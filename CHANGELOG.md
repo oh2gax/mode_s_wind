@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-06 (Windrose — historical wind trend Hist button)
+
+- **New Hist button** added below the Windrose canvas — cycles Off → 3h → 6h; when active, draws a colored dot on the compass ring perimeter for each past hour bucket, at the bearing of that hour's vector-averaged wind direction; dot radius scales with wind speed (3.5–7 px); consecutive dots are joined by a faint connecting line showing the direction drift path; colors: 0–1h amber, 1–2h orange, 2–3h rose, 3–4h purple, 4–5h violet, 5–6h slate; dots are fully transparent-safe — live METAR and MODE-S arrows drawn in the center of the compass are completely unobstructed
+- **Per-bucket legend** appears in the text readout below the canvas when Hist is active, showing direction and speed for each hour that has data (e.g. `● 0–1h 270°/12kt`); buckets with no observations are skipped silently
+- **Server windrose buffer extended to 6 hours** — `WINDROSE_BUFFER_MAX_SEC` changed from 1 800 s to 21 600 s so the server retains enough history to populate all buckets for a fresh browser session; client-side `recentLandingWinds` pruning and `fetchWindroseObs` ingestion updated to match
+- The 30-minute window used for the main MODE-S averaged arrow is unchanged; only the buffer retention and Hist bucketing use the extended window
+
+---
+
 ## 2026-06-06 (Windshear — go-around 2nd approach badge and history fix)
 
 - **"2nd APP" badge now appears correctly on 2nd approach** — after a go-around the flight strip badge was never shown because `ga_phase` was stuck in `"GO_AROUND"` state permanently; the state machine was missing the `GO_AROUND → NONE` transition needed when the aircraft re-enters the corridor for its 2nd approach; fixed by adding a `ga_left_corridor` flag that is set when the aircraft leaves the corridor in `GO_AROUND` state and cleared (with `ga_phase` reset to `"NONE"`) when it re-enters; `ga_count` is preserved so the badge shows correctly

@@ -934,6 +934,30 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   min-height: 32px;
   line-height: 1.6;
 }
+.ws-windrose-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px 1px;
+}
+.ws-windrose-hist-btn {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.ws-windrose-hist-btn:hover  { background: var(--bg-3); color: var(--text-1); }
+.ws-windrose-hist-btn.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+.ws-windrose-hist-badge {
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  color: var(--text-2);
+}
 
 /* ── Approach History panel ──────────────────────────────────────────────── */
 .ws-aphist-btn {

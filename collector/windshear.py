@@ -113,7 +113,7 @@ WINDROSE_OBS_MAX_ALT_FT  = 2_000.0   # ft — mirror of JS WINDROSE_ALT_MAX
 WINDROSE_MIN_ALT_GAP_FT  = 400.0     # ft — mirror of JS WS_WIND_MIN_ALT_GAP
 WINDROSE_MIN_DIST_GAP_NM = 0.5       # NM — mirror of JS WS_WIND_MIN_DIST_GAP
 WINDROSE_OBS_CAP         = 40        # per-aircraft obs cap (same as JS Lo buf)
-WINDROSE_BUFFER_MAX_SEC  = 1_800.0   # 30 min — purge older entries
+WINDROSE_BUFFER_MAX_SEC  = 6 * 3_600.0  # 6 h — extended for Hist trend view
 
 # ── EFHK runway definitions ──────────────────────────────────────────────────
 # Coordinates and threshold elevations from FINTRAFFIC ANS EFHK ADC

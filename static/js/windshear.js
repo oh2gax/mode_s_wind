@@ -2075,10 +2075,12 @@ let barbDclActive    = false;  // toggle: split HW/raw labels above+below barb f
 let trkActive        = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
 
 // ── Wind Rose state ───────────────────────────────────────────────────────────
-const WINDROSE_ALT_MAX    = 2_000;          // ft — ceiling for MODE-S wind samples
-const WINDROSE_MAX_AGE_MS = 30 * 60 * 1000; // 30-minute rolling buffer
+const WINDROSE_ALT_MAX       = 2_000;              // ft — ceiling for MODE-S wind samples
+const WINDROSE_MAX_AGE_MS    = 30 * 60 * 1000;     // 30-minute window for main M-S arrow
+const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist trend arrows
 
 let windroseEnabled      = true;   // shown by default
+let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let metarWind            = null;   // { dir, spd, variable } — updated by fetchWx
 const recentLandingWinds    = [];          // { dir, spd, alt, ts } — low-alt obs from departed aircraft
 const windroseServerTsSeen  = new Set();   // Unix-ms ts values already ingested from the server buffer
@@ -2261,6 +2263,67 @@ function drawWindrose() {
     ctx.fill();
   }
 
+  // ── Historical direction dots on compass ring (Hist mode) ───────────────────
+  // Each hour bucket: one dot on the ring edge at that hour's avg wind direction.
+  // Dot radius scales with speed.  Consecutive dots joined by a faint drift arc.
+  // Center of compass stays clear so live METAR/MODE-S arrows are unobstructed.
+  if (wrHistMode > 0) {
+    const histHours = wrHistMode === 1 ? 3 : 6;
+    const HIST_BUCKETS = [
+      { color: '#f59e0b', alpha: 0.80 },  // 0–1 h  amber
+      { color: '#f97316', alpha: 0.70 },  // 1–2 h  orange
+      { color: '#fb7185', alpha: 0.60 },  // 2–3 h  rose
+      { color: '#a78bfa', alpha: 0.55 },  // 3–4 h  purple
+      { color: '#818cf8', alpha: 0.50 },  // 4–5 h  violet
+      { color: '#94a3b8', alpha: 0.45 },  // 5–6 h  slate
+    ].slice(0, histHours);
+
+    // Compute avg per bucket; store positions for the connecting arc
+    const dotPts = [];   // { x, y, color, alpha } or null if no data
+    for (let i = 0; i < histHours; i++) {
+      const toMs   = nowMs - i * 3_600_000;
+      const fromMs = nowMs - (i + 1) * 3_600_000;
+      const bucket = recentLandingWinds.filter(o => o.ts >= fromMs && o.ts < toMs);
+      if (bucket.length === 0) { dotPts.push(null); continue; }
+      const avg = vectorAvgWind(bucket);
+      if (!avg || avg.spd < 1) { dotPts.push(null); continue; }
+
+      const { color, alpha } = HIST_BUCKETS[i];
+      const rad  = avg.dir * Math.PI / 180;          // direction FROM = dot position on ring
+      const dotR = Math.max(3.5, Math.min(7, 3.5 + avg.spd / MAX_SPD * 7)); // 3.5–7 px
+      const dotX = cx + R * Math.sin(rad);
+      const dotY = cy - R * Math.cos(rad);
+      dotPts.push({ x: dotX, y: dotY, color, alpha, dotR });
+    }
+
+    // Draw connecting arcs between consecutive present dots (faint)
+    let prevPt = null;
+    for (const pt of dotPts) {
+      if (pt && prevPt) {
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath();
+        ctx.moveTo(prevPt.x, prevPt.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.strokeStyle = pt.color;
+        ctx.lineWidth   = 1;
+        ctx.stroke();
+      }
+      prevPt = pt || prevPt;  // keep last known for arc continuity
+    }
+
+    // Draw dots on top of arcs
+    for (const pt of dotPts) {
+      if (!pt) continue;
+      ctx.globalAlpha = pt.alpha;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, pt.dotR, 0, Math.PI * 2);
+      ctx.fillStyle = pt.color;
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
   // ── METAR wind arrow (cyan) ──────────────────────────────────────────────────
   const METAR_COL = '#38bdf8';
   const MODES_COL = '#10b981';
@@ -2334,7 +2397,29 @@ function drawWindrose() {
     modesLine = `<span style="color:#10b981">M-S ${String(modesW.dir).padStart(3,'0')}° / ${modesW.spd} kt  (${modesW.count}obs${ageStr})</span>`;
   }
 
-  readout.innerHTML = `${metarLine}<br>${modesLine}`;
+  // ── Hist legend lines ────────────────────────────────────────────────────────
+  let histLines = '';
+  if (wrHistMode > 0) {
+    const histHours = wrHistMode === 1 ? 3 : 6;
+    const HIST_COLORS = ['#f59e0b','#f97316','#fb7185','#a78bfa','#818cf8','#94a3b8'];
+    const HIST_LABELS = ['0–1h','1–2h','2–3h','3–4h','4–5h','5–6h'];
+    const parts = [];
+    for (let i = 0; i < histHours; i++) {
+      const toMs   = nowMs - i * 3_600_000;
+      const fromMs = nowMs - (i + 1) * 3_600_000;
+      const bucket = recentLandingWinds.filter(o => o.ts >= fromMs && o.ts < toMs);
+      const avg    = vectorAvgWind(bucket);
+      const val    = avg && avg.spd >= 1
+        ? `${String(avg.dir).padStart(3,'0')}°/${avg.spd}kt`
+        : '—';
+      parts.push(`<span style="color:${HIST_COLORS[i]}">● ${HIST_LABELS[i]} ${val}</span>`);
+    }
+    // Two columns to keep compact: [0-1h  1-2h  2-3h] then [3-4h  4-5h  5-6h] if 6h mode
+    histLines = '<br>' + parts.slice(0, 3).join('  ');
+    if (parts.length > 3) histLines += '<br>' + parts.slice(3).join('  ');
+  }
+
+  readout.innerHTML = `${metarLine}<br>${modesLine}${histLines}`;
 }
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
@@ -2374,8 +2459,8 @@ async function fetchApproachState() {
     }
     prevLiveIcaos = liveIcaos;
 
-    // Prune observations older than the 30-minute window
-    const windroseCutoff = nowMs - WINDROSE_MAX_AGE_MS;
+    // Prune observations older than the 6-hour hist buffer
+    const windroseCutoff = nowMs - WINDROSE_HIST_MAX_AGE_MS;
     while (recentLandingWinds.length > 0 && recentLandingWinds[0].ts < windroseCutoff) {
       recentLandingWinds.shift();
     }
@@ -3040,14 +3125,14 @@ async function fetchWindroseObs() {
     let   newObs = 0;
     for (const o of obs) {
       const tsMs = o.ts * 1000;              // server sends Unix seconds; JS uses ms
-      if (nowMs - tsMs > WINDROSE_MAX_AGE_MS) continue;
-      if (windroseServerTsSeen.has(tsMs))     continue;  // already ingested this cycle
+      if (nowMs - tsMs > WINDROSE_HIST_MAX_AGE_MS) continue;
+      if (windroseServerTsSeen.has(tsMs))            continue;  // already ingested this cycle
       windroseServerTsSeen.add(tsMs);
       recentLandingWinds.push({ dir: o.dir, spd: o.spd, alt: o.alt, ts: tsMs });
       newObs++;
     }
-    // Prune seen-set: drop entries older than the windrose window
-    const cutoff = nowMs - WINDROSE_MAX_AGE_MS;
+    // Prune seen-set: drop entries older than the hist buffer window
+    const cutoff = nowMs - WINDROSE_HIST_MAX_AGE_MS;
     for (const ts of windroseServerTsSeen) {
       if (ts < cutoff) windroseServerTsSeen.delete(ts);
     }
@@ -3118,6 +3203,25 @@ if (_statsDateBadge) {
 
 // Restore saved range on page load
 _syncStatsButtons();
+
+// ── Windrose Hist button ──────────────────────────────────────────────────────
+const _wrHistBtn   = document.getElementById('ws-windrose-hist-btn');
+const _wrHistBadge = document.getElementById('ws-windrose-hist-badge');
+
+function _syncWrHistBtn() {
+  if (!_wrHistBtn) return;
+  const labels = ['', '3h', '6h'];
+  _wrHistBtn.classList.toggle('active', wrHistMode > 0);
+  if (_wrHistBadge) _wrHistBadge.textContent = labels[wrHistMode] || '';
+}
+
+if (_wrHistBtn) {
+  _wrHistBtn.addEventListener('click', () => {
+    wrHistMode = (wrHistMode + 1) % 3;
+    _syncWrHistBtn();
+    drawWindrose();
+  });
+}
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 fetchApproachState();
