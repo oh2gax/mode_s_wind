@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-06 (Windshear — go-around 2nd approach badge and history fix)
+
+- **"2nd APP" badge now appears correctly on 2nd approach** — after a go-around the flight strip badge was never shown because `ga_phase` was stuck in `"GO_AROUND"` state permanently; the state machine was missing the `GO_AROUND → NONE` transition needed when the aircraft re-enters the corridor for its 2nd approach; fixed by adding a `ga_left_corridor` flag that is set when the aircraft leaves the corridor in `GO_AROUND` state and cleared (with `ga_phase` reset to `"NONE"`) when it re-enters; `ga_count` is preserved so the badge shows correctly
+- **2nd approach data now saved to Approach History** — as a side-effect of the same bug, 2nd approach wind profiles were silently discarded because `prune_stale()` only commits to Approach History when `ga_phase == "APPROACHING"` at pruning time; with the state now correctly transitioning to `APPROACHING` during the 2nd approach, the wind profile is captured and saved
+- **Windrose observations from 2nd approach also saved** — same `prune_stale()` gate; windrose obs for 2nd approaches are now committed correctly
+- Only `collector/windshear.py` changed; no JS, CSS, or template changes; windshear detection, wind calculations, and all other features are unaffected
+
+---
+
 ## 2026-06-04 (Windshear — statistics panel date picker)
 
 - **Calendar date picker added to the statistics panel** — a small 📅 button placed after the `1w` button in the stats timerow opens the native browser date picker; selecting any date in history switches both Runway Usage and Aircraft Types sections to show data for that specific UTC day using the existing `?date=YYYY-MM-DD` API parameter

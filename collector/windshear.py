@@ -487,8 +487,21 @@ class WindshearTracker:
             ga_climb_polls     = prev.get("ga_climb_polls", 0)
             ga_climb_start_alt = prev.get("ga_climb_start_alt", None)
             ga_flash_until     = prev.get("ga_flash_until", 0.0)
+            ga_left_corridor   = prev.get("ga_left_corridor", False)
 
             if in_corridor:
+                # GO_AROUND → NONE transition: aircraft has left the corridor
+                # during climb-out (ga_left_corridor flag set below) and has
+                # now re-entered — it is on its 2nd approach.  Reset the phase
+                # so approach tracking and history capture start fresh while
+                # preserving ga_count for the "2nd APP" badge.
+                if ga_phase == "GO_AROUND" and ga_left_corridor:
+                    ga_phase           = "NONE"
+                    ga_left_corridor   = False
+                    ga_descent_polls   = 0
+                    ga_climb_polls     = 0
+                    ga_climb_start_alt = None
+
                 if ga_phase == "NONE":
                     # Accumulate descent polls; decay when not descending
                     if vert_rate <= -200:
@@ -539,16 +552,16 @@ class WindshearTracker:
                         # Not climbing or above ceiling — reset both climb counters
                         ga_climb_polls     = 0
                         ga_climb_start_alt = None
-                # GO_AROUND: stays until aircraft leaves the display entirely
-                # (removed by prune_stale or altitude gate); resets on return.
             else:
-                # Left the corridor — reset APPROACHING; GO_AROUND persists
-                # so the flash continues during the climb-out phase.
+                # Left the corridor — reset APPROACHING; mark GO_AROUND so that
+                # when the aircraft re-enters for a 2nd approach the phase resets.
                 if ga_phase == "APPROACHING":
                     ga_phase           = "NONE"
                     ga_descent_polls   = 0
                     ga_climb_polls     = 0
                     ga_climb_start_alt = None
+                elif ga_phase == "GO_AROUND":
+                    ga_left_corridor   = True
 
             ga_count  = self._ga_counts.get(icao, 0)
             is_return = ga_count > 0 and ga_phase != "GO_AROUND"
@@ -735,6 +748,7 @@ class WindshearTracker:
                 "last_seen":      aircraft.get("last_seen", now),
                 # Go-around state (consumed by the web UI)
                 "ga_phase":           ga_phase,
+                "ga_left_corridor":   ga_left_corridor,
                 "ga_descent_polls":   ga_descent_polls,
                 "ga_climb_polls":     ga_climb_polls,
                 "ga_climb_start_alt": ga_climb_start_alt,
