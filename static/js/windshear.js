@@ -2137,6 +2137,7 @@ function drawWindrose() {
   const LR  = R + 14;                 // label radius
   const MAX_SPD = 40;                  // kt → full radius
   const CT  = wsCanvasTheme();
+  const nowMs = Date.now();            // used by hist buckets and MODE-S age calc
 
   // ── Background ──────────────────────────────────────────────────────────────
   ctx.clearRect(0, 0, W, H);
@@ -2344,7 +2345,6 @@ function drawWindrose() {
   }
 
   // ── MODE-S averaged wind arrow (green) ──────────────────────────────────────
-  const nowMs  = Date.now();
   const recent = recentLandingWinds.filter(o => (nowMs - o.ts) <= WINDROSE_MAX_AGE_MS);
   const modesW = vectorAvgWind(recent);
   if (modesW && modesW.spd > 0) {
