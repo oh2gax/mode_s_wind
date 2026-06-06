@@ -2081,6 +2081,7 @@ const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist t
 
 let windroseEnabled      = true;   // shown by default
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
+let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
 let metarWind            = null;   // { dir, spd, variable } — updated by fetchWx
 const recentLandingWinds    = [];          // { dir, spd, alt, ts } — low-alt obs from departed aircraft
 const windroseServerTsSeen  = new Set();   // Unix-ms ts values already ingested from the server buffer
@@ -2268,6 +2269,8 @@ function drawWindrose() {
   // Each hour bucket: one dot on the ring edge at that hour's avg wind direction.
   // Dot radius scales with speed.  Consecutive dots joined by a faint drift arc.
   // Center of compass stays clear so live METAR/MODE-S arrows are unobstructed.
+  // Dot positions are saved to wrHistDots for canvas mouseover tooltip.
+  wrHistDots = [];   // reset on every redraw
   if (wrHistMode > 0) {
     const histHours = wrHistMode === 1 ? 3 : 6;
     const HIST_BUCKETS = [
@@ -2278,9 +2281,10 @@ function drawWindrose() {
       { color: '#818cf8', alpha: 0.50 },  // 4–5 h  violet
       { color: '#94a3b8', alpha: 0.45 },  // 5–6 h  slate
     ].slice(0, histHours);
+    const HIST_LABELS = ['0–1h','1–2h','2–3h','3–4h','4–5h','5–6h'];
 
-    // Compute avg per bucket; store positions for the connecting arc
-    const dotPts = [];   // { x, y, color, alpha } or null if no data
+    // Compute avg per bucket; store positions for arc and tooltip
+    const dotPts = [];   // { x, y, color, alpha, dotR, label } or null if no data
     for (let i = 0; i < histHours; i++) {
       const toMs   = nowMs - i * 3_600_000;
       const fromMs = nowMs - (i + 1) * 3_600_000;
@@ -2290,11 +2294,12 @@ function drawWindrose() {
       if (!avg || avg.spd < 1) { dotPts.push(null); continue; }
 
       const { color, alpha } = HIST_BUCKETS[i];
-      const rad  = avg.dir * Math.PI / 180;          // direction FROM = dot position on ring
-      const dotR = Math.max(3.5, Math.min(7, 3.5 + avg.spd / MAX_SPD * 7)); // 3.5–7 px
-      const dotX = cx + R * Math.sin(rad);
-      const dotY = cy - R * Math.cos(rad);
-      dotPts.push({ x: dotX, y: dotY, color, alpha, dotR });
+      const rad   = avg.dir * Math.PI / 180;          // direction FROM = dot position on ring
+      const dotR  = Math.max(3.5, Math.min(7, 3.5 + avg.spd / MAX_SPD * 7)); // 3.5–7 px
+      const dotX  = cx + R * Math.sin(rad);
+      const dotY  = cy - R * Math.cos(rad);
+      const label = `${HIST_LABELS[i]}: ${String(avg.dir).padStart(3,'0')}°/${avg.spd}kt`;
+      dotPts.push({ x: dotX, y: dotY, color, alpha, dotR, label });
     }
 
     // Draw connecting arcs between consecutive present dots (faint)
@@ -2312,7 +2317,7 @@ function drawWindrose() {
       prevPt = pt || prevPt;  // keep last known for arc continuity
     }
 
-    // Draw dots on top of arcs
+    // Draw dots on top of arcs; save to wrHistDots for hover tooltip
     for (const pt of dotPts) {
       if (!pt) continue;
       ctx.globalAlpha = pt.alpha;
@@ -2320,6 +2325,7 @@ function drawWindrose() {
       ctx.arc(pt.x, pt.y, pt.dotR, 0, Math.PI * 2);
       ctx.fillStyle = pt.color;
       ctx.fill();
+      wrHistDots.push({ x: pt.x, y: pt.y, dotR: pt.dotR, label: pt.label, color: pt.color });
     }
 
     ctx.globalAlpha = 1;
@@ -2397,29 +2403,7 @@ function drawWindrose() {
     modesLine = `<span style="color:#10b981">M-S ${String(modesW.dir).padStart(3,'0')}° / ${modesW.spd} kt  (${modesW.count}obs${ageStr})</span>`;
   }
 
-  // ── Hist legend lines ────────────────────────────────────────────────────────
-  let histLines = '';
-  if (wrHistMode > 0) {
-    const histHours = wrHistMode === 1 ? 3 : 6;
-    const HIST_COLORS = ['#f59e0b','#f97316','#fb7185','#a78bfa','#818cf8','#94a3b8'];
-    const HIST_LABELS = ['0–1h','1–2h','2–3h','3–4h','4–5h','5–6h'];
-    const parts = [];
-    for (let i = 0; i < histHours; i++) {
-      const toMs   = nowMs - i * 3_600_000;
-      const fromMs = nowMs - (i + 1) * 3_600_000;
-      const bucket = recentLandingWinds.filter(o => o.ts >= fromMs && o.ts < toMs);
-      const avg    = vectorAvgWind(bucket);
-      const val    = avg && avg.spd >= 1
-        ? `${String(avg.dir).padStart(3,'0')}°/${avg.spd}kt`
-        : '—';
-      parts.push(`<span style="color:${HIST_COLORS[i]}">● ${HIST_LABELS[i]} ${val}</span>`);
-    }
-    // Two columns to keep compact: [0-1h  1-2h  2-3h] then [3-4h  4-5h  5-6h] if 6h mode
-    histLines = '<br>' + parts.slice(0, 3).join('  ');
-    if (parts.length > 3) histLines += '<br>' + parts.slice(3).join('  ');
-  }
-
-  readout.innerHTML = `${metarLine}<br>${modesLine}${histLines}`;
+  readout.innerHTML = `${metarLine}<br>${modesLine}`;
 }
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
@@ -3220,6 +3204,39 @@ if (_wrHistBtn) {
     wrHistMode = (wrHistMode + 1) % 3;
     _syncWrHistBtn();
     drawWindrose();
+  });
+}
+
+// ── Windrose hist dot hover tooltip ──────────────────────────────────────────
+const _wrCanvas  = document.getElementById('ws-windrose-canvas');
+const _wrHistTip = document.getElementById('ws-windrose-hist-tip');
+
+if (_wrCanvas && _wrHistTip) {
+  _wrCanvas.addEventListener('mousemove', e => {
+    if (wrHistDots.length === 0) { _wrHistTip.style.display = 'none'; return; }
+    const rect = _wrCanvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const my   = e.clientY - rect.top;
+    let hit = null;
+    for (const dot of wrHistDots) {
+      const dx = mx - dot.x, dy = my - dot.y;
+      if (Math.sqrt(dx*dx + dy*dy) <= dot.dotR + 6) { hit = dot; break; }
+    }
+    if (hit) {
+      _wrHistTip.textContent  = hit.label;
+      _wrHistTip.style.color  = hit.color;
+      _wrHistTip.style.display = 'block';
+      // Position tooltip: right of cursor, flip left if near right edge
+      const tipX = mx + 10 + rect.left + window.scrollX;
+      const tipY = my - 8  + rect.top  + window.scrollY;
+      _wrHistTip.style.left = tipX + 'px';
+      _wrHistTip.style.top  = tipY + 'px';
+    } else {
+      _wrHistTip.style.display = 'none';
+    }
+  });
+  _wrCanvas.addEventListener('mouseleave', () => {
+    _wrHistTip.style.display = 'none';
   });
 }
 

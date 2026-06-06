@@ -958,6 +958,18 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-family: 'Courier New', monospace;
   color: var(--text-2);
 }
+.ws-windrose-hist-tip {
+  position: fixed;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  pointer-events: none;
+  z-index: 9999;
+  white-space: nowrap;
+}
 
 /* ── Approach History panel ──────────────────────────────────────────────── */
 .ws-aphist-btn {
