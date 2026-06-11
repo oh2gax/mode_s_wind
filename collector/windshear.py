@@ -761,9 +761,19 @@ class WindshearTracker:
     def prune_stale(self) -> None:
         """Remove aircraft not updated within STALE_TIMEOUT_SEC.
 
-        When a corridor aircraft in APPROACHING state goes stale it is assumed
-        to have landed (ADS-B contact typically lost at 200-400 ft on final).
-        Its accumulated altitude-band wind data is committed to _approach_history.
+        When a corridor aircraft goes stale it is assumed to have landed.
+        Its accumulated altitude-band wind data is committed to _approach_history
+        under two conditions:
+
+          • ga_phase == "APPROACHING" — normal case: ADS-B contact lost on final
+            (typically 200–400 ft), approach fully confirmed by sustained descent.
+
+          • ga_phase == "NONE" with approach_runway set — GPS-jamming case: the
+            aircraft was geometrically established inside the ILS corridor (runway
+            assigned) but its altitude was frozen so vert_rate never accumulated
+            enough descent polls to confirm APPROACHING.  Still recorded so runway
+            usage and aircraft-type statistics remain accurate.
+
         Aircraft in GO_AROUND state are not committed.
         """
         cutoff = time.time() - STALE_TIMEOUT_SEC
@@ -784,10 +794,15 @@ class WindshearTracker:
                     self._ga_counts.pop(k, None)
 
                 # Harvest windrose observations when the aircraft goes stale
-                # while APPROACHING (assumed landed).  Each obs gets the current
+                # while on approach (APPROACHING confirmed, or NONE with runway
+                # assigned — GPS-jamming case).  Each obs gets the current
                 # wall-clock timestamp so the JS 30-minute rolling window works
                 # correctly in a fresh browser session.
-                if wr and entry.get("ga_phase") == "APPROACHING":
+                _should_commit = (
+                    entry.get("ga_phase") == "APPROACHING"
+                    or (entry.get("ga_phase") == "NONE" and entry.get("approach_runway"))
+                )
+                if wr and _should_commit:
                     for obs in wr:
                         self._windrose_buffer.append({
                             "ts":       now,
@@ -806,7 +821,7 @@ class WindshearTracker:
                 # (e.g. no IAS available, meteo_source always NONE) — still record
                 # the landing with all band values as None so it appears in the
                 # Approach History table with "—" in the wind columns.
-                if entry.get("ga_phase") == "APPROACHING":
+                if _should_commit:
                     t   = time.gmtime(now)
                     rwy = (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
                     rwy_hdg = next(
@@ -835,9 +850,10 @@ class WindshearTracker:
                             self._on_approach_committed(record)
                         except Exception as cb_exc:
                             log.warning("approach_committed callback failed: %s", cb_exc)
+                    commit_reason = "APPROACHING" if entry.get("ga_phase") == "APPROACHING" else "NONE+rwy(GPS-jam)"
                     log.info(
-                        "Approach history: %s (%s) RWY %s — bands captured: %s",
-                        record["callsign"], k, rwy,
+                        "Approach history: %s (%s) RWY %s phase=%s — bands captured: %s",
+                        record["callsign"], k, rwy, commit_reason,
                         [ft for ft, v in record["bands"].items() if v],
                     )
                 log.debug("Windshear: dropped stale %s (ga_phase=%s)", k, entry.get("ga_phase"))

@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-11 (Approach history — GPS-jammed aircraft now committed on stale)
+
+- **Root cause:** aircraft experiencing GPS position jamming at ~2 000 ft freeze their reported altitude; the frozen altitude means `vert_rate` reports ~0 fpm, so the go-around state machine never accumulates the 5 consecutive descent polls required to transition from `"NONE"` to `"APPROACHING"`; when the aircraft goes stale after losing ADS-B contact, `prune_stale()` only committed aircraft in `"APPROACHING"` state, so GPS-jammed aircraft were silently dropped — missing from runway usage and aircraft-type statistics
+- **Fix:** `prune_stale()` now commits an approach history record for aircraft in `"NONE"` phase **when `approach_runway` is set** (meaning the aircraft was geometrically confirmed inside an ILS corridor); the band wind data is committed as-is (all `None` for aircraft with no IAS / NONE meteo source); windrose observations are also harvested under the same condition
+- The log line now includes the commit reason (`APPROACHING` vs `NONE+rwy(GPS-jam)`) to make these entries distinguishable in the collector log
+- Only `collector/windshear.py` changed
+
+---
+
 ## 2026-06-11 (Windshear — false "2nd APP" badge on unrelated approaches)
 
 - **Root cause:** `_ga_counts` (the per-ICAO go-around counter) was intentionally designed to survive `prune_stale()` so the "2nd APP" badge would persist through the climb-out phase and still be visible when the aircraft re-entered the corridor; however it was never cleared when the aircraft successfully landed, meaning the same ICAO returning later in the same collector session (a new rotation) would immediately show the "2nd APP" badge even though no go-around had occurred
