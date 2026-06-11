@@ -2540,8 +2540,19 @@ async function fetchApproachState() {
 
     // ── Kinematic history: accumulate IAS−GS differential for corridor aircraft
     //    Requires IAS from BDS 6,0.  Only stored when aircraft is in corridor.
+    //    pos_frozen guard: when GPS jamming freezes the aircraft's position, GS
+    //    (derived from ADS-B GPS velocity) is also frozen while IAS (Mode S BDS 6,0,
+    //    independent of GPS) may keep changing — producing an artificial and growing
+    //    IAS−GS differential that keeps kinematic detection firing indefinitely even
+    //    after the aircraft has landed.  Clear any accumulated history on pos_frozen
+    //    so stale entries cannot keep triggering events, and stop accumulating until
+    //    valid GPS data resumes.
     for (const ac of corridor) {
       if (ac.ias == null || ac.groundspeed == null) continue;
+      if (ac.pos_frozen) {
+        delete wsKinHistory[ac.icao];   // purge stale entries immediately
+        continue;
+      }
       if (!wsKinHistory[ac.icao]) wsKinHistory[ac.icao] = [];
       wsKinHistory[ac.icao].push({ ias: ac.ias, gs: ac.groundspeed, ts: nowMs });
       // 30-point rolling buffer (~90 s at 3 s polling); algorithm applies 45 s filter
@@ -3088,7 +3099,7 @@ function renderApproachHistory(entries) {
 
     return `<tr>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
-  <td class="ws-aphist-cell ws-aphist-cs">${e.callsign      || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around"` : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-rwy">${e.runway       || '—'}</td>

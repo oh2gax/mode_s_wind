@@ -790,6 +790,9 @@ class WindshearTracker:
                 # "2nd APP" badge.  The count is only needed to bridge the gap
                 # between the go-around climb-out and the re-entry for the next
                 # approach; once the aircraft lands it is no longer relevant.
+                # Capture go-around count BEFORE clearing so it can be
+                # included in the approach history record.
+                ga_count_at_commit = self._ga_counts.get(k, 0)
                 if entry.get("ga_phase") == "APPROACHING":
                     self._ga_counts.pop(k, None)
 
@@ -838,6 +841,7 @@ class WindshearTracker:
                         "runway":        rwy,
                         "rwy_heading":   rwy_hdg,
                         "bands":         bw.get("bands", {}) if bw else {str(b): None for b in APPROACH_HISTORY_BANDS},
+                        "go_arounds":    ga_count_at_commit,
                     }
                     self._approach_history.insert(0, record)
                     if len(self._approach_history) > APPROACH_HISTORY_MAX:

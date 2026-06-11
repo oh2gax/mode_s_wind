@@ -154,7 +154,8 @@ CREATE TABLE IF NOT EXISTS approach_history (
     aircraft_type TEXT,
     runway        TEXT    NOT NULL,
     rwy_heading   INTEGER,
-    bands_json    TEXT    NOT NULL     -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}
+    bands_json    TEXT    NOT NULL,    -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}
+    go_arounds    INTEGER NOT NULL DEFAULT 0  -- number of go-arounds before final landing
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);

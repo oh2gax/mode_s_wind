@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-11 (Approach History — go-around callsign highlight + GPS-jammed aircraft logging)
+
+- **Go-around callsign highlight** — callsigns in the Approach History table are now shown in amber-yellow when the aircraft performed one or more go-arounds before its final landing; hovering over the callsign shows a tooltip (e.g. `2× go-around`); approaches without a go-around continue to show in the existing light-blue colour; historical rows already in the database before this update default to no highlight (go_arounds = 0)
+- **GPS-jammed aircraft now logged to Approach History** — previously, aircraft whose GPS position froze at altitude (~2 000 ft) were silently dropped from Approach History when they went stale because their frozen altitude prevented the `vert_rate`-based descent confirmation (`ga_phase` never reached `"APPROACHING"`); the commit gate in `prune_stale()` now also commits aircraft that have `ga_phase == "NONE"` but a confirmed runway assignment (`approach_runway` set), capturing all aircraft that were geometrically established inside an ILS corridor; band wind columns show `—` for aircraft with no IAS data; runway usage and aircraft-type statistics are now accurate
+- **Alert banner now clears when GPS-jammed aircraft stales out** — kinematic detection was accumulating IAS−GS history for `pos_frozen` aircraft; when GPS jams GS (GPS-derived) but IAS (Mode S BDS 6,0, GPS-independent) keeps updating, the differential grows indefinitely and the alert banner stayed active after the aircraft landed; fixed by clearing `wsKinHistory` for any corridor aircraft with `pos_frozen = true` on each poll cycle, matching the existing `pos_frozen` guard already present on the wind-barb history accumulation loop
+- **Database migration** — a `go_arounds INTEGER NOT NULL DEFAULT 0` column is added to `approach_history` automatically on first server start via `ALTER TABLE`; no manual schema change needed; existing rows default to 0
+- Files changed: `collector/windshear.py`, `database/schema.sql`, `database/db.py`, `run.py`, `web/app.py`, `static/js/windshear.js`, `static/css/style.css`
+
+---
+
 ## 2026-06-11 (Approach history — GPS-jammed aircraft now committed on stale)
 
 - **Root cause:** aircraft experiencing GPS position jamming at ~2 000 ft freeze their reported altitude; the frozen altitude means `vert_rate` reports ~0 fpm, so the go-around state machine never accumulates the 5 consecutive descent polls required to transition from `"NONE"` to `"APPROACHING"`; when the aircraft goes stale after losing ADS-B contact, `prune_stale()` only committed aircraft in `"APPROACHING"` state, so GPS-jammed aircraft were silently dropped — missing from runway usage and aircraft-type statistics
@@ -596,18 +606,4 @@ No version numbers — entries are organised by date.
 
 - Added squawk code badge on Windshear flight strips — grey pill for normal codes, red pill for emergency codes
 - Added emergency squawk alarm banner for codes 7500 (HIJACK), 7600 (NORDO), 7700 (MAYDAY) with blinking strip label
-- Added go-around detector — server-side state machine detects missed approaches and logs events to the windshear log panel
-- Added 2nd APP / Nx APP return-approach badge on flight strips for aircraft on a subsequent approach
-- Added wind barb overlay on ILS vertical profile canvas — per-aircraft selection by clicking flight strip, barb history accumulated during approach
-
-## 2026-05-15
-
-- Added track polyline on Live Map for selected aircraft — dashed line built from stored observation positions, colour-coded by meteo source
-- Fixed GS badge showing HIGH for RWY 15 approaches — glideslope status now computed client-side with full QNH correction applied, matching the ILS canvas
-- Live Map detail strip now always shows ICAO24 only for display stability
-
----
-
-## May 2026 — Initial release
-
-Project created. Core features: Beast binary TCP receiver, pyModeS EHS decoding (BDS 4,4 / 4,5 / 5,0 / 6,0), Radarcape JSON/MLAT feed integration, SQLite database, live map with ATC-style aircraft display, historical flights browser, Skew-T atmospheric sounding diagrams, gridded historical wind map, and Windshear approach monitoring page with ILS vertical profile and windshear detection algorithm.
+- Added go-around detector — server-side st

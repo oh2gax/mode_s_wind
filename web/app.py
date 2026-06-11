@@ -544,7 +544,7 @@ def create_app(
             db     = get_db()
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
-                          aircraft_type, runway, rwy_heading, bands_json
+                          aircraft_type, runway, rwy_heading, bands_json, go_arounds
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -554,6 +554,7 @@ def create_app(
             for row in rows:
                 r = dict(row)
                 r["bands"] = _json.loads(r.pop("bands_json"))
+                r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
         if date is not None:
@@ -564,7 +565,7 @@ def create_app(
             db   = get_db()
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
-                          aircraft_type, runway, rwy_heading, bands_json
+                          aircraft_type, runway, rwy_heading, bands_json, go_arounds
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -574,6 +575,7 @@ def create_app(
             for row in rows:
                 r = dict(row)
                 r["bands"] = _json.loads(r.pop("bands_json"))
+                r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
         # No window or date param — serve from RAM (backward compat / internal use)

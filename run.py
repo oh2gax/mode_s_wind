@@ -132,8 +132,8 @@ def _on_approach_committed(record: dict) -> None:
         db.execute(
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
-                aircraft_type, runway, rwy_heading, bands_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                aircraft_type, runway, rwy_heading, bands_json, go_arounds)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -145,6 +145,7 @@ def _on_approach_committed(record: dict) -> None:
                 record.get("runway", "?"),
                 record.get("rwy_heading"),
                 json.dumps(record.get("bands", {})),
+                record.get("go_arounds", 0),
             ),
         )
         db.commit()
@@ -164,7 +165,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         db   = get_db()
         rows = db.execute(
             """SELECT ts, time_utc, icao, callsign, registration,
-                      aircraft_type, runway, rwy_heading, bands_json
+                      aircraft_type, runway, rwy_heading, bands_json, go_arounds
                FROM approach_history
                WHERE ts > ?
                ORDER BY ts DESC
@@ -182,6 +183,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
                 "runway":       row["runway"],
                 "rwy_heading":  row["rwy_heading"],
                 "bands":        json.loads(row["bands_json"]),
+                "go_arounds":   row["go_arounds"] if row["go_arounds"] is not None else 0,
             }
             for row in rows
         ]

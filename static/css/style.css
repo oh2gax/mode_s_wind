@@ -1185,6 +1185,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-aphist-time  { color: var(--text-3); font-family: 'Courier New', monospace; }
 .ws-aphist-cs    { color: #7dd3fc; text-align: left; }
+.ws-aphist-cs-ga { color: #fbbf24; }   /* amber-yellow callsign — aircraft did ≥1 go-around */
 .ws-aphist-reg   { color: var(--text-2); }
 .ws-aphist-type  { color: var(--text-2); }
 .ws-aphist-rwy   { color: #fcd34d; }
