@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-11 (Statistics panel — go-around count below runway usage)
+
+- **Go-around count added to runway usage section** — a `Go-arounds: N` line is appended below the runway percentage bars in the statistics panel; the count is the sum of all go-around events within the active time window (Today / Yesterday / 1w / date picker), computed client-side from the `go_arounds` field already present in each approach record; the label is shown in normal text when the count is ≥ 1 and in muted grey when it is 0; no server or database changes required
+- Only `static/js/windshear.js` and `static/css/style.css` changed
+
+---
+
 ## 2026-06-11 (Approach History — go-around callsign highlight + GPS-jammed aircraft logging)
 
 - **Go-around callsign highlight** — callsigns in the Approach History table are now shown in amber-yellow when the aircraft performed one or more go-arounds before its final landing; hovering over the callsign shows a tooltip (e.g. `2× go-around`); approaches without a go-around continue to show in the existing light-blue colour; historical rows already in the database before this update default to no highlight (go_arounds = 0)

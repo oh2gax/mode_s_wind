@@ -2006,6 +2006,10 @@ function renderTodayStats(approaches) {
   if (rwyLblEl)  rwyLblEl.textContent  = `Runway Usage · ${lbl}  Total: ${total}`;
   if (typLblEl)  typLblEl.textContent  = `Aircraft Types · ${lbl}  Total types: ${totalTypes}`;
 
+  // Go-around count — appended below the runway bars
+  const gaTotal = approaches.reduce((sum, e) => sum + (e.go_arounds || 0), 0);
+  rwyEl.innerHTML += `<div class="ws-stats-ga-row${gaTotal === 0 ? ' ws-stats-ga-none' : ''}">Go-arounds: ${gaTotal}</div>`;
+
   // Wire hover tooltips (reuse the existing log tooltip element and helpers)
   [rwyEl, typeEl].forEach(container => {
     container.querySelectorAll('[data-tip]').forEach(row => {

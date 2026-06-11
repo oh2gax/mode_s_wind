@@ -2245,6 +2245,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-stats-bar-wrap { flex: 1; background: var(--bg-3); border-radius: 2px; height: 5px; overflow: hidden; }
 .ws-stats-bar { height: 100%; border-radius: 2px; background: var(--accent); }
 .ws-stats-pct { color: var(--text-3); min-width: 30px; text-align: right; flex-shrink: 0; }
+.ws-stats-ga-row  { margin-top: 5px; font-size: 11px; color: var(--text-2); padding: 0 2px; }
+.ws-stats-ga-none { color: var(--text-3); }   /* muted when count is zero */
 
 /* ── Maintenance page ────────────────────────────────────────────────────── */
 .maint-page { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem; gap: 1.25rem; }
