@@ -5,6 +5,17 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-11 (Weather — METAR/TAF background polling with retry and cache)
+
+- **Background WX polling thread** — METAR and TAF are now fetched by a dedicated daemon thread (`wx_poll`) that runs every 10 minutes independently of browser requests; `/api/wx` no longer makes a live NOAA HTTP call on each poll — it returns the cached result immediately, so the browser response is instant
+- **Retry on failure** — each fetch cycle retries up to 3 times with a 5-second delay between attempts before giving up on a source; individual retry attempts are logged at DEBUG level; only a full 3-attempt failure triggers a WARNING in the server log
+- **Stale-cache fallback** — when a fetch cycle fails entirely for a source, the previously cached value is preserved; brief NOAA outages or network hiccups no longer cause `[unavailable]` in the UI as long as the cache holds a previous successful result
+- **`[unavailable]` only on cold start** — the sentinel is returned for metar/taf only if the server has never had a successful fetch yet (first few seconds after startup); thereafter the cached value is always used
+- **`cache_age_s` field added** to the `/api/wx` JSON response — seconds since last successful fetch; available for future UI use (e.g. "METAR 8 min ago") but no display change made now
+- Only `web/app.py` and `run.py` changed; no JS, CSS, or template changes
+
+---
+
 ## 2026-06-11 (Statistics panel — go-around count below runway usage)
 
 - **Go-around count added to runway usage section** — a `Go-arounds: N` line is appended below the runway percentage bars in the statistics panel; the count is the sum of all go-around events within the active time window (Today / Yesterday / 1w / date picker), computed client-side from the `go_arounds` field already present in each approach record; the label is shown in normal text when the count is ≥ 1 and in muted grey when it is 0; no server or database changes required

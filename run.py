@@ -42,7 +42,7 @@ from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
 from database import maintenance as maint
-from web.app import create_app
+from web.app import create_app, start_wx_poll_thread
 
 
 def _autopurge_thread(db_path: str, interval_sec: float = 3_600.0) -> None:
@@ -313,9 +313,15 @@ def main() -> None:
     # ── Create Flask app ──────────────────────────────────────────────────
     app = create_app(cfg, live_state, live_lock, ws_tracker, gps_tracker)
 
+    # ── Start background WX (METAR / TAF) polling thread ─────────────────
+    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper())
+    log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3)",
+             cfg.AIRPORT_ICAO.upper())
+
     log.info("Web interface starting on http://0.0.0.0:%d", cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)
     log.info("Username: %s  Password: %s", cfg.WEB_USER, cfg.WEB_PASS)
+
 
     try:
         # use_reloader=False is essential — reloader forks the process and

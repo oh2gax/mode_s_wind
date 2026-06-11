@@ -32,6 +32,113 @@ log = logging.getLogger("modes.web")
 # Falls back to ISA standard (1013.25 hPa) if no METAR has been fetched yet.
 _qnh_cache: dict = {"hpa": 1013.25, "station": None, "updated": 0.0}
 
+# ── Weather cache (METAR / TAF) ───────────────────────────────────────────
+# Populated by the background wx_poll thread; served directly by /api/wx.
+# Keys are None until the first successful fetch (never "[unavailable]" here —
+# that sentinel is added at response time for JS backward-compatibility).
+_wx_cache: dict = {
+    "station":    None,
+    "metar":      None,
+    "taf":        None,
+    "fetched_at": 0.0,    # epoch of last successful fetch
+    "qnh_hpa":    None,
+    "metar_wind": None,
+}
+_wx_cache_lock = threading.Lock()
+
+_WX_POLL_INTERVAL_SEC  = 600  # fetch every 10 minutes
+_WX_FETCH_RETRIES      = 3    # attempts per source before giving up
+_WX_FETCH_RETRY_DELAY  = 5    # seconds between retries
+_WX_FETCH_TIMEOUT      = 8    # HTTP request timeout in seconds
+
+
+def _wx_fetch_once(icao: str) -> dict:
+    """Fetch METAR and TAF from NOAA with per-source retry.
+
+    Returns a dict with keys 'metar' and 'taf'.  A key is None when all
+    retries failed for that source so the caller can decide to keep the
+    previously cached value instead of overwriting it with None.
+    """
+    sources = {
+        "metar": f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{icao}.TXT",
+        "taf":   f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{icao}.TXT",
+    }
+    result: dict = {"metar": None, "taf": None}
+    for key, url in sources.items():
+        for attempt in range(1, _WX_FETCH_RETRIES + 1):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "MODE-S-Wind/1.0"})
+                with urllib.request.urlopen(req, timeout=_WX_FETCH_TIMEOUT) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace").strip()
+                lines = raw.splitlines()
+                result[key] = "\n".join(lines[1:]).strip() if len(lines) > 1 else raw
+                break  # success — stop retrying this source
+            except Exception as exc:
+                if attempt < _WX_FETCH_RETRIES:
+                    log.debug(
+                        "WX fetch attempt %d/%d failed (%s %s): %s — retrying in %ds",
+                        attempt, _WX_FETCH_RETRIES, key.upper(), icao, exc,
+                        _WX_FETCH_RETRY_DELAY,
+                    )
+                    time.sleep(_WX_FETCH_RETRY_DELAY)
+                else:
+                    log.warning(
+                        "WX fetch failed after %d attempts (%s %s): %s",
+                        _WX_FETCH_RETRIES, key.upper(), icao, exc,
+                    )
+    return result
+
+
+def _wx_poll_loop(icao: str, interval_sec: float) -> None:
+    """Background daemon: fetch METAR and TAF on a fixed interval.
+
+    On success updates _wx_cache in place (including QNH and surface wind).
+    On failure for a source the existing cached value for that source is
+    preserved, so a brief NOAA outage never shows [unavailable] to the user.
+    """
+    _log = logging.getLogger("modes.wx")
+    time.sleep(3)   # let Flask finish its startup sequence
+    while True:
+        fetched = _wx_fetch_once(icao)
+        with _wx_cache_lock:
+            any_success = False
+            for key in ("metar", "taf"):
+                if fetched[key] is not None:
+                    _wx_cache[key] = fetched[key]
+                    any_success = True
+            _wx_cache["station"] = icao
+            if any_success:
+                _wx_cache["fetched_at"] = time.time()
+                if _wx_cache.get("metar"):
+                    qnh = _parse_qnh(_wx_cache["metar"])
+                    if qnh is not None:
+                        _wx_cache["qnh_hpa"] = qnh
+                        _qnh_cache["hpa"]     = qnh
+                        _qnh_cache["station"] = icao
+                        _qnh_cache["updated"] = time.time()
+                        _log.debug("QNH updated: %.1f hPa from %s METAR", qnh, icao)
+                if _wx_cache.get("metar"):
+                    _wx_cache["metar_wind"] = _parse_metar_wind(_wx_cache["metar"])
+                _log.debug("WX cache refreshed for %s", icao)
+        time.sleep(interval_sec)
+
+
+def start_wx_poll_thread(
+    icao: str,
+    interval_sec: float = _WX_POLL_INTERVAL_SEC,
+) -> threading.Thread:
+    """Start the background WX polling daemon.  Call once from run.py."""
+    t = threading.Thread(
+        target=_wx_poll_loop,
+        args=(icao, interval_sec),
+        name="wx_poll",
+        daemon=True,
+    )
+    t.start()
+    return t
+
+
+
 
 def _parse_qnh(metar_text: str) -> float | None:
     """Extract QNH from a decoded METAR string.
@@ -647,45 +754,32 @@ def create_app(
 
     @app.route("/api/wx")
     def wx_api():
-        """Fetch METAR and TAF for the configured airport from NOAA and return
-        as JSON.  Runs server-side to avoid browser CORS restrictions."""
-        icao = cfg.AIRPORT_ICAO.upper()
-        result: dict = {"station": icao, "metar": None, "taf": None}
+        """Return cached METAR and TAF served by the background wx_poll thread.
 
-        sources = {
-            "metar": f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{icao}.TXT",
-            "taf":   f"https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{icao}.TXT",
-        }
-        for key, url in sources.items():
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "MODE-S-Wind/1.0"})
-                with urllib.request.urlopen(req, timeout=6) as resp:
-                    raw = resp.read().decode("utf-8", errors="replace").strip()
-                # NOAA files: first line is a date/time stamp — skip it
-                lines = raw.splitlines()
-                result[key] = "\n".join(lines[1:]).strip() if len(lines) > 1 else raw
-            except Exception as exc:
-                log.warning("WX fetch failed (%s %s): %s", key.upper(), icao, exc)
-                result[key] = "[unavailable]"
+        The response is instantaneous — no live NOAA fetch on each request.
+        If a source has never been fetched (server just started) the
+        "[unavailable]" sentinel is used for backward-compatibility with the
+        existing JS display logic.  Once the first fetch succeeds, transient
+        NOAA failures are invisible: the last good value stays cached.
+        """
+        with _wx_cache_lock:
+            data = dict(_wx_cache)
 
-        # Extract QNH from the METAR and update the module-level cache
-        if result.get("metar") and result["metar"] != "[unavailable]":
-            qnh = _parse_qnh(result["metar"])
-            if qnh is not None:
-                _qnh_cache["hpa"]     = qnh
-                _qnh_cache["station"] = icao
-                _qnh_cache["updated"] = time.time()
-                log.debug("QNH cache updated: %.1f hPa from %s METAR", qnh, icao)
+        # Substitute [unavailable] for any source that has never been fetched.
+        if data["metar"] is None:
+            data["metar"] = "[unavailable]"
+        if data["taf"] is None:
+            data["taf"] = "[unavailable]"
 
-        # Include QNH in the response so the windshear page can display it
-        result["qnh_hpa"] = _qnh_cache["hpa"] if _qnh_cache["updated"] > 0 else None
+        # Add cache age so callers can detect very stale data if needed.
+        age = time.time() - data["fetched_at"] if data["fetched_at"] > 0 else None
+        data["cache_age_s"] = round(age) if age is not None else None
 
-        # Parse surface wind from METAR for the Windrose widget
-        result["metar_wind"] = None
-        if result.get("metar") and result["metar"] != "[unavailable]":
-            result["metar_wind"] = _parse_metar_wind(result["metar"])
+        # QNH fallback: use _qnh_cache if wx_cache has not set one yet.
+        if data.get("qnh_hpa") is None:
+            data["qnh_hpa"] = _qnh_cache["hpa"] if _qnh_cache["updated"] > 0 else None
 
-        return jsonify(result)
+        return jsonify(data)
 
     # ── Maintenance page ──────────────────────────────────────────────────
 

@@ -1277,7 +1277,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/sounding` | Area-average sounding from recent observations |
 | GET | `/api/stats` | Summary counters for the navbar |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
-| GET | `/api/wx` | METAR and TAF for the configured airport, fetched server-side from NOAA |
+| GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
 | GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches) |
 | POST | `/api/windshear/approach-history/clear` | Delete all rows from the `approach_history` DB table and clear the RAM list (administrative use; no UI button exposes this) |
