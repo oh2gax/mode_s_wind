@@ -1223,7 +1223,8 @@ mode_s_wind/
 │       ├── sounding.html      # Skew-T sounding page
 │       ├── windmap.html       # Gridded wind map page
 │       ├── windshear.html     # Approach monitoring + windshear page
-│       └── gps_quality.html   # GPS quality monitoring page
+│       ├── gps_quality.html   # GPS quality monitoring page
+│       └── maintenance.html   # Database maintenance page
 ├── static/
 │   ├── css/style.css          # Dark/light theme stylesheet
 │   └── js/
