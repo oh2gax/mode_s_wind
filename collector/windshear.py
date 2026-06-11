@@ -775,6 +775,13 @@ class WindshearTracker:
                 bw    = self._band_winds.pop(k, None)
                 wr    = self._windrose_obs.pop(k, None)
                 self._pos_track.pop(k, None)
+                # Clear go-around count on landing so future approaches from the
+                # same aircraft (same ICAO, new flight) start without a stale
+                # "2nd APP" badge.  The count is only needed to bridge the gap
+                # between the go-around climb-out and the re-entry for the next
+                # approach; once the aircraft lands it is no longer relevant.
+                if entry.get("ga_phase") == "APPROACHING":
+                    self._ga_counts.pop(k, None)
 
                 # Harvest windrose observations when the aircraft goes stale
                 # while APPROACHING (assumed landed).  Each obs gets the current

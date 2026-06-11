@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-11 (Windshear — false "2nd APP" badge on unrelated approaches)
+
+- **Root cause:** `_ga_counts` (the per-ICAO go-around counter) was intentionally designed to survive `prune_stale()` so the "2nd APP" badge would persist through the climb-out phase and still be visible when the aircraft re-entered the corridor; however it was never cleared when the aircraft successfully landed, meaning the same ICAO returning later in the same collector session (a new rotation) would immediately show the "2nd APP" badge even though no go-around had occurred
+- **Fix:** `prune_stale()` now calls `self._ga_counts.pop(k, None)` when an aircraft is pruned with `ga_phase == "APPROACHING"` (i.e. confirmed landing); the count is preserved only for the duration of the active go-around sequence and cleared on landing; only `collector/windshear.py` changed
+
+---
+
 ## 2026-06-06 (Windrose — historical wind trend Hist button)
 
 - **New Hist button** added below the Windrose canvas — cycles Off → 3h → 6h; when active, draws a colored dot on the compass ring perimeter for each past hour bucket, at the bearing of that hour's vector-averaged wind direction; dot radius scales with wind speed (3.5–7 px); consecutive dots are joined by a faint connecting line showing the direction drift path; colors: 0–1h amber, 1–2h orange, 2–3h rose, 3–4h purple, 4–5h violet, 5–6h slate; dots are drawn on the ring perimeter and never overlap the center area where the METAR and MODE-S arrows are drawn
