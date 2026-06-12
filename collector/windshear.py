@@ -88,6 +88,7 @@ GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
 
 # ── Approach history ─────────────────────────────────────────────────────────
 APPROACH_HISTORY_MAX   = 500          # RAM cap — covers ~24 h at typical EFHK load
+COMMIT_COOLDOWN_SEC    = 300          # suppress duplicate commits for same ICAO within 5 min
 APPROACH_HISTORY_BANDS = (
     200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800,
     2000, 2200, 2400, 2600, 2800, 3000,
@@ -303,6 +304,7 @@ class WindshearTracker:
         self._windrose_obs: dict[str, list] = {}  # icao → in-flight low-alt wind obs list
         self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
         self._pos_track: dict[str, dict]   = {}   # icao → {dist, alt} for position-freeze detection
+        self._recent_commits: dict[str, float] = {}  # icao → timestamp of last approach-history commit
         self._lock  = threading.RLock()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -830,6 +832,16 @@ class WindshearTracker:
                 # (e.g. no IAS available, meteo_source always NONE) — still record
                 # the landing with all band values as None so it appears in the
                 # Approach History table with "—" in the wind columns.
+                # Cooldown gate: suppress duplicate commits for the same ICAO
+                # within COMMIT_COOLDOWN_SEC (5 min).  Prevents two history
+                # entries when an aircraft briefly loses ADS-B signal (< 30 s
+                # gap triggers prune+re-admit), producing two state cycles in
+                # quick succession.  Go-around second approaches happen 10–15+
+                # minutes later and are never suppressed by this gate.
+                _last_commit = self._recent_commits.get(k, 0.0)
+                if _should_commit and (now - _last_commit) < COMMIT_COOLDOWN_SEC:
+                    _should_commit = False
+
                 if _should_commit:
                     t   = time.gmtime(now)
                     rwy = (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
@@ -852,6 +864,15 @@ class WindshearTracker:
                     self._approach_history.insert(0, record)
                     if len(self._approach_history) > APPROACH_HISTORY_MAX:
                         self._approach_history.pop()
+                    # Record commit time for the cooldown gate and prune old
+                    # entries (keep anything within 2× cooldown to bound size).
+                    self._recent_commits[k] = now
+                    cutoff_rc = now - COMMIT_COOLDOWN_SEC * 2
+                    self._recent_commits = {
+                        ik: ts for ik, ts in self._recent_commits.items()
+                        if ts > cutoff_rc
+                    }
+
                     # Notify the DB writer callback (wired in run.py) so the
                     # record is persisted immediately without coupling this
                     # class to the database layer directly.

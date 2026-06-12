@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-12 (Approach History — duplicate commit cooldown)
+
+- **Root cause:** an aircraft that loses ADS-B contact for more than 30 s (STALE_TIMEOUT_SEC) is pruned and committed to Approach History, then re-admitted when it reappears; if the second state entry also meets the commit condition (e.g. APPROACHING, or NONE+rwy for the GPS-jammed path) a second record is written within the same minute, producing two rows with identical `HH:MM` timestamps; this was particularly visible for helicopters with erratic routes or intermittent ADS-B coverage
+- **Fix:** a `_recent_commits` dict (icao → commit timestamp) is maintained in the tracker; before writing a commit, `prune_stale()` checks whether the same ICAO committed within the last 5 minutes (`COMMIT_COOLDOWN_SEC = 300`); if so the duplicate is suppressed silently; go-around second approaches always land 10–15+ minutes after the first and are never affected by this gate; the dict is pruned to entries within 2× cooldown on each commit to keep its size bounded
+- Only `collector/windshear.py` changed
+
+---
+
 ## 2026-06-12 (Windrose — fix: all observations from same aircraft now ingested on fresh session)
 
 - **Root cause:** when an aircraft's windrose observations are flushed to `_windrose_buffer` on landing, every observation in the batch was assigned the same timestamp (`now`); the JS `fetchWindroseObs()` dedup set (`windroseServerTsSeen`) treats identical timestamps as already-seen and skips them, so only the first observation per aircraft survived ingestion — typically 1 out of 5–10 observations per approach
