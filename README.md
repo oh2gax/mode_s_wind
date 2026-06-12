@@ -1254,9 +1254,11 @@ Authentication is handled separately from the main web credentials — all opera
 **Operations:**
 
 - **Database statistics** — read-only view showing for each table: row count, number of distinct calendar days with data, oldest and newest record dates, and total SQLite file size; refreshed on demand; the days count helps choosing an appropriate purge threshold
-- **Flight & Meteo data purge** — deletes records from `observations` and `flights` older than a configurable number of days; a preview step shows exact counts before any deletion; `approach_history` is never touched by any maintenance operation
-- **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` older than a configurable threshold; the in-RAM GPS quality cache is reloaded immediately after so the GPS Quality page reflects the change without a server restart
-- **Autopurge** — optional daily scheduled purge for flight/meteo data; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality and Approach History data are never auto-purged
+- **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge
+- **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` either older than a configurable threshold or within a chosen date range; useful for removing a maintenance day with incomplete data; the in-RAM GPS quality cache is reloaded immediately after the delete so the GPS Quality page reflects the change without a server restart
+- **Approach History purge** — `approach_history` is never auto-purged; manual purge controls are provided: **Older Than N Days** (Preview + Purge, default 90 days) and **Delete by Date Range** (From / To date pickers, same single-day shortcut as other sections); both operations also clear the in-RAM approach history list so the live panel stays consistent; the Delete button is only enabled after a non-zero Preview
+- **Delete by Date Range** — Flight, GPS, and Approach History sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
+- **Autopurge** — optional daily scheduled purge for flight/meteo data only; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality and Approach History data are never auto-purged
 
 ---
 
@@ -1292,6 +1294,14 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | POST | `/api/maintenance/flight/autopurge-config` | Read current autopurge settings |
 | POST | `/api/maintenance/gps/preview` | Preview GPS quality rows that would be deleted for a given day threshold |
 | POST | `/api/maintenance/gps/purge` | Delete GPS quality hourly rows older than N days; reloads in-RAM cache after deletion |
+| POST | `/api/maintenance/flight/date-preview` | Preview flight/observation rows within a date range; params: `date_from`, `date_to` (`YYYY-MM-DD`) |
+| POST | `/api/maintenance/flight/date-purge` | Delete observations and flights within a date range |
+| POST | `/api/maintenance/gps/date-preview` | Preview GPS quality rows within a date range |
+| POST | `/api/maintenance/gps/date-purge` | Delete GPS quality hourly rows within a date range; reloads in-RAM cache after deletion |
+| POST | `/api/maintenance/approach/preview` | Preview approach_history rows older than N days; params: `days` |
+| POST | `/api/maintenance/approach/purge` | Delete approach_history rows older than N days; clears in-RAM list |
+| POST | `/api/maintenance/approach/date-preview` | Preview approach_history rows within a date range; params: `date_from`, `date_to` (`YYYY-MM-DD`) |
+| POST | `/api/maintenance/approach/date-purge` | Delete approach_history rows within a date range; clears in-RAM list |
 
 All `/api/maintenance/*` endpoints require `username` and `password` fields in the JSON request body, validated against the `MAINTENANCE_AUTH_FILE` credential file.
 

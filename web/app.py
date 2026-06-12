@@ -868,4 +868,105 @@ def create_app(
             gps_tracker.reload_from_db()
         return jsonify(result)
 
+    # ── Date-range purge routes ───────────────────────────────────────────
+
+    @app.route("/api/maintenance/flight/date-preview", methods=["POST"])
+    def maintenance_flight_date_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.preview_flight_date_purge(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/maintenance/flight/date-purge", methods=["POST"])
+    def maintenance_flight_date_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.purge_flight_date_range(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/maintenance/gps/date-preview", methods=["POST"])
+    def maintenance_gps_date_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.preview_gps_date_purge(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/maintenance/gps/date-purge", methods=["POST"])
+    def maintenance_gps_date_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            result = maint.purge_gps_date_range(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            )
+            if gps_tracker is not None:
+                gps_tracker.reload_from_db()
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    # ── Approach history purge routes ─────────────────────────────────────
+
+    @app.route("/api/maintenance/approach/preview", methods=["POST"])
+    def maintenance_approach_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 90))
+        return jsonify(maint.preview_approach_purge(get_db(), days))
+
+    @app.route("/api/maintenance/approach/purge", methods=["POST"])
+    def maintenance_approach_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days   = int(data.get("days", 90))
+        result = maint.purge_approach_data(get_db(), days)
+        if ws_tracker is not None:
+            ws_tracker.clear_approach_history()
+        return jsonify(result)
+
+    @app.route("/api/maintenance/approach/date-preview", methods=["POST"])
+    def maintenance_approach_date_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.preview_approach_date_purge(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/maintenance/approach/date-purge", methods=["POST"])
+    def maintenance_approach_date_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            result = maint.purge_approach_date_range(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            )
+            if ws_tracker is not None:
+                ws_tracker.clear_approach_history()
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     return app

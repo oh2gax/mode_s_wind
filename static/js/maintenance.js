@@ -204,3 +204,177 @@ document.getElementById('maint-refresh-btn').addEventListener('click', loadStats
     if (e.key === 'Enter') document.getElementById('maint-unlock-btn').click();
   });
 });
+
+// ── Approach history purge (older than N days) ───────────────────────────────
+
+let _approachPreviewOk = false;
+
+document.getElementById('approach-preview-btn').addEventListener('click', async () => {
+  _approachPreviewOk = false;
+  document.getElementById('approach-purge-btn').disabled = true;
+  document.getElementById('approach-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('approach-purge-result').textContent = '';
+  const days = parseInt(document.getElementById('approach-days').value, 10) || 90;
+  try {
+    const d = await _api('/api/maintenance/approach/preview', { days });
+    const msg = `Will delete: ${_fmt(d.approaches)} approach records`
+      + (d.range_oldest ? ` · from ${d.range_oldest} to ${d.range_newest}` : ' (none)')
+      + ` · cutoff: ${d.cutoff_date}`;
+    document.getElementById('approach-preview-result').textContent = msg;
+    if (d.approaches > 0) {
+      _approachPreviewOk = true;
+      document.getElementById('approach-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('approach-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('approach-purge-btn').addEventListener('click', async () => {
+  if (!_approachPreviewOk) return;
+  if (!confirm('Permanently delete the previewed approach history records?')) return;
+  document.getElementById('approach-purge-btn').disabled = true;
+  _approachPreviewOk = false;
+  const days = parseInt(document.getElementById('approach-days').value, 10) || 90;
+  try {
+    const d = await _api('/api/maintenance/approach/purge', { days });
+    _setStatus('approach-purge-result', `Deleted: ${_fmt(d.approaches_deleted)} approach records`);
+    document.getElementById('approach-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('approach-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── Approach history date-range purge ─────────────────────────────────────────
+
+let _approachDatePreviewOk = false;
+
+document.getElementById('approach-date-preview-btn').addEventListener('click', async () => {
+  _approachDatePreviewOk = false;
+  document.getElementById('approach-date-purge-btn').disabled = true;
+  document.getElementById('approach-date-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('approach-date-purge-result').textContent = '';
+  const date_from = document.getElementById('approach-date-from').value;
+  const date_to   = document.getElementById('approach-date-to').value;
+  try {
+    const d = await _api('/api/maintenance/approach/date-preview', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    const msg = `Will delete: ${_fmt(d.approaches)} approach records · ${d.date_from} to ${d.date_to}`;
+    document.getElementById('approach-date-preview-result').textContent = msg;
+    if (d.approaches > 0) {
+      _approachDatePreviewOk = true;
+      document.getElementById('approach-date-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('approach-date-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('approach-date-purge-btn').addEventListener('click', async () => {
+  if (!_approachDatePreviewOk) return;
+  const date_from = document.getElementById('approach-date-from').value;
+  const date_to   = document.getElementById('approach-date-to').value;
+  if (!confirm(`Permanently delete approach history records from ${date_from} to ${date_to}?`)) return;
+  document.getElementById('approach-date-purge-btn').disabled = true;
+  _approachDatePreviewOk = false;
+  try {
+    const d = await _api('/api/maintenance/approach/date-purge', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    _setStatus('approach-date-purge-result', `Deleted: ${_fmt(d.approaches_deleted)} approach records`);
+    document.getElementById('approach-date-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('approach-date-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── Flight date-range purge ───────────────────────────────────────────────────
+
+let _flightDatePreviewOk = false;
+
+document.getElementById('flight-date-preview-btn').addEventListener('click', async () => {
+  _flightDatePreviewOk = false;
+  document.getElementById('flight-date-purge-btn').disabled = true;
+  document.getElementById('flight-date-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('flight-date-purge-result').textContent = '';
+  const date_from = document.getElementById('flight-date-from').value;
+  const date_to   = document.getElementById('flight-date-to').value;
+  try {
+    const d = await _api('/api/maintenance/flight/date-preview', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    const msg = `Will delete: ${_fmt(d.observations)} observations, ${_fmt(d.flights)} flights`
+      + ` · ${d.date_from} to ${d.date_to}`;
+    document.getElementById('flight-date-preview-result').textContent = msg;
+    if (d.observations > 0 || d.flights > 0) {
+      _flightDatePreviewOk = true;
+      document.getElementById('flight-date-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('flight-date-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('flight-date-purge-btn').addEventListener('click', async () => {
+  if (!_flightDatePreviewOk) return;
+  const date_from = document.getElementById('flight-date-from').value;
+  const date_to   = document.getElementById('flight-date-to').value;
+  if (!confirm(`Permanently delete flight & observation records from ${date_from} to ${date_to}?`)) return;
+  document.getElementById('flight-date-purge-btn').disabled = true;
+  _flightDatePreviewOk = false;
+  try {
+    const d = await _api('/api/maintenance/flight/date-purge', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    _setStatus('flight-date-purge-result',
+      `Deleted: ${_fmt(d.observations_deleted)} observations, ${_fmt(d.flights_deleted)} flights`);
+    document.getElementById('flight-date-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('flight-date-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── GPS date-range purge ──────────────────────────────────────────────────────
+
+let _gpsDatePreviewOk = false;
+
+document.getElementById('gps-date-preview-btn').addEventListener('click', async () => {
+  _gpsDatePreviewOk = false;
+  document.getElementById('gps-date-purge-btn').disabled = true;
+  document.getElementById('gps-date-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('gps-date-purge-result').textContent = '';
+  const date_from = document.getElementById('gps-date-from').value;
+  const date_to   = document.getElementById('gps-date-to').value;
+  try {
+    const d = await _api('/api/maintenance/gps/date-preview', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    const msg = `Will delete: ${_fmt(d.gps_quality_hours)} hourly rows, `
+      + `${_fmt(d.gps_quality_zone_hours)} zone rows · ${d.date_from} to ${d.date_to}`;
+    document.getElementById('gps-date-preview-result').textContent = msg;
+    if (d.gps_quality_hours > 0 || d.gps_quality_zone_hours > 0) {
+      _gpsDatePreviewOk = true;
+      document.getElementById('gps-date-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('gps-date-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('gps-date-purge-btn').addEventListener('click', async () => {
+  if (!_gpsDatePreviewOk) return;
+  const date_from = document.getElementById('gps-date-from').value;
+  const date_to   = document.getElementById('gps-date-to').value;
+  if (!confirm(`Permanently delete GPS quality records from ${date_from} to ${date_to}?`)) return;
+  document.getElementById('gps-date-purge-btn').disabled = true;
+  _gpsDatePreviewOk = false;
+  try {
+    const d = await _api('/api/maintenance/gps/date-purge', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    _setStatus('gps-date-purge-result',
+      `Deleted: ${_fmt(d.gps_quality_hours_deleted)} hourly rows, ${_fmt(d.gps_quality_zone_hours_deleted)} zone rows`);
+    document.getElementById('gps-date-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('gps-date-purge-result', `Error: ${e.message}`, true);
+  }
+});

@@ -5,6 +5,30 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-12 (Maintenance — Approach History manual purge controls)
+
+- **Approach History section** added to the Maintenance page with full manual delete controls; Approach History is never touched by Autopurge, so this is the only way to remove old entries
+- **Manual Purge — Older Than N Days** panel: enter a day threshold, Preview shows the row count and date range to be deleted, Purge executes after confirmation; default threshold is 90 days
+- **Delete by Date Range** panel: From / To date pickers with Preview + Delete flow, same single-day-by-same-date shortcut as the other sections
+- Both operations call `ws_tracker.clear_approach_history()` so the in-RAM approach history list is also cleared, preventing already-deleted entries from re-appearing via the live WebSocket feed
+- **Server-side**: 4 new API routes (`/api/maintenance/approach/preview`, `/api/maintenance/approach/purge`, `/api/maintenance/approach/date-preview`, `/api/maintenance/approach/date-purge`) backed by 4 new functions in `database/maintenance.py` (`preview_approach_purge`, `purge_approach_data`, `preview_approach_date_purge`, `purge_approach_date_range`); approach date-range uses the existing `date_utc TEXT` column directly with `BETWEEN`
+- Page subtitle updated: "Autopurge covers Flight & Meteo data only — Approach History requires manual action."
+- Files changed: `database/maintenance.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`
+
+---
+
+## 2026-06-12 (Maintenance — delete by single day or date range)
+
+- **Delete by Date Range** panel added to both the **Flight & Meteo Data** and **GPS Quality Data** sections of the Maintenance page; each panel has From / To date pickers (`YYYY-MM-DD`), a **Preview** button that shows the row counts to be deleted, and a **Delete** button that requires a Preview first and asks for confirmation before executing
+- **Single-day delete** works by entering the same date in both From and To fields — a hint below the inputs explains this
+- **Preview** shows exact counts before any deletion: observations + flights (flight section) or hourly rows + zone rows (GPS section), plus the selected date range; the Delete button is only enabled after a non-zero preview
+- **Server-side validation** rejects malformed dates (must match `YYYY-MM-DD`) and ranges where `date_from > date_to`, returning HTTP 400 with an error message surfaced in the UI
+- **GPS delete reloads in-RAM cache** so the GPS Quality page reflects the deletion immediately, matching the behaviour of the existing older-than-N-days purge
+- Existing older-than-N-days purge panels and Autopurge are unchanged; panel titles updated from "Manual Purge" to "Manual Purge — Older Than N Days" to distinguish them from the new panels
+- Files changed: `database/maintenance.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`, `static/css/style.css`
+
+---
+
 ## 2026-06-12 (Approach History — duplicate commit cooldown)
 
 - **Root cause:** an aircraft that loses ADS-B contact for more than 30 s (STALE_TIMEOUT_SEC) is pruned and committed to Approach History, then re-admitted when it reappears; if the second state entry also meets the commit condition (e.g. APPROACHING, or NONE+rwy for the GPS-jammed path) a second record is written within the same minute, producing two rows with identical `HH:MM` timestamps; this was particularly visible for helicopters with erratic routes or intermittent ADS-B coverage

@@ -7,7 +7,7 @@
   <!-- ── Header ────────────────────────────────────────────────────────── -->
   <div class="maint-header">
     <span class="maint-title">Database Maintenance</span>
-    <span class="maint-subtitle">Approach History is never modified by any operation on this page.</span>
+    <span class="maint-subtitle">Autopurge covers Flight &amp; Meteo data only — Approach History requires manual action.</span>
   </div>
 
   <!-- ── Credentials ───────────────────────────────────────────────────── -->
@@ -68,7 +68,7 @@
 
       <!-- Manual purge -->
       <div class="maint-panel">
-        <div class="maint-panel-title">Manual Purge</div>
+        <div class="maint-panel-title">Manual Purge — Older Than N Days</div>
         <div class="maint-row">
           <label class="maint-label">Delete records older than</label>
           <input type="number" id="flight-days" class="maint-input maint-input-num" min="1" max="3650" value="30">
@@ -79,6 +79,22 @@
         <div id="flight-preview-result" class="maint-preview"></div>
         <div id="flight-purge-result"   class="maint-op-status"></div>
       </div>
+
+      <!-- Date range purge -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Delete by Date Range</div>
+        <div class="maint-row">
+          <label class="maint-label">From</label>
+          <input type="date" id="flight-date-from" class="maint-input maint-input-date">
+          <label class="maint-label">To</label>
+          <input type="date" id="flight-date-to"   class="maint-input maint-input-date">
+          <button id="flight-date-preview-btn" class="maint-btn">Preview</button>
+          <button id="flight-date-purge-btn"   class="maint-btn maint-btn-danger" disabled>Delete</button>
+        </div>
+        <div class="maint-hint">Use the same date in both fields to delete a single day.</div>
+        <div id="flight-date-preview-result" class="maint-preview"></div>
+        <div id="flight-date-purge-result"   class="maint-op-status"></div>
+      </div>
     </div>
 
     <!-- ── GPS Quality data ─────────────────────────────────────────────── -->
@@ -88,7 +104,7 @@
         <span class="maint-section-note">Deletes from <code>gps_quality_hours</code> and <code>gps_quality_zone_hours</code></span>
       </div>
       <div class="maint-panel">
-        <div class="maint-panel-title">Manual Purge</div>
+        <div class="maint-panel-title">Manual Purge — Older Than N Days</div>
         <div class="maint-row">
           <label class="maint-label">Delete records older than</label>
           <input type="number" id="gps-days" class="maint-input maint-input-num" min="1" max="3650" value="90">
@@ -98,6 +114,60 @@
         </div>
         <div id="gps-preview-result" class="maint-preview"></div>
         <div id="gps-purge-result"   class="maint-op-status"></div>
+      </div>
+
+      <!-- Date range purge -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Delete by Date Range</div>
+        <div class="maint-row">
+          <label class="maint-label">From</label>
+          <input type="date" id="gps-date-from" class="maint-input maint-input-date">
+          <label class="maint-label">To</label>
+          <input type="date" id="gps-date-to"   class="maint-input maint-input-date">
+          <button id="gps-date-preview-btn" class="maint-btn">Preview</button>
+          <button id="gps-date-purge-btn"   class="maint-btn maint-btn-danger" disabled>Delete</button>
+        </div>
+        <div class="maint-hint">Use the same date in both fields to delete a single day.</div>
+        <div id="gps-date-preview-result" class="maint-preview"></div>
+        <div id="gps-date-purge-result"   class="maint-op-status"></div>
+      </div>
+    </div>
+
+    <!-- ── Approach History ───────────────────────────────────────────── -->
+    <div class="maint-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Approach History</span>
+        <span class="maint-section-note">Deletes from <code>approach_history</code> — not covered by Autopurge</span>
+      </div>
+
+      <!-- Older than N days -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Manual Purge — Older Than N Days</div>
+        <div class="maint-row">
+          <label class="maint-label">Delete records older than</label>
+          <input type="number" id="approach-days" class="maint-input maint-input-num" min="1" max="3650" value="90">
+          <span class="maint-label">days</span>
+          <button id="approach-preview-btn" class="maint-btn">Preview</button>
+          <button id="approach-purge-btn"   class="maint-btn maint-btn-danger" disabled>Purge</button>
+        </div>
+        <div id="approach-preview-result" class="maint-preview"></div>
+        <div id="approach-purge-result"   class="maint-op-status"></div>
+      </div>
+
+      <!-- Date range purge -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Delete by Date Range</div>
+        <div class="maint-row">
+          <label class="maint-label">From</label>
+          <input type="date" id="approach-date-from" class="maint-input maint-input-date">
+          <label class="maint-label">To</label>
+          <input type="date" id="approach-date-to"   class="maint-input maint-input-date">
+          <button id="approach-date-preview-btn" class="maint-btn">Preview</button>
+          <button id="approach-date-purge-btn"   class="maint-btn maint-btn-danger" disabled>Delete</button>
+        </div>
+        <div class="maint-hint">Use the same date in both fields to delete a single day.</div>
+        <div id="approach-date-preview-result" class="maint-preview"></div>
+        <div id="approach-date-purge-result"   class="maint-op-status"></div>
       </div>
     </div>
 

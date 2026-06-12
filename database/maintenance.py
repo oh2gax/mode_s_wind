@@ -13,7 +13,8 @@ Provides:
   - set_autopurge_config()      — writes autopurge settings
   - run_autopurge_if_needed()   — called by background thread; runs purge when due
 
-Approach history is NEVER modified by any function in this module.
+Approach history can be purged manually via purge_approach_data() and
+purge_approach_date_range(); it is NEVER touched by the autopurge scheduler.
 """
 
 import logging
@@ -179,6 +180,168 @@ def purge_gps_data(conn, days: int) -> dict:
     log.info("Maintenance: deleted %d gps_quality_hours, %d gps_quality_zone_hours rows",
              h_del, z_del)
     return {"gps_quality_hours_deleted": h_del, "gps_quality_zone_hours_deleted": z_del}
+
+
+# ── Date-range purge (flight / GPS) ──────────────────────────────────────
+
+def _validate_date_range(date_from: str, date_to: str) -> None:
+    """Raise ValueError if dates are invalid or out of order."""
+    import re
+    pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    if not pat.match(date_from) or not pat.match(date_to):
+        raise ValueError("Dates must be YYYY-MM-DD")
+    if date_from > date_to:
+        raise ValueError("date_from must be ≤ date_to")
+
+
+def preview_flight_date_purge(conn, date_from: str, date_to: str) -> dict:
+    """Return counts of observations and flights that fall within the date range."""
+    _validate_date_range(date_from, date_to)
+    obs_count = conn.execute(
+        "SELECT COUNT(*) FROM observations "
+        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchone()[0]
+    flt_count = conn.execute(
+        "SELECT COUNT(*) FROM flights "
+        "WHERE date(last_seen, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchone()[0]
+    return {
+        "observations": obs_count,
+        "flights":      flt_count,
+        "date_from":    date_from,
+        "date_to":      date_to,
+    }
+
+
+def purge_flight_date_range(conn, date_from: str, date_to: str) -> dict:
+    """Delete observations and flights whose date falls within the given range."""
+    _validate_date_range(date_from, date_to)
+    log.info("Maintenance: purging flight data for date range %s – %s", date_from, date_to)
+    obs_del = conn.execute(
+        "DELETE FROM observations WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).rowcount
+    flt_del = conn.execute(
+        "DELETE FROM flights WHERE date(last_seen, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).rowcount
+    conn.commit()
+    log.info("Maintenance: deleted %d observations, %d flights (%s – %s)",
+             obs_del, flt_del, date_from, date_to)
+    return {"observations_deleted": obs_del, "flights_deleted": flt_del}
+
+
+def preview_gps_date_purge(conn, date_from: str, date_to: str) -> dict:
+    """Return counts of GPS quality rows that fall within the date range."""
+    _validate_date_range(date_from, date_to)
+    hours_count = conn.execute(
+        "SELECT COUNT(*) FROM gps_quality_hours "
+        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchone()[0]
+    zone_count = conn.execute(
+        "SELECT COUNT(*) FROM gps_quality_zone_hours "
+        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchone()[0]
+    return {
+        "gps_quality_hours":      hours_count,
+        "gps_quality_zone_hours": zone_count,
+        "date_from":              date_from,
+        "date_to":                date_to,
+    }
+
+
+def purge_gps_date_range(conn, date_from: str, date_to: str) -> dict:
+    """Delete GPS quality hourly buckets whose date falls within the given range."""
+    _validate_date_range(date_from, date_to)
+    log.info("Maintenance: purging GPS quality data for date range %s – %s", date_from, date_to)
+    h_del = conn.execute(
+        "DELETE FROM gps_quality_hours "
+        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).rowcount
+    z_del = conn.execute(
+        "DELETE FROM gps_quality_zone_hours "
+        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).rowcount
+    conn.commit()
+    log.info("Maintenance: deleted %d gps_quality_hours, %d gps_quality_zone_hours rows (%s – %s)",
+             h_del, z_del, date_from, date_to)
+    return {"gps_quality_hours_deleted": h_del, "gps_quality_zone_hours_deleted": z_del}
+
+
+
+# ── Approach history purge ────────────────────────────────────────────────────
+
+def preview_approach_purge(conn, days: int) -> dict:
+    """Return count of approach_history rows older than N days."""
+    cutoff = time.time() - days * 86_400
+    count = conn.execute(
+        "SELECT COUNT(*) FROM approach_history WHERE ts < ?", (cutoff,)
+    ).fetchone()[0]
+    oldest = conn.execute(
+        "SELECT MIN(ts) FROM approach_history WHERE ts < ?", (cutoff,)
+    ).fetchone()[0]
+    newest = conn.execute(
+        "SELECT MAX(ts) FROM approach_history WHERE ts < ?", (cutoff,)
+    ).fetchone()[0]
+
+    def _fmt(ts):
+        if ts is None:
+            return None
+        return datetime.datetime.utcfromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M UTC")
+
+    return {
+        "approaches":   count,
+        "range_oldest": _fmt(oldest),
+        "range_newest": _fmt(newest),
+        "cutoff_date":  datetime.datetime.utcfromtimestamp(cutoff).strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+
+def purge_approach_data(conn, days: int) -> dict:
+    """Delete approach_history rows older than N days."""
+    cutoff = time.time() - days * 86_400
+    log.info("Maintenance: purging approach_history older than %d days (cutoff %s)",
+             days, datetime.datetime.utcfromtimestamp(cutoff).isoformat())
+    deleted = conn.execute(
+        "DELETE FROM approach_history WHERE ts < ?", (cutoff,)
+    ).rowcount
+    conn.commit()
+    log.info("Maintenance: deleted %d approach_history rows", deleted)
+    return {"approaches_deleted": deleted}
+
+
+def preview_approach_date_purge(conn, date_from: str, date_to: str) -> dict:
+    """Return count of approach_history rows within the date range."""
+    _validate_date_range(date_from, date_to)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM approach_history WHERE date_utc BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).fetchone()[0]
+    return {
+        "approaches": count,
+        "date_from":  date_from,
+        "date_to":    date_to,
+    }
+
+
+def purge_approach_date_range(conn, date_from: str, date_to: str) -> dict:
+    """Delete approach_history rows whose date_utc falls within the given range."""
+    _validate_date_range(date_from, date_to)
+    log.info("Maintenance: purging approach_history for date range %s – %s", date_from, date_to)
+    deleted = conn.execute(
+        "DELETE FROM approach_history WHERE date_utc BETWEEN ? AND ?",
+        (date_from, date_to),
+    ).rowcount
+    conn.commit()
+    log.info("Maintenance: deleted %d approach_history rows (%s – %s)",
+             deleted, date_from, date_to)
+    return {"approaches_deleted": deleted}
 
 
 # ── Autopurge configuration ───────────────────────────────────────────────────
