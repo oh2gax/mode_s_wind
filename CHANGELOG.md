@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-12 (Windrose — fix: all observations from same aircraft now ingested on fresh session)
+
+- **Root cause:** when an aircraft's windrose observations are flushed to `_windrose_buffer` on landing, every observation in the batch was assigned the same timestamp (`now`); the JS `fetchWindroseObs()` dedup set (`windroseServerTsSeen`) treats identical timestamps as already-seen and skips them, so only the first observation per aircraft survived ingestion — typically 1 out of 5–10 observations per approach
+- **Effect:** a fresh browser session with three recent completed approaches would show only ~3 windrose observations instead of ~15–30; the green MODE-S averaged arrow was based on very sparse data and the Hist trend dots were under-populated
+- **Fix:** observations are now assigned timestamps 1 second apart (`now − (n−1−i)` for index `i`), oldest first, ending at `now`; all remain within a few tens of seconds of the landing time — well inside the 30-minute and 6-hour windows — so no filtering or bucketing logic is affected; the JS dedup now sees unique timestamps and ingests every observation correctly
+- No effect on approach history, band wind capture, or any database writes — only `_windrose_buffer` timestamps changed
+- Only `collector/windshear.py` changed
+
+---
+
 ## 2026-06-11 (Weather — METAR/TAF background polling with retry and cache)
 
 - **Background WX polling thread** — METAR and TAF are now fetched by a dedicated daemon thread (`wx_poll`) that runs every 10 minutes independently of browser requests; `/api/wx` no longer makes a live NOAA HTTP call on each poll — it returns the cached result immediately, so the browser response is instant

@@ -806,12 +806,18 @@ class WindshearTracker:
                     or (entry.get("ga_phase") == "NONE" and entry.get("approach_runway"))
                 )
                 if wr and _should_commit:
-                    for obs in wr:
+                    # Assign unique timestamps (1-second apart, oldest first,
+                    # ending at 'now') so the JS dedup in fetchWindroseObs()
+                    # does not collapse all observations from the same aircraft
+                    # into one entry.  All timestamps remain within a few tens
+                    # of seconds of 'now', well inside the 30-minute window.
+                    n_wr = len(wr)
+                    for i, obs in enumerate(wr):
                         self._windrose_buffer.append({
-                            "ts":       now,
-                            "dir":      obs["wind_dir"],
-                            "spd":      obs["wind_spd"],
-                            "alt":      obs["alt_ft"],
+                            "ts":  now - (n_wr - 1 - i),
+                            "dir": obs["wind_dir"],
+                            "spd": obs["wind_spd"],
+                            "alt": obs["alt_ft"],
                         })
 
                 # Purge windrose entries older than 30 minutes
