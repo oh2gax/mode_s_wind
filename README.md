@@ -936,6 +936,19 @@ A microburst headwind-loss encounter produces a rapid decrease in the differenti
 
 **Limitation:** requires BDS 6,0 Indicated Airspeed to be broadcast by the aircraft, which most modern jets do but is not mandatory. The IAS ≈ TAS approximation breaks down above ~6 000 ft (density altitude effect), but the algorithm is gated to GS-status-ON aircraft which are already on the glideslope well below that altitude.
 
+**Why Kinematic is the recommended algorithm for MODE-S EHS monitoring:**
+
+The other five algorithms all ultimately depend on computing a wind vector from BDS 5,0 (track, groundspeed, TAS) and BDS 6,0 (magnetic heading), then projecting it onto the runway axis as a headwind component. That chain has several vulnerable links specific to Mode-S data:
+
+- **Magnetic heading errors** — BDS 6,0 magnetic heading is encoded at 1.40625° resolution and some transponders carry small per-aircraft biases from the compass installation. Small heading errors produce proportionally large wind direction errors at approach speeds.
+- **Magnetic declination** — converting magnetic heading to true heading requires an accurate local declination constant. Even with the corrected value (10.5° at EFHK), any residual error shifts every computed wind vector by the same amount, creating a systematic bias that affects pairwise, gradient, rate, and baseline equally.
+- **BDS 6,0 availability and quality** — IAS and magnetic heading are in the same BDS 6,0 register; a transponder broadcasting a bad magnetic heading also corrupts the wind vector even when IAS itself is clean.
+- **Multi-aircraft requirements** — Pairwise requires two aircraft simultaneously on the same corridor at different altitudes, which is not always available. The other single-aircraft algorithms need a long wind barb history to accumulate enough altitude range or time span to build a meaningful comparison.
+
+Kinematic sidesteps all of this. The `IAS − GS` differential is computed from two independent data sources: BDS 6,0 IAS (airspeed sensor) and ADS-B groundspeed (GPS/GNSS). Neither requires a heading, a declination constant, or any wind vector calculation. A change in the differential is a direct aerodynamic measurement — the aircraft itself is the sensor. No amount of magnetic heading noise, declination drift, or runway geometry uncertainty can corrupt it. At EFHK, where the GPS jamming environment from the east adds an additional source of position and velocity noise for other algorithms, this independence is particularly valuable.
+
+The practical consequence is that Kinematic produces the fewest false events from data-quality artifacts, while remaining sensitive to real shear. The 3-sample median filter (added to smooth single-poll IAS transients) and the corrected JAWS-reference F-factor gate give further control over the signal-to-noise trade-off.
+
 #### What is F-factor?
 
 Kinematic log entries display an F-factor value alongside the kt delta (for example `18 kt · F=0.12`). F-factor is a dimensionless number that answers the question: *how fast is the headwind changing relative to gravity?*
