@@ -920,10 +920,14 @@ At low altitude, air density is close to sea-level ISA conditions, so IAS ≈ TA
 
 ```
 differential(t) = IAS(t) − GS(t)
-delta = |differential_now − differential_45s_ago|
+diffOld = median(differential, oldest 3 samples in 45 s window)
+diffNew = median(differential, newest 3 samples in 45 s window)
+delta   = |diffNew − diffOld|
 ```
 
-If `delta ≥ 15 kt` the event is flagged as moderate; `≥ 25 kt` is severe.
+The median of 3 samples (rather than a single raw point) is used at each end to suppress single-poll IAS transients or noisy BDS 6,0 decodes before differencing. At the 3-second poll rate, three samples represent approximately 9 seconds of data.
+
+If `delta ≥ 10 kt` the event is recorded at **Monitor** level (sub-threshold, informational). `≥ 15 kt` is **Warning**; `≥ 25 kt` is **Alarm**.
 
 **Physical basis:** the approach phase is the only flight phase where a sudden change in `IAS − GS` can reliably be attributed to a wind shear and not to a deliberate speed change, because:
 - the aircraft is flying a stabilised approach at a fixed target IAS;
@@ -970,7 +974,7 @@ Gravity (9.81 m/s²) is used as the normaliser because aircraft performance is u
 
 These thresholds come from the Joint Airport Weather Studies (JAWS) programme which established F-factor as the standard hazard metric used in airborne windshear warning systems (GPWS/EGPWS).
 
-**Why F-factor adds information beyond the kt value:** two events could both show `18 kt Warning` but have very different F-factors depending on how quickly the 18 kt was lost. An aircraft that lost 18 kt of headwind over 40 seconds (`F ≈ 0.06`) is a very different situation from one that lost it over 8 seconds (`F ≈ 0.30`). The kt value tells you the magnitude; the F-factor tells you the rate, which is what determines whether the crew had time to respond.
+**Why F-factor adds information beyond the kt value:** two events could both show `18 kt Warning` but have very different F-factors depending on how quickly the 18 kt was lost. An aircraft that lost 18 kt of headwind over 40 seconds (`F ≈ 0.024`) is a very different situation from one that lost it over 8 seconds (`F ≈ 0.12`). The kt value tells you the magnitude; the F-factor tells you the rate, which is what determines whether the crew had time to respond.
 
 F-factor is displayed as supplementary information in the log. Severity classification is still driven by the kt thresholds, but the **Kinematic F-factor gate** dropdown (`F: Off / F ≥0.05 / F ≥0.08 / F ≥0.10 / F ≥0.15`) in the log header lets you suppress Kinematic events whose F-factor is below a chosen minimum. This is useful for research — setting the gate to `F ≥0.05` silently discards the slow background drift events (typically F=0.02–0.03) that represent normal approach variation according to the JAWS thresholds, while preserving genuine rapid shear events. The gate is automatically greyed out when any other algorithm is selected, since F-factor is only computed for Kinematic. The preference is saved across sessions. Default is Off (no filtering).
 
