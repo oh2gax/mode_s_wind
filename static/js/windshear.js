@@ -1826,7 +1826,7 @@ function addToWsLog(events) {
       ...ev,
       _key:  key,
       _ts:   now,
-      _time: new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      _time: (() => { const d = new Date(now); return String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0') + ':' + String(d.getUTCSeconds()).padStart(2,'0'); })(),
     });
   }
 
@@ -2083,8 +2083,7 @@ function addGaToWsLog(events) {
       _type:    'go_around',
       _key:     key,
       _ts:      ev.ts * 1000,
-      _time:    new Date(ev.ts * 1000).toLocaleTimeString('en-GB',
-                  { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      _time:    (() => { const d = new Date(ev.ts * 1000); return String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0') + ':' + String(d.getUTCSeconds()).padStart(2,'0'); })(),
       _ordinal: ordinal,
     });
   }
