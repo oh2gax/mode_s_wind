@@ -1283,6 +1283,15 @@ Authentication is handled separately from the main web credentials — all opera
 - **Delete by Date Range** — Flight, GPS, and Approach History sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
 - **Autopurge** — optional daily scheduled purge for flight/meteo data only; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality and Approach History data are never auto-purged
 
+**Reclaiming disk space after a purge (VACUUM):** SQLite does not shrink the database file automatically after deleting rows — freed pages are kept in an internal free list and reused by future writes, so the file stays the same size on disk. New data written after a purge will fill those free pages first, meaning the file will not grow again until all reclaimed space is consumed. To actually compact the file and release disk space to the OS, run `VACUUM` manually after stopping the server:
+
+```bash
+# Stop the server first, then:
+sqlite3 /path/to/modes_wind.db "VACUUM;"
+```
+
+`VACUUM` rewrites the entire database into a fresh compact file. It requires roughly the same amount of free disk space as the current file size temporarily, and completes in a few seconds on a typical database. The WAL journal mode used by this project is fully compatible with `VACUUM`. Always stop the server before running it to avoid write conflicts.
+
 ---
 
 ## API Endpoints
