@@ -503,7 +503,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.fillStyle  = color;
       ilsCtx.font       = '10px "Courier New", monospace';
       ilsCtx.textAlign  = 'right';
-      const label = `WS ${ev.delta_kt} kt`;
+      const trendArrow = ev.hw_trend === 'loss' ? '▼' : ev.hw_trend === 'gain' ? '▲' : '';
+      const label = `WS ${ev.delta_kt}kt${trendArrow}`;
       ilsCtx.fillText(label, M.left + PW - 4, yTop + zoneH / 2 + 4);
     }
   }
@@ -996,6 +997,18 @@ function hwKt(windSpd, windDir, rwyHdg) {
   return windSpd * Math.cos((windDir - rwyHdg) * Math.PI / 180);
 }
 
+/**
+ * Return the median of a numeric array.  Returns null for empty input.
+ * Used to smooth per-aircraft measurement series before differencing,
+ * reducing single-sample noise in detectKinematic and detectRate.
+ */
+function medianOf(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
 // ── Algorithm 1: Pairwise ─────────────────────────────────────────────────────
 /**
  * Classic ICAO pairwise method.
@@ -1038,6 +1051,7 @@ function detectPairwise(aircraft) {
         hw_high:   high.headwind_kt,
         delta_kt:  Math.round(delta),
         severity:  wsSeverity(delta),
+        hw_trend:  high.headwind_kt < low.headwind_kt ? 'loss' : 'gain',
       });
     }
   }
@@ -1096,6 +1110,7 @@ function detectGradient(aircraft) {
         hw_high:  Math.round(bestHi.hw),
         delta_kt: Math.round(maxDelta),
         severity: maxDelta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        hw_trend: bestHi.hw > bestLo.hw ? 'loss' : 'gain',
       });
     }
   }
@@ -1154,6 +1169,7 @@ function detectEnergy(aircraft) {
         delta_kt:   delta,
         energy_loss: Math.round(dE),
         severity:   delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        hw_trend:   'loss',   // energy only fires on dE < 0
       });
     }
   }
@@ -1184,12 +1200,15 @@ function detectRate(aircraft) {
     const hist = wsWindHistory[ac.icao] || [];
     if (hist.length < 2) continue;
 
-    // Take the oldest point within the lookback window as reference
-    const window = hist.slice(-LOOKBACK);
-    const ref    = window[0];
-    if (ref.wind_spd == null || ref.wind_dir == null) continue;
-
-    const refHw  = hwKt(ref.wind_spd, ref.wind_dir, rwyHdg);
+    // Use the median of the oldest half of the lookback window as reference
+    // (rather than a single raw point) to reduce noise before differencing.
+    const window   = hist.slice(-LOOKBACK);
+    const refEdge  = Math.min(3, Math.floor(window.length / 2));
+    const refSamples = window.slice(0, refEdge)
+      .filter(p => p.wind_spd != null && p.wind_dir != null)
+      .map(p => hwKt(p.wind_spd, p.wind_dir, rwyHdg));
+    if (!refSamples.length) continue;
+    const refHw = medianOf(refSamples);
     const delta  = Math.abs(ac.headwind_kt - refHw);
 
     if (delta >= WS_MONITOR_KT) {
@@ -1204,6 +1223,7 @@ function detectRate(aircraft) {
         hw_high:  Math.round(ac.headwind_kt),
         delta_kt: Math.round(delta),
         severity: delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        hw_trend: ac.headwind_kt < refHw ? 'loss' : 'gain',
       });
     }
   }
@@ -1256,6 +1276,7 @@ function detectBaseline(aircraft) {
         delta_kt:       Math.round(delta),
         baseline_count: recent.length,
         severity:       delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        hw_trend:       ac.headwind_kt < baselineHw ? 'loss' : 'gain',
       });
     }
   }
@@ -1280,7 +1301,9 @@ function detectBaseline(aircraft) {
  *  • Insensitive to heading errors and magnetic variation
  *
  * Thresholds: ≥10 kt = monitor, ≥15 kt = warning, ≥25 kt = alarm (ICAO FAA JAWS).
- * Window: 45 seconds (oldest vs newest sample within the window).
+ * Detection window: 45 seconds (full approach segment).
+ * F-factor window: 10–20 s sliding sub-windows (≈1 km at approach speed),
+ *   reporting the maximum F found — matching the JAWS reference distance.
  */
 function detectKinematic(aircraft) {
   const events    = [];
@@ -1298,20 +1321,32 @@ function detectKinematic(aircraft) {
     const window = hist.filter(p => (nowMs - p.ts) <= WINDOW_MS);
     if (window.length < 2) continue;
 
-    const oldest = window[0];
-    const newest = window[window.length - 1];
-
-    const diffOld = oldest.ias - oldest.gs;   // IAS−GS at start of window
-    const diffNew = newest.ias - newest.gs;   // IAS−GS at end of window
+    // Use median of first/last 3 samples instead of raw endpoints to reduce
+    // single-observation noise before differencing.
+    const EDGE = Math.min(3, Math.floor(window.length / 2));
+    const diffOld = medianOf(window.slice(0, EDGE).map(p => p.ias - p.gs));
+    const diffNew = medianOf(window.slice(-EDGE).map(p => p.ias - p.gs));
     const delta   = Math.abs(diffNew - diffOld);
 
     if (delta < WS_MONITOR_KT) continue;
 
-    // F-factor: (headwind rate of change in m/s²) / g — dimensionless performance hazard index
-    const windowSecs = (newest.ts - oldest.ts) / 1000;
-    const fFactor    = windowSecs > 1
-      ? Math.round(((delta * 0.51444) / windowSecs / 9.81) * 100) / 100
-      : null;
+    // F-factor: scan all sub-windows of 10–20 s (≈1 km at approach speed) and
+    // report the highest F found.  The JAWS/FAA definition uses a 1-km reference
+    // window; computing over the full 45 s span underreads by ~3×, making the
+    // F-gate far more conservative than intended.
+    let fFactor = null;
+    for (let fi = 0; fi < window.length - 1; fi++) {
+      for (let fj = fi + 1; fj < window.length; fj++) {
+        const spanMs = window[fj].ts - window[fi].ts;
+        if (spanMs < 10_000 || spanMs > 20_000) continue;
+        const subDelta = Math.abs(
+          (window[fj].ias - window[fj].gs) - (window[fi].ias - window[fi].gs)
+        );
+        const f = (subDelta * 0.51444) / (spanMs / 1000) / 9.81;
+        if (fFactor === null || f > fFactor) fFactor = f;
+      }
+    }
+    if (fFactor !== null) fFactor = Math.round(fFactor * 100) / 100;
 
     // Apply F-factor gate — if enabled, skip events that don't meet the minimum
     if (wsKinFGate !== 'off') {
@@ -1324,13 +1359,14 @@ function detectKinematic(aircraft) {
       rwy:      ac.approach_runway,
       icao:     ac.icao,
       cs:       ac.callsign || ac.icao,
-      alt_low:  Math.round(oldest.gs != null ? ac.altitude - 50 : ac.altitude),
+      alt_low:  Math.round(window[0].gs != null ? ac.altitude - 50 : ac.altitude),
       alt_high: Math.round(ac.altitude),
       hw_low:   Math.round(diffOld),   // repurposed: IAS−GS at window start
       hw_high:  Math.round(diffNew),   // repurposed: IAS−GS at window end
       delta_kt: Math.round(delta),
       f_factor: fFactor,
       severity: wsSeverity(delta),
+      hw_trend: diffNew < diffOld ? 'loss' : 'gain',
     });
   }
   return events;
@@ -1394,7 +1430,8 @@ function updateAlertBanner(events) {
     const acInfo  = (e.cs_low && e.cs_high)
       ? `[${e.cs_low}↕${e.cs_high}]`
       : `[${e.cs || ''}]`;
-    return `<span class="ws-alert-tag">${algoLbl} · RWY ${e.rwy} · ${e.delta_kt} kt  ${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft  ${acInfo}</span>`;
+    const trendTag = e.hw_trend === 'loss' ? ' ▼LOSS' : e.hw_trend === 'gain' ? ' ▲GAIN' : '';
+    return `<span class="ws-alert-tag">${algoLbl} · RWY ${e.rwy} · ${e.delta_kt} kt${trendTag}  ${Math.round(e.alt_low / 100) * 100}–${Math.round(e.alt_high / 100) * 100} ft  ${acInfo}</span>`;
   }).join(' ');
 
   banner.className = `ws-alert-banner ${cls}`;
@@ -1849,7 +1886,7 @@ function renderWsLog() {
                   : ' ws-log-monitor';
     const hw_low  = e.hw_low  != null ? Number(e.hw_low).toFixed(0)  : '?';
     const hw_high = e.hw_high != null ? Number(e.hw_high).toFixed(0) : '?';
-    const trend   = e.hw_high > e.hw_low ? '↓' : '↑';
+    const trend   = e.hw_trend === 'loss' ? '▼LOSS' : e.hw_trend === 'gain' ? '▲GAIN' : (e.hw_high > e.hw_low ? '↓' : '↑');
     const algoLbl = ALGO_LABELS[e.algo] || (e.algo || 'WS');
 
     // Compact one-liner
@@ -1860,7 +1897,7 @@ function renderWsLog() {
     const compact = `${e._time} [${algoLbl}] ${e.rwy} ${e.delta_kt}kt${trend} ${acShort}`;
 
     // Full tooltip
-    const trendFull = e.hw_high > e.hw_low ? '▼ headwind decrease' : '▲ tailwind increase';
+    const trendFull = e.hw_trend === 'loss' ? '▼ headwind loss' : e.hw_trend === 'gain' ? '▲ headwind gain' : (e.hw_high > e.hw_low ? '▼ headwind decrease' : '▲ headwind increase');
     let acFull;
     if (e.cs_low && e.cs_high) {
       acFull = `${e.cs_low}: ${hw_low} kt  ↕  ${e.cs_high}: ${hw_high} kt`;

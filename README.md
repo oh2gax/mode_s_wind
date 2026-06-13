@@ -155,7 +155,7 @@ class Config:
     RECEIVER_LON = 24.963             # decimal degrees E
 
     # ── Magnetic declination ──────────────────────────────────────────────
-    MAG_DECLINATION = 8.0             # degrees E (Finland 2025–2026 ≈ +8°)
+    MAG_DECLINATION = 10.5            # degrees E — EFHK WMM value 2026; re-check every 2–3 years
 
     # ── Radarcape JSON / MLAT feed ────────────────────────────────────────
     RADARCAPE_JSON_URL = "http://192.168.0.119/aircraftlist.json"
@@ -200,7 +200,7 @@ Key values to change for your installation:
 
 - `RADARCAPE_HOST` — IP address of your Radarcape on the local network
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
-- `MAG_DECLINATION` — magnetic declination for your location (affects computed wind accuracy); find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
+- `MAG_DECLINATION` — magnetic declination for your location in degrees East; affects computed wind accuracy — a 2.5° error translates to roughly 6.5 kt spurious wind at typical approach speeds; find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); re-check every 2–3 years as the value drifts ~0.1°/year
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
@@ -795,6 +795,10 @@ Windshear detection is controlled from the **Windshear Alert header bar**, which
 
 Six independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
 
+**Shear direction:** every detected event is classified as `▼LOSS` (headwind decreasing — the operationally hazardous case) or `▲GAIN` (headwind increasing). The label appears in the alert banner, the ILS-profile canvas zone label, and the event log compact line. Severity thresholds (monitor / warning / alarm) are unchanged and based on the magnitude of the change regardless of direction.
+
+**Noise reduction:** the Rate and Kinematic algorithms use a 3-sample median on both the reference and current measurement windows before computing the headwind differential. This suppresses single-sample transients (momentary IAS spikes, noisy BDS 6,0 decodes) without adding meaningful detection latency — three samples at the 3-second poll rate represent ~9 seconds of data.
+
 All algorithms use the same headwind component formula:
 
 ```
@@ -956,6 +960,8 @@ These thresholds come from the Joint Airport Weather Studies (JAWS) programme wh
 **Why F-factor adds information beyond the kt value:** two events could both show `18 kt Warning` but have very different F-factors depending on how quickly the 18 kt was lost. An aircraft that lost 18 kt of headwind over 40 seconds (`F ≈ 0.06`) is a very different situation from one that lost it over 8 seconds (`F ≈ 0.30`). The kt value tells you the magnitude; the F-factor tells you the rate, which is what determines whether the crew had time to respond.
 
 F-factor is displayed as supplementary information in the log. Severity classification is still driven by the kt thresholds, but the **Kinematic F-factor gate** dropdown (`F: Off / F ≥0.05 / F ≥0.08 / F ≥0.10 / F ≥0.15`) in the log header lets you suppress Kinematic events whose F-factor is below a chosen minimum. This is useful for research — setting the gate to `F ≥0.05` silently discards the slow background drift events (typically F=0.02–0.03) that represent normal approach variation according to the JAWS thresholds, while preserving genuine rapid shear events. The gate is automatically greyed out when any other algorithm is selected, since F-factor is only computed for Kinematic. The preference is saved across sessions. Default is Off (no filtering).
+
+**F-factor reference window:** F is computed by scanning all 10–20 second sub-windows within the 45-second detection history and reporting the maximum. This matches the JAWS 1 km reference distance (≈15 s at typical approach speed). The 45-second detection window that determines whether an event fires is unchanged — only the F-factor value reported is affected. The F-gate thresholds in the table above are therefore correctly calibrated against the published JAWS values.
 
 #### Stale aircraft removal
 

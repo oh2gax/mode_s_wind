@@ -47,9 +47,10 @@ class Config:
     RECEIVER_LON: float = 24.963
 
     # ── Magnetic declination ───────────────────────────────────────────────
-    # Finland 2025–2026: ~+8° East (increases by ~0.1°/year)
+    # EFHK (Helsinki-Vantaa) WMM value: ~+10.5°E as of 2026-01.
+    # Re-check every 2–3 years; current rate of change ~+0.1°/year.
     # Used to convert magnetic heading → true heading for wind calculation.
-    MAG_DECLINATION: float = 8.0
+    MAG_DECLINATION: float = 10.5
 
     # ── Wind calculation quality gates ────────────────────────────────────
     # Max roll angle (°) for wind calculation to be considered valid

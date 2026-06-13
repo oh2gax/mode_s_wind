@@ -5,6 +5,23 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-13 (Wind detection — F-factor window fix)
+
+- **detectKinematic F-factor corrected**: the previous implementation computed F over the full 45-second detection window, which is ~3× longer than the 1 km (≈15 s at approach speed) reference defined by JAWS/FAA; this made the F-gate silently 3× more conservative than intended — an F ≥ 0.10 setting was effectively acting as F ≥ 0.03 in proper units; F is now computed by scanning all 10–20 s sub-windows within the 45-second history and reporting the maximum, which matches the JAWS reference distance; the 45-second detection window (what triggers the event) is unchanged — only the F-factor value and gate calibration are affected
+- Also fixed two broken variable references (`oldest.ts`, `newest.ts`, `oldest.gs`) left over from the previous median filter change that would have caused a JavaScript ReferenceError when the Kinematic algorithm was active
+- Only `static/js/windshear.js` changed
+
+---
+
+## 2026-06-13 (Wind detection — declination fix, shear signing, median filter)
+
+- **MAG_DECLINATION corrected**: updated from `8.0` to `10.5`°E (EFHK WMM value for 2026); the previous value introduced a ~2.5° systematic heading error translating to ~6.5 kt spurious wind bias at typical approach ground speeds; the constant is now annotated with a date note and a reminder to re-check every 2–3 years
+- **Shear direction signing**: all six windshear detection algorithms now tag each event with `hw_trend: 'loss' | 'gain'`; headwind loss (the operationally hazardous case) is distinct from headwind gain; the alert banner, ILS-profile canvas label, and event log compact line all now show `▼LOSS` or `▲GAIN` so the direction is unambiguous at a glance; event severity thresholds and `delta_kt` magnitude are unchanged
+- **Median filter for detectKinematic and detectRate**: instead of comparing two raw endpoint samples (oldest vs. newest), both algorithms now compute the median of the three oldest and three newest measurements in their look-back window before differencing; this suppresses single-sample transients (e.g. a momentary IAS spike or a noisy BDS 6,0 heading decode) without adding meaningful latency — events that persist across 3 samples represent ~9 s of data at the 3-second poll rate
+- Only `config.py` and `static/js/windshear.js` changed
+
+---
+
 ## 2026-06-12 (Maintenance — Approach History manual purge controls)
 
 - **Approach History section** added to the Maintenance page with full manual delete controls; Approach History is never touched by Autopurge, so this is the only way to remove old entries
