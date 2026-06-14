@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-14 (Wind detection — minimum corridor samples gate)
+
+- **WS_MIN_CORRIDOR_SAMPLES = 6 gate** added to all six windshear detection algorithms; no algorithm can fire until an aircraft has accumulated at least 6 valid observations in the ILS corridor (≈15–20 s at the 3-second poll rate)
+- Root cause addressed: the first wind observation for a newly-established aircraft is frequently tagged `meteo_source = MHR` (BDS 4,5 decoded in the same message sweep) and is computed from a BDS 5,0/6,0 pair captured during the ILS intercept roll-out; at that moment roll angle and track rate are near their quality-gate limits, producing a geometrically noisy result; algorithms that compare oldest vs. newest window samples (kinematic, rate) used this noisy first point as the reference, generating spurious detections immediately after the flight strip appeared
+- Each algorithm gates differently: pairwise and baseline check `wsWindHistory[icao].length`; gradient checks `pts.length` (altitude-valid wind points); energy promotes `MIN_POINTS` from 4 to `WS_MIN_CORRIDOR_SAMPLES`; rate checks `hist.length`; kinematic checks both raw history length and the 45-second time-filtered window length
+- The gate also ensures the 3-sample edge median introduced in the previous release has ≥ 2 samples per edge before any detection fires (EDGE = `Math.min(3, Math.floor(window.length / 2))` reaches 3 only when `window.length ≥ 6`)
+- Only `static/js/windshear.js` changed
+
+---
+
 ## 2026-06-13 (Wind detection — F-factor window fix)
 
 - **detectKinematic F-factor corrected**: the previous implementation computed F over the full 45-second detection window, which is ~3× longer than the 1 km (≈15 s at approach speed) reference defined by JAWS/FAA; this made the F-gate silently 3× more conservative than intended — an F ≥ 0.10 setting was effectively acting as F ≥ 0.03 in proper units; F is now computed by scanning all 10–20 s sub-windows within the 45-second history and reporting the maximum, which matches the JAWS reference distance; the 45-second detection window (what triggers the event) is unchanged — only the F-factor value and gate calibration are affected

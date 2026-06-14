@@ -37,6 +37,12 @@ const WS_WARNING_KT     = 15;    // ICAO windshear threshold (Warning)
 const WS_ALARM_KT       = 25;    // severe windshear threshold (Alarm)
 const WS_MAX_ALT_BAND   = 2000;  // max altitude separation (ft) between compared aircraft
 const WS_MIN_ALT_BAND   = 200;   // min altitude separation (ft) — avoid same-level noise
+// Minimum stored observations for an aircraft before any detection algorithm fires.
+// At the typical 3-second poll rate this equals ~15–20 s of established corridor flight,
+// preventing the noisy first BDS 5,0/6,0 snapshot (captured during the ILS intercept
+// turn roll-out) from being used as a reference point in oldest-vs-newest comparisons.
+// Also ensures the 3-sample median filter on window edges has enough data to be effective.
+const WS_MIN_CORRIDOR_SAMPLES = 6;
 
 /** Map a delta_kt value to one of three severity levels. */
 function wsSeverity(delta) {
@@ -1025,6 +1031,7 @@ function detectPairwise(aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
     if (ac.headwind_kt == null) continue;
     if (computeGsStatus(ac) !== 'ON') continue;
+    if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
     if (!byRwy[ac.approach_runway]) byRwy[ac.approach_runway] = [];
     byRwy[ac.approach_runway].push(ac);
   }
@@ -1086,7 +1093,7 @@ function detectGradient(aircraft) {
       .map(h => ({ alt: h.alt_ft, hw: hwKt(h.wind_spd, h.wind_dir, rwyHdg) }))
       .sort((a, b) => b.alt - a.alt);   // highest first
 
-    if (pts.length < 3) continue;
+    if (pts.length < WS_MIN_CORRIDOR_SAMPLES) continue;
 
     let maxDelta = 0, bestHi = null, bestLo = null;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1137,7 +1144,7 @@ function detectEnergy(aircraft) {
   const events      = [];
   const WINDOW_MS   = 45_000;   // 45-second look-back window
   const LOSS_KT     = WS_MONITOR_KT;  // kt-equivalent energy loss to flag (monitor threshold)
-  const MIN_POINTS  = 4;
+  const MIN_POINTS  = WS_MIN_CORRIDOR_SAMPLES;
 
   const nowMs = Date.now();
 
@@ -1198,7 +1205,7 @@ function detectRate(aircraft) {
     if (rwyHdg == null) continue;
 
     const hist = wsWindHistory[ac.icao] || [];
-    if (hist.length < 2) continue;
+    if (hist.length < WS_MIN_CORRIDOR_SAMPLES) continue;
 
     // Use the median of the oldest half of the lookback window as reference
     // (rather than a single raw point) to reduce noise before differencing.
@@ -1257,6 +1264,7 @@ function detectBaseline(aircraft) {
 
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
+    if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
 
@@ -1314,12 +1322,12 @@ function detectKinematic(aircraft) {
     if (computeGsStatus(ac) !== 'ON') continue;
 
     const hist = wsKinHistory[ac.icao];
-    if (!hist || hist.length < 2) continue;
+    if (!hist || hist.length < WS_MIN_CORRIDOR_SAMPLES) continue;
 
     const nowMs = Date.now();
     // Filter to entries within the 45-second window
     const window = hist.filter(p => (nowMs - p.ts) <= WINDOW_MS);
-    if (window.length < 2) continue;
+    if (window.length < WS_MIN_CORRIDOR_SAMPLES) continue;
 
     // Use median of first/last 3 samples instead of raw endpoints to reduce
     // single-observation noise before differencing.
@@ -3291,7 +3299,7 @@ if (_wrCanvas && _wrHistTip) {
   });
 }
 
-// ── Startup ───────────────────────────────────────────────────────────────────
+// ── Startup ────────────────────────────────────────────────────────────────────────────────
 fetchApproachState();
 fetchApproachHistory();
 fetchWindroseObs();
