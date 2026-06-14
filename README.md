@@ -75,17 +75,17 @@ Radarcape receiver (192.168.0.119)
                                      │  live_state dict │  (shared in-memory)
                                      └────────┬────────┘
                                               │
-                             ┌────────────────┼──────────────────┐
-                             │                │                  │
-                       database/       windshear sweep     gps sweep      web/app.py
-                       writer thread   daemon (3 s)         daemon (5 s)   Flask + SSE
-                       (SQLite WAL)         │                    │          │
-                             │       WindshearTracker    GpsQualityTracker  ├─ /           Live map
-                             │       (RAM only, no DB)   (RAM+DB persist)   ├─ /flights    History
-                             │                                              ├─ /sounding   Skew-T
-                       data/modes_meteo.db                                  ├─ /windmap    Wind map
-                                                                            ├─ /windshear  Approach
-                                                                            └─ /gps        GPS Quality
+                             ┌────────────────┼──────────────────┬──────────────────┐
+                             │                │                  │                  │
+                       database/       windshear sweep     gps sweep         wx poll        web/app.py
+                       writer thread   daemon (3 s)         daemon (5 s)      thread (10 m)  Flask + SSE
+                       (SQLite WAL)         │                    │                │           │
+                             │       WindshearTracker    GpsQualityTracker   _wx_cache       ├─ /           Live map
+                             │       (RAM only, no DB)   (RAM+DB persist)   (METAR/TAF)      ├─ /flights    History
+                             │                                                               ├─ /sounding   Skew-T
+                       data/modes_meteo.db                                                   ├─ /windmap    Wind map
+                                                                                             ├─ /windshear  Approach
+                                                                                             └─ /gps        GPS Quality
 ```
 
 ### Data source priority
@@ -169,7 +169,7 @@ class Config:
     METEO_SOURCE_MODE = "HYBRID"      # "EHS" | "JSON" | "HYBRID"
 
     # ── Storage mode ──────────────────────────────────────────────────────
-    STORAGE_MODE = "ALL"              # "ALL" | "METEO_ONLY"
+    STORAGE_MODE = "METEO_ONLY"       # "ALL" | "METEO_ONLY"
 
     # ── Airport ICAO ──────────────────────────────────────────────────────
     AIRPORT_ICAO = "EFHK"             # used for METAR/TAF display and QNH correction
@@ -595,7 +595,7 @@ Aircraft are accepted into the display using precise geometric corridor matching
 An aircraft matches a runway only when all conditions hold:
 
 ```
-|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 2.5 NM)
+|cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 1.5 NM)
 0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM                (default 25 NM)
 |track − approach_heading| ≤ max_track_dev                     (default 60°, RWY 33: 45°, when track available)
 altitude ≥ (thr_elevation + dist_thr × GS_FT_PER_NM) − 1 000 ft   (glideslope floor)
@@ -673,7 +673,7 @@ A **manual trim** (`WINDSHEAR_GS_OFFSET_FT`) is also available for residual cali
 
 The dropdown above the ILS profile header lets you filter by runway. It acts simultaneously as both a profile filter (only the selected runway's aircraft are drawn on the canvas) and a strip filter (only matching strips appear in the left panel).
 
-Available options: **All runways**, **04L & 04R** (both parallel approaches together), **22L & 22R**, and each runway individually (04L, 04R, 22L, 22R, 15). The paired options are useful during dual-runway operations at EFHK where both parallel runways are in use simultaneously.
+Available options: **All runways**, **04L & 04R** (both parallel approaches together), **22L & 22R**, and each runway individually (04L, 04R, 22L, 22R, 15, 33). The paired options are useful during dual-runway operations at EFHK where both parallel runways are in use simultaneously.
 
 #### Wind barb overlay
 
@@ -685,7 +685,7 @@ The **Barbs** button, located in the ILS profile header immediately to the right
 
 **Auto barb mode:** the `Auto` segment attached to the Barbs button enables fully automatic aircraft selection. When active, the system selects the aircraft that is furthest along the approach (smallest distance from threshold — i.e. closest to the runway) and holds that selection until the aircraft goes stale and is removed from the display. At that point the next lowest aircraft is selected automatically, ensuring barbs are always visible as long as there is any approach traffic. The canvas corner label shows `· AUTO` when automatic selection is driving the display. Clicking any flight strip while Auto is active cancels automatic selection and pins the manually chosen aircraft instead — the Auto button deactivates to reflect this. Clicking the Auto segment again while Barbs is already off will enable both Barbs and Auto in a single click.
 
-**Barb convention:** barb staff points FROM the wind direction (standard meteorological convention). Pennant = 50 kt, full barb = 10 kt, half barb = 5 kt, open circle = calm. The barb colour matches the aircraft's meteo source colour (blue = MRAR, green = COMPUTED, purple = JSON).
+**Barb convention:** barb staff points FROM the wind direction (standard meteorological convention). Pennant = 50 kt, full barb = 10 kt, half barb = 5 kt, open circle = calm. The barb colour matches the aircraft's meteo source colour (blue = MRAR, amber = MHR, green = COMPUTED, purple = JSON).
 
 **HW/TW annotation:** the **HW** button, immediately to the right of the `Barbs · Auto` split button, toggles a headwind/tailwind overlay on each barb. When active, two lines are shown at each barb point:
 
@@ -834,7 +834,7 @@ Turning the toggle OFF immediately clears all active alerts. Previously logged e
 
 ##### Algorithm 1 — Pairwise (classic ICAO method)
 
-**Requires: ≥ 2 aircraft simultaneously on the same approach.**
+**Requires: ≥ 2 aircraft simultaneously on the same approach, each with ≥ 6 wind history observations (establishment gate).**
 
 The Pairwise algorithm is the classical windshear detection technique defined in ICAO Doc 9817 and used operationally by airport LLWAS (Low-Level Windshear Alert Systems). It compares the headwind component between two simultaneously tracked aircraft on the same ILS corridor, one higher and one lower on the glideslope.
 
@@ -850,7 +850,7 @@ A large |ΔHW| reveals the presence of a wind shear layer between the two altitu
 
 ##### Algorithm 2 — Gradient (single-aircraft wind history)
 
-**Requires: ≥ 3 stored wind observations for the same aircraft.**
+**Requires: ≥ 6 stored wind observations for the same aircraft (establishment gate).**
 
 The Gradient algorithm examines the wind history accumulated for a single aircraft during its approach. As an aircraft descends from 3 000 ft to the threshold, the system stores up to 40 wind snapshots at intervals of ≥ 400 ft altitude change or ≥ 0.5 NM distance. The algorithm then finds the pair of observations — within a 200–3 000 ft altitude band — with the largest headwind difference.
 
@@ -858,11 +858,11 @@ This directly measures the **vertical wind gradient** (dHW/dz) in the low-level 
 
 **Advantage over Pairwise:** works with a single aircraft and accumulates evidence progressively as the aircraft descends through the wind field. Effective during single-runway VMC traffic when only one aircraft is on approach at a time.
 
-**Limitation:** detection sensitivity increases with each new wind observation. The algorithm produces no output for the first few observations (< 3 valid wind points) and improves in accuracy as the aircraft continues its descent.
+**Limitation:** detection sensitivity increases with each new wind observation. The algorithm produces no output until the establishment gate is satisfied (< 6 valid wind points) and improves in accuracy as the aircraft continues its descent.
 
 ##### Algorithm 3 — Energy (total energy trend, GPWS-inspired)
 
-**Requires: ≥ 4 groundspeed + altitude observations within the last 45 seconds.**
+**Requires: ≥ 6 groundspeed + altitude observations within the last 45 seconds (establishment gate).**
 
 The Energy algorithm tracks a total mechanical energy proxy for each approach aircraft over a sliding 45-second window. The proxy is:
 
@@ -882,7 +882,7 @@ This algorithm is inspired conceptually by the energy-rate monitor in airborne E
 
 ##### Algorithm 4 — Rate (headwind rate of change)
 
-**Requires: ≥ 2 stored wind observations and a current headwind value.**
+**Requires: ≥ 6 stored wind observations and a current headwind value (establishment gate).**
 
 The Rate algorithm compares the aircraft's current headwind component to the oldest value in its recent wind history (up to the last 6 observations). Unlike the Gradient algorithm, it is not altitude-filtered — it detects any headwind change along the approach path, whether driven by altitude-related wind structure or by horizontal passage through a shear zone.
 
@@ -1134,6 +1134,7 @@ Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extr
 | runway | Runway designator, e.g. `"22L"` |
 | rwy_heading | Runway approach heading (°) |
 | bands_json | JSON object keyed by altitude ft (as string); value is `{"dir": int, "spd": float}` or `null` when no wind was captured at that level; e.g. `{"200": {"dir": 270, "spd": 15}, "400": null, …}` |
+| go_arounds | Integer count of go-arounds performed by this aircraft before the final landing; 0 for normal straight-in approaches |
 
 Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
@@ -1257,7 +1258,8 @@ mode_s_wind/
 │       ├── sounding.js        # Skew-T canvas renderer
 │       ├── windmap.js         # Wind map barb rendering + controls
 │       ├── windshear.js       # Approach strips, ILS profile, windshear detection
-│       └── gps_quality.js     # GPS quality charts, heatmap, live table
+│       ├── gps_quality.js     # GPS quality charts, heatmap, live table
+│       └── maintenance.js     # Maintenance page client-side logic (purge controls, autopurge, stats)
 ├── overlays/                  # GeoJSON overlays served to the Windshear map
 │   ├── efhk_ils.geojson       # EFHK ILS centreline geometry (all runways)
 │   ├── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
