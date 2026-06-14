@@ -799,6 +799,8 @@ Six independent detection algorithms are available from the dropdown. Switching 
 
 **Noise reduction:** the Rate and Kinematic algorithms use a 3-sample median on both the reference and current measurement windows before computing the headwind differential. This suppresses single-sample transients (momentary IAS spikes, noisy BDS 6,0 decodes) without adding meaningful detection latency — three samples at the 3-second poll rate represent ~9 seconds of data.
 
+**Establishment gate:** no algorithm can fire until an aircraft has accumulated at least 6 valid observations inside the corridor (≈15–20 seconds at the 3-second poll rate). This prevents false detections from the first wind snapshot, which is computed during the ILS intercept roll-out when the aircraft is transitioning from the turn onto final and the BDS 5,0/6,0 data is at its least stable.
+
 All algorithms use the same headwind component formula:
 
 ```
