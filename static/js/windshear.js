@@ -710,9 +710,9 @@ function drawIlsProfile(aircraft, shearEvents = []) {
               rawY = by - 9; compY = by + 16;
             }
           } else {
-            // Dcl OFF: both labels on same side
-            compY = nearTop ? by + 16 : by - 14;
-            rawY  = nearTop ? by + 25 : by - 5;
+            // Dcl OFF: both labels on same side, lifted clear of the barb staff (sLen=18 px)
+            compY = nearTop ? by + 16 : by - 28;
+            rawY  = nearTop ? by + 26 : by - 18;
           }
 
           ilsCtx.fillStyle = compColor;
@@ -727,7 +727,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
           );
         } else {
           // ── No component annotation active: dir°/spd only ────────────────
-          const lblY = nearTop ? by + 16 : by - 5;
+          // Lifted ~20 px clear of the barb origin so it doesn't sit on the staff
+          const lblY = nearTop ? by + 16 : by - 22;
           ilsCtx.fillStyle = bColor + 'cc';
           ilsCtx.font      = '8px "Courier New", monospace';
           ilsCtx.fillText(

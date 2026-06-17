@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-17 (Wind barb label declutter)
+
+- Raw `dir°/spd` label and component (HW/XW) label shifted upward by ~15 px so they clear the 18 px barb staff rather than overlapping it; no-component label moves from `by−5` to `by−22`, Dcl-OFF component/raw from `by−14`/`by−5` to `by−28`/`by−18`; Dcl-ON split layout unchanged
+
+---
+
 ## 2026-06-17 (HW/XW cycling barb annotation)
 
 - **HW button now cycles** through three states: off → HW (headwind/tailwind) → XW (crosswind) → off; button label updates to match (`HW` or `XW`), replacing the previous separate XW button
