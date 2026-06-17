@@ -12,6 +12,7 @@ No version numbers — entries are organised by date.
 - **Dcl works for both HW and XW** — becomes available whenever any component mode is active; places component value below the barb and raw wind above
 - **Wind barb labels lifted**: raw wind and component labels shifted clear of the 18 px barb staff; font sizes increased (10 px plain, 9 px raw-alongside-component) and opacity raised for better legibility; label format simplified to `dir/spd` (no degree symbol or kt unit) for compactness
 - `barbHwMode` string (`'off'` / `'hw'` / `'xw'`) replaces the former `barbHwActive` boolean; label drawing unified into a single code path; corner label shows `· HW ref …` or `· XW ref …`
+- **Fix: NONE-quality aircraft triggering false windshear detections** — all six detection algorithms (Pairwise, Gradient, Energy, Rate, Baseline, Kinematic) now skip any aircraft whose `meteo_source === 'NONE'` (grey) at the top of their per-aircraft loop; previously, an aircraft that accumulated valid wind history and then went NONE during an ILS intercept turn could still fire Rate/Baseline detections via its stale `headwind_kt`, and Energy/Kinematic buffers (`wsGsHistory`, `wsKinHistory`) had no NONE filter at all — all gaps closed
 - Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
 
 ---
