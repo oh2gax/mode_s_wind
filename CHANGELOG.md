@@ -5,30 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-17 (Wind barb label declutter)
+## 2026-06-17 (ILS profile zoom, HW/XW barb annotation, label declutter)
 
-- Raw `dir°/spd` label and component (HW/XW) label shifted upward by ~15 px so they clear the 18 px barb staff rather than overlapping it; no-component label moves from `by−5` to `by−22`, Dcl-OFF component/raw from `by−14`/`by−5` to `by−28`/`by−18`; Dcl-ON split layout unchanged
-
----
-
-## 2026-06-17 (HW/XW cycling barb annotation)
-
-- **HW button now cycles** through three states: off → HW (headwind/tailwind) → XW (crosswind) → off; button label updates to match (`HW` or `XW`), replacing the previous separate XW button
-- HW mode: amber button, `+12kt` / `-5kt` labels; green = headwind, red = tailwind, amber = near-zero
-- XW mode: orange button, `+8kt` (from right) / `-3kt` (from left) labels — same `+`/`-` sign format as HW for readability at small canvas sizes; teal < 5 kt, amber 5–9 kt, red ≥ 10 kt (matches approach history palette)
-- **Dcl now works for both HW and XW** — becomes available whenever any component mode is active; declutters by placing component value below the barb and raw wind above
-- `barbHwMode` string (`'off'` / `'hw'` / `'xw'`) replaces the former `barbHwActive` + `barbXwActive` boolean pair; label drawing unified into a single code path
-- Corner label shows `· HW ref …` or `· XW ref …` to reflect the active mode
-- Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
-
----
-
-## 2026-06-17 (ILS profile zoom toggle)
-
-- **Zoom button** added to the ILS glideslope profile toolbar (purple when active); toggles the horizontal range between 15 NM (full view) and 7.5 NM (zoomed), roughly doubling the horizontal pixel density available for wind barbs
-- In zoomed mode the distance grid lines and axis labels step at 2.5 NM intervals instead of 5 NM for a cleaner read
-- `PROFILE_ZOOM_NM = 7.5` constant added; `drawIlsProfile` uses a local `profileNm` variable so all range-clip guards, the `distX()` helper, the glideslope line, and the barb/NONE-circle filters all honour the zoom state automatically
-- All data accumulation guards (outside `drawIlsProfile`) continue to use `PROFILE_MAX_NM = 15` so the full history is always buffered regardless of what is displayed
+- **Zoom button** added to the ILS glideslope profile toolbar (purple when active); toggles the horizontal range between 15 NM (full view) and 7.5 NM (zoomed), roughly doubling the horizontal pixel density available for wind barbs; distance grid steps at 2.5 NM intervals in zoomed mode; full 15 NM history always buffered so switching back is instant
+- **HW/XW component annotation**: the `HW` button now cycles through three states — off → HW (headwind/tailwind) → XW (crosswind) → off; button label updates to match (`HW` or `XW`); HW mode: amber button, `+12kt` / `-5kt`, green/red/amber colour coding; XW mode: orange button, `+8kt` (from right) / `-3kt` (from left), teal/amber/red magnitude palette matching the Approach History XW column; `xwKt()` function added (`spd × sin(windDir − rwyHdg)`)
+- **Dcl works for both HW and XW** — becomes available whenever any component mode is active; places component value below the barb and raw wind above
+- **Wind barb labels lifted**: raw `dir°/spd` and component labels shifted ~15 px upward so they clear the 18 px barb staff instead of overlapping it
+- `barbHwMode` string (`'off'` / `'hw'` / `'xw'`) replaces the former `barbHwActive` boolean; label drawing unified into a single code path; corner label shows `· HW ref …` or `· XW ref …`
 - Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
 
 ---
