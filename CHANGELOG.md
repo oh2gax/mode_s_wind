@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-06-17 (ILS profile zoom toggle)
+
+- **Zoom button** added to the ILS glideslope profile toolbar (purple when active); toggles the horizontal range between 15 NM (full view) and 7.5 NM (zoomed), roughly doubling the horizontal pixel density available for wind barbs
+- In zoomed mode the distance grid lines and axis labels step at 2.5 NM intervals instead of 5 NM for a cleaner read
+- `PROFILE_ZOOM_NM = 7.5` constant added; `drawIlsProfile` uses a local `profileNm` variable so all range-clip guards, the `distX()` helper, the glideslope line, and the barb/NONE-circle filters all honour the zoom state automatically
+- All data accumulation guards (outside `drawIlsProfile`) continue to use `PROFILE_MAX_NM = 15` so the full history is always buffered regardless of what is displayed
+- Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
+
+---
+
 ## 2026-06-14 (Wind detection — minimum corridor samples gate)
 
 - **WS_MIN_CORRIDOR_SAMPLES = 6 gate** added to all six windshear detection algorithms; no algorithm can fire until an aircraft has accumulated at least 6 valid observations in the ILS corridor (≈15–20 s at the 3-second poll rate)

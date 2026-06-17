@@ -18,7 +18,8 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 const GS_FT_PER_NM   = 318.5;
 const GS_TOL_FT      = 300;
-const PROFILE_MAX_NM = 15;
+const PROFILE_MAX_NM  = 15;    // full-range view
+const PROFILE_ZOOM_NM = 7.5;   // zoomed view (half range, denser barb spacing)
 const PROFILE_MAX_FT = 5_000;
 
 // Wind barb history accumulation — standard (Lo) resolution
@@ -390,6 +391,9 @@ function wsCanvasTheme() {
 }
 
 function drawIlsProfile(aircraft, shearEvents = []) {
+  // Honour the zoom toggle — half the horizontal range for denser barb spacing
+  const profileNm = profileZoomActive ? PROFILE_ZOOM_NM : PROFILE_MAX_NM;
+
   const W = ilsCanvas.width;
   const H = ilsCanvas.height;
   const PW = W - M.left - M.right;
@@ -405,8 +409,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   if (PW < 20 || PH < 20) return;
 
   // Helper: convert distance (NM) to X pixel
-  // 0 NM (threshold) → right edge, PROFILE_MAX_NM → left edge
-  const distX = d => M.left + (1 - d / PROFILE_MAX_NM) * PW;
+  // 0 NM (threshold) → right edge, profileNm → left edge
+  const distX = d => M.left + (1 - d / profileNm) * PW;
   // Helper: convert altitude (ft) to Y pixel
   const altY  = a => M.top  + (1 - a / PROFILE_MAX_FT) * PH;
 
@@ -422,8 +426,9 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.lineTo(M.left + PW, y);
     ilsCtx.stroke();
   }
-  // Distance grid lines (every 5 NM)
-  for (let d = 0; d <= PROFILE_MAX_NM; d += 5) {
+  // Distance grid lines (every 5 NM, or every 2.5 NM when zoomed)
+  const gridStepNm = profileZoomActive ? 2.5 : 5;
+  for (let d = 0; d <= profileNm; d += gridStepNm) {
     const x = distX(d);
     ilsCtx.beginPath();
     ilsCtx.moveTo(x, M.top);
@@ -446,7 +451,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   const gsRef = d => gsBaseline + d * GS_FT_PER_NM;
 
   // GS tolerance band (±300 ft around the corrected line); cap at canvas width
-  const gsMaxDist = Math.min(PROFILE_MAX_NM, (PROFILE_MAX_FT - gsBaseline) / GS_FT_PER_NM);
+  const gsMaxDist = Math.min(profileNm, (PROFILE_MAX_FT - gsBaseline) / GS_FT_PER_NM);
   ilsCtx.beginPath();
   ilsCtx.moveTo(distX(0),         altY(gsRef(0) + GS_TOL_FT));
   ilsCtx.lineTo(distX(gsMaxDist), altY(gsRef(gsMaxDist) + GS_TOL_FT));
@@ -524,7 +529,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.fillText(a.toLocaleString(), M.left - 4, altY(a) + 3);
   }
   ilsCtx.textAlign = 'center';
-  for (let d = 0; d <= PROFILE_MAX_NM; d += 5) {
+  for (let d = 0; d <= profileNm; d += gridStepNm) {
     ilsCtx.fillText(d === 0 ? 'THR' : `${d}`, distX(d), M.top + PH + 12);
   }
 
@@ -579,7 +584,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       let first = true;
       let prevTs = null;
       for (const h of ac.history) {
-        if (h.dist_thr > PROFILE_MAX_NM || h.altitude > PROFILE_MAX_FT) continue;
+        if (h.dist_thr > profileNm || h.altitude > PROFILE_MAX_FT) continue;
         const hx = distX(h.dist_thr);
         const hy = altY(h.altitude);
         const isGap = prevTs !== null && (h.ts - prevTs) > TRAIL_GAP_SEC;
@@ -593,7 +598,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     }
 
     // ── Current position dot ─────────────────────────────────────────────────
-    if (ac.dist_thr_nm > PROFILE_MAX_NM || ac.altitude > PROFILE_MAX_FT) continue;
+    if (ac.dist_thr_nm > profileNm || ac.altitude > PROFILE_MAX_FT) continue;
 
     const x = distX(ac.dist_thr_nm);
     const y = altY(ac.altitude);
@@ -658,7 +663,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.save();
 
       for (const obs of hist) {
-        if (obs.dist_nm == null || obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.dist_nm == null || obs.dist_nm < 0 || obs.dist_nm > profileNm) continue;
         if (obs.alt_ft  == null || obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
         if (obs.wind_spd == null || obs.wind_dir == null) continue;
 
@@ -767,7 +772,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.save();
       ilsCtx.lineWidth = 1.5;
       for (const obs of noneObs) {
-        if (obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.dist_nm < 0 || obs.dist_nm > profileNm) continue;
         if (obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
         ilsCtx.strokeStyle = obs.reason === 'qc' ? NONE_COLOR_QC
                            : obs.reason === 'gap' ? NONE_COLOR_GAP
@@ -790,7 +795,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.lineWidth   = 1.2;
       ilsCtx.setLineDash([2, 2]);            // dashed outline to further distinguish
       for (const obs of preObs) {
-        if (obs.dist_nm < 0 || obs.dist_nm > PROFILE_MAX_NM) continue;
+        if (obs.dist_nm < 0 || obs.dist_nm > profileNm) continue;
         if (obs.alt_ft  < 0 || obs.alt_ft  > PROFILE_MAX_FT) continue;
         ilsCtx.beginPath();
         ilsCtx.arc(distX(obs.dist_nm), altY(obs.alt_ft), 2, 0, 2 * Math.PI);
@@ -2120,7 +2125,8 @@ let barbAutoTarget   = null;   // icao currently held by auto mode (null = none 
 let barbHwActive     = false;  // toggle: annotate each barb with headwind/tailwind value
 let barbHiResActive  = false;  // toggle: use Hi-resolution buffer instead of Lo for barb display
 let barbDclActive    = false;  // toggle: split HW/raw labels above+below barb for readability
-let trkActive        = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
+let trkActive          = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
+let profileZoomActive  = false;  // toggle: zoom ILS profile to PROFILE_ZOOM_NM (7.5 NM) half-range
 
 // ── Wind Rose state ───────────────────────────────────────────────────────────
 const WINDROSE_ALT_MAX       = 2_000;              // ft — ceiling for MODE-S wind samples
@@ -2843,6 +2849,15 @@ document.getElementById('ws-trk-btn').addEventListener('click', () => {
 
 // Restore saved trail state on page load
 document.getElementById('ws-trk-btn').classList.toggle('active', trkActive);
+
+// ── ILS profile zoom toggle ───────────────────────────────────────────────────
+// Halves the horizontal range from 15 NM to 7.5 NM, giving roughly double
+// the horizontal pixel density for wind barbs — useful with Hi-res mode active.
+document.getElementById('ws-zoom-btn').addEventListener('click', () => {
+  profileZoomActive = !profileZoomActive;
+  document.getElementById('ws-zoom-btn').classList.toggle('active', profileZoomActive);
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+});
 
 // ── Hi-resolution barb mode toggle ───────────────────────────────────────────
 // Switches the canvas from the Lo buffer (wsWindHistory, 400 ft / 0.5 NM / 40 obs)
