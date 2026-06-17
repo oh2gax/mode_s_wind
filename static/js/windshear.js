@@ -719,20 +719,20 @@ function drawIlsProfile(aircraft, shearEvents = []) {
           ilsCtx.font      = 'bold 9px "Courier New", monospace';
           ilsCtx.fillText(compLabel, bx, compY);
 
-          ilsCtx.fillStyle = bColor + '88';
-          ilsCtx.font      = '7px "Courier New", monospace';
+          ilsCtx.fillStyle = bColor + 'bb';
+          ilsCtx.font      = '9px "Courier New", monospace';
           ilsCtx.fillText(
-            `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
+            `${Math.round(obs.wind_dir)}/${Math.round(obs.wind_spd)}`,
             bx, rawY
           );
         } else {
           // ── No component annotation active: dir°/spd only ────────────────
           // Lifted ~20 px clear of the barb origin so it doesn't sit on the staff
           const lblY = nearTop ? by + 16 : by - 38;
-          ilsCtx.fillStyle = bColor + 'cc';
-          ilsCtx.font      = '8px "Courier New", monospace';
+          ilsCtx.fillStyle = bColor + 'ee';
+          ilsCtx.font      = '10px "Courier New", monospace';
           ilsCtx.fillText(
-            `${Math.round(obs.wind_dir)}°/${Math.round(obs.wind_spd)}kt`,
+            `${Math.round(obs.wind_dir)}/${Math.round(obs.wind_spd)}`,
             bx, lblY
           );
         }
