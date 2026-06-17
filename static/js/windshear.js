@@ -701,18 +701,18 @@ function drawIlsProfile(aircraft, shearEvents = []) {
           // ── Label Y positions (identical logic for HW and XW) ────────────
           let compY, rawY;
           if (barbDclActive) {
-            // Dcl ON: component value below barb, raw wind above
+            // Dcl ON: raw wind ABOVE (lifted clear of staff), component BELOW
             if (nearTop) {
-              compY = by + 14; rawY = by + 24;
+              compY = by + 14; rawY = by + 26;  // near top: both go down
             } else if (nearBot) {
-              rawY = by - 14; compY = by - 5;
+              rawY = by - 34; compY = by - 22;  // near bottom: both go up
             } else {
-              rawY = by - 9; compY = by + 16;
+              rawY = by - 34; compY = by + 16;  // normal: raw above, component below
             }
           } else {
             // Dcl OFF: both labels on same side, lifted clear of the barb staff (sLen=18 px)
-            compY = nearTop ? by + 16 : by - 28;
-            rawY  = nearTop ? by + 26 : by - 18;
+            compY = nearTop ? by + 16 : by - 46;
+            rawY  = nearTop ? by + 27 : by - 34;
           }
 
           ilsCtx.fillStyle = compColor;
@@ -728,7 +728,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
         } else {
           // ── No component annotation active: dir°/spd only ────────────────
           // Lifted ~20 px clear of the barb origin so it doesn't sit on the staff
-          const lblY = nearTop ? by + 16 : by - 22;
+          const lblY = nearTop ? by + 16 : by - 38;
           ilsCtx.fillStyle = bColor + 'cc';
           ilsCtx.font      = '8px "Courier New", monospace';
           ilsCtx.fillText(
