@@ -1050,6 +1050,7 @@ function detectPairwise(aircraft) {
   const byRwy  = {};
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (ac.meteo_source === 'NONE') continue;   // skip grey aircraft — stale headwind_kt can trigger false alarms
     if (ac.headwind_kt == null) continue;
     if (computeGsStatus(ac) !== 'ON') continue;
     if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
@@ -1108,6 +1109,7 @@ function detectGradient(aircraft) {
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
 
+    if (ac.meteo_source === 'NONE') continue;   // no live wind — skip
     const hist = wsWindHistory[ac.icao] || [];
     const pts  = hist
       .filter(h => h.wind_spd != null && h.wind_dir != null && h.alt_ft != null)
@@ -1171,6 +1173,7 @@ function detectEnergy(aircraft) {
 
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (ac.meteo_source === 'NONE') continue;   // skip grey aircraft — GS/alt changes during intercept are not windshear
     if (ac.groundspeed == null || ac.altitude == null) continue;
 
     const hist = (wsGsHistory[ac.icao] || [])
@@ -1222,6 +1225,7 @@ function detectRate(aircraft) {
 
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
+    if (ac.meteo_source === 'NONE') continue;   // stale headwind_kt vs stored history = false alarm
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
 
@@ -1285,6 +1289,7 @@ function detectBaseline(aircraft) {
 
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
+    if (ac.meteo_source === 'NONE') continue;   // stale headwind_kt vs baseline = false alarm
     if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
@@ -1340,6 +1345,7 @@ function detectKinematic(aircraft) {
 
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
+    if (ac.meteo_source === 'NONE') continue;   // IAS−GS changes during intercept are not windshear
     if (computeGsStatus(ac) !== 'ON') continue;
 
     const hist = wsKinHistory[ac.icao];
@@ -2600,6 +2606,7 @@ async function fetchApproachState() {
 
     // ── GS history: accumulate for energy algorithm ───────────────────────
     for (const ac of corridor) {
+      if (ac.meteo_source === 'NONE') continue;   // don't feed grey aircraft into energy buffer
       if (ac.groundspeed == null || ac.altitude == null) continue;
       if (!wsGsHistory[ac.icao]) wsGsHistory[ac.icao] = [];
       wsGsHistory[ac.icao].push({ gs: ac.groundspeed, alt: ac.altitude, ts: nowMs });
@@ -2618,6 +2625,7 @@ async function fetchApproachState() {
     //    so stale entries cannot keep triggering events, and stop accumulating until
     //    valid GPS data resumes.
     for (const ac of corridor) {
+      if (ac.meteo_source === 'NONE') continue;   // don't feed grey aircraft into kinematic buffer
       if (ac.ias == null || ac.groundspeed == null) continue;
       if (ac.pos_frozen) {
         delete wsKinHistory[ac.icao];   // purge stale entries immediately
