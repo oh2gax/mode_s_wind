@@ -833,9 +833,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-barb-hw-btn:hover               { background: var(--bg-3); color: var(--text-1); }
 .ws-barb-hw-btn.active               { background: #d97706; color: #fff; border-color: #d97706; }
+.ws-barb-hw-btn.active.ws-hw-xw-mode { background: #f97316; color: #fff; border-color: #f97316; }
 .ws-barb-hw-btn.ws-barb-hw-off       { opacity: 0.38; cursor: default; pointer-events: none; }
 
-/* Dcl (declutter) label placement button */
 .ws-barb-dcl-btn {
   font-size: 11px;
   padding: 2px 8px;

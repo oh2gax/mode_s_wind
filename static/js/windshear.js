@@ -681,37 +681,43 @@ function drawIlsProfile(aircraft, shearEvents = []) {
         const nearBot    = by + 24 > plotBottom - 6;
         ilsCtx.textAlign = 'center';
 
-        if (barbHwActive && barbRwyHdg != null) {
-          const hw      = hwKt(obs.wind_spd, obs.wind_dir, barbRwyHdg);
-          const hwRound = Math.round(hw);
-          // Green = headwind, red = tailwind, amber = near-zero (±5 kt)
-          const hwColor = hw > 5 ? '#4ade80' : hw < -5 ? '#f87171' : '#fbbf24';
+        if (barbHwMode !== 'off' && barbRwyHdg != null) {
+          // ── Compute the active component (HW or XW) ──────────────────────
+          const isHwMode  = barbHwMode === 'hw';
+          const compVal   = isHwMode
+            ? hwKt(obs.wind_spd, obs.wind_dir, barbRwyHdg)
+            : xwKt(obs.wind_spd, obs.wind_dir, barbRwyHdg);
+          const compRound = Math.round(compVal);
 
-          let hwY, rawY;
+          // HW: green = headwind, red = tailwind, amber = near-zero (±5 kt)
+          // XW: magnitude-based red gradient (matches approach history palette)
+          const compColor = isHwMode
+            ? (compVal > 5 ? '#4ade80' : compVal < -5 ? '#f87171' : '#fbbf24')
+            : (Math.abs(compVal) >= 10 ? '#fca5a5' : Math.abs(compVal) >= 5 ? '#fcd34d' : '#6ee7b7');
+
+          // HW label: "+12kt" / "-5kt"   XW label: "+8kt" (from right) / "-3kt" (from left)
+          const compLabel = `${compRound >= 0 ? '+' : ''}${compRound}kt`;
+
+          // ── Label Y positions (identical logic for HW and XW) ────────────
+          let compY, rawY;
           if (barbDclActive) {
-            // ── Dcl ON: split labels — raw wind above barb, HW value below ──
+            // Dcl ON: component value below barb, raw wind above
             if (nearTop) {
-              // No room above — stack both below, HW first (primary)
-              hwY  = by + 14;
-              rawY = by + 24;
+              compY = by + 14; rawY = by + 24;
             } else if (nearBot) {
-              // No room below — stack both above, HW closest to barb (primary)
-              rawY = by - 14;
-              hwY  = by - 5;
+              rawY = by - 14; compY = by - 5;
             } else {
-              // Normal split: raw wind above, HW value below
-              rawY = by - 9;
-              hwY  = by + 16;
+              rawY = by - 9; compY = by + 16;
             }
           } else {
-            // ── Dcl OFF: current behaviour — both labels on same side ────────
-            hwY  = nearTop ? by + 16 : by - 14;
-            rawY = nearTop ? by + 25 : by - 5;
+            // Dcl OFF: both labels on same side
+            compY = nearTop ? by + 16 : by - 14;
+            rawY  = nearTop ? by + 25 : by - 5;
           }
 
-          ilsCtx.fillStyle = hwColor;
+          ilsCtx.fillStyle = compColor;
           ilsCtx.font      = 'bold 9px "Courier New", monospace';
-          ilsCtx.fillText(`${hwRound >= 0 ? '+' : ''}${hwRound}kt`, bx, hwY);
+          ilsCtx.fillText(compLabel, bx, compY);
 
           ilsCtx.fillStyle = bColor + '88';
           ilsCtx.font      = '7px "Courier New", monospace';
@@ -720,7 +726,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
             bx, rawY
           );
         } else {
-          // ── No HW active: dir°/spd only ──────────────────────────────────
+          // ── No component annotation active: dir°/spd only ────────────────
           const lblY = nearTop ? by + 16 : by - 5;
           ilsCtx.fillStyle = bColor + 'cc';
           ilsCtx.font      = '8px "Courier New", monospace';
@@ -732,10 +738,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       }
 
       // Aircraft identifier in the top-left corner of the plot area
-      const hwTag  = (barbHwActive && barbRwyHdg != null)
-        ? `  · HW ref ${selAc?.approach_runway ?? '?'} (${barbRwyHdg}°)` : '';
+      const hwTag  = (barbHwMode !== 'off' && barbRwyHdg != null)
+        ? `  · ${barbHwMode.toUpperCase()} ref ${selAc?.approach_runway ?? '?'} (${barbRwyHdg}°)` : '';
       const hiTag  = barbHiResActive ? '  · HI' : '';
-      const dclTag = (barbHwActive && barbDclActive) ? '  · DCL' : '';
+      const dclTag = (barbHwMode !== 'off' && barbDclActive) ? '  · DCL' : '';
       ilsCtx.fillStyle = bColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
@@ -1006,6 +1012,15 @@ function getRwyHeading(rwy) { return RWY_HEADINGS[rwy] ?? null; }
  */
 function hwKt(windSpd, windDir, rwyHdg) {
   return windSpd * Math.cos((windDir - rwyHdg) * Math.PI / 180);
+}
+
+/**
+ * Crosswind component (kt) of a wind observation for a given runway heading.
+ * Positive = wind from right of runway centreline, negative = from left.
+ * Formula: spd × sin(windDir − rwyHdg)
+ */
+function xwKt(windSpd, windDir, rwyHdg) {
+  return windSpd * Math.sin((windDir - rwyHdg) * Math.PI / 180);
 }
 
 /**
@@ -2122,9 +2137,9 @@ let barbLayerActive  = false;  // toggle: show barb overlay on ILS canvas
 let barbSelectedIcao = null;   // which aircraft's barbs are displayed (null = none)
 let barbAutoActive   = false;  // auto-select mode: always show lowest approach aircraft
 let barbAutoTarget   = null;   // icao currently held by auto mode (null = none yet)
-let barbHwActive     = false;  // toggle: annotate each barb with headwind/tailwind value
+let barbHwMode       = 'off';  // cycle 'off' → 'hw' → 'xw': which component annotation is active
 let barbHiResActive  = false;  // toggle: use Hi-resolution buffer instead of Lo for barb display
-let barbDclActive    = false;  // toggle: split HW/raw labels above+below barb for readability
+let barbDclActive    = false;  // toggle: split component/raw labels above+below barb for readability
 let trkActive          = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
 let profileZoomActive  = false;  // toggle: zoom ILS profile to PROFILE_ZOOM_NM (7.5 NM) half-range
 
@@ -2788,16 +2803,18 @@ document.getElementById('ws-barb-btn').addEventListener('click', () => {
   barbLayerActive = !barbLayerActive;
   document.getElementById('ws-barb-btn').classList.toggle('active', barbLayerActive);
   if (!barbLayerActive) {
-    // Turning barbs off — also cancel auto mode, HW annotation and Hi-res mode
+    // Turning barbs off — also cancel auto mode, HW/XW annotation and Hi-res mode
     barbSelectedIcao = null;
     barbAutoActive   = false;
     barbAutoTarget   = null;
-    barbHwActive     = false;
+    barbHwMode       = 'off';
     barbHiResActive  = false;
     barbDclActive    = false;
     document.getElementById('ws-barb-auto-btn').classList.remove('active');
-    document.getElementById('ws-barb-hw-btn').classList.remove('active');
-    document.getElementById('ws-barb-hw-btn').classList.add('ws-barb-hw-off');
+    const _hwBtn = document.getElementById('ws-barb-hw-btn');
+    _hwBtn.classList.remove('active', 'ws-hw-xw-mode');
+    _hwBtn.textContent = 'HW';
+    _hwBtn.classList.add('ws-barb-hw-off');
     document.getElementById('ws-barb-hi-btn').classList.remove('active');
     document.getElementById('ws-barb-hi-btn').classList.add('ws-barb-hi-off');
     document.getElementById('ws-barb-dcl-btn').classList.remove('active');
@@ -2805,33 +2822,45 @@ document.getElementById('ws-barb-btn').addEventListener('click', () => {
   } else {
     document.getElementById('ws-barb-hw-btn').classList.remove('ws-barb-hw-off');
     document.getElementById('ws-barb-hi-btn').classList.remove('ws-barb-hi-off');
-    // Dcl stays greyed until HW is also on
+    // Dcl stays greyed until HW/XW mode is active
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });
 
-// ── HW/TW annotation toggle ───────────────────────────────────────────────────
+// ── HW/XW component annotation — cycling toggle ──────────────────────────────
+// Cycles: off → HW (headwind/tailwind) → XW (crosswind) → off.
+// Button label and colour update to reflect the active mode.
+// Dcl becomes available as soon as any component mode is active.
 document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
   if (!barbLayerActive) return;   // button is visually disabled when barbs are off
-  barbHwActive = !barbHwActive;
-  document.getElementById('ws-barb-hw-btn').classList.toggle('active', barbHwActive);
-  // Dcl only makes sense when HW is on — enable/disable accordingly
-  if (barbHwActive) {
-    document.getElementById('ws-barb-dcl-btn').classList.remove('ws-barb-dcl-off');
+  // Advance cycle
+  if      (barbHwMode === 'off') barbHwMode = 'hw';
+  else if (barbHwMode === 'hw')  barbHwMode = 'xw';
+  else                           barbHwMode = 'off';
+
+  const btn = document.getElementById('ws-barb-hw-btn');
+  btn.textContent = barbHwMode === 'xw' ? 'XW' : 'HW';
+  btn.classList.toggle('active',        barbHwMode !== 'off');
+  btn.classList.toggle('ws-hw-xw-mode', barbHwMode === 'xw');   // orange tint for XW
+
+  // Dcl available when any component mode is active
+  const dclBtn = document.getElementById('ws-barb-dcl-btn');
+  if (barbHwMode !== 'off') {
+    dclBtn.classList.remove('ws-barb-dcl-off');
   } else {
     barbDclActive = false;
-    document.getElementById('ws-barb-dcl-btn').classList.remove('active');
-    document.getElementById('ws-barb-dcl-btn').classList.add('ws-barb-dcl-off');
+    dclBtn.classList.remove('active');
+    dclBtn.classList.add('ws-barb-dcl-off');
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
 // ── Dcl (declutter) label placement toggle ────────────────────────────────────
-// Splits HW and raw wind labels to opposite sides of each barb for readability.
-// Only active when both Barbs and HW are on.
+// Splits component value and raw wind labels to opposite sides of each barb.
+// Works for both HW and XW modes. Only active when a component mode is on.
 document.getElementById('ws-barb-dcl-btn').addEventListener('click', () => {
-  if (!barbLayerActive || !barbHwActive) return;
+  if (!barbLayerActive || barbHwMode === 'off') return;
   barbDclActive = !barbDclActive;
   document.getElementById('ws-barb-dcl-btn').classList.toggle('active', barbDclActive);
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
