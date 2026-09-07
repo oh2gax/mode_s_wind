@@ -2035,6 +2035,15 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   margin-left: auto;
   flex-shrink: 0;
 }
+/* Heatmap's own day-range selector — sits right after the title (not pushed to
+   the far right like .gps-range-btns) so the legend's margin-left:auto still
+   pushes the colour scale to the panel's right edge as before. */
+.gps-heatmap-range-btns {
+  display: flex;
+  gap: 2px;
+  margin-left: 0.75rem;
+  flex-shrink: 0;
+}
 .gps-range-btn {
   background: var(--bg-3);
   color: var(--text-2);

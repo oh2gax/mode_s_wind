@@ -5,7 +5,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-07 (CARTO Basemaps API key — local secrets pattern)
+## 2026-09-07 (CARTO Basemaps API key, GPS Quality 3m/6m range selectors)
 
 - **CARTO now requires an API key** to serve raster basemap tiles without an "API key required" watermark; added support for the key across all three map pages (Live Map, Wind Map, Windshear) — all `dark_all` / `light_all` / `light_nolabels` / `dark_nolabels` tile URLs now append `?key=...` when a key is configured
 - **Local secrets pattern**: real key lives in `api_keys.py` (new, gitignored, never committed); `api_keys.py.example` (new, committed) is the safe template documenting what needs to be filled in — `cp api_keys.py.example api_keys.py` then fill in your key
@@ -14,6 +14,30 @@ No version numbers — entries are organised by date.
 - `base.html` — injects `const CARTO_API_KEY = ...;` as a page-global JS variable (via `tojson`) before `{% block scripts %}`, so `live_map.js` / `windmap.js` / `windshear.js` can read it when building tile URLs
 - `.gitignore` — added `api_keys.py`
 - Changed files: `api_keys.py` (new, gitignored), `api_keys.py.example` (new), `config.py`, `web/app.py`, `web/templates/base.html`, `static/js/live_map.js`, `static/js/windmap.js`, `static/js/windshear.js`, `.gitignore`
+- **GPS Quality page — added `3m` and `6m` time-series range selectors** alongside the existing `1d`/`2d`/`3d`/`1w`/`2w`/`1m` buttons; same daily-bar aggregation as `2w`/`1m`, just over a longer window (90 / 180 days)
+- `collector/gps_quality.py` — `MAX_BUCKETS` (the in-RAM rolling buffer cap, and the cutoff used by `_load_from_db`/`_load_zones_from_db` on startup) raised from 31 days to **6 months** (`180 * 24` hourly buckets) so enough history is retained and reloaded to serve the new selectors
+- Added a separate `HEATMAP_MAX_BUCKETS` (31 days, unchanged from the old cap) so the `heatmap` field in `/api/gps/state` stays capped independently of the now much longer `time_series` field — the heatmap canvas only ever renders the most recent 14 days regardless, so there was no reason to ship 6 months of buckets for it on every 30-second poll
+- `web/templates/gps_quality.html` — added `3m` / `6m` buttons to the range selector row (plain flexbox, no layout changes needed)
+- `static/js/gps_quality.js` — `RANGE_CONFIG` extended with `'3m': { hours: 2160, aggregate: 'day', ... }` and `'6m': { hours: 4320, aggregate: 'day', ... }`; the existing daily-aggregate code path (already generic over `cfg.hours`) required no changes
+- Note: GPS quality history is never auto-purged (only the flight/meteo autopurge in Maintenance runs on a schedule) — `gps_quality_hours` accumulates indefinitely until manually cleared from the Maintenance page's Date Range panel, so how far back `3m`/`6m` actually show data depends on how much history has been kept
+- Changed files: `collector/gps_quality.py`, `web/app.py`, `web/templates/gps_quality.html`, `static/js/gps_quality.js`
+
+---
+
+## 2026-09-07 (GPS Quality FL heatmap — new FL band, own 14d/1m selector)
+
+- **New FL band**: split the old combined `050-100` band into `050-080` and `080-100` for finer resolution around the transition altitude — the heatmap, FL Band Analysis doughnut, and Live degraded aircraft table now show **9 FL bands** instead of 8. Historical events recorded before the split remain tagged under the old `050-100` label inside the stored `fl_bands` JSON and will not appear in either new band — nothing is lost, but pre-split history can't be retroactively divided
+- `collector/gps_quality.py` — `FL_BANDS` updated with the new boundaries (`5,000–8,000 ft` / `8,000–10,000 ft`); `FL_BAND_LABELS` picks up the change automatically everywhere it's used (bucket initialisation, DB load/persist, API response) since `fl_bands` is stored as a flexible JSON blob keyed by label, not fixed DB columns
+- **Heatmap gets its own `14d` / `1m` day-range selector**, independent of the time-series chart's `1d`–`6m` selector — both options draw instantly from data already in the browser since the server already caps the heatmap payload at 31 days (`HEATMAP_MAX_BUCKETS`, added in the previous entry), so `1m` (31 days) was already fully covered without any backend change
+- `web/templates/gps_quality.html` — added `14d`/`1m` buttons to the heatmap panel header in a new `#gps-heatmap-range-btns` group; `static/css/style.css` — added `.gps-heatmap-range-btns` (sits next to the title instead of being pushed to the panel's far right like the legend)
+- `static/js/gps_quality.js`:
+  - New `HEATMAP_RANGE_CONFIG` (`14d` → 14 days, `1m` → 31 days) and `applyHeatmapRange()`, mirroring the existing `RANGE_CONFIG`/`applyRange()` pattern; persisted to `localStorage` as `ms_gps_heatmap_range`
+  - `drawHeatmap()` no longer hardcodes 14 days — day count now comes from the active heatmap range selector
+  - Event-count font size in each heatmap cell now also scales down by cell **width** (previously height-only), so 4-digit counts stay legible in the narrower daily columns of the `1m` view (31 columns vs 14)
+  - `DONUT_COLORS` extended with a 9th colour (teal, `080-100`) to match the new band count
+  - **Fix**: the FL Band Analysis donut's cutoff was wired to the time-series chart's `currentRange` (added in the previous entry, up to 6 months), but the donut draws from the same `heatmapData` the server caps at 31 days — so selecting `3m`/`6m` silently did nothing beyond 31 days for the donut. Rewired the donut's cutoff to `currentHeatmapRange` (the new `14d`/`1m` selector) instead, since both panels share the same 31-day-capped data source; this is the semantically correct pairing
+  - Fixed a class-name collision: the existing `.gps-range-btn` click handler and active-state toggle at the bottom of the file used an unscoped `document.querySelectorAll('.gps-range-btn')`, which would have also matched the new heatmap buttons (same class, for shared styling) and cleared their active state whenever the time-series range changed. Both now scoped to `#gps-range-btns .gps-range-btn`
+- Changed files: `collector/gps_quality.py`, `web/templates/gps_quality.html`, `static/css/style.css`, `static/js/gps_quality.js`
 
 ---
 

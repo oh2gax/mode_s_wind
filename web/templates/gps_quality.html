@@ -50,6 +50,8 @@
             <button class="gps-range-btn" data-range="1w">1w</button>
             <button class="gps-range-btn" data-range="2w">2w</button>
             <button class="gps-range-btn" data-range="1m">1m</button>
+            <button class="gps-range-btn" data-range="3m">3m</button>
+            <button class="gps-range-btn" data-range="6m">6m</button>
           </div>
         </div>
         <div class="gps-chart-wrap">
@@ -57,10 +59,14 @@
         </div>
       </div>
 
-      <!-- 14-day FL-band heatmap -->
+      <!-- FL-band heatmap -->
       <div class="gps-heatmap-panel">
         <div class="gps-panel-hdr">
-          <span class="gps-panel-title">FL Band Heatmap — Last 14 Days</span>
+          <span class="gps-panel-title" id="gps-heatmap-title">FL Band Heatmap — Last 14 Days</span>
+          <div class="gps-heatmap-range-btns" id="gps-heatmap-range-btns">
+            <button class="gps-range-btn active" data-heatmap-range="14d">14d</button>
+            <button class="gps-range-btn" data-heatmap-range="1m">1m</button>
+          </div>
           <span class="gps-panel-legend">
             <span class="gps-leg-scale">
               <span class="gps-leg-cell" style="background:var(--gps-heat-0)"></span>

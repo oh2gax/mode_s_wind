@@ -736,8 +736,9 @@ def create_app(
         Data is maintained in RAM by the background GPS quality sweep thread.
         No database access required.  Returns:
           live        — aircraft currently showing degraded GPS
-          time_series — last 24 hourly event buckets
-          heatmap     — up to 7 days of hourly buckets with FL-band breakdown
+          time_series — hourly event buckets, up to 6 months (range selector)
+          heatmap     — most recent 31 days of hourly buckets with FL-band
+                        breakdown (canvas only ever renders the last 14 days)
           fl_bands    — ordered FL band labels
           stats       — 24-hour summary counts
         """

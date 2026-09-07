@@ -19,10 +19,13 @@ analyses every tracked aircraft for signs of GPS degradation:
 Hourly bucket data is persisted to the SQLite ``gps_quality_hours`` table
 so that history survives process restarts.  Only *completed* hours are
 written — exactly 24 rows per day — so the write load is negligible.
-On startup the tracker reloads the last 7 days from the DB, restoring the
-time-series chart and heatmap instantly.  The current (incomplete) hour
-lives in RAM only and is lost on an unplanned restart, but that is an
-acceptable trade-off (≤ 59 minutes of data).
+On startup the tracker reloads the last MAX_BUCKETS hours (currently 6
+months) from the DB, restoring the time-series chart and heatmap instantly.
+The current (incomplete) hour lives in RAM only and is lost on an unplanned
+restart, but that is an acceptable trade-off (≤ 59 minutes of data).
+The heatmap response is capped independently at HEATMAP_MAX_BUCKETS (31
+days) since the heatmap canvas only ever renders the most recent 14 days —
+no need to ship 6 months of buckets for a field that gets truncated anyway.
 
 Thread safety
 -------------
@@ -49,7 +52,8 @@ log = logging.getLogger("modes.gps_quality")
 FL_BANDS = [
     ( 1_000,  3_000, "010-030"),
     ( 3_000,  5_000, "030-050"),
-    ( 5_000, 10_000, "050-100"),
+    ( 5_000,  8_000, "050-080"),
+    ( 8_000, 10_000, "080-100"),
     (10_000, 15_000, "100-150"),
     (15_000, 20_000, "150-200"),
     (20_000, 25_000, "200-250"),
@@ -57,10 +61,24 @@ FL_BANDS = [
     (30_000, 99_999, "300+"),
 ]
 FL_BAND_LABELS = [b[2] for b in FL_BANDS]
+# NOTE: the former single "050-100" band was split into "050-080" / "080-100"
+# on 2026-09-07. Historical gps_quality_hours / gps_quality_zone_hours rows
+# written before that date still have their events keyed under the old
+# "050-100" label inside the stored fl_bands JSON blob. Those events are not
+# lost, but they will not appear under either new band — fl.get(lbl, 0) in
+# _load_from_db / _load_zones_from_db simply returns 0 for a label that
+# doesn't exist in an old row. Only new events recorded after the split are
+# correctly split between the two new bands.
 
 # ── Bucket duration ───────────────────────────────────────────────────────────
 BUCKET_SEC    = 3_600          # one hour per bucket
-MAX_BUCKETS   = 31 * 24        # 31 days rolling
+MAX_BUCKETS   = 180 * 24       # 6 months rolling — covers the GPS Quality page's
+                                # longest time-series selector (6m); also the DB
+                                # reload cutoff on startup (_load_from_db / _load_zones_from_db)
+HEATMAP_MAX_BUCKETS = 31 * 24  # heatmap only ever renders the most recent 14 days
+                                # client-side (HEATMAP_MAX_DAYS in gps_quality.js) —
+                                # capped independently so its payload doesn't grow
+                                # with the longer time-series window above
 
 # ── Distance-zone filtering ───────────────────────────────────────────────────
 # Zone names and their radius limits in nautical miles.
@@ -584,8 +602,12 @@ class GpsQualityTracker:
 
         Returns:
           live        — aircraft currently showing degraded GPS (list)
-          time_series — hourly buckets for the requested zone (oldest first)
-          heatmap     — all available buckets for the zone (up to 31 days)
+          time_series — hourly buckets for the requested zone (oldest first,
+                        up to MAX_BUCKETS = 6 months, for the range selector)
+          heatmap     — most recent buckets for the zone (up to
+                        HEATMAP_MAX_BUCKETS = 31 days); capped independently
+                        of time_series since the heatmap canvas only ever
+                        renders the last 14 days regardless of how much is sent
           fl_bands    — ordered list of FL band label strings
           stats       — summary counts for the last 24 hours
           zone        — the active zone name (echoed back to the frontend)
@@ -612,6 +634,11 @@ class GpsQualityTracker:
 
         cleaned = [_clean(b) for b in buckets]
 
+        # Heatmap only ever displays the most recent 14 days client-side, so
+        # cap its payload independently rather than sending up to 6 months
+        # of buckets on every 30-second poll.
+        heatmap_cleaned = cleaned[-HEATMAP_MAX_BUCKETS:]
+
         # Last 24 hours for stats
         now_hour = _bucket_hour(time.time())
         ts_24h   = [b for b in cleaned
@@ -632,7 +659,7 @@ class GpsQualityTracker:
         return {
             "live":        self._live_events,
             "time_series": cleaned,
-            "heatmap":     cleaned,
+            "heatmap":     heatmap_cleaned,
             "fl_bands":    FL_BAND_LABELS,
             "zone":        zone,
             "stats": {

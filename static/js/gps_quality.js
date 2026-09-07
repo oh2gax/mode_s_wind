@@ -3,7 +3,7 @@
  *
  * Polls /api/gps/state every 30 seconds and renders:
  *   • 24-hour time-series chart  (Chart.js)
- *   • 14-day × 8 FL-band heatmap  (Canvas)
+ *   • FL-band heatmap  (Canvas) — 14d / 1m day-range selector, 9 FL bands
  *   • Live degraded aircraft table
  */
 
@@ -75,6 +75,8 @@ const RANGE_CONFIG = {
   '1w': { hours:  168, aggregate: 'hour', title: 'Last 7 Days',    maxTicks:  7 },
   '2w': { hours:  336, aggregate: 'day',  title: 'Last 14 Days',   maxTicks: 14 },
   '1m': { hours:  744, aggregate: 'day',  title: 'Last 31 Days',   maxTicks: 31 },
+  '3m': { hours: 2160, aggregate: 'day',  title: 'Last 3 Months',  maxTicks: 13 },
+  '6m': { hours: 4320, aggregate: 'day',  title: 'Last 6 Months',  maxTicks: 13 },
 };
 let currentRange = localStorage.getItem('ms_gps_range') || '1d';
 let lastFullTimeSeries = [];
@@ -83,16 +85,39 @@ function applyRange(range) {
   if (!RANGE_CONFIG[range]) return;
   currentRange = range;
   localStorage.setItem('ms_gps_range', range);
-  document.querySelectorAll('.gps-range-btn').forEach(btn => {
+  // Scoped to the time-series panel's own button group — #gps-heatmap-range-btns
+  // reuses the same .gps-range-btn class for styling and must not be touched here.
+  document.querySelectorAll('#gps-range-btns .gps-range-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.range === range);
   });
   const cfg = RANGE_CONFIG[range];
   const titleEl = document.getElementById('gps-chart-title');
   if (titleEl) titleEl.textContent = 'GPS Degradation Events — ' + cfg.title;
   if (lastFullTimeSeries.length > 0) updateTsChart(lastFullTimeSeries);
-  // Redraw donut immediately with the new range window (no new fetch needed —
-  // lastHeatmapData already holds the full history received from the server).
-  if (lastHeatmapData.length > 0) drawDonutAndStats(lastHeatmapData, lastFlBands);
+}
+
+// ── Heatmap day-range selector (independent of the time-series range above) ──
+// The server already caps the heatmap payload at HEATMAP_MAX_BUCKETS (31 days
+// — see collector/gps_quality.py), so both options here are served from data
+// already present in lastHeatmapData; switching never needs a new fetch.
+const HEATMAP_RANGE_CONFIG = {
+  '14d': { days: 14, title: 'Last 14 Days' },
+  '1m':  { days: 31, title: 'Last 31 Days' },
+};
+let currentHeatmapRange = localStorage.getItem('ms_gps_heatmap_range') || '14d';
+
+function applyHeatmapRange(range) {
+  if (!HEATMAP_RANGE_CONFIG[range]) return;
+  currentHeatmapRange = range;
+  localStorage.setItem('ms_gps_heatmap_range', range);
+  document.querySelectorAll('#gps-heatmap-range-btns .gps-range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.heatmapRange === range);
+  });
+  const cfg = HEATMAP_RANGE_CONFIG[range];
+  const titleEl = document.getElementById('gps-heatmap-title');
+  if (titleEl) titleEl.textContent = 'FL Band Heatmap — ' + cfg.title;
+  // Redraw immediately from cached data — no fetch needed (see comment above).
+  if (lastHeatmapData.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
 }
 
 // ── Chart.js time-series ──────────────────────────────────────────────────────
@@ -325,7 +350,7 @@ function drawHeatmap(heatmapData, flBands) {
 
   const th       = canvasTheme();
   const ctx      = canvas.getContext('2d');
-  const nBands   = flBands.length;   // 7
+  const nBands   = flBands.length;   // dynamic — currently 9 FL bands
   const MARGIN_L = 68;  // left margin for FL labels
   const MARGIN_B = 46;  // bottom margin for date labels
   const MARGIN_T = 8;
@@ -342,10 +367,11 @@ function drawHeatmap(heatmapData, flBands) {
     }
   }
 
-  const HEATMAP_MAX_DAYS = 14;
+  // Day count driven by the heatmap's own range selector (14d / 1m) —
+  // independent of the time-series chart's range selector above.
+  const heatmapMaxDays = (HEATMAP_RANGE_CONFIG[currentHeatmapRange] || HEATMAP_RANGE_CONFIG['14d']).days;
   const allDayKeys = Object.keys(dayMap).map(Number).sort();
-  // Keep only the most recent 14 days
-  const dayKeys = allDayKeys.slice(-HEATMAP_MAX_DAYS);
+  const dayKeys = allDayKeys.slice(-heatmapMaxDays);
   const nDays   = dayKeys.length;
   if (nDays === 0) return;
 
@@ -389,10 +415,14 @@ function drawHeatmap(heatmapData, flBands) {
       ctx.fillStyle = heatColor(norm);
       ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
 
-      // Event count inside cell (skip zeros for clarity)
+      // Event count inside cell (skip zeros for clarity).  Font size is
+      // clamped by both cell height and cell width so 4-digit counts stay
+      // legible even in the narrower daily columns of the 1m heatmap range
+      // (31 columns vs 14) — width budget assumes up to 4 monospace digits.
       if (val > 0) {
         ctx.fillStyle = norm > 0.5 ? '#fff' : th.text;
-        ctx.font      = `bold ${Math.min(11, Math.floor(cellH * 0.45))}px monospace`;
+        const fontSize = Math.max(6, Math.min(11, Math.floor(cellH * 0.45), Math.floor(cellW / 4 / 0.62)));
+        ctx.font      = `bold ${fontSize}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(val, x + cellW / 2, y + cellH / 2);
@@ -482,7 +512,8 @@ let donutChart = null;
 const DONUT_COLORS = [
   '#38bdf8',  // 010-030  sky blue
   '#818cf8',  // 030-050  indigo
-  '#34d399',  // 050-100  emerald
+  '#34d399',  // 050-080  emerald
+  '#2dd4bf',  // 080-100  teal
   '#fb923c',  // 100-150  orange
   '#f472b6',  // 150-200  pink
   '#a78bfa',  // 200-250  violet
@@ -493,11 +524,15 @@ const DONUT_COLORS = [
 function drawDonutAndStats(heatmapData, flBands) {
   if (!heatmapData || heatmapData.length === 0 || !flBands || flBands.length === 0) return;
 
-  // Cutoff follows the active time-range selector (same window as the time-series chart).
-  // Falls back to 14 days if the range config is somehow unavailable.
+  // Cutoff follows the heatmap's own day-range selector (14d / 1m) — NOT the
+  // time-series chart's 1d–6m selector. Both this donut and the heatmap draw
+  // from the same heatmapData, which the server caps at 31 days
+  // (HEATMAP_MAX_BUCKETS) regardless of the time-series range, so tying the
+  // cutoff to a selector that goes up to 6 months would silently do nothing
+  // beyond 31 days. Falls back to 14 days if the range config is unavailable.
   const DAY_SEC   = 86_400;
-  const rangeCfg  = RANGE_CONFIG[currentRange];
-  const cutoffSec = (Date.now() / 1000) - (rangeCfg ? rangeCfg.hours * 3600 : 14 * DAY_SEC);
+  const rangeCfg  = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
+  const cutoffSec = (Date.now() / 1000) - (rangeCfg ? rangeCfg.days * DAY_SEC : 14 * DAY_SEC);
   const recent    = heatmapData.filter(b => b.ts >= cutoffSec);
   if (recent.length === 0) return;
 
@@ -613,9 +648,9 @@ function renderStats(stats) {
 // ── Main poll loop ────────────────────────────────────────────────────────────────────────────
 let lastFlBands    = [];
 let lastHeatmapData = [];   // retained for hourly donut refresh
-let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick, zone or range change
+let donutDrawn     = false; // draw once on first load; thereafter only on hourly tick, zone or heatmap-range change
 let lastDonutZone  = null;  // zone the donut was last drawn for; triggers redraw on zone switch
-let lastDonutRange = null;  // range the donut was last drawn for; triggers redraw on range switch
+let lastDonutRange = null;  // heatmap range (14d/1m) the donut was last drawn for; triggers redraw on change
 
 async function fetchGpsState() {
   try {
@@ -630,12 +665,12 @@ async function fetchGpsState() {
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
     drawHeatmap(d.heatmap || [], lastFlBands);
-    // Donut drawn on first load and whenever the zone or range changes; hourly interval handles the rest
-    if (!donutDrawn || lastDonutZone !== currentZone || lastDonutRange !== currentRange) {
+    // Donut drawn on first load and whenever the zone or heatmap range changes; hourly interval handles the rest
+    if (!donutDrawn || lastDonutZone !== currentZone || lastDonutRange !== currentHeatmapRange) {
       drawDonutAndStats(lastHeatmapData, lastFlBands);
       donutDrawn    = true;
       lastDonutZone = currentZone;
-      lastDonutRange = currentRange;
+      lastDonutRange = currentHeatmapRange;
     }
     renderLiveTable(d.live || []);
 
@@ -651,12 +686,28 @@ async function fetchGpsState() {
 applyHeatCssVars();
 initTsChart();
 
-// Wire up range selector buttons
-document.querySelectorAll('.gps-range-btn').forEach(btn => {
+// Wire up range selector buttons (scoped to the time-series panel's own
+// button group — #gps-heatmap-range-btns below reuses the same .gps-range-btn
+// class for styling but must not trigger this handler)
+document.querySelectorAll('#gps-range-btns .gps-range-btn').forEach(btn => {
   btn.addEventListener('click', () => applyRange(btn.dataset.range));
 });
 // Restore saved range (updates button state + chart title without data yet)
 applyRange(currentRange);
+
+// Wire up heatmap's own day-range selector (14d / 1m)
+document.querySelectorAll('#gps-heatmap-range-btns .gps-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyHeatmapRange(btn.dataset.heatmapRange));
+});
+// Restore saved heatmap range (updates button state + title without data yet)
+document.querySelectorAll('#gps-heatmap-range-btns .gps-range-btn').forEach(btn => {
+  btn.classList.toggle('active', btn.dataset.heatmapRange === currentHeatmapRange);
+});
+{
+  const heatmapTitleEl = document.getElementById('gps-heatmap-title');
+  const heatmapCfg = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
+  if (heatmapTitleEl && heatmapCfg) heatmapTitleEl.textContent = 'FL Band Heatmap — ' + heatmapCfg.title;
+}
 
 // Wire up zone selector buttons
 document.querySelectorAll('.gps-zone-btn').forEach(btn => {
