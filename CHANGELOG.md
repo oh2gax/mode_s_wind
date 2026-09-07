@@ -5,6 +5,18 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-07 (CARTO Basemaps API key — local secrets pattern)
+
+- **CARTO now requires an API key** to serve raster basemap tiles without an "API key required" watermark; added support for the key across all three map pages (Live Map, Wind Map, Windshear) — all `dark_all` / `light_all` / `light_nolabels` / `dark_nolabels` tile URLs now append `?key=...` when a key is configured
+- **Local secrets pattern**: real key lives in `api_keys.py` (new, gitignored, never committed); `api_keys.py.example` (new, committed) is the safe template documenting what needs to be filled in — `cp api_keys.py.example api_keys.py` then fill in your key
+- `config.py` imports `CARTO_API_KEY` from `api_keys.py` at startup with a graceful fallback to an empty string plus a console warning if the file is missing, so the app still starts (map tiles just show the watermark until configured)
+- `web/app.py` — `CARTO_API_KEY` added to the existing `inject_config_modes` context processor so it's available on every page without per-route changes
+- `base.html` — injects `const CARTO_API_KEY = ...;` as a page-global JS variable (via `tojson`) before `{% block scripts %}`, so `live_map.js` / `windmap.js` / `windshear.js` can read it when building tile URLs
+- `.gitignore` — added `api_keys.py`
+- Changed files: `api_keys.py` (new, gitignored), `api_keys.py.example` (new), `config.py`, `web/app.py`, `web/templates/base.html`, `static/js/live_map.js`, `static/js/windmap.js`, `static/js/windshear.js`, `.gitignore`
+
+---
+
 ## 2026-06-17 (ILS profile zoom, HW/XW barb annotation, label declutter)
 
 - **Zoom button** added to the ILS glideslope profile toolbar (purple when active); toggles the horizontal range between 15 NM (full view) and 7.5 NM (zoomed), roughly doubling the horizontal pixel density available for wind barbs; distance grid steps at 2.5 NM intervals in zoomed mode; full 15 NM history always buffered so switching back is instant

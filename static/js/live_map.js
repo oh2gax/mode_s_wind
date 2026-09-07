@@ -18,8 +18,11 @@
 // ── Map init ──────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([RECEIVER_LAT, RECEIVER_LON], 8);
 
-const TILE_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+// CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
+// appended as a query param so raster tiles are served without the watermark.
+const _cartoKeyQs = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+const TILE_DARK  = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`;
+const TILE_LIGHT = `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`;
 const TILE_OPTS  = { attribution: '© OSM, © CARTO', subdomains: 'abcd', maxZoom: 18 };
 
 let currentTile = L.tileLayer(

@@ -7,6 +7,17 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ── Local secrets (API keys) ────────────────────────────────────────────────
+# Real keys live in api_keys.py, which is gitignored and never committed.
+# On a fresh clone: cp api_keys.py.example api_keys.py, then fill in your keys.
+try:
+    from api_keys import CARTO_API_KEY
+except ImportError:
+    CARTO_API_KEY = ""
+    print("[config] WARNING: api_keys.py not found — copy api_keys.py.example "
+          "to api_keys.py and add your CARTO_API_KEY, otherwise CARTO map "
+          "tiles will show the 'API key required' watermark.")
+
 
 class Config:
     # ── Radarcape connection ───────────────────────────────────────────────
@@ -18,6 +29,9 @@ class Config:
     WEB_PORT: int = 5010
     WEB_USER: str = "admin"
     WEB_PASS: str = "admin123"
+
+    # ── API keys (loaded from local api_keys.py — see note above) ──────────
+    CARTO_API_KEY: str = CARTO_API_KEY
 
     # ── Database ───────────────────────────────────────────────────────────
     # On RPi with SD-card only: keep DB in project folder.

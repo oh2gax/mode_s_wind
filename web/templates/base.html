@@ -51,6 +51,11 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- CARTO Basemaps API key — injected server-side from api_keys.py (gitignored); -->
+<!-- appended to CARTO tile URLs by live_map.js / windmap.js / windshear.js to remove the watermark -->
+<script>
+const CARTO_API_KEY = {{ carto_api_key | tojson }};
+</script>
 {% block scripts %}{% endblock %}
 <script>
 // ── Theme toggle ────────────────────────────────────────────────────────────

@@ -226,6 +226,7 @@ def create_app(
         return {
             "meteo_source_mode": cfg.METEO_SOURCE_MODE,
             "storage_mode":      cfg.STORAGE_MODE,
+            "carto_api_key":     cfg.CARTO_API_KEY,
         }
 
     # ── Authentication ────────────────────────────────────────────────────

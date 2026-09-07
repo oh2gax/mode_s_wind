@@ -209,7 +209,25 @@ Key values to change for your installation:
 - `WINDSHEAR_GS_OFFSET_FT` — manual calibration trim for the glideslope line; adjust if aircraft you know to be on glideslope still appear consistently high or low after the threshold and QNH corrections are applied
 - `WINDSHEAR_MAX_TRACK_DEV_DEG` — maximum allowed deviation in degrees between an aircraft's ADS-B ground track and the runway's approach heading; the default of 60° rejects departures on parallel runways (which fly ~180° off the approach heading) while accepting all legitimate approach aircraft including those still rolling out of a late vector intercept
 
-### 4. Run
+### 4. Configure API keys
+
+The Live Map, Wind Map and Windshear pages use **CARTO** raster basemaps (dark / light / no-labels tile styles). CARTO requires a free API key to serve tiles without an "API key required" watermark — get one at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey/) (free up to 5,000,000 tile requests/month).
+
+API keys are kept out of the git repository in a local, gitignored file so you can commit and push freely without ever exposing your key:
+
+```bash
+cp api_keys.py.example api_keys.py
+```
+
+Then edit `api_keys.py` and fill in your key:
+
+```python
+CARTO_API_KEY = "your-carto-key-here"
+```
+
+`api_keys.py` is listed in `.gitignore` and will never be committed — `api_keys.py.example` is the safe-to-commit template documenting what needs to be filled in. `config.py` imports from `api_keys.py` at startup and falls back to an empty string with a console warning if the file is missing, so the app still starts (map tiles just show the watermark until the key is added). As more API keys are needed in the future, add them to both files following the same pattern.
+
+### 5. Run
 
 ```bash
 python3 run.py
@@ -229,7 +247,7 @@ The system will log startup information and the web interface address:
 
 Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for username and password.
 
-### 5. Running in the background (optional)
+### 6. Running in the background (optional)
 
 ```bash
 nohup python3 run.py > logs/modes_wind.log 2>&1 &
@@ -242,7 +260,7 @@ To stop:
 kill $(cat run.pid)
 ```
 
-### 6. Run as a systemd service (recommended for permanent deployment)
+### 7. Run as a systemd service (recommended for permanent deployment)
 
 Create `/etc/systemd/system/modes-wind.service`:
 
@@ -1229,6 +1247,8 @@ The system mitigates this in two ways:
 ```
 mode_s_wind/
 ├── config.py                  # All configuration settings
+├── api_keys.py                # Local API keys (gitignored — not committed)
+├── api_keys.py.example        # Template for api_keys.py (safe to commit)
 ├── run.py                     # Main entry point + windshear sweep thread
 ├── database/
 │   ├── db.py                  # SQLite connection management

@@ -1,0 +1,16 @@
+"""
+Local secrets — API keys for external services.
+
+Copy this file to api_keys.py and fill in your own keys:
+    cp api_keys.py.example api_keys.py
+
+api_keys.py is gitignored and will never be committed — this .example file
+is the safe-to-commit template so anyone cloning the repo (including
+future-you on a fresh machine) knows what needs to be configured.
+"""
+
+# CARTO Basemaps API key — https://carto.com/basemaps/apikey/
+# Required to remove the "API key required" watermark from CARTO raster
+# tiles (dark_all / light_all / light_nolabels / dark_nolabels) used on the
+# Live Map, Wind Map and Windshear pages.
+CARTO_API_KEY = ""

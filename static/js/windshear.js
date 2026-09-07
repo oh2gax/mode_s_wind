@@ -82,23 +82,27 @@ const GS_COLOR = {
 const map = L.map('ws-map', { zoomControl: true })
              .setView([WS_AIRPORT_LAT, WS_AIRPORT_LON], 10);
 
+// CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
+// appended as a query param so raster tiles are served without the watermark.
+const _cartoKeyQs = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+
 // Tile layers for theme switching
 const TILES = {
   dark: L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
   ),
   grey: L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
   ),
   atc: L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+    `https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
       opacity: 0.0 }     // tiles hidden, bg = #cfcfcf (ATC radar grey)
   ),
   black: L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    `https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
       opacity: 0.0 }     // tiles hidden, bg = #000
   ),

@@ -17,7 +17,10 @@
 const map = L.map('wm-map', { zoomControl: true })
              .setView([RECEIVER_LAT, RECEIVER_LON], 6);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+// CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
+// appended as a query param so raster tiles are served without the watermark.
+const _cartoKeyQs = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`, {
   attribution: '© OSM, © CARTO',
   subdomains:  'abcd',
   maxZoom:     18,
