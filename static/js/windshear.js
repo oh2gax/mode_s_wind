@@ -699,8 +699,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
             ? (compVal > 5 ? '#4ade80' : compVal < -5 ? '#f87171' : '#fbbf24')
             : (Math.abs(compVal) >= 10 ? '#fca5a5' : Math.abs(compVal) >= 5 ? '#fcd34d' : '#6ee7b7');
 
-          // HW label: "+12kt" / "-5kt"   XW label: "+8kt" (from right) / "-3kt" (from left)
-          const compLabel = `${compRound >= 0 ? '+' : ''}${compRound}kt`;
+          // HW label: "+12" / "-5"   XW label: "+8" (from right) / "-3" (from left) — knots implied
+          const compLabel = `${compRound >= 0 ? '+' : ''}${compRound}`;
 
           // ── Values off (Val): component label only, in the single-label slot ─
           if (!barbValActive) {

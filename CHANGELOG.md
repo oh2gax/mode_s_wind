@@ -5,9 +5,10 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-24 (ILS profile — Val toggle for barb value labels)
+## 2026-09-24 (ILS profile — Val toggle, compact HW/XW labels)
 
 - **`Val` segment** added to the `Barbs · Hi · Auto` group: hides or shows the `dir/spd` label next to each barb; with Val off, plain barbs are drawn, or only the HW/XW component value when a component mode is active; Dcl greys out while Val is off; corner label shows `· NOVAL`; setting persisted in `localStorage` (`ms_ws_barb_val`)
+- HW/XW component labels on the ILS profile drop the `kt` suffix (`+25` instead of `+25kt`) — knots are implied
 - Fix: enabling Barbs via the `Auto` segment left `Hi` and `HW` greyed out (and unclickable) — now un-greyed together with `Val`
 - Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
 
