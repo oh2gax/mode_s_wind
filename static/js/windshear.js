@@ -702,6 +702,14 @@ function drawIlsProfile(aircraft, shearEvents = []) {
           // HW label: "+12kt" / "-5kt"   XW label: "+8kt" (from right) / "-3kt" (from left)
           const compLabel = `${compRound >= 0 ? '+' : ''}${compRound}kt`;
 
+          // ── Values off (Val): component label only, in the single-label slot ─
+          if (!barbValActive) {
+            ilsCtx.fillStyle = compColor;
+            ilsCtx.font      = 'bold 10px "Courier New", monospace';
+            ilsCtx.fillText(compLabel, bx, nearTop ? by + 16 : by - 38);
+            continue;
+          }
+
           // ── Label Y positions (identical logic for HW and XW) ────────────
           let compY, rawY;
           if (barbDclActive) {
@@ -729,7 +737,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
             `${Math.round(obs.wind_dir)}/${Math.round(obs.wind_spd)}`,
             bx, rawY
           );
-        } else {
+        } else if (barbValActive) {
           // ── No component annotation active: dir°/spd only ────────────────
           // Lifted ~20 px clear of the barb origin so it doesn't sit on the staff
           const lblY = nearTop ? by + 16 : by - 38;
@@ -746,12 +754,13 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       const hwTag  = (barbHwMode !== 'off' && barbRwyHdg != null)
         ? `  · ${barbHwMode.toUpperCase()} ref ${selAc?.approach_runway ?? '?'} (${barbRwyHdg}°)` : '';
       const hiTag  = barbHiResActive ? '  · HI' : '';
-      const dclTag = (barbHwMode !== 'off' && barbDclActive) ? '  · DCL' : '';
+      const dclTag = (barbHwMode !== 'off' && barbDclActive && barbValActive) ? '  · DCL' : '';
+      const valTag = barbValActive ? '' : '  · NOVAL';
       ilsCtx.fillStyle = bColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
       ilsCtx.fillText(
-        `\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}${hiTag}${dclTag}${hwTag}`,
+        `\u{1F32C} ${bLabel}  (${hist.length} obs)${barbAutoActive ? '  · AUTO' : ''}${hiTag}${valTag}${dclTag}${hwTag}`,
         M.left + 4, M.top + 22
       );
 
@@ -2151,6 +2160,7 @@ let barbAutoTarget   = null;   // icao currently held by auto mode (null = none 
 let barbHwMode       = 'off';  // cycle 'off' → 'hw' → 'xw': which component annotation is active
 let barbHiResActive  = false;  // toggle: use Hi-resolution buffer instead of Lo for barb display
 let barbDclActive    = false;  // toggle: split component/raw labels above+below barb for readability
+let barbValActive    = localStorage.getItem('ms_ws_barb_val') !== 'false'; // show dir/spd value labels (default on, persisted)
 let trkActive          = localStorage.getItem('ms_ws_trk') !== 'false'; // trail visible by default
 let profileZoomActive  = false;  // toggle: zoom ILS profile to PROFILE_ZOOM_NM (7.5 NM) half-range
 
@@ -2832,10 +2842,13 @@ document.getElementById('ws-barb-btn').addEventListener('click', () => {
     document.getElementById('ws-barb-hi-btn').classList.add('ws-barb-hi-off');
     document.getElementById('ws-barb-dcl-btn').classList.remove('active');
     document.getElementById('ws-barb-dcl-btn').classList.add('ws-barb-dcl-off');
+    // Val keeps its remembered state — just greyed out while barbs are off
+    document.getElementById('ws-barb-val-btn').classList.add('ws-barb-val-off');
   } else {
     document.getElementById('ws-barb-hw-btn').classList.remove('ws-barb-hw-off');
     document.getElementById('ws-barb-hi-btn').classList.remove('ws-barb-hi-off');
-    // Dcl stays greyed until HW/XW mode is active
+    document.getElementById('ws-barb-val-btn').classList.remove('ws-barb-val-off');
+    // Dcl stays greyed until HW/XW mode is active (and Val is on)
   }
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
@@ -2858,14 +2871,8 @@ document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
   btn.classList.toggle('ws-hw-xw-mode', barbHwMode === 'xw');   // orange tint for XW
 
   // Dcl available when any component mode is active
-  const dclBtn = document.getElementById('ws-barb-dcl-btn');
-  if (barbHwMode !== 'off') {
-    dclBtn.classList.remove('ws-barb-dcl-off');
-  } else {
-    barbDclActive = false;
-    dclBtn.classList.remove('active');
-    dclBtn.classList.add('ws-barb-dcl-off');
-  }
+  if (barbHwMode === 'off') barbDclActive = false;
+  updateDclButton();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
@@ -2873,11 +2880,34 @@ document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
 // Splits component value and raw wind labels to opposite sides of each barb.
 // Works for both HW and XW modes. Only active when a component mode is on.
 document.getElementById('ws-barb-dcl-btn').addEventListener('click', () => {
-  if (!barbLayerActive || barbHwMode === 'off') return;
+  if (!barbLayerActive || barbHwMode === 'off' || !barbValActive) return;
   barbDclActive = !barbDclActive;
   document.getElementById('ws-barb-dcl-btn').classList.toggle('active', barbDclActive);
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
+
+// Dcl is only meaningful when a component mode is on AND value labels are shown
+// (with values off there is only one label per barb — nothing to split).
+function updateDclButton() {
+  const dclBtn = document.getElementById('ws-barb-dcl-btn');
+  const avail  = barbLayerActive && barbHwMode !== 'off' && barbValActive;
+  dclBtn.classList.toggle('ws-barb-dcl-off', !avail);
+  dclBtn.classList.toggle('active', avail && barbDclActive);
+}
+
+// ── Val (value labels) toggle ────────────────────────────────────────────────
+// Shows or hides the dir/spd labels next to each barb. With HW/XW active and
+// Val off, only the component value is drawn. Persisted to localStorage.
+document.getElementById('ws-barb-val-btn').addEventListener('click', () => {
+  if (!barbLayerActive) return;   // button is visually disabled when barbs are off
+  barbValActive = !barbValActive;
+  localStorage.setItem('ms_ws_barb_val', barbValActive);
+  document.getElementById('ws-barb-val-btn').classList.toggle('active', barbValActive);
+  updateDclButton();
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+});
+// Restore saved Val state on page load (greyed until Barbs is switched on)
+document.getElementById('ws-barb-val-btn').classList.toggle('active', barbValActive);
 
 // ── Trail toggle ─────────────────────────────────────────────────────────────
 // Shows or hides the position history trail on the ILS glideslope canvas.
@@ -2919,6 +2949,10 @@ document.getElementById('ws-barb-auto-btn').addEventListener('click', () => {
   if (!barbLayerActive) {
     barbLayerActive = true;
     document.getElementById('ws-barb-btn').classList.add('active');
+    // Enabling barbs via Auto must also un-grey the dependent segments
+    document.getElementById('ws-barb-hw-btn').classList.remove('ws-barb-hw-off');
+    document.getElementById('ws-barb-hi-btn').classList.remove('ws-barb-hi-off');
+    document.getElementById('ws-barb-val-btn').classList.remove('ws-barb-val-off');
   }
   barbAutoActive = !barbAutoActive;
   document.getElementById('ws-barb-auto-btn').classList.toggle('active', barbAutoActive);

@@ -804,7 +804,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-barb-auto-btn {
   font-size: 11px;
   padding: 2px 7px;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0;                 /* Val is now the right-hand end of the group */
   border: 1px solid var(--border);
   margin-left: -1px;
   background: var(--bg-2);
@@ -901,6 +901,25 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-barb-hi-btn:hover               { background: var(--bg-3); color: var(--text-1); }
 .ws-barb-hi-btn.active              { background: #7c3aed; color: #fff; border-color: #7c3aed; }
 .ws-barb-hi-btn.ws-barb-hi-off      { opacity: 0.38; cursor: default; pointer-events: none; }
+
+/* Val (value labels) toggle — right-hand end of the ws-barb-group split button */
+.ws-barb-val-btn {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 0 3px 3px 0;
+  border: 1px solid var(--border);
+  margin-left: -1px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+.ws-barb-val-btn:hover               { background: var(--bg-3); color: var(--text-1); z-index: 2; }
+.ws-barb-val-btn.active              { background: #0f766e; color: #fff; border-color: #0f766e; z-index: 2; }
+.ws-barb-val-btn.ws-barb-val-off     { opacity: 0.38; cursor: default; pointer-events: none; }
 
 /* Strip highlight when selected as barb source */
 .ws-strip.ws-strip-barb-sel {

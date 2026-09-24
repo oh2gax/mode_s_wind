@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-24 (ILS profile — Val toggle for barb value labels)
+
+- **`Val` segment** added to the `Barbs · Hi · Auto` group: hides or shows the `dir/spd` label next to each barb; with Val off, plain barbs are drawn, or only the HW/XW component value when a component mode is active; Dcl greys out while Val is off; corner label shows `· NOVAL`; setting persisted in `localStorage` (`ms_ws_barb_val`)
+- Fix: enabling Barbs via the `Auto` segment left `Hi` and `HW` greyed out (and unclickable) — now un-greyed together with `Val`
+- Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
+
+---
+
 ## 2026-09-07 (CARTO API key, GPS Quality range selectors + FL band split)
 
 - **CARTO Basemaps API key**: CARTO now requires a key to remove the tile watermark; added to all three map pages (Live Map, Wind Map, Windshear) as a `?key=...` query param, sourced from a new gitignored `api_keys.py` (`api_keys.py.example` is the committed template) and injected into every page via the existing `inject_config_modes` context processor
