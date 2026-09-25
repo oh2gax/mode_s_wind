@@ -35,8 +35,8 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
-- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, and position gap events; renders a stacked bar chart (NACp / Freeze / Gap signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, a FL band distribution doughnut chart, a 14-day summary stats panel, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
-- **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data with approach history always preserved; see [Maintenance](#maintenance--maintenance) below
+- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects NACp degradation, position freeze, position gap and ADS-B position loss (MLAT covering a GPS dropout); renders a stacked bar chart (NACp / Freeze / Gap / ADS-B signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, a FL band distribution doughnut chart with a summary stats panel over the same window, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
+- **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data (approach history and GPS quality data are only ever purged manually); see [Maintenance](#maintenance--maintenance) below
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
 - **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide; default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
@@ -128,7 +128,7 @@ cd mode_s_wind
 
 ### 2. Install Python dependencies
 
-Python 3.10 or newer is required.
+Python 3.11 or newer is required (pyModeS 3.x requires 3.11).
 
 ```bash
 pip3 install flask pyModeS pygeomag --break-system-packages
@@ -221,7 +221,12 @@ class Config:
     WIND_MAX_PAIR_AGE   = 10.0    # s — max time between the paired BDS 5,0 and 6,0 replies
     WIND_MAX_SPEED_KT   = 150.0   # sanity limit for computed wind speed
     MRAR_MIN_FOM        = 1       # minimum BDS 4,4 Figure of Merit accepted (0–4)
+
+    # ── Maintenance page ──────────────────────────────────────────────────
+    MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
 ```
+
+> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`), so an update of the code does not require updating `config.py` unless the change notes say so.
 
 Key values to change for your installation:
 
@@ -230,6 +235,7 @@ Key values to change for your installation:
 - `MAG_DECLINATION` — magnetic declination at your receiver in degrees East. With `pygeomag` installed and `USE_WMM_DECLINATION = True` (default) the declination at each aircraft's own position is calculated automatically and this value is only a fallback (aircraft without a known position, or pygeomag missing — a warning is logged at startup). Find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); WMM2025 is valid until 2030, after which it is extrapolated with a warning — upgrade pygeomag then
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
+- `MAINTENANCE_AUTH_FILE` — full path to the maintenance credential file (see [Maintenance](#maintenance--maintenance)); empty by default, which keeps the maintenance operations locked
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
 - `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 15 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
 - `WINDSHEAR_THR_ELEVATION_FT` — runway threshold elevation above MSL in feet; used to anchor the 3° glideslope correctly on the ILS vertical profile (EFHK = 179 ft)
@@ -280,6 +286,8 @@ Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for user
 nohup python3 run.py > logs/modes_wind.log 2>&1 &
 echo $! > run.pid          # save PID to stop later
 ```
+
+`run.py` already writes its own log to `logs/modes_meteo.log`, so the redirected file contains the same lines (plus any uncaught error output); redirect to `/dev/null` instead if you do not want the duplicate.
 
 To stop:
 
@@ -374,6 +382,8 @@ Controls the minimum time gap (in seconds) between successive database writes fo
 - If growth is still too fast, increase to `60.0`.
 - If you need finer vertical resolution in sounding profiles (e.g. studying temperature inversions in thin layers), reduce toward `10.0`–`15.0`.
 - Set to `0` temporarily if you want to capture a specific event at full resolution, then restore your normal value.
+
+**Note:** the throttle applies to every observation regardless of source. Because computed wind is available on almost every message, a rare BDS 4,4 MRAR / BDS 4,5 MHR report arriving within the interval after a computed-wind row is not stored.
 
 ---
 
@@ -525,6 +535,8 @@ The flight info banner below the controls shows callsign, ICAO24, time range, al
 
 You can also reach a specific flight's sounding directly from the Flights page via the 🌡 Sounding button, which opens this page with that flight pre-selected.
 
+`SOUNDING_RADIUS_KM` / `SOUNDING_WINDOW_MIN` in `config.py` apply only to the area-average sounding API (`/api/sounding`, all observations within the radius over the last N minutes, binned by pressure level); the Sounding page itself currently shows per-flight profiles.
+
 #### Skew-T diagram
 
 The diagram shows:
@@ -600,7 +612,7 @@ For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the dat
 
 ### Windshear  `/windshear`
 
-A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. All tracking data is held entirely in RAM — the Windshear page does not write to the database and has no dependency on historical stored data.
+A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. Live tracking is held entirely in RAM; the only data written to the database is one `approach_history` row per completed landing (used by the Approach History panel and the statistics panel).
 
 > **Keep the page open for best results.** All client-side history buffers — wind barb accumulation, kinematic IAS−GS differential history, the windshear event log, and the go-around log — exist only in the browser tab running the page. Navigating to another page or closing the tab clears these buffers entirely. When the Windshear page is reopened, it starts fresh: aircraft currently on approach will appear immediately, but any history built up during the previous session (wind profiles along the approach path, earlier windshear events, go-around events from before the page was opened) is gone. If you are monitoring an active approach sequence or want to study the windshear log over multiple arrival waves, keep the Windshear page as a dedicated open tab.
 
@@ -654,7 +666,7 @@ The along-track gate excludes aircraft that have already passed through the thre
 
 The track check is skipped when track data is not available for an aircraft (rare at low altitude); those aircraft fall back to geometry-only and floor-only matching.
 
-For airports with parallel runways (EFHK has 04L/04R and 22L/22R), the correct runway is identified by the sign of the cross-track offset: positive → right-hand runway (04R, 22R), negative → left-hand runway (04L, 22L).
+For airports with parallel runways (EFHK has 04L/04R and 22L/22R), an aircraft can fall inside both parallel corridors; the runway with the smallest absolute cross-track offset wins.
 
 **Entry state gate** — an additional filter rejects departing aircraft that briefly pass all the geometric gates near the threshold. Any aircraft that enters the tracker for the first time while climbing faster than +200 fpm is silently discarded. Existing tracked aircraft are fully exempt from this check: a go-around aircraft begins climbing while already present in the tracker, so the gate never interferes with legitimate missed-approach detection.
 
@@ -707,7 +719,7 @@ The canvas on the bottom left plots all corridor aircraft on a distance-vs-altit
 
 The glideslope line accounts for two corrections applied at render time so that aircraft on the correct slope land exactly on the line:
 
-1. **Threshold elevation** — the glideslope starts at the runway threshold altitude above MSL (configurable via `WINDSHEAR_THR_ELEVATION_FT`; EFHK ≈ 179 ft), not at sea level
+1. **Threshold elevation** — the glideslope starts at the runway threshold altitude above MSL (configurable via `WINDSHEAR_THR_ELEVATION_FT`; EFHK ≈ 179 ft), not at sea level. The canvas uses this single value for all runways; the server-side corridor logic uses the per-runway values in `EFHK_RUNWAYS` (RWY 33 threshold is 148 ft, so its line on the canvas sits ~31 ft high)
 2. **QNH correction** — MODE-S transponders always broadcast pressure altitude (1013.25 hPa reference). The glideslope reference is shifted by `(1013.25 − QNH) × 27 ft` to convert between pressure altitude and geometric altitude. At a QNH of 1000 hPa, this correction is approximately +357 ft. The current QNH is sourced from the live METAR and applied automatically; when QNH changes (polled every 10 minutes) the canvas redraws immediately.
 
 The small annotation at the top-right of the canvas shows the active corrections so you can verify they are being applied — for example: `GS ref: thr+179ft  QNH+223ft  trim+0ft`.
@@ -740,7 +752,7 @@ In **HW mode** (amber button) the headwind/tailwind component is shown at each b
 
 In **XW mode** (orange button) the crosswind component is shown using the same `+`/`−` sign format as HW: `+8` = wind from the right of the centreline, `−3` = from the left. Colour-coded by magnitude — **teal** (< 5 kt, light), **amber** (5–9 kt, moderate), **red** (≥ 10 kt, strong) — matching the Approach History XW palette. Computed as `wind_spd × sin(wind_dir − runway_heading)`.
 
-In both modes a second smaller label shows the raw `dir/spd` for reference. The corner label shows `· HW ref 04L (47°)` or `· XW ref 04L (47°)` to identify the mode and runway reference. The button is greyed out when Barbs are off and resets to off when Barbs are turned off.
+In both modes a second smaller label shows the raw `dir/spd` for reference (when `Val` is on). The corner label shows `· HW ref 04L (47°)` or `· XW ref 04L (47°)` to identify the mode and runway reference. The button is greyed out when Barbs are off and resets to off when Barbs are turned off.
 
 **Dcl (declutter) label placement:** the `Dcl` button, immediately to the right of the HW/XW button, works for **both HW and XW modes** and becomes available as soon as either is active (and Val is on). When enabled, the component value moves below the barb and the raw `dir/spd` moves above it, using the barb staff as a visual separator — significantly reducing label overlap when barbs are dense. Near the top of the canvas both labels stack below the barb; near the bottom both stack above. The corner label shows `· DCL` to confirm the mode. Dcl resets automatically when the component mode is cycled back to off.
 
@@ -748,13 +760,13 @@ In both modes a second smaller label shows the raw `dir/spd` for reference. The 
 
 **Zoom toggle:** the `Zoom` button, immediately to the right of `Trk`, halves the horizontal range of the ILS glideslope canvas from 15 NM to 7.5 NM. With the same canvas width now covering only the inner half of the approach, each NM occupies twice as many pixels, giving wind barbs and their labels significantly more horizontal room. The button turns purple when active and the effect is immediate — the existing barb and trail history is redrawn at the new scale without waiting for a new poll. The distance grid steps at 2.5 NM intervals in zoomed mode (versus 5 NM at full range) so axis labels remain readable. Aircraft or barbs beyond 7.5 NM from the threshold simply fall outside the canvas and are not drawn; they are not discarded — the full 15 NM history is always buffered, so toggling back to the full view immediately restores them. Zoom pairs well with Hi-resolution barb mode: activating both gives the highest possible barb density in the critical low-altitude segment of the approach. The zoom state is not persisted across page loads and resets to the full 15 NM view on reload.
 
-**Hi-resolution mode:** the `Hi` segment sits inside the `Barbs · Hi · Auto` split button. Clicking it switches the canvas from the standard Lo buffer to the Hi buffer — a denser accumulation that stores a new observation whenever the aircraft has moved at least 150 ft in altitude or 0.2 NM along the track (versus 400 ft / 0.5 NM for Lo). The Hi buffer holds up to 100 observations per aircraft, enough to cover a full 15 NM approach at fine resolution. Because both buffers accumulate simultaneously, switching to Hi immediately shows the denser dataset already built up since the Barbs layer was enabled — there is no need to wait for a new approach. The Hi buffer is for research and visual inspection only; it is never used by any of the windshear detection algorithms, so enabling it has no effect on alert behaviour. The `Hi` button turns violet when active and the canvas corner label shows `· HI` to confirm the mode.
+**Hi-resolution mode:** the `Hi` segment sits inside the `Barbs · Hi · Auto · Val` split button. Clicking it switches the canvas from the standard Lo buffer to the Hi buffer — a denser accumulation that stores a new observation whenever the aircraft has moved at least 150 ft in altitude or 0.2 NM along the track (versus 400 ft / 0.5 NM for Lo). The Hi buffer holds up to 100 observations per aircraft, enough to cover a full 15 NM approach at fine resolution. Because both buffers accumulate simultaneously, switching to Hi immediately shows the denser dataset already built up since the Barbs layer was enabled — there is no need to wait for a new approach. The Hi buffer is for research and visual inspection only; it is never used by any of the windshear detection algorithms, so enabling it has no effect on alert behaviour. The `Hi` button turns violet when active and the canvas corner label shows `· HI` to confirm the mode.
 
 **Track lifetime:** only one aircraft's barbs are displayed at a time. Clicking a different flight strip immediately replaces the current overlay — no need to deselect first. When the selected aircraft lands and stops transmitting (typically 30–45 seconds after touchdown), its stored wind history is discarded and the overlay clears automatically. In Auto mode the next aircraft furthest along the approach is picked up on the same poll cycle, so the barb display stays continuous as long as there is approach traffic.
 
 **NONE position markers:** in addition to coloured wind barbs, the canvas draws **small hollow circles** at every position where the selected aircraft's wind computation was suspended (`meteo_source === 'NONE'`). Circles are colour-coded by the reason for the suspension so the user can immediately distinguish normal maneuvering from a GPS problem:
 
-- **Amber hollow circle (Turn)** — pyModeS quality rejection: the aircraft has a valid, actively updating GPS position but its bank angle or roll rate during a turn exceeded the library's quality threshold, so the wind computation was deliberately suppressed. Amber circles during localizer intercept or go-around turns are entirely expected and require no action.
+- **Amber hollow circle (Turn)** — wind quality rejection: the aircraft has a valid, actively updating position but no wind could be computed — typically because the bank angle (> `WIND_MAX_ROLL_DEG`, 5°) or turn rate (> `WIND_MAX_TRACK_RATE`, 1°/s) exceeded the wind-calculation quality gates during a turn, or no fresh BDS 5,0 / 6,0 pair was available. Amber circles during localizer intercept or go-around turns are entirely expected and require no action.
 - **Grey hollow circle (GPS)** — GPS-related suspension: either the position-freeze gate fired (`pos_frozen = True` — latitude/longitude is static while altitude descends, a GPS jamming signature), or no ADS-B position message is being received at all (GPS source dropped out). Grey circles on an established final approach are worth investigating.
 
 Both corridor circle types persist alongside valid wind barbs once wind data recovers — they are not cleared when the aircraft transitions from NONE to valid meteo, so the full NONE history remains visible on the canvas for the duration of the approach. Circles are only removed after the aircraft has been absent from the feed for 45 seconds (matching the server stale-out), which means brief reception gaps caused by GPS jamming no longer wipe the accumulated circle history. The canvas hint text includes a `(N pos-only)` count when NONE positions are accumulating but no valid wind data has arrived yet. The ILS profile legend shows amber **Turn** and grey **GPS** ring symbols for reference. The absence of any circles (no hollow rings at all alongside a gap in barbs) indicates that ADS-B position messages themselves have stopped arriving — a genuine position outage rather than a wind computation hold.
@@ -775,7 +787,7 @@ The server maintains its own parallel rolling buffer (`_windrose_buffer`) using 
 
 **Hist trend button** — a small **Hist** button below the canvas cycles through Off → 3h → 6h mode. When active, a colored dot is drawn on the compass ring perimeter at the bearing of each past hour's vector-averaged wind direction. Dot radius scales lightly with wind speed (3.5–7 px) so a calm bucket looks different from a strong one. Consecutive dots that have data are joined by a faint connecting line showing the direction drift path over time. Each hour bucket uses a distinct color: 0–1h amber, 1–2h orange, 2–3h rose, 3–4h purple, 4–5h violet, 5–6h slate. The dots are drawn on the compass ring perimeter and never overlap the center area where the METAR and MODE-S arrows are drawn, so live data remains fully readable with Hist active. An active range badge (e.g. `3h`) appears next to the button. Hovering the mouse over any dot shows a small tooltip (e.g. `0–1h: 270°/12kt`) in the dot's own color; hour buckets with no observations produce no dot and no tooltip entry.
 
-The EFHK runway geometry is drawn on the compass as two plain crossing dashed lines: the 047°/227° line covers all four 04/22 runways (they share the same magnetic heading), and the 152°/332° line covers RWY 15/33. Each end is labelled with the runway designator whose approach flies toward that compass direction — so the 047° (NE) end is labelled **22** and the 227° (SW) end is labelled **04**, because an aircraft landing on RWY 22 flies toward SW and its headwind comes from the NE. Speed-reference rings at 10, 20, and 30 kt are drawn inside the compass to give a visual sense of arrow scale; the full ring radius corresponds to 40 kt.
+The EFHK runway geometry is drawn on the compass as two plain crossing dashed lines: the 047°/227° line covers all four 04/22 runways (they share the same true heading), and the 152°/332° line covers RWY 15/33. Each end is labelled with the runway designator whose approach flies toward that compass direction — so the 047° (NE) end is labelled **22** and the 227° (SW) end is labelled **04**, because an aircraft landing on RWY 22 flies toward SW and its headwind comes from the NE. Speed-reference rings at 10, 20, and 30 kt are drawn inside the compass to give a visual sense of arrow scale; the full ring radius corresponds to 40 kt.
 
 **Arrow convention:** both arrows point in the **downwind direction** — where the wind is blowing toward, not where it is coming from. This means the arrowhead always points toward the runway label that has a headwind. For example, wind from 050° produces an arrow pointing toward the SW/`04` end, instantly showing that RWY 04 approaches have the headwind. When both METAR and MODE-S arrows align with the same runway end, conditions are consistent; a divergence between the two arrows is a prompt to investigate further.
 
@@ -833,7 +845,7 @@ The **ATC** and **Black** themes support **overlay cycling** — clicking the ac
 
 Overlay layers on ATC use muted navy/steel colours that contrast clearly against the grey radar background; on Black the same layers use deep blue tones against the dark canvas.
 
-**ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic. Defaults **on**; state persists across browser sessions.
+**ILS Only toggle** — filters the map to show only aircraft currently inside an ILS corridor, hiding all other tracked traffic. Defaults **on** and resets to on when the page is reloaded (not persisted).
 
 **Windrose toggle** — shows a compass rose overlay (top-right of the map) comparing METAR surface wind direction with low-altitude MODE-S wind observations from recent approach traffic.
 
@@ -841,7 +853,7 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 #### Windshear detection
 
-Windshear detection is controlled from the **Windshear Alert header bar**, which contains three inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection is controlled from the **Windshear Alert header bar**, which contains five inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), the **alert level** dropdown, the **Kinematic F-factor gate** dropdown, and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
 
 Six independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
 
@@ -851,13 +863,15 @@ Six independent detection algorithms are available from the dropdown. Switching 
 
 **Establishment gate:** no algorithm can fire until an aircraft has accumulated at least 6 valid observations inside the corridor (≈15–20 seconds at the 3-second poll rate). This prevents false detections from the first wind snapshot, which is computed during the ILS intercept roll-out when the aircraft is transitioning from the turn onto final and the BDS 5,0/6,0 data is at its least stable.
 
+**Grey (NONE) aircraft are excluded:** every algorithm skips aircraft whose current `meteo_source` is `NONE`, and their groundspeed / IAS samples are not added to the Energy and Kinematic buffers. An aircraft that goes grey during an intercept turn therefore cannot trigger an alert from a stale headwind value. This also means Energy and Kinematic only evaluate aircraft that currently have a valid computed wind.
+
 All algorithms use the same headwind component formula:
 
 ```
 headwind (kt) = wind_speed × cos(wind_direction − runway_heading)
 ```
 
-Positive values represent a headwind; negative values represent a tailwind. The runway heading used is the published magnetic approach heading for the matched runway (e.g. 047° for RWY 04L/04R, 227° for RWY 22L/22R).
+Positive values represent a headwind; negative values represent a tailwind. The runway heading used is the approach heading from the tracker's runway table (true headings, e.g. 047° for RWY 04L/04R, 227° for RWY 22L/22R), matching the true wind direction from the wind calculation.
 
 Events are classified into three severity levels based on headwind change magnitude:
 
@@ -878,7 +892,7 @@ When a confirmed shear event meets the active alert level:
 - A coloured **horizontal band** (blue / amber / red) is drawn on the ILS profile canvas between the relevant altitudes
 - The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail; Kinematic entries additionally show an **F-factor** value (e.g. `F=0.12`) — see [What is F-factor?](#what-is-f-factor) below for a full explanation
 
-Only aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope) are included in detection, preventing false alerts from aircraft still intercepting the glideslope from above or below.
+The **Pairwise** and **Kinematic** algorithms only include aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope), preventing false alerts from aircraft still intercepting the glideslope from above or below; the other algorithms rely on the establishment gate.
 
 Turning the toggle OFF immediately clears all active alerts. Previously logged events remain visible until cleared manually. All data is held in RAM and does not persist across page refreshes.
 
@@ -922,11 +936,11 @@ E = groundspeed (kt) + altitude (ft) / 100
 
 On a stabilised 3° ILS approach at ~140 kt groundspeed, the aircraft descends roughly 318 ft per NM. Geometry and typical approach speeds mean that ~100 ft of altitude corresponds to approximately 1 kt of equivalent kinetic energy along the approach path. On a stable approach, E remains approximately constant as the aircraft trades altitude for forward speed at a predictable rate.
 
-A rapid decrease in E signals that the aircraft is losing more total energy than the normal glideslope geometry predicts — the classic kinematic signature of a microburst or strong headwind loss event. A drop of ≥ 15 kt-equivalent in 45 seconds is flagged.
+A rapid decrease in E signals that the aircraft is losing more total energy than the normal glideslope geometry predicts — the classic kinematic signature of a microburst or strong headwind loss event. A drop of ≥ 10 kt-equivalent in 45 seconds is flagged (Monitor); ≥ 15 is Warning and ≥ 25 Alarm, as for the other algorithms.
 
 This algorithm is inspired conceptually by the energy-rate monitor in airborne EGPWS (Enhanced Ground Proximity Warning System) devices, which monitor the rate of total energy change to detect abnormal energy loss states during approach.
 
-**Advantage:** entirely groundspeed-based — no wind decoding required. Effective even when the aircraft's EHS wind registers (BDS 4,4 / 5,0) are not broadcasting.
+**Advantage:** the energy trend itself is groundspeed-based — no wind vector is needed for the calculation. (Aircraft without a valid computed wind are nevertheless skipped, see *Grey (NONE) aircraft are excluded* above.)
 
 **Limitation:** any unrelated groundspeed fluctuation (e.g. temporary speed adjustment on ATC instruction) can trigger a false alarm. Works best with stable, consistent groundspeed data.
 
@@ -934,7 +948,7 @@ This algorithm is inspired conceptually by the energy-rate monitor in airborne E
 
 **Requires: ≥ 6 stored wind observations and a current headwind value (establishment gate).**
 
-The Rate algorithm compares the aircraft's current headwind component to the oldest value in its recent wind history (up to the last 6 observations). Unlike the Gradient algorithm, it is not altitude-filtered — it detects any headwind change along the approach path, whether driven by altitude-related wind structure or by horizontal passage through a shear zone.
+The Rate algorithm compares the aircraft's current headwind component to a reference taken from its recent wind history (median of the oldest up to three of the last 6 observations). Unlike the Gradient algorithm, it is not altitude-filtered — it detects any headwind change along the approach path, whether driven by altitude-related wind structure or by horizontal passage through a shear zone.
 
 A large headwind change over a short segment — regardless of the altitude separation — indicates that the aircraft has rapidly entered a different wind environment. This catches purely horizontal or time-based wind shifts that develop at a fixed altitude level, including the leading edge of a microburst outflow where the shear layer may be nearly horizontal near the surface.
 
@@ -958,7 +972,7 @@ If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 15 
 
 **Physical basis:** the baseline represents the background low-level wind field sampled by multiple recent aircraft on the same approach path. A large deviation for the current aircraft suggests that the wind environment has changed sharply since the baseline was established — either spatially (a localised shear zone has developed) or temporally (a frontal passage or microburst onset has changed the surface wind since the last landing).
 
-**Advantage:** the most context-aware of the five algorithms — it adapts to the actual recent wind environment at the airport rather than using a fixed reference. It can detect wind changes that develop gradually between arrival waves.
+**Advantage:** the most context-aware of the six algorithms — it adapts to the actual recent wind environment at the airport rather than using a fixed reference. It can detect wind changes that develop gradually between arrival waves.
 
 **Limitation:** requires landing traffic in the preceding 30 minutes to populate the baseline buffer. The algorithm is silent at the start of a session or after a long traffic gap. Also assumes the baseline is representative of the current runway and direction, which may not hold perfectly when runway direction changes between the baseline and current approaches.
 
@@ -996,7 +1010,7 @@ A microburst headwind-loss encounter produces a rapid decrease in the differenti
 
 The other five algorithms all ultimately depend on computing a wind vector from BDS 5,0 (track, groundspeed, TAS) and BDS 6,0 (magnetic heading), then projecting it onto the runway axis as a headwind component. That chain has several vulnerable links specific to Mode-S data:
 
-- **Magnetic heading errors** — BDS 6,0 magnetic heading is encoded at 1.40625° resolution and some transponders carry small per-aircraft biases from the compass installation. Small heading errors produce proportionally large wind direction errors at approach speeds.
+- **Magnetic heading errors** — BDS 6,0 magnetic heading is encoded at ~0.18° resolution (90/512°) and some transponders carry small per-aircraft biases from the compass installation. Small heading errors produce proportionally large wind direction errors at approach speeds.
 - **Magnetic declination** — converting magnetic heading to true heading requires an accurate declination. The position-based WMM value removes the main error, but any residual difference between the model and the aircraft's own magnetic variation table still shifts computed wind vectors systematically, affecting pairwise, gradient, rate, and baseline equally.
 - **BDS 6,0 availability and quality** — IAS and magnetic heading are in the same BDS 6,0 register; a transponder broadcasting a bad magnetic heading also corrupts the wind vector even when IAS itself is clean.
 - **Multi-aircraft requirements** — Pairwise requires two aircraft simultaneously on the same corridor at different altitudes, which is not always available. The other single-aircraft algorithms need a long wind barb history to accumulate enough altitude range or time span to build a meaningful comparison.
@@ -1042,7 +1056,7 @@ Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight o
 
 An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. The page auto-refreshes every 30 seconds.
 
-Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zone) and `gps_quality_zone_hours` table (50 nm and 20 nm zones) so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (up to 72 rows per hour rollover — 24 per day for All, up to 24 per day per distance zone), so the write load is negligible. On startup the tracker reloads the last **6 months** of history automatically (`MAX_BUCKETS` in `collector/gps_quality.py`) — the charts are immediately populated from stored data, covering the full range of the `6m` selector below. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data). This data is never auto-purged — it accumulates indefinitely unless manually cleared from the [Maintenance](#maintenance--maintenance) page's Date Range panel, so the `3m`/`6m` selectors are only as useful as how much history you choose to retain there. The heatmap response is capped independently at the most recent 31 days regardless of the time-series window — this matches the heatmap panel's own `14d`/`1m` range selector (see [GPS Quality](#gps-quality--gps) below), whose longest option is exactly 31 days.
+Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zone) and `gps_quality_zone_hours` table (50 nm and 20 nm zones) so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (up to 72 rows per hour rollover — 24 per day for All, up to 24 per day per distance zone), so the write load is negligible. On startup the tracker reloads the last **6 months** of history automatically (`MAX_BUCKETS` in `collector/gps_quality.py`) — the charts are immediately populated from stored data, covering the full range of the `6m` selector below. The current (incomplete) hour accumulates in RAM only and is lost on an unplanned restart, but this is an acceptable trade-off (at most 59 minutes of data). This data is never auto-purged — it accumulates indefinitely unless manually cleared from the [Maintenance](#maintenance--maintenance) page's GPS Quality purge section, so the `3m`/`6m` selectors are only as useful as how much history you choose to retain there. The heatmap response is capped independently at the most recent 31 days regardless of the time-series window — this matches the heatmap panel's own `14d`/`1m` range selector (see [GPS Quality](#gps-quality--gps) below), whose longest option is exactly 31 days.
 
 > **Why "GPS Quality" and not "GPS Jamming"?** The page detects and displays objective signal quality parameters — it does not assert a cause. True GPS jamming, spoofing, receiver failure, and genuine satellite outages can all produce the same observable signatures. The term "GPS Quality" is deliberately neutral.
 
@@ -1075,7 +1089,7 @@ NACp is extracted from TC=29 (Target State & Status) and TC=31 (Aircraft Operati
 
 The page has three main panels:
 
-**Time-series chart (left top)** — a stacked bar chart with three colour-coded segments per bar showing the per-signal event breakdown: **NACp** (amber), **Freeze** (sky blue), and **Gap** (violet). The total bar height represents all events in that period; the segment proportions immediately reveal which detection signal is dominant. A grey **Aircraft** line (right Y-axis) overlays aircraft count for traffic normalisation — bars consistently taller than the aircraft line suggest genuine elevated degradation rather than traffic density alone. Historical hours recorded before per-signal tracking was introduced are shown as a neutral grey **Unknown** segment. The chart updates on each 30-second poll.
+**Time-series chart (left top)** — a stacked bar chart with four colour-coded segments per bar showing the per-signal event breakdown: **NACp** (amber), **Freeze** (sky blue), **Gap** (violet), and **ADS-B** (teal). The total bar height represents all events in that period; the segment proportions immediately reveal which detection signal is dominant. A grey **Aircraft** line (right Y-axis) overlays aircraft count for traffic normalisation — bars consistently taller than the aircraft line suggest genuine elevated degradation rather than traffic density alone. Historical hours recorded before per-signal tracking was introduced are shown as a neutral grey **Unknown** segment. The chart updates on each 30-second poll.
 
 A **range selector** in the chart header controls how much history is displayed:
 
@@ -1096,7 +1110,7 @@ For the daily-aggregate views (`2w` / `1m` / `3m` / `6m`) the Aircraft line show
 
 **Live degraded aircraft table (right top)** — shows all aircraft currently flagged by any detection signal, sorted highest altitude first. Columns: callsign, ICAO24, FL band, altitude (ft), groundspeed (kt), NACp value, and active flag badges. The table is sized to show 7 rows; additional entries are accessible via scrollbar. Refreshes every 30 seconds.
 
-**FL Band Analysis panel (right middle)** — a doughnut chart showing how total degradation events are distributed across the nine FL bands, over the **same `14d` / `1m` window as the heatmap** (they share that selector, not the time-series chart's `1d`–`6m` selector, since both panels draw from the same server-side data which is only ever retained up to 31 days regardless of the time-series range). FL band labels appear as a vertical list on the left side of the chart; hover tooltips show the event count and percentage for each segment. Below the chart a compact stats block shows: total events, most affected FL band (with count), worst single day (date and count), and a NACp / Freeze / Gap signal breakdown with counts and percentages. The donut reflects the **active zone** — switching the zone selector redraws it immediately using the newly fetched zone data; within a zone it is refreshed every **60 minutes** and intentionally not updated on every 30-second poll since these aggregates change slowly.
+**FL Band Analysis panel (right middle)** — a doughnut chart showing how total degradation events are distributed across the nine FL bands, over the **same `14d` / `1m` window as the heatmap** (they share that selector, not the time-series chart's `1d`–`6m` selector, since both panels draw from the same server-side data which is only ever retained up to 31 days regardless of the time-series range). FL band labels appear as a vertical list on the left side of the chart; hover tooltips show the event count and percentage for each segment. Below the chart a compact stats block shows: total events, most affected FL band (with count), worst single day (date and count), and a NACp / Freeze / Gap / ADS-B signal breakdown with counts and percentages. The donut reflects the **active zone** — switching the zone selector redraws it immediately using the newly fetched zone data; within a zone it is refreshed every **60 minutes** and intentionally not updated on every 30-second poll since these aggregates change slowly.
 
 **Summary bar** — across the top of the page: total events in the last 24 hours, number of unique aircraft affected, peak hour, current live degraded count, and the **zone selector** (see below).
 
@@ -1114,7 +1128,7 @@ Finnish helicopters (`OH-H` registration prefix) are similarly excluded via `BLO
 
 The heatmap and time series together provide complementary views. The heatmap answers "which days and altitude layers had the most degradation?" — useful for spotting multi-day patterns and altitude-dependent effects. The time series answers "what time of day does degradation tend to peak?" — useful for identifying scheduled jamming exercises or dawn/dusk atmospheric effects.
 
-At EFHK, GPS interference from the east tends to affect low-altitude bands (FL000–100) most heavily since the geometry between aircraft at low altitude and a ground-based jammer to the east is most favourable. High-altitude aircraft in cruise on the same routes may show weaker effects. The FL-band heatmap makes this altitude dependence immediately visible. The lowest two bands (FL010–030 and FL030–050) give extra resolution in the critical approach and initial climb phase where jamming effects are most operationally significant. Aircraft below FL010 (1 000 ft) are excluded from all signal checks to avoid false positives from landing aircraft that disappear from reception on short final.
+At EFHK, GPS interference from the east tends to affect low-altitude bands (FL000–100) most heavily since the geometry between aircraft at low altitude and a ground-based jammer to the east is most favourable. High-altitude aircraft in cruise on the same routes may show weaker effects. The FL-band heatmap makes this altitude dependence immediately visible. The narrower low bands (FL010–030, FL030–050, FL050–080 and FL080–100) give extra resolution in the approach, initial climb and transition phase where jamming effects are most operationally significant. Aircraft below FL010 (1 000 ft) are excluded from all signal checks to avoid false positives from landing aircraft that disappear from reception on short final.
 
 After the first restart, completed hourly buckets are restored from the database and the charts are populated immediately. On a brand-new installation the heatmap will be sparse for the first few hours; a meaningful pattern typically emerges after 12–24 hours of traffic.
 
@@ -1152,7 +1166,7 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | gap_events | Events flagged by the Gap signal this hour |
 | adsb_loss_events | Events flagged by the ADS-B loss signal this hour (MLAT covering GPS dropout) |
 
-Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore up to 31 days of heatmap and time-series history. The per-signal columns were added progressively in May 2026; existing rows carry 0 for any columns added after they were written and are displayed as grey "Unknown" bars in the chart until they age out.
+Written automatically when each hour rolls over (24 writes per day). Loaded on startup to restore up to 6 months of time-series history (the heatmap uses the most recent 31 days). The per-signal columns were added progressively in May 2026; existing rows carry 0 for any columns added after they were written and are displayed as grey "Unknown" bars in the chart until they age out.
 
 **`gps_quality_zone_hours`** — same structure as `gps_quality_hours` but with an additional `zone` column and a composite `PRIMARY KEY (ts, zone)`; stores hourly buckets for the **50 nm** and **20 nm** distance zones separately from the All view:
 
@@ -1200,13 +1214,13 @@ Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typ
 
 Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (integer as text), `autopurge_last_run` (Unix timestamp as text). Written by the maintenance API; read by the autopurge background thread.
 
-**`observations`** — one row per decoded message with useful data:
+**`observations`** — decoded observations, subject to `STORAGE_MODE` and the write throttle:
 
 - Position: `lat`, `lon`, `altitude` (ft)
 - Motion: `groundspeed` (kt), `track` (°), `vert_rate` (ft/min)
 - MRAR: `mrar_wind_spd/dir/temp/pressure/humidity/turbulence/fom`
 - MHR: `mhr_temp/pressure/turbulence/wind_shear/icing/microburst/radio_height`
-- Computed wind: `wind_spd/dir/qual`
+- Computed wind: `wind_spd/dir/qual`, `tas_source` (`BDS50` / `MACH` / `IAS`, see [Computed wind](#computed-wind-bds-50--60)), `mag_decl` (declination used, °E)
 - Raw BDS 5,0 / 6,0 inputs (stored for re-processing)
 - Consolidated best values: `best_wind_spd/dir/temp/pressure`, `meteo_source`
 
@@ -1223,6 +1237,11 @@ Useful queries:
 ```sql
 -- Meteo observation counts by source
 SELECT meteo_source, COUNT(*) FROM observations GROUP BY meteo_source;
+
+-- Which true-airspeed source computed winds used (last 7 days)
+SELECT tas_source, COUNT(*) FROM observations
+WHERE meteo_source = 'COMPUTED' AND ts > unixepoch('now','-7 days')
+GROUP BY tas_source;
 
 -- Recent temperature readings
 SELECT datetime(ts,'unixepoch'), icao, altitude, best_temp, best_wind_spd, best_wind_dir
@@ -1268,7 +1287,7 @@ The EFHK (Helsinki-Vantaa) area is periodically affected by GPS jamming originat
 
 The system mitigates this in two ways:
 
-1. **MLAT positions from the Radarcape JSON feed** — the Radarcape calculates aircraft positions via Multilateration (MLAT), which uses precise timing of Mode-S replies at multiple ground stations and does not depend on GPS. These positions are merged into the live display automatically and marked with a purple symbol.
+1. **MLAT positions from the Radarcape JSON feed** — the Radarcape calculates aircraft positions via Multilateration (MLAT), which uses precise timing of Mode-S replies at multiple ground stations and does not depend on GPS. These positions are merged into the live display automatically (the aircraft keeps its meteo-source colour — MLAT positions are not marked separately; purple means meteo values from the JSON feed).
 
 2. **Single-frame CPR decoding** — for aircraft that are transmitting CPR position data but whose messages are being rejected by the bootstrap mechanism, the system uses `airborne_position_with_ref()` to decode position from a single frame using the receiver's known location as a reference (valid within 180 NM).
 
@@ -1281,14 +1300,20 @@ mode_s_wind/
 ├── config.py                  # All configuration settings
 ├── api_keys.py                # Local API keys (gitignored — not committed)
 ├── api_keys.py.example        # Template for api_keys.py (safe to commit)
-├── run.py                     # Main entry point + windshear sweep thread
+├── run.py                     # Main entry point; starts collector, JSON poller, windshear / GPS sweeps,
+│                              # housekeeping and autopurge threads, then Flask
+├── requirements.txt           # Python dependencies (pyModeS, flask, pygeomag)
+├── install.sh                 # Raspberry Pi install script (venv + dependencies)
 ├── database/
-│   ├── db.py                  # SQLite connection management
+│   ├── db.py                  # SQLite connection management + schema migrations
+│   ├── maintenance.py         # Purge / statistics / autopurge logic for the Maintenance page
 │   └── schema.sql             # Database schema
 ├── collector/
 │   ├── receiver.py            # Beast TCP connection + EHS decoder (incl. NACp extraction)
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
-│   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind
+│   ├── writer.py              # Batched SQLite writer (storage mode, write throttle, flight sessions)
+│   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind, TAS sources, ISA-deviation estimate
+│   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
 │   ├── windshear.py           # RAM-only approach tracker + windshear detection
 │   ├── gps_quality.py         # Area-wide GPS quality monitor (RAM + DB persistence)
 │   └── filter.py              # Observation quality filters
@@ -1333,12 +1358,12 @@ mode_s_wind/
 
 An administrator page for database housekeeping. It is accessible at `/maintenance` and rendered by `web/templates/maintenance.html`.
 
-Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt`). Credentials are submitted with every operation and never stored in a server session.
+Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt`). `MAINTENANCE_AUTH_FILE` is empty by default — while it is empty (or the file cannot be read) every login is rejected, so set the full path in your local `config.py`. Credentials are submitted with every operation and never stored in a server session.
 
 **Operations:**
 
 - **Database statistics** — read-only view showing for each table: row count, number of distinct calendar days with data, oldest and newest record dates, and total SQLite file size; refreshed on demand; the days count helps choosing an appropriate purge threshold
-- **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge. Deletes run in batches of 5 000 rows, each committed separately, so the database write lock is only held briefly and the collector keeps storing live observations during a large purge (if the database is still momentarily locked, the collector keeps the observations in RAM and retries on its next flush instead of dropping them). A date-range purge deletes a flight row only when none of its observations remain — a flight that started before the chosen range (e.g. crossed midnight) keeps its row and its earlier observations
+- **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge. Deletes run in batches of 5 000 rows, each committed separately, so the database write lock is only held briefly and the collector keeps storing live observations during a large purge (if the database is still momentarily locked, the collector keeps the observations in RAM and retries on its next flush instead of dropping them). Both purge types delete a flight row only when none of its observations remain — e.g. a flight that started before a chosen date range (crossed midnight) keeps its row and its earlier observations. **A large purge can take a long time** (on a Raspberry Pi roughly 2 000–7 000 observation rows per second, i.e. several minutes to tens of minutes for millions of rows); the result line appears on the page only when the purge has finished, and a browser may give up waiting after ~5 minutes while the server keeps purging. Completion is always logged: `Maintenance: deleted N observations, M flights` in `logs/modes_meteo.log`
 - **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` either older than a configurable threshold or within a chosen date range; useful for removing a maintenance day with incomplete data; the in-RAM GPS quality cache is reloaded immediately after the delete so the GPS Quality page reflects the change without a server restart
 - **Approach History purge** — `approach_history` is never auto-purged; manual purge controls are provided: **Older Than N Days** (Preview + Purge, default 90 days) and **Delete by Date Range** (From / To date pickers, same single-day shortcut as other sections); both operations also clear the in-RAM approach history list so the live panel stays consistent; the Delete button is only enabled after a non-zero Preview
 - **Delete by Date Range** — Flight, GPS, and Approach History sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
@@ -1348,10 +1373,10 @@ Authentication is handled separately from the main web credentials — all opera
 
 ```bash
 # Stop the server first, then:
-sqlite3 /path/to/modes_wind.db "VACUUM;"
+sqlite3 data/modes_meteo.db "VACUUM;"
 ```
 
-`VACUUM` rewrites the entire database into a fresh compact file. It requires roughly the same amount of free disk space as the current file size temporarily, and completes in a few seconds on a typical database. The WAL journal mode used by this project is fully compatible with `VACUUM`. Always stop the server before running it to avoid write conflicts.
+`VACUUM` rewrites the entire database into a fresh compact file. It requires roughly the same amount of free disk space as the current file size temporarily; a small database finishes in seconds, a multi-hundred-MB database on an SD card can take several minutes. The WAL journal mode used by this project is fully compatible with `VACUUM`. Always stop the server before running it to avoid write conflicts.
 
 ---
 
@@ -1405,7 +1430,8 @@ All `/api/maintenance/*` endpoints require `username` and `password` fields in t
 - **[pyModeS](https://github.com/junzis/pyModeS)** by Junzi Sun — the foundational MODE-S / ADS-B decoding library this project is built on
 - **[Leaflet](https://leafletjs.com/)** — interactive maps
 - **[Chart.js](https://www.chartjs.org/)** — time-series charts
-- **[CartoDB](https://carto.com/)** — dark map tiles
+- **[CARTO](https://carto.com/)** — basemap tiles (dark / light / no-labels)
+- **[pygeomag](https://github.com/boxpet/pygeomag)** and the **World Magnetic Model (WMM2025, NOAA NCEI / BGS)** — position-based magnetic declination
 - **[Jetvision Radarcape](http://jetvision.de/)** — hardware receiver providing Beast binary output and MLAT positions
 
 ---
@@ -1430,4 +1456,4 @@ This project is licensed under the **GNU General Public License v3.0**. You are 
 
 See the [LICENSE](LICENSE) file for the full license text, or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
 
-The project uses several open-source libraries (pyModeS, Leaflet, Chart.js) which retain their own respective licenses — see the Acknowledgements section.
+The project uses several open-source libraries (pyModeS, Leaflet, Chart.js, pygeomag) which retain their own respective licenses — see the Acknowledgements section.

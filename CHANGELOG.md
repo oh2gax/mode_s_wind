@@ -22,7 +22,7 @@ No version numbers — entries are organised by date.
 - **Position-based magnetic declination**: computed wind now uses the WMM2025 declination at each aircraft's position (`pygeomag`, cached 0.5° grid, rebuilt daily) instead of one fixed 10.5° — within 150 NM of EFHK it ranges 8.7°–12.6°, up to ~16 kt wind error at cruise; `MAG_DECLINATION` is now only the fallback; new `USE_WMM_DECLINATION` setting (default on); `pygeomag` added to requirements
 - **Better TAS fallbacks**: when BDS 5,0 TAS is missing, Mach is converted with the current ISA deviation estimated area-wide from aircraft reporting both TAS and Mach (instead of plain ISA), and IAS is converted to TAS with the compressible-flow relations (previously used directly as TAS — ~200 kt too low at FL350); no wind is computed when neither TAS nor altitude is known
 - New observation columns `tas_source` (`BDS50` / `MACH` / `IAS`) and `mag_decl` (auto-migrated)
-- README: documented the above plus previously undocumented config keys, GPS "event" definition, unused overlay files; removed unused `requests` from install instructions; stale code comments corrected
+- README: documented the above plus previously undocumented config keys, GPS "event" definition, unused overlay files; removed unused `requests` from install instructions; stale code comments corrected; full review against the code — corrected Python version (3.11), ADS-B signal in GPS page descriptions, algorithm details (Energy threshold, Rate reference, GS-ON gate only for Pairwise/Kinematic, NONE exclusion, true runway headings, BDS 6,0 heading resolution), ILS Only not persisted, `MAINTENANCE_AUTH_FILE` / local `config.py` edits, purge duration, project structure
 
 ---
 
