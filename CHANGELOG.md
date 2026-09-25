@@ -19,7 +19,6 @@ No version numbers — entries are organised by date.
 - `/api/stats` (navbar, every 15 s per tab) is now RAM-only; the unused database totals that required a full `COUNT(*)` of the observations table were removed
 - Approach History XW column uses signed values like the ILS profile (`+8` from right, `-14` from left) instead of arrows
 - README: documented the above plus previously undocumented config keys, GPS "event" definition, unused overlay files; removed unused `requests` from install instructions; stale code comments corrected
-- Changed files: `collector/windshear.py`, `collector/receiver.py`, `collector/writer.py`, `collector/radarcape_json.py`, `run.py`, `web/app.py`, `database/db.py`, `database/schema.sql`, `database/maintenance.py`, `config.py`, `static/js/windshear.js`, `web/templates/windshear.html`, `README.md`
 
 ---
 
@@ -28,7 +27,6 @@ No version numbers — entries are organised by date.
 - **`Val` segment** added to the `Barbs · Hi · Auto` group: hides or shows the `dir/spd` label next to each barb; with Val off, plain barbs are drawn, or only the HW/XW component value when a component mode is active; Dcl greys out while Val is off; corner label shows `· NOVAL`; setting persisted in `localStorage` (`ms_ws_barb_val`)
 - HW/XW component labels on the ILS profile drop the `kt` suffix (`+25` instead of `+25kt`) — knots are implied
 - Fix: enabling Barbs via the `Auto` segment left `Hi` and `HW` greyed out (and unclickable) — now un-greyed together with `Val`
-- Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
 
 ---
 
@@ -38,7 +36,6 @@ No version numbers — entries are organised by date.
 - **GPS Quality — `3m`/`6m` time-series range selectors** added alongside the existing `1d`–`1m` buttons; required raising `MAX_BUCKETS` (in-RAM buffer + DB reload cap) from 31 days to 6 months; the heatmap payload is capped independently at 31 days (`HEATMAP_MAX_BUCKETS`) since it never needed more
 - **GPS Quality — FL heatmap split into 9 bands**: the old combined `050-100` band is now `050-080`/`080-100` for finer resolution; historical events recorded before the split stay tagged under the old label and won't populate either new band
 - **GPS Quality — heatmap gets its own `14d`/`1m` selector**, independent of the time-series chart's range; also fixed the FL Band Analysis donut, which was wired to the time-series selector even though its data source is capped at 31 days — now correctly follows the heatmap's own selector
-- Changed files: `api_keys.py` (new, gitignored), `api_keys.py.example` (new), `.gitignore`, `config.py`, `web/app.py`, `web/templates/base.html`, `web/templates/gps_quality.html`, `static/css/style.css`, `static/js/live_map.js`, `static/js/windmap.js`, `static/js/windshear.js`, `static/js/gps_quality.js`, `collector/gps_quality.py`
 
 ---
 
@@ -50,7 +47,6 @@ No version numbers — entries are organised by date.
 - **Wind barb labels lifted**: raw wind and component labels shifted clear of the 18 px barb staff; font sizes increased (10 px plain, 9 px raw-alongside-component) and opacity raised for better legibility; label format simplified to `dir/spd` (no degree symbol or kt unit) for compactness
 - `barbHwMode` string (`'off'` / `'hw'` / `'xw'`) replaces the former `barbHwActive` boolean; label drawing unified into a single code path; corner label shows `· HW ref …` or `· XW ref …`
 - **Fix: NONE-quality aircraft triggering false windshear detections** — all six detection algorithms (Pairwise, Gradient, Energy, Rate, Baseline, Kinematic) now skip any aircraft whose `meteo_source === 'NONE'` (grey) at the top of their per-aircraft loop; previously, an aircraft that accumulated valid wind history and then went NONE during an ILS intercept turn could still fire Rate/Baseline detections via its stale `headwind_kt`, and Energy/Kinematic buffers (`wsGsHistory`, `wsKinHistory`) had no NONE filter at all — all gaps closed
-- Changed files: `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`
 
 ---
 
@@ -60,7 +56,6 @@ No version numbers — entries are organised by date.
 - Root cause addressed: the first wind observation for a newly-established aircraft is frequently tagged `meteo_source = MHR` (BDS 4,5 decoded in the same message sweep) and is computed from a BDS 5,0/6,0 pair captured during the ILS intercept roll-out; at that moment roll angle and track rate are near their quality-gate limits, producing a geometrically noisy result; algorithms that compare oldest vs. newest window samples (kinematic, rate) used this noisy first point as the reference, generating spurious detections immediately after the flight strip appeared
 - Each algorithm gates differently: pairwise and baseline check `wsWindHistory[icao].length`; gradient checks `pts.length` (altitude-valid wind points); energy promotes `MIN_POINTS` from 4 to `WS_MIN_CORRIDOR_SAMPLES`; rate checks `hist.length`; kinematic checks both raw history length and the 45-second time-filtered window length
 - The gate also ensures the 3-sample edge median introduced in the previous release has ≥ 2 samples per edge before any detection fires (EDGE = `Math.min(3, Math.floor(window.length / 2))` reaches 3 only when `window.length ≥ 6`)
-- Only `static/js/windshear.js` changed
 
 ---
 
@@ -68,7 +63,6 @@ No version numbers — entries are organised by date.
 
 - **detectKinematic F-factor corrected**: the previous implementation computed F over the full 45-second detection window, which is ~3× longer than the 1 km (≈15 s at approach speed) reference defined by JAWS/FAA; this made the F-gate silently 3× more conservative than intended — an F ≥ 0.10 setting was effectively acting as F ≥ 0.03 in proper units; F is now computed by scanning all 10–20 s sub-windows within the 45-second history and reporting the maximum, which matches the JAWS reference distance; the 45-second detection window (what triggers the event) is unchanged — only the F-factor value and gate calibration are affected
 - Also fixed two broken variable references (`oldest.ts`, `newest.ts`, `oldest.gs`) left over from the previous median filter change that would have caused a JavaScript ReferenceError when the Kinematic algorithm was active
-- Only `static/js/windshear.js` changed
 
 ---
 
@@ -77,7 +71,6 @@ No version numbers — entries are organised by date.
 - **MAG_DECLINATION corrected**: updated from `8.0` to `10.5`°E (EFHK WMM value for 2026); the previous value introduced a ~2.5° systematic heading error translating to ~6.5 kt spurious wind bias at typical approach ground speeds; the constant is now annotated with a date note and a reminder to re-check every 2–3 years
 - **Shear direction signing**: all six windshear detection algorithms now tag each event with `hw_trend: 'loss' | 'gain'`; headwind loss (the operationally hazardous case) is distinct from headwind gain; the alert banner, ILS-profile canvas label, and event log compact line all now show `▼LOSS` or `▲GAIN` so the direction is unambiguous at a glance; event severity thresholds and `delta_kt` magnitude are unchanged
 - **Median filter for detectKinematic and detectRate**: instead of comparing two raw endpoint samples (oldest vs. newest), both algorithms now compute the median of the three oldest and three newest measurements in their look-back window before differencing; this suppresses single-sample transients (e.g. a momentary IAS spike or a noisy BDS 6,0 heading decode) without adding meaningful latency — events that persist across 3 samples represent ~9 s of data at the 3-second poll rate
-- Only `config.py` and `static/js/windshear.js` changed
 
 ---
 
@@ -109,7 +102,6 @@ No version numbers — entries are organised by date.
 
 - **Root cause:** an aircraft that loses ADS-B contact for more than 30 s (STALE_TIMEOUT_SEC) is pruned and committed to Approach History, then re-admitted when it reappears; if the second state entry also meets the commit condition (e.g. APPROACHING, or NONE+rwy for the GPS-jammed path) a second record is written within the same minute, producing two rows with identical `HH:MM` timestamps; this was particularly visible for helicopters with erratic routes or intermittent ADS-B coverage
 - **Fix:** a `_recent_commits` dict (icao → commit timestamp) is maintained in the tracker; before writing a commit, `prune_stale()` checks whether the same ICAO committed within the last 5 minutes (`COMMIT_COOLDOWN_SEC = 300`); if so the duplicate is suppressed silently; go-around second approaches always land 10–15+ minutes after the first and are never affected by this gate; the dict is pruned to entries within 2× cooldown on each commit to keep its size bounded
-- Only `collector/windshear.py` changed
 
 ---
 
@@ -119,7 +111,6 @@ No version numbers — entries are organised by date.
 - **Effect:** a fresh browser session with three recent completed approaches would show only ~3 windrose observations instead of ~15–30; the green MODE-S averaged arrow was based on very sparse data and the Hist trend dots were under-populated
 - **Fix:** observations are now assigned timestamps 1 second apart (`now − (n−1−i)` for index `i`), oldest first, ending at `now`; all remain within a few tens of seconds of the landing time — well inside the 30-minute and 6-hour windows — so no filtering or bucketing logic is affected; the JS dedup now sees unique timestamps and ingests every observation correctly
 - No effect on approach history, band wind capture, or any database writes — only `_windrose_buffer` timestamps changed
-- Only `collector/windshear.py` changed
 
 ---
 
@@ -130,14 +121,12 @@ No version numbers — entries are organised by date.
 - **Stale-cache fallback** — when a fetch cycle fails entirely for a source, the previously cached value is preserved; brief NOAA outages or network hiccups no longer cause `[unavailable]` in the UI as long as the cache holds a previous successful result
 - **`[unavailable]` only on cold start** — the sentinel is returned for metar/taf only if the server has never had a successful fetch yet (first few seconds after startup); thereafter the cached value is always used
 - **`cache_age_s` field added** to the `/api/wx` JSON response — seconds since last successful fetch; available for future UI use (e.g. "METAR 8 min ago") but no display change made now
-- Only `web/app.py` and `run.py` changed; no JS, CSS, or template changes
 
 ---
 
 ## 2026-06-11 (Statistics panel — go-around count below runway usage)
 
 - **Go-around count added to runway usage section** — a `Go-arounds: N` line is appended below the runway percentage bars in the statistics panel; the count is the sum of all go-around events within the active time window (Today / Yesterday / 1w / date picker), computed client-side from the `go_arounds` field already present in each approach record; the label is shown in normal text when the count is ≥ 1 and in muted grey when it is 0; no server or database changes required
-- Only `static/js/windshear.js` and `static/css/style.css` changed
 
 ---
 
@@ -156,7 +145,6 @@ No version numbers — entries are organised by date.
 - **Root cause:** aircraft experiencing GPS position jamming at ~2 000 ft freeze their reported altitude; the frozen altitude means `vert_rate` reports ~0 fpm, so the go-around state machine never accumulates the 5 consecutive descent polls required to transition from `"NONE"` to `"APPROACHING"`; when the aircraft goes stale after losing ADS-B contact, `prune_stale()` only committed aircraft in `"APPROACHING"` state, so GPS-jammed aircraft were silently dropped — missing from runway usage and aircraft-type statistics
 - **Fix:** `prune_stale()` now commits an approach history record for aircraft in `"NONE"` phase **when `approach_runway` is set** (meaning the aircraft was geometrically confirmed inside an ILS corridor); the band wind data is committed as-is (all `None` for aircraft with no IAS / NONE meteo source); windrose observations are also harvested under the same condition
 - The log line now includes the commit reason (`APPROACHING` vs `NONE+rwy(GPS-jam)`) to make these entries distinguishable in the collector log
-- Only `collector/windshear.py` changed
 
 ---
 
@@ -182,7 +170,6 @@ No version numbers — entries are organised by date.
 - **"2nd APP" badge now appears correctly on 2nd approach** — after a go-around the flight strip badge was never shown because `ga_phase` was stuck in `"GO_AROUND"` state permanently; the state machine was missing the `GO_AROUND → NONE` transition needed when the aircraft re-enters the corridor for its 2nd approach; fixed by adding a `ga_left_corridor` flag that is set when the aircraft leaves the corridor in `GO_AROUND` state and cleared (with `ga_phase` reset to `"NONE"`) when it re-enters; `ga_count` is preserved so the badge shows correctly
 - **2nd approach data now saved to Approach History** — as a side-effect of the same bug, 2nd approach wind profiles were silently discarded because `prune_stale()` only commits to Approach History when `ga_phase == "APPROACHING"` at pruning time; with the state now correctly transitioning to `APPROACHING` during the 2nd approach, the wind profile is captured and saved
 - **Windrose observations from 2nd approach also saved** — same `prune_stale()` gate; windrose obs for 2nd approaches are now committed correctly
-- Only `collector/windshear.py` changed; no JS, CSS, or template changes; windshear detection, wind calculations, and all other features are unaffected
 
 ---
 
