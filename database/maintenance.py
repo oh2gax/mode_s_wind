@@ -87,6 +87,42 @@ def get_stats(conn, db_path: str) -> dict:
 
 # ── Flight / observation purge ────────────────────────────────────────────────
 
+# ── Batched deletes ───────────────────────────────────────────────────────────
+# Large purges are split into small transactions so the SQLite write lock is
+# only held briefly.  A single multi-million-row DELETE could hold the lock for
+# longer than the collector writer's busy timeout, and incoming observations
+# were then lost.  Between batches the lock is released and the writer can
+# flush its buffer.
+PURGE_BATCH_ROWS  = 5_000
+PURGE_BATCH_PAUSE = 0.05   # s — gives other writers a window between batches
+
+
+def _batched_delete(conn, table: str, where: str, params: tuple) -> int:
+    """DELETE FROM table WHERE <where> in batches, committing each batch.
+
+    Returns the total number of rows deleted.
+    """
+    total = 0
+    while True:
+        n = conn.execute(
+            f"DELETE FROM {table} WHERE rowid IN "
+            f"(SELECT rowid FROM {table} WHERE {where} LIMIT {PURGE_BATCH_ROWS})",
+            params,
+        ).rowcount
+        conn.commit()
+        total += n
+        if n < PURGE_BATCH_ROWS:
+            return total
+        time.sleep(PURGE_BATCH_PAUSE)
+
+
+def _date_range_ts(date_from: str, date_to: str) -> tuple[float, float]:
+    """UTC epoch range [start of date_from, start of day after date_to)."""
+    d0 = datetime.datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+    d1 = datetime.datetime.strptime(date_to,   "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+    return d0.timestamp(), (d1 + datetime.timedelta(days=1)).timestamp()
+
+
 def _flight_cutoff(days: int) -> float:
     return time.time() - days * 86_400
 
@@ -131,18 +167,12 @@ def purge_flight_data(conn, days: int) -> dict:
     log.info("Maintenance: purging flight data older than %d days (cutoff %s)",
              days, datetime.datetime.utcfromtimestamp(cutoff).isoformat())
 
-    # Delete observations first (FK references flights)
-    obs_del = conn.execute(
-        "DELETE FROM observations WHERE ts < ?", (cutoff,)
-    ).rowcount
+    # Delete observations first (FK references flights), in small batches
+    obs_del = _batched_delete(conn, "observations", "ts < ?", (cutoff,))
 
     # Delete flights whose last_seen is before the cutoff
     # (all their observations have been removed above)
-    flt_del = conn.execute(
-        "DELETE FROM flights WHERE last_seen < ?", (cutoff,)
-    ).rowcount
-
-    conn.commit()
+    flt_del = _batched_delete(conn, "flights", "last_seen < ?", (cutoff,))
     log.info("Maintenance: deleted %d observations, %d flights", obs_del, flt_del)
     return {"observations_deleted": obs_del, "flights_deleted": flt_del}
 
@@ -197,15 +227,17 @@ def _validate_date_range(date_from: str, date_to: str) -> None:
 def preview_flight_date_purge(conn, date_from: str, date_to: str) -> dict:
     """Return counts of observations and flights that fall within the date range."""
     _validate_date_range(date_from, date_to)
+    t0, t1 = _date_range_ts(date_from, date_to)
     obs_count = conn.execute(
-        "SELECT COUNT(*) FROM observations "
-        "WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
-        (date_from, date_to),
+        "SELECT COUNT(*) FROM observations WHERE ts >= ? AND ts < ?", (t0, t1),
     ).fetchone()[0]
+    # Same rule as the purge: flights ending in the range whose observations
+    # all fall inside the range (a flight that started before the range keeps
+    # its row because observations before the range are kept).
     flt_count = conn.execute(
-        "SELECT COUNT(*) FROM flights "
-        "WHERE date(last_seen, 'unixepoch') BETWEEN ? AND ?",
-        (date_from, date_to),
+        "SELECT COUNT(*) FROM flights f WHERE f.last_seen >= ? AND f.last_seen < ? "
+        "AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.flight_id = f.id AND o.ts < ?)",
+        (t0, t1, t0),
     ).fetchone()[0]
     return {
         "observations": obs_count,
@@ -219,15 +251,18 @@ def purge_flight_date_range(conn, date_from: str, date_to: str) -> dict:
     """Delete observations and flights whose date falls within the given range."""
     _validate_date_range(date_from, date_to)
     log.info("Maintenance: purging flight data for date range %s – %s", date_from, date_to)
-    obs_del = conn.execute(
-        "DELETE FROM observations WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
-        (date_from, date_to),
-    ).rowcount
-    flt_del = conn.execute(
-        "DELETE FROM flights WHERE date(last_seen, 'unixepoch') BETWEEN ? AND ?",
-        (date_from, date_to),
-    ).rowcount
-    conn.commit()
+    t0, t1 = _date_range_ts(date_from, date_to)
+    obs_del = _batched_delete(conn, "observations", "ts >= ? AND ts < ?", (t0, t1))
+    # Only delete flights that no longer have any observations.  A flight that
+    # started before date_from (e.g. crossed midnight) still owns observations
+    # outside the range; deleting it violated the observations.flight_id
+    # foreign key and the whole purge failed.
+    flt_del = _batched_delete(
+        conn, "flights",
+        "last_seen >= ? AND last_seen < ? "
+        "AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.flight_id = flights.id)",
+        (t0, t1),
+    )
     log.info("Maintenance: deleted %d observations, %d flights (%s – %s)",
              obs_del, flt_del, date_from, date_to)
     return {"observations_deleted": obs_del, "flights_deleted": flt_del}

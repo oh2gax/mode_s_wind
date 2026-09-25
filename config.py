@@ -96,7 +96,8 @@ class Config:
     # Provides MLAT positions (GPS-jamming immune) and pre-decoded MRAR
     # temperature / wind for aircraft the Radarcape has decoded directly.
     RADARCAPE_JSON_URL: str = "http://192.168.0.119/aircraftlist.json"
-    RADARCAPE_JSON_INTERVAL: float = 5.0   # poll every N seconds
+    RADARCAPE_JSON_INTERVAL: float = 5.0   # NOT currently used — the poller runs every
+                                           # 2 s (POLL_INTERVAL in collector/radarcape_json.py)
 
     # ── Sounding aggregation ──────────────────────────────────────────────
     SOUNDING_RADIUS_KM: float = 150.0   # use obs within this radius of receiver
@@ -125,8 +126,8 @@ class Config:
     STORAGE_MODE: str = "METEO_ONLY"
 
     # ── Windshear / Approach monitoring ───────────────────────────────────────
-    # Airport reference point used for approach-range filtering and the 30 NM
-    # range circle displayed on the Windshear map.  Set to your monitoring
+    # Airport reference point used for approach-range filtering and the
+    # WINDSHEAR_RADIUS_NM range circle displayed on the Windshear map.  Set to your monitoring
     # airport; coordinates below are EFHK (Helsinki-Vantaa).
     WINDSHEAR_AIRPORT_LAT: float = 60.3172
     WINDSHEAR_AIRPORT_LON: float = 24.9634
@@ -169,7 +170,7 @@ class Config:
     # ── Go-around detection ───────────────────────────────────────────────────
     # Minimum consecutive 3-second sweep cycles with vert_rate ≤ -200 ft/min
     # inside the corridor before an aircraft is considered "established on
-    # approach".  5 cycles = 15 s — prevents brief corridor transits from
+    # approach".  8 cycles = 24 s — prevents brief corridor transits from
     # arming the detector.
     WINDSHEAR_GA_MIN_DESCENT_POLLS: int   = 8
     # Consecutive 3-second sweep cycles with vert_rate ≥ GA_CLIMB_FPM required

@@ -154,8 +154,9 @@ CREATE TABLE IF NOT EXISTS approach_history (
     aircraft_type TEXT,
     runway        TEXT    NOT NULL,
     rwy_heading   INTEGER,
-    bands_json    TEXT    NOT NULL,    -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}
-    go_arounds    INTEGER NOT NULL DEFAULT 0  -- number of go-arounds before final landing
+    bands_json    TEXT    NOT NULL,    -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}  keys = ft MSL (see qnh_hpa)
+    go_arounds    INTEGER NOT NULL DEFAULT 0, -- number of go-arounds before final landing
+    qnh_hpa       REAL                        -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);

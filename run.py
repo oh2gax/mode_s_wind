@@ -37,7 +37,7 @@ if ROOT not in sys.path:
 
 from config import Config
 from database.db import init_db
-from collector.receiver import run_collector
+from collector.receiver import run_collector, prune_bds_cache
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
@@ -61,6 +61,44 @@ def _autopurge_thread(db_path: str, interval_sec: float = 3_600.0) -> None:
         except Exception as exc:
             log.warning("Autopurge error: %s", exc)
         _time.sleep(interval_sec)
+
+
+LIVE_STATE_MAX_AGE_SEC = 600.0   # drop aircraft unseen for 10 min (map window is 5 min)
+
+
+def _housekeeping_thread(
+    live_state: dict,
+    live_lock: threading.RLock,
+    interval_sec: float = 60.0,
+    max_age_sec: float = LIVE_STATE_MAX_AGE_SEC,
+) -> None:
+    """
+    Background daemon: removes aircraft from live_state that have not been
+    seen for max_age_sec, and prunes the BDS 5,0 / 6,0 pairing caches.
+
+    Without this, every aircraft ever received stays in RAM for the life of the
+    process.  max_age_sec (10 min) is longer than every consumer window —
+    map/API 300 s, GPS sweep 60 s, windshear sweep 30 s — so nothing that is
+    displayed or analysed is affected.  An aircraft that reappears later is
+    simply re-created from its next message, exactly like a new aircraft.
+    """
+    hk_log = logging.getLogger("modes.housekeeping")
+    while True:
+        time.sleep(interval_sec)
+        try:
+            cutoff = time.time() - max_age_sec
+            with live_lock:
+                stale = [k for k, v in live_state.items()
+                         if v.get("last_seen", 0) < cutoff]
+                for k in stale:
+                    del live_state[k]
+                remaining = len(live_state)
+            n_bds = prune_bds_cache()
+            if stale or n_bds:
+                hk_log.debug("Pruned %d live_state entries (%d remain), %d BDS cache entries",
+                             len(stale), remaining, n_bds)
+        except Exception as exc:
+            hk_log.warning("Housekeeping error: %s", exc)
 
 
 def _gps_quality_sweep(
@@ -132,8 +170,8 @@ def _on_approach_committed(record: dict) -> None:
         db.execute(
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
-                aircraft_type, runway, rwy_heading, bands_json, go_arounds)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -146,6 +184,7 @@ def _on_approach_committed(record: dict) -> None:
                 record.get("rwy_heading"),
                 json.dumps(record.get("bands", {})),
                 record.get("go_arounds", 0),
+                record.get("qnh_hpa"),
             ),
         )
         db.commit()
@@ -297,6 +336,16 @@ def main() -> None:
     log.info("GPS quality sweep thread started (NACp threshold=%d, sweep=%.0f s)",
              cfg.GPS_NACP_THRESHOLD, cfg.GPS_SWEEP_SEC)
 
+    # ── Housekeeping thread (live_state + BDS cache pruning) ──────────────
+    hk_thread = threading.Thread(
+        target=_housekeeping_thread,
+        args=(live_state, live_lock),
+        name="housekeeping",
+        daemon=True,
+    )
+    hk_thread.start()
+    log.info("Housekeeping thread started (live_state max age %.0f s)", LIVE_STATE_MAX_AGE_SEC)
+
     # ── Autopurge background thread ───────────────────────────────────────
     autopurge_thread = threading.Thread(
         target=_autopurge_thread,
@@ -314,7 +363,7 @@ def main() -> None:
     app = create_app(cfg, live_state, live_lock, ws_tracker, gps_tracker)
 
     # ── Start background WX (METAR / TAF) polling thread ─────────────────
-    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper())
+    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper(), on_qnh=ws_tracker.set_qnh)
     log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3)",
              cfg.AIRPORT_ICAO.upper())
 

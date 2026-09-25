@@ -89,7 +89,7 @@ def _wx_fetch_once(icao: str) -> dict:
     return result
 
 
-def _wx_poll_loop(icao: str, interval_sec: float) -> None:
+def _wx_poll_loop(icao: str, interval_sec: float, on_qnh=None) -> None:
     """Background daemon: fetch METAR and TAF on a fixed interval.
 
     On success updates _wx_cache in place (including QNH and surface wind).
@@ -117,6 +117,12 @@ def _wx_poll_loop(icao: str, interval_sec: float) -> None:
                         _qnh_cache["station"] = icao
                         _qnh_cache["updated"] = time.time()
                         _log.debug("QNH updated: %.1f hPa from %s METAR", qnh, icao)
+                        # Push QNH to server-side consumers (windshear tracker)
+                        if on_qnh is not None:
+                            try:
+                                on_qnh(qnh)
+                            except Exception as exc:
+                                _log.warning("QNH callback failed: %s", exc)
                 if _wx_cache.get("metar"):
                     _wx_cache["metar_wind"] = _parse_metar_wind(_wx_cache["metar"])
                 _log.debug("WX cache refreshed for %s", icao)
@@ -126,11 +132,16 @@ def _wx_poll_loop(icao: str, interval_sec: float) -> None:
 def start_wx_poll_thread(
     icao: str,
     interval_sec: float = _WX_POLL_INTERVAL_SEC,
+    on_qnh=None,
 ) -> threading.Thread:
-    """Start the background WX polling daemon.  Call once from run.py."""
+    """Start the background WX polling daemon.  Call once from run.py.
+
+    on_qnh: optional callable(qnh_hpa) invoked each time a METAR QNH is parsed
+    (used to keep the windshear tracker's pressure-altitude correction current).
+    """
     t = threading.Thread(
         target=_wx_poll_loop,
-        args=(icao, interval_sec),
+        args=(icao, interval_sec, on_qnh),
         name="wx_poll",
         daemon=True,
     )
@@ -578,10 +589,14 @@ def create_app(
 
     @app.route("/api/stats")
     def stats_api():
-        """Quick summary counters for the dashboard header."""
-        db = get_db()
+        """Live aircraft counters for the navbar (polled every 15 s per tab).
+
+        RAM-only.  The former database totals (total_flights, total_obs,
+        meteo_obs_last_hour) were never displayed but cost a full COUNT(*)
+        scan of the observations table on every poll; the Maintenance page
+        shows table sizes when needed.
+        """
         now = time.time()
-        one_hour_ago = now - 3600
 
         with live_lock:
             n_live = sum(
@@ -594,19 +609,9 @@ def create_app(
                 and d.get("meteo_source", "NONE") != "NONE"
             )
 
-        total_flights = db.execute("SELECT COUNT(*) FROM flights").fetchone()[0]
-        total_obs     = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-        meteo_obs_1h  = db.execute(
-            "SELECT COUNT(*) FROM observations WHERE ts > ? AND meteo_source != 'NONE'",
-            (one_hour_ago,),
-        ).fetchone()[0]
-
         return jsonify({
             "live_aircraft":    n_live,
             "live_with_meteo":  n_meteo_live,
-            "total_flights":    total_flights,
-            "total_obs":        total_obs,
-            "meteo_obs_last_hour": meteo_obs_1h,
         })
 
     # ── Windshear approach state API ──────────────────────────────────────

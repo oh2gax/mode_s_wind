@@ -88,6 +88,8 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /gps        GPS Quality
 ```
 
+A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
+
 ### Data source priority
 
 When multiple sources are available for the same observation the `best_*` consolidated fields are populated in this order of preference:
@@ -113,7 +115,7 @@ cd mode_s_wind
 Python 3.10 or newer is required.
 
 ```bash
-pip3 install flask pyModeS requests --break-system-packages
+pip3 install flask pyModeS --break-system-packages
 ```
 
 Or inside a virtual environment:
@@ -121,7 +123,7 @@ Or inside a virtual environment:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install flask pyModeS requests
+pip install flask pyModeS
 ```
 
 > **Note:** The `pyModeS-main` folder in the repository is a reference copy of the pyModeS library by Junzi Sun. If you install `pyModeS` via pip you do not need to use this folder.
@@ -159,7 +161,7 @@ class Config:
 
     # ── Radarcape JSON / MLAT feed ────────────────────────────────────────
     RADARCAPE_JSON_URL = "http://192.168.0.119/aircraftlist.json"
-    RADARCAPE_JSON_INTERVAL = 5.0     # poll interval in seconds
+    RADARCAPE_JSON_INTERVAL = 5.0     # not currently used — poller runs every 2 s (radarcape_json.py)
 
     # ── Sounding aggregation ──────────────────────────────────────────────
     SOUNDING_RADIUS_KM = 150.0        # aggregate obs within this radius
@@ -194,6 +196,14 @@ class Config:
     GPS_GAP_SEC        = 45.0    # seconds without position (EHS still active) → gap
     GPS_MIN_GS_KT      = 50.0    # minimum groundspeed for freeze detection
     GPS_SWEEP_SEC      = 5.0     # sweep interval for GPS quality thread
+    GPS_MIN_ALT_FT     = 1000.0  # no degradation checks below this altitude (landing aircraft)
+
+    # ── Wind calculation quality gates (BDS 5,0 + 6,0) ────────────────────
+    WIND_MAX_ROLL_DEG   = 5.0     # reject computed wind when bank angle exceeds this
+    WIND_MAX_TRACK_RATE = 1.0     # °/s — reject while turning
+    WIND_MAX_PAIR_AGE   = 10.0    # s — max time between the paired BDS 5,0 and 6,0 replies
+    WIND_MAX_SPEED_KT   = 150.0   # sanity limit for computed wind speed
+    MRAR_MIN_FOM        = 1       # minimum BDS 4,4 Figure of Merit accepted (0–4)
 ```
 
 Key values to change for your installation:
@@ -589,11 +599,11 @@ The page is divided into seven main areas:
 
 - **Wind Rose** — a compass rose panel overlaid on the top-right corner of the map, toggled by the `Windrose` button (enabled by default). Displays METAR surface wind as a cyan arrow and the MODE-S derived approach wind as a green arrow, both pointing in the downwind direction. The MODE-S wind is vector-averaged from low-altitude observations (≤ 2 000 ft) harvested from aircraft that have completed approaches in the last 30 minutes; observations recorded during grey (`meteo_source = NONE`) periods are excluded from the average, as are observations taken while a GPS position freeze is detected (same position-freeze gate as Approach History). Runway end labels are shown at the correct threshold positions. A numeric readout below the rose shows direction, speed, observation count, and age for each source.
 
-- **Approach History** — a scrollable table panel overlaid on the top-left corner of the map, toggled by the `Apch Hist` button (hidden by default). Logs each completed landing approach with columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands. The server records all 15 bands at 200 ft resolution (200, 400, 600 … 3 000 ft, ±100 ft tolerance per band) and persists every approach to a SQLite `approach_history` table so data survives server restarts and accumulates over weeks. **Callsigns are shown in amber-yellow when the aircraft performed one or more go-arounds before its final landing** — hovering the callsign cell shows a tooltip such as `2× go-around`; normal approaches remain in light blue. **GPS-jammed aircraft are now logged even when their position freezes at altitude:** if an aircraft's frozen altitude suppresses the descent-rate confirmation (preventing the tracker from reaching the `APPROACHING` state), the approach is still committed to history as long as a runway assignment was confirmed — band wind columns show `—` in this case but runway usage and aircraft-type statistics remain accurate. **Duplicate commit prevention:** a 5-minute per-ICAO cooldown (`COMMIT_COOLDOWN_SEC = 300`) suppresses a second history entry if the same aircraft commits again within 5 minutes of a previous commit; this prevents duplicate rows when an aircraft briefly loses ADS-B contact (causing a stale-prune and re-admission within seconds) while still correctly recording go-around second approaches, which always occur more than 5 minutes after the first landing. A **position-freeze gate** prevents GPS-jammed frozen-position sweeps from contaminating band data: if an aircraft's altitude drops more than 100 ft between sweeps but `dist_thr_nm` has not advanced by at least 0.05 NM, the position is considered frozen and no wind is written to any band for that sweep — the affected bands remain `—` rather than showing wind computed from a stale groundspeed vector; the tracker stays current through genuine `NONE` meteo gaps so it does not false-fire when EHS data recovers after a jamming window. The panel height scales dynamically with the map container so the full available screen height is used. A **time filter row** (1h · 3h · 6h · 12h · 1d, default 3h) selects the displayed window; the server queries the DB directly for the selected period. To the right of the time buttons, a **date picker** (`dd.mm.yyyy` text field + 📅 calendar button) switches the panel into *date mode*: all approaches for that full UTC day are fetched from the DB and the time-window buttons are dimmed; a **Live** button (always visible, highlighted in blue during live mode) exits date mode and resumes the rolling-window view. The `dd.mm.yyyy` text field accepts typed digits with auto-inserted dots and always displays in that format regardless of OS locale; the 📅 button opens the native calendar for mouse users. The UTC column shows plain `HH:MM` for today's approaches and `D.M HH:MM` (e.g. `26.5 14:32`) for entries from a previous date, keeping multi-day views unambiguous. All interactive controls sit on a single control row below the title. A **Lo / Hi** button selects the column count: Lo shows 8 columns (600 / 800 / 1 000 / 1 400 / 1 800 / 2 200 / 2 600 / 3 000 ft) for a compact overview; Hi shows 13 columns (600–3 000 ft at 200 ft steps) and the panel expands to fit them all without scrolling. The server captures all 15 bands down to 200 ft in the DB; the 200 and 400 ft display columns are simply not shown as no data is currently received at those altitudes at EFHK. A **display mode dropdown** to the right of the Live button selects what is shown in the altitude columns:
+- **Approach History** — a scrollable table panel overlaid on the top-left corner of the map, toggled by the `Apch Hist` button (hidden by default). Logs each completed landing approach with columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands. The server records all 15 bands at 200 ft resolution (200, 400, 600 … 3 000 ft, ±100 ft tolerance per band) and persists every approach to a SQLite `approach_history` table so data survives server restarts and accumulates over weeks. **Callsigns are shown in amber-yellow when the aircraft performed one or more go-arounds before its final landing** — hovering the callsign cell shows a tooltip such as `2× go-around`; normal approaches remain in light blue. **GPS-jammed aircraft are now logged even when their position freezes at altitude:** if an aircraft's frozen altitude suppresses the descent-rate confirmation (preventing the tracker from reaching the `APPROACHING` state), the approach is still committed to history as long as a runway assignment was confirmed — band wind columns show `—` in this case but runway usage and aircraft-type statistics remain accurate. **Duplicate commit prevention:** a 5-minute per-ICAO cooldown (`COMMIT_COOLDOWN_SEC = 300`) suppresses a second history entry if the same aircraft commits again within 5 minutes of a previous commit; this prevents duplicate rows when an aircraft briefly loses ADS-B contact (causing a stale-prune and re-admission within seconds) while still correctly recording go-around second approaches, which always occur more than 5 minutes after the first landing. A **position-freeze gate** prevents GPS-jammed frozen-position sweeps from contaminating band data: if an aircraft's altitude has dropped more than 100 ft since its position last moved, while `dist_thr_nm` has not advanced by at least 0.05 NM, the position is considered frozen and no wind is written to any band for that sweep — the affected bands remain `—` rather than showing wind computed from a stale groundspeed vector. The reference point only moves when the position moves, so a freeze is flagged after roughly 8–10 s of descent on a stuck position (comparing consecutive 3-second sweeps would never reach 100 ft on a 3° glideslope); the tracker stays current through genuine `NONE` meteo gaps so it does not false-fire when EHS data recovers after a jamming window. **Band altitudes are MSL:** transponders report pressure altitude, so once the METAR QNH is known the server converts it with `(1013.25 − QNH) × 27 ft` before matching bands; the QNH used is stored with each record (`qnh_hpa`). Records written before 2026-09-25 have `qnh_hpa = NULL` and their bands are raw pressure altitude, so on days far from 1013 hPa old and new rows are shifted relative to each other. **Landings tracked through the threshold:** normally a landing is recorded when the receiver loses the aircraft on short final. If the aircraft is still tracked when it crosses the threshold, the crossing itself is detected (along-track distance to the threshold of the runway it was established on ≤ 0.2 NM); after 20 s without climbing the landing is committed with the threshold-crossing time and that runway. A climb of more than 200 ft after the crossing cancels it as a missed approach. The panel height scales dynamically with the map container so the full available screen height is used. A **time filter row** (1h · 3h · 6h · 12h · 1d, default 3h) selects the displayed window; the server queries the DB directly for the selected period. To the right of the time buttons, a **date picker** (`dd.mm.yyyy` text field + 📅 calendar button) switches the panel into *date mode*: all approaches for that full UTC day are fetched from the DB and the time-window buttons are dimmed; a **Live** button (always visible, highlighted in blue during live mode) exits date mode and resumes the rolling-window view. The `dd.mm.yyyy` text field accepts typed digits with auto-inserted dots and always displays in that format regardless of OS locale; the 📅 button opens the native calendar for mouse users. The UTC column shows plain `HH:MM` for today's approaches and `D.M HH:MM` (e.g. `26.5 14:32`) for entries from a previous date, keeping multi-day views unambiguous. All interactive controls sit on a single control row below the title. A **Lo / Hi** button selects the column count: Lo shows 8 columns (600 / 800 / 1 000 / 1 400 / 1 800 / 2 200 / 2 600 / 3 000 ft) for a compact overview; Hi shows 13 columns (600–3 000 ft at 200 ft steps) and the panel expands to fit them all without scrolling. The server captures all 15 bands down to 200 ft in the DB; the 200 and 400 ft display columns are simply not shown as no data is currently received at those altitudes at EFHK. A **display mode dropdown** to the right of the Live button selects what is shown in the altitude columns:
 
 - **Wind** — raw wind as `dir°/spd kt` (e.g. `310°/17`)
 - **HW** — headwind component in knots, sign indicates direction: `+12` = headwind (into the aircraft), `−5` = tailwind; colour-coded green (headwind) / red (tailwind) / amber (near-zero). Default mode.
-- **XW** — crosswind component in knots with a directional arrow: `←17` means 17 kt crosswind **from the left** of the aircraft on approach; `→8` means 8 kt crosswind **from the right**. The arrow indicates the **source side** of the wind — where the wind is coming from — not the direction it blows across the runway. A left crosswind (`←`) pushes the aircraft to the right, requiring a left crab correction to maintain centreline. Colour-coded green (< 5 kt) / amber (5–9 kt) / red (≥ 10 kt).
+- **XW** — crosswind component in knots, signed the same way as the ILS profile XW labels: `-17` means 17 kt crosswind **from the left** of the aircraft on approach; `+8` means 8 kt crosswind **from the right**. The sign indicates the **source side** of the wind — where the wind is coming from — not the direction it blows across the runway. A left crosswind (`-`) pushes the aircraft to the right, requiring a left crab correction to maintain centreline. Colour-coded green (< 5 kt) / amber (5–9 kt) / red (≥ 10 kt).
 - **HW+XW** — both components in a two-line cell: headwind on top, crosswind below, separated by a hairline rule; each value is independently colour-coded.
 
 There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
@@ -616,14 +626,14 @@ An aircraft matches a runway only when all conditions hold:
 |cross-track offset| ≤ WINDSHEAR_CORRIDOR_HALF_WIDTH_NM       (default 1.5 NM)
 0 ≤ along-track distance ≤ WINDSHEAR_MAX_ILS_NM                (default 25 NM)
 |track − approach_heading| ≤ max_track_dev                     (default 60°, RWY 33: 45°, when track available)
-altitude ≥ (thr_elevation + dist_thr × GS_FT_PER_NM) − 1 000 ft   (glideslope floor)
+altitude ≥ (thr_elevation + dist_thr × GS_FT_PER_NM + QNH corr) − 1 000 ft   (glideslope floor)
 ```
 
 The along-track gate excludes aircraft that have already passed through the threshold (negative along-track), such as aircraft that have landed and are rolling out. The track heading gate is the primary defence against **parallel-runway departures**: at EFHK, the two parallel runway pairs (04L/22R and 04R/22L) are only about 0.9 NM apart — well within the cross-track corridor — so a departure on 22L flying ~220° would otherwise pass the geometric gates for the 04L corridor (approaching its threshold from the north). The 60° track tolerance rejects it immediately since 220° is ~173° from the 04L approach heading of 047°. The same logic applies to all configured runways automatically.
 
 **RWY 33 uses a tighter 45° heading gate** (vs the default 60°) because it is an RNP approach with no ILS localizer, making it more vulnerable to false detections from traffic vectored to RWY 22L/22R from the south. Such aircraft typically fly northward headings of ~010°–020° (47°–57° from RWY 33's 323° heading), which pass the 60° gate but are rejected by the 45° gate. The per-runway gate is set via a `max_track_dev` field in the runway definition; runways without this field use the global default.
 
-**The glideslope floor** rejects any corridor match where the aircraft is more than 1 000 ft below the theoretical 3° glidepath at its current distance from the threshold. This is the primary filter for traffic overflying the RWY 33 approach area at 12–15 NM while being vectored to other runways: at those distances such traffic is typically 1 000–2 500 ft below the glidepath. Legitimate approach aircraft always clear this gate — even an aircraft 800 ft low of the glidepath has a 200 ft margin. The floor applies to all runways but has no practical effect on the five ILS runways under normal operations.
+**The glideslope floor** rejects any corridor match where the aircraft is more than 1 000 ft below the theoretical 3° glidepath at its current distance from the threshold. This is the primary filter for traffic overflying the RWY 33 approach area at 12–15 NM while being vectored to other runways: at those distances such traffic is typically 1 000–2 500 ft below the glidepath. Legitimate approach aircraft always clear this gate — even an aircraft 800 ft low of the glidepath has a 200 ft margin. The floor applies to all runways but has no practical effect on the five ILS runways under normal operations. Because transponders report pressure altitude, the expected glidepath altitude is shifted by the QNH correction `(1013.25 − QNH) × 27 ft` once the server has a METAR QNH (until then no correction is applied). Without it, on a high-pressure day (e.g. QNH 1045, where pressure altitude reads ~850 ft below true altitude) a legitimate approach only slightly low of the path was rejected; the server-side glideslope status (`gs_status`) uses the same correction.
 
 The track check is skipped when track data is not available for an aircraft (rare at low altitude); those aircraft fall back to geometry-only and floor-only matching.
 
@@ -776,7 +786,7 @@ The state machine works in three stages:
 
 2. **GO_AROUND detection** — from the APPROACHING state, two conditions must both be satisfied before a go-around is declared. First, the detector counts consecutive poll cycles where the aircraft's vertical rate is ≥ 600 fpm AND altitude is at or below 2 200 ft — a configurable number of consecutive climbing polls (default 3, `WINDSHEAR_GA_MIN_CLIMB_POLLS`) must be accumulated, equivalent to 9 seconds of sustained climb. Second, the actual pressure altitude must have risen by at least 50 ft since the climb started (`WINDSHEAR_GA_MIN_ALT_GAIN_FT`), guarding against barometric lag or vert_rate quantization where a high reported rate does not correspond to meaningful altitude change. If any poll during the window falls below the climb threshold both counters reset to zero. The climb rate and altitude ceiling are configurable via `WINDSHEAR_GA_CLIMB_FPM` and `WINDSHEAR_GA_MAX_ALT_FT`.
 
-3. **Return approach tracking** — a go-around count is maintained per ICAO24 address for the duration of the page session. An aircraft coming back for a second approach gets a **2nd APP** badge next to its callsign; a third approach shows **3x APP**, and so on.
+3. **Return approach tracking** — a go-around count is maintained per ICAO24 address on the server. An aircraft coming back for a second approach gets a **2nd APP** badge next to its callsign; a third approach shows **3x APP**, and so on. The count is cleared when the aircraft's landing is recorded, and forgotten 2 hours after the last go-around if the aircraft never came back to land (e.g. diverted), so a later visit of the same aircraft is not flagged as a return approach.
 
 When a go-around fires:
 
@@ -810,7 +820,7 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 **Windrose toggle** — shows a compass rose overlay (top-right of the map) comparing METAR surface wind direction with low-altitude MODE-S wind observations from recent approach traffic.
 
-**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile for each completed approach. Every approach is persisted to the SQLite `approach_history` table and survives server restarts. The panel height scales dynamically with the map container. All controls sit on a single row: time-window buttons (1h · 3h · 6h · 12h · 1d, default 3h), a `dd.mm.yyyy` date picker + 📅 calendar button for querying a specific day, a **Live** button (blue when in live rolling-window mode), and — after a separator — a **display mode dropdown** and a **Lo/Hi** resolution button. Columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands; registration and type show `—` when not available. Lo shows 8 columns (600–3 000 ft); Hi shows 13 columns (600–3 000 ft at 200 ft steps). The display mode dropdown offers four options: **Wind** (raw `dir°/spd`), **HW** (headwind component, default), **XW** (crosswind component — `←` = from left, `→` = from right, colour-coded by magnitude), and **HW+XW** (both in a two-line cell). See the Layout section above for a full explanation of the crosswind arrow convention. There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
+**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile for each completed approach. Every approach is persisted to the SQLite `approach_history` table and survives server restarts. The panel height scales dynamically with the map container. All controls sit on a single row: time-window buttons (1h · 3h · 6h · 12h · 1d, default 3h), a `dd.mm.yyyy` date picker + 📅 calendar button for querying a specific day, a **Live** button (blue when in live rolling-window mode), and — after a separator — a **display mode dropdown** and a **Lo/Hi** resolution button. Columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands; registration and type show `—` when not available. Lo shows 8 columns (600–3 000 ft); Hi shows 13 columns (600–3 000 ft at 200 ft steps). The display mode dropdown offers four options: **Wind** (raw `dir°/spd`), **HW** (headwind component, default), **XW** (crosswind component — `+` = from right, `-` = from left, colour-coded by magnitude), and **HW+XW** (both in a two-line cell). See the Layout section above for a full explanation of the crosswind sign convention. There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
 
 #### Windshear detection
 
@@ -1021,7 +1031,7 @@ Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zo
 
 #### Detection signals
 
-The tracker watches every aircraft in the live_state snapshot on each 5-second sweep and flags aircraft showing any of four degradation signals:
+The tracker watches every aircraft in the live_state snapshot on each 5-second sweep and flags aircraft showing any of four degradation signals. **An "event" is one aircraft flagged in one 5-second sweep** — an aircraft that stays degraded for a minute produces about 12 events — so event counts measure degraded aircraft-time rather than separate incidents. One sweep can raise several signals at once (e.g. Freeze and ADS-B), which is why the per-signal counts can add up to more than the event total.
 
 | Signal | Badge | Condition | Typical cause |
 |--------|-------|-----------|---------------|
@@ -1149,7 +1159,7 @@ Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extr
 | Column | Description |
 |--------|-------------|
 | id | Auto-increment primary key |
-| ts | Unix timestamp (UTC) of landing / stale-out moment |
+| ts | Unix timestamp (UTC) of the landing: contact-lost (stale-out) moment, or the threshold-crossing time when the aircraft was tracked through the threshold |
 | date_utc | `"YYYY-MM-DD"` — used for date-based filtering |
 | time_utc | `"HH:MM"` — display time |
 | icao | ICAO24 hex address |
@@ -1158,8 +1168,9 @@ Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extr
 | aircraft_type | Aircraft type code (if known) |
 | runway | Runway designator, e.g. `"22L"` |
 | rwy_heading | Runway approach heading (°) |
-| bands_json | JSON object keyed by altitude ft (as string); value is `{"dir": int, "spd": float}` or `null` when no wind was captured at that level; e.g. `{"200": {"dir": 270, "spd": 15}, "400": null, …}` |
+| bands_json | JSON object keyed by altitude ft MSL (as string; see `qnh_hpa`); value is `{"dir": int, "spd": float}` or `null` when no wind was captured at that level; e.g. `{"200": {"dir": 270, "spd": 15}, "400": null, …}` |
 | go_arounds | Integer count of go-arounds performed by this aircraft before the final landing; 0 for normal straight-in approaches |
+| qnh_hpa | METAR QNH (hPa) used to convert the band altitudes from pressure altitude to MSL; `NULL` for rows written before 2026-09-25 (bands are raw pressure altitude) or when no METAR QNH was available yet |
 
 Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
@@ -1291,7 +1302,9 @@ mode_s_wind/
 │   ├── efhk_ils.geojson       # EFHK ILS centreline geometry (all runways)
 │   ├── efhk_apt.geojson       # EFHK airport layout (runways, taxiways)
 │   ├── efhk_coast.geojson     # Coastline overlay (ATC+C / Black+C overlay level)
-│   └── efhk_aqua.geojson      # Water / aqua polygons (ATC+CA / Black+CA overlay level)
+│   ├── efhk_aqua.geojson      # Water / aqua polygons (ATC+CA / Black+CA overlay level)
+│   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
+│                              # Present but not currently loaded by any page (reserved for future overlays)
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library
@@ -1308,7 +1321,7 @@ Authentication is handled separately from the main web credentials — all opera
 **Operations:**
 
 - **Database statistics** — read-only view showing for each table: row count, number of distinct calendar days with data, oldest and newest record dates, and total SQLite file size; refreshed on demand; the days count helps choosing an appropriate purge threshold
-- **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge
+- **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge. Deletes run in batches of 5 000 rows, each committed separately, so the database write lock is only held briefly and the collector keeps storing live observations during a large purge (if the database is still momentarily locked, the collector keeps the observations in RAM and retries on its next flush instead of dropping them). A date-range purge deletes a flight row only when none of its observations remain — a flight that started before the chosen range (e.g. crossed midnight) keeps its row and its earlier observations
 - **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` either older than a configurable threshold or within a chosen date range; useful for removing a maintenance day with incomplete data; the in-RAM GPS quality cache is reloaded immediately after the delete so the GPS Quality page reflects the change without a server restart
 - **Approach History purge** — `approach_history` is never auto-purged; manual purge controls are provided: **Older Than N Days** (Preview + Purge, default 90 days) and **Delete by Date Range** (From / To date pickers, same single-day shortcut as other sections); both operations also clear the in-RAM approach history list so the live panel stays consistent; the Delete button is only enabled after a non-zero Preview
 - **Delete by Date Range** — Flight, GPS, and Approach History sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
@@ -1340,7 +1353,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |
 | GET | `/api/flights/suitable_soundings` | Flights eligible for per-flight sounding |
 | GET | `/api/sounding` | Area-average sounding from recent observations |
-| GET | `/api/stats` | Summary counters for the navbar |
+| GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |

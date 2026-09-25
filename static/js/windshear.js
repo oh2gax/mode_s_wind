@@ -52,7 +52,7 @@ function wsSeverity(delta) {
   return 'monitor';
 }
 
-// EFHK runway magnetic headings — used by client-side shear algorithms
+// EFHK runway approach headings (true, same table as collector/windshear.py) — used by client-side shear algorithms
 const RWY_HEADINGS = {
   '04L': 47, '04R': 47, '22L': 227, '22R': 227, '15': 152, '33': 323,
 };
@@ -836,10 +836,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 // ── QNH-corrected glideslope status ──────────────────────────────────────────
 /**
  * Compute GS badge status in the browser where the live QNH is available.
- * The server-side gs_status uses pressure altitude against an uncorrected
- * glideslope, which reads HIGH when QNH is below standard (common in Finnish
- * winter).  This JS version applies the same QNH shift as the ILS canvas so
- * the strip badge and the canvas dot always agree.
+ * The server also QNH-corrects its gs_status once the METAR QNH is known, but
+ * this JS version additionally applies the WS_GS_OFFSET_FT trim and reacts to
+ * the browser's own QNH refresh immediately, so the strip badge and the canvas
+ * dot always agree.
  */
 function computeGsStatus(ac) {
   if (ac.dist_thr_nm == null || ac.dist_thr_nm > 20) return 'FAR';
@@ -3145,7 +3145,7 @@ document.getElementById('ws-aphist-live-btn').addEventListener('click', () => {
  * Format one altitude-band cell.
  *   'wind'  — "270°/15"   raw wind (direction / speed kt)
  *   'hw'    — "+12"/"-5"  headwind component, colour-coded green/red/amber
- *   'xw'    — "←8"/"→3"  crosswind component, colour-coded; ← = from left, → = from right
+ *   'xw'    — "+8"/"-3"  crosswind component, colour-coded; + = from right, - = from left
  *   'hwxw'  — two-line: HW on top, XW below
  *
  * Sign convention (both components):
@@ -3171,8 +3171,8 @@ function _xwHtml(xw) {
   const cls = abs >= 10 ? 'ws-aphist-xw-strong'
             : abs >=  5 ? 'ws-aphist-xw-mod'
             :              'ws-aphist-xw-light';
-  const arrow = xw < 0 ? '←' : '→';
-  return `<span class="${cls}">${arrow}${abs}</span>`;
+  // Same sign format as the ILS profile XW labels: + from right, - from left
+  return `<span class="${cls}">${xw > 0 ? '+' : ''}${xw}</span>`;
 }
 
 function formatBandCell(band, rwyHdg) {

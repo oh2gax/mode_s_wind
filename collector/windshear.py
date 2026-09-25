@@ -85,6 +85,9 @@ GA_CLIMB_FPM         = 600.0   # ft/min climb rate that triggers detection
 GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
 GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
+GA_COUNT_EXPIRY_SEC  = 7_200.0 # forget a go-around count 2 h after the go-around if
+                               # the aircraft never came back to land (e.g. diverted),
+                               # so its next visit is not shown as a "2nd APP"
 
 # ── Approach history ─────────────────────────────────────────────────────────
 APPROACH_HISTORY_MAX   = 500          # RAM cap — covers ~24 h at typical EFHK load
@@ -101,6 +104,22 @@ BAND_TOL_FT            = 100          # ±ft window for band wind capture
 # movement; 0.05 NM is well below this, so the gate only fires when there
 # is genuinely zero position change over a meaningful altitude descent.
 POS_FREEZE_MIN_NM      = 0.05         # NM; minimum dist change per BAND_TOL_FT altitude drop
+
+# ── Threshold-pass landing detection ─────────────────────────────────────────
+# Normally a landing is committed when an APPROACHING aircraft goes silent
+# inside the corridor (receiver loses it at a few hundred ft).  When the
+# receiver keeps tracking the aircraft past the threshold (touchdown/rollout),
+# it leaves the corridor and the phase resets — without this gate the landing
+# would never be recorded.
+LANDING_THR_PASS_NM    = 0.2          # NM; along-track ≤ this (i.e. at/past threshold) = crossed
+LANDING_CONFIRM_SEC    = 20.0         # s without climbing after threshold → commit landing
+LANDING_CANCEL_CLIMB_FT = 200.0       # ft climbed above threshold-crossing alt → missed approach
+
+# ── QNH correction ───────────────────────────────────────────────────────────
+# Transponders report pressure altitude (1013.25 hPa).  Pressure altitude ≈
+# MSL altitude + (1013.25 − QNH) × QNH_FT_PER_HPA.  Same factor as the JS ILS
+# profile (windshear.js) so server and browser agree.
+QNH_FT_PER_HPA         = 27.0
 
 # ── Windrose low-altitude observation buffer ──────────────────────────────────
 # Per-aircraft rolling buffer that mirrors the JS Lo-buffer gate exactly
@@ -234,10 +253,10 @@ def gs_status(
     to the 3° glideslope.  'FAR' is returned when the aircraft is more than
     20 NM from the threshold (glideslope interception not yet expected).
 
-    thr_elevation_ft: threshold elevation above MSL (ft).  MODE-S altitude is
-    a pressure altitude, which at low altitudes approximates true altitude
-    closely enough for strip status purposes; the QNH fine-correction is
-    applied only in the JS ILS profile canvas where live QNH is available.
+    thr_elevation_ft: reference elevation (ft) of the glideslope origin in
+    the same altitude frame as altitude_ft.  MODE-S altitude is pressure
+    altitude, so WindshearTracker passes threshold elevation + QNH correction
+    ((1013.25 − QNH) × 27 ft) once the METAR QNH is known.
     """
     if dist_thr_nm is None or dist_thr_nm > 20:
         return "FAR"
@@ -305,7 +324,27 @@ class WindshearTracker:
         self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
         self._pos_track: dict[str, dict]   = {}   # icao → {dist, alt} for position-freeze detection
         self._recent_commits: dict[str, float] = {}  # icao → timestamp of last approach-history commit
+        self._ga_last_ts: dict[str, float] = {}      # icao → time of last go-around (count expiry)
+        self._qnh_hpa: float | None = None           # latest METAR QNH (None = not yet known → no correction)
         self._lock  = threading.RLock()
+
+    # ── QNH ───────────────────────────────────────────────────────────────────
+
+    def set_qnh(self, qnh_hpa: float | None) -> None:
+        """Update the QNH used for pressure-altitude correction.
+
+        Called by the WX poll thread (web/app.py) whenever a new METAR is
+        parsed.  Until the first call no correction is applied, i.e. the
+        tracker behaves exactly as before (pressure altitude used as-is).
+        """
+        if qnh_hpa is not None and 900.0 <= float(qnh_hpa) <= 1100.0:
+            self._qnh_hpa = float(qnh_hpa)
+
+    def _qnh_corr_ft(self) -> float:
+        """Pressure altitude minus MSL altitude (ft); 0 when QNH is unknown."""
+        if self._qnh_hpa is None:
+            return 0.0
+        return (1013.25 - self._qnh_hpa) * QNH_FT_PER_HPA
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -408,6 +447,7 @@ class WindshearTracker:
             return
 
         # ── ILS corridor detection ────────────────────────────────────────────
+        qnh_corr = self._qnh_corr_ft()   # pressure alt − MSL alt (0 until QNH known)
         track  = aircraft.get("track")
         runway, dist_thr, cross_track, along_track = self._best_runway(lat, lon, track)
 
@@ -424,7 +464,9 @@ class WindshearTracker:
                  for r in self.runways if r["name"] == runway),
                 self.thr_elevation_ft,
             )
-            _gs_expected = _floor_thr_elev + dist_thr * GS_FT_PER_NM
+            # Expected pressure altitude on the 3° path (QNH-corrected so that
+            # high-QNH days do not push legitimate approaches below the floor)
+            _gs_expected = _floor_thr_elev + dist_thr * GS_FT_PER_NM + qnh_corr
             if alt < _gs_expected - CORRIDOR_GS_FLOOR_FT:
                 runway = dist_thr = cross_track = along_track = None
 
@@ -440,7 +482,7 @@ class WindshearTracker:
             (r.get("thr_elevation_ft", self.thr_elevation_ft) for r in self.runways if r["name"] == runway),
             self.thr_elevation_ft,
         )
-        gs_stat     = gs_status(alt, dist_thr, rwy_thr_elev) if in_corridor else "FAR"
+        gs_stat     = gs_status(alt, dist_thr, rwy_thr_elev + qnh_corr) if in_corridor else "FAR"
 
         # Headwind component along the matched runway's approach heading.
         # Used by the JS windshear detection algorithm.
@@ -491,6 +533,29 @@ class WindshearTracker:
             ga_flash_until     = prev.get("ga_flash_until", 0.0)
             ga_left_corridor   = prev.get("ga_left_corridor", False)
 
+            # ── Threshold-pass landing candidate ──────────────────────────────
+            # An APPROACHING aircraft whose runway match changes (leaves the
+            # corridor, or flips to the parallel runway's corridor while rolling
+            # out) at or past the threshold of the runway it was established on
+            # has crossed the threshold → landing candidate for that runway.
+            # Only relevant when the receiver tracks aircraft that low; the
+            # normal "lost contact on final" path in prune_stale() is unchanged.
+            landing_rwy       = prev.get("landing_rwy")
+            landing_ts        = prev.get("landing_ts")
+            landing_exit_alt  = prev.get("landing_exit_alt")
+            landing_committed = prev.get("landing_committed", False)
+            _prev_rwy = prev.get("approach_runway")
+            if (landing_rwy is None and prev_ga_phase == "APPROACHING"
+                    and _prev_rwy and runway != _prev_rwy):
+                _pr = next((r for r in self.runways if r["name"] == _prev_rwy), None)
+                if _pr is not None:
+                    _at_prev = _along_track_nm(lat, lon, _pr["thr_lat"], _pr["thr_lon"], _pr["heading"])
+                    if _at_prev <= LANDING_THR_PASS_NM:
+                        landing_rwy      = _prev_rwy
+                        landing_ts       = now
+                        landing_exit_alt = alt
+                        log.debug("Threshold crossing: %s RWY %s at %d ft", icao, _prev_rwy, round(alt))
+
             if in_corridor:
                 # GO_AROUND → NONE transition: aircraft has left the corridor
                 # during climb-out (ga_left_corridor flag set below) and has
@@ -527,6 +592,7 @@ class WindshearTracker:
                                 and alt_gained >= self.ga_min_alt_gain_ft):
                             # ── Go-around confirmed ───────────────────────────
                             self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
+                            self._ga_last_ts[icao] = now
                             count              = self._ga_counts[icao]
                             ga_phase           = "GO_AROUND"
                             ga_climb_polls     = 0
@@ -565,6 +631,21 @@ class WindshearTracker:
                 elif ga_phase == "GO_AROUND":
                     ga_left_corridor   = True
 
+            # Landing candidate housekeeping
+            if landing_rwy is not None and not landing_committed:
+                if (ga_phase == "GO_AROUND"
+                        or (landing_exit_alt is not None
+                            and alt > landing_exit_alt + LANDING_CANCEL_CLIMB_FT)):
+                    # Climbed away after crossing the threshold — missed approach
+                    log.info("Threshold crossing cancelled (climb-out): %s RWY %s",
+                             icao, landing_rwy)
+                    landing_rwy = landing_ts = landing_exit_alt = None
+            if (landing_rwy is not None and in_corridor
+                    and ga_phase == "APPROACHING" and dist_thr is not None and dist_thr > 3.0):
+                # Established on a new approach well out on final — start fresh
+                landing_rwy = landing_ts = landing_exit_alt = None
+                landing_committed = False
+
             ga_count  = self._ga_counts.get(icao, 0)
             is_return = ga_count > 0 and ga_phase != "GO_AROUND"
 
@@ -575,19 +656,29 @@ class WindshearTracker:
             # after a legitimate NONE window.
             #
             # pos_frozen is True when altitude has dropped more than BAND_TOL_FT
-            # since the previous sweep but dist_thr has not advanced by at least
-            # POS_FREEZE_MIN_NM — the signature of a GPS-jammed frozen position.
-            # Wind computed in this state is based on a stale groundspeed vector
-            # and must not be written to Approach History or the Windrose buffer.
+            # since the position last moved, while dist_thr has not advanced by
+            # at least POS_FREEZE_MIN_NM — the signature of a GPS-jammed frozen
+            # position.  Wind computed in this state is based on a stale
+            # groundspeed vector and must not be written to Approach History or
+            # the Windrose buffer.
+            #
+            # The reference point is an *anchor* that only moves when the
+            # position moves (or the aircraft climbs above it).  Comparing
+            # consecutive 3-s sweeps instead never fires: a 3° descent loses only
+            # ~40 ft per sweep, far below the 100 ft BAND_TOL_FT threshold.
             pos_frozen = False
             if in_corridor and dist_thr is not None:
-                prev_pos = self._pos_track.get(icao)
-                if prev_pos is not None:
-                    alt_drop   = prev_pos["alt"] - alt
-                    dist_moved = abs(dist_thr - prev_pos["dist"])
-                    if alt_drop > BAND_TOL_FT and dist_moved < POS_FREEZE_MIN_NM:
-                        pos_frozen = True
-                self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
+                anchor = self._pos_track.get(icao)
+                if anchor is None:
+                    self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
+                else:
+                    dist_moved = abs(dist_thr - anchor["dist"])
+                    alt_drop   = anchor["alt"] - alt
+                    if dist_moved >= POS_FREEZE_MIN_NM or alt_drop < 0:
+                        # Position moved (or climbed) — normal flight; re-anchor
+                        self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
+                    elif alt_drop > BAND_TOL_FT:
+                        pos_frozen = True   # keep anchor until the position moves again
             elif not in_corridor:
                 self._pos_track.pop(icao, None)
 
@@ -613,7 +704,11 @@ class WindshearTracker:
             # reading at each level, not the last one.
             # pos_frozen guards against GPS-jammed frozen-position sweeps where
             # EHS wind may be computed from a stale groundspeed vector.
-            if (in_corridor and not pos_frozen
+            # Bands are MSL altitudes: pressure altitude is QNH-corrected
+            # (no correction until the first METAR QNH is known).  No capture
+            # after a threshold crossing (rollout wind is not meaningful).
+            alt_msl = alt - qnh_corr
+            if (in_corridor and not pos_frozen and landing_rwy is None
                     and wind_spd is not None and wind_dir is not None
                     and aircraft.get("meteo_source", "NONE") != "NONE"):
                 bw = self._band_winds.setdefault(icao, {
@@ -624,11 +719,12 @@ class WindshearTracker:
                 bw["runway"]   = runway     # track most-recently matched runway
                 for band in APPROACH_HISTORY_BANDS:
                     key = str(band)
-                    if bw["bands"][key] is None and abs(alt - band) <= BAND_TOL_FT:
+                    if bw["bands"][key] is None and abs(alt_msl - band) <= BAND_TOL_FT:
                         bw["bands"][key] = {"dir": round(wind_dir), "spd": round(wind_spd, 1)}
             # Reset band state when established aircraft leaves the corridor
             # (vectored-off, overflight, missed approach leaving laterally).
-            if not in_corridor and prev_ga_phase == "APPROACHING":
+            # (kept when the aircraft left by crossing the threshold — landing)
+            if not in_corridor and prev_ga_phase == "APPROACHING" and landing_rwy is None:
                 self._band_winds.pop(icao, None)
 
             # ── Windrose low-altitude observation buffer ──────────────────────
@@ -637,7 +733,7 @@ class WindshearTracker:
             # entries per aircraft.  Requirements: in corridor, alt ≤ 2 000 ft,
             # valid non-NONE wind — identical conditions to JS wsWindHistory.
             # pos_frozen guard matches the band capture gate above.
-            if (in_corridor and not pos_frozen
+            if (in_corridor and not pos_frozen and landing_rwy is None
                     and alt <= WINDROSE_OBS_MAX_ALT_FT
                     and wind_spd is not None
                     and wind_dir is not None
@@ -758,17 +854,41 @@ class WindshearTracker:
                 "ga_flash":         ga_flash_until > now,
                 "ga_count":         ga_count,
                 "is_return":        is_return,
+                # Threshold-pass landing state (see LANDING_* constants)
+                "landing_rwy":       landing_rwy,
+                "landing_ts":        landing_ts,
+                "landing_exit_alt":  landing_exit_alt,
+                "landing_committed": landing_committed,
             }
+
+            # Confirm a threshold-pass landing once the aircraft has stayed
+            # down for LANDING_CONFIRM_SEC — commit now rather than waiting for
+            # stale-out (an aircraft may keep transmitting on the ground for a
+            # long time, or depart again before ever going silent).
+            if (landing_rwy is not None and not landing_committed
+                    and now - landing_ts >= LANDING_CONFIRM_SEC):
+                st = self._state[icao]
+                st["landing_committed"] = True
+                self._commit_approach(
+                    icao, st,
+                    self._band_winds.pop(icao, None),
+                    self._windrose_obs.pop(icao, None),
+                    now, rec_ts=landing_ts, runway=landing_rwy,
+                    ga_count=self._ga_counts.get(icao, 0),
+                    reason="THRESHOLD-PASS",
+                )
+                self._ga_counts.pop(icao, None)
+                self._ga_last_ts.pop(icao, None)
 
     def prune_stale(self) -> None:
         """Remove aircraft not updated within STALE_TIMEOUT_SEC.
 
         When a corridor aircraft goes stale it is assumed to have landed.
         Its accumulated altitude-band wind data is committed to _approach_history
-        under two conditions:
+        under three conditions:
 
           • ga_phase == "APPROACHING" — normal case: ADS-B contact lost on final
-            (typically 200–400 ft), approach fully confirmed by sustained descent.
+            (typically 200–500 ft), approach fully confirmed by sustained descent.
 
           • ga_phase == "NONE" with approach_runway set — GPS-jamming case: the
             aircraft was geometrically established inside the ILS corridor (runway
@@ -776,7 +896,12 @@ class WindshearTracker:
             enough descent polls to confirm APPROACHING.  Still recorded so runway
             usage and aircraft-type statistics remain accurate.
 
-        Aircraft in GO_AROUND state are not committed.
+          • landing_rwy set but not yet committed — threshold-pass landing whose
+            LANDING_CONFIRM_SEC confirmation had not elapsed when contact was lost.
+
+        Aircraft in GO_AROUND state are not committed, nor are aircraft whose
+        threshold-pass landing was already committed from update().
+        Go-around counts older than GA_COUNT_EXPIRY_SEC are forgotten here.
         """
         cutoff = time.time() - STALE_TIMEOUT_SEC
         now    = time.time()
@@ -787,107 +912,129 @@ class WindshearTracker:
                 bw    = self._band_winds.pop(k, None)
                 wr    = self._windrose_obs.pop(k, None)
                 self._pos_track.pop(k, None)
+                # Capture go-around count BEFORE clearing so it can be
+                # included in the approach history record.
+                ga_count_at_commit = self._ga_counts.get(k, 0)
+
+                _landing_pending = (entry.get("landing_rwy") is not None
+                                    and not entry.get("landing_committed"))
+                _should_commit = (
+                    entry.get("ga_phase") == "APPROACHING"
+                    or (entry.get("ga_phase") == "NONE" and entry.get("approach_runway"))
+                    or _landing_pending
+                )
+                if entry.get("landing_committed"):
+                    _should_commit = False   # already recorded at threshold crossing
+
                 # Clear go-around count on landing so future approaches from the
                 # same aircraft (same ICAO, new flight) start without a stale
                 # "2nd APP" badge.  The count is only needed to bridge the gap
                 # between the go-around climb-out and the re-entry for the next
                 # approach; once the aircraft lands it is no longer relevant.
-                # Capture go-around count BEFORE clearing so it can be
-                # included in the approach history record.
-                ga_count_at_commit = self._ga_counts.get(k, 0)
-                if entry.get("ga_phase") == "APPROACHING":
+                if entry.get("ga_phase") == "APPROACHING" or _should_commit:
                     self._ga_counts.pop(k, None)
-
-                # Harvest windrose observations when the aircraft goes stale
-                # while on approach (APPROACHING confirmed, or NONE with runway
-                # assigned — GPS-jamming case).  Each obs gets the current
-                # wall-clock timestamp so the JS 30-minute rolling window works
-                # correctly in a fresh browser session.
-                _should_commit = (
-                    entry.get("ga_phase") == "APPROACHING"
-                    or (entry.get("ga_phase") == "NONE" and entry.get("approach_runway"))
-                )
-                if wr and _should_commit:
-                    # Assign unique timestamps (1-second apart, oldest first,
-                    # ending at 'now') so the JS dedup in fetchWindroseObs()
-                    # does not collapse all observations from the same aircraft
-                    # into one entry.  All timestamps remain within a few tens
-                    # of seconds of 'now', well inside the 30-minute window.
-                    n_wr = len(wr)
-                    for i, obs in enumerate(wr):
-                        self._windrose_buffer.append({
-                            "ts":  now - (n_wr - 1 - i),
-                            "dir": obs["wind_dir"],
-                            "spd": obs["wind_spd"],
-                            "alt": obs["alt_ft"],
-                        })
-
-                # Purge windrose entries older than 30 minutes
-                wr_cutoff = now - WINDROSE_BUFFER_MAX_SEC
-                while self._windrose_buffer and self._windrose_buffer[0]["ts"] < wr_cutoff:
-                    self._windrose_buffer.pop(0)
-
-                # Commit to approach history if established on approach when lost.
-                # bw may be None when the aircraft never produced valid wind data
-                # (e.g. no IAS available, meteo_source always NONE) — still record
-                # the landing with all band values as None so it appears in the
-                # Approach History table with "—" in the wind columns.
-                # Cooldown gate: suppress duplicate commits for the same ICAO
-                # within COMMIT_COOLDOWN_SEC (5 min).  Prevents two history
-                # entries when an aircraft briefly loses ADS-B signal (< 30 s
-                # gap triggers prune+re-admit), producing two state cycles in
-                # quick succession.  Go-around second approaches happen 10–15+
-                # minutes later and are never suppressed by this gate.
-                _last_commit = self._recent_commits.get(k, 0.0)
-                if _should_commit and (now - _last_commit) < COMMIT_COOLDOWN_SEC:
-                    _should_commit = False
+                    self._ga_last_ts.pop(k, None)
 
                 if _should_commit:
-                    t   = time.gmtime(now)
-                    rwy = (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
-                    rwy_hdg = next(
-                        (r["heading"] for r in self.runways if r["name"] == rwy),
-                        None,
-                    )
-                    record = {
-                        "ts":            now,
-                        "time_utc":      f"{t.tm_hour:02d}:{t.tm_min:02d}",
-                        "callsign":      (bw.get("callsign") if bw else None) or entry.get("callsign") or k,
-                        "icao":          k,
-                        "registration":  entry.get("registration"),
-                        "aircraft_type": entry.get("aircraft_type"),
-                        "runway":        rwy,
-                        "rwy_heading":   rwy_hdg,
-                        "bands":         bw.get("bands", {}) if bw else {str(b): None for b in APPROACH_HISTORY_BANDS},
-                        "go_arounds":    ga_count_at_commit,
-                    }
-                    self._approach_history.insert(0, record)
-                    if len(self._approach_history) > APPROACH_HISTORY_MAX:
-                        self._approach_history.pop()
-                    # Record commit time for the cooldown gate and prune old
-                    # entries (keep anything within 2× cooldown to bound size).
-                    self._recent_commits[k] = now
-                    cutoff_rc = now - COMMIT_COOLDOWN_SEC * 2
-                    self._recent_commits = {
-                        ik: ts for ik, ts in self._recent_commits.items()
-                        if ts > cutoff_rc
-                    }
-
-                    # Notify the DB writer callback (wired in run.py) so the
-                    # record is persisted immediately without coupling this
-                    # class to the database layer directly.
-                    if self._on_approach_committed is not None:
-                        try:
-                            self._on_approach_committed(record)
-                        except Exception as cb_exc:
-                            log.warning("approach_committed callback failed: %s", cb_exc)
-                    commit_reason = "APPROACHING" if entry.get("ga_phase") == "APPROACHING" else "NONE+rwy(GPS-jam)"
-                    log.info(
-                        "Approach history: %s (%s) RWY %s phase=%s — bands captured: %s",
-                        record["callsign"], k, rwy, commit_reason,
-                        [ft for ft, v in record["bands"].items() if v],
+                    self._commit_approach(
+                        k, entry, bw, wr, now,
+                        rec_ts=entry.get("landing_ts") if _landing_pending else None,
+                        runway=entry.get("landing_rwy") if _landing_pending else None,
+                        ga_count=ga_count_at_commit,
+                        reason=("THRESHOLD-PASS" if _landing_pending
+                                else "APPROACHING" if entry.get("ga_phase") == "APPROACHING"
+                                else "NONE+rwy(GPS-jam)"),
                     )
                 log.debug("Windshear: dropped stale %s (ga_phase=%s)", k, entry.get("ga_phase"))
+
+            # Purge windrose entries older than WINDROSE_BUFFER_MAX_SEC
+            wr_cutoff = now - WINDROSE_BUFFER_MAX_SEC
+            while self._windrose_buffer and self._windrose_buffer[0]["ts"] < wr_cutoff:
+                self._windrose_buffer.pop(0)
+
+            # Forget go-around counts of aircraft that never came back to land
+            # (e.g. diverted) so a later visit is not flagged "2nd APP".
+            ga_cutoff = now - GA_COUNT_EXPIRY_SEC
+            for k in [k for k, ts in self._ga_last_ts.items() if ts < ga_cutoff]:
+                self._ga_last_ts.pop(k, None)
+                self._ga_counts.pop(k, None)
+
+    def _commit_approach(self, k: str, entry: dict, bw: dict | None, wr: list | None,
+                         now: float, rec_ts: float | None = None,
+                         runway: str | None = None, ga_count: int = 0,
+                         reason: str = "") -> None:
+        """Harvest windrose obs and write one landing to the approach history.
+
+        Called with self._lock held, from prune_stale() (contact lost on final)
+        or update() (confirmed threshold-pass landing).  rec_ts / runway
+        override the record time and runway (threshold-pass landings use the
+        threshold-crossing time and the runway the aircraft was established on).
+        """
+        # Harvest windrose observations.  Each obs gets a unique timestamp
+        # (1-second apart, oldest first, ending at 'now') so the JS dedup in
+        # fetchWindroseObs() does not collapse all observations from the same
+        # aircraft into one entry.
+        if wr:
+            n_wr = len(wr)
+            for i, obs in enumerate(wr):
+                self._windrose_buffer.append({
+                    "ts":  now - (n_wr - 1 - i),
+                    "dir": obs["wind_dir"],
+                    "spd": obs["wind_spd"],
+                    "alt": obs["alt_ft"],
+                })
+
+        # Cooldown gate: suppress duplicate commits for the same ICAO within
+        # COMMIT_COOLDOWN_SEC (5 min).  Prevents two history entries when an
+        # aircraft briefly loses ADS-B signal (< 30 s gap triggers prune +
+        # re-admit).  Go-around second approaches happen 10–15+ minutes later
+        # and are never suppressed by this gate.
+        if (now - self._recent_commits.get(k, 0.0)) < COMMIT_COOLDOWN_SEC:
+            return
+
+        # bw may be None when the aircraft never produced valid wind data
+        # (e.g. meteo_source always NONE) — still record the landing with all
+        # band values as None so it appears with "—" in the wind columns.
+        ts  = rec_ts if rec_ts is not None else now
+        t   = time.gmtime(ts)
+        rwy = runway or (bw.get("runway") if bw else None) or entry.get("approach_runway") or "?"
+        rwy_hdg = next((r["heading"] for r in self.runways if r["name"] == rwy), None)
+        record = {
+            "ts":            ts,
+            "time_utc":      f"{t.tm_hour:02d}:{t.tm_min:02d}",
+            "callsign":      (bw.get("callsign") if bw else None) or entry.get("callsign") or k,
+            "icao":          k,
+            "registration":  entry.get("registration"),
+            "aircraft_type": entry.get("aircraft_type"),
+            "runway":        rwy,
+            "rwy_heading":   rwy_hdg,
+            "bands":         bw.get("bands", {}) if bw else {str(b): None for b in APPROACH_HISTORY_BANDS},
+            "go_arounds":    ga_count,
+            # QNH used to convert band altitudes to MSL (None = not yet known,
+            # bands are then raw pressure altitude as in records before 2026-09-25)
+            "qnh_hpa":       self._qnh_hpa,
+        }
+        self._approach_history.insert(0, record)
+        if len(self._approach_history) > APPROACH_HISTORY_MAX:
+            self._approach_history.pop()
+        # Record commit time for the cooldown gate and prune old entries
+        # (keep anything within 2× cooldown to bound size).
+        self._recent_commits[k] = now
+        cutoff_rc = now - COMMIT_COOLDOWN_SEC * 2
+        self._recent_commits = {ik: t0 for ik, t0 in self._recent_commits.items() if t0 > cutoff_rc}
+
+        # Notify the DB writer callback (wired in run.py) so the record is
+        # persisted immediately without coupling this class to the DB layer.
+        if self._on_approach_committed is not None:
+            try:
+                self._on_approach_committed(record)
+            except Exception as cb_exc:
+                log.warning("approach_committed callback failed: %s", cb_exc)
+        log.info(
+            "Approach history: %s (%s) RWY %s phase=%s — bands captured: %s",
+            record["callsign"], k, rwy, reason,
+            [ft for ft, v in record["bands"].items() if v],
+        )
 
     def get_state(self) -> dict:
         """

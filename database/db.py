@@ -46,6 +46,7 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE gps_quality_hours ADD COLUMN adsb_loss_events   INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE gps_quality_zone_hours ADD COLUMN adsb_loss_events INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE approach_history ADD COLUMN go_arounds INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE approach_history ADD COLUMN qnh_hpa REAL",
     ]
     for sql in _migrations:
         try:
@@ -61,7 +62,10 @@ def init_db(db_path: str) -> None:
 def get_db() -> sqlite3.Connection:
     """Return the thread-local SQLite connection, creating it if needed."""
     if not hasattr(_local, "conn") or _local.conn is None:
-        conn = sqlite3.connect(_db_path, check_same_thread=False)
+        # timeout: wait up to 15 s for another writer's lock (default 5 s)
+        # before raising "database is locked" — maintenance purges now commit
+        # in small batches, so waits are normally far shorter.
+        conn = sqlite3.connect(_db_path, check_same_thread=False, timeout=15.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous  = NORMAL")

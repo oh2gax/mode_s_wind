@@ -60,6 +60,23 @@ def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
             })
 
 
+def prune_bds_cache(max_age_sec: float = 120.0) -> int:
+    """Drop BDS 5,0 / 6,0 cache entries older than max_age_sec.
+
+    Entries older than 60 s are never used for pairing (_try_pair_wind), so
+    they only occupy memory.  Called periodically by the housekeeping thread
+    in run.py.  Returns the number of entries removed.
+    """
+    cutoff  = time.time() - max_age_sec
+    removed = 0
+    with _CACHE_LOCK:
+        for cache in (_BDS50_CACHE, _BDS60_CACHE):
+            for icao in [k for k, (ts, _) in cache.items() if ts < cutoff]:
+                del cache[icao]
+                removed += 1
+    return removed
+
+
 def _try_pair_wind(icao: str, ts: float, cfg: Config,
                    altitude: Optional[float]) -> Optional[dict]:
     """
@@ -109,7 +126,9 @@ def _build_observation(icao: str, ts: float, result: dict,
         "lon":         result.get("longitude"),
         "altitude":    result.get("altitude"),
         "groundspeed": result.get("groundspeed"),
-        "track":       result.get("track") or result.get("true_track"),
+        # Explicit None check — `or` would discard a valid 0° (due north) track
+        "track":       (result.get("track") if result.get("track") is not None
+                        else result.get("true_track")),
         "vert_rate":   result.get("vertical_rate"),
         "nac_p":       result.get("nac_p"),   # Navigation Accuracy Category (position) — decoded from TC=29/31
     }
@@ -256,7 +275,8 @@ def run_collector(
                     cached = dict(live_state.get(icao, {}))
 
                 # Best altitude: prefer freshly decoded, fall back to cache
-                current_altitude = result.get("altitude") or cached.get("altitude")
+                current_altitude = (result.get("altitude") if result.get("altitude") is not None
+                                    else cached.get("altitude"))
 
                 # ── Attempt wind calculation ──────────────────────────────
                 wind: Optional[dict] = _try_pair_wind(

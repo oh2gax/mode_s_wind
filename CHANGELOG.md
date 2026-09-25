@@ -5,6 +5,30 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-26 (Purge safety, JSON squawk, lighter navbar stats, signed XW in Approach History)
+
+- **Large purges no longer drop incoming data**: flight/meteo purges delete in committed batches of 5 000 rows; the collector writer rolls back and keeps a locked batch for retry (up to 50 000 obs) instead of dropping it; SQLite busy timeout raised from 5 s to 15 s
+- Fix: date-range flight purge failed entirely (FOREIGN KEY error) when a flight crossed midnight into the start date — flights are now deleted only when none of their observations remain; date-range purge and preview use indexed timestamp ranges instead of `date()` scans
+- Fix: JSON squawk was never read — the Radarcape field is `squ` (`sqk`/`squawk` kept as fallbacks)
+- `/api/stats` (navbar, every 15 s per tab) is now RAM-only; the unused database totals that required a full `COUNT(*)` of the observations table were removed
+- Approach History XW column uses signed values like the ILS profile (`+8` from right, `-14` from left) instead of arrows
+- Changed files: `database/maintenance.py`, `database/db.py`, `collector/writer.py`, `collector/radarcape_json.py`, `web/app.py`, `static/js/windshear.js`, `web/templates/windshear.html`, `README.md`
+
+---
+
+## 2026-09-25 (Audit fixes — freeze gate, live_state pruning, server-side QNH, landing detection)
+
+- **Position-freeze gate fixed**: compared consecutive 3-s sweeps against a 100 ft threshold, which a 3° descent (~40 ft/sweep) never reaches, so it never fired; now uses an anchor that only moves with the position — freezes are flagged after ~8–10 s of descent on a stuck position, excluding those sweeps from bands, windrose and trail as intended
+- **live_state pruning**: new housekeeping thread in `run.py` removes aircraft unseen for 10 min and prunes the BDS 5,0/6,0 pairing caches every 60 s (previously every aircraft ever received stayed in RAM)
+- **Server-side QNH**: METAR QNH is now passed to `WindshearTracker` (`set_qnh`); the glideslope floor gate and `gs_status` are QNH-corrected (high-QNH days no longer reject approaches slightly low of the path) and approach-history bands are captured in MSL; new `approach_history.qnh_hpa` column (auto-migrated; `NULL` on older rows = bands in pressure altitude); no correction until the first METAR arrives
+- **Landings tracked through the threshold** are now recorded (threshold crossing + 20 s without climb, record time = crossing time); previously lost because the phase reset on leaving the corridor, and an aircraft lost just past a 04L/22R threshold could be logged on the parallel runway
+- Fix: go-around count now cleared on any recorded landing and expires 2 h after the go-around, so a diverted aircraft's later visit is no longer flagged "2nd APP"
+- Fix: a ground track of exactly 0° (due north) was discarded as missing in `receiver.py`
+- README: documented the above plus previously undocumented config keys, GPS "event" definition, unused overlay files; removed unused `requests` from install instructions; stale code comments corrected
+- Changed files: `collector/windshear.py`, `collector/receiver.py`, `run.py`, `web/app.py`, `database/db.py`, `database/schema.sql`, `config.py`, `static/js/windshear.js`, `README.md`
+
+---
+
 ## 2026-09-24 (ILS profile — Val toggle, compact HW/XW labels)
 
 - **`Val` segment** added to the `Barbs · Hi · Auto` group: hides or shows the `dir/spd` label next to each barb; with Val off, plain barbs are drawn, or only the HW/XW component value when a component mode is active; Dcl greys out while Val is off; corner label shows `· NOVAL`; setting persisted in `localStorage` (`ms_ws_barb_val`)

@@ -23,6 +23,11 @@ from database.db import get_db
 log = logging.getLogger("modes.writer")
 
 
+# Upper bound on observations held for retry while the DB is locked
+# (~a few minutes of traffic); beyond this the batch is dropped as before.
+MAX_RETRY_BUFFER = 50_000
+
+
 class BatchWriter:
     """Accumulate decoded observations and flush to SQLite periodically."""
 
@@ -81,13 +86,32 @@ class BatchWriter:
         batch = self._buffer[:]
         self._buffer.clear()
 
+        db = None
         try:
             db = get_db()
             self._write_batch(db, batch)
             db.commit()
             log.debug("Flushed %d observations to DB", len(batch))
         except sqlite3.Error as exc:
-            log.error("DB write failed: %s — %d observations dropped", exc, len(batch))
+            # Undo the partial batch so a retry cannot insert duplicates, and
+            # forget cached flight sessions: a flight row created inside the
+            # rolled-back transaction no longer exists.  The next flush looks
+            # the open session up from the DB again.
+            try:
+                if db is not None:
+                    db.rollback()
+            except sqlite3.Error:
+                pass
+            self._sessions.clear()
+            msg = str(exc).lower()
+            transient = isinstance(exc, sqlite3.OperationalError) and ("locked" in msg or "busy" in msg)
+            if transient and len(batch) + len(self._buffer) <= MAX_RETRY_BUFFER:
+                # DB temporarily locked (e.g. maintenance purge) — keep the
+                # observations and retry on the next flush instead of dropping.
+                self._buffer[:0] = batch
+                log.warning("DB busy (%s) — %d observations kept for retry", exc, len(batch))
+            else:
+                log.error("DB write failed: %s — %d observations dropped", exc, len(batch))
         finally:
             self._last_flush = time.monotonic()
 

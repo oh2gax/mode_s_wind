@@ -81,9 +81,11 @@ def _parse_entry(entry: dict) -> Optional[dict]:
     if wdi is not None and not (0.0 <= wdi <= 360.0):
         wdi = None
 
-    # Squawk (SSR Mode-A code) — Radarcape uses "sqk"; try "squawk" as fallback.
+    # Squawk (SSR Mode-A code) — the Radarcape aircraftlist.json field is "squ";
+    # "sqk" / "squawk" kept as fallbacks for other firmware versions.
     # Normalise to a 4-character zero-padded string; discard "0000" (unset).
-    sqk_raw = entry.get("sqk") or entry.get("squawk")
+    sqk_raw = next((entry[k] for k in ("squ", "sqk", "squawk")
+                    if entry.get(k) not in (None, "")), None)
     if sqk_raw is not None:
         sqk_str = str(sqk_raw).strip().zfill(4)[:4]
         squawk  = sqk_str if (sqk_str.isdigit() and sqk_str != "0000") else None
