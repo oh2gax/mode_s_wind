@@ -62,9 +62,16 @@ class Config:
 
     # ── Magnetic declination ───────────────────────────────────────────────
     # EFHK (Helsinki-Vantaa) WMM value: ~+10.5°E as of 2026-01.
-    # Re-check every 2–3 years; current rate of change ~+0.1°/year.
-    # Used to convert magnetic heading → true heading for wind calculation.
+    # Used to convert magnetic heading → true heading for wind calculation
+    # when position-based declination (USE_WMM_DECLINATION) is unavailable.
+    # Re-check every 2–3 years; current rate of change ~+0.15°/year.
     MAG_DECLINATION: float = 10.5
+    # Position-based declination from the World Magnetic Model (WMM2025) via
+    # the `pygeomag` package: the declination at each aircraft's own position
+    # is used (varies ~8.7°–12.6° within 150 NM of EFHK).  MAG_DECLINATION
+    # above is then only the fallback (unknown position / pygeomag missing).
+    # Install: pip install pygeomag   (set False to always use MAG_DECLINATION)
+    USE_WMM_DECLINATION: bool = True
 
     # ── Wind calculation quality gates ────────────────────────────────────
     # Max roll angle (°) for wind calculation to be considered valid

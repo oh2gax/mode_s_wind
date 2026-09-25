@@ -2,7 +2,7 @@
 
 A Python-based system for collecting, decoding and visualising real-time meteorological data from aircraft using **MODE-S Enhanced Surveillance (EHS)** and **ADS-B** messages received by a [Jetvision Radarcape](https://www.jetvision.de/radarcape/) receiver.
 
-Two complementary methods are used to extract meteorological data from aircraft transponder traffic. The primary method is direct decoding of **BDS 4,4 Meteorological Routine Air Report (MRAR)** messages, which carry onboard sensor readings for wind speed, wind direction, static air temperature, and humidity — but MRAR is optional equipment and relatively few aircraft in commercial service transmit it. The majority of observations are therefore derived indirectly from **MODE-S Enhanced Surveillance (EHS)** data: wind speed and direction are computed from the combination of Indicated Airspeed (BDS 6,0), Mach number (BDS 5,0), true heading (BDS 5,0), and ADS-B groundspeed and track angle; static air temperature is computed from Mach number and the standard atmosphere model. These EHS-derived values are physically equivalent to sensor readings but are calculated rather than measured directly. The system handles both methods transparently, preferring direct MRAR data when available and falling back to EHS computation otherwise.
+Two complementary methods are used to extract meteorological data from aircraft transponder traffic. The primary method is direct decoding of **BDS 4,4 Meteorological Routine Air Report (MRAR)** messages, which carry onboard sensor readings for wind speed, wind direction, static air temperature, and humidity — but MRAR is optional equipment and relatively few aircraft in commercial service transmit it. The majority of observations are therefore derived indirectly from **MODE-S Enhanced Surveillance (EHS)** data: wind speed and direction are computed from the aircraft's air vector — magnetic heading (BDS 6,0, converted to true heading with the World Magnetic Model declination at the aircraft's position) and true airspeed (BDS 5,0, or derived from Mach / IAS in BDS 6,0) — and its ground vector (true track and groundspeed from BDS 5,0). These EHS-derived values are physically equivalent to sensor readings but are calculated rather than measured directly. The system handles both methods transparently, preferring direct MRAR data when available and falling back to EHS computation otherwise.
 
 All decoded observations are stored in a local SQLite database and presented through a web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, and a gridded historical wind map.
 
@@ -99,6 +99,22 @@ When multiple sources are available for the same observation the `best_*` consol
 3. **COMPUTED** — wind vector calculated from BDS 5,0 + 6,0 pair
 4. **JSON** — temperature or wind injected from Radarcape's JSON feed
 
+### Computed wind (BDS 5,0 + 6,0)
+
+Wind = ground vector − air vector. The ground vector is the true track and groundspeed from BDS 5,0; the air vector is the true heading and true airspeed. A BDS 5,0 and a BDS 6,0 reply from the same aircraft at most `WIND_MAX_PAIR_AGE` (10 s) apart are paired, and the result is rejected while the aircraft banks more than `WIND_MAX_ROLL_DEG` or turns faster than `WIND_MAX_TRACK_RATE`.
+
+**True heading** — BDS 6,0 reports magnetic heading. The magnetic declination is taken from the **World Magnetic Model (WMM2025)** at the aircraft's own position via the `pygeomag` package (cached on a 0.5° grid, rebuilt daily so the ~0.15°/year drift is followed automatically). Within 150 NM of EFHK declination ranges from about 8.7° (west / south-west) to 12.6° (north-east); a single fixed value would be off by up to ~2°, which at 450 kt TAS is a ~16 kt wind error. `MAG_DECLINATION` is used only as a fallback — when the position is not yet known, `pygeomag` is not installed, or `USE_WMM_DECLINATION = False`. The value used is stored per observation (`mag_decl`).
+
+**True airspeed** — taken from the best available source, stored per observation as `tas_source`:
+
+| `tas_source` | Source | Notes |
+|---|---|---|
+| `BDS50` | TAS field of BDS 5,0 | Normal case — the same register that carries track and groundspeed; 2 kt resolution |
+| `MACH` | Mach (BDS 6,0) × speed of sound | Temperature = ISA at the pressure altitude + the current ISA deviation for that altitude band. The deviation is estimated continuously from all aircraft that report both TAS and Mach (their air-data computer's temperature: T = (TAS / Mach)² / (γ·R)), median of the last 30 min per 5 000 ft band; plain ISA when fewer than 5 samples exist. A 10 °C deviation left uncorrected would be ~2 % TAS error (~9 kt at cruise) |
+| `IAS` | IAS (BDS 6,0) converted to TAS | Compressible-flow CAS → Mach → TAS at the ISA pressure for the altitude, same temperature as above. Requires a known altitude |
+
+If none of these can be determined (e.g. no TAS and no altitude yet), no wind is computed. Before 2026-09-25 IAS was used directly as TAS when TAS and Mach were missing, which is badly wrong at altitude (≈200 kt too low at FL350).
+
 ---
 
 ## Installation
@@ -115,7 +131,7 @@ cd mode_s_wind
 Python 3.10 or newer is required.
 
 ```bash
-pip3 install flask pyModeS --break-system-packages
+pip3 install flask pyModeS pygeomag --break-system-packages
 ```
 
 Or inside a virtual environment:
@@ -123,7 +139,7 @@ Or inside a virtual environment:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install flask pyModeS
+pip install flask pyModeS pygeomag
 ```
 
 > **Note:** The `pyModeS-main` folder in the repository is a reference copy of the pyModeS library by Junzi Sun. If you install `pyModeS` via pip you do not need to use this folder.
@@ -157,7 +173,8 @@ class Config:
     RECEIVER_LON = 24.963             # decimal degrees E
 
     # ── Magnetic declination ──────────────────────────────────────────────
-    MAG_DECLINATION = 10.5            # degrees E — EFHK WMM value 2026; re-check every 2–3 years
+    MAG_DECLINATION = 10.5            # degrees E — fallback only (see USE_WMM_DECLINATION)
+    USE_WMM_DECLINATION = True        # position-based declination from WMM2025 (needs pygeomag)
 
     # ── Radarcape JSON / MLAT feed ────────────────────────────────────────
     RADARCAPE_JSON_URL = "http://192.168.0.119/aircraftlist.json"
@@ -210,7 +227,7 @@ Key values to change for your installation:
 
 - `RADARCAPE_HOST` — IP address of your Radarcape on the local network
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
-- `MAG_DECLINATION` — magnetic declination for your location in degrees East; affects computed wind accuracy — a 2.5° error translates to roughly 6.5 kt spurious wind at typical approach speeds; find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); re-check every 2–3 years as the value drifts ~0.1°/year
+- `MAG_DECLINATION` — magnetic declination at your receiver in degrees East. With `pygeomag` installed and `USE_WMM_DECLINATION = True` (default) the declination at each aircraft's own position is calculated automatically and this value is only a fallback (aircraft without a known position, or pygeomag missing — a warning is logged at startup). Find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); WMM2025 is valid until 2030, after which it is extrapolated with a warning — upgrade pygeomag then
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
 - `WEB_USER` / `WEB_PASS` — credentials for the web interface
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
@@ -980,7 +997,7 @@ A microburst headwind-loss encounter produces a rapid decrease in the differenti
 The other five algorithms all ultimately depend on computing a wind vector from BDS 5,0 (track, groundspeed, TAS) and BDS 6,0 (magnetic heading), then projecting it onto the runway axis as a headwind component. That chain has several vulnerable links specific to Mode-S data:
 
 - **Magnetic heading errors** — BDS 6,0 magnetic heading is encoded at 1.40625° resolution and some transponders carry small per-aircraft biases from the compass installation. Small heading errors produce proportionally large wind direction errors at approach speeds.
-- **Magnetic declination** — converting magnetic heading to true heading requires an accurate local declination constant. Even with the corrected value (10.5° at EFHK), any residual error shifts every computed wind vector by the same amount, creating a systematic bias that affects pairwise, gradient, rate, and baseline equally.
+- **Magnetic declination** — converting magnetic heading to true heading requires an accurate declination. The position-based WMM value removes the main error, but any residual difference between the model and the aircraft's own magnetic variation table still shifts computed wind vectors systematically, affecting pairwise, gradient, rate, and baseline equally.
 - **BDS 6,0 availability and quality** — IAS and magnetic heading are in the same BDS 6,0 register; a transponder broadcasting a bad magnetic heading also corrupts the wind vector even when IAS itself is clean.
 - **Multi-aircraft requirements** — Pairwise requires two aircraft simultaneously on the same corridor at different altitudes, which is not always available. The other single-aircraft algorithms need a long wind barb history to accumulate enough altitude range or time span to build a meaningful comparison.
 

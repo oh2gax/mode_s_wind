@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS observations (
     wind_spd        REAL,            -- kt
     wind_dir        REAL,            -- degrees FROM (meteorological convention)
     wind_qual       REAL,            -- quality score 0.0–1.0
+    tas_source      TEXT,            -- TAS used for computed wind: 'BDS50' | 'MACH' | 'IAS'
+    mag_decl        REAL,            -- magnetic declination used (°E; WMM at aircraft position)
 
     -- Raw BDS 5,0 inputs (stored for audit / re-processing)
     bds50_true_track    REAL,        -- degrees true

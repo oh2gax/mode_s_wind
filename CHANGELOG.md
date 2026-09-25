@@ -5,7 +5,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-25 (Audit fixes — freeze gate, live_state pruning, server-side QNH, landing detection, purge safety)
+## 2026-09-25 (Audit fixes, WMM declination and TAS fallbacks for computed wind)
 
 - **Position-freeze gate fixed**: compared consecutive 3-s sweeps against a 100 ft threshold, which a 3° descent (~40 ft/sweep) never reaches, so it never fired; now uses an anchor that only moves with the position — freezes are flagged after ~8–10 s of descent on a stuck position, excluding those sweeps from bands, windrose and trail as intended
 - **live_state pruning**: new housekeeping thread in `run.py` removes aircraft unseen for 10 min and prunes the BDS 5,0/6,0 pairing caches every 60 s (previously every aircraft ever received stayed in RAM)
@@ -15,9 +15,13 @@ No version numbers — entries are organised by date.
 - Fix: a ground track of exactly 0° (due north) was discarded as missing in `receiver.py`
 - **Large purges no longer drop incoming data**: flight/meteo purges delete in committed batches of 5 000 rows; the collector writer rolls back and keeps a locked batch for retry (up to 50 000 obs) instead of dropping it; SQLite busy timeout raised from 5 s to 15 s
 - Fix: date-range flight purge failed entirely (FOREIGN KEY error) when a flight crossed midnight into the start date — flights are now deleted only when none of their observations remain; date-range purge and preview use indexed timestamp ranges instead of `date()` scans
+- Fix: "older than N days" flight purge now also skips flights that still own observations, so one inconsistent flight row can no longer abort the purge with a FOREIGN KEY error
 - Fix: JSON squawk was never read — the Radarcape field is `squ` (`sqk`/`squawk` kept as fallbacks)
 - `/api/stats` (navbar, every 15 s per tab) is now RAM-only; the unused database totals that required a full `COUNT(*)` of the observations table were removed
 - Approach History XW column uses signed values like the ILS profile (`+8` from right, `-14` from left) instead of arrows
+- **Position-based magnetic declination**: computed wind now uses the WMM2025 declination at each aircraft's position (`pygeomag`, cached 0.5° grid, rebuilt daily) instead of one fixed 10.5° — within 150 NM of EFHK it ranges 8.7°–12.6°, up to ~16 kt wind error at cruise; `MAG_DECLINATION` is now only the fallback; new `USE_WMM_DECLINATION` setting (default on); `pygeomag` added to requirements
+- **Better TAS fallbacks**: when BDS 5,0 TAS is missing, Mach is converted with the current ISA deviation estimated area-wide from aircraft reporting both TAS and Mach (instead of plain ISA), and IAS is converted to TAS with the compressible-flow relations (previously used directly as TAS — ~200 kt too low at FL350); no wind is computed when neither TAS nor altitude is known
+- New observation columns `tas_source` (`BDS50` / `MACH` / `IAS`) and `mag_decl` (auto-migrated)
 - README: documented the above plus previously undocumented config keys, GPS "event" definition, unused overlay files; removed unused `requests` from install instructions; stale code comments corrected
 
 ---

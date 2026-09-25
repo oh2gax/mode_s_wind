@@ -45,6 +45,10 @@ pip install "pyModeS>=3.0.0" --quiet
 echo "Installing Flask …"
 pip install flask --quiet
 
+# ── Install pygeomag (World Magnetic Model — position-based declination) ──
+echo "Installing pygeomag …"
+pip install pygeomag --quiet
+
 # ── Create data and log directories ──────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data"
 mkdir -p "$INSTALL_DIR/logs"

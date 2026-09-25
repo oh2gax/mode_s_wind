@@ -27,6 +27,7 @@ from pyModeS.position._cpr import airborne_position_with_ref
 
 from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao, is_blocked_registration
 from collector.wind_calc import try_compute_wind
+from collector.declination import declination as mag_declination_at
 from collector.writer import BatchWriter
 from config import Config
 
@@ -78,9 +79,13 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
 
 
 def _try_pair_wind(icao: str, ts: float, cfg: Config,
-                   altitude: Optional[float]) -> Optional[dict]:
+                   altitude: Optional[float],
+                   lat: Optional[float] = None,
+                   lon: Optional[float] = None) -> Optional[dict]:
     """
     Try to compute wind using cached BDS 5,0 + 6,0 for this aircraft.
+    lat/lon (last known position) select the magnetic declination; without a
+    position, or with USE_WMM_DECLINATION off, cfg.MAG_DECLINATION is used.
     Returns a wind dict or None.
     """
     with _CACHE_LOCK:
@@ -103,14 +108,21 @@ def _try_pair_wind(icao: str, ts: float, cfg: Config,
     if age50 > 60.0 or age60 > 60.0:    # don't use stale cache
         return None
 
+    if getattr(cfg, "USE_WMM_DECLINATION", True):
+        decl = mag_declination_at(lat, lon, cfg.MAG_DECLINATION)
+    else:
+        decl = cfg.MAG_DECLINATION
+
     return try_compute_wind(
         bds50         = bds50,
         bds60         = bds60,
         altitude_ft   = altitude,
-        mag_declination = cfg.MAG_DECLINATION,
+        mag_declination = decl,
         max_roll      = cfg.WIND_MAX_ROLL_DEG,
         max_track_rate = cfg.WIND_MAX_TRACK_RATE,
         max_wind_kt   = cfg.WIND_MAX_SPEED_KT,
+        icao          = icao,
+        ts            = ts,
     )
 
 
@@ -157,6 +169,8 @@ def _build_observation(icao: str, ts: float, result: dict,
             "wind_spd":  wind["wind_spd"],
             "wind_dir":  wind["wind_dir"],
             "wind_qual": wind["wind_qual"],
+            "tas_source": wind.get("tas_source"),
+            "mag_decl":   wind.get("mag_decl"),
             "bds50_true_track":    wind.get("bds50_true_track"),
             "bds50_groundspeed":   wind.get("bds50_groundspeed"),
             "bds50_true_airspeed": wind.get("bds50_true_airspeed"),
@@ -279,8 +293,13 @@ def run_collector(
                                     else cached.get("altitude"))
 
                 # ── Attempt wind calculation ──────────────────────────────
+                # Best position for the declination lookup (fresh or cached)
+                _pos_lat = (result.get("latitude") if result.get("latitude") is not None
+                            else cached.get("lat"))
+                _pos_lon = (result.get("longitude") if result.get("longitude") is not None
+                            else cached.get("lon"))
                 wind: Optional[dict] = _try_pair_wind(
-                    icao, ts, cfg, current_altitude
+                    icao, ts, cfg, current_altitude, _pos_lat, _pos_lon
                 )
 
                 # ── Build observation ────────────────────────────────────

@@ -172,7 +172,14 @@ def purge_flight_data(conn, days: int) -> dict:
 
     # Delete flights whose last_seen is before the cutoff
     # (all their observations have been removed above)
-    flt_del = _batched_delete(conn, "flights", "last_seen < ?", (cutoff,))
+    # NOT EXISTS guard: never delete a flight that still owns observations
+    # (would violate the observations.flight_id foreign key and abort the purge).
+    flt_del = _batched_delete(
+        conn, "flights",
+        "last_seen < ? AND NOT EXISTS "
+        "(SELECT 1 FROM observations o WHERE o.flight_id = flights.id)",
+        (cutoff,),
+    )
     log.info("Maintenance: deleted %d observations, %d flights", obs_del, flt_del)
     return {"observations_deleted": obs_del, "flights_deleted": flt_del}
 
