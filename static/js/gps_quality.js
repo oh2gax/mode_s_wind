@@ -123,10 +123,59 @@ function applyHeatmapRange(range) {
 // ── Chart.js time-series ──────────────────────────────────────────────────────
 let tsChart = null;
 
+// ── Counting-method changes ───────────────────────────────────────────────────
+// Every hourly bucket carries the counting-method version it was recorded
+// with (collector/gps_quality.py METHOD_VERSION).  Where the version changes
+// the charts draw a dashed marker: numbers on either side are not comparable.
+const METHOD_LABELS = {
+  2: 'Method v2: stale aircraft state removed',
+  3: 'Method v3: ADS-B loss per visit',
+};
+
+/** Timestamps (hour starts) where the method differs from the previous bucket. */
+function methodChangeTimes(buckets) {
+  const out = [];
+  let prev = null;
+  for (const b of [...buckets].sort((a, c) => a.ts - c.ts)) {
+    const m = b.method || 1;
+    if (prev !== null && m !== prev) out.push({ ts: b.ts, method: m });
+    prev = m;
+  }
+  return out;
+}
+
+// Chart.js plugin: dashed vertical line + short label at each method change
+const methodMarkerPlugin = {
+  id: 'methodMarkers',
+  afterDatasetsDraw(chart) {
+    const marks = chart.$methodMarks || [];
+    if (!marks.length) return;
+    const xs = chart.scales.x, area = chart.chartArea, ctx = chart.ctx;
+    const n  = chart.data.labels.length;
+    const half = n > 1 ? (xs.getPixelForValue(1) - xs.getPixelForValue(0)) / 2 : 0;
+    ctx.save();
+    for (const mk of marks) {
+      const x = xs.getPixelForValue(mk.index) - half;
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth   = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(x, area.top); ctx.lineTo(x, area.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('v' + mk.method, x + 3, area.top + 2);
+    }
+    ctx.restore();
+  },
+};
+
 function initTsChart() {
   const ctx = document.getElementById('gps-timeseries-canvas').getContext('2d');
   const th  = canvasTheme();
   tsChart = new Chart(ctx, {
+    plugins: [methodMarkerPlugin],
     type: 'bar',
     data: {
       labels:   [],
@@ -198,6 +247,24 @@ function initTsChart() {
           order:           0,
           yAxisID:         'y2',
         },
+        {
+          // Normalised degradation index: events per aircraft-hour
+          // (events ÷ sum of hourly unique-aircraft counts).  Comparable
+          // between days with different traffic volume.
+          label:           'Events / aircraft',
+          data:            [],
+          type:            'line',
+          borderColor:     '#facc15',
+          borderWidth:     1.5,
+          borderDash:      [4, 3],
+          pointRadius:     1.5,
+          pointBackgroundColor: '#facc15',
+          fill:            false,
+          tension:         0.3,
+          order:           0,
+          yAxisID:         'y3',
+          spanGaps:        false,
+        },
       ],
     },
     options: {
@@ -213,8 +280,15 @@ function initTsChart() {
           callbacks: {
             title: items => items[0].label + ' UTC',
             label: item => {
-              const names = ['NACp', 'Freeze', 'Gap', 'ADS-B', 'Unknown', 'Aircraft'];
+              const names = ['NACp', 'Freeze', 'Gap', 'ADS-B', 'Unknown',
+                             tsChart.$aircraftLabel || 'Aircraft', 'Events / aircraft'];
               return ` ${names[item.datasetIndex]}: ${item.raw}`;
+            },
+            // Explain a counting-method change when hovering its bar
+            afterBody: items => {
+              const mk = (tsChart.$methodMarks || []).find(m => m.index === items[0].dataIndex);
+              return mk ? ['', '⚠ ' + (METHOD_LABELS[mk.method] || ('Method v' + mk.method)),
+                           '  values before/after are not comparable'] : [];
             },
           },
         },
@@ -239,6 +313,14 @@ function initTsChart() {
           ticks:  { color: '#94a3b8', font: { size: 10 } },
           grid:   { drawOnChartArea: false },
           title:  { display: true, text: 'Aircraft', color: '#94a3b8', font: { size: 10 } },
+        },
+        y3: {
+          display:     'auto',          // shown only while the index line is visible
+          beginAtZero: true,
+          position:    'right',
+          ticks:  { color: '#facc15', font: { size: 10 } },
+          grid:   { drawOnChartArea: false },
+          title:  { display: true, text: 'Events / aircraft', color: '#facc15', font: { size: 10 } },
         },
       },
     },
@@ -266,7 +348,7 @@ function updateTsChart(allBuckets) {
   const dataMap = {};
   for (const b of allBuckets) dataMap[b.ts] = b;
 
-  let labels, nacp, freeze, gap, adsbLoss, unknown, aircraft;
+  let labels, nacp, freeze, gap, adsbLoss, unknown, aircraft, index, markIndex;
 
   if (cfg.aggregate === 'hour') {
     // ── Hourly bars ──────────────────────────────────────────────────────────
@@ -293,6 +375,12 @@ function updateTsChart(allBuckets) {
     adsbLoss = slots.map(ts => dataMap[ts]?.adsb_loss_events   || 0);
     unknown  = slots.map(ts => dataMap[ts] ? _unknownEvents(dataMap[ts]) : 0);
     aircraft = slots.map(ts => dataMap[ts]?.total              || 0);
+    index    = slots.map(ts => {
+      const b = dataMap[ts];
+      return (b && b.total > 0) ? Math.round(b.events / b.total * 10) / 10 : null;
+    });
+    markIndex = ts => slots.indexOf(Math.floor(ts / 3600) * 3600);
+    tsChart.$aircraftLabel = 'Aircraft';
 
   } else {
     // ── Daily aggregate bars ─────────────────────────────────────────────────
@@ -306,14 +394,20 @@ function updateTsChart(allBuckets) {
     for (const b of allBuckets) {
       if (b.ts < cutoff) continue;
       const dayTs = Math.floor(b.ts / 86400) * 86400;
-      if (!dayMap[dayTs]) dayMap[dayTs] = { nacp: 0, freeze: 0, gap: 0, adsbLoss: 0, unknown: 0, maxTotal: 0 };
+      if (!dayMap[dayTs]) dayMap[dayTs] = { nacp: 0, freeze: 0, gap: 0, adsbLoss: 0, unknown: 0,
+                                            events: 0, acHours: 0, hours: 0 };
       dayMap[dayTs].nacp     += b.nacp_events        || 0;
       dayMap[dayTs].freeze   += b.freeze_events      || 0;
       dayMap[dayTs].gap      += b.gap_events         || 0;
       dayMap[dayTs].adsbLoss += b.adsb_loss_events   || 0;
       dayMap[dayTs].unknown  += _unknownEvents(b);
-      // Peak hourly aircraft count = best proxy for daily traffic volume
-      dayMap[dayTs].maxTotal = Math.max(dayMap[dayTs].maxTotal, b.total || 0);
+      // Traffic: sum of hourly unique-aircraft counts (aircraft-hours) and
+      // number of hours with data → average aircraft per hour.  Unlike the
+      // former busiest-hour value this is not distorted by one partial hour
+      // (restart) or by a day that is still in progress.
+      dayMap[dayTs].events  += b.events || 0;
+      dayMap[dayTs].acHours += b.total  || 0;
+      dayMap[dayTs].hours   += 1;
     }
 
     const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -327,8 +421,24 @@ function updateTsChart(allBuckets) {
     gap      = days.map(ts => dayMap[ts]?.gap      || 0);
     adsbLoss = days.map(ts => dayMap[ts]?.adsbLoss || 0);
     unknown  = days.map(ts => dayMap[ts]?.unknown  || 0);
-    aircraft = days.map(ts => dayMap[ts]?.maxTotal || 0);
+    aircraft = days.map(ts => {
+      const d = dayMap[ts];
+      return d && d.hours ? Math.round(d.acHours / d.hours * 10) / 10 : 0;
+    });
+    index    = days.map(ts => {
+      const d = dayMap[ts];
+      return d && d.acHours > 0 ? Math.round(d.events / d.acHours * 10) / 10 : null;
+    });
+    markIndex = ts => days.indexOf(Math.floor(ts / 86400) * 86400);
+    tsChart.$aircraftLabel = 'Aircraft (avg / hour)';
   }
+
+  // Method-change markers inside the displayed range
+  tsChart.$methodMarks = methodChangeTimes(allBuckets)
+    .filter(m => m.ts >= cutoff)
+    .map(m => ({ index: markIndex(m.ts), method: m.method }))
+    .filter(m => m.index > 0);
+  tsChart.options.scales.y2.title.text = tsChart.$aircraftLabel;
 
   // Adjust x-axis tick density for the active range
   tsChart.options.scales.x.ticks.maxTicksLimit = cfg.maxTicks;
@@ -340,6 +450,7 @@ function updateTsChart(allBuckets) {
   tsChart.data.datasets[3].data = adsbLoss;
   tsChart.data.datasets[4].data = unknown;
   tsChart.data.datasets[5].data = aircraft;
+  tsChart.data.datasets[6].data = index;
   tsChart.update('none');
 }
 
@@ -429,6 +540,20 @@ function drawHeatmap(heatmapData, flBands) {
       }
     });
   });
+
+  // Method-change markers: dashed line at the left edge of the day in which
+  // the counting method changed (see METHOD_LABELS)
+  for (const mk of methodChangeTimes(heatmapData)) {
+    const xi = dayKeys.indexOf(Math.floor(mk.ts / DAY_SEC) * DAY_SEC);
+    if (xi <= 0) continue;
+    const x = MARGIN_L + xi * cellW;
+    ctx.save();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth   = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(x, MARGIN_T); ctx.lineTo(x, MARGIN_T + plotH); ctx.stroke();
+    ctx.restore();
+  }
 
   // FL band labels (Y axis)
   ctx.fillStyle   = th.axisLabel;

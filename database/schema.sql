@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
     nacp_events       INTEGER NOT NULL DEFAULT 0,   -- events flagged by NACp signal
     freeze_events     INTEGER NOT NULL DEFAULT 0,   -- events flagged by Freeze signal
     gap_events        INTEGER NOT NULL DEFAULT 0,   -- events flagged by Gap signal
-    adsb_loss_events  INTEGER NOT NULL DEFAULT 0    -- events flagged by ADS-B loss (MLAT covering for GPS dropout)
+    adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss (MLAT covering for GPS dropout)
+    method          INTEGER                         -- counting-method version (see collector/gps_quality.py METHOD_VERSION)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
@@ -133,6 +134,7 @@ CREATE TABLE IF NOT EXISTS gps_quality_zone_hours (
     freeze_events     INTEGER NOT NULL DEFAULT 0,
     gap_events        INTEGER NOT NULL DEFAULT 0,
     adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss
+    method          INTEGER,                        -- counting-method version
     PRIMARY KEY (ts, zone)
 );
 
@@ -171,4 +173,14 @@ CREATE INDEX IF NOT EXISTS idx_aphist_rwy  ON approach_history(runway);
 CREATE TABLE IF NOT EXISTS maintenance_config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+-- ── gps_quality_live ──────────────────────────────────────────────────────────
+-- Checkpoint of the CURRENT (incomplete) hour bucket per zone, including the
+-- sets of aircraft seen, written every 60 s so a restart does not lose the
+-- hour in progress.  One row per zone ('all', '50nm', '20nm').
+CREATE TABLE IF NOT EXISTS gps_quality_live (
+    zone   TEXT    PRIMARY KEY,
+    ts     INTEGER NOT NULL,        -- hour start (UTC epoch)
+    data   TEXT    NOT NULL         -- JSON bucket incl. seen / degraded ICAO lists
 );

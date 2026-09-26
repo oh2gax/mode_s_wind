@@ -362,6 +362,15 @@ def run_collector(
                               if v is not None}
                     merged["icao"]      = icao
                     merged["last_seen"] = ts
+                    # Start of this visit (entry re-created after live_state
+                    # pruning) — used by the GPS quality ADS-B loss signal.
+                    if not existing:
+                        merged["first_seen"] = ts
+                    # Any DF17 extended squitter (identification, velocity,
+                    # status, position …) proves the aircraft is ADS-B
+                    # equipped and transmitting during this visit.
+                    if df == 17:
+                        merged["last_es_ts"] = ts
                     # Record when the aircraft last transmitted its own GPS-derived
                     # ADS-B position (TC=9-18/20-22 in Beast feed).  Used by the
                     # GPS quality tracker to detect ADS-B position loss while MLAT

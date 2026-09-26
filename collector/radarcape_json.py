@@ -226,6 +226,8 @@ def run_json_poller(
 
                     merged["icao"]      = icao
                     merged["last_seen"] = max(merged.get("last_seen", 0.0), now)
+                    if not existing:
+                        merged["first_seen"] = now   # start of this visit
                     live_state[icao]    = merged
 
             consecutive_errors = 0

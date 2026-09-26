@@ -80,6 +80,26 @@ HEATMAP_MAX_BUCKETS = 31 * 24  # heatmap only ever renders the most recent 14 da
                                 # capped independently so its payload doesn't grow
                                 # with the longer time-series window above
 
+# ── Counting-method version ───────────────────────────────────────────────────
+# Stored with every hourly bucket so charts can mark where the way events are
+# counted changed (numbers before and after a change are not comparable).
+#   1 — until 2026-09-25 11:00 UTC: live_state was never pruned; an aircraft
+#       returning hours/days later carried its old ADS-B timestamp and position,
+#       inflating ADS-B loss (and Freeze) the longer the app ran
+#   2 — 2026-09-25 11:00 UTC: live_state pruned after 10 min of silence
+#   3 — ADS-B loss counted per visit (aircraft must be transmitting extended
+#       squitters now); current hour survives restarts (checkpoint)
+METHOD_VERSION = 3
+
+# ── ADS-B loss (per visit) ────────────────────────────────────────────────────
+# An aircraft counts as ADS-B-active if any DF17 extended squitter was
+# received within ES_ACTIVE_SEC.  ADS-B loss = ADS-B-active, position known
+# (e.g. MLAT) but no own ADS-B position for ≥ gap_sec during this visit.
+ES_ACTIVE_SEC = 30.0
+
+# ── Current-hour checkpoint ───────────────────────────────────────────────────
+CHECKPOINT_SEC = 60.0     # write the in-progress hour to gps_quality_live
+
 # ── Distance-zone filtering ───────────────────────────────────────────────────
 # Zone names and their radius limits in nautical miles.
 # 'all' zone uses the existing gps_quality_hours table (no filtering).
@@ -135,6 +155,7 @@ def _empty_bucket(ts: float) -> dict:
         "gap_events":       0,   # events from Gap signal
         "adsb_loss_events": 0,   # events from ADS-B loss (MLAT covering GPS dropout)
         "fl_bands": {lbl: 0 for lbl in FL_BAND_LABELS},   # events per FL band
+        "method":  METHOD_VERSION,                 # counting-method version
         "_seen":   set(),                          # transient: icaos seen this hour
         "_deg":    set(),                          # transient: icaos with event
     }
@@ -192,11 +213,15 @@ class GpsQualityTracker:
         }
 
         self._lock = threading.RLock()
+        self._last_checkpoint = 0.0
 
-        # Restore history from DB (completed hours only)
+        # Restore history from DB (completed hours only), plus the hour that
+        # was in progress when the process last stopped (checkpoint).
         if db_path:
+            current_ckpt = self._flush_old_checkpoints()
             self._load_from_db()
             self._load_zones_from_db()
+            self._restore_current_hour(current_ckpt)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -222,6 +247,7 @@ class GpsQualityTracker:
                     "freeze_events":    completed.get("freeze_events",    0),
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
+                    "method":           completed.get("method", METHOD_VERSION),
                 }
                 self._flush_to_db(flush_copy)
             self._buckets.append(_empty_bucket(now_hour))
@@ -244,6 +270,7 @@ class GpsQualityTracker:
                     "freeze_events":    completed.get("freeze_events",    0),
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
+                    "method":           completed.get("method", METHOD_VERSION),
                 }
                 self._flush_zone_to_db(flush_copy, zone)
             zb.append(_empty_bucket(now_hour))
@@ -296,14 +323,15 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_hours
                    (ts, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
                  bucket.get("freeze_events",    0),
                  bucket.get("gap_events",       0),
-                 bucket.get("adsb_loss_events", 0)),
+                 bucket.get("adsb_loss_events", 0),
+                 bucket.get("method", METHOD_VERSION)),
             )
             conn.commit()
             log.debug("GPS quality: persisted bucket ts=%d events=%d",
@@ -320,14 +348,15 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_zone_hours
                    (ts, zone, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], zone, bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
                  bucket.get("freeze_events",    0),
                  bucket.get("gap_events",       0),
-                 bucket.get("adsb_loss_events", 0)),
+                 bucket.get("adsb_loss_events", 0),
+                 bucket.get("method", METHOD_VERSION)),
             )
             conn.commit()
             log.debug("GPS quality: persisted zone=%s bucket ts=%d events=%d",
@@ -348,7 +377,7 @@ class GpsQualityTracker:
             conn     = get_db()
             rows     = conn.execute(
                 """SELECT ts, events, total, degraded, fl_bands,
-                          nacp_events, freeze_events, gap_events, adsb_loss_events
+                          nacp_events, freeze_events, gap_events, adsb_loss_events, method
                    FROM gps_quality_hours
                    WHERE ts >= ? AND ts < ?
                    ORDER BY ts ASC""",
@@ -365,6 +394,7 @@ class GpsQualityTracker:
                 b["freeze_events"]    = row["freeze_events"]      or 0
                 b["gap_events"]       = row["gap_events"]         or 0
                 b["adsb_loss_events"] = row["adsb_loss_events"]   or 0
+                b["method"]           = row["method"] or 1
                 self._buckets.append(b)
             log.info("GPS quality: loaded %d historical hour buckets from DB",
                      len(rows))
@@ -380,7 +410,7 @@ class GpsQualityTracker:
             for zone in ZONE_LIMITS_NM:
                 rows = conn.execute(
                     """SELECT ts, events, total, degraded, fl_bands,
-                              nacp_events, freeze_events, gap_events, adsb_loss_events
+                              nacp_events, freeze_events, gap_events, adsb_loss_events, method
                        FROM gps_quality_zone_hours
                        WHERE zone = ? AND ts >= ? AND ts < ?
                        ORDER BY ts ASC""",
@@ -397,6 +427,7 @@ class GpsQualityTracker:
                     b["freeze_events"]    = row["freeze_events"]    or 0
                     b["gap_events"]       = row["gap_events"]       or 0
                     b["adsb_loss_events"] = row["adsb_loss_events"] or 0
+                    b["method"]           = row["method"] or 1
                     self._zone_buckets[zone].append(b)
                 log.info("GPS quality: loaded %d zone=%s buckets from DB", len(rows), zone)
         except Exception as exc:
@@ -408,13 +439,146 @@ class GpsQualityTracker:
         Called after a maintenance purge so the live charts reflect the new
         DB state immediately without requiring a server restart.
         """
+        now_hour = _bucket_hour(time.time())
         with self._lock:
+            # Keep the in-progress hour (not in the DB yet) across the reload
+            keep_all  = [b for b in self._buckets if b["ts"] >= now_hour]
+            keep_zone = {z: [b for b in zb if b["ts"] >= now_hour]
+                         for z, zb in self._zone_buckets.items()}
             self._buckets.clear()
             for zb in self._zone_buckets.values():
                 zb.clear()
         self._load_from_db()
         self._load_zones_from_db()
+        with self._lock:
+            self._buckets.extend(keep_all)
+            for z, bl in keep_zone.items():
+                self._zone_buckets[z].extend(bl)
         log.info("GPS quality: in-RAM cache reloaded from DB after maintenance purge")
+
+    # ── Current-hour checkpoint (restart safety) ──────────────────────────────
+
+    @staticmethod
+    def _bucket_to_json(b: dict) -> str:
+        d = {k: v for k, v in b.items() if not k.startswith("_")}
+        d["seen"] = sorted(b.get("_seen", ()))
+        d["deg"]  = sorted(b.get("_deg", ()))
+        return json.dumps(d)
+
+    @staticmethod
+    def _bucket_from_json(txt: str) -> dict:
+        d = json.loads(txt)
+        b = _empty_bucket(d["ts"])
+        for k in ("total", "degraded", "events", "nacp_events", "freeze_events",
+                  "gap_events", "adsb_loss_events", "method"):
+            if k in d:
+                b[k] = d[k]
+        fl = d.get("fl_bands", {})
+        b["fl_bands"] = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
+        b["_seen"] = set(d.get("seen", ()))
+        b["_deg"]  = set(d.get("deg", ()))
+        return b
+
+    def checkpoint(self, force: bool = False) -> None:
+        """Persist the in-progress hour of every zone to gps_quality_live.
+
+        Called from rebuild_live() every sweep; writes at most every
+        CHECKPOINT_SEC.  A restart then loses at most CHECKPOINT_SEC of data
+        instead of everything counted so far in the current hour.
+        """
+        if not self._db_path:
+            return
+        now = time.time()
+        if not force and now - self._last_checkpoint < CHECKPOINT_SEC:
+            return
+        self._last_checkpoint = now
+        now_hour = _bucket_hour(now)
+        with self._lock:
+            rows = []
+            if self._buckets and self._buckets[-1]["ts"] >= now_hour:
+                rows.append(("all", self._buckets[-1]["ts"], self._bucket_to_json(self._buckets[-1])))
+            for zone, zb in self._zone_buckets.items():
+                if zb and zb[-1]["ts"] >= now_hour:
+                    rows.append((zone, zb[-1]["ts"], self._bucket_to_json(zb[-1])))
+        if not rows:
+            return
+        try:
+            conn = get_db()
+            conn.executemany(
+                "INSERT OR REPLACE INTO gps_quality_live (zone, ts, data) VALUES (?, ?, ?)", rows)
+            conn.commit()
+        except Exception as exc:
+            log.warning("GPS quality: checkpoint failed: %s", exc)
+
+    def _flush_old_checkpoints(self) -> dict:
+        """At startup: write checkpoints of hours that already ended to the
+        hourly tables (only if that hour has no row yet), and return the
+        checkpoints of the current hour as {zone: bucket} for restoring."""
+        current: dict[str, dict] = {}
+        try:
+            now_hour = _bucket_hour(time.time())
+            conn = get_db()
+            for row in conn.execute("SELECT zone, ts, data FROM gps_quality_live").fetchall():
+                b = self._bucket_from_json(row["data"])
+                if row["ts"] >= now_hour:
+                    current[row["zone"]] = b
+                    continue
+                if row["zone"] == "all":
+                    exists = conn.execute("SELECT 1 FROM gps_quality_hours WHERE ts = ?",
+                                          (row["ts"],)).fetchone()
+                    if not exists:
+                        self._flush_to_db(b)
+                        log.info("GPS quality: saved interrupted hour %d from checkpoint", row["ts"])
+                else:
+                    exists = conn.execute("SELECT 1 FROM gps_quality_zone_hours WHERE ts = ? AND zone = ?",
+                                          (row["ts"], row["zone"])).fetchone()
+                    if not exists:
+                        self._flush_zone_to_db(b, row["zone"])
+        except Exception as exc:
+            log.warning("GPS quality: reading checkpoints failed: %s", exc)
+        return current
+
+    def _restore_current_hour(self, current: dict) -> None:
+        """Continue counting the hour that was in progress at shutdown."""
+        if not current:
+            return
+        with self._lock:
+            if "all" in current and (not self._buckets or self._buckets[-1]["ts"] < current["all"]["ts"]):
+                self._buckets.append(current["all"])
+            for zone, zb in self._zone_buckets.items():
+                b = current.get(zone)
+                if b is not None and (not zb or zb[-1]["ts"] < b["ts"]):
+                    zb.append(b)
+        log.info("GPS quality: resumed current hour from checkpoint (%s)", ", ".join(sorted(current)))
+
+    # ── Signal helpers ────────────────────────────────────────────────────────
+
+    def _adsb_loss(self, ac: dict, lat, now: float) -> bool:
+        """ADS-B position loss during the current visit (METHOD_VERSION 3).
+
+        True when all of:
+          • the position is known (lat not None — typically MLAT),
+          • the aircraft is ADS-B equipped and transmitting right now: a DF17
+            extended squitter (identification, velocity, status …) was
+            received within ES_ACTIVE_SEC,
+          • it has sent no ADS-B airborne position of its own for ≥ gap_sec in
+            this visit — measured from its last own position, or from the
+            start of the visit if none has been received yet (catches aircraft
+            that are already jammed when they come into range).
+        Aircraft that stop all extended squitters are not flagged (not a GPS
+        symptom), and nothing is inherited from earlier visits.
+        """
+        if lat is None:
+            return False
+        last_es = ac.get("last_es_ts")
+        if last_es is None or now - last_es > ES_ACTIVE_SEC:
+            return False
+        last_pos = ac.get("last_adsb_pos_ts")
+        first_seen = ac.get("first_seen")
+        ref = last_pos if last_pos is not None else first_seen
+        if ref is None:
+            return False
+        return (now - ref) >= self.gap_sec
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -492,16 +656,10 @@ class GpsQualityTracker:
                     flags.append("gap")
 
             # ── Signal 4: ADS-B position loss (MLAT covering GPS dropout) ──
-            # Fires when the aircraft still has a visible position (lat is not
-            # None — kept alive by MLAT) but its own Beast-feed ADS-B position
-            # timestamp (set by receiver.py whenever a TC=9-18/20-22 message
-            # arrives) has not been updated for ≥ gap_sec seconds.
-            # This cleanly separates "MLAT covering a GPS dropout" from the
-            # normal Gap signal (lat is None = completely invisible).
-            last_adsb_ts = ac.get("last_adsb_pos_ts")
-            if (lat is not None
-                    and last_adsb_ts is not None
-                    and (now - last_adsb_ts) >= self.gap_sec):
+            # See _adsb_loss(): the aircraft is transmitting extended squitters
+            # now, its position is known (MLAT), but it has sent no ADS-B
+            # position of its own for ≥ gap_sec during this visit.
+            if self._adsb_loss(ac, lat, now):
                 flags.append("adsb_loss")
 
             # Update per-aircraft state
@@ -570,10 +728,7 @@ class GpsQualityTracker:
                         and (now - last_pos_ts) >= self.gap_sec):
                     flags.append("gap")
 
-                last_adsb_ts = ac.get("last_adsb_pos_ts")
-                if (lat is not None
-                        and last_adsb_ts is not None
-                        and (now - last_adsb_ts) >= self.gap_sec):
+                if self._adsb_loss(ac, lat, now):
                     flags.append("adsb_loss")
 
                 if flags:
@@ -591,6 +746,9 @@ class GpsQualityTracker:
             # Sort by altitude descending (highest first)
             live.sort(key=lambda x: x.get("altitude") or 0, reverse=True)
             self._live_events = live
+
+        # Persist the in-progress hour periodically (restart safety)
+        self.checkpoint()
 
     def get_state(self, zone: str = "all") -> dict:
         """
@@ -630,6 +788,7 @@ class GpsQualityTracker:
                 "gap_events":       b.get("gap_events",       0),
                 "adsb_loss_events": b.get("adsb_loss_events", 0),
                 "fl_bands":         dict(b["fl_bands"]),
+                "method":           b.get("method", 1),
             }
 
         cleaned = [_clean(b) for b in buckets]

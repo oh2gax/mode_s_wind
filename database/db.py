@@ -49,12 +49,26 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE approach_history ADD COLUMN qnh_hpa REAL",
         "ALTER TABLE observations ADD COLUMN tas_source TEXT",
         "ALTER TABLE observations ADD COLUMN mag_decl REAL",
+        "ALTER TABLE gps_quality_hours ADD COLUMN method INTEGER",
+        "ALTER TABLE gps_quality_zone_hours ADD COLUMN method INTEGER",
     ]
     for sql in _migrations:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass   # column already exists — normal after first migration
+
+    # GPS quality counting-method version for rows written before the column
+    # existed (only touches NULLs, so it runs once):
+    #   1 — up to 2026-09-25 11:00 UTC: live_state never pruned, so returning
+    #       aircraft carried stale ADS-B/position state from earlier visits
+    #   2 — from 2026-09-25 11:00 UTC: live_state pruned after 10 min
+    # New rows carry the current version from collector/gps_quality.py.
+    for table in ("gps_quality_hours", "gps_quality_zone_hours"):
+        conn.execute(
+            f"UPDATE {table} SET method = CASE WHEN ts >= 1790334000 THEN 2 ELSE 1 END "
+            f"WHERE method IS NULL"
+        )
 
     conn.commit()
     conn.close()

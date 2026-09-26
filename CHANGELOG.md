@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index)
+
+- **ADS-B loss counted per visit**: an aircraft is flagged when it is transmitting extended squitters now (any DF17 within 30 s) and MLAT knows its position, but it has sent no own ADS-B position for ≥ 45 s during this visit; new `live_state` fields `first_seen` and `last_es_ts`. Also catches aircraft already jammed when they come into range; no longer flags aircraft that stop all extended squitters, and nothing is inherited from earlier visits
+- Analysis of the old data showed the previous definition was inflated by never-pruned state: ADS-B loss events per aircraft-hour grew from ~50 after a restart to ~100 after weeks of uptime (fixed by the 2026-09-25 pruning)
+- **Restart-safe hours**: the hour in progress (incl. the sets of aircraft seen) is checkpointed every 60 s to the new `gps_quality_live` table and resumed after a restart; an hour interrupted across the hour boundary is saved from its checkpoint; a maintenance purge no longer drops the current hour
+- **Counting-method version** stored per hourly row (new `method` column; existing rows set to 1 before 2026-09-25 11:00 UTC and 2 after); time-series chart and heatmap mark each change with a dashed amber `v2` / `v3` line, explained in the bar tooltip
+- Time-series chart: in daily views the Aircraft line is now the average aircraft per hour instead of the busiest hour (which dropped whenever a restart hit the 13 UTC traffic wave or the day was still in progress); new dashed **Events / aircraft** line — events per aircraft-hour — for comparing days with different traffic
+
+---
+
 ## 2026-09-25 (Audit fixes, WMM declination and TAS fallbacks for computed wind)
 
 - **Position-freeze gate fixed**: compared consecutive 3-s sweeps against a 100 ft threshold, which a 3° descent (~40 ft/sweep) never reaches, so it never fired; now uses an anchor that only moves with the position — freezes are flagged after ~8–10 s of descent on a stuck position, excluding those sweeps from bands, windrose and trail as intended

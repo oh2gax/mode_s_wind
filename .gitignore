@@ -3,3 +3,11 @@ book-the_1090mhz_riddle-junzi_sun.pdf
 aircraftlist.json
 dbauth.txt
 api_keys.py
+
+# Local database (keep data/.gitkeep so the folder exists in the repo)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Local scratch folder for screenshots and other working files
+tmp_files/
