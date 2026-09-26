@@ -5,13 +5,19 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index)
+## 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index, method v4 with NIC)
 
 - **ADS-B loss counted per visit**: an aircraft is flagged when it is transmitting extended squitters now (any DF17 within 30 s) and MLAT knows its position, but it has sent no own ADS-B position for ≥ 45 s during this visit; new `live_state` fields `first_seen` and `last_es_ts`. Also catches aircraft already jammed when they come into range; no longer flags aircraft that stop all extended squitters, and nothing is inherited from earlier visits
 - Analysis of the old data showed the previous definition was inflated by never-pruned state: ADS-B loss events per aircraft-hour grew from ~50 after a restart to ~100 after weeks of uptime (fixed by the 2026-09-25 pruning)
 - **Restart-safe hours**: the hour in progress (incl. the sets of aircraft seen) is checkpointed every 60 s to the new `gps_quality_live` table and resumed after a restart; an hour interrupted across the hour boundary is saved from its checkpoint; a maintenance purge no longer drops the current hour
-- **Counting-method version** stored per hourly row (new `method` column; existing rows set to 1 before 2026-09-25 11:00 UTC and 2 after); time-series chart and heatmap mark each change with a dashed amber `v2` / `v3` line, explained in the bar tooltip
+- **Counting-method version** stored per hourly row (new `method` column; existing rows set to 1 before 2026-09-25 11:00 UTC and 2 after); time-series chart and heatmap mark each change with a dashed amber `v2` / `v3` line, explained in the bar tooltip; several changes within one bar (e.g. v3 and v4 on the same day in daily views) are shown as one marker (`v3 v4`); the hour in progress during an upgrade keeps the older version tag because it resumes from its checkpoint
 - Time-series chart: in daily views the Aircraft line is now the average aircraft per hour instead of the busiest hour (which dropped whenever a restart hit the 13 UTC traffic wave or the day was still in progress); new dashed **Events / aircraft** line — events per aircraft-hour — for comparing days with different traffic
+- **Counting method v4**: only aircraft heard by this receiver are counted (new `last_rx_ts`; aircraft kept alive only by the JSON / MLAT list are ignored); **Freeze** now requires the aircraft's own ADS-B positions to keep arriving with identical coordinates (a position that simply stopped updating was counted as Freeze before); **Gap** = still transmitting ADS-B but no position from any source for ≥ 45 s (previously practically never triggered); Freeze / Gap / ADS-B loss are mutually exclusive
+- **New NIC (integrity) signal**: NIC and containment radius Rc derived from the airborne-position type code + NIC supplements per ADS-B version; flagged at NIC ≤ `GPS_NIC_THRESHOLD` (default 6, Rc ≥ 0.3 NM); own chart colour, stats line, badge; `nic_events` column
+- FL heatmap colours are scaled separately on either side of a counting-method change (segments shorter than 3 days merge with a neighbour), so days recorded with different methods do not distort each other's shading
+- NACp is now version-aware (TC 31 NACp ignored for ADS-B version 0, where it is undefined) and used only while fresh (≤ 30 s); live table shows NIC (hover: Rc) and NACv
+- Fix: removed a dead pyModeS v2 call (`pms.adsb.nac_p`) that raised a silently caught error on every extended-squitter message; NACp always came from the pyModeS v3 decoder result
+- Fix: CPR single-frame fallback now also runs when a cached / MLAT position exists (previously an aircraft still in the decoder's start-up phase looked like it had no own ADS-B position), and no longer decodes surface-position messages with the airborne formula
 
 ---
 

@@ -179,6 +179,13 @@ def run_json_poller(
 
                     # ── Position ─────────────────────────────────────────────
                     if parsed.get("lat") is not None:
+                        # A position UPDATE (any source) is recorded only when
+                        # the coordinates actually change — the list keeps
+                        # repeating the last position of an aircraft that is
+                        # no longer being tracked.
+                        if (parsed["lat"], parsed["lon"]) != (existing.get("lat"), existing.get("lon")) \
+                                and (src == "M" or not existing.get("lat")):
+                            merged["last_pos_update_ts"] = now
                         if src == "M":
                             # MLAT: always preferred — GPS-jamming immune
                             merged["lat"]     = parsed["lat"]

@@ -130,6 +130,7 @@ let tsChart = null;
 const METHOD_LABELS = {
   2: 'Method v2: stale aircraft state removed',
   3: 'Method v3: ADS-B loss per visit',
+  4: 'Method v4: own reception only, clean Freeze/Gap, NIC signal',
 };
 
 /** Timestamps (hour starts) where the method differs from the previous bucket. */
@@ -165,7 +166,7 @@ const methodMarkerPlugin = {
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText('v' + mk.method, x + 3, area.top + 2);
+      ctx.fillText(mk.methods.map(m => 'v' + m).join(' '), x + 3, area.top + 2);
     }
     ctx.restore();
   },
@@ -185,6 +186,18 @@ function initTsChart() {
           data:            [],
           backgroundColor: 'rgba(251,146,60,0.85)',   // amber
           borderColor:     '#fb923c',
+          borderWidth:     1,
+          stack:           'events',
+          order:           2,
+          yAxisID:         'y',
+        },
+        {
+          // NIC (integrity / containment radius) — self-reported, from the
+          // airborne-position type code.  Recorded from counting method v4.
+          label:           'NIC',
+          data:            [],
+          backgroundColor: 'rgba(244,114,182,0.85)',  // rose
+          borderColor:     '#f472b6',
           borderWidth:     1,
           stack:           'events',
           order:           2,
@@ -280,14 +293,14 @@ function initTsChart() {
           callbacks: {
             title: items => items[0].label + ' UTC',
             label: item => {
-              const names = ['NACp', 'Freeze', 'Gap', 'ADS-B', 'Unknown',
+              const names = ['NACp', 'NIC', 'Freeze', 'Gap', 'ADS-B', 'Unknown',
                              tsChart.$aircraftLabel || 'Aircraft', 'Events / aircraft'];
               return ` ${names[item.datasetIndex]}: ${item.raw}`;
             },
             // Explain a counting-method change when hovering its bar
             afterBody: items => {
               const mk = (tsChart.$methodMarks || []).find(m => m.index === items[0].dataIndex);
-              return mk ? ['', '⚠ ' + (METHOD_LABELS[mk.method] || ('Method v' + mk.method)),
+              return mk ? ['', ...mk.methods.map(m => '⚠ ' + (METHOD_LABELS[m] || ('Method v' + m))),
                            '  values before/after are not comparable'] : [];
             },
           },
@@ -329,7 +342,7 @@ function initTsChart() {
 
 function _unknownEvents(b) {
   // Legacy hours where per-signal breakdown is absent: show events total as 'Unknown'
-  const hasBreakdown = (b.nacp_events || 0) + (b.freeze_events || 0)
+  const hasBreakdown = (b.nacp_events || 0) + (b.nic_events || 0) + (b.freeze_events || 0)
                      + (b.gap_events  || 0) + (b.adsb_loss_events || 0) > 0;
   return hasBreakdown ? 0 : (b.events || 0);
 }
@@ -348,7 +361,7 @@ function updateTsChart(allBuckets) {
   const dataMap = {};
   for (const b of allBuckets) dataMap[b.ts] = b;
 
-  let labels, nacp, freeze, gap, adsbLoss, unknown, aircraft, index, markIndex;
+  let labels, nacp, nic, freeze, gap, adsbLoss, unknown, aircraft, index, markIndex;
 
   if (cfg.aggregate === 'hour') {
     // ── Hourly bars ──────────────────────────────────────────────────────────
@@ -370,6 +383,7 @@ function updateTsChart(allBuckets) {
     });
 
     nacp     = slots.map(ts => dataMap[ts]?.nacp_events        || 0);
+    nic      = slots.map(ts => dataMap[ts]?.nic_events         || 0);
     freeze   = slots.map(ts => dataMap[ts]?.freeze_events      || 0);
     gap      = slots.map(ts => dataMap[ts]?.gap_events         || 0);
     adsbLoss = slots.map(ts => dataMap[ts]?.adsb_loss_events   || 0);
@@ -394,9 +408,10 @@ function updateTsChart(allBuckets) {
     for (const b of allBuckets) {
       if (b.ts < cutoff) continue;
       const dayTs = Math.floor(b.ts / 86400) * 86400;
-      if (!dayMap[dayTs]) dayMap[dayTs] = { nacp: 0, freeze: 0, gap: 0, adsbLoss: 0, unknown: 0,
+      if (!dayMap[dayTs]) dayMap[dayTs] = { nacp: 0, nic: 0, freeze: 0, gap: 0, adsbLoss: 0, unknown: 0,
                                             events: 0, acHours: 0, hours: 0 };
       dayMap[dayTs].nacp     += b.nacp_events        || 0;
+      dayMap[dayTs].nic      += b.nic_events         || 0;
       dayMap[dayTs].freeze   += b.freeze_events      || 0;
       dayMap[dayTs].gap      += b.gap_events         || 0;
       dayMap[dayTs].adsbLoss += b.adsb_loss_events   || 0;
@@ -417,6 +432,7 @@ function updateTsChart(allBuckets) {
     });
 
     nacp     = days.map(ts => dayMap[ts]?.nacp     || 0);
+    nic      = days.map(ts => dayMap[ts]?.nic      || 0);
     freeze   = days.map(ts => dayMap[ts]?.freeze   || 0);
     gap      = days.map(ts => dayMap[ts]?.gap      || 0);
     adsbLoss = days.map(ts => dayMap[ts]?.adsbLoss || 0);
@@ -434,10 +450,16 @@ function updateTsChart(allBuckets) {
   }
 
   // Method-change markers inside the displayed range
-  tsChart.$methodMarks = methodChangeTimes(allBuckets)
-    .filter(m => m.ts >= cutoff)
-    .map(m => ({ index: markIndex(m.ts), method: m.method }))
-    .filter(m => m.index > 0);
+  // Several changes inside one bar (e.g. v3 and v4 on the same day in the
+  // daily views) are merged into one marker listing all versions.
+  const _marks = {};
+  for (const m of methodChangeTimes(allBuckets)) {
+    if (m.ts < cutoff) continue;
+    const idx = markIndex(m.ts);
+    if (idx <= 0) continue;
+    (_marks[idx] = _marks[idx] || { index: idx, methods: [] }).methods.push(m.method);
+  }
+  tsChart.$methodMarks = Object.values(_marks);
   tsChart.options.scales.y2.title.text = tsChart.$aircraftLabel;
 
   // Adjust x-axis tick density for the active range
@@ -445,16 +467,47 @@ function updateTsChart(allBuckets) {
 
   tsChart.data.labels           = labels;
   tsChart.data.datasets[0].data = nacp;
-  tsChart.data.datasets[1].data = freeze;
-  tsChart.data.datasets[2].data = gap;
-  tsChart.data.datasets[3].data = adsbLoss;
-  tsChart.data.datasets[4].data = unknown;
-  tsChart.data.datasets[5].data = aircraft;
-  tsChart.data.datasets[6].data = index;
+  tsChart.data.datasets[1].data = nic;
+  tsChart.data.datasets[2].data = freeze;
+  tsChart.data.datasets[3].data = gap;
+  tsChart.data.datasets[4].data = adsbLoss;
+  tsChart.data.datasets[5].data = unknown;
+  tsChart.data.datasets[6].data = aircraft;
+  tsChart.data.datasets[7].data = index;
   tsChart.update('none');
 }
 
 // ── Canvas heatmap ────────────────────────────────────────────────────────────
+const HEATMAP_MIN_SEGMENT_DAYS = 3;
+
+/**
+ * Assign each displayed day to a colour-scaling segment.
+ * Segments are split at the days where the counting method changed; short
+ * segments (< HEATMAP_MIN_SEGMENT_DAYS) are merged forward into the next
+ * segment, and a short newest segment is merged back into the previous one.
+ * Returns an array of segment ids, one per entry of dayKeys.
+ */
+function heatmapSegments(dayKeys, changes, daySec) {
+  const changeDays = new Set(changes.map(c => Math.floor(c.ts / daySec) * daySec));
+  const segs = [];
+  dayKeys.forEach((dt, xi) => {
+    if (xi === 0 || changeDays.has(dt)) segs.push([]);
+    segs[segs.length - 1].push(xi);
+  });
+  for (let i = 0; i < segs.length - 1; ) {
+    if (segs[i].length < HEATMAP_MIN_SEGMENT_DAYS) {
+      segs[i + 1] = segs[i].concat(segs[i + 1]);
+      segs.splice(i, 1);
+    } else i++;
+  }
+  if (segs.length > 1 && segs[segs.length - 1].length < HEATMAP_MIN_SEGMENT_DAYS) {
+    const last = segs.pop();
+    segs[segs.length - 1] = segs[segs.length - 1].concat(last);
+  }
+  const out = new Array(dayKeys.length).fill(0);
+  segs.forEach((seg, si) => seg.forEach(xi => { out[xi] = si; }));
+  return out;
+}
 function drawHeatmap(heatmapData, flBands) {
   const canvas = document.getElementById('gps-heatmap-canvas');
   if (!canvas || !heatmapData || heatmapData.length === 0) return;
@@ -502,14 +555,21 @@ function drawHeatmap(heatmapData, flBands) {
   // bands (e.g. FL010-030) use the full colour range even when high-altitude
   // bands (e.g. FL300+) have far higher absolute counts.  The event count
   // printed inside each cell still shows the absolute number for comparison.
-  const bandMaxVals = {};
+  //
+  // Counting-method segments: days on either side of a method change (dashed
+  // marker) are scaled separately, because the counts are not comparable
+  // across a change.  A segment shorter than HEATMAP_MIN_SEGMENT_DAYS is merged
+  // into its neighbour (normally the following one; the newest segment into
+  // the preceding one) so that a lone day is not scaled against itself, which
+  // would paint every non-zero cell at full intensity.
+  const segOf = heatmapSegments(dayKeys, methodChangeTimes(heatmapData), DAY_SEC);
+  const bandMaxVals = {};   // `${segment}|${band}` → max
   for (const band of flBands) {
-    let m = 1;   // floor at 1 to avoid division by zero for empty bands
-    for (const dt of dayKeys) {
+    dayKeys.forEach((dt, xi) => {
+      const k = segOf[xi] + '|' + band;
       const v = dayMap[dt][band] || 0;
-      if (v > m) m = v;
-    }
-    bandMaxVals[band] = m;
+      bandMaxVals[k] = Math.max(bandMaxVals[k] || 1, v);   // floor 1 avoids ÷0
+    });
   }
 
   // Background
@@ -520,7 +580,7 @@ function drawHeatmap(heatmapData, flBands) {
   dayKeys.forEach((dt, xi) => {
     flBands.forEach((band, yi) => {
       const val  = dayMap[dt][band] || 0;
-      const norm = val / bandMaxVals[band];
+      const norm = val / bandMaxVals[segOf[xi] + '|' + band];
       const x    = MARGIN_L + xi * cellW;
       const y    = MARGIN_T + yi * cellH;
       ctx.fillStyle = heatColor(norm);
@@ -597,6 +657,7 @@ function drawHeatmap(heatmapData, flBands) {
 // ── Live table ──────────────────────────────────────────────────────────────────────────────
 const FLAG_HTML = {
   nacp:      '<span class="gps-flag gps-flag-nacp">NACp</span>',
+  nic:       '<span class="gps-flag gps-flag-nic">NIC</span>',
   freeze:    '<span class="gps-flag gps-flag-freeze">Freeze</span>',
   gap:       '<span class="gps-flag gps-flag-gap">Gap</span>',
   adsb_loss: '<span class="gps-flag gps-flag-adsb">ADS-B</span>',
@@ -605,7 +666,7 @@ const FLAG_HTML = {
 function renderLiveTable(liveEvents) {
   const tbody = document.getElementById('gps-live-tbody');
   if (!liveEvents || liveEvents.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="gps-no-data">No degraded aircraft detected</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="gps-no-data">No degraded aircraft detected</td></tr>';
     document.getElementById('gps-live-count').textContent = '0';
     return;
   }
@@ -618,6 +679,10 @@ function renderLiveTable(liveEvents) {
     const fl    = ac.fl_band  || '—';
     const gs    = ac.groundspeed != null ? Math.round(ac.groundspeed) : '—';
     const nacp  = ac.nac_p    != null ? ac.nac_p : '—';
+    // NIC with containment radius (Rc) in NM as tooltip; NACv as-is
+    const rcNm  = ac.nic_rc_m != null ? (ac.nic_rc_m / 1852).toFixed(ac.nic_rc_m < 1852 ? 2 : 1) + ' NM' : 'unknown';
+    const nic   = ac.nic      != null ? `<span title="Rc ${rcNm}">${ac.nic}</span>` : '—';
+    const nacv  = ac.nac_v    != null ? ac.nac_v : '—';
     const flags = (ac.flags || []).map(f => FLAG_HTML[f] || f).join(' ');
     return `<tr>
       <td class="gps-td-cs">${cs}</td>
@@ -626,6 +691,8 @@ function renderLiveTable(liveEvents) {
       <td>${alt}</td>
       <td>${gs}</td>
       <td>${nacp}</td>
+      <td>${nic}</td>
+      <td>${nacv}</td>
       <td>${flags}</td>
     </tr>`;
   }).join('');
@@ -668,11 +735,12 @@ function drawDonutAndStats(heatmapData, flBands) {
   // Accumulate per-band and per-signal totals
   const bandTotals = Object.fromEntries(flBands.map(b => [b, 0]));
   const dayTotals  = {};
-  let totalEvents = 0, totalNacp = 0, totalFreeze = 0, totalGap = 0, totalAdsbLoss = 0;
+  let totalEvents = 0, totalNacp = 0, totalNic = 0, totalFreeze = 0, totalGap = 0, totalAdsbLoss = 0;
 
   for (const b of recent) {
     totalEvents   += b.events;
     totalNacp     += b.nacp_events        || 0;
+    totalNic      += b.nic_events         || 0;
     totalFreeze   += b.freeze_events      || 0;
     totalGap      += b.gap_events         || 0;
     totalAdsbLoss += b.adsb_loss_events   || 0;
@@ -752,12 +820,13 @@ function drawDonutAndStats(heatmapData, flBands) {
   // Use total signal firings as denominator so percentages sum to 100%.
   // One aircraft sweep can trigger multiple signals simultaneously (e.g. both
   // Freeze and ADS-B), so totalEvents < sum of individual signal counts.
-  const totalSignals = totalNacp + totalFreeze + totalGap + totalAdsbLoss;
+  const totalSignals = totalNacp + totalNic + totalFreeze + totalGap + totalAdsbLoss;
 
   set('gps-stat-total',     totalEvents > 0 ? totalEvents.toLocaleString() : '—');
   set('gps-stat-top-band',  topBandCount > 0 ? `FL${topBand}  (${topBandCount.toLocaleString()})` : '—');
   set('gps-stat-worst-day', worstDayCount > 0 ? `${worstDayStr}  (${worstDayCount.toLocaleString()})` : '—');
   set('gps-stat-nacp',   totalNacp     > 0 ? `${totalNacp.toLocaleString()}${pct(totalNacp,     totalSignals)}` : '—');
+  set('gps-stat-nic',    totalNic      > 0 ? `${totalNic.toLocaleString()}${pct(totalNic,       totalSignals)}` : '—');
   set('gps-stat-freeze', totalFreeze   > 0 ? `${totalFreeze.toLocaleString()}${pct(totalFreeze,   totalSignals)}` : '—');
   set('gps-stat-gap',    totalGap      > 0 ? `${totalGap.toLocaleString()}${pct(totalGap,      totalSignals)}` : '—');
   set('gps-stat-adsb',   totalAdsbLoss > 0 ? `${totalAdsbLoss.toLocaleString()}${pct(totalAdsbLoss, totalSignals)}` : '—');

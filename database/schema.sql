@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
     freeze_events     INTEGER NOT NULL DEFAULT 0,   -- events flagged by Freeze signal
     gap_events        INTEGER NOT NULL DEFAULT 0,   -- events flagged by Gap signal
     adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss (MLAT covering for GPS dropout)
-    method          INTEGER                         -- counting-method version (see collector/gps_quality.py METHOD_VERSION)
+    method          INTEGER,                        -- counting-method version (see collector/gps_quality.py METHOD_VERSION)
+    nic_events      INTEGER NOT NULL DEFAULT 0      -- events flagged by the NIC (integrity) signal (method ≥ 4)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
@@ -135,6 +136,7 @@ CREATE TABLE IF NOT EXISTS gps_quality_zone_hours (
     gap_events        INTEGER NOT NULL DEFAULT 0,
     adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss
     method          INTEGER,                        -- counting-method version
+    nic_events      INTEGER NOT NULL DEFAULT 0,     -- events flagged by the NIC signal
     PRIMARY KEY (ts, zone)
 );
 

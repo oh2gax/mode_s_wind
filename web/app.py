@@ -291,7 +291,8 @@ def create_app(
     def gps_page():
         return render_template("gps_quality.html",
                                airport_icao=cfg.AIRPORT_ICAO,
-                               nacp_threshold=cfg.GPS_NACP_THRESHOLD)
+                               nacp_threshold=cfg.GPS_NACP_THRESHOLD,
+                               nic_threshold=getattr(cfg, "GPS_NIC_THRESHOLD", 6))
 
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.

@@ -67,7 +67,7 @@
             <button class="gps-range-btn active" data-heatmap-range="14d">14d</button>
             <button class="gps-range-btn" data-heatmap-range="1m">1m</button>
           </div>
-          <span class="gps-panel-legend">
+          <span class="gps-panel-legend" title="Each FL row is coloured relative to its own busiest day. Days on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable. Numbers in the cells are absolute event counts.">
             <span class="gps-leg-scale">
               <span class="gps-leg-cell" style="background:var(--gps-heat-0)"></span>
               <span class="gps-leg-cell" style="background:var(--gps-heat-1)"></span>
@@ -90,6 +90,7 @@
           <span class="gps-panel-title">Live — Degraded GPS</span>
           <span class="gps-flag-legend">
             <span class="gps-flag gps-flag-nacp">NACp</span>
+            <span class="gps-flag gps-flag-nic">NIC</span>
             <span class="gps-flag gps-flag-freeze">Freeze</span>
             <span class="gps-flag gps-flag-gap">Gap</span>
             <span class="gps-flag gps-flag-adsb">ADS-B</span>
@@ -105,11 +106,13 @@
                 <th>Alt ft</th>
                 <th>GS kt</th>
                 <th>NACp</th>
+                <th title="Navigation Integrity Category — hover a value for the containment radius Rc">NIC</th>
+                <th title="Navigation Accuracy Category for velocity (0–4)">NACv</th>
                 <th>Flags</th>
               </tr>
             </thead>
             <tbody id="gps-live-tbody">
-              <tr><td colspan="7" class="gps-no-data">No degraded aircraft</td></tr>
+              <tr><td colspan="9" class="gps-no-data">No degraded aircraft</td></tr>
             </tbody>
           </table>
         </div>
@@ -143,6 +146,10 @@
               <span class="gps-stat-val" id="gps-stat-nacp">—</span>
             </div>
             <div class="gps-stat-row">
+              <span class="gps-stat-label"><span class="gps-flag gps-flag-nic">NIC</span></span>
+              <span class="gps-stat-val" id="gps-stat-nic">—</span>
+            </div>
+            <div class="gps-stat-row">
               <span class="gps-stat-label"><span class="gps-flag gps-flag-freeze">Freeze</span></span>
               <span class="gps-stat-val" id="gps-stat-freeze">—</span>
             </div>
@@ -166,22 +173,26 @@
         <div class="gps-key-content">
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-nacp">NACp</span>
-            <span class="gps-key-desc">Navigation Accuracy Category ≤ {{ nacp_threshold }} — GPS position accuracy degraded. Sourced from TC=29/31 ADS-B messages.</span>
+            <span class="gps-key-desc">Navigation Accuracy Category ≤ {{ nacp_threshold }} — the aircraft reports degraded GPS position accuracy. From TC=29 / TC=31 status messages (ADS-B version 1/2).</span>
+          </div>
+          <div class="gps-key-item">
+            <span class="gps-flag gps-flag-nic">NIC</span>
+            <span class="gps-key-desc">Navigation Integrity Category ≤ {{ nic_threshold }} — the aircraft reports a large containment radius (Rc ≥ 0.3 NM). Derived from the type code of every airborne-position message.</span>
           </div>
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-freeze">Freeze</span>
-            <span class="gps-key-desc">Position unchanged for ≥3 sweeps while groundspeed &gt; 50 kt — GPS output is stuck at the last valid fix.</span>
+            <span class="gps-key-desc">Own ADS-B position messages keep arriving but the coordinates stay identical for ≥3 sweeps while groundspeed &gt; 50 kt — GPS output is stuck.</span>
           </div>
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-gap">Gap</span>
-            <span class="gps-key-desc">No ADS-B position received for ≥45 s while EHS data (altitude/groundspeed) still arrives — GPS source dropped out.</span>
+            <span class="gps-key-desc">Aircraft still transmitting ADS-B, but no position from any source (own ADS-B or MLAT) for ≥45 s — GPS dropped out and MLAT is not covering.</span>
           </div>
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-adsb">ADS-B</span>
-            <span class="gps-key-desc">ADS-B position loss detected via MLAT coverage — MLAT has been the sole position source for ≥45 s, meaning the aircraft's own GPS-derived ADS-B position has dropped out while multilateration keeps it visible. Common at EFHK during GPS jamming.</span>
+            <span class="gps-key-desc">Aircraft still transmitting ADS-B, but no own position for ≥45 s while MLAT keeps updating its position — GPS dropped out, MLAT covering. Common at EFHK during GPS jamming.</span>
           </div>
           <div class="gps-key-note">
-            NACp scale: 0 = unknown · 1–3 = poor (&gt;10 NM) · 4–6 = moderate (0.1–10 NM) · 7–11 = excellent (&lt;0.1 NM)
+            All signals count only aircraft heard by this receiver. NACp: 0 = unknown · 1–3 = poor (&gt;10 NM) · 4–6 = moderate (0.1–10 NM) · 7–11 = excellent (&lt;0.1 NM). NIC: 8 = Rc &lt;0.1 NM · 7 = &lt;0.2 NM · 6 = 0.3–0.6 NM · ≤5 = ≥1 NM · 0 = unknown.
           </div>
         </div>
       </div>

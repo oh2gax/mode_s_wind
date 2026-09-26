@@ -87,15 +87,24 @@ HEATMAP_MAX_BUCKETS = 31 * 24  # heatmap only ever renders the most recent 14 da
 #       returning hours/days later carried its old ADS-B timestamp and position,
 #       inflating ADS-B loss (and Freeze) the longer the app ran
 #   2 — 2026-09-25 11:00 UTC: live_state pruned after 10 min of silence
-#   3 — ADS-B loss counted per visit (aircraft must be transmitting extended
-#       squitters now); current hour survives restarts (checkpoint)
-METHOD_VERSION = 3
+#   3 — 2026-09-26: ADS-B loss counted per visit (aircraft must be transmitting
+#       extended squitters now); current hour survives restarts (checkpoint)
+#   4 — 2026-09-26: all signals require the aircraft to be heard by our own
+#       receiver; Freeze = own ADS-B positions keep arriving with identical
+#       coordinates; Gap = no position update from any source; new NIC
+#       (integrity) signal; NACp version-aware and only while fresh
+METHOD_VERSION = 4
 
 # ── ADS-B loss (per visit) ────────────────────────────────────────────────────
 # An aircraft counts as ADS-B-active if any DF17 extended squitter was
 # received within ES_ACTIVE_SEC.  ADS-B loss = ADS-B-active, position known
 # (e.g. MLAT) but no own ADS-B position for ≥ gap_sec during this visit.
 ES_ACTIVE_SEC = 30.0
+
+# ── Own-reception / freshness windows (METHOD_VERSION 4) ──────────────────────
+HEARD_SEC        = 60.0   # aircraft counted only if our receiver heard it within this window
+QUALITY_FRESH_SEC = 30.0  # NACp / NIC values older than this are ignored
+FREEZE_POS_SEC   = 10.0   # own ADS-B position must be this recent for a Freeze check
 
 # ── Current-hour checkpoint ───────────────────────────────────────────────────
 CHECKPOINT_SEC = 60.0     # write the in-progress hour to gps_quality_live
@@ -151,6 +160,7 @@ def _empty_bucket(ts: float) -> dict:
         "degraded":      0,                        # aircraft with ≥1 event this hour
         "events":        0,                        # total event count this hour
         "nacp_events":      0,   # events from NACp signal
+        "nic_events":       0,   # events from NIC (integrity) signal
         "freeze_events":    0,   # events from Freeze signal
         "gap_events":       0,   # events from Gap signal
         "adsb_loss_events": 0,   # events from ADS-B loss (MLAT covering GPS dropout)
@@ -180,6 +190,7 @@ class GpsQualityTracker:
     def __init__(
         self,
         nacp_threshold: int   = 6,
+        nic_threshold:  int   = 6,
         freeze_polls:   int   = 3,
         gap_sec:        float = 45.0,
         min_gs_kt:      float = 50.0,
@@ -189,6 +200,7 @@ class GpsQualityTracker:
         airport_lon:    float | None = None,
     ):
         self.nacp_threshold = nacp_threshold
+        self.nic_threshold  = nic_threshold
         self.freeze_polls   = freeze_polls
         self.gap_sec        = gap_sec
         self.min_gs_kt      = min_gs_kt
@@ -244,6 +256,7 @@ class GpsQualityTracker:
                     "degraded":         completed["degraded"],
                     "fl_bands":         dict(completed["fl_bands"]),
                     "nacp_events":      completed.get("nacp_events",      0),
+                    "nic_events":       completed.get("nic_events",       0),
                     "freeze_events":    completed.get("freeze_events",    0),
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
@@ -267,6 +280,7 @@ class GpsQualityTracker:
                     "degraded":         completed["degraded"],
                     "fl_bands":         dict(completed["fl_bands"]),
                     "nacp_events":      completed.get("nacp_events",      0),
+                    "nic_events":       completed.get("nic_events",       0),
                     "freeze_events":    completed.get("freeze_events",    0),
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
@@ -284,6 +298,7 @@ class GpsQualityTracker:
         bucket["_deg"].add(icao)
         bucket["degraded"] = len(bucket["_deg"])
         if "nacp"      in flags: bucket["nacp_events"]      += 1
+        if "nic"       in flags: bucket["nic_events"]       += 1
         if "freeze"    in flags: bucket["freeze_events"]    += 1
         if "gap"       in flags: bucket["gap_events"]       += 1
         if "adsb_loss" in flags: bucket["adsb_loss_events"] += 1
@@ -323,15 +338,16 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_hours
                    (ts, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events, method)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
                  bucket.get("freeze_events",    0),
                  bucket.get("gap_events",       0),
                  bucket.get("adsb_loss_events", 0),
-                 bucket.get("method", METHOD_VERSION)),
+                 bucket.get("method", METHOD_VERSION),
+                 bucket.get("nic_events", 0)),
             )
             conn.commit()
             log.debug("GPS quality: persisted bucket ts=%d events=%d",
@@ -348,15 +364,16 @@ class GpsQualityTracker:
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_zone_hours
                    (ts, zone, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events, method)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], zone, bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
                  bucket.get("freeze_events",    0),
                  bucket.get("gap_events",       0),
                  bucket.get("adsb_loss_events", 0),
-                 bucket.get("method", METHOD_VERSION)),
+                 bucket.get("method", METHOD_VERSION),
+                 bucket.get("nic_events", 0)),
             )
             conn.commit()
             log.debug("GPS quality: persisted zone=%s bucket ts=%d events=%d",
@@ -377,7 +394,7 @@ class GpsQualityTracker:
             conn     = get_db()
             rows     = conn.execute(
                 """SELECT ts, events, total, degraded, fl_bands,
-                          nacp_events, freeze_events, gap_events, adsb_loss_events, method
+                          nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events
                    FROM gps_quality_hours
                    WHERE ts >= ? AND ts < ?
                    ORDER BY ts ASC""",
@@ -395,6 +412,7 @@ class GpsQualityTracker:
                 b["gap_events"]       = row["gap_events"]         or 0
                 b["adsb_loss_events"] = row["adsb_loss_events"]   or 0
                 b["method"]           = row["method"] or 1
+                b["nic_events"]       = row["nic_events"] or 0
                 self._buckets.append(b)
             log.info("GPS quality: loaded %d historical hour buckets from DB",
                      len(rows))
@@ -410,7 +428,7 @@ class GpsQualityTracker:
             for zone in ZONE_LIMITS_NM:
                 rows = conn.execute(
                     """SELECT ts, events, total, degraded, fl_bands,
-                              nacp_events, freeze_events, gap_events, adsb_loss_events, method
+                              nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events
                        FROM gps_quality_zone_hours
                        WHERE zone = ? AND ts >= ? AND ts < ?
                        ORDER BY ts ASC""",
@@ -428,6 +446,7 @@ class GpsQualityTracker:
                     b["gap_events"]       = row["gap_events"]       or 0
                     b["adsb_loss_events"] = row["adsb_loss_events"] or 0
                     b["method"]           = row["method"] or 1
+                    b["nic_events"]       = row["nic_events"] or 0
                     self._zone_buckets[zone].append(b)
                 log.info("GPS quality: loaded %d zone=%s buckets from DB", len(rows), zone)
         except Exception as exc:
@@ -469,7 +488,7 @@ class GpsQualityTracker:
     def _bucket_from_json(txt: str) -> dict:
         d = json.loads(txt)
         b = _empty_bucket(d["ts"])
-        for k in ("total", "degraded", "events", "nacp_events", "freeze_events",
+        for k in ("total", "degraded", "events", "nacp_events", "nic_events", "freeze_events",
                   "gap_events", "adsb_loss_events", "method"):
             if k in d:
                 b[k] = d[k]
@@ -553,126 +572,115 @@ class GpsQualityTracker:
 
     # ── Signal helpers ────────────────────────────────────────────────────────
 
-    def _adsb_loss(self, ac: dict, lat, now: float) -> bool:
-        """ADS-B position loss during the current visit (METHOD_VERSION 3).
+    def _signals(self, ac: dict, prev: dict, now: float) -> tuple[list[str], dict]:
+        """Evaluate the GPS degradation signals for one aircraft (METHOD_VERSION 4).
 
-        True when all of:
-          • the position is known (lat not None — typically MLAT),
-          • the aircraft is ADS-B equipped and transmitting right now: a DF17
-            extended squitter (identification, velocity, status …) was
-            received within ES_ACTIVE_SEC,
-          • it has sent no ADS-B airborne position of its own for ≥ gap_sec in
-            this visit — measured from its last own position, or from the
-            start of the visit if none has been received yet (catches aircraft
-            that are already jammed when they come into range).
-        Aircraft that stop all extended squitters are not flagged (not a GPS
-        symptom), and nothing is inherited from earlier visits.
+        Returns (flags, per-aircraft state to keep for the next sweep).
+        All signals rely on data received by our own receiver:
+
+          nacp      — NACp ≤ threshold, from a status message (TC 29, or TC 31
+                      with ADS-B version ≥ 1) received within QUALITY_FRESH_SEC
+          nic       — NIC ≤ threshold (containment radius Rc too large), from an
+                      airborne-position type code received within QUALITY_FRESH_SEC
+          freeze    — own ADS-B positions keep arriving (latest within
+                      FREEZE_POS_SEC) but the coordinates have not changed for
+                      ≥ freeze_polls consecutive sweeps while groundspeed ≥ min
+          adsb_loss — ADS-B active (DF17 within ES_ACTIVE_SEC), no own position
+                      for ≥ gap_sec in this visit, but the position keeps
+                      updating from another source (MLAT)
+          gap       — ADS-B active, no position update from ANY source for
+                      ≥ gap_sec in this visit
+        adsb_loss and gap are mutually exclusive; freeze excludes both.
         """
-        if lat is None:
-            return False
-        last_es = ac.get("last_es_ts")
-        if last_es is None or now - last_es > ES_ACTIVE_SEC:
-            return False
-        last_pos = ac.get("last_adsb_pos_ts")
-        first_seen = ac.get("first_seen")
-        ref = last_pos if last_pos is not None else first_seen
-        if ref is None:
-            return False
-        return (now - ref) >= self.gap_sec
+        flags: list[str] = []
+        gs = ac.get("groundspeed")
 
-    # ── Public interface ──────────────────────────────────────────────────────
+        # Self-reported quality (fresh values only)
+        nacp, nacp_ts = ac.get("nac_p"), ac.get("nac_p_ts")
+        if nacp is not None and nacp_ts is not None and now - nacp_ts <= QUALITY_FRESH_SEC \
+                and nacp <= self.nacp_threshold:
+            flags.append("nacp")
+        nic, nic_ts = ac.get("nic"), ac.get("nic_ts")
+        if nic is not None and nic_ts is not None and now - nic_ts <= QUALITY_FRESH_SEC \
+                and nic <= self.nic_threshold:
+            flags.append("nic")
+
+        # Freeze: own ADS-B positions arriving with identical coordinates
+        a_lat, a_lon, a_ts = ac.get("adsb_lat"), ac.get("adsb_lon"), ac.get("last_adsb_pos_ts")
+        own_pos_fresh = a_ts is not None and now - a_ts <= FREEZE_POS_SEC
+        freeze_count = 0
+        if own_pos_fresh and gs is not None and gs >= self.min_gs_kt:
+            if (a_lat, a_lon) == (prev.get("adsb_lat"), prev.get("adsb_lon")):
+                freeze_count = prev.get("freeze_count", 0) + 1
+            if freeze_count >= self.freeze_polls:
+                flags.append("freeze")
+
+        # ADS-B loss / Gap (per visit, aircraft must be transmitting ES now)
+        last_es = ac.get("last_es_ts")
+        if last_es is not None and now - last_es <= ES_ACTIVE_SEC and not own_pos_fresh:
+            first_seen = ac.get("first_seen")
+            own_ref = a_ts if a_ts is not None else first_seen
+            if own_ref is not None and now - own_ref >= self.gap_sec:
+                any_ref = ac.get("last_pos_update_ts") or first_seen
+                if any_ref is not None and now - any_ref >= self.gap_sec:
+                    flags.append("gap")          # no position from any source
+                else:
+                    flags.append("adsb_loss")    # MLAT still updating the position
+
+        state = {
+            "adsb_lat":     a_lat,
+            "adsb_lon":     a_lon,
+            "freeze_count": freeze_count,
+            "last_seen":    ac.get("last_seen", now),
+            "flags":        flags,
+            "flags_ts":     now,
+        }
+        return flags, state
 
     def update(self, ac: dict) -> None:
         """
         Process one aircraft from the live_state snapshot.
         Called by the sweep thread for every aircraft seen in the last 60 s.
+        Only aircraft heard by our own receiver within HEARD_SEC are counted
+        (METHOD_VERSION 4) — aircraft kept alive solely by the Radarcape JSON
+        list (MLAT network beyond our antenna's range) are ignored.
         """
-        icao     = ac.get("icao", "")
+        icao = ac.get("icao", "")
         if not icao:
             return
-
-        now      = time.time()
-        lat      = ac.get("lat")
-        lon      = ac.get("lon")
-        alt      = ac.get("altitude")
-        gs       = ac.get("groundspeed")
-        nacp     = ac.get("nac_p")
-        last_seen = ac.get("last_seen", now)
+        now = time.time()
+        last_rx = ac.get("last_rx_ts")
+        if last_rx is None or now - last_rx > HEARD_SEC:
+            return
+        alt = ac.get("altitude")
 
         with self._lock:
             prev = self._ac_state.get(icao, {})
 
             # ── Zone membership ─────────────────────────────────────────
-            # Determine which distance zones this aircraft qualifies for.
-            # For Position Gap events (no current position) we fall back to
-            # the last-known position if it is recent enough.
+            # Uses the current position only while it is being updated
+            # (any source); a position that stopped updating more than
+            # LAST_POS_MAX_AGE_SEC ago no longer places the aircraft in a zone.
             active_zones: list[str] = []
-            if self._airport_lat is not None:
-                pos_lat = lat if lat is not None else prev.get("last_lat")
-                pos_lon = lon if lon is not None else prev.get("last_lon")
-                pos_ts  = now if lat is not None else (prev.get("last_pos_ts") or 0)
-                if (pos_lat is not None and pos_lon is not None
-                        and (now - pos_ts) <= LAST_POS_MAX_AGE_SEC):
-                    dist_nm = _haversine_nm(
-                        self._airport_lat, self._airport_lon, pos_lat, pos_lon)
-                    for zone, limit in ZONE_LIMITS_NM.items():
-                        if dist_nm <= limit:
-                            active_zones.append(zone)
+            lat, lon = ac.get("lat"), ac.get("lon")
+            pos_ts = ac.get("last_pos_update_ts") or ac.get("first_seen") or 0
+            if (self._airport_lat is not None and lat is not None and lon is not None
+                    and now - pos_ts <= LAST_POS_MAX_AGE_SEC):
+                dist_nm = _haversine_nm(self._airport_lat, self._airport_lon, lat, lon)
+                for zone, limit in ZONE_LIMITS_NM.items():
+                    if dist_nm <= limit:
+                        active_zones.append(zone)
 
             self._record_seen(icao, active_zones)
 
-            # Skip degradation signal checks below the minimum altitude gate.
-            # Aircraft below ~500 ft are on very short final or have just landed;
-            # the receiver loses them at 300–400 ft while their last-known GS is
-            # still ~140 kt, which would cause spurious Freeze events.
+            # Skip degradation signal checks below the minimum altitude gate
+            # (landing aircraft that the receiver loses at a few hundred ft).
             if alt is not None and alt < self.min_alt_ft:
+                self._ac_state.pop(icao, None)
                 return
 
-            flags: list[str] = []
-
-            # ── Signal 1: NACp degradation ──────────────────────────────
-            if nacp is not None and nacp <= self.nacp_threshold:
-                flags.append("nacp")
-
-            # ── Signal 2: Position freeze ───────────────────────────────
-            # Position is frozen when lat/lon is identical to the last
-            # recorded position while the aircraft is clearly moving.
-            if (lat is not None and lon is not None
-                    and gs is not None and gs >= self.min_gs_kt):
-                if (prev.get("last_lat") == lat
-                        and prev.get("last_lon") == lon):
-                    freeze_count = prev.get("freeze_count", 0) + 1
-                else:
-                    freeze_count = 0
-                if freeze_count >= self.freeze_polls:
-                    flags.append("freeze")
-            else:
-                freeze_count = prev.get("freeze_count", 0)
-
-            # ── Signal 3: Position gap ───────────────────────────────────
-            if lat is None:
-                last_pos_ts = prev.get("last_pos_ts")
-                if last_pos_ts is not None and (now - last_pos_ts) >= self.gap_sec:
-                    flags.append("gap")
-
-            # ── Signal 4: ADS-B position loss (MLAT covering GPS dropout) ──
-            # See _adsb_loss(): the aircraft is transmitting extended squitters
-            # now, its position is known (MLAT), but it has sent no ADS-B
-            # position of its own for ≥ gap_sec during this visit.
-            if self._adsb_loss(ac, lat, now):
-                flags.append("adsb_loss")
-
-            # Update per-aircraft state
-            new_state = {
-                "last_lat":     lat  if lat  is not None else prev.get("last_lat"),
-                "last_lon":     lon  if lon  is not None else prev.get("last_lon"),
-                "last_pos_ts":  now  if lat  is not None else prev.get("last_pos_ts"),
-                "freeze_count": freeze_count,
-                "last_seen":    last_seen,
-            }
-            self._ac_state[icao] = new_state
-
-            # Record events in 'all' bucket and any qualifying zone buckets
+            flags, state = self._signals(ac, prev, now)
+            self._ac_state[icao] = state
             if flags:
                 self._record_event(icao, alt, flags, active_zones)
 
@@ -688,60 +696,32 @@ class GpsQualityTracker:
 
     def rebuild_live(self, live_state_snapshot: list[dict]) -> None:
         """
-        Rebuild the live degraded-aircraft list from the current sweep.
+        Rebuild the live degraded-aircraft list from the current sweep, using
+        the flags computed by update() in this sweep (no second evaluation).
         Called once per sweep after all update() calls are done.
         """
         now  = time.time()
         live = []
         with self._lock:
             for ac in live_state_snapshot:
-                icao  = ac.get("icao", "")
-                nacp  = ac.get("nac_p")
-                lat   = ac.get("lat")
-                lon   = ac.get("lon")
-                alt   = ac.get("altitude")
-                gs    = ac.get("groundspeed")
-                cs    = ac.get("callsign") or icao
-
-                if not icao:
+                icao = ac.get("icao", "")
+                st   = self._ac_state.get(icao)
+                if not icao or not st or now - st.get("flags_ts", 0) > 10 or not st.get("flags"):
                     continue
-
-                # Same altitude gate as update() — skip signal checks below
-                # minimum altitude to avoid false positives from landing aircraft
-                # that the receiver has lost line-of-sight with.
-                if alt is not None and alt < self.min_alt_ft:
-                    continue
-
-                prev  = self._ac_state.get(icao, {})
-                flags = []
-
-                if nacp is not None and nacp <= self.nacp_threshold:
-                    flags.append("nacp")
-
-                if (lat is not None and lon is not None
-                        and gs is not None and gs >= self.min_gs_kt
-                        and prev.get("freeze_count", 0) >= self.freeze_polls):
-                    flags.append("freeze")
-
-                last_pos_ts = prev.get("last_pos_ts")
-                if (lat is None and last_pos_ts is not None
-                        and (now - last_pos_ts) >= self.gap_sec):
-                    flags.append("gap")
-
-                if self._adsb_loss(ac, lat, now):
-                    flags.append("adsb_loss")
-
-                if flags:
-                    live.append({
-                        "icao":       icao,
-                        "callsign":   cs,
-                        "altitude":   alt,
-                        "fl_band":    _fl_band(alt),
-                        "groundspeed": gs,
-                        "nac_p":      nacp,
-                        "flags":      flags,
-                        "last_seen":  ac.get("last_seen", now),
-                    })
+                alt = ac.get("altitude")
+                live.append({
+                    "icao":        icao,
+                    "callsign":    ac.get("callsign") or icao,
+                    "altitude":    alt,
+                    "fl_band":     _fl_band(alt),
+                    "groundspeed": ac.get("groundspeed"),
+                    "nac_p":       ac.get("nac_p"),
+                    "nic":         ac.get("nic"),
+                    "nic_rc_m":    ac.get("nic_rc_m"),
+                    "nac_v":       ac.get("nac_v"),
+                    "flags":       list(st["flags"]),
+                    "last_seen":   ac.get("last_seen", now),
+                })
 
             # Sort by altitude descending (highest first)
             live.sort(key=lambda x: x.get("altitude") or 0, reverse=True)
@@ -784,6 +764,7 @@ class GpsQualityTracker:
                 "degraded":         b["degraded"],
                 "events":           b["events"],
                 "nacp_events":      b.get("nacp_events",      0),
+                "nic_events":       b.get("nic_events",       0),
                 "freeze_events":    b.get("freeze_events",    0),
                 "gap_events":       b.get("gap_events",       0),
                 "adsb_loss_events": b.get("adsb_loss_events", 0),

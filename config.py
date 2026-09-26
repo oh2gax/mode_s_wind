@@ -209,6 +209,11 @@ class Config:
     # NACp scale: 0 = unknown, 1–3 = poor, 4–6 = moderate, 7–11 = excellent.
     # NACp ≤ 6 corresponds to horizontal accuracy worse than ~0.1 NM (185 m).
     GPS_NACP_THRESHOLD: int = 6
+    # NIC (Navigation Integrity Category) threshold.  NIC is derived from the
+    # airborne-position type code; NIC ≤ this value (containment radius
+    # Rc ≥ 0.3 NM) is flagged as degraded integrity.  Normal GNSS NIC is 7–11.
+    # Optional — defaults to 6 when absent from an older config.py.
+    GPS_NIC_THRESHOLD: int = 6
     # Consecutive sweep polls with the same lat/lon (while groundspeed is above
     # GPS_MIN_GS_KT) before an aircraft is flagged as having a frozen position.
     # 3 polls × 5 s sweep interval ≈ 15 s of frozen position.

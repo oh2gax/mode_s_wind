@@ -318,6 +318,7 @@ def main() -> None:
     # ── Start GPS Quality monitor ─────────────────────────────────────────
     gps_tracker = GpsQualityTracker(
         nacp_threshold = cfg.GPS_NACP_THRESHOLD,
+        nic_threshold  = getattr(cfg, "GPS_NIC_THRESHOLD", 6),
         freeze_polls   = cfg.GPS_FREEZE_POLLS,
         gap_sec        = cfg.GPS_GAP_SEC,
         min_gs_kt      = cfg.GPS_MIN_GS_KT,

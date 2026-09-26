@@ -20,7 +20,6 @@ import time
 import threading
 from typing import Optional
 
-import pyModeS as pms
 from pyModeS import PipeDecoder
 from pyModeS.cli._source import NetworkSource
 from pyModeS.position._cpr import airborne_position_with_ref
@@ -39,6 +38,51 @@ log = logging.getLogger("modes.receiver")
 _BDS50_CACHE: dict[str, tuple[float, dict]] = {}   # icao → (ts, bds50_fields)
 _BDS60_CACHE: dict[str, tuple[float, dict]] = {}   # icao → (ts, bds60_fields)
 _CACHE_LOCK = threading.Lock()
+
+
+# ── ADS-B integrity (NIC / containment radius Rc) ─────────────────────────
+# NIC is not a message field: it is encoded in the airborne-position TYPE CODE
+# plus supplement bits (DO-260A/B).  Key = NIC-A * 2 + NIC-B (version 2) or the
+# single NIC supplement (version 1); key 0 is used when a supplement is unknown
+# (and for version 0, where the TC maps to NUCp with the same radii).
+# Value = (NIC, Rc in metres).  Rc None = unknown / > 20 NM.
+_NIC_TABLE: dict[int, dict[int, tuple[int, float | None]]] = {
+    9:  {0: (11, 7.5)},
+    10: {0: (10, 25.0)},
+    11: {0: (8, 185.2), 1: (9, 75.0), 3: (9, 75.0)},
+    12: {0: (7, 370.4)},
+    13: {0: (6, 926.0), 1: (6, 555.6), 2: (6, 1111.2)},
+    14: {0: (5, 1852.0)},
+    15: {0: (4, 3704.0)},
+    16: {0: (2, 14816.0), 1: (3, 7408.0), 3: (3, 7408.0)},
+    17: {0: (1, 37040.0)},
+    18: {0: (0, None)},
+    20: {0: (11, 7.5)},
+    21: {0: (10, 25.0)},
+    22: {0: (0, None)},
+}
+
+
+def nic_from_position(tc: int, version: int | None,
+                      nic_a: int | None, nic_b: int | None) -> tuple[int, float | None] | None:
+    """NIC and containment radius Rc (m) for an airborne-position type code.
+
+    version 2: key = NIC-A (from TC 31) * 2 + NIC-B (position message bit).
+    version 1: key = NIC supplement (TC 31); the position-message bit is not
+               a NIC supplement in version 1.
+    version 0 / unknown: key 0 (TC alone).
+    Unknown supplement combinations fall back to key 0.
+    """
+    row = _NIC_TABLE.get(tc)
+    if row is None:
+        return None
+    if version == 2 and nic_a is not None and nic_b is not None:
+        key = (nic_a << 1) | nic_b
+    elif version == 1 and nic_a is not None:
+        key = nic_a
+    else:
+        key = 0
+    return row.get(key, row[0])
 
 
 def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
@@ -142,7 +186,6 @@ def _build_observation(icao: str, ts: float, result: dict,
         "track":       (result.get("track") if result.get("track") is not None
                         else result.get("true_track")),
         "vert_rate":   result.get("vertical_rate"),
-        "nac_p":       result.get("nac_p"),   # Navigation Accuracy Category (position) — decoded from TC=29/31
     }
 
     # ── Squawk (Mode-A identity code) from DF5 / DF21 messages ───────────────
@@ -184,6 +227,42 @@ def _build_observation(icao: str, ts: float, result: dict,
     obs.update(best_meteo(mrar, mhr, wind))
 
     return obs
+
+
+def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
+    """Store ADS-B self-reported quality in live_state (one DF17 message).
+
+      • TC 31 (operational status): ADS-B version, NIC supplement-A, NACp
+        (NACp only for version ≥ 1 — undefined in version 0)
+      • TC 29 (target state & status, version 1/2 only): NACp
+      • TC 19 (airborne velocity): NACv
+      • TC 9-18 / 20-22 (airborne position): NIC and containment radius Rc
+    Each value gets its own timestamp so consumers can ignore stale values.
+    """
+    if tc is None:
+        return
+    if tc == 31:
+        ver = result.get("version")
+        if ver is not None:
+            merged["adsb_version"] = ver
+        if result.get("nic_supplement_a") is not None:
+            merged["nic_a"] = result["nic_supplement_a"]
+        if ver is not None and ver >= 1 and result.get("nac_p") is not None:
+            merged["nac_p"]    = result["nac_p"]
+            merged["nac_p_ts"] = ts
+    elif tc == 29:
+        if result.get("nac_p") is not None:
+            merged["nac_p"]    = result["nac_p"]
+            merged["nac_p_ts"] = ts
+    elif tc == 19:
+        if result.get("nac_v") is not None:
+            merged["nac_v"] = result["nac_v"]
+    elif 9 <= tc <= 18 or 20 <= tc <= 22:
+        nic = nic_from_position(tc, merged.get("adsb_version"),
+                                merged.get("nic_a"), result.get("nic_b"))
+        if nic is not None:
+            merged["nic"], merged["nic_rc_m"] = nic
+            merged["nic_ts"] = ts
 
 
 def _is_worth_storing(obs: dict) -> bool:
@@ -252,20 +331,12 @@ def run_collector(
 
                 df = result.get("df", 0)
 
-                # ── NACp extraction from TC=29 / TC=31 DF17 messages ─────
-                # Aircraft Operational Status (TC=31) and Target State &
-                # Status (TC=29) carry the Navigation Accuracy Category for
-                # Position.  These messages are broadcast periodically by
-                # modern Mode S transponders.  The value persists in
-                # live_state until the next TC=29/31 is received.
-                if df == 17:
-                    try:
-                        _tc = pms.adsb.typecode(msg_hex)
-                        if _tc in (29, 31):
-                            _nacp, _, _ = pms.adsb.nac_p(msg_hex)
-                            result["nac_p"] = _nacp
-                    except Exception:
-                        pass
+                # ADS-B type code (DF17 only) — used for the quality fields
+                # (NACp / NIC / NACv / version) handled in the live_state merge.
+                # (The former pms.adsb.nac_p() call used the removed pyModeS
+                # v2 API and always failed silently; pyModeS v3 already
+                # returns nac_p in the decoded result.)
+                tc = result.get("typecode") if df == 17 else None
 
                 # Update BDS 5,0 / 6,0 cache for wind pairing
                 bds = result.get("bds")
@@ -332,7 +403,11 @@ def run_collector(
                 # present, decode immediately using the receiver position
                 # as reference (valid within 180 NM ≈ 333 km — covers
                 # all Finnish airspace traffic).
-                if obs.get("lat") is None and df == 17:
+                # Condition on the decoder result (not obs, which was already
+                # filled from cache above) and on airborne-position type codes
+                # only — surface CPR (TC 5-8) needs a different decoder.
+                if (result.get("latitude") is None and df == 17
+                        and tc is not None and (9 <= tc <= 18 or 20 <= tc <= 22)):
                     _cpr_fmt = result.get("cpr_format")
                     _cpr_lat = result.get("cpr_lat")
                     _cpr_lon = result.get("cpr_lon")
@@ -366,11 +441,21 @@ def run_collector(
                     # pruning) — used by the GPS quality ADS-B loss signal.
                     if not existing:
                         merged["first_seen"] = ts
+                    # Heard by OUR receiver (Beast feed) — the JSON poller
+                    # refreshes last_seen but never last_rx_ts.
+                    merged["last_rx_ts"] = ts
                     # Any DF17 extended squitter (identification, velocity,
                     # status, position …) proves the aircraft is ADS-B
                     # equipped and transmitting during this visit.
                     if df == 17:
                         merged["last_es_ts"] = ts
+                        _update_quality_fields(merged, tc, result, ts)
+                    if _fresh_adsb_pos:
+                        # Own ADS-B position: kept separately from lat/lon,
+                        # which MLAT (JSON poller) may overwrite
+                        merged["adsb_lat"] = obs["lat"]
+                        merged["adsb_lon"] = obs["lon"]
+                        merged["last_pos_update_ts"] = ts
                     # Record when the aircraft last transmitted its own GPS-derived
                     # ADS-B position (TC=9-18/20-22 in Beast feed).  Used by the
                     # GPS quality tracker to detect ADS-B position loss while MLAT
