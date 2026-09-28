@@ -433,8 +433,12 @@ def run_collector(
                 with live_lock:
                     existing = live_state.get(icao, {})
                     # Merge: only overwrite with non-None values
-                    merged = {k: v for k, v in {**existing, **obs}.items()
-                              if v is not None}
+                    # Merge: only overwrite with non-None values.  (The former
+                    # `{**existing, **obs}` form let None values in obs replace
+                    # stored values before filtering, so e.g. NACp and the
+                    # callsign were erased by the aircraft's next message.)
+                    merged = dict(existing)
+                    merged.update({k: v for k, v in obs.items() if v is not None})
                     merged["icao"]      = icao
                     merged["last_seen"] = ts
                     # Start of this visit (entry re-created after live_state

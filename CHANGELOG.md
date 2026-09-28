@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-28 (Collector merge fix, GPS chart bars scaled to events)
+
+- Fix: the live_state merge let `None` values in a new observation overwrite stored values before filtering, although it was meant to overwrite only with non-None values; e.g. the callsign was erased by the next message without a callsign (hidden by the JSON poller and page caches). Now merged as intended
+- Analysis of the first v4 days: the same bug had erased NACp with the aircraft's next message in methods 1–3, so NACp was heavily under-counted before v4 (2–10 vs 40–140 events per aircraft-hour now) — v4 had already moved NACp to its own field; jammed aircraft broadcast NACp 0 together with losing their positions, so NACp now largely coincides with ADS-B loss
+- GPS Quality time-series chart: stacked signal segments are scaled so the bar height equals the number of events (one sweep can raise several signals, which roughly doubled the bars under v4); tooltips show the real per-signal counts and the events / signals-raised totals
+
+---
+
 ## 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index, method v4 with NIC)
 
 - **ADS-B loss counted per visit**: an aircraft is flagged when it is transmitting extended squitters now (any DF17 within 30 s) and MLAT knows its position, but it has sent no own ADS-B position for ≥ 45 s during this visit; new `live_state` fields `first_seen` and `last_es_ts`. Also catches aircraft already jammed when they come into range; no longer flags aircraft that stop all extended squitters, and nothing is inherited from earlier visits

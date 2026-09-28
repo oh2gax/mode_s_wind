@@ -295,7 +295,17 @@ function initTsChart() {
             label: item => {
               const names = ['NACp', 'NIC', 'Freeze', 'Gap', 'ADS-B', 'Unknown',
                              tsChart.$aircraftLabel || 'Aircraft', 'Events / aircraft'];
+              // Signal segments: show the real (unscaled) count of that signal
+              if (item.datasetIndex <= 5 && tsChart.$rawSignals)
+                return ` ${names[item.datasetIndex]}: ${tsChart.$rawSignals[item.datasetIndex][item.dataIndex]}`;
               return ` ${names[item.datasetIndex]}: ${item.raw}`;
+            },
+            footer: items => {
+              const i = items[0].dataIndex, ev = tsChart.$events?.[i];
+              if (ev == null || !tsChart.$rawSignals) return [];
+              const sum = tsChart.$rawSignals.reduce((a, arr) => a + arr[i], 0);
+              return [`Events: ${ev}  (signals raised: ${sum})`,
+                      'Bar height = events; colours = share of each signal'];
             },
             // Explain a counting-method change when hovering its bar
             afterBody: items => {
@@ -361,7 +371,7 @@ function updateTsChart(allBuckets) {
   const dataMap = {};
   for (const b of allBuckets) dataMap[b.ts] = b;
 
-  let labels, nacp, nic, freeze, gap, adsbLoss, unknown, aircraft, index, markIndex;
+  let labels, nacp, nic, freeze, gap, adsbLoss, unknown, aircraft, index, markIndex, events;
 
   if (cfg.aggregate === 'hour') {
     // ── Hourly bars ──────────────────────────────────────────────────────────
@@ -388,6 +398,7 @@ function updateTsChart(allBuckets) {
     gap      = slots.map(ts => dataMap[ts]?.gap_events         || 0);
     adsbLoss = slots.map(ts => dataMap[ts]?.adsb_loss_events   || 0);
     unknown  = slots.map(ts => dataMap[ts] ? _unknownEvents(dataMap[ts]) : 0);
+    events   = slots.map(ts => dataMap[ts]?.events             || 0);
     aircraft = slots.map(ts => dataMap[ts]?.total              || 0);
     index    = slots.map(ts => {
       const b = dataMap[ts];
@@ -437,6 +448,7 @@ function updateTsChart(allBuckets) {
     gap      = days.map(ts => dayMap[ts]?.gap      || 0);
     adsbLoss = days.map(ts => dayMap[ts]?.adsbLoss || 0);
     unknown  = days.map(ts => dayMap[ts]?.unknown  || 0);
+    events   = days.map(ts => dayMap[ts]?.events   || 0);
     aircraft = days.map(ts => {
       const d = dayMap[ts];
       return d && d.hours ? Math.round(d.acHours / d.hours * 10) / 10 : 0;
@@ -465,13 +477,30 @@ function updateTsChart(allBuckets) {
   // Adjust x-axis tick density for the active range
   tsChart.options.scales.x.ticks.maxTicksLimit = cfg.maxTicks;
 
+  // ── Scale the stacked segments so each bar's height = distinct events ──
+  // One sweep of one aircraft can raise several signals at once (typically
+  // NACp + ADS-B loss for a jammed aircraft), so the plain sum of signal
+  // counts over-states the degraded aircraft-time.  Each segment is scaled by
+  // events ÷ (sum of signal counts): the bar height becomes the number of
+  // events and the colours show each signal's share.  Unscaled counts are
+  // kept for the tooltip.
+  const raw = [nacp, nic, freeze, gap, adsbLoss, unknown];
+  const scaled = raw.map(() => []);
+  for (let i = 0; i < labels.length; i++) {
+    const sum = raw.reduce((a, arr) => a + arr[i], 0);
+    const f   = sum > 0 ? events[i] / sum : 0;
+    raw.forEach((arr, k) => { scaled[k][i] = Math.round(arr[i] * f * 10) / 10; });
+  }
+  tsChart.$rawSignals = raw;
+  tsChart.$events     = events;
+
   tsChart.data.labels           = labels;
-  tsChart.data.datasets[0].data = nacp;
-  tsChart.data.datasets[1].data = nic;
-  tsChart.data.datasets[2].data = freeze;
-  tsChart.data.datasets[3].data = gap;
-  tsChart.data.datasets[4].data = adsbLoss;
-  tsChart.data.datasets[5].data = unknown;
+  tsChart.data.datasets[0].data = scaled[0];
+  tsChart.data.datasets[1].data = scaled[1];
+  tsChart.data.datasets[2].data = scaled[2];
+  tsChart.data.datasets[3].data = scaled[3];
+  tsChart.data.datasets[4].data = scaled[4];
+  tsChart.data.datasets[5].data = scaled[5];
   tsChart.data.datasets[6].data = aircraft;
   tsChart.data.datasets[7].data = index;
   tsChart.update('none');
