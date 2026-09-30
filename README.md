@@ -715,7 +715,7 @@ The canvas on the bottom left plots all corridor aircraft on a distance-vs-altit
 - **Coloured dots** — each aircraft, coloured by glideslope status (green = ON, amber = HIGH, red = LOW, grey = FAR)
 - **History trails** — faint white line showing the aircraft's path over the past 10 minutes
 - **Near-ground stale indicator** — when an aircraft is below 1 000 ft and no data has been received for more than 10 seconds (signal likely lost on short final), its dot fades to a dimmed blue and the label is removed. The dot remains at its last known position until the tracker removes it after the normal 30–45 second timeout
-- **Labels** — callsign and current deviation from glideslope in feet (e.g. `FIN3GJ (+85ft)`)
+- **Labels** — callsign, or the ICAO24 code when no callsign is known (e.g. `FIN3GJ`); the glideslope deviation is shown by the dot colour
 - **Windshear zones** — amber/red horizontal bands between the altitudes of the two aircraft involved in a detected shear event (visible when detection is enabled)
 
 The glideslope line accounts for two corrections applied at render time so that aircraft on the correct slope land exactly on the line:

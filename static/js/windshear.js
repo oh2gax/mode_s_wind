@@ -630,11 +630,11 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.lineWidth   = 1;
     ilsCtx.stroke();
 
-    // Label: omitted when near-stale (callsign/ICAO removed, dot only)
+    // Label: callsign, or ICAO24 when no callsign is known.  Omitted when
+    // near-stale (dot only).  The glideslope deviation is shown by the dot
+    // colour (ON / HIGH / LOW) and no longer printed in the label.
     if (!nearStale) {
-      const delta = Math.round(ac.altitude - gsRef(ac.dist_thr_nm));
-      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
-      const label = `${ac.callsign || ac.icao} (${deltaStr}ft)`;
+      const label = ac.callsign || ac.icao;
 
       ilsCtx.fillStyle = color;
       ilsCtx.font      = '10px "Courier New", monospace';

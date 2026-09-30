@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-09-30 (ILS profile label)
+
+- ILS glideslope profile: aircraft labels show only the callsign (ICAO24 when no callsign is known); the `(+85ft)` glideslope deviation was removed — the dot colour already shows ON / HIGH / LOW
+
+---
+
 ## 2026-09-28 (Collector merge fix, GPS chart bars scaled to events)
 
 - Fix: the live_state merge let `None` values in a new observation overwrite stored values before filtering, although it was meant to overwrite only with non-None values; e.g. the callsign was erased by the next message without a callsign (hidden by the JSON poller and page caches). Now merged as intended
