@@ -159,7 +159,10 @@ function drawBarb(ctx, x, y, speedKt, dirFrom) {
 }
 
 // ── Main render ────────────────────────────────────────────────────────────
+let lastSoundingLevels = null;   // last rendered levels — redrawn on theme change
+
 function renderSounding(levels) {
+  lastSoundingLevels = levels;
   const canvas = document.getElementById('skewt-canvas');
   const ctx    = canvas.getContext('2d');
 
@@ -256,9 +259,10 @@ function renderSounding(levels) {
 
 // Called by base.html theme toggle so the diagram redraws with the new palette
 window.onThemeChange = function () {
-  // Re-render only if there is data already displayed (skewt-canvas has content)
-  const sel = document.getElementById('sounding-select');
-  if (sel && sel.value) loadSounding();
+  // Redraw the displayed profile with the new palette (no refetch needed).
+  // (Previously looked for a 'sounding-select' element that the page does not
+  // have, so the diagram kept the old theme until the next Load.)
+  if (lastSoundingLevels) renderSounding(lastSoundingLevels);
 };
 
 // ── Data loading ────────────────────────────────────────────────────────────

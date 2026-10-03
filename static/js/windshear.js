@@ -653,6 +653,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       // src tag so grey observations stay grey even after the aircraft recovers.
       const selAc = aircraft.find(a => a.icao === barbSelectedIcao);
       const bLabel = selAc ? (selAc.callsign || barbSelectedIcao) : barbSelectedIcao;
+      // Corner-label colour: the aircraft's current meteo source (grey when it
+      // has left the corridor list).  The per-barb colour is defined inside the
+      // loop below and is not in scope for the label.
+      const labelColor = selAc ? acColor(selAc.meteo_source) : '#94a3b8';
 
       // Resolve runway heading for HW/TW annotation (once, before the loop).
       // Priority: matched runway of the selected aircraft → runway filter dropdown.
@@ -756,7 +760,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       const hiTag  = barbHiResActive ? '  · HI' : '';
       const dclTag = (barbHwMode !== 'off' && barbDclActive && barbValActive) ? '  · DCL' : '';
       const valTag = barbValActive ? '' : '  · NOVAL';
-      ilsCtx.fillStyle = bColor;
+      ilsCtx.fillStyle = labelColor;
       ilsCtx.font      = 'bold 9px "Courier New", monospace';
       ilsCtx.textAlign = 'left';
       ilsCtx.fillText(
@@ -1152,7 +1156,7 @@ function detectGradient(aircraft) {
         hw_low:   Math.round(bestLo.hw),
         hw_high:  Math.round(bestHi.hw),
         delta_kt: Math.round(maxDelta),
-        severity: maxDelta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        severity: wsSeverity(maxDelta),
         hw_trend: bestHi.hw > bestLo.hw ? 'loss' : 'gain',
       });
     }
@@ -1212,7 +1216,7 @@ function detectEnergy(aircraft) {
         hw_high:    Math.round(first.gs),   // repurposed: GS at start of window
         delta_kt:   delta,
         energy_loss: Math.round(dE),
-        severity:   delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        severity:   wsSeverity(delta),
         hw_trend:   'loss',   // energy only fires on dE < 0
       });
     }
@@ -1249,11 +1253,11 @@ function detectRate(aircraft) {
     // (rather than a single raw point) to reduce noise before differencing.
     const window   = hist.slice(-LOOKBACK);
     const refEdge  = Math.min(3, Math.floor(window.length / 2));
-    const refSamples = window.slice(0, refEdge)
-      .filter(p => p.wind_spd != null && p.wind_dir != null)
-      .map(p => hwKt(p.wind_spd, p.wind_dir, rwyHdg));
-    if (!refSamples.length) continue;
-    const refHw = medianOf(refSamples);
+    const refPts = window.slice(0, refEdge)
+      .filter(p => p.wind_spd != null && p.wind_dir != null);
+    if (!refPts.length) continue;
+    const refHw  = medianOf(refPts.map(p => hwKt(p.wind_spd, p.wind_dir, rwyHdg)));
+    const refAlt = medianOf(refPts.map(p => p.alt_ft).filter(a => a != null)) ?? ac.altitude;
     const delta  = Math.abs(ac.headwind_kt - refHw);
 
     if (delta >= WS_MONITOR_KT) {
@@ -1262,12 +1266,14 @@ function detectRate(aircraft) {
         rwy:      ac.approach_runway,
         icao:     ac.icao,
         cs:       ac.callsign || ac.icao,
-        alt_low:  Math.round(ref.alt_ft  || ac.altitude),
-        alt_high: Math.round(ac.altitude),
-        hw_low:   Math.round(refHw),
-        hw_high:  Math.round(ac.headwind_kt),
+        // Zone spans the reference and current altitude (reference is
+        // normally the higher one on a descending approach)
+        alt_low:  Math.round(Math.min(refAlt, ac.altitude)),
+        alt_high: Math.round(Math.max(refAlt, ac.altitude)),
+        hw_low:   Math.round(ac.headwind_kt),   // current (later) headwind
+        hw_high:  Math.round(refHw),            // reference (earlier) headwind
         delta_kt: Math.round(delta),
-        severity: delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        severity: wsSeverity(delta),
         hw_trend: ac.headwind_kt < refHw ? 'loss' : 'gain',
       });
     }
@@ -1322,7 +1328,7 @@ function detectBaseline(aircraft) {
         hw_high:        Math.round(ac.headwind_kt),
         delta_kt:       Math.round(delta),
         baseline_count: recent.length,
-        severity:       delta >= WS_SEVERE_KT ? 'severe' : 'moderate',
+        severity:       wsSeverity(delta),
         hw_trend:       ac.headwind_kt < baselineHw ? 'loss' : 'gain',
       });
     }
@@ -1409,8 +1415,8 @@ function detectKinematic(aircraft) {
       cs:       ac.callsign || ac.icao,
       alt_low:  Math.round(window[0].gs != null ? ac.altitude - 50 : ac.altitude),
       alt_high: Math.round(ac.altitude),
-      hw_low:   Math.round(diffOld),   // repurposed: IAS−GS at window start
-      hw_high:  Math.round(diffNew),   // repurposed: IAS−GS at window end
+      hw_low:   Math.round(diffNew),   // repurposed: IAS−GS at window end (later)
+      hw_high:  Math.round(diffOld),   // repurposed: IAS−GS at window start (earlier)
       delta_kt: Math.round(delta),
       f_factor: fFactor,
       severity: wsSeverity(delta),
@@ -1950,7 +1956,9 @@ function renderWsLog() {
     if (e.cs_low && e.cs_high) {
       acFull = `${e.cs_low}: ${hw_low} kt  ↕  ${e.cs_high}: ${hw_high} kt`;
     } else if (e.cs) {
-      const detail = e.algo === 'energy' ? `GS ${hw_high}→${hw_low} kt` : `HW ${hw_high}→${hw_low} kt`;
+      const detail = e.algo === 'energy'    ? `GS ${hw_high}→${hw_low} kt`
+                   : e.algo === 'kinematic' ? `IAS−GS ${hw_high}→${hw_low} kt`
+                   :                          `HW ${hw_high}→${hw_low} kt`;
       acFull = `${e.cs}  ${detail}`;
     } else {
       acFull = `${hw_low} kt → ${hw_high} kt`;

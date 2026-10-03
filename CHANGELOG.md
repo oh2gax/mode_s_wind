@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-03 (Windshear page bug fixes)
+
+- **Fix: ILS profile with Barbs on stopped the page from updating.** The corner label (`🌬 callsign (N obs) · AUTO …`) used a colour variable that only exists inside the per-barb loop (left over from the 2026-05-26 per-barb colouring change), so drawing the profile threw an error whenever Barbs was on and the selected aircraft had at least one barb. The error aborted the rest of each 3-second poll: no corner label, no Turn / GPS / Pre-ILS circles while barbs existed, and the alert banner, emergency squawk alarm, windshear / go-around log, windrose and approach-count summary were not refreshed. The label now takes the selected aircraft's current meteo-source colour
+- **Fix: Gradient, Energy, Rate and Baseline detection crashed on their first event.** They referred to an undefined `WS_SEVERE_KT` constant and used `severe` / `moderate` severities that the alert-level filter, strip badges and log colours do not know. All six algorithms now use the same Monitor ≥ 10 kt / Warning ≥ 15 kt / Alarm ≥ 25 kt classification, as documented. (Pair and Kinematic were not affected)
+- **Fix: Rate detection** also referred to an undefined reference point; the reference altitude is now the median altitude of the same samples that form the reference headwind, and the ILS-profile zone spans the reference and current altitude (previously the zone would have had negative height and not been drawn)
+- Windshear log tooltip: single-aircraft entries consistently show earlier → later values (Rate and Kinematic were reversed); Kinematic values are labelled `IAS−GS` instead of `HW`
+- Fix: Sounding page — the Dark / Light toggle did not redraw the Skew-T (it looked for a `sounding-select` element the page does not have); the displayed profile is now redrawn with the new palette
+
+---
+
 ## 2026-09-30 (ILS profile label)
 
 - ILS glideslope profile: aircraft labels show only the callsign (ICAO24 when no callsign is known); the `(+85ft)` glideslope deviation was removed — the dot colour already shows ON / HIGH / LOW
