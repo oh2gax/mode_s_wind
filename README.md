@@ -10,7 +10,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 >
 > The current situation has worsened significantly since the beginning of May 2026. Previously, jamming was mostly limited to higher altitudes (8 000 – 10 000 ft) with little practical impact on approach traffic. The jamming is now effective down to much lower altitudes, directly affecting final approach segments.
 
-![MODE-S Wind main screen](Mode_S_Wind_Main_Screen_1.png)
+![MODE-S Wind main screen](doc/Mode_S_Wind_Main_Screen_1.png)
 
 > **Display note:** the web interface is optimised for **1920 × 1080** desktop resolution. On mobile phones the layout will adapt but the experience is limited. On tablets, horizontal (landscape) orientation gives significantly better results — an iPad in landscape mode works reasonably well.
 
@@ -617,7 +617,7 @@ A dedicated real-time approach monitoring page for tracking aircraft established
 
 > **Keep the page open for best results.** All client-side history buffers — wind barb accumulation, kinematic IAS−GS differential history, the windshear event log, and the go-around log — exist only in the browser tab running the page. Navigating to another page or closing the tab clears these buffers entirely. When the Windshear page is reopened, it starts fresh: aircraft currently on approach will appear immediately, but any history built up during the previous session (wind profiles along the approach path, earlier windshear events, go-around events from before the page was opened) is gone. If you are monitoring an active approach sequence or want to study the windshear log over multiple arrival waves, keep the Windshear page as a dedicated open tab.
 
-![MODE-S Wind Approach / Windshear screen](https://raw.githubusercontent.com/oh2gax/mode_s_wind/master/Mode_S_Wind_Approach_Screen_1.png)
+![MODE-S Wind Approach / Windshear screen](doc/Mode_S_Wind_Approach_Screen_1.png)
 
 #### Layout
 
@@ -1366,6 +1366,7 @@ mode_s_wind/
 │   ├── efhk_aqua.geojson      # Water / aqua polygons (ATC+CA / Black+CA overlay level)
 │   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
 │                              # Present but not currently loaded by any page (reserved for future overlays)
+├── doc/                       # README screenshots
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
 └── pyModeS-main/              # Reference copy of pyModeS library
