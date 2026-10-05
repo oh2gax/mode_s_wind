@@ -1054,9 +1054,17 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
-  flex: 1;
   white-space: nowrap;
 }
+/* Landing count for the selected window/date, directly after the title */
+.ws-aphist-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+  margin-left: 6px;
+}
+.ws-aphist-count:empty { display: none; }
 .ws-aphist-ctrl-btn {
   font-size: 10px;
   padding: 1px 7px;

@@ -3214,6 +3214,13 @@ function formatBandCell(band, rwyHdg) {
 function renderApproachHistory(entries) {
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!tbody) return;
+
+  // Landing count for the selected window/date on the panel title line
+  const countEl = document.getElementById('ws-aphist-count');
+  if (countEl) {
+    const n = entries ? entries.length : 0;
+    countEl.textContent = `–  ${n} landing${n === 1 ? '' : 's'}`;
+  }
   if (!entries || entries.length === 0) {
     tbody.innerHTML =
       `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;

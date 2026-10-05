@@ -5,6 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-05 (Approach History landing count)
+
+- **Approach History panel now shows the number of landings** for the selected time window (1h–1d) or date directly after its title, e.g. `Approach History – 24 landings`, in the same small font. The count follows the time buttons, date picker and Live button and updates with each refresh
+
+---
+
 ## 2026-10-03 (Windshear page bug fixes)
 
 - **Fix: ILS profile with Barbs on stopped the page from updating.** The corner label (`🌬 callsign (N obs) · AUTO …`) used a colour variable that only exists inside the per-barb loop (left over from the 2026-05-26 per-barb colouring change), so drawing the profile threw an error whenever Barbs was on and the selected aircraft had at least one barb. The error aborted the rest of each 3-second poll: no corner label, no Turn / GPS / Pre-ILS circles while barbs existed, and the alert banner, emergency squawk alarm, windshear / go-around log, windrose and approach-count summary were not refreshed. The label now takes the selected aircraft's current meteo-source colour
