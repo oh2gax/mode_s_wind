@@ -5,15 +5,10 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-05 (Screenshots moved to doc/)
-
-- **README screenshots moved to a new `doc/` folder.** Both README image links now use relative `doc/…` paths (the Approach screen previously used an absolute raw.githubusercontent.com URL), so they display on GitHub from any branch; `doc/` added to the Project Structure tree
-
----
-
-## 2026-10-05 (Approach History landing count)
+## 2026-10-05 (Approach History landing count, screenshots moved to doc/)
 
 - **Approach History panel now shows the number of landings** for the selected time window (1h–1d) or date directly after its title, e.g. `Approach History – 24 landings`, in the same small font. The count follows the time buttons, date picker and Live button and updates with each refresh
+- **README screenshots moved to a new `doc/` folder.** Both README image links now use relative `doc/…` paths (the Approach screen previously used an absolute raw.githubusercontent.com URL), so they display on GitHub from any branch; `doc/` added to the Project Structure tree
 
 ---
 
