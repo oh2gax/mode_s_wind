@@ -649,6 +649,8 @@ def create_app(
         Each entry contains: ts, time_utc, callsign, icao, registration,
         aircraft_type, runway, rwy_heading, and a bands dict keyed by altitude
         (ft as string) with {dir, spd} values or null when no wind was captured.
+        DB-sourced entries also carry "gnss" (GNSS quality on final per band,
+        see collector/windshear.py _capture_gnss) or null for older rows.
         """
         import json as _json
         window = request.args.get("window", type=int)
@@ -658,7 +660,8 @@ def create_app(
             db     = get_db()
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
-                          aircraft_type, runway, rwy_heading, bands_json, go_arounds
+                          aircraft_type, runway, rwy_heading, bands_json, go_arounds,
+                          gnss_json
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -668,6 +671,8 @@ def create_app(
             for row in rows:
                 r = dict(row)
                 r["bands"] = _json.loads(r.pop("bands_json"))
+                g_txt = r.pop("gnss_json", None)
+                r["gnss"] = _json.loads(g_txt) if g_txt else None
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
@@ -679,7 +684,8 @@ def create_app(
             db   = get_db()
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
-                          aircraft_type, runway, rwy_heading, bands_json, go_arounds
+                          aircraft_type, runway, rwy_heading, bands_json, go_arounds,
+                          gnss_json
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -689,6 +695,8 @@ def create_app(
             for row in rows:
                 r = dict(row)
                 r["bands"] = _json.loads(r.pop("bands_json"))
+                g_txt = r.pop("gnss_json", None)
+                r["gnss"] = _json.loads(g_txt) if g_txt else None
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
@@ -974,6 +982,48 @@ def create_app(
             if ws_tracker is not None:
                 ws_tracker.clear_approach_history()
             return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    # ── GPS degradation episode log purge routes ─────────────────────────
+
+    @app.route("/api/maintenance/episodes/preview", methods=["POST"])
+    def maintenance_episodes_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 365))
+        return jsonify(maint.preview_episode_purge(get_db(), days))
+
+    @app.route("/api/maintenance/episodes/purge", methods=["POST"])
+    def maintenance_episodes_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        days = int(data.get("days", 365))
+        return jsonify(maint.purge_episode_data(get_db(), days))
+
+    @app.route("/api/maintenance/episodes/date-preview", methods=["POST"])
+    def maintenance_episodes_date_preview():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.preview_episode_date_purge(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/maintenance/episodes/date-purge", methods=["POST"])
+    def maintenance_episodes_date_purge():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            return jsonify(maint.purge_episode_date_range(
+                get_db(), data.get("date_from", ""), data.get("date_to", "")
+            ))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 

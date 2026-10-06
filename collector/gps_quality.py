@@ -27,6 +27,24 @@ The heatmap response is capped independently at HEATMAP_MAX_BUCKETS (31
 days) since the heatmap canvas only ever renders the most recent 14 days —
 no need to ship 6 months of buckets for a field that gets truncated anyway.
 
+Per-band detail (since 2026-10-06)
+----------------------------------
+Each hourly row also stores ``band_detail`` (JSON): distinct aircraft seen
+per FL band (``ac``), distinct degraded aircraft per band (``deg``) and the
+signal mix per band (``sig``).  Older rows have NULL.
+
+Degradation episode log (since 2026-10-06)
+------------------------------------------
+One ``gps_episodes`` row per aircraft per continuous degraded period
+(clean gaps shorter than EPISODE_MERGE_SEC are merged), for aircraft within
+episode_radius_nm (default 100 NM) of the airport when the episode starts.
+Start / end / recovery snapshots (position, altitude, track, vertical rate,
+groundspeed, distance), altitude range, lowest NACp / NIC, signals seen and
+how the episode ended.  Closed episodes are buffered in RAM and written in
+the same transaction as the 60-s current-hour checkpoint, so each row is
+written once and no extra commits are needed.  Never auto-purged; manual
+purge on the Maintenance page.
+
 Thread safety
 -------------
   GpsQualityTracker._lock (RLock) protects all mutable state.
@@ -123,6 +141,11 @@ ZONE_LIMITS_NM: dict[str, float] = {
 # for an aircraft on final approach to remain within the zone boundary.
 LAST_POS_MAX_AGE_SEC = 120.0
 
+# ── Degradation episode log ───────────────────────────────────────────────────
+SIG_ORDER          = ("nacp", "nic", "freeze", "gap", "adsb_loss")
+EPISODE_MERGE_SEC  = 120.0   # a clean period shorter than this does not end an episode
+EPISODE_RADIUS_NM  = 100.0   # default: episodes start only within this distance of the airport
+
 # ── ADS-B loss detection ──────────────────────────────────────────────────────
 # Fires when the aircraft still has a visible position (kept alive by MLAT) but
 # its own Beast-feed ADS-B GPS position timestamp has not been updated for
@@ -152,6 +175,27 @@ def _fl_band(altitude_ft: float | None) -> str | None:
     return FL_BAND_LABELS[-1]   # ≥ FL300
 
 
+def _seen_band(altitude_ft: float | None) -> str | None:
+    """FL band for the per-band aircraft count; None below the lowest band."""
+    if altitude_ft is None or altitude_ft < FL_BANDS[0][0]:
+        return None
+    return _fl_band(altitude_ft)
+
+
+def _band_detail(b: dict) -> dict:
+    """Per-band detail for one bucket: distinct aircraft seen / degraded and
+    the signal mix per FL band (non-zero entries only)."""
+    seen = b.get("_band_seen", {})
+    deg  = b.get("_band_deg", {})
+    sig  = b.get("band_sig", {})
+    return {
+        "ac":  {lbl: len(v) for lbl, v in seen.items() if v},
+        "deg": {lbl: len(v) for lbl, v in deg.items() if v},
+        "sig": {lbl: {k: n for k, n in d.items() if n}
+                for lbl, d in sig.items() if any(d.values())},
+    }
+
+
 def _empty_bucket(ts: float) -> dict:
     """Return a zeroed hourly bucket starting at timestamp ts."""
     return {
@@ -166,14 +210,27 @@ def _empty_bucket(ts: float) -> dict:
         "adsb_loss_events": 0,   # events from ADS-B loss (MLAT covering GPS dropout)
         "fl_bands": {lbl: 0 for lbl in FL_BAND_LABELS},   # events per FL band
         "method":  METHOD_VERSION,                 # counting-method version
+        # per-band signal counts {band: {signal: n}}
+        "band_sig": {lbl: {s: 0 for s in SIG_ORDER} for lbl in FL_BAND_LABELS},
         "_seen":   set(),                          # transient: icaos seen this hour
         "_deg":    set(),                          # transient: icaos with event
+        "_band_seen": {lbl: set() for lbl in FL_BAND_LABELS},   # transient: icaos per band
+        "_band_deg":  {lbl: set() for lbl in FL_BAND_LABELS},   # transient: degraded icaos per band
     }
 
 
 def _bucket_hour(ts: float) -> float:
     """Truncate timestamp to the start of its UTC hour."""
     return math.floor(ts / BUCKET_SEC) * BUCKET_SEC
+
+
+_EPISODE_INSERT_SQL = """INSERT OR IGNORE INTO gps_episodes
+    (icao, callsign, registration, aircraft_type, t_start, t_end, duration_s, sweeps,
+     signals, min_nacp, min_nic, min_alt, max_alt,
+     start_lat, start_lon, start_alt, start_track, start_vrate, start_gs, start_dist_nm,
+     end_lat, end_lon, end_alt, end_track, end_vrate, end_gs, end_dist_nm, end_pos_age,
+     rec_lat, rec_lon, rec_alt, rec_dist_nm, end_reason, method)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
 
 
 # ── GpsQualityTracker ─────────────────────────────────────────────────────────
@@ -198,6 +255,7 @@ class GpsQualityTracker:
         db_path:        str   = "",
         airport_lat:    float | None = None,
         airport_lon:    float | None = None,
+        episode_radius_nm: float = EPISODE_RADIUS_NM,
     ):
         self.nacp_threshold = nacp_threshold
         self.nic_threshold  = nic_threshold
@@ -208,6 +266,7 @@ class GpsQualityTracker:
         self._db_path       = db_path
         self._airport_lat   = airport_lat
         self._airport_lon   = airport_lon
+        self.episode_radius_nm = episode_radius_nm
 
         # Per-aircraft tracking state
         # icao → {last_lat, last_lon, last_pos_ts, freeze_count, last_seen}
@@ -223,6 +282,11 @@ class GpsQualityTracker:
         self._zone_buckets: dict[str, deque] = {
             zone: deque(maxlen=MAX_BUCKETS) for zone in ZONE_LIMITS_NM
         }
+
+        # Degradation episode log: open episodes per aircraft, and closed
+        # episodes waiting to be written with the next checkpoint
+        self._episodes:   dict[str, dict] = {}
+        self._episode_buf: list[tuple]    = []
 
         self._lock = threading.RLock()
         self._last_checkpoint = 0.0
@@ -261,6 +325,7 @@ class GpsQualityTracker:
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
                     "method":           completed.get("method", METHOD_VERSION),
+                    "band_detail":      _band_detail(completed),
                 }
                 self._flush_to_db(flush_copy)
             self._buckets.append(_empty_bucket(now_hour))
@@ -285,6 +350,7 @@ class GpsQualityTracker:
                     "gap_events":       completed.get("gap_events",       0),
                     "adsb_loss_events": completed.get("adsb_loss_events", 0),
                     "method":           completed.get("method", METHOD_VERSION),
+                    "band_detail":      _band_detail(completed),
                 }
                 self._flush_zone_to_db(flush_copy, zone)
             zb.append(_empty_bucket(now_hour))
@@ -305,6 +371,11 @@ class GpsQualityTracker:
         fl = _fl_band(altitude)
         if fl:
             bucket["fl_bands"][fl] = bucket["fl_bands"].get(fl, 0) + 1
+            bucket.setdefault("_band_deg", {}).setdefault(fl, set()).add(icao)
+            sig = bucket.setdefault("band_sig", {}).setdefault(fl, {s: 0 for s in SIG_ORDER})
+            for f in flags:
+                if f in sig:
+                    sig[f] += 1
 
     def _record_event(self, icao: str, altitude: float | None,
                       flags: list[str], zones: list[str]) -> None:
@@ -314,15 +385,22 @@ class GpsQualityTracker:
             self._write_event_to_bucket(
                 self._current_zone_bucket(zone), icao, altitude, flags)
 
-    def _record_seen(self, icao: str, zones: list[str]) -> None:
-        """Mark an aircraft as seen in the 'all' bucket and any qualifying zone buckets."""
+    def _record_seen(self, icao: str, zones: list[str],
+                     altitude: float | None = None) -> None:
+        """Mark an aircraft as seen in the 'all' bucket and any qualifying zone
+        buckets, and in the FL band of its current altitude."""
+        band = _seen_band(altitude)
         bucket = self._current_bucket()
         bucket["_seen"].add(icao)
         bucket["total"] = len(bucket["_seen"])
+        if band:
+            bucket.setdefault("_band_seen", {}).setdefault(band, set()).add(icao)
         for zone in zones:
             zb = self._current_zone_bucket(zone)
             zb["_seen"].add(icao)
             zb["total"] = len(zb["_seen"])
+            if band:
+                zb.setdefault("_band_seen", {}).setdefault(band, set()).add(icao)
 
     # ── Database persistence ──────────────────────────────────────────────────
 
@@ -334,12 +412,14 @@ class GpsQualityTracker:
         """
         try:
             fl_json = json.dumps(bucket["fl_bands"])
+            detail  = bucket.get("band_detail") or _band_detail(bucket)
             conn = get_db()
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_hours
                    (ts, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events,
+                    band_detail)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
@@ -347,7 +427,8 @@ class GpsQualityTracker:
                  bucket.get("gap_events",       0),
                  bucket.get("adsb_loss_events", 0),
                  bucket.get("method", METHOD_VERSION),
-                 bucket.get("nic_events", 0)),
+                 bucket.get("nic_events", 0),
+                 json.dumps(detail, separators=(",", ":"))),
             )
             conn.commit()
             log.debug("GPS quality: persisted bucket ts=%d events=%d",
@@ -360,12 +441,14 @@ class GpsQualityTracker:
         """Write one completed zone hourly bucket to gps_quality_zone_hours."""
         try:
             fl_json = json.dumps(bucket["fl_bands"])
+            detail  = bucket.get("band_detail") or _band_detail(bucket)
             conn = get_db()
             conn.execute(
                 """INSERT OR REPLACE INTO gps_quality_zone_hours
                    (ts, zone, events, total, degraded, fl_bands,
-                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events,
+                    band_detail)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (bucket["ts"], zone, bucket["events"], bucket["total"],
                  bucket["degraded"], fl_json,
                  bucket.get("nacp_events",      0),
@@ -373,7 +456,8 @@ class GpsQualityTracker:
                  bucket.get("gap_events",       0),
                  bucket.get("adsb_loss_events", 0),
                  bucket.get("method", METHOD_VERSION),
-                 bucket.get("nic_events", 0)),
+                 bucket.get("nic_events", 0),
+                 json.dumps(detail, separators=(",", ":"))),
             )
             conn.commit()
             log.debug("GPS quality: persisted zone=%s bucket ts=%d events=%d",
@@ -482,6 +566,8 @@ class GpsQualityTracker:
         d = {k: v for k, v in b.items() if not k.startswith("_")}
         d["seen"] = sorted(b.get("_seen", ()))
         d["deg"]  = sorted(b.get("_deg", ()))
+        d["band_seen"] = {lbl: sorted(v) for lbl, v in b.get("_band_seen", {}).items() if v}
+        d["band_deg"]  = {lbl: sorted(v) for lbl, v in b.get("_band_deg", {}).items() if v}
         return json.dumps(d)
 
     @staticmethod
@@ -496,6 +582,14 @@ class GpsQualityTracker:
         b["fl_bands"] = {lbl: fl.get(lbl, 0) for lbl in FL_BAND_LABELS}
         b["_seen"] = set(d.get("seen", ()))
         b["_deg"]  = set(d.get("deg", ()))
+        for lbl, v in d.get("band_seen", {}).items():
+            b["_band_seen"].setdefault(lbl, set()).update(v)
+        for lbl, v in d.get("band_deg", {}).items():
+            b["_band_deg"].setdefault(lbl, set()).update(v)
+        for lbl, sig in d.get("band_sig", {}).items():
+            tgt = b["band_sig"].setdefault(lbl, {s: 0 for s in SIG_ORDER})
+            for k, n in sig.items():
+                tgt[k] = n
         return b
 
     def checkpoint(self, force: bool = False) -> None:
@@ -519,15 +613,23 @@ class GpsQualityTracker:
             for zone, zb in self._zone_buckets.items():
                 if zb and zb[-1]["ts"] >= now_hour:
                     rows.append((zone, zb[-1]["ts"], self._bucket_to_json(zb[-1])))
-        if not rows:
+            episodes = self._episode_buf
+            self._episode_buf = []
+        if not rows and not episodes:
             return
         try:
             conn = get_db()
-            conn.executemany(
-                "INSERT OR REPLACE INTO gps_quality_live (zone, ts, data) VALUES (?, ?, ?)", rows)
+            if rows:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO gps_quality_live (zone, ts, data) VALUES (?, ?, ?)", rows)
+            if episodes:
+                conn.executemany(_EPISODE_INSERT_SQL, episodes)
             conn.commit()
         except Exception as exc:
             log.warning("GPS quality: checkpoint failed: %s", exc)
+            if episodes:
+                with self._lock:   # keep the closed episodes for the next attempt
+                    self._episode_buf[:0] = episodes
 
     def _flush_old_checkpoints(self) -> dict:
         """At startup: write checkpoints of hours that already ended to the
@@ -662,6 +764,7 @@ class GpsQualityTracker:
             # (any source); a position that stopped updating more than
             # LAST_POS_MAX_AGE_SEC ago no longer places the aircraft in a zone.
             active_zones: list[str] = []
+            dist_nm: float | None = None
             lat, lon = ac.get("lat"), ac.get("lon")
             pos_ts = ac.get("last_pos_update_ts") or ac.get("first_seen") or 0
             if (self._airport_lat is not None and lat is not None and lon is not None
@@ -671,18 +774,22 @@ class GpsQualityTracker:
                     if dist_nm <= limit:
                         active_zones.append(zone)
 
-            self._record_seen(icao, active_zones)
+            self._record_seen(icao, active_zones, alt)
 
             # Skip degradation signal checks below the minimum altitude gate
             # (landing aircraft that the receiver loses at a few hundred ft).
             if alt is not None and alt < self.min_alt_ft:
                 self._ac_state.pop(icao, None)
+                if icao in self._episodes:
+                    self._episodes[icao]["rec"] = self._snapshot(ac, now, dist_nm, pos_ts)
+                    self._close_episode(icao, "below_min_alt")
                 return
 
             flags, state = self._signals(ac, prev, now)
             self._ac_state[icao] = state
             if flags:
                 self._record_event(icao, alt, flags, active_zones)
+            self._episode_step(icao, ac, flags, now, dist_nm, pos_ts)
 
     def prune_stale(self, max_age_sec: float = 90.0) -> None:
         """Remove aircraft not updated for max_age_sec seconds."""
@@ -693,6 +800,89 @@ class GpsQualityTracker:
                      if s.get("last_seen", 0) < cutoff]
             for icao in stale:
                 del self._ac_state[icao]
+            # Open episodes of aircraft no longer heard: contact lost while degraded
+            for icao in [i for i, ep in self._episodes.items() if ep["t_last"] < cutoff
+                         and i not in self._ac_state]:
+                self._close_episode(icao, "lost")
+
+    # ── Degradation episode log ───────────────────────────────────────────────
+
+    @staticmethod
+    def _snapshot(ac: dict, now: float, dist_nm: float | None, pos_ts: float) -> dict:
+        """Position / motion snapshot for an episode start, end or recovery."""
+        def _r(v, nd=0):
+            return None if v is None else round(v, nd) if nd else int(round(v))
+        return {
+            "t":       now,
+            "lat":     _r(ac.get("lat"), 4),
+            "lon":     _r(ac.get("lon"), 4),
+            "alt":     _r(ac.get("altitude")),
+            "trk":     _r(ac.get("track")),
+            "vr":      _r(ac.get("vert_rate")),
+            "gs":      _r(ac.get("groundspeed")),
+            "dist":    _r(dist_nm, 1),
+            "pos_age": _r(now - pos_ts) if pos_ts else None,
+        }
+
+    def _episode_step(self, icao: str, ac: dict, flags: list[str], now: float,
+                      dist_nm: float | None, pos_ts: float) -> None:
+        """Open, extend or close this aircraft's degradation episode (lock held)."""
+        ep = self._episodes.get(icao)
+        if flags:
+            if ep is None:
+                # Episodes start only within the episode radius (current position)
+                if dist_nm is None or dist_nm > self.episode_radius_nm:
+                    return
+                snap = self._snapshot(ac, now, dist_nm, pos_ts)
+                ep = self._episodes[icao] = {
+                    "icao": icao, "t_start": now, "start": snap,
+                    "min_alt": None, "max_alt": None, "min_nacp": None, "min_nic": None,
+                    "sig": set(), "sweeps": 0, "rec": None,
+                }
+            snap = self._snapshot(ac, now, dist_nm, pos_ts)
+            ep["t_last"] = now
+            ep["last"]   = snap
+            ep["rec"]    = None          # degraded again — no recovery yet
+            ep["sweeps"] += 1
+            ep["sig"].update(flags)
+            ep["callsign"] = ac.get("callsign") or ep.get("callsign")
+            ep["type"]     = ac.get("aircraft_type") or ep.get("type")
+            ep["reg"]      = ac.get("registration") or ep.get("reg")
+            alt = ac.get("altitude")
+            if alt is not None:
+                ep["min_alt"] = alt if ep["min_alt"] is None else min(ep["min_alt"], alt)
+                ep["max_alt"] = alt if ep["max_alt"] is None else max(ep["max_alt"], alt)
+            nacp, nacp_ts = ac.get("nac_p"), ac.get("nac_p_ts")
+            if nacp is not None and nacp_ts is not None and now - nacp_ts <= QUALITY_FRESH_SEC:
+                ep["min_nacp"] = nacp if ep["min_nacp"] is None else min(ep["min_nacp"], nacp)
+            nic, nic_ts = ac.get("nic"), ac.get("nic_ts")
+            if nic is not None and nic_ts is not None and now - nic_ts <= QUALITY_FRESH_SEC:
+                ep["min_nic"] = nic if ep["min_nic"] is None else min(ep["min_nic"], nic)
+        elif ep is not None:
+            if ep["rec"] is None:        # first clean sweep after the last degraded one
+                ep["rec"] = self._snapshot(ac, now, dist_nm, pos_ts)
+            if now - ep["t_last"] >= EPISODE_MERGE_SEC:
+                self._close_episode(icao, "recovered")
+
+    def _close_episode(self, icao: str, reason: str) -> None:
+        """Move an open episode to the write buffer (lock held)."""
+        ep = self._episodes.pop(icao, None)
+        if ep is None or ep.get("sweeps", 0) == 0:
+            return
+        st, en, rc = ep["start"], ep["last"], ep.get("rec") or {}
+        self._episode_buf.append((
+            icao, ep.get("callsign"), ep.get("reg"), ep.get("type"),
+            round(ep["t_start"], 1), round(ep["t_last"], 1),
+            int(round(ep["t_last"] - ep["t_start"])), ep["sweeps"],
+            ",".join(s for s in SIG_ORDER if s in ep["sig"]),
+            ep["min_nacp"], ep["min_nic"],
+            None if ep["min_alt"] is None else int(ep["min_alt"]),
+            None if ep["max_alt"] is None else int(ep["max_alt"]),
+            st["lat"], st["lon"], st["alt"], st["trk"], st["vr"], st["gs"], st["dist"],
+            en["lat"], en["lon"], en["alt"], en["trk"], en["vr"], en["gs"], en["dist"], en["pos_age"],
+            rc.get("lat"), rc.get("lon"), rc.get("alt"), rc.get("dist"),
+            reason, METHOD_VERSION,
+        ))
 
     def rebuild_live(self, live_state_snapshot: list[dict]) -> None:
         """

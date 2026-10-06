@@ -53,6 +53,9 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE gps_quality_zone_hours ADD COLUMN method INTEGER",
         "ALTER TABLE gps_quality_hours ADD COLUMN nic_events INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE gps_quality_zone_hours ADD COLUMN nic_events INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE gps_quality_hours ADD COLUMN band_detail TEXT",
+        "ALTER TABLE gps_quality_zone_hours ADD COLUMN band_detail TEXT",
+        "ALTER TABLE approach_history ADD COLUMN gnss_json TEXT",
     ]
     for sql in _migrations:
         try:

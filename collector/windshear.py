@@ -98,6 +98,19 @@ APPROACH_HISTORY_BANDS = (
 )                                     # 15 bands at 200 ft resolution, ft MSL
 BAND_TOL_FT            = 100          # ±ft window for band wind capture
 
+# GNSS quality per approach band (stored as gnss_json, from 2026-10-06).
+# Captured on every in-corridor sweep before the threshold, independent of
+# wind availability and of the position-freeze gate (which it records).
+# A sweep counts as "degraded" for the first-degraded / recovery summary when
+# NACp or NIC ≤ the thresholds below (fresh values only), our own ADS-B
+# position is older than GNSS_POS_AGE_DEG_SEC while the aircraft is still
+# transmitting extended squitters, or the position-freeze gate fired.
+GNSS_NACP_DEG          = 6            # NACp ≤ this = degraded (as GPS_NACP_THRESHOLD)
+GNSS_NIC_DEG           = 6            # NIC ≤ this = degraded (as GPS_NIC_THRESHOLD)
+GNSS_FRESH_SEC         = 30.0         # NACp / NIC values older than this are ignored
+GNSS_POS_AGE_DEG_SEC   = 10.0         # own ADS-B position older than this = degraded
+GNSS_ES_ACTIVE_SEC     = 30.0         # aircraft counts as ADS-B-active if any ES within this
+
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
 # On a 3° glideslope, BAND_TOL_FT of altitude drop ≙ ~0.31 NM forward
@@ -320,6 +333,7 @@ class WindshearTracker:
         self._ga_events: list[dict]   = []    # recent go-around events for the API/log
         self._approach_history: list[dict] = []   # landed approach records (newest first)
         self._band_winds: dict[str, dict]  = {}   # icao → in-flight band capture state
+        self._band_gnss:  dict[str, dict]  = {}   # icao → in-flight GNSS-quality band capture
         self._windrose_obs: dict[str, list] = {}  # icao → in-flight low-alt wind obs list
         self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
         self._pos_track: dict[str, dict]   = {}   # icao → {dist, alt} for position-freeze detection
@@ -430,6 +444,7 @@ class WindshearTracker:
             with self._lock:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
+                self._band_gnss.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
                 self._pos_track.pop(icao, None)
             return
@@ -442,6 +457,7 @@ class WindshearTracker:
             with self._lock:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
+                self._band_gnss.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
                 self._pos_track.pop(icao, None)
             return
@@ -721,11 +737,18 @@ class WindshearTracker:
                     key = str(band)
                     if bw["bands"][key] is None and abs(alt_msl - band) <= BAND_TOL_FT:
                         bw["bands"][key] = {"dir": round(wind_dir), "spd": round(wind_spd, 1)}
+            # ── Approach history: GNSS quality per altitude band ─────────────────
+            # Recorded on every in-corridor sweep before the threshold (no wind
+            # or freeze gate) so GPS degradation and recovery on final can be
+            # analysed per band and per runway.
+            if in_corridor and landing_rwy is None:
+                self._capture_gnss(icao, aircraft, now, alt_msl, dist_thr, pos_frozen)
             # Reset band state when established aircraft leaves the corridor
             # (vectored-off, overflight, missed approach leaving laterally).
             # (kept when the aircraft left by crossing the threshold — landing)
             if not in_corridor and prev_ga_phase == "APPROACHING" and landing_rwy is None:
                 self._band_winds.pop(icao, None)
+                self._band_gnss.pop(icao, None)
 
             # ── Windrose low-altitude observation buffer ──────────────────────
             # Mirror the JS Lo-buffer gate: accumulate one obs per 400 ft of
@@ -876,6 +899,7 @@ class WindshearTracker:
                     now, rec_ts=landing_ts, runway=landing_rwy,
                     ga_count=self._ga_counts.get(icao, 0),
                     reason="THRESHOLD-PASS",
+                    gnss=self._band_gnss.pop(icao, None),
                 )
                 self._ga_counts.pop(icao, None)
                 self._ga_last_ts.pop(icao, None)
@@ -910,6 +934,7 @@ class WindshearTracker:
             for k in stale:
                 entry = self._state.pop(k)
                 bw    = self._band_winds.pop(k, None)
+                gn    = self._band_gnss.pop(k, None)
                 wr    = self._windrose_obs.pop(k, None)
                 self._pos_track.pop(k, None)
                 # Capture go-around count BEFORE clearing so it can be
@@ -941,6 +966,7 @@ class WindshearTracker:
                         rec_ts=entry.get("landing_ts") if _landing_pending else None,
                         runway=entry.get("landing_rwy") if _landing_pending else None,
                         ga_count=ga_count_at_commit,
+                        gnss=gn,
                         reason=("THRESHOLD-PASS" if _landing_pending
                                 else "APPROACHING" if entry.get("ga_phase") == "APPROACHING"
                                 else "NONE+rwy(GPS-jam)"),
@@ -962,7 +988,7 @@ class WindshearTracker:
     def _commit_approach(self, k: str, entry: dict, bw: dict | None, wr: list | None,
                          now: float, rec_ts: float | None = None,
                          runway: str | None = None, ga_count: int = 0,
-                         reason: str = "") -> None:
+                         reason: str = "", gnss: dict | None = None) -> None:
         """Harvest windrose obs and write one landing to the approach history.
 
         Called with self._lock held, from prune_stale() (contact lost on final)
@@ -1013,6 +1039,8 @@ class WindshearTracker:
             # QNH used to convert band altitudes to MSL (None = not yet known,
             # bands are then raw pressure altitude as in records before 2026-09-25)
             "qnh_hpa":       self._qnh_hpa,
+            # GNSS quality on final per band + first-degraded / recovery points
+            "gnss":          self._gnss_record(gnss),
         }
         self._approach_history.insert(0, record)
         if len(self._approach_history) > APPROACH_HISTORY_MAX:
@@ -1035,6 +1063,79 @@ class WindshearTracker:
             record["callsign"], k, rwy, reason,
             [ft for ft, v in record["bands"].items() if v],
         )
+
+    # ── GNSS quality capture on final ─────────────────────────────────────────
+
+    def _capture_gnss(self, icao: str, ac: dict, now: float, alt_msl: float,
+                      dist_thr: float | None, pos_frozen: bool) -> None:
+        """Record GNSS quality for one in-corridor sweep (lock held).
+
+        Per band (±BAND_TOL_FT): lowest fresh NACp / NIC, largest age (s) of
+        our own ADS-B position, whether the position-freeze gate fired, and
+        the number of sweeps.  Plus the altitude / distance of the first and
+        last degraded sweep and of the first clean sweep after degradation.
+        """
+        g = self._band_gnss.setdefault(icao, {
+            "bands": {}, "n": 0, "deg_n": 0,
+            "first_deg": None, "last_deg": None, "rec": None,
+        })
+        nacp, nacp_ts = ac.get("nac_p"), ac.get("nac_p_ts")
+        if nacp_ts is None or now - nacp_ts > GNSS_FRESH_SEC:
+            nacp = None
+        nic, nic_ts = ac.get("nic"), ac.get("nic_ts")
+        if nic_ts is None or now - nic_ts > GNSS_FRESH_SEC:
+            nic = None
+        own_ts  = ac.get("last_adsb_pos_ts")
+        last_es = ac.get("last_es_ts")
+        es_active = last_es is not None and now - last_es <= GNSS_ES_ACTIVE_SEC
+        pos_age = None if own_ts is None else max(0, int(round(now - own_ts)))
+
+        degraded = (
+            (nacp is not None and nacp <= GNSS_NACP_DEG)
+            or (nic is not None and nic <= GNSS_NIC_DEG)
+            or (es_active and (pos_age is None or pos_age >= GNSS_POS_AGE_DEG_SEC))
+            or pos_frozen
+        )
+        point = {"alt": int(round(alt_msl)),
+                 "dist": None if dist_thr is None else round(dist_thr, 2)}
+        g["n"] += 1
+        if degraded:
+            g["deg_n"] += 1
+            if g["first_deg"] is None:
+                g["first_deg"] = point
+            g["last_deg"] = point
+            g["rec"] = None
+        elif g["last_deg"] is not None and g["rec"] is None:
+            g["rec"] = point
+
+        for band in APPROACH_HISTORY_BANDS:
+            if abs(alt_msl - band) > BAND_TOL_FT:
+                continue
+            b = g["bands"].setdefault(str(band), {"nacp": None, "nic": None,
+                                                  "pa": None, "fz": 0, "n": 0})
+            if nacp is not None:
+                b["nacp"] = nacp if b["nacp"] is None else min(b["nacp"], nacp)
+            if nic is not None:
+                b["nic"] = nic if b["nic"] is None else min(b["nic"], nic)
+            if pos_age is not None:
+                b["pa"] = pos_age if b["pa"] is None else max(b["pa"], pos_age)
+            if pos_frozen:
+                b["fz"] = 1
+            b["n"] += 1
+
+    @staticmethod
+    def _gnss_record(g: dict | None) -> dict | None:
+        """Compact GNSS record for approach_history (None if nothing captured)."""
+        if not g or not g.get("n"):
+            return None
+        return {
+            "bands":     g["bands"],
+            "n":         g["n"],
+            "deg_n":     g["deg_n"],
+            "first_deg": g["first_deg"],
+            "last_deg":  g["last_deg"],
+            "rec":       g["rec"],
+        }
 
     def get_state(self) -> dict:
         """

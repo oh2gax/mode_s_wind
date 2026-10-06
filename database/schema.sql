@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
     gap_events        INTEGER NOT NULL DEFAULT 0,   -- events flagged by Gap signal
     adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss (MLAT covering for GPS dropout)
     method          INTEGER,                        -- counting-method version (see collector/gps_quality.py METHOD_VERSION)
-    nic_events      INTEGER NOT NULL DEFAULT 0      -- events flagged by the NIC (integrity) signal (method ≥ 4)
+    nic_events      INTEGER NOT NULL DEFAULT 0,     -- events flagged by the NIC (integrity) signal (method ≥ 4)
+    band_detail     TEXT                            -- JSON per FL band: {"ac":{band:n},"deg":{band:n},"sig":{band:{signal:n}}} (from 2026-10-06; NULL before)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
@@ -137,6 +138,7 @@ CREATE TABLE IF NOT EXISTS gps_quality_zone_hours (
     adsb_loss_events  INTEGER NOT NULL DEFAULT 0,   -- events flagged by ADS-B loss
     method          INTEGER,                        -- counting-method version
     nic_events      INTEGER NOT NULL DEFAULT 0,     -- events flagged by the NIC signal
+    band_detail     TEXT,                           -- JSON per FL band (see gps_quality_hours)
     PRIMARY KEY (ts, zone)
 );
 
@@ -162,7 +164,8 @@ CREATE TABLE IF NOT EXISTS approach_history (
     rwy_heading   INTEGER,
     bands_json    TEXT    NOT NULL,    -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}  keys = ft MSL (see qnh_hpa)
     go_arounds    INTEGER NOT NULL DEFAULT 0, -- number of go-arounds before final landing
-    qnh_hpa       REAL                        -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
+    qnh_hpa       REAL,                       -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
+    gnss_json     TEXT                        -- GNSS quality on final per band + first-degraded / recovery points (from 2026-10-06; NULL before)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);
@@ -186,3 +189,40 @@ CREATE TABLE IF NOT EXISTS gps_quality_live (
     ts     INTEGER NOT NULL,        -- hour start (UTC epoch)
     data   TEXT    NOT NULL         -- JSON bucket incl. seen / degraded ICAO lists
 );
+
+-- ── gps_episodes ──────────────────────────────────────────────────────────────
+-- Degradation episode log: one row per aircraft per continuous period of GPS
+-- degradation (any of the five signals; clean gaps < 120 s merged), for
+-- aircraft within 100 NM of the airport when the episode starts.
+-- start_* = first degraded sweep, end_* = last degraded sweep,
+-- rec_*   = first clean sweep afterwards (NULL if contact was lost first).
+-- end_reason: 'recovered' | 'lost' | 'below_min_alt'.
+-- Written in the 60-s checkpoint transaction; never auto-purged
+-- (manual purge on the Maintenance page).  ~150 B/row, ~1 000–1 500 rows/day.
+CREATE TABLE IF NOT EXISTS gps_episodes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    icao          TEXT    NOT NULL,
+    callsign      TEXT,
+    registration  TEXT,
+    aircraft_type TEXT,
+    t_start       REAL    NOT NULL,   -- Unix epoch (UTC), first degraded sweep
+    t_end         REAL    NOT NULL,   -- last degraded sweep
+    duration_s    INTEGER,
+    sweeps        INTEGER,            -- degraded sweeps (5 s each)
+    signals       TEXT,               -- e.g. "nacp,nic,adsb_loss"
+    min_nacp      INTEGER,
+    min_nic       INTEGER,
+    min_alt       INTEGER,            -- ft pressure altitude during the episode
+    max_alt       INTEGER,
+    start_lat REAL, start_lon REAL, start_alt INTEGER, start_track INTEGER,
+    start_vrate INTEGER, start_gs INTEGER, start_dist_nm REAL,
+    end_lat REAL, end_lon REAL, end_alt INTEGER, end_track INTEGER,
+    end_vrate INTEGER, end_gs INTEGER, end_dist_nm REAL,
+    end_pos_age INTEGER,              -- s since the position last updated (any source)
+    rec_lat REAL, rec_lon REAL, rec_alt INTEGER, rec_dist_nm REAL,
+    end_reason    TEXT,
+    method        INTEGER             -- GPS counting-method version
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gps_ep_key   ON gps_episodes(icao, t_start);
+CREATE INDEX        IF NOT EXISTS idx_gps_ep_start ON gps_episodes(t_start);

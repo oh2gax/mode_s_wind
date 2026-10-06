@@ -60,6 +60,7 @@ async function loadStats() {
     _fill('stat-approach',     d.approach_history);
     _fill('stat-gps',          d.gps_quality_hours);
     _fill('stat-gpsz',         d.gps_quality_zone_hours);
+    if (d.gps_episodes) _fill('stat-episodes', d.gps_episodes);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {
@@ -376,5 +377,89 @@ document.getElementById('gps-date-purge-btn').addEventListener('click', async ()
     await loadStats();
   } catch (e) {
     _setStatus('gps-date-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── GPS degradation episode log purge (older than N days) ─────────────────────
+
+let _episodesPreviewOk = false;
+
+document.getElementById('episodes-preview-btn').addEventListener('click', async () => {
+  _episodesPreviewOk = false;
+  document.getElementById('episodes-purge-btn').disabled = true;
+  document.getElementById('episodes-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('episodes-purge-result').textContent = '';
+  const days = parseInt(document.getElementById('episodes-days').value, 10) || 365;
+  try {
+    const d = await _api('/api/maintenance/episodes/preview', { days });
+    const msg = `Will delete: ${_fmt(d.episodes)} episodes`
+      + (d.range_oldest ? ` · from ${d.range_oldest} to ${d.range_newest}` : ' (none)')
+      + ` · cutoff: ${d.cutoff_date}`;
+    document.getElementById('episodes-preview-result').textContent = msg;
+    if (d.episodes > 0) {
+      _episodesPreviewOk = true;
+      document.getElementById('episodes-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('episodes-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('episodes-purge-btn').addEventListener('click', async () => {
+  if (!_episodesPreviewOk) return;
+  if (!confirm('Permanently delete the previewed GPS degradation episodes?')) return;
+  document.getElementById('episodes-purge-btn').disabled = true;
+  _episodesPreviewOk = false;
+  const days = parseInt(document.getElementById('episodes-days').value, 10) || 365;
+  try {
+    const d = await _api('/api/maintenance/episodes/purge', { days });
+    _setStatus('episodes-purge-result', `Deleted: ${_fmt(d.episodes_deleted)} episodes`);
+    document.getElementById('episodes-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('episodes-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── GPS degradation episode log date-range purge ──────────────────────────────
+
+let _episodesDatePreviewOk = false;
+
+document.getElementById('episodes-date-preview-btn').addEventListener('click', async () => {
+  _episodesDatePreviewOk = false;
+  document.getElementById('episodes-date-purge-btn').disabled = true;
+  document.getElementById('episodes-date-preview-result').textContent = 'Loading\u2026';
+  document.getElementById('episodes-date-purge-result').textContent = '';
+  const date_from = document.getElementById('episodes-date-from').value;
+  const date_to   = document.getElementById('episodes-date-to').value;
+  try {
+    const d = await _api('/api/maintenance/episodes/date-preview', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    const msg = `Will delete: ${_fmt(d.episodes)} episodes · ${d.date_from} to ${d.date_to}`;
+    document.getElementById('episodes-date-preview-result').textContent = msg;
+    if (d.episodes > 0) {
+      _episodesDatePreviewOk = true;
+      document.getElementById('episodes-date-purge-btn').disabled = false;
+    }
+  } catch (e) {
+    document.getElementById('episodes-date-preview-result').textContent = `Error: ${e.message}`;
+  }
+});
+
+document.getElementById('episodes-date-purge-btn').addEventListener('click', async () => {
+  if (!_episodesDatePreviewOk) return;
+  const date_from = document.getElementById('episodes-date-from').value;
+  const date_to   = document.getElementById('episodes-date-to').value;
+  if (!confirm(`Permanently delete GPS degradation episodes from ${date_from} to ${date_to}?`)) return;
+  document.getElementById('episodes-date-purge-btn').disabled = true;
+  _episodesDatePreviewOk = false;
+  try {
+    const d = await _api('/api/maintenance/episodes/date-purge', { date_from, date_to });
+    if (d.error) throw new Error(d.error);
+    _setStatus('episodes-date-purge-result', `Deleted: ${_fmt(d.episodes_deleted)} episodes`);
+    document.getElementById('episodes-date-preview-result').textContent = '';
+    await loadStats();
+  } catch (e) {
+    _setStatus('episodes-date-purge-result', `Error: ${e.message}`, true);
   }
 });

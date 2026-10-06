@@ -15,6 +15,8 @@ Provides:
 
 Approach history can be purged manually via purge_approach_data() and
 purge_approach_date_range(); it is NEVER touched by the autopurge scheduler.
+The GPS degradation episode log (gps_episodes) likewise: manual purge only,
+via purge_episode_data() and purge_episode_date_range().
 """
 
 import logging
@@ -69,6 +71,10 @@ def get_stats(conn, db_path: str) -> dict:
         "oldest": _fmt_ts(gpsz_r[1]),
         "newest": _fmt_ts(gpsz_r[2]),
     }
+    try:
+        gpse = _table_stats("gps_episodes", "t_start", "date(t_start, 'unixepoch')")
+    except Exception:
+        gpse = {"rows": 0, "days": None, "oldest": None, "newest": None}
 
     try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
@@ -81,6 +87,7 @@ def get_stats(conn, db_path: str) -> dict:
         "approach_history":      aph,
         "gps_quality_hours":     gps,
         "gps_quality_zone_hours": gpsz,
+        "gps_episodes":          gpse,
         "db_size_mb":            db_size_mb,
     }
 
@@ -384,6 +391,59 @@ def purge_approach_date_range(conn, date_from: str, date_to: str) -> dict:
     log.info("Maintenance: deleted %d approach_history rows (%s – %s)",
              deleted, date_from, date_to)
     return {"approaches_deleted": deleted}
+
+
+# ── GPS degradation episode log purge ─────────────────────────────────────────
+
+def preview_episode_purge(conn, days: int) -> dict:
+    """Return count and range of gps_episodes rows older than N days."""
+    cutoff = time.time() - days * 86_400
+    row = conn.execute(
+        "SELECT COUNT(*), MIN(t_start), MAX(t_start) FROM gps_episodes WHERE t_start < ?",
+        (cutoff,),
+    ).fetchone()
+
+    def _fmt(ts):
+        if ts is None:
+            return None
+        return datetime.datetime.utcfromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M UTC")
+
+    return {
+        "episodes":     row[0] or 0,
+        "range_oldest": _fmt(row[1]),
+        "range_newest": _fmt(row[2]),
+        "cutoff_date":  datetime.datetime.utcfromtimestamp(cutoff).strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+
+def purge_episode_data(conn, days: int) -> dict:
+    """Delete gps_episodes rows older than N days (batched)."""
+    cutoff = time.time() - days * 86_400
+    log.info("Maintenance: purging gps_episodes older than %d days (cutoff %s)",
+             days, datetime.datetime.utcfromtimestamp(cutoff).isoformat())
+    deleted = _batched_delete(conn, "gps_episodes", "t_start < ?", (cutoff,))
+    log.info("Maintenance: deleted %d gps_episodes rows", deleted)
+    return {"episodes_deleted": deleted}
+
+
+def preview_episode_date_purge(conn, date_from: str, date_to: str) -> dict:
+    """Return count of gps_episodes rows starting within the UTC date range."""
+    _validate_date_range(date_from, date_to)
+    t0, t1 = _date_range_ts(date_from, date_to)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM gps_episodes WHERE t_start >= ? AND t_start < ?", (t0, t1)
+    ).fetchone()[0]
+    return {"episodes": count, "date_from": date_from, "date_to": date_to}
+
+
+def purge_episode_date_range(conn, date_from: str, date_to: str) -> dict:
+    """Delete gps_episodes rows starting within the UTC date range (batched)."""
+    _validate_date_range(date_from, date_to)
+    t0, t1 = _date_range_ts(date_from, date_to)
+    log.info("Maintenance: purging gps_episodes for date range %s – %s", date_from, date_to)
+    deleted = _batched_delete(conn, "gps_episodes", "t_start >= ? AND t_start < ?", (t0, t1))
+    log.info("Maintenance: deleted %d gps_episodes rows (%s – %s)", deleted, date_from, date_to)
+    return {"episodes_deleted": deleted}
 
 
 # ── Autopurge configuration ───────────────────────────────────────────────────

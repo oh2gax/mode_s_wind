@@ -7,7 +7,7 @@
   <!-- ── Header ────────────────────────────────────────────────────────── -->
   <div class="maint-header">
     <span class="maint-title">Database Maintenance</span>
-    <span class="maint-subtitle">Autopurge covers Flight &amp; Meteo data only — Approach History requires manual action.</span>
+    <span class="maint-subtitle">Autopurge covers Flight &amp; Meteo data only — Approach History and the GPS Episode Log require manual action.</span>
   </div>
 
   <!-- ── Credentials ───────────────────────────────────────────────────── -->
@@ -37,6 +37,7 @@
         <div class="maint-stat-row maint-stat-protected" id="stat-approach"><span>approach_history ⚿</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row" id="stat-gps"><span>gps_quality_hours</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row" id="stat-gpsz"><span>gps_quality_zone_hours</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
+        <div class="maint-stat-row maint-stat-protected" id="stat-episodes"><span>gps_episodes ⚿</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row maint-stat-size" id="stat-dbsize"><span>DB file size</span><span id="stat-dbsize-val">—</span><span></span><span></span><span></span></div>
       </div>
     </div>
@@ -63,7 +64,7 @@
           <button id="autopurge-save-btn" class="maint-btn maint-btn-primary">Save</button>
           <span id="autopurge-status" class="maint-op-status"></span>
         </div>
-        <div class="maint-hint">When enabled, flight &amp; meteo records older than the threshold are automatically purged once per day. GPS Quality and Approach History are never auto-purged.</div>
+        <div class="maint-hint">When enabled, flight &amp; meteo records older than the threshold are automatically purged once per day. GPS Quality, Approach History and the GPS Episode Log are never auto-purged.</div>
       </div>
 
       <!-- Manual purge -->
@@ -168,6 +169,44 @@
         <div class="maint-hint">Use the same date in both fields to delete a single day.</div>
         <div id="approach-date-preview-result" class="maint-preview"></div>
         <div id="approach-date-purge-result"   class="maint-op-status"></div>
+      </div>
+    </div>
+
+    <!-- ── GPS Degradation Episode Log ────────────────────────────────── -->
+    <div class="maint-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">GPS Degradation Episode Log</span>
+        <span class="maint-section-note">Deletes from <code>gps_episodes</code> — not covered by Autopurge or the GPS Quality purge</span>
+      </div>
+
+      <!-- Older than N days -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Manual Purge — Older Than N Days</div>
+        <div class="maint-row">
+          <label class="maint-label">Delete episodes older than</label>
+          <input type="number" id="episodes-days" class="maint-input maint-input-num" min="1" max="3650" value="365">
+          <span class="maint-label">days</span>
+          <button id="episodes-preview-btn" class="maint-btn">Preview</button>
+          <button id="episodes-purge-btn"   class="maint-btn maint-btn-danger" disabled>Purge</button>
+        </div>
+        <div id="episodes-preview-result" class="maint-preview"></div>
+        <div id="episodes-purge-result"   class="maint-op-status"></div>
+      </div>
+
+      <!-- Date range purge -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Delete by Date Range</div>
+        <div class="maint-row">
+          <label class="maint-label">From</label>
+          <input type="date" id="episodes-date-from" class="maint-input maint-input-date">
+          <label class="maint-label">To</label>
+          <input type="date" id="episodes-date-to"   class="maint-input maint-input-date">
+          <button id="episodes-date-preview-btn" class="maint-btn">Preview</button>
+          <button id="episodes-date-purge-btn"   class="maint-btn maint-btn-danger" disabled>Delete</button>
+        </div>
+        <div class="maint-hint">Episodes are selected by their start time (UTC). Use the same date in both fields to delete a single day.</div>
+        <div id="episodes-date-preview-result" class="maint-preview"></div>
+        <div id="episodes-date-purge-result"   class="maint-op-status"></div>
       </div>
     </div>
 

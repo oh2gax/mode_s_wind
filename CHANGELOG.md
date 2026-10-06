@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-06 (GNSS logging: per-band GPS detail, degradation episode log, GNSS quality in Approach History)
+
+- **GPS Quality — per-band detail in the hourly rows**: new `band_detail` JSON column in `gps_quality_hours` and `gps_quality_zone_hours` with, per FL band, the distinct aircraft seen, the distinct degraded aircraft and the event count per signal. Previously only the event count per band was stored, so it was not possible to tell whether a band's events came from one aircraft or many, or which signal caused them. Also kept in the 60-s current-hour checkpoint, so a restart does not lose it. Collected for analysis only; the page does not show it yet
+- **GPS degradation episode log**: new `gps_episodes` table with one row per aircraft per continuous degraded period that starts within 100 NM of the airport (optional config key `GPS_EPISODE_RADIUS_NM`, no change to `config.py` needed). Clean gaps shorter than 120 s are merged. Each row records start, end and recovery position / altitude / track / vertical rate / groundspeed / distance, duration, altitude range, lowest NACp and NIC, the signals seen and how it ended (`recovered`, `lost`, `below_min_alt`). Rows are written together with the existing 60-s checkpoint commit, so no extra database writes. Never auto-purged
+- **Approach History — GNSS quality per approach**: new `gnss_json` column in `approach_history` (also returned as `gnss` by `/api/windshear/approach-history`): per 200-ft band the lowest NACp and NIC, the largest age of the aircraft's own ADS-B position and whether the position-freeze gate fired, plus the altitude and distance to the threshold where degradation first and last occurred and where the aircraft recovered. Not shown in the panel yet
+- **Maintenance page**: `gps_episodes` row in the statistics and a new *GPS Degradation Episode Log* section with Older Than N Days (default 365) and Delete by Date Range purges (Preview + Purge, as for Approach History)
+- Database columns and the new table are added automatically on the first start
+
+---
+
 ## 2026-10-05 (Approach History landing count)
 
 - **Approach History panel now shows the number of landings** for the selected time window (1h–1d) or date directly after its title, e.g. `Approach History – 24 landings`, in the same small font. The count follows the time buttons, date picker and Live button and updates with each refresh

@@ -170,8 +170,9 @@ def _on_approach_committed(record: dict) -> None:
         db.execute(
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
-                aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa,
+                gnss_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -185,6 +186,8 @@ def _on_approach_committed(record: dict) -> None:
                 json.dumps(record.get("bands", {})),
                 record.get("go_arounds", 0),
                 record.get("qnh_hpa"),
+                (json.dumps(record["gnss"], separators=(",", ":"))
+                 if record.get("gnss") else None),
             ),
         )
         db.commit()
@@ -204,7 +207,8 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         db   = get_db()
         rows = db.execute(
             """SELECT ts, time_utc, icao, callsign, registration,
-                      aircraft_type, runway, rwy_heading, bands_json, go_arounds
+                      aircraft_type, runway, rwy_heading, bands_json, go_arounds,
+                      gnss_json
                FROM approach_history
                WHERE ts > ?
                ORDER BY ts DESC
@@ -223,6 +227,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
                 "rwy_heading":  row["rwy_heading"],
                 "bands":        json.loads(row["bands_json"]),
                 "go_arounds":   row["go_arounds"] if row["go_arounds"] is not None else 0,
+                "gnss":         json.loads(row["gnss_json"]) if row["gnss_json"] else None,
             }
             for row in rows
         ]
@@ -326,6 +331,7 @@ def main() -> None:
         db_path        = cfg.DB_PATH,
         airport_lat    = cfg.WINDSHEAR_AIRPORT_LAT,
         airport_lon    = cfg.WINDSHEAR_AIRPORT_LON,
+        episode_radius_nm = getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
     )
     gps_thread = threading.Thread(
         target=_gps_quality_sweep,
