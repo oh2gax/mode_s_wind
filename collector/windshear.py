@@ -54,6 +54,7 @@ An aircraft is considered "on glideslope" when its altitude is within
 """
 
 import math
+import re
 import threading
 import time
 import logging
@@ -110,6 +111,24 @@ GNSS_NIC_DEG           = 6            # NIC ≤ this = degraded (as GPS_NIC_THRE
 GNSS_FRESH_SEC         = 30.0         # NACp / NIC values older than this are ignored
 GNSS_POS_AGE_DEG_SEC   = 10.0         # own ADS-B position older than this = degraded
 GNSS_ES_ACTIVE_SEC     = 30.0         # aircraft counts as ADS-B-active if any ES within this
+
+# Approach roughness (stored as rough_json, from 2026-10-06).
+# Every raw BDS 5,0 / 6,0 reply received while the aircraft is established on
+# final (in corridor, |cross-track| ≤ ROUGH_MAX_XTRACK_NM, track within
+# ROUGH_MAX_TRACK_DEV of the runway heading, not in a go-around, before the
+# threshold) is collected per altitude segment — including the replies the
+# wind quality gates reject — and summarised at commit: bank-angle and
+# track-rate activity, IAS fluctuation about its deceleration trend, vertical
+# rate fluctuation and crab angle (heading − track).  Plus the METAR wind /
+# gust at landing time.  Collect-only; no display yet.
+ROUGH_SEGMENTS       = (("hi", 1000.0, 3000.0),   # (name, low, high) ft MSL; low exclusive for "hi"
+                        ("lo",  200.0, 1000.0))
+ROUGH_MAX_XTRACK_NM  = 1.0     # established on the localizer
+ROUGH_MAX_TRACK_DEV  = 20.0    # ° track vs runway heading
+ROUGH_MAX_SAMPLES    = 400     # per list per segment (≈ 7 min at 1 reply/s)
+ROUGH_ROLL_GATE      = 5.0     # counted like WIND_MAX_ROLL_DEG (wind calc rejects above)
+ROUGH_TRK_RATE_GATE  = 1.0     # counted like WIND_MAX_TRACK_RATE
+ROUGH_METAR_MAX_AGE  = 7_200.0 # s — METAR older than this (not refreshed) is not stored
 
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
@@ -309,6 +328,8 @@ class WindshearTracker:
         ga_flash_sec: float         = GA_FLASH_SEC,
         blocked_reg_prefixes: tuple = (),
         on_approach_committed       = None,
+        bds_sample_fn               = None,
+        mag_declination: float | None = None,
     ):
         self.airport_lat          = airport_lat
         self.airport_lon          = airport_lon
@@ -327,6 +348,10 @@ class WindshearTracker:
         self.ga_flash_sec         = ga_flash_sec
         self.blocked_reg_prefixes     = blocked_reg_prefixes
         self._on_approach_committed   = on_approach_committed  # optional callback(record)
+        # Optional callable(icao, since_ts) -> (bds50_samples, bds60_samples)
+        # (collector.receiver.get_bds_samples); None disables the roughness capture.
+        self._bds_sample_fn           = bds_sample_fn
+        self.mag_declination          = mag_declination  # fallback °E when the aircraft has no mag_decl
 
         self._state: dict[str, dict]  = {}   # icao → approach record
         self._ga_counts: dict[str, int] = {}  # icao → session go-around count (persists after prune)
@@ -334,12 +359,15 @@ class WindshearTracker:
         self._approach_history: list[dict] = []   # landed approach records (newest first)
         self._band_winds: dict[str, dict]  = {}   # icao → in-flight band capture state
         self._band_gnss:  dict[str, dict]  = {}   # icao → in-flight GNSS-quality band capture
+        self._rough:      dict[str, dict]  = {}   # icao → in-flight approach-roughness capture
         self._windrose_obs: dict[str, list] = {}  # icao → in-flight low-alt wind obs list
         self._windrose_buffer: list[dict]   = []  # global rolling buffer, newest last
         self._pos_track: dict[str, dict]   = {}   # icao → {dist, alt} for position-freeze detection
         self._recent_commits: dict[str, float] = {}  # icao → timestamp of last approach-history commit
         self._ga_last_ts: dict[str, float] = {}      # icao → time of last go-around (count expiry)
         self._qnh_hpa: float | None = None           # latest METAR QNH (None = not yet known → no correction)
+        self._metar: dict | None = None              # latest METAR surface wind (see set_metar)
+        self._metar_set_ts: float = 0.0
         self._lock  = threading.RLock()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
@@ -353,6 +381,30 @@ class WindshearTracker:
         """
         if qnh_hpa is not None and 900.0 <= float(qnh_hpa) <= 1100.0:
             self._qnh_hpa = float(qnh_hpa)
+
+    def set_metar(self, metar_text: str | None) -> None:
+        """Store the latest METAR surface wind for the approach records.
+
+        Called by the WX poll thread with the raw METAR text.  Keeps
+        {"t": "DDHHMM" observation time, "dir": ° or None (VRB), "spd": kt,
+        "gst": kt or None, "var": "200V260" or None}.
+        """
+        if not metar_text:
+            return
+        w = re.search(r"\b(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)\b", metar_text)
+        if not w:
+            return
+        k = 1.943844 if w.group(4) == "MPS" else 1.0
+        t = re.search(r"\b(\d{6})Z\b", metar_text)
+        v = re.search(r"\b(\d{3}V\d{3})\b", metar_text)
+        self._metar = {
+            "t":   t.group(1) if t else None,
+            "dir": None if w.group(1) == "VRB" else int(w.group(1)),
+            "spd": int(round(int(w.group(2)) * k)),
+            "gst": int(round(int(w.group(3)) * k)) if w.group(3) else None,
+            "var": v.group(1) if v else None,
+        }
+        self._metar_set_ts = time.time()
 
     def _qnh_corr_ft(self) -> float:
         """Pressure altitude minus MSL altitude (ft); 0 when QNH is unknown."""
@@ -445,6 +497,7 @@ class WindshearTracker:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
                 self._band_gnss.pop(icao, None)
+                self._rough.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
                 self._pos_track.pop(icao, None)
             return
@@ -458,6 +511,7 @@ class WindshearTracker:
                 self._state.pop(icao, None)
                 self._band_winds.pop(icao, None)
                 self._band_gnss.pop(icao, None)
+                self._rough.pop(icao, None)
                 self._windrose_obs.pop(icao, None)
                 self._pos_track.pop(icao, None)
             return
@@ -743,12 +797,16 @@ class WindshearTracker:
             # analysed per band and per runway.
             if in_corridor and landing_rwy is None:
                 self._capture_gnss(icao, aircraft, now, alt_msl, dist_thr, pos_frozen)
+                # Approach roughness (raw BDS 5,0 / 6,0 activity on final)
+                self._capture_rough(icao, aircraft, now, alt_msl, runway,
+                                    cross_track, ga_phase)
             # Reset band state when established aircraft leaves the corridor
             # (vectored-off, overflight, missed approach leaving laterally).
             # (kept when the aircraft left by crossing the threshold — landing)
             if not in_corridor and prev_ga_phase == "APPROACHING" and landing_rwy is None:
                 self._band_winds.pop(icao, None)
                 self._band_gnss.pop(icao, None)
+                self._rough.pop(icao, None)
 
             # ── Windrose low-altitude observation buffer ──────────────────────
             # Mirror the JS Lo-buffer gate: accumulate one obs per 400 ft of
@@ -900,6 +958,7 @@ class WindshearTracker:
                     ga_count=self._ga_counts.get(icao, 0),
                     reason="THRESHOLD-PASS",
                     gnss=self._band_gnss.pop(icao, None),
+                    rough=self._rough.pop(icao, None),
                 )
                 self._ga_counts.pop(icao, None)
                 self._ga_last_ts.pop(icao, None)
@@ -935,6 +994,7 @@ class WindshearTracker:
                 entry = self._state.pop(k)
                 bw    = self._band_winds.pop(k, None)
                 gn    = self._band_gnss.pop(k, None)
+                rg    = self._rough.pop(k, None)
                 wr    = self._windrose_obs.pop(k, None)
                 self._pos_track.pop(k, None)
                 # Capture go-around count BEFORE clearing so it can be
@@ -967,6 +1027,7 @@ class WindshearTracker:
                         runway=entry.get("landing_rwy") if _landing_pending else None,
                         ga_count=ga_count_at_commit,
                         gnss=gn,
+                        rough=rg,
                         reason=("THRESHOLD-PASS" if _landing_pending
                                 else "APPROACHING" if entry.get("ga_phase") == "APPROACHING"
                                 else "NONE+rwy(GPS-jam)"),
@@ -988,7 +1049,8 @@ class WindshearTracker:
     def _commit_approach(self, k: str, entry: dict, bw: dict | None, wr: list | None,
                          now: float, rec_ts: float | None = None,
                          runway: str | None = None, ga_count: int = 0,
-                         reason: str = "", gnss: dict | None = None) -> None:
+                         reason: str = "", gnss: dict | None = None,
+                         rough: dict | None = None) -> None:
         """Harvest windrose obs and write one landing to the approach history.
 
         Called with self._lock held, from prune_stale() (contact lost on final)
@@ -1041,6 +1103,8 @@ class WindshearTracker:
             "qnh_hpa":       self._qnh_hpa,
             # GNSS quality on final per band + first-degraded / recovery points
             "gnss":          self._gnss_record(gnss),
+            # Approach roughness per segment + METAR wind at landing time
+            "rough":         self._rough_record(rough, now),
         }
         self._approach_history.insert(0, record)
         if len(self._approach_history) > APPROACH_HISTORY_MAX:
@@ -1136,6 +1200,158 @@ class WindshearTracker:
             "last_deg":  g["last_deg"],
             "rec":       g["rec"],
         }
+
+    # ── Approach roughness capture on final ───────────────────────────────────
+
+    def _capture_rough(self, icao: str, ac: dict, now: float, alt_msl: float,
+                       runway: str | None, cross_track: float | None,
+                       ga_phase: str) -> None:
+        """Collect the raw BDS 5,0 / 6,0 replies received since the previous
+        sweep into the current altitude segment (lock held).
+
+        Samples are consumed even when the aircraft is not (yet) established,
+        so only replies received while established are ever collected.
+        Replies that disagree with the ADS-B track / groundspeed (likely a
+        mis-identified Comm-B register) are dropped and counted as "bad".
+        """
+        if self._bds_sample_fn is None:
+            return
+        r = self._rough.get(icao)
+        if r is None:
+            r = self._rough[icao] = {"last": now - 4.0, "seg": {}, "bad": 0}
+        try:
+            b50, b60 = self._bds_sample_fn(icao, r["last"])
+        except Exception as exc:
+            log.debug("BDS sample fetch failed for %s: %s", icao, exc)
+            return
+        newest = max([s[0] for s in b50] + [s[0] for s in b60], default=None)
+        if newest is not None:
+            r["last"] = newest
+
+        seg = None
+        for name, lo, hi in ROUGH_SEGMENTS:
+            if (lo < alt_msl <= hi) if name == "hi" else (lo <= alt_msl <= hi):
+                seg = name
+                break
+        track   = ac.get("track")
+        rwy_hdg = next((rw["heading"] for rw in self.runways if rw["name"] == runway), None)
+        if (seg is None or ga_phase == "GO_AROUND" or cross_track is None
+                or abs(cross_track) > ROUGH_MAX_XTRACK_NM or track is None
+                or rwy_hdg is None or _hdg_diff(track, rwy_hdg) > ROUGH_MAX_TRACK_DEV):
+            return
+        if not b50 and not b60:
+            return
+
+        S = r["seg"].setdefault(seg, {"roll": [], "tr": [], "ias": [], "vr": [],
+                                      "vsrc": set(), "crab": [], "t0": None, "t1": None})
+
+        def _span(ts):
+            S["t0"] = ts if S["t0"] is None else min(S["t0"], ts)
+            S["t1"] = ts if S["t1"] is None else max(S["t1"], ts)
+
+        gs = ac.get("groundspeed")
+        for ts, roll, trate, ttrk, bgs, _tas in b50:
+            if (roll is None or abs(roll) > 40.0
+                    or (bgs is not None and gs is not None and abs(bgs - gs) > 50)
+                    or (ttrk is not None and _hdg_diff(ttrk, track) > 30.0)):
+                r["bad"] += 1
+                continue
+            if len(S["roll"]) < ROUGH_MAX_SAMPLES:
+                S["roll"].append(roll)
+                if trate is not None and abs(trate) <= 8.0:
+                    S["tr"].append(trate)
+            _span(ts)
+
+        decl = ac.get("mag_decl")
+        if decl is None:
+            decl = self.mag_declination
+        for ts, ias, mhdg, vri, vrb in b60:
+            if ias is None or not 80 <= ias <= 260:
+                r["bad"] += 1
+                continue
+            crab = None
+            if mhdg is not None and decl is not None:
+                crab = (mhdg + decl - track + 180.0) % 360.0 - 180.0
+                if abs(crab) > 40.0:
+                    r["bad"] += 1
+                    continue
+            if len(S["ias"]) >= ROUGH_MAX_SAMPLES:
+                continue
+            S["ias"].append((ts, ias))
+            if crab is not None:
+                S["crab"].append(crab)
+            vr, src = (vri, "i") if vri is not None else (vrb, "b")
+            if vr is not None and abs(vr) <= 4000:
+                S["vr"].append(vr)
+                S["vsrc"].add(src)
+            _span(ts)
+
+    @staticmethod
+    def _sd(v: list) -> float:
+        m = sum(v) / len(v)
+        return math.sqrt(sum((x - m) ** 2 for x in v) / len(v))
+
+    def _rough_record(self, r: dict | None, now: float) -> dict | None:
+        """Compact roughness summary for approach_history (None if nothing).
+
+        Per segment ("hi" 3000–1000 ft, "lo" 1000–200 ft MSL):
+          n5 / n6  BDS 5,0 / 6,0 replies used;  dur  s from first to last
+          rr       bank-angle RMS (°);  rp90 / rmax  90th pct / max |bank| (°)
+          r5       replies with |bank| > 5° (wind calc rejects these)
+          tr       track-rate RMS (°/s);  t1  replies with |track rate| > 1°/s
+          isd      IAS std (kt) about a linear fit vs time (deceleration removed)
+          imx      largest |IAS residual| (kt)
+          vsd / vm vertical-rate std / mean (ft/min); vs  "i" inertial, "b" baro
+          cm / csd crab angle (heading − track, °) mean / std; + = nose right
+                   of track (wind from the right)
+        Plus "bad" (replies dropped as inconsistent) and "metar".
+        """
+        out: dict = {}
+        for name, S in ((r or {}).get("seg") or {}).items():
+            d: dict = {}
+            rl = S["roll"]
+            if rl:
+                a = sorted(abs(x) for x in rl)
+                d["n5"]   = len(rl)
+                d["rr"]   = round(math.sqrt(sum(x * x for x in rl) / len(rl)), 2)
+                d["rp90"] = round(a[min(len(a) - 1, int(0.9 * len(a)))], 1)
+                d["rmax"] = round(a[-1], 1)
+                d["r5"]   = sum(1 for x in a if x > ROUGH_ROLL_GATE)
+            tr = S["tr"]
+            if tr:
+                d["tr"] = round(math.sqrt(sum(x * x for x in tr) / len(tr)), 2)
+                d["t1"] = sum(1 for x in tr if abs(x) > ROUGH_TRK_RATE_GATE)
+            ias = S["ias"]
+            if ias:
+                d["n6"] = len(ias)
+            if len(ias) >= 5:
+                t0 = ias[0][0]
+                xs = [t - t0 for t, _ in ias]
+                ys = [float(v) for _, v in ias]
+                mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+                sxx = sum((x - mx) ** 2 for x in xs)
+                b = (sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx) if sxx > 0 else 0.0
+                res = [y - (my + b * (x - mx)) for x, y in zip(xs, ys)]
+                d["isd"] = round(math.sqrt(sum(e * e for e in res) / len(res)), 1)
+                d["imx"] = round(max(abs(e) for e in res))
+            vr = S["vr"]
+            if len(vr) >= 3:
+                d["vsd"] = int(round(self._sd(vr)))
+                d["vm"]  = int(round(sum(vr) / len(vr)))
+                d["vs"]  = "".join(sorted(S["vsrc"]))
+            cr = S["crab"]
+            if len(cr) >= 3:
+                d["cm"]  = round(sum(cr) / len(cr), 1)
+                d["csd"] = round(self._sd(cr), 1)
+            if S["t0"] is not None:
+                d["dur"] = int(round(S["t1"] - S["t0"]))
+            if d:
+                out[name] = d
+        if out and r and r.get("bad"):
+            out["bad"] = r["bad"]
+        if self._metar and now - self._metar_set_ts <= ROUGH_METAR_MAX_AGE:
+            out["metar"] = dict(self._metar)
+        return out or None
 
     def get_state(self) -> dict:
         """

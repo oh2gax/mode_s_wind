@@ -89,7 +89,7 @@ def _wx_fetch_once(icao: str) -> dict:
     return result
 
 
-def _wx_poll_loop(icao: str, interval_sec: float, on_qnh=None) -> None:
+def _wx_poll_loop(icao: str, interval_sec: float, on_qnh=None, on_metar=None) -> None:
     """Background daemon: fetch METAR and TAF on a fixed interval.
 
     On success updates _wx_cache in place (including QNH and surface wind).
@@ -125,6 +125,13 @@ def _wx_poll_loop(icao: str, interval_sec: float, on_qnh=None) -> None:
                                 _log.warning("QNH callback failed: %s", exc)
                 if _wx_cache.get("metar"):
                     _wx_cache["metar_wind"] = _parse_metar_wind(_wx_cache["metar"])
+                    # Push the raw METAR to server-side consumers (windshear
+                    # tracker stores the surface wind / gust with each landing)
+                    if on_metar is not None:
+                        try:
+                            on_metar(_wx_cache["metar"])
+                        except Exception as exc:
+                            _log.warning("METAR callback failed: %s", exc)
                 _log.debug("WX cache refreshed for %s", icao)
         time.sleep(interval_sec)
 
@@ -133,15 +140,18 @@ def start_wx_poll_thread(
     icao: str,
     interval_sec: float = _WX_POLL_INTERVAL_SEC,
     on_qnh=None,
+    on_metar=None,
 ) -> threading.Thread:
     """Start the background WX polling daemon.  Call once from run.py.
 
     on_qnh: optional callable(qnh_hpa) invoked each time a METAR QNH is parsed
     (used to keep the windshear tracker's pressure-altitude correction current).
+    on_metar: optional callable(metar_text) invoked after each METAR refresh
+    (the windshear tracker stores the surface wind / gust with each landing).
     """
     t = threading.Thread(
         target=_wx_poll_loop,
-        args=(icao, interval_sec, on_qnh),
+        args=(icao, interval_sec, on_qnh, on_metar),
         name="wx_poll",
         daemon=True,
     )
@@ -650,7 +660,9 @@ def create_app(
         aircraft_type, runway, rwy_heading, and a bands dict keyed by altitude
         (ft as string) with {dir, spd} values or null when no wind was captured.
         DB-sourced entries also carry "gnss" (GNSS quality on final per band,
-        see collector/windshear.py _capture_gnss) or null for older rows.
+        see collector/windshear.py _capture_gnss) and "rough" (approach
+        roughness per altitude segment + METAR wind, see _rough_record), or
+        null for older rows.
         """
         import json as _json
         window = request.args.get("window", type=int)
@@ -661,7 +673,7 @@ def create_app(
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json
+                          gnss_json, rough_json
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -673,6 +685,8 @@ def create_app(
                 r["bands"] = _json.loads(r.pop("bands_json"))
                 g_txt = r.pop("gnss_json", None)
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
+                rg_txt = r.pop("rough_json", None)
+                r["rough"] = _json.loads(rg_txt) if rg_txt else None
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
@@ -685,7 +699,7 @@ def create_app(
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json
+                          gnss_json, rough_json
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -697,6 +711,8 @@ def create_app(
                 r["bands"] = _json.loads(r.pop("bands_json"))
                 g_txt = r.pop("gnss_json", None)
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
+                rg_txt = r.pop("rough_json", None)
+                r["rough"] = _json.loads(rg_txt) if rg_txt else None
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)

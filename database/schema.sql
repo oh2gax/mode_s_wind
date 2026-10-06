@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS approach_history (
     bands_json    TEXT    NOT NULL,    -- JSON: {"200":{"dir":270,"spd":15},"400":null,…}  keys = ft MSL (see qnh_hpa)
     go_arounds    INTEGER NOT NULL DEFAULT 0, -- number of go-arounds before final landing
     qnh_hpa       REAL,                       -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
-    gnss_json     TEXT                        -- GNSS quality on final per band + first-degraded / recovery points (from 2026-10-06; NULL before)
+    gnss_json     TEXT,                       -- GNSS quality on final per band + first-degraded / recovery points (from 2026-10-06; NULL before)
+    rough_json    TEXT                        -- approach roughness per segment (bank / track-rate / IAS / vertical-rate activity, crab) + METAR wind (from 2026-10-06; NULL before)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);

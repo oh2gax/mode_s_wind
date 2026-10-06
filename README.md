@@ -1052,6 +1052,29 @@ F-factor is displayed as supplementary information in the log. Severity classifi
 
 Aircraft that stop transmitting (e.g. because the receiver loses line-of-sight on short final) are removed from the display within approximately 30–45 seconds. The tracker's sweep thread checks `last_seen` timestamps against a 30-second window and the `prune_stale()` method removes any aircraft not updated within 30 seconds. This keeps the display clean during busy approach sequences where multiple aircraft land in quick succession.
 
+
+#### Approach roughness logging
+
+Since 2026-10-06 every landing in Approach History also stores how "rough" the final approach was (`rough_json` column, `rough` in the API). On a windy, gusty day the aircraft's own Mode S data shows the pilots (or autopilot) working: larger bank-angle corrections, a wandering track, airspeed jumping around its normal deceleration and an uneven descent rate. These are the same moments that appear as orange **Turn** rings on the ILS profile — the computed wind is rejected when the bank angle exceeds 5° or the track changes faster than 1°/s — so the wind bands alone cannot show them.
+
+**What is collected:** every raw BDS 5,0 (bank angle, track rate) and BDS 6,0 (indicated airspeed, magnetic heading, inertial / barometric vertical rate) reply received while the aircraft is **established on final** — in the ILS corridor, within 1 NM of the centreline, track within 20° of the runway heading, not in a go-around and before the threshold. The replies the wind calculation rejects are included, since they are the interesting ones. Replies that disagree with the aircraft's ADS-B track or groundspeed (a mis-identified Comm-B register) are dropped and counted. Two altitude segments are summarised separately: **`hi`** 3 000–1 000 ft MSL (usually autopilot) and **`lo`** 1 000–200 ft MSL (often hand-flown). The METAR surface wind and gust valid at landing time are stored with the record for comparison.
+
+| Key (per segment) | Meaning |
+|-------------------|---------|
+| `n5` / `n6` | Number of BDS 5,0 / 6,0 replies used |
+| `dur` | Seconds from the first to the last reply in the segment |
+| `rr` | Bank-angle RMS (°) — near 0 on a calm stabilised approach |
+| `rp90` / `rmax` | 90th percentile / largest absolute bank angle (°) |
+| `r5` | Replies with bank angle over 5° (the wind calculation rejects these) |
+| `tr` | Track-rate RMS (°/s); `t1` replies with track rate over 1°/s |
+| `isd` / `imx` | IAS standard deviation / largest deviation (kt) about a straight-line fit over time — the normal deceleration is removed, what remains is gust response |
+| `vsd` / `vm` | Vertical-rate standard deviation / mean (ft/min); `vs` = `i` inertial, `b` barometric (inertial preferred) |
+| `cm` / `csd` | Crab angle (heading − track, °) mean / standard deviation; `+` = nose right of the track, i.e. wind from the right. Mean ≈ crosswind, standard deviation ≈ gusty crosswind |
+
+Record-level keys: `bad` (replies dropped as inconsistent) and `metar` (`{"t": "DDHHMM", "dir": °, "spd": kt, "gst": kt or null, "var": "200V270" or null}`; omitted when no METAR has been received in the last 2 h). The JSON is about 300–450 bytes per landing (roughly 30 MB per year at EFHK traffic levels), written in the same insert as the landing itself.
+
+This is collect-only for now; nothing is displayed yet. The idea is an approach-conditions index per landing — compared within aircraft classes, since a turboprop rocks more than a widebody in the same air — with daily / weekly views on the Windshear page.
+
 ---
 
 ### GPS Quality  `/gps`
@@ -1248,6 +1271,7 @@ Unique index on `(icao, t_start)`, index on `t_start`. Never auto-purged; manual
 | go_arounds | Integer count of go-arounds performed by this aircraft before the final landing; 0 for normal straight-in approaches |
 | qnh_hpa | METAR QNH (hPa) used to convert the band altitudes from pressure altitude to MSL; `NULL` for rows written before 2026-09-25 (bands are raw pressure altitude) or when no METAR QNH was available yet |
 | gnss_json | GNSS quality during the approach (since 2026-10-06, `NULL` before or when nothing was captured). `bands`: per altitude band (same keys and ±100 ft tolerance as `bands_json`) `{"nacp": lowest fresh NACp, "nic": lowest fresh NIC, "pa": largest age (s) of the aircraft's own ADS-B position, "fz": 1 if the position-freeze gate fired, "n": sweeps}`; `n` / `deg_n`: in-corridor sweeps / degraded sweeps; `first_deg`, `last_deg`, `rec`: `{"alt": ft MSL, "dist": NM to threshold}` of the first and last degraded sweep and of the first clean sweep after degradation. A sweep counts as degraded when NACp ≤ 6, NIC ≤ 6, the position freeze gate fired, or the aircraft is sending extended squitters but its own ADS-B position is ≥ 10 s old. Note that at the lowest altitudes `pa` also grows when the aircraft drops below the receiver's line of sight, so a large `pa` alone is not proof of jamming |
+| rough_json | Approach roughness on the established final (since 2026-10-06, `NULL` before): per segment `hi` (3 000–1 000 ft MSL) and `lo` (1 000–200 ft MSL) bank-angle, track-rate, IAS, vertical-rate and crab-angle statistics from all raw BDS 5,0 / 6,0 replies, plus the METAR wind / gust at landing time; see [Approach roughness logging](#approach-roughness-logging) |
 
 Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
@@ -1447,7 +1471,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
-| GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches), `gnss` (GNSS quality during the approach, see `gnss_json` under [Database](#database); `null` when not captured) |
+| GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches), `gnss` (GNSS quality during the approach, see `gnss_json` under [Database](#database); `null` when not captured), `rough` (approach roughness + METAR wind, see `rough_json`; `null` when not captured) |
 | POST | `/api/windshear/approach-history/clear` | Delete all rows from the `approach_history` DB table and clear the RAM list (administrative use; no UI button exposes this) |
 | GET | `/api/windshear/windrose-obs` | Rolling 6-hour buffer of low-altitude wind observations (alt ≤ 2 000 ft, non-NONE, in-corridor) harvested from recently landed aircraft; used by the browser on page load and re-fetched every 60 s to keep the Windrose and Hist trend feature current mid-session; each entry: `ts`, `dir`, `spd`, `alt` |
 | GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, time series (up to 6 months), FL heatmap (up to 31 days), FL band summary stats; optional `?zone=50nm` or `?zone=20nm` filters data to aircraft within that radius from the airport (default `all`); completed hours persisted in `gps_quality_hours` and `gps_quality_zone_hours` and reloaded on restart |

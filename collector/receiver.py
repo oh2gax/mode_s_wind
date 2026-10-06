@@ -18,6 +18,7 @@ It communicates with Flask via two shared objects:
 import logging
 import time
 import threading
+from collections import deque
 from typing import Optional
 
 from pyModeS import PipeDecoder
@@ -38,6 +39,16 @@ log = logging.getLogger("modes.receiver")
 _BDS50_CACHE: dict[str, tuple[float, dict]] = {}   # icao → (ts, bds50_fields)
 _BDS60_CACHE: dict[str, tuple[float, dict]] = {}   # icao → (ts, bds60_fields)
 _CACHE_LOCK = threading.Lock()
+
+# Recent raw BDS 5,0 / 6,0 replies per aircraft (every reply, including those
+# the wind quality gates reject), read by the windshear tracker for the
+# approach-roughness capture (roll / track-rate / IAS / vertical-rate activity
+# on final).  Tuples:
+#   5,0: (ts, roll, track_rate, true_track, groundspeed, true_airspeed)
+#   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr)
+_BDS_SAMPLES_MAX = 16
+_BDS50_SAMPLES: dict[str, deque] = {}
+_BDS60_SAMPLES: dict[str, deque] = {}
 
 
 # ── ADS-B integrity (NIC / containment radius Rc) ─────────────────────────
@@ -97,12 +108,34 @@ def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
                 "roll":          result.get("roll"),
                 "track_rate":    result.get("track_rate"),
             })
+            _BDS50_SAMPLES.setdefault(icao, deque(maxlen=_BDS_SAMPLES_MAX)).append((
+                ts, result.get("roll"), result.get("track_rate"),
+                result.get("true_track"), result.get("groundspeed"),
+                result.get("true_airspeed"),
+            ))
         elif bds == "6,0":
             _BDS60_CACHE[icao] = (ts, {
                 "magnetic_heading":   result.get("magnetic_heading"),
                 "indicated_airspeed": result.get("indicated_airspeed"),
                 "mach":               result.get("mach"),
             })
+            _BDS60_SAMPLES.setdefault(icao, deque(maxlen=_BDS_SAMPLES_MAX)).append((
+                ts, result.get("indicated_airspeed"), result.get("magnetic_heading"),
+                result.get("inertial_vertical_rate"), result.get("baro_vertical_rate"),
+            ))
+
+
+def get_bds_samples(icao: str, since_ts: float) -> tuple[list, list]:
+    """Raw BDS 5,0 and 6,0 samples of one aircraft received after since_ts.
+
+    Returns (bds50_samples, bds60_samples), each a list of the tuples
+    described at _BDS50_SAMPLES / _BDS60_SAMPLES, oldest first.  Thread-safe;
+    used by the windshear tracker's approach-roughness capture.
+    """
+    with _CACHE_LOCK:
+        b50 = [s for s in _BDS50_SAMPLES.get(icao, ()) if s[0] > since_ts]
+        b60 = [s for s in _BDS60_SAMPLES.get(icao, ()) if s[0] > since_ts]
+    return b50, b60
 
 
 def prune_bds_cache(max_age_sec: float = 120.0) -> int:
@@ -119,6 +152,9 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
             for icao in [k for k, (ts, _) in cache.items() if ts < cutoff]:
                 del cache[icao]
                 removed += 1
+        for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES):
+            for icao in [k for k, dq in samples.items() if not dq or dq[-1][0] < cutoff]:
+                del samples[icao]
     return removed
 
 

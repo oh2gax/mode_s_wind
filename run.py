@@ -37,7 +37,7 @@ if ROOT not in sys.path:
 
 from config import Config
 from database.db import init_db
-from collector.receiver import run_collector, prune_bds_cache
+from collector.receiver import run_collector, prune_bds_cache, get_bds_samples
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
@@ -171,8 +171,8 @@ def _on_approach_committed(record: dict) -> None:
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
                 aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa,
-                gnss_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                gnss_json, rough_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -188,6 +188,8 @@ def _on_approach_committed(record: dict) -> None:
                 record.get("qnh_hpa"),
                 (json.dumps(record["gnss"], separators=(",", ":"))
                  if record.get("gnss") else None),
+                (json.dumps(record["rough"], separators=(",", ":"))
+                 if record.get("rough") else None),
             ),
         )
         db.commit()
@@ -208,7 +210,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         rows = db.execute(
             """SELECT ts, time_utc, icao, callsign, registration,
                       aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                      gnss_json
+                      gnss_json, rough_json
                FROM approach_history
                WHERE ts > ?
                ORDER BY ts DESC
@@ -228,6 +230,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
                 "bands":        json.loads(row["bands_json"]),
                 "go_arounds":   row["go_arounds"] if row["go_arounds"] is not None else 0,
                 "gnss":         json.loads(row["gnss_json"]) if row["gnss_json"] else None,
+                "rough":        json.loads(row["rough_json"]) if row["rough_json"] else None,
             }
             for row in rows
         ]
@@ -304,6 +307,8 @@ def main() -> None:
         ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
         blocked_reg_prefixes  = cfg.BLOCKED_REG_PREFIXES,
         on_approach_committed = _on_approach_committed,
+        bds_sample_fn         = get_bds_samples,
+        mag_declination       = cfg.MAG_DECLINATION,
     )
 
     # Pre-populate RAM approach history from the last 24 h of DB records so
@@ -370,7 +375,8 @@ def main() -> None:
     app = create_app(cfg, live_state, live_lock, ws_tracker, gps_tracker)
 
     # ── Start background WX (METAR / TAF) polling thread ─────────────────
-    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper(), on_qnh=ws_tracker.set_qnh)
+    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper(), on_qnh=ws_tracker.set_qnh,
+                         on_metar=ws_tracker.set_metar)
     log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3)",
              cfg.AIRPORT_ICAO.upper())
 
