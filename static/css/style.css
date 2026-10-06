@@ -2144,6 +2144,22 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   display: block;
   width: 100%;
 }
+/* Heatmap cell hover text (position: fixed, placed by gps_quality.js) */
+.gps-heat-tip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-1);
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.gps-heat-tip-dim { color: var(--text-3); }
 
 /* ── FL band donut + 14-day stats (right column panel) ───────────────────── */
 .gps-analysis-panel {
@@ -2380,3 +2396,163 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .gps-key-desc    { color: #475569; }
 [data-theme="light"] .gps-key-note    { color: #64748b; }
 [data-theme="light"] .gps-no-data     { color: #94a3b8; }
+
+/* ══ GPS Episodes page (/gps-episodes) ═════════════════════════════════════ */
+.gpe-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.gpe-bar { gap: 1.1rem; }
+.gpe-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.gpe-window-btns { margin-left: 0; }
+.gpe-input {
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  height: 22px;
+}
+.gpe-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.gpe-map-col {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  border-right: 1px solid var(--border);
+}
+#gpe-map { position: absolute; inset: 0; }
+.gpe-side {
+  width: 560px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-1);
+}
+.gpe-summary {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.gpe-list-wrap {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+}
+.gpe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.gpe-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-2);
+  color: var(--text-3);
+  font-weight: 500;
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.gpe-table td {
+  padding: 2px 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  color: var(--text-1);
+}
+.gpe-table tbody tr { cursor: pointer; }
+.gpe-table tbody tr:hover  { background: var(--bg-3); }
+.gpe-table tbody tr.gpe-sel { background: rgba(59, 130, 246, 0.25); }
+.gpe-mono { font-family: 'Courier New', monospace; color: var(--text-2) !important; }
+.gpe-cs   { color: #7dd3fc !important; }
+[data-theme="light"] .gpe-cs { color: #0369a1 !important; }
+.gpe-chips { line-height: 1; }
+.gpe-chip {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin-right: 2px;
+}
+.gpe-empty {
+  text-align: center !important;
+  color: var(--text-3) !important;
+  font-style: italic;
+  padding: 12px !important;
+}
+.gpe-scatter-wrap {
+  height: 270px;
+  flex-shrink: 0;
+  padding: 6px 8px 4px;
+  position: relative;
+}
+.gpe-scatter-wrap canvas { width: 100% !important; height: 100% !important; }
+
+/* Map legend + ring labels + popup */
+.gpe-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 22px;
+  z-index: 800;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+[data-theme="light"] .gpe-legend { background: rgba(238, 242, 247, 0.94); }
+.gpe-leg-title { color: var(--text-3); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.gpe-leg-line {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.gpe-leg-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.gpe-leg-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-2);
+  background: var(--text-2);
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.gpe-leg-dot.gpe-leg-hollow { background: transparent; }
+.gpe-leg-note { font-size: 10px; color: var(--text-3); }
+.gpe-ring-lbl {
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+[data-theme="light"] .gpe-ring-lbl { color: #475569; }
+.gpe-popup { font-size: 11px; line-height: 1.5; }
+.gpe-pk {
+  display: inline-block;
+  min-width: 92px;
+  color: #64748b;
+}
+.gpe-note { color: #94a3b8; font-style: italic; }

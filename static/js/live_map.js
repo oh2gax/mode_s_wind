@@ -541,6 +541,11 @@ function removeStale(liveIcaos) {
       dbSeeded.delete(icao);  // allow re-seed if aircraft reappears
     }
   }
+  // Callsign cache: forget aircraft that are no longer live (a page left
+  // open for days would otherwise keep every aircraft ever seen)
+  for (const icao of Object.keys(callsignCache)) {
+    if (!liveIcaos.has(icao)) delete callsignCache[icao];
+  }
 }
 
 // ── Aircraft list panel ───────────────────────────────────────────────────

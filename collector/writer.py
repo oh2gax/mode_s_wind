@@ -27,6 +27,10 @@ log = logging.getLogger("modes.writer")
 # (~a few minutes of traffic); beyond this the batch is dropped as before.
 MAX_RETRY_BUFFER = 50_000
 
+# How often the per-ICAO session / throttle dicts are pruned (seconds).
+# Without pruning they keep one entry for every aircraft ever received.
+PRUNE_INTERVAL_SEC = 600.0
+
 
 class BatchWriter:
     """Accumulate decoded observations and flush to SQLite periodically."""
@@ -45,6 +49,7 @@ class BatchWriter:
         self._sessions: dict[str, tuple[int, float]] = {}
         # ICAO → unix timestamp of last observation written (for throttling)
         self._last_written: dict[str, float] = {}
+        self._last_prune = time.monotonic()
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -114,6 +119,23 @@ class BatchWriter:
                 log.error("DB write failed: %s — %d observations dropped", exc, len(batch))
         finally:
             self._last_flush = time.monotonic()
+            if self._last_flush - self._last_prune >= PRUNE_INTERVAL_SEC:
+                self._prune()
+
+    def _prune(self) -> None:
+        """Forget aircraft that are no longer active (memory bound).
+
+        A session older than the flight gap would start a new flight anyway
+        (and is looked up from the DB if the aircraft returns), and a throttle
+        timestamp older than the write interval no longer suppresses anything,
+        so dropping them does not change what is written.
+        """
+        self._last_prune = time.monotonic()
+        now = time.time()
+        s_cut = now - self._flight_gap
+        w_cut = now - max(self._write_min_interval, 60.0)
+        self._sessions = {k: v for k, v in self._sessions.items() if v[1] >= s_cut}
+        self._last_written = {k: v for k, v in self._last_written.items() if v >= w_cut}
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

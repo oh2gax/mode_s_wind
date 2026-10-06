@@ -509,6 +509,44 @@ function updateTsChart(allBuckets) {
 // ── Canvas heatmap ────────────────────────────────────────────────────────────
 const HEATMAP_MIN_SEGMENT_DAYS = 3;
 
+// Heatmap mode: 'events' (event counts, per-row scaling) or 'pct' (% of the
+// aircraft in the band that were degraded, from the per-band detail recorded
+// since 2026-10-06; one absolute scale for all rows).
+let heatmapMode  = localStorage.getItem('ms_gps_heatmap_mode') === 'pct' ? 'pct' : 'events';
+let lastBandDays = {};     // {dayTs: {band: {ac, deg, sig}}} from /api/gps/state
+let heatLayout   = null;   // geometry of the last drawn heatmap (hover / click)
+const HEAT_PCT_STEPS = [10, 25, 50];   // % thresholds between colour steps 1–4
+const HEAT_LEGEND = {
+  events: { txt: 'None → High',
+            tip: 'Each FL row is coloured relative to its own busiest day. Days on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable. Numbers in the cells are absolute event counts.' },
+  pct:    { txt: '0 · <10 · <25 · <50 · ≥50 %',
+            tip: 'Share of the aircraft seen in each FL band that had at least one degradation event — counted per hour and summed over the day (aircraft-hours). One colour scale for all rows. Empty cells: no per-band data (recorded from 6 Oct 2026) or no traffic.' },
+};
+const SIG_NAMES = { nacp: 'NACp', nic: 'NIC', freeze: 'Freeze', gap: 'Gap', adsb_loss: 'ADS-B' };
+
+function heatColorStep(step) {
+  const palette = document.documentElement.dataset.theme === 'light'
+    ? HEAT_COLORS_LIGHT : HEAT_COLORS;
+  return palette[Math.max(0, Math.min(palette.length - 1, step))];
+}
+function pctStep(pct) {
+  if (pct <= 0) return 0;
+  let s = 1;
+  for (const t of HEAT_PCT_STEPS) if (pct >= t) s++;
+  return s;
+}
+function applyHeatmapMode(mode) {
+  heatmapMode = mode === 'pct' ? 'pct' : 'events';
+  localStorage.setItem('ms_gps_heatmap_mode', heatmapMode);
+  document.querySelectorAll('#gps-heatmap-mode-btns .gps-range-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.heatmapMode === heatmapMode));
+  const lg = document.getElementById('gps-heat-legend');
+  const lt = document.getElementById('gps-heat-legend-txt');
+  if (lg) lg.title = HEAT_LEGEND[heatmapMode].tip;
+  if (lt) lt.textContent = HEAT_LEGEND[heatmapMode].txt;
+  if (lastHeatmapData.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
+}
+
 /**
  * Assign each displayed day to a colour-scaling segment.
  * Segments are split at the days where the counting method changed; short
@@ -605,8 +643,35 @@ function drawHeatmap(heatmapData, flBands) {
   ctx.fillStyle = th.bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Cells
-  dayKeys.forEach((dt, xi) => {
+  // Cells — '% aircraft' mode
+  if (heatmapMode === 'pct') {
+    dayKeys.forEach((dt, xi) => {
+      flBands.forEach((band, yi) => {
+        const bd = (lastBandDays[String(dt)] || {})[band];
+        const x  = MARGIN_L + xi * cellW;
+        const y  = MARGIN_T + yi * cellH;
+        if (!bd || !bd.ac) {                       // no per-band data / no traffic
+          ctx.strokeStyle = th.grid;
+          ctx.lineWidth   = 0.5;
+          ctx.strokeRect(x + 1.5, y + 1.5, cellW - 3, cellH - 3);
+          return;
+        }
+        const pct  = 100 * bd.deg / bd.ac;
+        const step = pctStep(pct);
+        ctx.fillStyle = heatColorStep(step);
+        ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+        ctx.fillStyle = step >= 3 ? '#fff' : th.text;
+        const fontSize = Math.max(6, Math.min(11, Math.floor(cellH * 0.45), Math.floor(cellW / 4 / 0.62)));
+        ctx.font      = `bold ${fontSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(Math.round(pct), x + cellW / 2, y + cellH / 2);
+      });
+    });
+  }
+
+  // Cells — 'events' mode
+  if (heatmapMode !== 'pct') dayKeys.forEach((dt, xi) => {
     flBands.forEach((band, yi) => {
       const val  = dayMap[dt][band] || 0;
       const norm = val / bandMaxVals[segOf[xi] + '|' + band];
@@ -680,7 +745,73 @@ function drawHeatmap(heatmapData, flBands) {
     ctx.lineTo(W - MARGIN_R, y);
     ctx.stroke();
   }
+
+  heatLayout = { ML: MARGIN_L, MT: MARGIN_T, cellW, cellH, plotW, plotH, dayKeys, flBands, dayMap };
 }
+
+// ── Heatmap hover text + click → GPS Episodes ────────────────────────────────
+function heatCellAt(ev) {
+  const canvas = document.getElementById('gps-heatmap-canvas');
+  if (!heatLayout || !canvas) return null;
+  const r  = canvas.getBoundingClientRect();
+  const mx = (ev.clientX - r.left) * (canvas.width / r.width);
+  const my = (ev.clientY - r.top)  * (canvas.height / r.height);
+  const L  = heatLayout;
+  const xi = Math.floor((mx - L.ML) / L.cellW);
+  const yi = Math.floor((my - L.MT) / L.cellH);
+  if (xi < 0 || yi < 0 || xi >= L.dayKeys.length || yi >= L.flBands.length) return null;
+  return { dt: L.dayKeys[xi], band: L.flBands[yi] };
+}
+
+function heatTipHtml(cell) {
+  const d   = new Date(cell.dt * 1000);
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
+  const ev  = (heatLayout.dayMap[cell.dt] || {})[cell.band] || 0;
+  const bd  = (lastBandDays[String(cell.dt)] || {})[cell.band];
+  const lines = [`<b>${dow} ${d.getUTCDate()}.${d.getUTCMonth() + 1}. · FL${cell.band}</b>`,
+                 `Events: ${ev}`];
+  if (bd && bd.ac) {
+    lines.push(`Aircraft degraded: ${bd.deg} of ${bd.ac} (${Math.round(100 * bd.deg / bd.ac)} %, aircraft-hours)`);
+    const sig = Object.entries(bd.sig || {}).filter(([, n]) => n > 0);
+    const tot = sig.reduce((a, [, n]) => a + n, 0);
+    if (tot > 0) {
+      lines.push('Signals: ' + sig.sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${SIG_NAMES[k] || k} ${Math.round(100 * n / tot)} %`).join(' · '));
+    }
+  } else {
+    lines.push('<span class="gps-heat-tip-dim">Aircraft counts: not recorded (from 6 Oct 2026)</span>');
+  }
+  lines.push('<span class="gps-heat-tip-dim">Click: open GPS Episodes for this day and band</span>');
+  return lines.join('<br>');
+}
+
+(function wireHeatmapPointer() {
+  const canvas = document.getElementById('gps-heatmap-canvas');
+  const tip    = document.getElementById('gps-heat-tip');
+  if (!canvas || !tip) return;
+  canvas.addEventListener('mousemove', ev => {
+    const cell = heatCellAt(ev);
+    canvas.style.cursor = cell ? 'pointer' : 'default';
+    if (!cell) { tip.style.display = 'none'; return; }
+    tip.innerHTML = heatTipHtml(cell);
+    tip.style.display = 'block';
+    // position: fixed — right of the cursor, flipped left / up near the edges
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = ev.clientX + 14, y = ev.clientY - h - 8;
+    if (x + w > window.innerWidth - 6) x = Math.max(6, ev.clientX - 14 - w);
+    if (y < 4) y = ev.clientY + 16;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('click', ev => {
+    const cell = heatCellAt(ev);
+    if (!cell) return;
+    const d   = new Date(cell.dt * 1000);
+    const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    window.open(`/gps-episodes?date=${iso}&fl=${encodeURIComponent(cell.band)}`, '_blank');
+  });
+})();
 
 
 // ── Live table ──────────────────────────────────────────────────────────────────────────────
@@ -884,6 +1015,7 @@ async function fetchGpsState() {
 
     lastFlBands    = d.fl_bands || lastFlBands;
     lastHeatmapData = d.heatmap || lastHeatmapData;
+    lastBandDays    = d.band_days || {};
 
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
@@ -931,6 +1063,12 @@ document.querySelectorAll('#gps-heatmap-range-btns .gps-range-btn').forEach(btn 
   const heatmapCfg = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
   if (heatmapTitleEl && heatmapCfg) heatmapTitleEl.textContent = 'FL Band Heatmap — ' + heatmapCfg.title;
 }
+
+// Heatmap mode (Events / % aircraft)
+document.querySelectorAll('#gps-heatmap-mode-btns .gps-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyHeatmapMode(btn.dataset.heatmapMode));
+});
+applyHeatmapMode(heatmapMode);
 
 // Wire up zone selector buttons
 document.querySelectorAll('.gps-zone-btn').forEach(btn => {

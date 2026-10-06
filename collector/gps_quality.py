@@ -144,7 +144,8 @@ LAST_POS_MAX_AGE_SEC = 120.0
 # ── Degradation episode log ───────────────────────────────────────────────────
 SIG_ORDER          = ("nacp", "nic", "freeze", "gap", "adsb_loss")
 EPISODE_MERGE_SEC  = 120.0   # a clean period shorter than this does not end an episode
-EPISODE_RADIUS_NM  = 100.0   # default: episodes start only within this distance of the airport
+EPISODE_RADIUS_NM  = 100.0
+EPISODE_BUF_MAX    = 20_000   # closed episodes kept for retry while the DB is unwritable   # default: episodes start only within this distance of the airport
 
 # ── ADS-B loss detection ──────────────────────────────────────────────────────
 # Fires when the aircraft still has a visible position (kept alive by MLAT) but
@@ -194,6 +195,44 @@ def _band_detail(b: dict) -> dict:
         "sig": {lbl: {k: n for k, n in d.items() if n}
                 for lbl, d in sig.items() if any(d.values())},
     }
+
+
+_TRANSIENT_KEYS = ("_seen", "_deg", "_band_seen", "_band_deg")
+
+
+def _freeze_bucket(b: dict, detail: dict | None = None) -> None:
+    """Turn a completed hour into a compact record (memory).
+
+    Keeps the counts, stores the per-band detail as plain numbers and drops
+    the per-aircraft sets and per-band signal dicts — they are only needed
+    while the hour is being counted.  Completed buckets are kept in RAM for
+    up to MAX_BUCKETS (6 months × 3 zones), so the sets would otherwise add
+    up to a large amount of memory over a long uptime.
+    """
+    if detail is not None:
+        b["band_detail"] = detail
+    for k in _TRANSIENT_KEYS:
+        b.pop(k, None)
+    b.pop("band_sig", None)
+
+
+def _load_detail(txt: str | None, ts: float, now_hour: float) -> dict | None:
+    """band_detail JSON of a stored hour, only within the heatmap window."""
+    if not txt or ts < now_hour - HEATMAP_MAX_BUCKETS * BUCKET_SEC:
+        return None
+    try:
+        return json.loads(txt)
+    except (TypeError, ValueError):
+        return None
+
+
+def _prune_band_detail(buckets: list, cutoff_ts: float) -> None:
+    """Drop band_detail from buckets older than cutoff_ts (only the heatmap
+    window uses it).  Buckets are in time order; stop at the first newer one."""
+    for b in buckets:
+        if b["ts"] >= cutoff_ts:
+            break
+        b.pop("band_detail", None)
 
 
 def _empty_bucket(ts: float) -> dict:
@@ -328,6 +367,9 @@ class GpsQualityTracker:
                     "band_detail":      _band_detail(completed),
                 }
                 self._flush_to_db(flush_copy)
+            if self._buckets:
+                _freeze_bucket(self._buckets[-1], _band_detail(self._buckets[-1]))
+                _prune_band_detail(self._buckets, now_hour - HEATMAP_MAX_BUCKETS * BUCKET_SEC)
             self._buckets.append(_empty_bucket(now_hour))
         return self._buckets[-1]
 
@@ -353,6 +395,9 @@ class GpsQualityTracker:
                     "band_detail":      _band_detail(completed),
                 }
                 self._flush_zone_to_db(flush_copy, zone)
+            if zb:
+                _freeze_bucket(zb[-1], _band_detail(zb[-1]))
+                _prune_band_detail(zb, now_hour - HEATMAP_MAX_BUCKETS * BUCKET_SEC)
             zb.append(_empty_bucket(now_hour))
         return zb[-1]
 
@@ -478,7 +523,8 @@ class GpsQualityTracker:
             conn     = get_db()
             rows     = conn.execute(
                 """SELECT ts, events, total, degraded, fl_bands,
-                          nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events
+                          nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events,
+                          band_detail
                    FROM gps_quality_hours
                    WHERE ts >= ? AND ts < ?
                    ORDER BY ts ASC""",
@@ -497,6 +543,7 @@ class GpsQualityTracker:
                 b["adsb_loss_events"] = row["adsb_loss_events"]   or 0
                 b["method"]           = row["method"] or 1
                 b["nic_events"]       = row["nic_events"] or 0
+                _freeze_bucket(b, _load_detail(row["band_detail"], row["ts"], now_hour))
                 self._buckets.append(b)
             log.info("GPS quality: loaded %d historical hour buckets from DB",
                      len(rows))
@@ -512,7 +559,8 @@ class GpsQualityTracker:
             for zone in ZONE_LIMITS_NM:
                 rows = conn.execute(
                     """SELECT ts, events, total, degraded, fl_bands,
-                              nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events
+                              nacp_events, freeze_events, gap_events, adsb_loss_events, method, nic_events,
+                              band_detail
                        FROM gps_quality_zone_hours
                        WHERE zone = ? AND ts >= ? AND ts < ?
                        ORDER BY ts ASC""",
@@ -531,6 +579,7 @@ class GpsQualityTracker:
                     b["adsb_loss_events"] = row["adsb_loss_events"] or 0
                     b["method"]           = row["method"] or 1
                     b["nic_events"]       = row["nic_events"] or 0
+                    _freeze_bucket(b, _load_detail(row["band_detail"], row["ts"], now_hour))
                     self._zone_buckets[zone].append(b)
                 log.info("GPS quality: loaded %d zone=%s buckets from DB", len(rows), zone)
         except Exception as exc:
@@ -630,6 +679,11 @@ class GpsQualityTracker:
             if episodes:
                 with self._lock:   # keep the closed episodes for the next attempt
                     self._episode_buf[:0] = episodes
+                    # bound memory if the DB stays unwritable for a long time
+                    if len(self._episode_buf) > EPISODE_BUF_MAX:
+                        dropped = len(self._episode_buf) - EPISODE_BUF_MAX
+                        del self._episode_buf[:dropped]
+                        log.warning("GPS quality: %d unsaved episodes dropped", dropped)
 
     def _flush_old_checkpoints(self) -> dict:
         """At startup: write checkpoints of hours that already ended to the
@@ -936,6 +990,10 @@ class GpsQualityTracker:
                         HEATMAP_MAX_BUCKETS = 31 days); capped independently
                         of time_series since the heatmap canvas only ever
                         renders the last 14 days regardless of how much is sent
+          band_days   — {day_ts: {band: {ac, deg, sig}}} from band_detail
+                        (aircraft-hours seen / degraded and signal events
+                        per FL band and UTC day; days before 2026-10-06
+                        have no entry)
           fl_bands    — ordered list of FL band label strings
           stats       — summary counts for the last 24 hours
           zone        — the active zone name (echoed back to the frontend)
@@ -964,6 +1022,31 @@ class GpsQualityTracker:
 
         cleaned = [_clean(b) for b in buckets]
 
+        # Per-day, per-band aircraft counts and signal mix for the heatmap's
+        # "% of aircraft degraded" mode and hover text (from band_detail; the
+        # hour in progress is computed live).  Distinct aircraft are counted
+        # per hour, so the day sums are aircraft-hours.
+        band_days: dict = {}
+        hm_cutoff = _bucket_hour(time.time()) - (HEATMAP_MAX_BUCKETS - 1) * BUCKET_SEC
+        for b in buckets:
+            if b["ts"] < hm_cutoff:
+                continue
+            det = b.get("band_detail")
+            if det is None and "_band_seen" in b:
+                det = _band_detail(b)
+            if not det:
+                continue
+            day = str(int(b["ts"] // 86400 * 86400))
+            dd = band_days.setdefault(day, {})
+            for lbl, n in (det.get("ac") or {}).items():
+                dd.setdefault(lbl, {"ac": 0, "deg": 0, "sig": {}})["ac"] += n
+            for lbl, n in (det.get("deg") or {}).items():
+                dd.setdefault(lbl, {"ac": 0, "deg": 0, "sig": {}})["deg"] += n
+            for lbl, sig in (det.get("sig") or {}).items():
+                tgt = dd.setdefault(lbl, {"ac": 0, "deg": 0, "sig": {}})["sig"]
+                for k, n in sig.items():
+                    tgt[k] = tgt.get(k, 0) + n
+
         # Heatmap only ever displays the most recent 14 days client-side, so
         # cap its payload independently rather than sending up to 6 months
         # of buckets on every 30-second poll.
@@ -990,6 +1073,7 @@ class GpsQualityTracker:
             "live":        self._live_events,
             "time_series": cleaned,
             "heatmap":     heatmap_cleaned,
+            "band_days":   band_days,
             "fl_bands":    FL_BAND_LABELS,
             "zone":        zone,
             "stats": {

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}GPS Episodes – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="gpe-page">
+
+  <!-- ── Control bar: time window / date + filters ─────────────────────── -->
+  <div class="gps-summary-bar gpe-bar">
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Window</span>
+      <span class="gps-range-btns gpe-window-btns" id="gpe-window-btns">
+        <button class="gps-range-btn" data-window="10800">3h</button>
+        <button class="gps-range-btn" data-window="21600">6h</button>
+        <button class="gps-range-btn" data-window="43200">12h</button>
+        <button class="gps-range-btn active" data-window="86400">1d</button>
+        <button class="gps-range-btn" data-window="259200">3d</button>
+        <button class="gps-range-btn" data-window="604800">1w</button>
+      </span>
+      <span class="ws-aphist-date-wrap">
+        <input type="text" id="gpe-date" class="ws-aphist-date-input" maxlength="10" placeholder="dd.mm.yyyy" autocomplete="off"
+               title="Episodes that started on one UTC day — type dd.mm.yyyy or click the calendar button">
+        <button id="gpe-cal-btn" class="ws-aphist-cal-btn" title="Open calendar picker">&#128197;</button>
+        <input type="date" id="gpe-date-picker" class="ws-aphist-date-picker-hidden" tabindex="-1" aria-hidden="true">
+      </span>
+      <button class="gps-range-btn active" id="gpe-live-btn" title="Back to the rolling window (refreshes every 60 s)">Live</button>
+    </span>
+
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Min duration</span>
+      <select id="gpe-f-dur" class="gpe-input">
+        <option value="0">Any</option>
+        <option value="30">≥ 30 s</option>
+        <option value="60" selected>≥ 1 min</option>
+        <option value="300">≥ 5 min</option>
+        <option value="900">≥ 15 min</option>
+      </select>
+    </span>
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Signal</span>
+      <select id="gpe-f-sig" class="gpe-input">
+        <option value="">Any</option>
+        <option value="nacp">NACp</option>
+        <option value="nic">NIC</option>
+        <option value="freeze">Freeze</option>
+        <option value="gap">Gap</option>
+        <option value="adsb_loss">ADS-B loss</option>
+      </select>
+    </span>
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">End</span>
+      <select id="gpe-f-end" class="gpe-input">
+        <option value="">Any</option>
+        <option value="recovered">Recovered</option>
+        <option value="lost">Lost</option>
+        <option value="edge">Left coverage</option>
+        <option value="below_min_alt">Below min alt</option>
+      </select>
+    </span>
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Altitude</span>
+      <select id="gpe-f-alt" class="gpe-input">
+        <option value="">All</option>
+        <option value="0-10000">Below FL100</option>
+        <option value="10000-25000">FL100–250</option>
+        <option value="25000-99999">Above FL250</option>
+      </select>
+    </span>
+    <span class="gps-updated" id="gpe-updated">Loading…</span>
+  </div>
+
+  <div class="gpe-body">
+
+    <!-- ── Map ───────────────────────────────────────────────────────────── -->
+    <div class="gpe-map-col">
+      <div id="gpe-map"></div>
+      <div class="gpe-legend" id="gpe-legend">
+        <div class="gpe-leg-title">Episode end</div>
+        <div><span class="gpe-leg-line" style="background:#34d399"></span>Recovered</div>
+        <div><span class="gpe-leg-line" style="background:#f87171"></span>Lost (inside coverage)</div>
+        <div><span class="gpe-leg-line" style="background:#94a3b8"></span>Left coverage while degraded</div>
+        <div><span class="gpe-leg-line" style="background:#fbbf24"></span>Descended below min alt</div>
+        <div class="gpe-leg-sep"></div>
+        <div><span class="gpe-leg-dot gpe-leg-hollow"></span>Start &nbsp;<span class="gpe-leg-dot"></span>End
+             &nbsp;<span class="gpe-leg-dot" style="background:#34d399;border-color:#34d399"></span>Recovery point</div>
+        <div class="gpe-leg-note">Line = position at start → at last degraded sweep</div>
+      </div>
+    </div>
+
+    <!-- ── Side column: episode list + altitude/distance scatter ────────── -->
+    <div class="gpe-side">
+      <div class="gps-panel-hdr">
+        <span class="gps-panel-title">Episodes</span>
+        <span class="gpe-summary" id="gpe-summary"></span>
+      </div>
+      <div class="gpe-list-wrap">
+        <table class="gpe-table">
+          <thead>
+            <tr>
+              <th title="Episode start (UTC)">UTC</th>
+              <th>Callsign</th>
+              <th>Type</th>
+              <th title="Duration (min:s)">Dur</th>
+              <th title="Signals that occurred during the episode">Signals</th>
+              <th title="Flight level at start">FL</th>
+              <th title="Distance from the airport at start → at end (NM)">NM</th>
+              <th>End</th>
+              <th title="Lowest NACp / NIC during the episode">P/I</th>
+            </tr>
+          </thead>
+          <tbody id="gpe-tbody">
+            <tr><td colspan="9" class="gpe-empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="gps-panel-hdr">
+        <span class="gps-panel-title">Altitude vs distance</span>
+        <span class="gpe-summary" title="Distance from the airport (NM) and altitude (ft) where degradation started, where the aircraft recovered and where an aircraft was lost inside coverage">
+          <span style="color:#f59e0b">▲</span> start
+          <span style="color:#34d399">●</span> recovery
+          <span style="color:#f87171">✕</span> lost
+        </span>
+      </div>
+      <div class="gpe-scatter-wrap">
+        <canvas id="gpe-scatter"></canvas>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GPE_AIRPORT   = { icao: {{ airport_icao | tojson }}, lat: {{ airport_lat }}, lon: {{ airport_lon }} };
+const GPE_RADIUS_NM = {{ episode_radius_nm }};
+const GPE_EDGE_NM   = {{ coverage_edge_nm }};
+</script>
+<script src="{{ url_for('static', filename='js/gps_episodes.js') }}"></script>
+{% endblock %}

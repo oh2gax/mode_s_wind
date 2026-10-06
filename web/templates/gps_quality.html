@@ -67,7 +67,11 @@
             <button class="gps-range-btn active" data-heatmap-range="14d">14d</button>
             <button class="gps-range-btn" data-heatmap-range="1m">1m</button>
           </div>
-          <span class="gps-panel-legend" title="Each FL row is coloured relative to its own busiest day. Days on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable. Numbers in the cells are absolute event counts.">
+          <div class="gps-heatmap-range-btns" id="gps-heatmap-mode-btns">
+            <button class="gps-range-btn active" data-heatmap-mode="events" title="Cell = number of degradation events (5-s detections); each row coloured relative to its own busiest day">Events</button>
+            <button class="gps-range-btn" data-heatmap-mode="pct" title="Cell = % of aircraft in that FL band that were degraded (counted per hour, summed over the day — aircraft-hours); one colour scale for all rows. Recorded from 6 Oct 2026">% aircraft</button>
+          </div>
+          <span class="gps-panel-legend" id="gps-heat-legend" title="Each FL row is coloured relative to its own busiest day. Days on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable. Numbers in the cells are absolute event counts.">
             <span class="gps-leg-scale">
               <span class="gps-leg-cell" style="background:var(--gps-heat-0)"></span>
               <span class="gps-leg-cell" style="background:var(--gps-heat-1)"></span>
@@ -75,10 +79,11 @@
               <span class="gps-leg-cell" style="background:var(--gps-heat-3)"></span>
               <span class="gps-leg-cell" style="background:var(--gps-heat-4)"></span>
             </span>
-            None → High
+            <span id="gps-heat-legend-txt">None → High</span>
           </span>
         </div>
         <canvas id="gps-heatmap-canvas"></canvas>
+        <div id="gps-heat-tip" class="gps-heat-tip" style="display:none"></div>
       </div>
 
     </div><!-- .gps-left-col -->

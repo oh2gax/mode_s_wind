@@ -305,6 +305,17 @@ def create_app(
                                nacp_threshold=cfg.GPS_NACP_THRESHOLD,
                                nic_threshold=getattr(cfg, "GPS_NIC_THRESHOLD", 6))
 
+    @app.route("/gps-episodes")
+    def gps_episodes_page():
+        return render_template("gps_episodes.html",
+                               airport_icao=cfg.AIRPORT_ICAO,
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
+                               receiver_lat=cfg.RECEIVER_LAT,
+                               receiver_lon=cfg.RECEIVER_LON,
+                               episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
+                               coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
+
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.
     # Used by the windshear map to load ILS centrelines and airport outlines.
@@ -671,6 +682,9 @@ def create_app(
         window = request.args.get("window", type=int)
         date   = request.args.get("date", type=str)   # YYYY-MM-DD or None
         if window is not None:
+            # The panel asks for at most 1 d; cap so a hand-typed URL cannot
+            # pull years of rows (with their JSON columns) into one response
+            window = max(60, min(window, 31 * 86400))
             cutoff = time.time() - window
             db     = get_db()
             rows   = db.execute(
@@ -765,6 +779,61 @@ def create_app(
         if ws_tracker is None:
             return jsonify([])
         return jsonify(ws_tracker.get_windrose_obs())
+
+    @app.route("/api/gps/episodes")
+    def gps_episodes_api():
+        """GPS degradation episodes (gps_episodes table) for the GPS Episodes page.
+
+        Query params (one of):
+          window — seconds back from now (default 86400, max 31 days)
+          date   — UTC calendar day YYYY-MM-DD (episodes starting that day)
+        Each episode carries all table columns plus two derived fields:
+          end_class   — end_reason, except "lost" at or beyond the receiver
+                        coverage edge (end_dist_nm ≥ GPS_EPISODE_EDGE_NM,
+                        default 130 NM) → "edge" (left coverage while
+                        degraded, not necessarily a GPS loss)
+          start_edge  — true when the episode started within 3 NM of the
+                        episode radius, i.e. the aircraft was most likely
+                        already degraded when it entered the radius
+        """
+        import re as _re
+        radius = float(getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0))
+        edge   = float(getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
+        date   = request.args.get("date", type=str)
+        if date:
+            if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+            import calendar as _cal
+            y, m, d = (int(x) for x in date.split("-"))
+            t0 = _cal.timegm((y, m, d, 0, 0, 0))
+            t1 = t0 + 86400
+        else:
+            window = request.args.get("window", default=86400, type=int)
+            window = max(600, min(window, 31 * 86400))
+            t1 = time.time() + 60
+            t0 = time.time() - window
+        db = get_db()
+        try:
+            rows = db.execute(
+                """SELECT * FROM gps_episodes
+                   WHERE t_start >= ? AND t_start < ?
+                   ORDER BY t_start DESC LIMIT 5000""",
+                (t0, t1),
+            ).fetchall()
+        except Exception as exc:          # table missing on a very old DB
+            log.warning("gps_episodes query failed: %s", exc)
+            rows = []
+        out = []
+        for row in rows:
+            e = dict(row)
+            ec = e.get("end_reason")
+            if ec == "lost" and (e.get("end_dist_nm") or 0) >= edge:
+                ec = "edge"
+            e["end_class"]  = ec
+            e["start_edge"] = (e.get("start_dist_nm") or 0) >= radius - 3.0
+            out.append(e)
+        return jsonify({"episodes": out, "radius_nm": radius, "edge_nm": edge,
+                        "t0": t0, "t1": t1})
 
     @app.route("/api/gps/state")
     def gps_state_api():

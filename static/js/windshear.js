@@ -3664,9 +3664,13 @@ if (_wrCanvas && _wrHistTip) {
       _wrHistTip.textContent  = hit.label;
       _wrHistTip.style.color  = hit.color;
       _wrHistTip.style.display = 'block';
-      // Position tooltip: right of cursor, flip left if near right edge
-      const tipX = mx + 10 + rect.left + window.scrollX;
-      const tipY = my - 8  + rect.top  + window.scrollY;
+      // Position tooltip (position: fixed → viewport coordinates): right of the
+      // cursor, or left of it when it would run past the right screen edge —
+      // the panel sits at the right edge of the map
+      const tipW = _wrHistTip.offsetWidth;
+      let tipX = e.clientX + 12;
+      if (tipX + tipW > window.innerWidth - 6) tipX = Math.max(6, e.clientX - 12 - tipW);
+      const tipY = Math.max(4, e.clientY - 8);
       _wrHistTip.style.left = tipX + 'px';
       _wrHistTip.style.top  = tipY + 'px';
     } else {
