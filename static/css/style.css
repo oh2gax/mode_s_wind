@@ -1018,8 +1018,18 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   border-radius: 3px;
   color: #0f172a;
   font-weight: 700;
+  text-align: center;
 }
-.ws-cond-lbl { margin-left: 4px; font-size: 9px; }
+/* Badge + level label left-aligned with a fixed label width, so the badges
+   line up vertically whatever the level text ("Light" … "Very rough") */
+.ws-aphist-cell.ws-cond-idxcell { text-align: left; padding-right: 2px; }
+.ws-cond-lbl {
+  display: inline-block;
+  min-width: 34px;          /* widest label "Choppy" ("Very rough" is shown as "V.rough") */
+  margin-left: 4px;
+  font-size: 9px;
+  text-align: left;
+}
 .ws-aphist-ctrl-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ── Approach History panel ──────────────────────────────────────────────── */

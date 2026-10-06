@@ -3468,8 +3468,8 @@ function formatCondCells(e) {
   }
   const crabMean = seg => (e.rough && e.rough[seg] && e.rough[seg].cm != null)
     ? (e.rough[seg].cm > 0 ? '+' : '') + Math.round(e.rough[seg].cm) : '–';
-  return `<td class="ws-aphist-cell"><span class="ws-cond-badge" style="background:${_condColor(c.idx)}">${c.idx.toFixed(1)}</span>` +
-           `<span class="ws-cond-lbl" style="color:${_condTextColor(c.idx)}">${c.lbl}</span></td>` +
+  return `<td class="ws-aphist-cell ws-cond-idxcell"><span class="ws-cond-badge" style="background:${_condColor(c.idx)}">${c.idx.toFixed(1)}</span>` +
+           `<span class="ws-cond-lbl" style="color:${_condTextColor(c.idx)}">${c.lbl === 'Very rough' ? 'V.rough' : c.lbl}</span></td>` +
     `<td class="ws-aphist-cell">${_condIdxHtml(c.hi ? c.hi.idx : null)}</td>` +
     `<td class="ws-aphist-cell">${_condIdxHtml(c.lo ? c.lo.idx : null)}</td>` +
     `<td class="ws-aphist-cell">${_condPair(c, 'roll', 1)}</td>` +
