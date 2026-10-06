@@ -42,7 +42,10 @@ Start / end / recovery snapshots (position, altitude, track, vertical rate,
 groundspeed, distance), altitude range, lowest NACp / NIC, signals seen and
 how the episode ended.  Closed episodes are buffered in RAM and written in
 the same transaction as the 60-s current-hour checkpoint, so each row is
-written once and no extra commits are needed.  Never auto-purged; manual
+written once and no extra commits are needed.  The episodes still open are
+saved in the same checkpoint (gps_quality_live row "_episodes"); after a
+restart within EPISODE_RESTORE_MAX_SEC they continue, after a longer stop
+they are written with end_reason "shutdown".  Never auto-purged; manual
 purge on the Maintenance page.
 
 Thread safety
@@ -145,7 +148,10 @@ LAST_POS_MAX_AGE_SEC = 120.0
 SIG_ORDER          = ("nacp", "nic", "freeze", "gap", "adsb_loss")
 EPISODE_MERGE_SEC  = 120.0   # a clean period shorter than this does not end an episode
 EPISODE_RADIUS_NM  = 100.0
-EPISODE_BUF_MAX    = 20_000   # closed episodes kept for retry while the DB is unwritable   # default: episodes start only within this distance of the airport
+EPISODE_BUF_MAX    = 20_000   # closed episodes kept for retry while the DB is unwritable
+EPISODE_LIVE_KEY   = "_episodes"  # gps_quality_live row holding the open episodes
+EPISODE_RESTORE_MAX_SEC = 600.0   # after a restart within this time, open episodes continue;
+                                  # after a longer stop they are saved with end_reason "shutdown"   # default: episodes start only within this distance of the airport
 
 # ── ADS-B loss detection ──────────────────────────────────────────────────────
 # Fires when the aircraft still has a visible position (kept alive by MLAT) but
@@ -337,6 +343,7 @@ class GpsQualityTracker:
             self._load_from_db()
             self._load_zones_from_db()
             self._restore_current_hour(current_ckpt)
+            self._restore_episodes()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -662,6 +669,13 @@ class GpsQualityTracker:
             for zone, zb in self._zone_buckets.items():
                 if zb and zb[-1]["ts"] >= now_hour:
                     rows.append((zone, zb[-1]["ts"], self._bucket_to_json(zb[-1])))
+            # Open episodes, so that a restart continues them instead of
+            # losing their first part (always written, also when empty)
+            rows.append((EPISODE_LIVE_KEY, int(now), json.dumps({
+                "saved":    now,
+                "episodes": {icao: {**ep, "sig": sorted(ep["sig"])}
+                             for icao, ep in self._episodes.items()},
+            })))
             episodes = self._episode_buf
             self._episode_buf = []
         if not rows and not episodes:
@@ -694,6 +708,8 @@ class GpsQualityTracker:
             now_hour = _bucket_hour(time.time())
             conn = get_db()
             for row in conn.execute("SELECT zone, ts, data FROM gps_quality_live").fetchall():
+                if row["zone"].startswith("_"):          # open-episode row, see _restore_episodes
+                    continue
                 b = self._bucket_from_json(row["data"])
                 if row["ts"] >= now_hour:
                     current[row["zone"]] = b
@@ -712,6 +728,39 @@ class GpsQualityTracker:
         except Exception as exc:
             log.warning("GPS quality: reading checkpoints failed: %s", exc)
         return current
+
+    def _restore_episodes(self) -> None:
+        """At startup: take over the episodes that were open at the last
+        checkpoint.  After a short stop (≤ EPISODE_RESTORE_MAX_SEC) they
+        continue — the next sweeps extend, recover or close them as usual;
+        after a longer stop they are saved as ended at their last degraded
+        sweep with end_reason "shutdown"."""
+        try:
+            row = get_db().execute("SELECT data FROM gps_quality_live WHERE zone = ?",
+                                   (EPISODE_LIVE_KEY,)).fetchone()
+            if not row:
+                return
+            d = json.loads(row["data"])
+        except Exception as exc:
+            log.warning("GPS quality: reading open episodes failed: %s", exc)
+            return
+        now   = time.time()
+        fresh = now - float(d.get("saved", 0)) <= EPISODE_RESTORE_MAX_SEC
+        n = 0
+        with self._lock:
+            for icao, ep in (d.get("episodes") or {}).items():
+                if not ep.get("sweeps") or "start" not in ep or "last" not in ep:
+                    continue
+                ep["sig"] = set(ep.get("sig") or ())
+                self._episodes[icao] = ep
+                n += 1
+                if fresh:
+                    ep["restored"] = now        # grace period before "lost"
+                else:
+                    self._close_episode(icao, "shutdown")
+        if n:
+            log.info("GPS quality: %s %d open episode(s) from checkpoint",
+                     "continuing" if fresh else "saved (stop too long)", n)
 
     def _restore_current_hour(self, current: dict) -> None:
         """Continue counting the hour that was in progress at shutdown."""
@@ -855,7 +904,8 @@ class GpsQualityTracker:
             for icao in stale:
                 del self._ac_state[icao]
             # Open episodes of aircraft no longer heard: contact lost while degraded
-            for icao in [i for i, ep in self._episodes.items() if ep["t_last"] < cutoff
+            for icao in [i for i, ep in self._episodes.items()
+                         if max(ep["t_last"], ep.get("restored", 0.0)) < cutoff
                          and i not in self._ac_state]:
                 self._close_episode(icao, "lost")
 

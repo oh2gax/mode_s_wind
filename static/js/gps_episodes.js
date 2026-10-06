@@ -22,12 +22,14 @@ const END_COLOR = {
   lost:          '#f87171',
   edge:          '#94a3b8',
   below_min_alt: '#fbbf24',
+  shutdown:      '#a78bfa',
 };
 const END_LABEL = {
   recovered:     'Recovered',
   lost:          'Lost',
   edge:          'Left coverage',
   below_min_alt: 'Below min alt',
+  shutdown:      'Server stopped',
 };
 // Same colours as the GPS Quality page charts
 const SIG_META = {

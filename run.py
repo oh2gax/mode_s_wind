@@ -385,6 +385,14 @@ def main() -> None:
     log.info("Username: %s  Password: %s", cfg.WEB_USER, cfg.WEB_PASS)
 
 
+    # systemd / kill send SIGTERM: turn it into a normal exit so the final
+    # checkpoint below runs (Ctrl+C arrives as KeyboardInterrupt)
+    import signal
+
+    def _on_sigterm(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
     try:
         # use_reloader=False is essential — reloader forks the process and
         # would start a second collector thread.
@@ -397,6 +405,14 @@ def main() -> None:
         )
     except KeyboardInterrupt:
         log.info("Shutting down…")
+    finally:
+        # Save the hour in progress, the open GPS episodes and the closed
+        # episodes not yet written, so a restart loses nothing of them
+        try:
+            gps_tracker.checkpoint(force=True)
+            log.info("GPS quality: final checkpoint written")
+        except Exception as exc:
+            log.warning("GPS quality: final checkpoint failed: %s", exc)
 
 
 if __name__ == "__main__":
