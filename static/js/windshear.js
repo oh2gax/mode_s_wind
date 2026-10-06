@@ -1852,6 +1852,7 @@ document.getElementById('ws-windrose-btn').addEventListener('click', () => {
     // Re-sync the server windrose buffer immediately on open so the panel
     // always shows the freshest available data (mirrors the periodic 60 s poll).
     fetchWindroseObs().then(drawWindrose);
+    if (wrView === 'cond') fetchCondData();
   }
 });
 
@@ -2178,6 +2179,10 @@ const WINDROSE_MAX_AGE_MS    = 30 * 60 * 1000;     // 30-minute window for main 
 const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist trend arrows
 
 let windroseEnabled      = true;   // shown by default
+let wrView               = localStorage.getItem('ms_ws_wr_view') === 'cond' ? 'cond' : 'rose'; // 'rose' | 'cond'
+let wrCondHours          = Number(localStorage.getItem('ms_ws_wr_cond_h')) === 6 ? 6 : 3;    // Cond chart range
+let wrCondEntries        = [];     // landings with a conditions index (last 6 h), newest first
+let wrCondFetchedMs      = 0;
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
 let metarWind            = null;   // { dir, spd, variable } — updated by fetchWx
@@ -2226,6 +2231,7 @@ function drawWindrose() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
   if (!canvas || !windroseEnabled) return;
+  if (wrView === 'cond') { drawCondChart(); return; }
 
   const ctx = canvas.getContext('2d');
   const W   = canvas.width;
@@ -2503,6 +2509,175 @@ function drawWindrose() {
 
   readout.innerHTML = `${metarLine}<br>${modesLine}`;
 }
+
+// ── Approach-conditions chart (Windrose panel, Cond view) ─────────────────────
+const COND_CLASS_COLORS_DARK  = { N: '#e2e8f0', R: '#a78bfa', T: '#22d3ee', W: '#fbbf24', B: '#f472b6', '?': '#94a3b8' };
+const COND_CLASS_COLORS_LIGHT = { N: '#334155', R: '#7c3aed', T: '#0891b2', W: '#b45309', B: '#db2777', '?': '#64748b' };
+
+async function fetchCondData() {
+  try {
+    const r = await fetch('/api/windshear/approach-history?window=21600');
+    if (!r.ok) return;
+    const rows = await r.json();
+    wrCondEntries   = rows.filter(e => e.cond && e.cond.idx != null);
+    wrCondFetchedMs = Date.now();
+    if (windroseEnabled && wrView === 'cond') drawWindrose();
+  } catch (_) { /* silent */ }
+}
+
+function _median(v) {
+  if (!v.length) return null;
+  const s = [...v].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/**
+ * Cond view of the Windrose panel: approach-conditions index of each landing
+ * over the last 3 or 6 h (dot per landing, coloured by aircraft class) with a
+ * running median line (±30 min, ≥ 3 landings) over faint level bands.
+ */
+function drawCondChart() {
+  const canvas  = document.getElementById('ws-windrose-canvas');
+  const readout = document.getElementById('ws-windrose-readout');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const CT    = wsCanvasTheme();
+  const light = document.documentElement.dataset.theme === 'light';
+  const CLS_COL = light ? COND_CLASS_COLORS_LIGHT : COND_CLASS_COLORS_DARK;
+  const nowMs = Date.now();
+  const spanMs = wrCondHours * 3_600_000;
+  const t0 = nowMs - spanMs;
+  const L = 24, R = 8, T = 22, B = 18;          // plot margins
+  const PW = W - L - R, PH = H - T - B;
+  const xOf = ms  => L + (ms - t0) / spanMs * PW;
+  const yOf = idx => T + PH - Math.max(0, Math.min(10, idx)) / 10 * PH;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = CT.roseBg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Level bands (0–2 smooth … 8–10 very rough)
+  for (let l = 0; l < 5; l++) {
+    ctx.globalAlpha = light ? 0.13 : 0.09;
+    ctx.fillStyle = COND_LVL_COLORS[l];
+    ctx.fillRect(L, yOf((l + 1) * 2), PW, yOf(l * 2) - yOf((l + 1) * 2));
+  }
+  ctx.globalAlpha = 1;
+
+  // Axes, y labels, hourly x ticks
+  ctx.strokeStyle = CT.roseRing;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
+  ctx.font = '9px "Courier New",monospace';
+  ctx.fillStyle = CT.roseLabel;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let v = 0; v <= 10; v += 2) ctx.fillText(String(v), L - 4, yOf(v));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const firstHour = Math.ceil(t0 / 3_600_000) * 3_600_000;
+  for (let h = firstHour; h <= nowMs; h += 3_600_000) {
+    const x = xOf(h);
+    ctx.strokeStyle = CT.roseOuter;
+    ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + PH); ctx.stroke();
+    ctx.fillText(String(new Date(h).getUTCHours()).padStart(2, '0') + 'Z', x, T + PH + 4);
+  }
+
+  // Title + range
+  ctx.font = '10px "Courier New",monospace';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';  ctx.fillStyle = CT.roseLabel;
+  ctx.fillText('Approach conditions', 5, 5);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${wrCondHours}h`, W - 5, 5);
+
+  const pts = wrCondEntries
+    .filter(e => e.ts * 1000 >= t0)
+    .map(e => ({ ms: e.ts * 1000, idx: e.cond.idx, e }))
+    .sort((a, b) => a.ms - b.ms);
+
+  // Running median (±30 min window, ≥ 3 landings), every 5 min
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let pen = false;
+  for (let t = t0; t <= nowMs; t += 300_000) {
+    const win = pts.filter(p => Math.abs(p.ms - t) <= 1_800_000).map(p => p.idx);
+    if (win.length < 3) { pen = false; continue; }
+    const m = _median(win);
+    if (!pen) { ctx.moveTo(xOf(t), yOf(m)); pen = true; } else ctx.lineTo(xOf(t), yOf(m));
+  }
+  ctx.stroke();
+
+  // Landing dots (hover tooltip reuses the Hist dot tooltip)
+  wrHistDots = [];
+  for (const p of pts) {
+    const x = xOf(p.ms), y = yOf(p.idx);
+    const col = CLS_COL[p.e.cond.cls] || CLS_COL['?'];
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = col;
+    ctx.fill();
+    const lbl = `${p.e.time_utc} ${p.e.callsign || p.e.icao} ${p.e.aircraft_type || ''} ` +
+                `${p.e.runway || ''}: ${p.idx.toFixed(1)} ${p.e.cond.lbl}`;
+    wrHistDots.push({ x, y, dotR: 3, label: lbl, color: col });
+  }
+  if (!pts.length) {
+    ctx.fillStyle = CT.noTraffic;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(wrCondFetchedMs ? 'No scored landings yet' : 'Loading…', L + PW / 2, T + PH / 2);
+  }
+
+  // ── Readout ────────────────────────────────────────────────────────────────
+  if (!readout) return;
+  const lastH = pts.filter(p => nowMs - p.ms <= 3_600_000).map(p => p.idx);
+  const mLast = _median(lastH);
+  const mAll  = _median(pts.map(p => p.idx));
+  const worst = pts.reduce((a, p) => (!a || p.idx > a.idx) ? p : a, null);
+  const lvlName = v => ['Smooth', 'Light', 'Choppy', 'Rough', 'Very rough'][_condLvl(v)];
+  const line1 = mLast != null
+    ? `Last 1h: <span style="color:${_condTextColor(mLast)}">${lvlName(mLast)} ${mLast.toFixed(1)}</span> (${lastH.length} ldg)`
+    : 'Last 1h: no scored landings';
+  const line2 = mAll != null
+    ? `${wrCondHours}h median ${mAll.toFixed(1)} · max ${worst.idx.toFixed(1)} ${worst.e.callsign || ''}`
+    : '';
+  const legend = ['N', 'R', 'T', 'W']
+    .map(k => `<span style="color:${CLS_COL[k]}">●${k}</span>`).join(' ');
+  const met = pts.length && pts[pts.length - 1].e.cond.metar ? ` · ${pts[pts.length - 1].e.cond.metar}` : '';
+  readout.innerHTML = `${line1}<br>${line2}<br><span class="ws-cond-legend">${legend}${met}</span>`;
+}
+
+function _syncWrViewBtns() {
+  document.querySelectorAll('.ws-wr-view-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === wrView));
+  const histBtn  = document.getElementById('ws-windrose-hist-btn');
+  const histBdg  = document.getElementById('ws-windrose-hist-badge');
+  const rangeBtn = document.getElementById('ws-wr-range-btn');
+  if (histBtn)  histBtn.style.display  = wrView === 'cond' ? 'none' : '';
+  if (histBdg)  histBdg.style.display  = wrView === 'cond' ? 'none' : '';
+  if (rangeBtn) {
+    rangeBtn.style.display = wrView === 'cond' ? '' : 'none';
+    rangeBtn.textContent   = `${wrCondHours}h`;
+  }
+}
+document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    wrView = btn.dataset.view;
+    localStorage.setItem('ms_ws_wr_view', wrView);
+    _syncWrViewBtns();
+    if (wrView === 'cond') fetchCondData();
+    drawWindrose();
+  });
+});
+const _wrRangeBtn = document.getElementById('ws-wr-range-btn');
+if (_wrRangeBtn) {
+  _wrRangeBtn.addEventListener('click', () => {
+    wrCondHours = wrCondHours === 3 ? 6 : 3;
+    localStorage.setItem('ms_ws_wr_cond_h', String(wrCondHours));
+    _syncWrViewBtns();
+    drawWindrose();
+  });
+}
+_syncWrViewBtns();
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
@@ -2999,7 +3174,7 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 
 // ── Approach History panel ────────────────────────────────────────────────────
 let approachHistoryEnabled = false;
-let approachHistoryMode    = 'hw';    // 'wind' | 'hw'
+let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
 let aphHistDateMode        = false;   // true when a specific date is selected
@@ -3016,14 +3191,27 @@ const APHIST_BANDS_HI = [
 /** Return the active band list based on Hi/Lo mode. */
 function aphBands() { return aphHistHiMode ? APHIST_BANDS_HI : APHIST_BANDS_LO; }
 
-/** Total column count: 5 fixed cols (UTC/CS/Reg/Type/Rwy) + band cols. */
-function aphColspan() { return 5 + aphBands().length; }
+/** Total column count: 5 fixed cols (UTC/CS/Reg/Type/Rwy) + band cols
+ *  (or the 9 approach-conditions columns in 'cond' mode). */
+function aphColspan() { return 5 + (approachHistoryMode === 'cond' ? 9 : aphBands().length); }
 
 /** Rebuild the <thead> row to match the current Lo/Hi band selection. */
 function renderApproachHistoryHeader() {
   const thead = document.getElementById('ws-aphist-thead');
   if (!thead) return;
-  const bandThs = aphBands()
+  const bandThs = approachHistoryMode === 'cond'
+    ? [
+        ['Index', 'Approach-conditions index 0–10 (provisional) and level'],
+        ['Hi',    'Segment index 3000–1000 ft MSL'],
+        ['Lo',    'Segment index 1000–200 ft MSL'],
+        ['Bank°', 'Bank-angle fluctuation (°), hi / lo segment'],
+        ['IAS',   'IAS fluctuation (kt), hi / lo segment'],
+        ['VS',    'Vertical-rate fluctuation (ft/min), hi / lo segment'],
+        ['Crab°', 'Crab-angle (crosswind) variation (°), hi / lo segment'],
+        ['Crab',  'Mean crab angle (°): + nose right of track = wind from the right'],
+        ['METAR', 'METAR surface wind at landing time'],
+      ].map(([t, tip]) => `<th class="ws-aphist-th" title="${tip}">${t}</th>`).join('')
+    : aphBands()
     .map(b => `<th class="ws-aphist-th">${b}</th>`)
     .join('');
   thead.innerHTML = `<tr>
@@ -3048,6 +3236,13 @@ document.getElementById('ws-aphist-btn').addEventListener('click', () => {
 
 document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
   approachHistoryMode = e.target.value;
+  // Lo/Hi only selects wind-band columns — not used by the Cond view
+  const hiBtn = document.getElementById('ws-aphist-hi-btn');
+  if (hiBtn) hiBtn.disabled = approachHistoryMode === 'cond';
+  // Cond view has its own fixed column set — let the panel size to it (as Hi does)
+  document.getElementById('ws-aphist-panel')
+    .classList.toggle('ws-aphist-hi', aphHistHiMode || approachHistoryMode === 'cond');
+  renderApproachHistoryHeader();
   if (approachHistoryEnabled) fetchApproachHistory();
 });
 
@@ -3057,7 +3252,7 @@ document.getElementById('ws-aphist-hi-btn').addEventListener('click', () => {
   const panel = document.getElementById('ws-aphist-panel');
   btn.textContent = aphHistHiMode ? 'Hi' : 'Lo';
   btn.classList.toggle('active', aphHistHiMode);
-  panel.classList.toggle('ws-aphist-hi', aphHistHiMode);
+  panel.classList.toggle('ws-aphist-hi', aphHistHiMode || approachHistoryMode === 'cond');
   renderApproachHistoryHeader();
   if (approachHistoryEnabled) fetchApproachHistory();
 });
@@ -3211,6 +3406,80 @@ function formatBandCell(band, rwyHdg) {
   return `<td class="ws-aphist-cell">${band.dir}°/${band.spd}</td>`;
 }
 
+// ── Approach conditions (provisional index, server: collector/approach_cond.py) ──
+const COND_LVL_COLORS = ['#34d399', '#a3e635', '#facc15', '#fb923c', '#f87171'];
+const COND_LVL_TEXT_LIGHT = ['#047857', '#4d7c0f', '#a16207', '#c2410c', '#b91c1c'];  // text on light theme
+const COND_CLASS_NAME = { T: 'turboprop', B: 'business jet', R: 'regional jet',
+                          N: 'narrowbody', W: 'widebody', '?': 'unknown type' };
+
+function _condLvl(idx) {
+  return idx == null ? null : idx < 2 ? 0 : idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : 4;
+}
+function _condColor(idx) {
+  const l = _condLvl(idx);
+  return l == null ? null : COND_LVL_COLORS[l];
+}
+/** Text colour for an index value (darker shades on the light theme). */
+function _condTextColor(idx) {
+  const l = _condLvl(idx);
+  if (l == null) return null;
+  return document.documentElement.dataset.theme === 'light' ? COND_LVL_TEXT_LIGHT[l] : COND_LVL_COLORS[l];
+}
+function _condIdxHtml(idx) {
+  if (idx == null) return '<span class="ws-aphist-nil">—</span>';
+  return `<span style="color:${_condTextColor(idx)};font-weight:600">${idx.toFixed(1)}</span>`;
+}
+/** "hi / lo" pair of one component value. */
+function _condPair(c, key, dec) {
+  const f = seg => (c[seg] && c[seg][key] != null) ? Number(c[seg][key]).toFixed(dec) : '–';
+  if (!c.hi && !c.lo) return '—';
+  return `${f('hi')}<span class="ws-aphist-nil"> / </span>${f('lo')}`;
+}
+/** Multi-line tooltip for one landing's conditions. */
+function _condTitle(c, rough) {
+  if (!c || c.idx == null) return '';
+  const seg = (name, lbl) => {
+    const s = c[name];
+    if (!s) return `${lbl}: no data`;
+    const p = [];
+    if (s.roll != null) p.push(`bank ${s.roll}°`);
+    if (s.ias  != null) p.push(`IAS ${s.ias} kt`);
+    if (s.vr   != null) p.push(`VS ${s.vr} fpm`);
+    if (s.crab != null) p.push(`crab sd ${s.crab}°`);
+    const r = rough && rough[name] ? rough[name] : {};
+    const extra = r.r5 ? `, ${r.r5}× bank > 5°` : '';
+    return `${lbl}: ${s.idx.toFixed(1)}  (${p.join(', ')}; ${s.n} replies${extra})`;
+  };
+  return [
+    `Approach conditions ${c.idx.toFixed(1)} – ${c.lbl}  (${COND_CLASS_NAME[c.cls] || c.cls}` +
+      (c.raw != null && c.raw !== c.idx ? `, before class factor ${c.raw.toFixed(1)}` : '') + ')',
+    seg('hi', '3000–1000 ft'),
+    seg('lo', '1000–200 ft'),
+    c.metar ? `METAR ${c.metar}` : '',
+    'Provisional index — scale will be re-tuned',
+  ].filter(Boolean).join('\n');
+}
+function formatCondCells(e) {
+  const c = e.cond;
+  if (!c || c.idx == null) {
+    const met = c && c.metar ? c.metar : '—';
+    return '<td class="ws-aphist-cell ws-aphist-nil">—</td>'.repeat(8) +
+           `<td class="ws-aphist-cell ws-aphist-nil">${met}</td>`;
+  }
+  const crabMean = seg => (e.rough && e.rough[seg] && e.rough[seg].cm != null)
+    ? (e.rough[seg].cm > 0 ? '+' : '') + Math.round(e.rough[seg].cm) : '–';
+  return `<td class="ws-aphist-cell"><span class="ws-cond-badge" style="background:${_condColor(c.idx)}">${c.idx.toFixed(1)}</span>` +
+           `<span class="ws-cond-lbl" style="color:${_condTextColor(c.idx)}">${c.lbl}</span></td>` +
+    `<td class="ws-aphist-cell">${_condIdxHtml(c.hi ? c.hi.idx : null)}</td>` +
+    `<td class="ws-aphist-cell">${_condIdxHtml(c.lo ? c.lo.idx : null)}</td>` +
+    `<td class="ws-aphist-cell">${_condPair(c, 'roll', 1)}</td>` +
+    `<td class="ws-aphist-cell">${_condPair(c, 'ias', 1)}</td>` +
+    `<td class="ws-aphist-cell">${_condPair(c, 'vr', 0)}</td>` +
+    `<td class="ws-aphist-cell">${_condPair(c, 'crab', 1)}</td>` +
+    `<td class="ws-aphist-cell">${crabMean('hi')}<span class="ws-aphist-nil"> / </span>${crabMean('lo')}</td>` +
+    `<td class="ws-aphist-cell ws-aphist-type">${c.metar || '—'}</td>`;
+}
+
 function renderApproachHistory(entries) {
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!tbody) return;
@@ -3247,11 +3516,15 @@ function renderApproachHistory(entries) {
         })();
 
     const rwyHdg   = e.rwy_heading ?? null;
-    const bandCells = bands
+    const condMode = approachHistoryMode === 'cond';
+    const bandCells = condMode
+      ? formatCondCells(e)
+      : bands
       .map(b => formatBandCell(e.bands ? e.bands[String(b)] : null, rwyHdg))
       .join('');
+    const rowTitle = condMode ? _condTitle(e.cond, e.rough).replace(/"/g, '&quot;') : '';
 
-    return `<tr>
+    return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
   <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around"` : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
@@ -3413,4 +3686,7 @@ fetchTodayStats();
 setInterval(fetchApproachState,   3_000);
 setInterval(fetchApproachHistory, 15_000);
 setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s
+// Approach-conditions chart data (only while the Cond view is shown)
+fetchCondData();
+setInterval(() => { if (windroseEnabled && wrView === 'cond') fetchCondData(); }, 60_000);
 setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 5 min

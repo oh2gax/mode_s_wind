@@ -54,7 +54,11 @@
         <div class="ws-windrose-panel" id="ws-windrose-panel">
           <canvas id="ws-windrose-canvas" width="265" height="265"></canvas>
           <div class="ws-windrose-hist-row">
+            <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="rose" title="Wind rose — METAR surface wind vs MODE-S approach wind">Rose</button>
+            <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="cond" title="Approach conditions — roughness index of each landing (provisional)">Cond</button>
+            <span class="ws-wr-view-sep"></span>
             <button id="ws-windrose-hist-btn" class="ws-windrose-hist-btn" title="Show historical wind trend — cycles Off → 3h → 6h">Hist</button>
+            <button id="ws-wr-range-btn" class="ws-windrose-hist-btn" style="display:none" title="Approach-conditions chart range — 3h / 6h">3h</button>
             <span id="ws-windrose-hist-badge" class="ws-windrose-hist-badge"></span>
           </div>
           <div id="ws-windrose-readout" class="ws-windrose-readout"></div>
@@ -82,11 +86,12 @@
             </span>
             <button id="ws-aphist-live-btn" class="ws-aphist-live-btn ws-aphist-live-active" title="Back to live rolling window">Live</button>
             <span class="ws-aphist-sep"></span>
-            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both">
+            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both · approach conditions (roughness index)">
               <option value="wind">Wind</option>
               <option value="hw" selected>HW</option>
               <option value="xw">XW</option>
               <option value="hwxw">HW+XW</option>
+              <option value="cond">Cond</option>
             </select>
             <button class="ws-aphist-ctrl-btn" id="ws-aphist-hi-btn" title="Toggle Hi resolution (15 bands, 200 ft) vs Lo resolution (7 bands, 400 ft)">Lo</button>
           </div>

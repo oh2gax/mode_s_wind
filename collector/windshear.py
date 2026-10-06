@@ -129,6 +129,11 @@ ROUGH_MAX_SAMPLES    = 400     # per list per segment (≈ 7 min at 1 reply/s)
 ROUGH_ROLL_GATE      = 5.0     # counted like WIND_MAX_ROLL_DEG (wind calc rejects above)
 ROUGH_TRK_RATE_GATE  = 1.0     # counted like WIND_MAX_TRACK_RATE
 ROUGH_METAR_MAX_AGE  = 7_200.0 # s — METAR older than this (not refreshed) is not stored
+ROUGH_HP_HALF_WIN    = 7.5     # s — half-width of the moving median removed by the
+                               # "high-pass" statistics (rhp / ihp / vhp): slow changes
+                               # (intercept turn, glideslope capture, flap-speed steps)
+                               # are removed, gust response of a few seconds remains
+ROUGH_HP_MIN_N       = 8       # samples needed for a high-pass statistic
 
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
@@ -1257,7 +1262,7 @@ class WindshearTracker:
                 r["bad"] += 1
                 continue
             if len(S["roll"]) < ROUGH_MAX_SAMPLES:
-                S["roll"].append(roll)
+                S["roll"].append((ts, roll))
                 if trate is not None and abs(trate) <= 8.0:
                     S["tr"].append(trate)
             _span(ts)
@@ -1279,12 +1284,35 @@ class WindshearTracker:
                 continue
             S["ias"].append((ts, ias))
             if crab is not None:
-                S["crab"].append(crab)
+                S["crab"].append((ts, crab))
             vr, src = (vri, "i") if vri is not None else (vrb, "b")
             if vr is not None and abs(vr) <= 4000:
-                S["vr"].append(vr)
+                S["vr"].append((ts, vr))
                 S["vsrc"].add(src)
             _span(ts)
+
+    @staticmethod
+    def _hp_rms(series: list) -> float | None:
+        """RMS of a (ts, value) series about its moving median (±ROUGH_HP_HALF_WIN s)."""
+        if len(series) < ROUGH_HP_MIN_N:
+            return None
+        series = sorted(series)
+        ts = [t for t, _ in series]
+        vs = [v for _, v in series]
+        res = []
+        j0 = 0
+        n = len(series)
+        for i in range(n):
+            while ts[j0] < ts[i] - ROUGH_HP_HALF_WIN:
+                j0 += 1
+            j1 = i
+            while j1 + 1 < n and ts[j1 + 1] <= ts[i] + ROUGH_HP_HALF_WIN:
+                j1 += 1
+            w = sorted(vs[j0:j1 + 1])
+            m = len(w)
+            med = w[m // 2] if m % 2 else 0.5 * (w[m // 2 - 1] + w[m // 2])
+            res.append(vs[i] - med)
+        return math.sqrt(sum(e * e for e in res) / len(res))
 
     @staticmethod
     def _sd(v: list) -> float:
@@ -1304,12 +1332,16 @@ class WindshearTracker:
           vsd / vm vertical-rate std / mean (ft/min); vs  "i" inertial, "b" baro
           cm / csd crab angle (heading − track, °) mean / std; + = nose right
                    of track (wind from the right)
+          rhp / ihp / vhp  "high-pass" RMS of bank (°), IAS (kt) and vertical
+                   rate (ft/min) about their ±7.5 s moving median — slow changes
+                   such as the end of the intercept turn, glideslope capture or
+                   flap-speed steps removed; used by the approach-conditions index
         Plus "bad" (replies dropped as inconsistent) and "metar".
         """
         out: dict = {}
         for name, S in ((r or {}).get("seg") or {}).items():
             d: dict = {}
-            rl = S["roll"]
+            rl = [v for _, v in S["roll"]]
             if rl:
                 a = sorted(abs(x) for x in rl)
                 d["n5"]   = len(rl)
@@ -1317,6 +1349,9 @@ class WindshearTracker:
                 d["rp90"] = round(a[min(len(a) - 1, int(0.9 * len(a)))], 1)
                 d["rmax"] = round(a[-1], 1)
                 d["r5"]   = sum(1 for x in a if x > ROUGH_ROLL_GATE)
+                hp = self._hp_rms(S["roll"])
+                if hp is not None:
+                    d["rhp"] = round(hp, 2)
             tr = S["tr"]
             if tr:
                 d["tr"] = round(math.sqrt(sum(x * x for x in tr) / len(tr)), 2)
@@ -1334,12 +1369,18 @@ class WindshearTracker:
                 res = [y - (my + b * (x - mx)) for x, y in zip(xs, ys)]
                 d["isd"] = round(math.sqrt(sum(e * e for e in res) / len(res)), 1)
                 d["imx"] = round(max(abs(e) for e in res))
-            vr = S["vr"]
+                hp = self._hp_rms(ias)
+                if hp is not None:
+                    d["ihp"] = round(hp, 1)
+            vr = [v for _, v in S["vr"]]
             if len(vr) >= 3:
                 d["vsd"] = int(round(self._sd(vr)))
                 d["vm"]  = int(round(sum(vr) / len(vr)))
                 d["vs"]  = "".join(sorted(S["vsrc"]))
-            cr = S["crab"]
+                hp = self._hp_rms(S["vr"])
+                if hp is not None:
+                    d["vhp"] = int(round(hp))
+            cr = [v for _, v in S["crab"]]
             if len(cr) >= 3:
                 d["cm"]  = round(sum(cr) / len(cr), 1)
                 d["csd"] = round(self._sd(cr), 1)

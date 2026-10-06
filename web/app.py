@@ -24,6 +24,7 @@ import hmac
 from config import Config
 from database.db import get_db
 from database import maintenance as maint
+from collector.approach_cond import approach_index
 
 log = logging.getLogger("modes.web")
 
@@ -662,7 +663,9 @@ def create_app(
         DB-sourced entries also carry "gnss" (GNSS quality on final per band,
         see collector/windshear.py _capture_gnss) and "rough" (approach
         roughness per altitude segment + METAR wind, see _rough_record), or
-        null for older rows.
+        null for older rows, and "cond" — the provisional approach-conditions
+        index computed from "rough" (collector/approach_cond.py; null when
+        there is not enough data).
         """
         import json as _json
         window = request.args.get("window", type=int)
@@ -687,6 +690,7 @@ def create_app(
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
                 rg_txt = r.pop("rough_json", None)
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
+                r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
@@ -713,13 +717,17 @@ def create_app(
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
                 rg_txt = r.pop("rough_json", None)
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
+                r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
             return jsonify(result)
         # No window or date param — serve from RAM (backward compat / internal use)
         if ws_tracker is None:
             return jsonify([])
-        return jsonify(ws_tracker.get_approach_history())
+        return jsonify([
+            {**e, "cond": approach_index(e.get("rough"), e.get("aircraft_type"))}
+            for e in ws_tracker.get_approach_history()
+        ])
 
     @app.route("/api/windshear/approach-history/clear", methods=["POST"])
     def windshear_approach_history_clear_api():
