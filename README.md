@@ -4,7 +4,7 @@ A Python-based system for collecting, decoding and visualising real-time meteoro
 
 Two complementary methods are used to extract meteorological data from aircraft transponder traffic. The primary method is direct decoding of **BDS 4,4 Meteorological Routine Air Report (MRAR)** messages, which carry onboard sensor readings for wind speed, wind direction, static air temperature, and humidity — but MRAR is optional equipment and relatively few aircraft in commercial service transmit it. The majority of observations are therefore derived indirectly from **MODE-S Enhanced Surveillance (EHS)** data: wind speed and direction are computed from the aircraft's air vector — magnetic heading (BDS 6,0, converted to true heading with the World Magnetic Model declination at the aircraft's position) and true airspeed (BDS 5,0, or derived from Mach / IAS in BDS 6,0) — and its ground vector (true track and groundspeed from BDS 5,0). These EHS-derived values are physically equivalent to sensor readings but are calculated rather than measured directly. The system handles both methods transparently, preferring direct MRAR data when available and falling back to EHS computation otherwise.
 
-All decoded observations are stored in a local SQLite database and presented through a web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, and a gridded historical wind map.
+All decoded observations are stored in a local SQLite database and presented through a web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, a gridded historical wind map, an approach / windshear monitor with per-landing approach history and approach-conditions index, and GPS-interference monitoring (hourly GPS Quality statistics and individual GPS degradation episodes).
 
 > **⚠ Note for test users:** Due to heavy GPS jamming originating from the east, GPS-derived positions between approximately 3 000 ft and 1 000 ft are currently intermittently unreliable. Approaches to RWY 04L and 04R are particularly affected. Position data at these altitudes should be interpreted with caution.
 >
@@ -34,8 +34,8 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
 - **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
-- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, and an optional windshear detection algorithm; see [Windshear](#windshear--windshear) below
-- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects self-reported degradation (NACp accuracy and NIC integrity), position freeze, position gap and ADS-B position loss (MLAT covering a GPS dropout); renders a stacked bar chart (NACp / NIC / Freeze / Gap / ADS-B signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, a FL band distribution doughnut chart with a summary stats panel over the same window, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
+- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, six selectable windshear detection algorithms, a go-around detector, a wind rose (with an approach-conditions chart view) and a persistent **Approach History** of every landing — wind per 200 ft band, GNSS quality on final, and a provisional **approach-conditions (roughness) index** from the aircraft's own bank-angle, airspeed and vertical-rate activity; see [Windshear](#windshear--windshear) below
+- **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects self-reported degradation (NACp accuracy and NIC integrity), position freeze, position gap and ADS-B position loss (MLAT covering a GPS dropout); renders a stacked bar chart (NACp / NIC / Freeze / Gap / ADS-B signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, an `Events` / `% aircraft` mode, hover details and click-through to the GPS Episodes page, a FL band distribution doughnut chart with a summary stats panel over the same window, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
 - **GPS Episodes page** — map, list and altitude-vs-distance view of individual GPS degradation episodes (one aircraft's continuous degraded period: where it started, where the aircraft recovered or was lost); see [GPS Episodes](#gps-episodes--gps-episodes) below
 - **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data (approach history, GPS quality data and the GPS degradation episode log are only ever purged manually); see [Maintenance](#maintenance--maintenance) below
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
@@ -81,13 +81,17 @@ Radarcape receiver (192.168.0.119)
                        database/       windshear sweep     gps sweep         wx poll        web/app.py
                        writer thread   daemon (3 s)         daemon (5 s)      thread (10 m)  Flask + SSE
                        (SQLite WAL)         │                    │                │           │
-                             │       WindshearTracker    GpsQualityTracker   _wx_cache       ├─ /           Live map
-                             │       (RAM only, no DB)   (RAM+DB persist)   (METAR/TAF)      ├─ /flights    History
-                             │                                                               ├─ /sounding   Skew-T
-                       data/modes_meteo.db                                                   ├─ /windmap    Wind map
-                                                                                             ├─ /windshear  Approach
-                                                                                             └─ /gps        GPS Quality
+                             │       WindshearTracker    GpsQualityTracker   _wx_cache       ├─ /              Live map
+                             │       (RAM; landings →    (RAM; hourly rows   (METAR/TAF)     ├─ /flights       History
+                             │       approach_history)   + episode log)                      ├─ /sounding      Skew-T
+                       data/modes_meteo.db                                                   ├─ /windmap       Wind map
+                                                                                             ├─ /windshear     Approach
+                                                                                             ├─ /gps           GPS Quality
+                                                                                             ├─ /gps-episodes  GPS Episodes
+                                                                                             └─ /maintenance   DB maintenance
 ```
+
+Further background threads in `run.py`: **housekeeping** (see below) and **autopurge** (daily flight / meteo purge when enabled on the Maintenance page). The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -145,7 +149,7 @@ source venv/bin/activate
 pip install flask pyModeS pygeomag
 ```
 
-> **Note:** The `pyModeS-main` folder in the repository is a reference copy of the pyModeS library by Junzi Sun. If you install `pyModeS` via pip you do not need to use this folder.
+> **Note:** pyModeS (by Junzi Sun) is installed from PyPI as a normal dependency — the repository does not include a copy of the library. MODE-S Wind requires pyModeS 3.x (`requirements.txt`: `pyModeS>=3.0.0`).
 
 ### 3. Configure the system
 
@@ -166,6 +170,8 @@ class Config:
     # ── Database path ─────────────────────────────────────────────────────
     DB_PATH = "data/modes_meteo.db"    # relative to project root
     # For USB SSD: "/mnt/usb/modes_meteo.db"
+    DB_WRITE_INTERVAL = 5.0            # seconds between batched observation writes
+    FLIGHT_GAP_SEC = 1800.0            # contact gap (s) that starts a new flight session
 
     # ── ICAO24 blocklist ──────────────────────────────────────────────────
     BLOCKED_ICAO_PREFIXES = ("T40",)   # Finnish WAM ground interrogators — not aircraft
@@ -219,6 +225,7 @@ class Config:
     GPS_MIN_ALT_FT     = 1000.0  # no degradation checks below this altitude (landing aircraft)
     GPS_NIC_THRESHOLD  = 6       # NIC ≤ this value (Rc ≥ 0.3 NM) is flagged as degraded integrity (optional, default 6)
     # GPS_EPISODE_RADIUS_NM = 100.0  # optional: radius (NM from the airport) for the degradation episode log (default 100)
+    # GPS_EPISODE_EDGE_NM = 130.0    # optional: "lost" episodes ending this far out are shown as "Left coverage" (default 130)
 
     # ── Wind calculation quality gates (BDS 5,0 + 6,0) ────────────────────
     WIND_MAX_ROLL_DEG   = 5.0     # reject computed wind when bank angle exceeds this
@@ -399,7 +406,7 @@ Controls the minimum time gap (in seconds) between successive database writes fo
 The top navigation bar always shows the connection status:
 
 - 🟢 **Live** — SSE stream active (Live page only)
-- 🟢 **Online** — web API responding (Flights and Sounding pages)
+- 🟢 **Online** — web API responding (all other pages)
 - 🔴 **Reconnecting…** — connection lost, retrying automatically
 
 The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), a **live UTC clock** displaying the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format (updated every second), and the **Dark / Light** theme toggle button which applies to all pages.
@@ -1238,6 +1245,7 @@ The SQLite database is stored at the path configured in `DB_PATH` (default: `dat
 | icao | ICAO24 hex address |
 | callsign | Flight callsign (if decoded) |
 | first_seen / last_seen | Unix timestamps (UTC) |
+| first_lat / first_lon | Position of the first observation of the session (if known) |
 | max_altitude / min_altitude | Altitude range observed (ft) |
 | obs_count | Total raw observations stored |
 | meteo_count | Observations with any meteo data |
@@ -1276,7 +1284,7 @@ Written automatically when each hour rolls over (24 writes per day). Loaded on s
 | gap_events | Events flagged by Gap within the zone |
 | adsb_loss_events | Events flagged by ADS-B loss within the zone |
 
-Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extra rows per hour — one per zone). Zone data begins accumulating from the first deployment of this feature; the `gps_quality_hours` table is not modified. Loaded on startup via a separate query per zone. Also has the `method` and `band_detail` columns.
+Written in parallel with `gps_quality_hours` on each hour rollover (up to 2 extra rows per hour — one per zone). Zone data begins accumulating from the first deployment of this feature; the `gps_quality_hours` table is not modified. Loaded on startup via a separate query per zone. Also has the `method`, `nic_events` and `band_detail` columns.
 
 **`gps_quality_live`** — checkpoint of the hour in progress, one row per zone (`all`, `50nm`, `20nm`): `zone`, `ts` (hour start) and `data` (JSON bucket including the ICAO lists of aircraft seen / degraded). Rewritten every 60 s; read on startup to resume the current hour after a restart.
 
@@ -1408,12 +1416,17 @@ The system mitigates this in two ways:
 
 2. **Single-frame CPR decoding** — for aircraft that are transmitting CPR position data but whose messages are being rejected by the bootstrap mechanism, the system uses `airborne_position_with_ref()` to decode position from a single frame using the receiver's known location as a reference (valid within 180 NM). It applies to airborne-position type codes only, and is used whenever the decoder withheld the position — also when an older or MLAT position is already known for the aircraft.
 
+The interference itself is monitored on the [GPS Quality](#gps-quality--gps) page (hourly statistics per altitude band) and the [GPS Episodes](#gps-episodes--gps-episodes) page (where individual aircraft lost and regained GPS), and GNSS quality on final approach is stored with every landing in Approach History (`gnss_json`).
+
 ---
 
 ## Project Structure
 
 ```
 mode_s_wind/
+├── README.md                  # This document
+├── CHANGELOG.md               # Dated record of all changes
+├── LICENSE                    # GNU GPL v3
 ├── config.py                  # All configuration settings
 ├── api_keys.py                # Local API keys (gitignored — not committed)
 ├── api_keys.py.example        # Template for api_keys.py (safe to commit)
@@ -1426,14 +1439,14 @@ mode_s_wind/
 │   ├── maintenance.py         # Purge / statistics / autopurge logic for the Maintenance page
 │   └── schema.sql             # Database schema
 ├── collector/
-│   ├── receiver.py            # Beast TCP connection + EHS decoder (incl. NACp extraction)
+│   ├── receiver.py            # Beast TCP connection + EHS decoder (NACp / NIC, BDS 5,0/6,0 pairing + raw reply buffer)
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
 │   ├── writer.py              # Batched SQLite writer (storage mode, write throttle, flight sessions)
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind, TAS sources, ISA-deviation estimate
 │   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
-│   ├── windshear.py           # RAM-only approach tracker + windshear detection
+│   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness)
 │   ├── approach_cond.py       # Provisional approach-conditions index (roughness → 0–10)
-│   ├── gps_quality.py         # Area-wide GPS quality monitor (RAM + DB persistence)
+│   ├── gps_quality.py         # Area-wide GPS quality monitor: hourly buckets (RAM + DB), degradation episode log
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
@@ -1470,7 +1483,7 @@ mode_s_wind/
 ├── doc/                       # README screenshots
 ├── data/                      # SQLite database (created at runtime)
 ├── logs/                      # Log files (created at runtime)
-└── pyModeS-main/              # Reference copy of pyModeS library
+└── tmp_files/                 # Local scratch folder (gitignored)
 ```
 
 ---

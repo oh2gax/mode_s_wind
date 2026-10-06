@@ -20,6 +20,7 @@ No version numbers — entries are organised by date.
 - **Windrose panel — `Rose | Cond` view selector**: the Cond view charts the index of every landing over the last 3 h or 6 h (dots coloured by aircraft class, running median line, level bands) with the last-hour median and level below the chart
 - **Maintenance page**: `gps_episodes` row in the statistics and a new *GPS Degradation Episode Log* section with Older Than N Days (default 365) and Delete by Date Range purges (Preview + Purge, as for Approach History)
 - Database columns and the new table are added automatically on the first start
+- The repository no longer contains the `pyModeS-main` reference copy of the pyModeS library — pyModeS is installed from PyPI (`requirements.txt`), as before
 
 ---
 
