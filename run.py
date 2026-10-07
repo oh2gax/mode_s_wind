@@ -42,6 +42,7 @@ from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
 from database import maintenance as maint
+from collector import aircraft_db
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -263,6 +264,12 @@ def main() -> None:
 
     # ── Initialise database ───────────────────────────────────────────────
     init_db(cfg.DB_PATH)
+
+    # Optional BaseStation.sqb aircraft database (registrations / types for
+    # aircraft the Radarcape JSON feed has none for) — default: next to the
+    # main database (data/BaseStation.sqb); used only if the file exists.
+    aircraft_db.init(getattr(cfg, "BASESTATION_DB_PATH", None)
+                     or os.path.join(os.path.dirname(os.path.abspath(cfg.DB_PATH)), "BaseStation.sqb"))
 
     # ── Shared live state ─────────────────────────────────────────────────
     live_state: dict = {}

@@ -6,18 +6,24 @@ Approach-conditions index — a single 0–10 number per landing describing how
 summary the windshear tracker stores in approach_history.rough_json (see
 WindshearTracker._rough_record).
 
-PROVISIONAL (2026-10-06): the reference values below were set from the first
-day of data (gusty, METAR 280/18–21G32) and general expectations for calm
-days.  They are meant to be re-tuned once calm and windy days have been
-collected.  The index is computed when the API is called and is never stored,
-so changing the constants here re-scores all past landings.
+PROVISIONAL.  Tuning history:
+  2026-10-06  first scale from one gusty afternoon (METAR 280/18–21G32).
+  2026-10-07  re-tuned on 236 landings with METAR 6–20 kt: the high-pass
+              IAS / vertical-rate / bank values correlate with the METAR wind
+              (Spearman ≈ 0.4–0.7), the crab-angle variation does not (0.04 /
+              −0.5) and is now shown for information only; the scale was
+              compressed (median 2.4 at 13–16 kt) and now spreads to ≈ 1 calm,
+              3 at 9–12 kt, 4.3 at 13–16 kt.  A gusty day with high-pass data is
+              still needed to confirm the upper part of the scale.
+The index is computed when the API is called and is never stored, so
+changing the constants here re-scores all past landings.
 
 Components (per altitude segment "hi" 3000–1000 ft / "lo" 1000–200 ft MSL):
 
-  ias   IAS fluctuation (kt)        — gust response along the flight path
-  roll  bank-angle fluctuation (°)  — lateral gusts / roll upsets
-  vr    vertical-rate fluctuation   — up- and downdrafts (ft/min)
-  crab  crab-angle std (°)          — gusty crosswind
+  ias   IAS fluctuation (kt)        — gust response along the flight path (45 %)
+  vr    vertical-rate fluctuation   — up- and downdrafts, ft/min (30 %)
+  roll  bank-angle fluctuation (°)  — lateral gusts / roll upsets (25 %)
+  crab  crab-angle std (°)          — information only (no relation to the wind found)
 
 Each component is scored 0–10 linearly between a "calm" and a "rough"
 reference value; the segment score is the weighted mean of the available
@@ -34,11 +40,14 @@ their own, higher references.
 from __future__ import annotations
 
 # (key, fallback key, calm ref, rough ref, fallback calm, fallback rough, weight)
+# The fallback (plain statistics) only applies to the first landings of
+# 2026-10-06, recorded before the high-pass keys existed.  Weight 0 = value
+# reported for information but not scored.
 _COMPONENTS = (
-    ("ias",  "ihp", "isd", 1.0,  5.0,  1.2,  6.0,  0.35),
-    ("roll", "rhp", "rr",  0.4,  3.0,  0.6,  4.0,  0.30),
-    ("vr",   "vhp", "vsd", 40.0, 250.0, 60.0, 300.0, 0.20),
-    ("crab", "csd", None,  0.5,  2.5,  None, None, 0.15),
+    ("ias",  "ihp", "isd", 0.6,  3.0,   1.2,  6.0,   0.45),
+    ("vr",   "vhp", "vsd", 30.0, 160.0, 60.0, 300.0, 0.30),
+    ("roll", "rhp", "rr",  0.4,  2.5,   0.6,  4.0,   0.25),
+    ("crab", "csd", None,  0.5,  2.5,   None, None,  0.0),
 )
 
 SEG_MIN_SAMPLES = 8          # replies needed before a segment is scored
@@ -109,6 +118,8 @@ def _segment(seg: dict) -> dict | None:
         if v is None:
             continue
         vals[name] = v
+        if w <= 0:
+            continue
         scores += _score(float(v), cc, rr) * w
         wsum   += w
     if wsum == 0:

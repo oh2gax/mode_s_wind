@@ -43,6 +43,7 @@ import urllib.request
 from typing import Optional
 
 from collector.filter import is_blocked_icao, is_blocked_registration
+from collector import aircraft_db
 
 log = logging.getLogger("modes.json_poller")
 
@@ -230,6 +231,20 @@ def run_json_poller(
                                     or merged.get("meteo_source", "NONE") == "NONE"):
                                 merged["meteo_source"] = "JSON"
                             n_meteo += 1
+
+                    # ── Registration / type from BaseStation.sqb when the JSON
+                    # feed has none (optional file, cached lookup)
+                    if not merged.get("registration") or not merged.get("aircraft_type"):
+                        bs_reg, bs_typ = aircraft_db.lookup(icao)
+                        if bs_reg and not merged.get("registration"):
+                            merged["registration"] = bs_reg
+                            merged["reg_src"]      = "BS"
+                        if bs_typ and not merged.get("aircraft_type"):
+                            merged["aircraft_type"] = bs_typ
+                    if is_blocked_registration(merged.get("registration") or "",
+                                               blocked_reg_prefixes):
+                        live_state.pop(icao, None)
+                        continue
 
                     merged["icao"]      = icao
                     merged["last_seen"] = max(merged.get("last_seen", 0.0), now)

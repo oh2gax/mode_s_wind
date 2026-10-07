@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-07 (Optional BaseStation.sqb registration source; wider Approach Conditions chart; approach-conditions index re-tuned)
+
+- **Approach-conditions index re-tuned** on 236 landings (METAR 6–20 kt): IAS fluctuation 45 % (0.6 → 3.0 kt), vertical-rate fluctuation 30 % (30 → 160 ft/min), bank-angle fluctuation 25 % (0.4 → 2.5°); the crab-angle variation showed no relation to the wind and is now shown for information only. The previous scale was compressed (median 2.4 at 13–16 kt); now about 1 when calm, 3 at 9–12 kt and 4.3 at 13–16 kt. Past landings are re-scored automatically (the index is not stored)
+- **Registrations from an optional BaseStation.sqb**: when the Radarcape JSON feed has no registration / type for an aircraft, it is looked up by ICAO24 in `data/BaseStation.sqb` (optional; path configurable with `BASESTATION_DB_PATH`), e.g. as kept up to date by [modes_logger](https://github.com/oh2gax/modes_logger). The registration blocklist therefore now also catches aircraft the JSON feed has no registration for — Finnish rescue / police helicopters (e.g. OH-HMY, OH-HVG) had appeared in Approach History for this reason. Read-only, cached per aircraft, re-read when the file changes, ignored when the file is missing. New module `collector/aircraft_db.py`; `data/*.sqb` added to `.gitignore`
+- **Windrose panel — Cond view**: the approach-conditions chart widens to the width of the map controls bar (the wind rose keeps its size), and the range button now cycles `3h` → `6h` → `12h` → `1d`; the data request follows the selected range
+
+---
+
 ## 2026-10-06 (GNSS logging: per-band GPS detail, degradation episode log, GNSS quality in Approach History; approach roughness logging and approach-conditions index; GPS Episodes page; GPS Quality heatmap % aircraft mode; memory audit; GPS episodes survive restarts)
 
 - **GPS episodes survive restarts**: the open episodes are saved with the 60-s checkpoint and once more when the server is stopped (SIGTERM from systemd / `kill`, or Ctrl+C — both now write a final checkpoint, which also saves the hour in progress). After a restart within 10 minutes they continue; before, every restart cut the episodes in progress in two (the first part was lost and a new episode started after the restart — about 30 such splits on 6 Oct). After a longer stop they are saved with the new end reason `shutdown`, shown as *Server stopped* on the GPS Episodes page

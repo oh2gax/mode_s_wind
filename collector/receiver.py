@@ -28,6 +28,7 @@ from pyModeS.position._cpr import airborne_position_with_ref
 from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao, is_blocked_registration
 from collector.wind_calc import try_compute_wind
 from collector.declination import declination as mag_declination_at
+from collector import aircraft_db
 from collector.writer import BatchWriter
 from config import Config
 
@@ -503,10 +504,21 @@ def run_collector(
                     if _fresh_adsb_pos:
                         merged["last_adsb_pos_ts"] = ts
 
+                    # ── Registration from BaseStation.sqb (optional) ────────
+                    # The JSON poller provides the registration for most
+                    # aircraft; when it has not (yet), use the optional
+                    # BaseStation.sqb aircraft database (cached lookup).
+                    if not merged.get("registration"):
+                        _bs_reg, _bs_typ = aircraft_db.lookup(icao)
+                        if _bs_reg:
+                            merged["registration"] = _bs_reg
+                            merged["reg_src"]      = "BS"
+                        if _bs_typ and not merged.get("aircraft_type"):
+                            merged["aircraft_type"] = _bs_typ
+
                     # ── Registration blocklist ───────────────────────────────
-                    # Registration is provided by the JSON poller (not the Beast
-                    # feed), so it may not be set on the very first messages.
-                    # Once the JSON poller has populated it, drop the aircraft
+                    # Registration comes from the JSON poller or BaseStation.sqb
+                    # (not the Beast feed).  Once known, drop a blocked aircraft
                     # from live_state entirely and skip the DB write.
                     _reg = merged.get("registration") or ""
                     if is_blocked_registration(_reg, cfg.BLOCKED_REG_PREFIXES):

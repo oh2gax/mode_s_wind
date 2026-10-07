@@ -2180,7 +2180,9 @@ const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist t
 
 let windroseEnabled      = true;   // shown by default
 let wrView               = localStorage.getItem('ms_ws_wr_view') === 'cond' ? 'cond' : 'rose'; // 'rose' | 'cond'
-let wrCondHours          = Number(localStorage.getItem('ms_ws_wr_cond_h')) === 6 ? 6 : 3;    // Cond chart range
+const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
+let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
+                           ? Number(localStorage.getItem('ms_ws_wr_cond_h')) : 3;    // Cond chart range
 let wrCondEntries        = [];     // landings with a conditions index (last 6 h), newest first
 let wrCondFetchedMs      = 0;
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
@@ -2231,6 +2233,7 @@ function drawWindrose() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
   if (!canvas || !windroseEnabled) return;
+  sizeWindroseCanvas();
   if (wrView === 'cond') { drawCondChart(); return; }
 
   const ctx = canvas.getContext('2d');
@@ -2514,9 +2517,33 @@ function drawWindrose() {
 const COND_CLASS_COLORS_DARK  = { N: '#e2e8f0', R: '#a78bfa', T: '#22d3ee', W: '#fbbf24', B: '#f472b6', '?': '#94a3b8' };
 const COND_CLASS_COLORS_LIGHT = { N: '#334155', R: '#7c3aed', T: '#0891b2', W: '#b45309', B: '#db2777', '?': '#64748b' };
 
+/**
+ * Canvas size of the Windrose panel: 265 × 265 for the wind rose; in the
+ * Cond view the panel widens to the width of the map controls bar above it
+ * (left edge at the "N ILS corridor" counter).  Small width changes of the
+ * bar (counter digits) are ignored so the chart does not jitter.
+ */
+const WR_ROSE_SIZE = 265;
+function sizeWindroseCanvas() {
+  const canvas = document.getElementById('ws-windrose-canvas');
+  if (!canvas) return;
+  let w = WR_ROSE_SIZE;
+  if (wrView === 'cond') {
+    const ctrl = document.querySelector('.ws-map-controls');
+    // panel = canvas + 2 × 5 px padding + 2 × 1 px border
+    if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, ctrl.offsetWidth - 12);
+    if (Math.abs(canvas.width - w) <= 12 && canvas.width > WR_ROSE_SIZE) return;
+  }
+  if (canvas.width !== w)            canvas.width  = w;
+  if (canvas.height !== WR_ROSE_SIZE) canvas.height = WR_ROSE_SIZE;
+}
+window.addEventListener('resize', () => { if (windroseEnabled) drawWindrose(); });
+
+const wrRangeLabel = h => (h === 24 ? '1d' : `${h}h`);
+
 async function fetchCondData() {
   try {
-    const r = await fetch('/api/windshear/approach-history?window=21600');
+    const r = await fetch(`/api/windshear/approach-history?window=${wrCondHours * 3600}`);
     if (!r.ok) return;
     const rows = await r.json();
     wrCondEntries   = rows.filter(e => e.cond && e.cond.idx != null);
@@ -2534,7 +2561,7 @@ function _median(v) {
 
 /**
  * Cond view of the Windrose panel: approach-conditions index of each landing
- * over the last 3 or 6 h (dot per landing, coloured by aircraft class) with a
+ * over the last 3 h / 6 h / 12 h / 1 d (dot per landing, coloured by aircraft class) with a
  * running median line (±30 min, ≥ 3 landings) over faint level bands.
  */
 function drawCondChart() {
@@ -2574,8 +2601,10 @@ function drawCondChart() {
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   for (let v = 0; v <= 10; v += 2) ctx.fillText(String(v), L - 4, yOf(v));
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  const firstHour = Math.ceil(t0 / 3_600_000) * 3_600_000;
-  for (let h = firstHour; h <= nowMs; h += 3_600_000) {
+  const tickH   = wrCondHours <= 6 ? 1 : wrCondHours <= 12 ? 2 : 3;   // hours between x labels
+  const tickMs  = tickH * 3_600_000;
+  const firstHour = Math.ceil(t0 / tickMs) * tickMs;
+  for (let h = firstHour; h <= nowMs; h += tickMs) {
     const x = xOf(h);
     ctx.strokeStyle = CT.roseOuter;
     ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + PH); ctx.stroke();
@@ -2588,7 +2617,7 @@ function drawCondChart() {
   ctx.textAlign = 'left';  ctx.fillStyle = CT.roseLabel;
   ctx.fillText('Approach conditions', 5, 5);
   ctx.textAlign = 'right';
-  ctx.fillText(`${wrCondHours}h`, W - 5, 5);
+  ctx.fillText(wrRangeLabel(wrCondHours), W - 5, 5);
 
   const pts = wrCondEntries
     .filter(e => e.ts * 1000 >= t0)
@@ -2638,7 +2667,7 @@ function drawCondChart() {
     ? `Last 1h: <span style="color:${_condTextColor(mLast)}">${lvlName(mLast)} ${mLast.toFixed(1)}</span> (${lastH.length} ldg)`
     : 'Last 1h: no scored landings';
   const line2 = mAll != null
-    ? `${wrCondHours}h median ${mAll.toFixed(1)} · max ${worst.idx.toFixed(1)} ${worst.e.callsign || ''}`
+    ? `${wrRangeLabel(wrCondHours)} median ${mAll.toFixed(1)} · max ${worst.idx.toFixed(1)} ${worst.e.callsign || ''}`
     : '';
   const legend = ['N', 'R', 'T', 'W']
     .map(k => `<span style="color:${CLS_COL[k]}">●${k}</span>`).join(' ');
@@ -2656,7 +2685,7 @@ function _syncWrViewBtns() {
   if (histBdg)  histBdg.style.display  = wrView === 'cond' ? 'none' : '';
   if (rangeBtn) {
     rangeBtn.style.display = wrView === 'cond' ? '' : 'none';
-    rangeBtn.textContent   = `${wrCondHours}h`;
+    rangeBtn.textContent   = wrRangeLabel(wrCondHours);
   }
 }
 document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
@@ -2671,10 +2700,11 @@ document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
 const _wrRangeBtn = document.getElementById('ws-wr-range-btn');
 if (_wrRangeBtn) {
   _wrRangeBtn.addEventListener('click', () => {
-    wrCondHours = wrCondHours === 3 ? 6 : 3;
+    wrCondHours = WR_COND_RANGES[(WR_COND_RANGES.indexOf(wrCondHours) + 1) % WR_COND_RANGES.length];
     localStorage.setItem('ms_ws_wr_cond_h', String(wrCondHours));
     _syncWrViewBtns();
     drawWindrose();
+    fetchCondData();          // the request window follows the range
   });
 }
 _syncWrViewBtns();

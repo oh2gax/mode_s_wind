@@ -39,7 +39,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **GPS Episodes page** — map, list and altitude-vs-distance view of individual GPS degradation episodes (one aircraft's continuous degraded period: where it started, where the aircraft recovered or was lost); see [GPS Episodes](#gps-episodes--gps-episodes) below
 - **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data (approach history, GPS quality data and the GPS degradation episode log are only ever purged manually); see [Maintenance](#maintenance--maintenance) below
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
-- **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide; default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
+- **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide (registration from the Radarcape JSON feed, or from an optional `BaseStation.sqb` aircraft database when the feed has none — see [WAM ground station filtering](#wam-ground-station-filtering)); default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
 - **HTTP Basic Auth** — simple credentials-based access control for local network deployment
 
@@ -176,6 +176,8 @@ class Config:
     # ── ICAO24 blocklist ──────────────────────────────────────────────────
     BLOCKED_ICAO_PREFIXES = ("T40",)   # Finnish WAM ground interrogators — not aircraft
     BLOCKED_REG_PREFIXES  = ("OH-H",)  # Finnish helicopters — unreliable meteo, exclude everywhere
+    # BASESTATION_DB_PATH = "data/BaseStation.sqb"  # optional: aircraft database for registrations
+    #                                               # missing from the JSON feed (default: data/BaseStation.sqb, used if present)
 
     # ── Receiver location ─────────────────────────────────────────────────
     RECEIVER_LAT = 60.317              # decimal degrees N
@@ -808,7 +810,7 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 **METAR staleness colouring** — the METAR text in the weather strip below the map changes colour when the observation is getting old: **orange** at ≥ 60 minutes, **red** at ≥ 90 minutes, normal colour when fresh. Age is measured from the METAR issue time (same timestamp shown in the canvas corner), not from the browser's last fetch. The colour is re-evaluated every minute independently of the 10-minute fetch cycle so the transition happens on time.
 
-**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The Cond view plots the conditions index (0–10, see [Approach roughness logging](#approach-roughness-logging)) of every landing of the last **3 h** or **6 h** (the `3h` / `6h` button replaces Hist in this view) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
+**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The wind rose keeps its 265 × 265 px size; in the Cond view the panel widens to the full width of the map controls bar above it (its left edge lines up with the `N ILS corridor` counter), giving the time axis more room. The Cond view plots the conditions index (0–10, see [Approach roughness logging](#approach-roughness-logging)) of every landing of the last **3 h**, **6 h**, **12 h** or **1 d** (the range button replaces Hist in this view and cycles `3h` → `6h` → `12h` → `1d`) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
 
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
@@ -1091,12 +1093,14 @@ Record-level keys: `bad` (replies dropped as inconsistent) and `metar` (`{"t": "
 
 | Component | Value used (fallback for the first records) | Calm → rough | Weight |
 |-----------|---------------------------------------------|--------------|--------|
-| IAS fluctuation | `ihp` (`isd`) kt | 1.0 → 5.0 (1.2 → 6.0) | 35 % |
-| Bank-angle fluctuation | `rhp` (`rr`) ° | 0.4 → 3.0 (0.6 → 4.0) | 30 % |
-| Vertical-rate fluctuation | `vhp` (`vsd`) ft/min | 40 → 250 (60 → 300) | 20 % |
-| Crab-angle variation | `csd` ° | 0.5 → 2.5 | 15 % |
+| IAS fluctuation | `ihp` (`isd`) kt | 0.6 → 3.0 (1.2 → 6.0) | 45 % |
+| Vertical-rate fluctuation | `vhp` (`vsd`) ft/min | 30 → 160 (60 → 300) | 30 % |
+| Bank-angle fluctuation | `rhp` (`rr`) ° | 0.4 → 2.5 (0.6 → 4.0) | 25 % |
+| Crab-angle variation | `csd` ° | — | shown only, not scored |
 
 A segment needs at least 8 replies to be scored; the landing index is the mean of the scored segments, divided by an aircraft-class factor because lighter aircraft are moved more by the same air (turboprop 1.35, business jet 1.25, regional jet 1.15, narrowbody 1.0, widebody 0.85; class from the ICAO type code) and clipped to 10. Levels: < 2 *Smooth*, 2–4 *Light*, 4–6 *Choppy*, 6–8 *Rough*, ≥ 8 *Very rough* — deliberately not the ICAO turbulence terms, as the index is not a turbulence report. The reference values were set from the first gusty afternoon (METAR 280/18) and will be re-tuned once calm and windy days have been collected; the index is calculated when the API is called and never stored, so a re-tune re-scores all past landings. It is shown in the Approach History **Cond** mode and in the Windrose panel's **Cond** view.
+
+**Tuning (2026-10-07):** on 236 landings with METAR winds of 6–20 kt, the high-pass IAS, vertical-rate and bank-angle values follow the surface wind (rank correlation ≈ 0.4–0.7, IAS strongest), whereas the plain statistics and the crab-angle variation do not — so crab variation was taken out of the index, and the references were tightened because the first scale was compressed (median 2.4 at 13–16 kt). With the current scale the median index is about **1** at 0–8 kt, **3** at 9–12 kt and **4.3** at 13–16 kt (index vs METAR wind: rank correlation 0.70). The upper part of the scale still has to be confirmed on a gusty day.
 
 ---
 
@@ -1193,6 +1197,8 @@ For the daily-aggregate views (`2w` / `1m` / `3m` / `6m`) the Aircraft line show
 The Finnish Air Navigation Services operate a network of Wide Area Multilateration (WAM) ground interrogator stations that transmit Mode-S replies detectable by the Radarcape. Their ICAO24 addresses begin with `T40`. These are fixed ground infrastructure — not aircraft — but without filtering they would be included in the "total aircraft seen" count every hour and could generate spurious Gap events (a WAM station never transmits ADS-B position, so it would immediately satisfy the Gap condition once seen). The system filters all `T40` prefixed addresses system-wide at both live\_state entry points (`BLOCKED_ICAO_PREFIXES` in `config.py`) so WAM stations never reach the GPS quality tracker or any other subsystem.
 
 Finnish helicopters (`OH-H` registration prefix) are similarly excluded via `BLOCKED_REG_PREFIXES`. Their continuous manoeuvring near the airport produces unreliable BDS 5,0/6,0 computed wind unsuitable for meteo analysis. The registration filter is applied at the same two live\_state entry points, so helicopters are invisible to the GPS quality tracker, the windshear tracker, and the database writer alike.
+
+**Registration source — JSON feed + optional BaseStation.sqb:** registrations (and aircraft types) normally come from the Radarcape JSON feed, which does not have them for every aircraft — e.g. some Finnish rescue / police helicopters were not filtered for this reason and appeared in Approach History. When an aircraft has no registration from the JSON feed, it is looked up by ICAO24 address in an optional **BaseStation.sqb** aircraft database (the SQLite format of BaseStation / Virtual Radar Server; kept populated e.g. by the companion project [modes_logger](https://github.com/oh2gax/modes_logger)). Place the file at `data/BaseStation.sqb` (default) or set `BASESTATION_DB_PATH` in `config.py`. The file is opened read-only; lookups are cached per aircraft. If the file does not exist, only the JSON feed is used, as before. It is looked for again every 5 minutes and re-read when it changes, so it can be added or replaced (manually updated) while the server runs. A JSON-feed registration always takes precedence; registrations filled from the file are marked `reg_src = "BS"` in the live aircraft state. The file is gitignored (`data/*.sqb`).
 
 #### Interpreting the data
 
@@ -1442,6 +1448,7 @@ mode_s_wind/
 ├── collector/
 │   ├── receiver.py            # Beast TCP connection + EHS decoder (NACp / NIC, BDS 5,0/6,0 pairing + raw reply buffer)
 │   ├── radarcape_json.py      # Radarcape JSON/MLAT poller
+│   ├── aircraft_db.py         # Optional BaseStation.sqb registration / type lookup (cached, read-only)
 │   ├── writer.py              # Batched SQLite writer (storage mode, write throttle, flight sessions)
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind, TAS sources, ISA-deviation estimate
 │   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
@@ -1482,7 +1489,7 @@ mode_s_wind/
 │   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
 │                              # Present but not currently loaded by any page (reserved for future overlays)
 ├── doc/                       # README screenshots
-├── data/                      # SQLite database (created at runtime)
+├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb
 ├── logs/                      # Log files (created at runtime)
 └── tmp_files/                 # Local scratch folder (gitignored)
 ```
