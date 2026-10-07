@@ -648,7 +648,7 @@ The page is divided into seven main areas:
 - **HW** — headwind component in knots, sign indicates direction: `+12` = headwind (into the aircraft), `−5` = tailwind; colour-coded green (headwind) / red (tailwind) / amber (near-zero). Default mode.
 - **XW** — crosswind component in knots, signed the same way as the ILS profile XW labels: `-17` means 17 kt crosswind **from the left** of the aircraft on approach; `+8` means 8 kt crosswind **from the right**. The sign indicates the **source side** of the wind — where the wind is coming from — not the direction it blows across the runway. A left crosswind (`-`) pushes the aircraft to the right, requiring a left crab correction to maintain centreline. Colour-coded green (< 5 kt) / amber (5–9 kt) / red (≥ 10 kt).
 - **HW+XW** — both components in a two-line cell: headwind on top, crosswind below, separated by a hairline rule; each value is independently colour-coded.
-- **Cond** — approach conditions instead of the wind bands (see [Approach roughness logging](#approach-roughness-logging)): the provisional **Index** (0–10, coloured badge + level *Smooth / Light / Choppy / Rough / Very rough*), the segment indices **Hi** (3 000–1 000 ft) and **Lo** (1 000–200 ft), and as `hi / lo` pairs the **Bank°**, **IAS** (kt) and **VS** (ft/min) fluctuation and the **Crab°** variation, the mean **Crab** angle (`+` = nose right of track, wind from the right) and the **METAR** wind at landing time. Hovering a row shows the full breakdown. `—` = not enough data (e.g. landings before the logging started, or contact lost before the aircraft was established). The panel widens to fit these columns; the Lo/Hi button is not used in this mode.
+- **Cond** — approach conditions instead of the wind bands (see [Approach roughness logging](#approach-roughness-logging) and [How the approach-conditions index is calculated](#how-the-approach-conditions-index-is-calculated)): the provisional **Index** (0–10, coloured badge + level *Smooth / Light / Choppy / Rough / Very rough*), the segment indices **Hi** (3 000–1 000 ft) and **Lo** (1 000–200 ft), and as `hi / lo` pairs the **Bank°**, **IAS** (kt) and **VS** (ft/min) fluctuation and the **Crab°** variation, the mean **Crab** angle (`+` = nose right of track, wind from the right) and the **METAR** wind at landing time. Hovering a row shows the full breakdown. `—` = not enough data (e.g. landings before the logging started, or contact lost before the aircraft was established). The panel widens to fit these columns; the Lo/Hi button is not used in this mode.
 
 There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
 - **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach. Each barb is coloured from the `meteo_source` at the time it was captured — barbs recorded during a grey (NONE) period remain grey permanently even after the aircraft's data recovers, so the canvas gives an honest picture of data quality throughout the approach; observations from grey periods are not added to the barb buffer at all, leaving a visible gap rather than a repeated stale position.
@@ -810,7 +810,7 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 **METAR staleness colouring** — the METAR text in the weather strip below the map changes colour when the observation is getting old: **orange** at ≥ 60 minutes, **red** at ≥ 90 minutes, normal colour when fresh. Age is measured from the METAR issue time (same timestamp shown in the canvas corner), not from the browser's last fetch. The colour is re-evaluated every minute independently of the 10-minute fetch cycle so the transition happens on time.
 
-**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The wind rose keeps its 265 × 265 px size; in the Cond view the panel widens to the full width of the map controls bar above it (its left edge lines up with the `N ILS corridor` counter), giving the time axis more room. The Cond view plots the conditions index (0–10, see [Approach roughness logging](#approach-roughness-logging)) of every landing of the last **3 h**, **6 h**, **12 h** or **1 d** (the range button replaces Hist in this view and cycles `3h` → `6h` → `12h` → `1d`) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
+**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The wind rose keeps its 265 × 265 px size; in the Cond view the panel widens to the full width of the map controls bar above it (its left edge lines up with the `N ILS corridor` counter), giving the time axis more room. The Cond view plots the conditions index (0–10, see [How the approach-conditions index is calculated](#how-the-approach-conditions-index-is-calculated)) of every landing of the last **3 h**, **6 h**, **12 h** or **1 d** (the range button replaces Hist in this view and cycles `3h` → `6h` → `12h` → `1d`) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
 
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
@@ -1089,16 +1089,67 @@ Since 2026-10-06 every landing in Approach History also stores how "rough" the f
 
 Record-level keys: `bad` (replies dropped as inconsistent) and `metar` (`{"t": "DDHHMM", "dir": °, "spd": kt, "gst": kt or null, "var": "200V270" or null}`; omitted when no METAR has been received in the last 2 h). The JSON is about 300–450 bytes per landing (roughly 30 MB per year at EFHK traffic levels), written in the same insert as the landing itself.
 
-**Approach-conditions index (provisional).** From these values the server computes one number per landing, 0 (smooth) to 10 (very rough), in `collector/approach_cond.py`. Each component is scored 0–10 linearly between a *calm* and a *rough* reference value:
+#### How the approach-conditions index is calculated
 
-| Component | Value used (fallback for the first records) | Calm → rough | Weight |
-|-----------|---------------------------------------------|--------------|--------|
-| IAS fluctuation | `ihp` (`isd`) kt | 0.6 → 3.0 (1.2 → 6.0) | 45 % |
-| Vertical-rate fluctuation | `vhp` (`vsd`) ft/min | 30 → 160 (60 → 300) | 30 % |
-| Bank-angle fluctuation | `rhp` (`rr`) ° | 0.4 → 2.5 (0.6 → 4.0) | 25 % |
+From the roughness record the server computes one number per landing, **0 (smooth) to 10 (very rough)** — the *approach-conditions index* (provisional; `collector/approach_cond.py`). It is calculated when the data is requested (API field `cond`) and never stored, so a re-tune of the constants below re-scores all past landings. It is shown in the Approach History **Cond** mode and in the Windrose panel's **Cond** view.
+
+The idea: on a stabilised approach in calm air, airspeed, descent rate and bank angle are almost constant. Gusts and turbulence make them fluctuate *quickly* — within a few seconds — while the normal, slow changes of an approach (deceleration, glideslope capture, the end of the intercept turn) happen over tens of seconds. The index measures only the quick part.
+
+**Step 1 — samples.** All BDS 5,0 (bank angle) and BDS 6,0 (indicated airspeed, inertial — or barometric — vertical rate) replies received while the aircraft is established on final, separately for the segments **hi** (3 000–1 000 ft MSL) and **lo** (1 000–200 ft MSL); see *What is collected* above. A segment is scored only if it has at least **8** replies. At EFHK an aircraft is interrogated roughly once per second, i.e. typically 60–120 replies in `hi` and 10–25 in `lo`.
+
+**Step 2 — fluctuation ("high-pass" RMS).** For each quantity *x* with samples *xᵢ* at times *tᵢ*:
+
+```
+medianᵢ = median of all x_j with |t_j − t_i| ≤ 7.5 s        (moving median, 15 s window)
+rᵢ      = xᵢ − medianᵢ                                        (quick part only)
+value   = √( mean(rᵢ²) )                                      (RMS of the quick part)
+```
+
+This gives `ihp` (IAS, kt), `vhp` (vertical rate, ft/min) and `rhp` (bank angle, °). A median is used instead of a mean so that a single bad reply does not shift the reference. The very first landings (6 Oct 2026, before about 16 UTC) only have plain statistics (IAS deviation from a straight-line fit, plain standard deviations, bank RMS); for them fallback references are used.
+
+**Step 3 — component score (0–10).** Each value is placed linearly between a *calm* and a *rough* reference and clipped:
+
+```
+score = clamp( 10 × (value − calm) / (rough − calm), 0, 10 )
+```
+
+| Component | Value | Calm → rough (fallback) | Weight |
+|-----------|-------|-------------------------|--------|
+| IAS fluctuation | `ihp` kt (`isd`) | 0.6 → 3.0 (1.2 → 6.0) | 45 % |
+| Vertical-rate fluctuation | `vhp` ft/min (`vsd`) | 30 → 160 (60 → 300) | 30 % |
+| Bank-angle fluctuation | `rhp` ° (`rr`) | 0.4 → 2.5 (0.6 → 4.0) | 25 % |
 | Crab-angle variation | `csd` ° | — | shown only, not scored |
 
-A segment needs at least 8 replies to be scored; the landing index is the mean of the scored segments, divided by an aircraft-class factor because lighter aircraft are moved more by the same air (turboprop 1.35, business jet 1.25, regional jet 1.15, narrowbody 1.0, widebody 0.85; class from the ICAO type code) and clipped to 10. Levels: < 2 *Smooth*, 2–4 *Light*, 4–6 *Choppy*, 6–8 *Rough*, ≥ 8 *Very rough* — deliberately not the ICAO turbulence terms, as the index is not a turbulence report. The reference values were set from the first gusty afternoon (METAR 280/18) and will be re-tuned once calm and windy days have been collected; the index is calculated when the API is called and never stored, so a re-tune re-scores all past landings. It is shown in the Approach History **Cond** mode and in the Windrose panel's **Cond** view.
+**Step 4 — segment score** = weighted mean of the available component scores: `(0.45·S_ias + 0.30·S_vr + 0.25·S_roll) / (sum of the weights used)`.
+
+**Step 5 — landing score** = mean of the scored segments (`hi` and / or `lo`).
+
+**Step 6 — aircraft class.** Lighter aircraft are moved more by the same air, so the landing score is divided by a class factor and clipped to 10:
+
+```
+index = min( 10, landing score / class factor )
+```
+
+| Class | Examples (ICAO type code) | Factor |
+|-------|---------------------------|--------|
+| T turboprop | AT75, AT76, DH8D, SF34 | 1.35 |
+| B business jet | GLF6, C68A, FA7X, PC24 | 1.25 |
+| R regional jet | E190, E195, CRJ9, BCS3 | 1.15 |
+| N narrowbody | A320, A321, B738, B38M | 1.00 |
+| W widebody | A359, A333, B77W, B789 | 0.85 |
+
+**Step 7 — level:** < 2 *Smooth*, 2–4 *Light*, 4–6 *Choppy*, 6–8 *Rough*, ≥ 8 *Very rough*. These are deliberately not the ICAO turbulence terms (light / moderate / severe), because the index is not a turbulence report.
+
+**Worked example** (A320, METAR 27013KT):
+
+| | `ihp` | score | `vhp` | score | `rhp` | score | segment |
+|---|---|---|---|---|---|---|---|
+| hi | 1.0 kt | (1.0−0.6)/2.4×10 = 1.7 | 87 fpm | (87−30)/130×10 = 4.4 | 1.61° | (1.61−0.4)/2.1×10 = 5.8 | 0.45·1.7 + 0.30·4.4 + 0.25·5.8 = **3.5** |
+| lo | 1.5 kt | 3.8 | 37 fpm | 0.5 | 0.69° | 1.4 | **2.2** |
+
+Landing score (3.5 + 2.2) / 2 = 2.85; narrowbody factor 1.0 → **index 2.9, Light**.
+
+**Limitations.** The index describes how much the aircraft was moved and corrected on final — it mixes the air with the aircraft's response: autopilot vs hand flying (usually below 1 000 ft), approach speed, flap setting and aircraft size all play a part, and the class factors are a first approximation. It is most meaningful when compared over time and between landings of the same class and runway, not as an absolute turbulence measurement.
 
 **Tuning (2026-10-07):** on 236 landings with METAR winds of 6–20 kt, the high-pass IAS, vertical-rate and bank-angle values follow the surface wind (rank correlation ≈ 0.4–0.7, IAS strongest), whereas the plain statistics and the crab-angle variation do not — so crab variation was taken out of the index, and the references were tightened because the first scale was compressed (median 2.4 at 13–16 kt). With the current scale the median index is about **1** at 0–8 kt, **3** at 9–12 kt and **4.3** at 13–16 kt (index vs METAR wind: rank correlation 0.70). The upper part of the scale still has to be confirmed on a gusty day.
 
