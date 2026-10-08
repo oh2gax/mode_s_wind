@@ -21,13 +21,13 @@
     <span>MODE-S Wind</span>
   </div>
   <div class="nav-links">
-    <a href="/"        class="nav-link {% if request.endpoint == 'index'        %}active{% endif %}">Live Map</a>
-    <a href="/flights" class="nav-link {% if request.endpoint == 'flights_page' %}active{% endif %}">Flights</a>
-    <a href="/sounding"class="nav-link {% if request.endpoint == 'sounding_page'%}active{% endif %}">Sounding</a>
-    <a href="/windmap"   class="nav-link {% if request.endpoint == 'windmap_page'   %}active{% endif %}">Wind Map</a>
-    <a href="/windshear" class="nav-link {% if request.endpoint == 'windshear_page' %}active{% endif %}">Windshear</a>
-    <a href="/gps"       class="nav-link {% if request.endpoint == 'gps_page'       %}active{% endif %}">GPS Quality</a>
-    <a href="/gps-episodes" class="nav-link {% if request.endpoint == 'gps_episodes_page' %}active{% endif %}">GPS Episodes</a>
+    <a href="/"             target="mw_live"         class="nav-link {% if request.endpoint == 'index'             %}active{% endif %}">Live Map</a>
+    <a href="/flights"      target="mw_flights"      class="nav-link {% if request.endpoint == 'flights_page'      %}active{% endif %}">Flights</a>
+    <a href="/sounding"     target="mw_sounding"     class="nav-link {% if request.endpoint == 'sounding_page'     %}active{% endif %}">Sounding</a>
+    <a href="/windmap"      target="mw_windmap"      class="nav-link {% if request.endpoint == 'windmap_page'      %}active{% endif %}">Wind Map</a>
+    <a href="/windshear"    target="mw_windshear"    class="nav-link {% if request.endpoint == 'windshear_page'    %}active{% endif %}">Windshear</a>
+    <a href="/gps"          target="mw_gps"          class="nav-link {% if request.endpoint == 'gps_page'          %}active{% endif %}">GPS Quality</a>
+    <a href="/gps-episodes" target="mw_gps_episodes" class="nav-link {% if request.endpoint == 'gps_episodes_page' %}active{% endif %}">GPS Episodes</a>
   </div>
   <div class="nav-config-badges">
     <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"
@@ -82,6 +82,33 @@ const CARTO_API_KEY = {{ carto_api_key | tojson }};
     var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     localStorage.setItem('ms_theme', next);
     applyTheme(next);
+  });
+})();
+
+// ── Navigation: one browser tab per page ────────────────────────────────────
+// Each nav link has its own named target (mw_<page>).  This tab takes the
+// name of the page it shows, so clicking a page that is already open in
+// another tab switches to that tab without reloading it (selections are
+// kept); a page that is not open yet opens in a new tab.  Clicking the link
+// of the page shown in this tab reloads it here, as before.  Ctrl / Shift /
+// middle click keep the browser's normal behaviour.
+(function () {
+  var active = document.querySelector('.nav-links .nav-link.active');
+  if (active) window.name = active.getAttribute('target');
+  document.querySelectorAll('.nav-links .nav-link').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      var name = a.getAttribute('target');
+      if (!name || name === window.name) { e.preventDefault(); location.href = a.href; return; }
+      var w = null;
+      try { w = window.open('', name); } catch (err) { w = null; }
+      if (!w) return;                       // popup blocked → default (target) behaviour
+      e.preventDefault();
+      var fresh = true;
+      try { fresh = !w.location.href || w.location.href === 'about:blank'; } catch (err) { fresh = false; }
+      if (fresh) w.location.href = a.href; // new tab → load the page
+      w.focus();                            // existing tab → just bring it to front
+    });
   });
 })();
 

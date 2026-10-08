@@ -5,8 +5,9 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-08 (Approach-conditions index class factors; Approach History registration filter)
+## 2026-10-08 (Approach-conditions index class factors; Approach History registration filter; one browser tab per page)
 
+- **Navigation — one browser tab per page**: the navbar links now open each page in its own tab. A page that is already open is brought to the front without reloading (e.g. going from Windshear to GPS Quality and back keeps the Windshear selections); a page that is not open yet opens in a new tab
 - **Approach History — registration filter**: a small `Reg: OH-A` box left of the date field shows only the landings whose registration starts with the typed text (e.g. `OH-ATR` or `OH-A`; case and hyphen ignored, `Esc` clears). It applies at once, survives the automatic refresh and window / date changes, and the title shows e.g. `3 of 24 landings` while a filter is active
 - **Approach-conditions index — aircraft class factors measured**: on 356 landings, each landing's score was compared with the other landings within ±45 minutes. Relative to narrowbodies, turboprops respond about 1.5 times and widebodies about the same as narrowbodies, so the turboprop factor was raised from 1.35 to 1.5 and the widebody factor from 0.85 to 1.0 (widebodies were scored about 15 % too high). Regional jets (1.15) and business jets (1.25, still too few landings) are unchanged. Past landings are re-scored automatically
 

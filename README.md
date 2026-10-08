@@ -413,6 +413,8 @@ The top navigation bar always shows the connection status:
 
 The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), a **live UTC clock** displaying the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format (updated every second), and the **Dark / Light** theme toggle button which applies to all pages.
 
+**One browser tab per page:** the navigation links open each page in its own browser tab. If the page is already open in another tab, clicking its link switches to that tab without reloading it, so selections made there (runway, time window, filters, display modes) are kept; a page that is not open yet opens in a new tab. Clicking the link of the page shown in the current tab reloads it in place, as before. Ctrl-, Shift- or middle-click keep the browser's normal behaviour.
+
 ---
 
 ### Live Map  `/`
