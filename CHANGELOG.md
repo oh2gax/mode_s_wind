@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-08 (Approach-conditions index class factors; Approach History registration filter)
+
+- **Approach History — registration filter**: a small `Reg: OH-A` box left of the date field shows only the landings whose registration starts with the typed text (e.g. `OH-ATR` or `OH-A`; case and hyphen ignored, `Esc` clears). It applies at once, survives the automatic refresh and window / date changes, and the title shows e.g. `3 of 24 landings` while a filter is active
+- **Approach-conditions index — aircraft class factors measured**: on 356 landings, each landing's score was compared with the other landings within ±45 minutes. Relative to narrowbodies, turboprops respond about 1.5 times and widebodies about the same as narrowbodies, so the turboprop factor was raised from 1.35 to 1.5 and the widebody factor from 0.85 to 1.0 (widebodies were scored about 15 % too high). Regional jets (1.15) and business jets (1.25, still too few landings) are unchanged. Past landings are re-scored automatically
+
+---
+
 ## 2026-10-07 (Optional BaseStation.sqb registration source; wider Approach Conditions chart; approach-conditions index re-tuned)
 
 - **Approach-conditions index re-tuned** on 236 landings (METAR 6–20 kt): IAS fluctuation 45 % (0.6 → 3.0 kt), vertical-rate fluctuation 30 % (30 → 160 ft/min), bank-angle fluctuation 25 % (0.4 → 2.5°); the crab-angle variation showed no relation to the wind and is now shown for information only. The previous scale was compressed (median 2.4 at 13–16 kt); now about 1 when calm, 3 at 9–12 kt and 4.3 at 13–16 kt. Past landings are re-scored automatically (the index is not stored)

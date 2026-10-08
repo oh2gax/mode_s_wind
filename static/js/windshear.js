@@ -3510,19 +3510,49 @@ function formatCondCells(e) {
     `<td class="ws-aphist-cell ws-aphist-type">${c.metar || '—'}</td>`;
 }
 
+// Registration filter (prefix, case and hyphen / space ignored).  The last
+// fetched list is kept so typing re-filters at once without a new request.
+let _aphLastEntries = null;
+let _aphRegFilter   = '';
+const _aphNormReg = s => (s || '').toUpperCase().replace(/[\s-]/g, '');
+
+(function initAphRegFilter() {
+  const inp = document.getElementById('ws-aphist-reg-filter');
+  if (!inp) return;
+  const apply = () => {
+    _aphRegFilter = _aphNormReg(inp.value);
+    inp.classList.toggle('ws-aphist-reg-active', !!_aphRegFilter);
+    if (_aphLastEntries) renderApproachHistory(_aphLastEntries);
+  };
+  inp.addEventListener('input', apply);
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { inp.value = ''; apply(); inp.blur(); }
+  });
+})();
+
 function renderApproachHistory(entries) {
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!tbody) return;
+  _aphLastEntries = entries || [];
+  const total = _aphLastEntries.length;
+  if (_aphRegFilter) {
+    entries = _aphLastEntries.filter(e => _aphNormReg(e.registration).startsWith(_aphRegFilter));
+  }
 
   // Landing count for the selected window/date on the panel title line
   const countEl = document.getElementById('ws-aphist-count');
   if (countEl) {
     const n = entries ? entries.length : 0;
-    countEl.textContent = `–  ${n} landing${n === 1 ? '' : 's'}`;
+    countEl.textContent = _aphRegFilter
+      ? `–  ${n} of ${total} landing${total === 1 ? '' : 's'}`
+      : `–  ${n} landing${n === 1 ? '' : 's'}`;
   }
   if (!entries || entries.length === 0) {
+    const msg = (_aphRegFilter && total > 0)
+      ? 'No landings match the registration filter'
+      : 'No approaches logged yet';
     tbody.innerHTML =
-      `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">No approaches logged yet</td></tr>`;
+      `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">${msg}</td></tr>`;
     return;
   }
 

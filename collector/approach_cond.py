@@ -15,6 +15,13 @@ PROVISIONAL.  Tuning history:
               compressed (median 2.4 at 13–16 kt) and now spreads to ≈ 1 calm,
               3 at 9–12 kt, 4.3 at 13–16 kt.  A gusty day with high-pass data is
               still needed to confirm the upper part of the scale.
+  2026-10-08  class factors checked on 356 landings: raw score of each landing
+              vs the median of all others within ±45 min (same weather),
+              relative to narrowbodies — turboprops 1.53 (95 % 1.36–1.69),
+              regional jets 1.20 (1.03–1.30), widebodies 1.02 (0.92–1.17),
+              stable for ±30–60 min windows.  Turboprop 1.35 → 1.5, widebody
+              0.85 → 1.0; regional unchanged; business jet unchanged (only
+              5–8 landings, too few to tell).
 The index is computed when the API is called and is never stored, so
 changing the constants here re-scores all past landings.
 
@@ -60,8 +67,10 @@ LEVELS = (                   # (upper bound, label)
     (99.0, "Very rough"),
 )
 
-# Aircraft class → response factor (index divided by this)
-CLASS_FACTOR = {"T": 1.35, "B": 1.25, "R": 1.15, "N": 1.0, "W": 0.85, "?": 1.0}
+# Aircraft class → response factor (index divided by this).  Measured
+# relative to narrowbodies under the same conditions (2026-10-08); the
+# business-jet value is still the original estimate (too few landings).
+CLASS_FACTOR = {"T": 1.5, "B": 1.25, "R": 1.15, "N": 1.0, "W": 1.0, "?": 1.0}
 CLASS_NAME   = {"T": "turboprop", "B": "business jet", "R": "regional jet",
                 "N": "narrowbody", "W": "widebody", "?": "unknown"}
 

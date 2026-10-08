@@ -1186,6 +1186,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-family: inherit;
 }
 .ws-aphist-date-input::placeholder { color: var(--text-3); }
+/* Registration filter (same look as the date box) */
+.ws-aphist-reg-filter { width: 66px; text-transform: uppercase; }
+.ws-aphist-reg-filter::placeholder { text-transform: none; }
+.ws-aphist-reg-filter.ws-aphist-reg-active { border-color: #0369a1; color: var(--text-1); }
 .ws-aphist-date-input:focus {
   outline: none;
   border-color: #0369a1;
