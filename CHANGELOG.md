@@ -19,6 +19,7 @@ No version numbers — entries are organised by date.
 - **Spoofing indicators refined** (after the first hours of data):
   - ADS-B / MLAT mismatch is counted only when it repeats on two consecutive comparisons with new positions — single MLAT or decoding outliers (one 144 NM mismatch in the first hours) are ignored
   - Flags raised while the aircraft reports **normal GPS quality** (NACp ≥ 7, no degradation signal) are counted separately — the strong spoofing case; the first flags all came during jamming (NACp 0), where they are more likely the receiver re-acquiring. The flagged-aircraft list now also stores the NACp at the first flag. Shown on the GPS Quality page (Severity & Spoofing panel: *normal GPS* column, NACp column, yellow marking)
+- README: the GPS jamming note for test users is now general (jamming is common in the whole EFHK and Gulf of Finland area) instead of describing specific runways and dates
 - **GPS Episodes**: new columns `severe_sweeps`, `spoof`, `max_mlat_nm`, `mlat_cmp`, `gmb_min`, `gmb_max` (added automatically at startup); the detail popup shows them for new episodes
 
 ---

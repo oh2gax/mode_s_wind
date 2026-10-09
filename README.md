@@ -6,9 +6,7 @@ Two complementary methods are used to extract meteorological data from aircraft 
 
 All decoded observations are stored in a local SQLite database and presented through a web dashboard with a live map, historical flight browser, Skew-T atmospheric sounding diagrams, a gridded historical wind map, an approach / windshear monitor with per-landing approach history and approach-conditions index, and GPS-interference monitoring (hourly GPS Quality statistics and individual GPS degradation episodes).
 
-> **⚠ Note for test users:** Due to heavy GPS jamming originating from the east, GPS-derived positions between approximately 3 000 ft and 1 000 ft are currently intermittently unreliable. Approaches to RWY 04L and 04R are particularly affected. Position data at these altitudes should be interpreted with caution.
->
-> The current situation has worsened significantly since the beginning of May 2026. Previously, jamming was mostly limited to higher altitudes (8 000 – 10 000 ft) with little practical impact on approach traffic. The jamming is now effective down to much lower altitudes, directly affecting final approach segments.
+> **⚠ Note for test users:** GPS jamming is very common in the whole EFHK and Gulf of Finland area. Aircraft affected by it may broadcast degraded or no GPS-derived (ADS-B) positions, at times down to low altitudes on approach and departure, so position data should be interpreted with caution. The extent of the interference varies from day to day and over the day; it is monitored on the [GPS Quality](#gps-quality--gps) and [GPS Episodes](#gps-episodes--gps-episodes) pages (see also [GPS Jamming Note](#gps-jamming-note)).
 
 ![MODE-S Wind main screen](doc/Mode_S_Wind_Main_Screen_1.png)
 
