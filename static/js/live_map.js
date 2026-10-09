@@ -60,6 +60,13 @@ let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
 let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
 
 let selectedTrackLayer = null;   // Leaflet polyline for selected aircraft's DB track
+// Track of the selected aircraft: [[lat, lon, ts], …] — its stored positions
+// of the current flight (fetched on selection) followed by live positions.
+// Kept separate from windHistory (capped at MAX_WIND_HIST for the profile),
+// and kept while the aircraft is briefly missing from the live data.
+let selTrackPts  = [];
+let selTrackIcao = null;          // aircraft whose stored track has been fetched
+const MAX_TRACK_PTS = 4000;
 
 // ── Source colours ────────────────────────────────────────────────────────
 const SOURCE_COLOR = {
@@ -706,14 +713,21 @@ function upsertMarker(ac) {
 function removeStale(liveIcaos) {
   for (const icao of Object.keys(markers)) {
     if (!liveIcaos.has(icao)) {
+      // Removing a marker closes its popup — that must not deselect the
+      // aircraft (it is only missing for now, e.g. lost position under jamming)
+      markers[icao].off('popupclose');
       markers[icao].remove();       delete markers[icao];
       if (windArrows[icao])  { windArrows[icao].remove();  delete windArrows[icao]; }
       if (trailLayers[icao]) { trailLayers[icao].remove(); delete trailLayers[icao]; }
       if (labelMarkers[icao]){ labelMarkers[icao].remove();delete labelMarkers[icao]; }
       delete trails[icao];
-      delete windHistory[icao];
       delete aircraftData[icao];
-      dbSeeded.delete(icao);  // allow re-seed if aircraft reappears
+      // The selected aircraft keeps its profile history and its track, which
+      // stays on the map and continues when the aircraft reappears
+      if (icao !== selectedIcao) {
+        delete windHistory[icao];
+        dbSeeded.delete(icao);  // allow re-seed if aircraft reappears
+      }
     }
   }
   // Callsign cache: forget aircraft that are no longer live (a page left
@@ -820,12 +834,21 @@ function selectAircraft(icao) {
   // Fetch the full flight's stored observations so the Skew-T profile is
   // immediately populated, even on first load or after navigating away.
   // The dbSeeded set prevents re-fetching on every SSE-triggered redraw.
-  if (!dbSeeded.has(icao)) {
+  // The stored track is (re)fetched whenever a different aircraft is selected.
+  const needSeed  = !dbSeeded.has(icao);
+  const needTrack = selTrackIcao !== icao;
+  if (needTrack) { selTrackIcao = icao; selTrackPts = []; }
+  appendSelTrack(ac);
+  if (needSeed || needTrack) {
     dbSeeded.add(icao);
     fetch(`/api/aircraft/${icao}/wind_history`)
       .then(r => r.json())
       .then(rows => {
-        if (!rows.length) return;
+        if (needTrack && selTrackIcao === icao) {
+          setSelTrackFromDb(rows);
+          if (selectedIcao === icao) drawSelectedTrack(icao);
+        }
+        if (!needSeed || !rows.length) return;
 
         // Convert DB rows to the same format used by updateWindHistory()
         const dbPoints = rows.map(r => ({
@@ -878,24 +901,42 @@ function selectAircraft(icao) {
 }
 
 
-// ── Selected aircraft DB track polyline ───────────────────────────────────────
+// ── Selected aircraft track polyline ──────────────────────────────────────────
+// Stored positions of the current flight, replacing the track built so far
+// except the live positions newer than the last stored one.
+function setSelTrackFromDb(rows) {
+  const db = rows.filter(r => r.lat != null && r.lon != null)
+                 .map(r => [r.lat, r.lon, r.ts]);
+  const lastTs = db.length ? db[db.length - 1][2] : -Infinity;
+  selTrackPts = db.concat(selTrackPts.filter(p => p[2] > lastTs));
+  if (selTrackPts.length > MAX_TRACK_PTS) selTrackPts = selTrackPts.slice(-MAX_TRACK_PTS);
+}
+
+// Live position of the selected aircraft: added when it has moved and at
+// most every 5 s (a frozen position, e.g. under GPS jamming, adds nothing).
+function appendSelTrack(ac) {
+  if (!ac || ac.icao !== selTrackIcao || ac.lat == null || ac.lon == null) return;
+  const ts   = ac.last_seen ?? Date.now() / 1000;
+  const last = selTrackPts[selTrackPts.length - 1];
+  if (last && ((last[0] === ac.lat && last[1] === ac.lon) || ts - last[2] < 5)) return;
+  selTrackPts.push([ac.lat, ac.lon, ts]);
+  if (selTrackPts.length > MAX_TRACK_PTS) selTrackPts.shift();
+}
+
 function drawSelectedTrack(icao) {
-  // Remove any existing track layer
-  if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
-  if (!showTrack || !icao) return;
-
-  const history = windHistory[icao] || [];
-  const points  = history
-    .filter(p => p.lat != null && p.lon != null)
-    .map(p => [p.lat, p.lon]);
-
-  if (points.length < 2) return;
-
-  const ac    = aircraftData[icao];
-  const color = ac ? acColor(ac) : '#94a3b8';
-
+  if (!showTrack || !icao || icao !== selTrackIcao || selTrackPts.length < 2) {
+    if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
+    return;
+  }
+  const points = selTrackPts.map(p => [p[0], p[1]]);
+  const ac     = aircraftData[icao];
+  if (selectedTrackLayer) {
+    selectedTrackLayer.setLatLngs(points);
+    if (ac) selectedTrackLayer.setStyle({ color: acColor(ac) });
+    return;
+  }
   selectedTrackLayer = L.polyline(points, {
-    color,
+    color:     ac ? acColor(ac) : '#94a3b8',
     weight:    2,
     opacity:   0.65,
     dashArray: '5 4',
@@ -904,6 +945,13 @@ function drawSelectedTrack(icao) {
 
 function closeDetail() {
   if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
+  // An aircraft deselected while missing from the live data: drop its history
+  if (selectedIcao && !aircraftData[selectedIcao]) {
+    delete windHistory[selectedIcao];
+    dbSeeded.delete(selectedIcao);
+  }
+  selTrackPts   = [];
+  selTrackIcao  = null;
   selectedIcao  = null;
   miniAcOverlay = null;
   drawMiniSounding();

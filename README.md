@@ -475,7 +475,7 @@ Lists all currently visible aircraft sorted alphabetically. Shows callsign, ICAO
 
 The selected label mode persists across browser sessions.
 
-**Track checkbox** — when enabled, selecting an aircraft draws a dashed polyline on the map showing its recorded flight path, built from the latitude/longitude coordinates stored alongside each meteo observation in the database. The polyline is drawn in the aircraft's meteo-source colour and updates automatically each time the DB history is refreshed. The Track setting defaults **off** and persists across browser sessions via localStorage. The polyline is removed when the aircraft is deselected or the Track checkbox is turned off.
+**Track checkbox** — when enabled, selecting an aircraft draws a dashed polyline on the map showing its flight path: the positions stored with its meteo observations of the current flight, continued with its live positions while it stays selected. The polyline is drawn in the aircraft's meteo-source colour. If the selected aircraft disappears from the map for a while (e.g. it loses its position under GPS jamming), it stays selected and the line stays on the map and continues when the aircraft reappears. The Track setting defaults **off** and persists across browser sessions via localStorage. The polyline is removed when the aircraft is deselected or the Track checkbox is turned off.
 
 #### Bottom strip — METAR / TAF
 
