@@ -59,6 +59,8 @@ import threading
 from collections import deque
 from typing import Optional
 
+from collector.atmos import tm_temp_c
+
 log = logging.getLogger("modes.wind")
 
 # ── ISA atmosphere ────────────────────────────────────────────────────────
@@ -285,7 +287,9 @@ def try_compute_wind(
     Returns a dict with keys:
         wind_spd, wind_dir, wind_qual, tas_source, mag_decl,
         bds50_true_track, bds50_groundspeed, bds50_true_airspeed, bds50_roll,
-        bds60_mag_heading, bds60_ias, bds60_mach
+        bds60_mag_heading, bds60_ias, bds60_mach,
+        tm_temp (static air temperature °C from BDS 5,0 TAS and BDS 6,0 Mach,
+        None when either is missing or Mach < 0.2)
     or None if inputs are insufficient or quality gate fails.
     mag_declination is the declination at the aircraft's position (°E).
     """
@@ -361,4 +365,6 @@ def try_compute_wind(
         "bds60_mag_heading":     mag_heading,
         "bds60_ias":             ias,
         "bds60_mach":            mach,
+        # Static air temperature from TAS and Mach (collector/atmos.py)
+        "tm_temp":               tm_temp_c(tas_bds50, mach, altitude_ft),
     }

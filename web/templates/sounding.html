@@ -7,16 +7,39 @@
   <!-- Control bar -->
   <div class="sounding-controls">
 
-    <!-- Flight selector -->
-    <div class="flight-selector">
-      <select id="flight-select" class="filter-input" style="min-width:320px">
-        <option value="">— select a flight with altitude profile —</option>
-      </select>
-      <button onclick="loadFlightSounding()" class="btn-primary">Load Sounding</button>
+    <div class="snd-left">
+      <!-- Source: area (last N min) / hourly archive / single flight -->
+      <span class="snd-mode-btns" id="snd-mode-btns">
+        <button class="snd-mode-btn" data-mode="area" title="All aircraft within {{ sounding_radius|int }} km of the receiver over the last minutes">Area · now</button>
+        <button class="snd-mode-btn" data-mode="hour" title="Hourly profile archive (all aircraft within {{ sounding_radius|int }} km, one completed UTC hour) — kept after the observations are purged">Area · hour</button>
+        <button class="snd-mode-btn" data-mode="flight" title="Profile from a single climbing or descending flight">Flight</button>
+      </span>
+
+      <span class="snd-ctl" id="snd-area-ctl">
+        <select id="snd-minutes" class="filter-input">
+          <option value="30">last 30 min</option>
+          <option value="60" selected>last 60 min</option>
+          <option value="120">last 2 h</option>
+          <option value="180">last 3 h</option>
+        </select>
+      </span>
+
+      <span class="snd-ctl" id="snd-hour-ctl">
+        <input type="date" id="snd-date" class="filter-input">
+        <select id="snd-hour" class="filter-input"><option value="">—</option></select>
+      </span>
+
+      <!-- Flight selector -->
+      <div class="flight-selector snd-ctl" id="snd-flight-ctl">
+        <select id="flight-select" class="filter-input" style="min-width:320px">
+          <option value="">— select a flight with altitude profile —</option>
+        </select>
+        <button onclick="loadFlightSounding()" class="btn-primary">Load Sounding</button>
+      </div>
     </div>
 
     <div class="sounding-actions">
-      <button id="btn-refresh" onclick="loadFlightSounding()" class="btn-secondary">↻ Refresh</button>
+      <button id="btn-refresh" onclick="loadCurrent()" class="btn-secondary">↻ Refresh</button>
       <span id="sounding-meta" class="sounding-meta"></span>
     </div>
   </div>
@@ -32,13 +55,15 @@
       <div class="skewt-legend">
         <span style="color:#ef4444">━</span> Temperature (°C)
         &nbsp;&nbsp;
+        <span style="color:#ef4444;opacity:.45">┿</span> 10–90 % range
+        &nbsp;&nbsp;
         <span style="color:#94a3b8">┤</span> Wind barb (kt)
       </div>
     </div>
 
     <!-- Data table -->
     <div class="sounding-table-wrap">
-      <div class="panel-header" id="table-header">Flight profile levels</div>
+      <div class="panel-header" id="table-header">Profile levels</div>
       <table class="data-table compact">
         <thead>
           <tr>
@@ -47,13 +72,17 @@
             <th class="num">Temp (°C)</th>
             <th class="num">Wind (kt)</th>
             <th class="num">Dir (°)</th>
-            <th class="num">Obs</th>
+            <th class="num" title="Replies used for temperature / wind">Obs T / W</th>
           </tr>
         </thead>
         <tbody id="sounding-tbody"></tbody>
       </table>
       <div class="sounding-note" id="sounding-note">
-        Altitude profile from a single flight. Works best for climbing/descending flights.
+        Temperature is computed from each aircraft's true airspeed (BDS 5,0) and Mach number (BDS 6,0):
+        T = 288.15 K · (TAS / (661.47 kt · M))². One reply scatters about ±1.5 K at cruise and ±3–4 K
+        on approach, so each level shows the mean of all replies in the layer (10 % trimmed) (1 000 ft layers below
+        10 000 ft, 2 000 ft above). Pressure is the standard-atmosphere pressure of the pressure altitude.
+        <span id="snd-mode-note"></span>
       </div>
     </div>
 
@@ -64,6 +93,128 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/sounding.js') }}"></script>
 <script>
+
+// ── Source selection (area now / hourly archive / flight) ──────────────────
+let sndMode = localStorage.getItem('ms_snd_mode') || 'area';
+const MODE_NOTES = {
+  area:   'Area: all aircraft within the radius over the selected window.',
+  hour:   'Hourly archive: stored once per completed UTC hour (from 9 Oct 2026), also after the observations are purged.',
+  flight: 'Flight: altitude profile from a single flight — works best for climbing / descending flights.',
+};
+
+function setMode(mode) {
+  sndMode = ['area', 'hour', 'flight'].includes(mode) ? mode : 'area';
+  localStorage.setItem('ms_snd_mode', sndMode);
+  document.querySelectorAll('.snd-mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === sndMode));
+  document.getElementById('snd-area-ctl').style.display   = sndMode === 'area'   ? '' : 'none';
+  document.getElementById('snd-hour-ctl').style.display   = sndMode === 'hour'   ? '' : 'none';
+  document.getElementById('snd-flight-ctl').style.display = sndMode === 'flight' ? '' : 'none';
+  document.getElementById('flight-banner').classList.add('hidden');
+  document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
+  if (sndMode === 'hour') loadHourList();
+  else loadCurrent();
+}
+
+function loadCurrent() {
+  if (sndMode === 'area')   return loadAreaSounding();
+  if (sndMode === 'hour')   return loadHourSounding();
+  return loadFlightSounding();
+}
+
+function _pad(n) { return String(n).padStart(2, '0'); }
+
+function fillTable(levels, header) {
+  const tbody = document.getElementById('sounding-tbody');
+  tbody.innerHTML = '';
+  for (const l of levels) {
+    const hasData = l.temp != null || l.wind_spd != null;
+    const tTip = l.temp_p10 != null ? `10–90 %: ${l.temp_p10.toFixed(1)} … ${l.temp_p90.toFixed(1)} °C` : '';
+    const wTip = l.wind_sd != null ? `wind vector SD ${l.wind_sd.toFixed(1)} kt` : '';
+    tbody.insertAdjacentHTML('beforeend', `<tr class="${hasData ? '' : 'empty-level'}">
+      <td class="num" style="font-weight:700">${l.pressure != null ? Math.round(l.pressure) : '–'}</td>
+      <td class="num">${l.altitude != null ? l.altitude.toLocaleString() : '–'}</td>
+      <td class="num ${l.temp != null ? '' : 'text-dim'}" title="${tTip}">${l.temp != null ? l.temp.toFixed(1) : '–'}</td>
+      <td class="num" title="${wTip}">${l.wind_spd != null ? l.wind_spd.toFixed(1) : '–'}</td>
+      <td class="num">${l.wind_dir != null ? l.wind_dir.toFixed(0) + '°' : '–'}</td>
+      <td class="num text-dim">${l.temp_count || 0} / ${l.wind_count || 0}</td>
+    </tr>`);
+  }
+  document.getElementById('table-header').textContent = header;
+}
+
+function showProfile(d, header, metaPrefix) {
+  // Surface (highest pressure) first, as in the Skew-T
+  const levels = (d.levels || []).slice().sort((a, b) => b.pressure - a.pressure);
+  renderSounding(levels);
+  fillTable(levels, header);
+  document.getElementById('sounding-meta').textContent =
+    `${metaPrefix}${d.obs_used} obs used · ${levels.length} levels`;
+}
+
+// ── Area sounding (last N minutes) ────────────────────────────────────────
+async function loadAreaSounding() {
+  const meta = document.getElementById('sounding-meta');
+  meta.textContent = 'Loading…';
+  const minutes = document.getElementById('snd-minutes').value;
+  try {
+    const r = await fetch(`/api/sounding?minutes=${minutes}`);
+    const d = await r.json();
+    showProfile(d, `Area profile — ${d.radius_km} km, last ${d.window_min} min`,
+                `generated ${d.generated_at.substr(11, 5)} UTC · `);
+  } catch (e) {
+    meta.textContent = 'Error loading area sounding.';
+    console.error(e);
+  }
+}
+
+// ── Hourly archive ────────────────────────────────────────────────────────
+async function loadHourList() {
+  const dateEl = document.getElementById('snd-date');
+  if (!dateEl.value) {
+    const n = new Date(Date.now() - 3600e3);
+    dateEl.value = `${n.getUTCFullYear()}-${_pad(n.getUTCMonth() + 1)}-${_pad(n.getUTCDate())}`;
+  }
+  const sel = document.getElementById('snd-hour');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">—</option>';
+  try {
+    const r = await fetch(`/api/sounding/hours?date=${dateEl.value}`);
+    const hours = await r.json();
+    for (const h of hours) {
+      const d = new Date(h.ts * 1000);
+      const o = document.createElement('option');
+      o.value = h.ts;
+      o.textContent = `${_pad(d.getUTCHours())}–${_pad((d.getUTCHours() + 1) % 24)} UTC (${h.n} obs)`;
+      sel.appendChild(o);
+    }
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+    else if (hours.length) sel.value = String(hours[hours.length - 1].ts);
+    if (sel.value) loadHourSounding();
+    else document.getElementById('sounding-meta').textContent = 'No hourly profiles stored for this date.';
+  } catch (e) {
+    console.error('Could not load hour list', e);
+  }
+}
+
+async function loadHourSounding() {
+  const ts = document.getElementById('snd-hour').value;
+  const meta = document.getElementById('sounding-meta');
+  if (!ts) { meta.textContent = 'Select a date and hour.'; return; }
+  meta.textContent = 'Loading…';
+  try {
+    const r = await fetch(`/api/sounding/hour?ts=${ts}`);
+    const d = await r.json();
+    if (d.error) { meta.textContent = d.error; return; }
+    const t = new Date(d.hour_ts * 1000);
+    const lbl = `${t.getUTCDate()}.${t.getUTCMonth() + 1}.${t.getUTCFullYear()} ` +
+                `${_pad(t.getUTCHours())}–${_pad((t.getUTCHours() + 1) % 24)} UTC`;
+    showProfile(d, `Hourly profile — ${lbl}, ${d.radius_km} km`, '');
+  } catch (e) {
+    meta.textContent = 'Error loading hourly profile.';
+    console.error(e);
+  }
+}
 
 // ── Flight list ────────────────────────────────────────────────────────────
 async function loadFlightList() {
@@ -108,8 +259,8 @@ async function loadFlightSounding() {
       return;
     }
 
-    // Render the Skew-T
-    renderSounding(d.levels);
+    showProfile(d, `Flight profile — ${d.levels.length} levels`,
+                `generated ${d.generated_at.substr(11,5)} UTC · `);
 
     // Show flight info banner
     const f = d.flight;
@@ -123,27 +274,6 @@ async function loadFlightSounding() {
       `&nbsp;·&nbsp; Altitude range: ${rangeStr}` +
       `&nbsp;·&nbsp; ${f.meteo_count} meteo obs`;
     banner.classList.remove('hidden');
-
-    meta.textContent = `${d.obs_used} obs used · ${d.levels.length} levels · generated ${d.generated_at.substr(11,5)} UTC`;
-
-    // Fill table
-    const tbody = document.getElementById('sounding-tbody');
-    tbody.innerHTML = '';
-    for (const l of d.levels) {
-      const hasData = l.temp != null || l.wind_spd != null;
-      tbody.insertAdjacentHTML('beforeend', `<tr class="${hasData ? '' : 'empty-level'}">
-        <td class="num" style="font-weight:700">${l.pressure}</td>
-        <td class="num">${l.altitude != null ? l.altitude.toLocaleString() : '–'}</td>
-        <td class="num ${l.temp != null ? '' : 'text-dim'}">${l.temp != null ? l.temp.toFixed(1) : '–'}</td>
-        <td class="num">${l.wind_spd != null ? l.wind_spd.toFixed(1) : '–'}</td>
-        <td class="num">${l.wind_dir != null ? l.wind_dir.toFixed(0) + '°' : '–'}</td>
-        <td class="num text-dim">${(l.temp_count || 0) + (l.wind_count || 0)}</td>
-      </tr>`);
-    }
-
-    document.getElementById('table-header').textContent =
-      `Flight profile — ${d.levels.length} levels`;
-
   } catch(e) {
     meta.textContent = 'Error loading flight sounding.';
     console.error(e);
@@ -151,6 +281,12 @@ async function loadFlightSounding() {
 }
 
 // ── Startup ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.snd-mode-btn').forEach(b =>
+  b.addEventListener('click', () => setMode(b.dataset.mode)));
+document.getElementById('snd-minutes').addEventListener('change', loadAreaSounding);
+document.getElementById('snd-date').addEventListener('change', loadHourList);
+document.getElementById('snd-hour').addEventListener('change', loadHourSounding);
+
 // Populate flight list, then check for ?flight=<id> URL param
 loadFlightList().then(() => {
   const urlParams  = new URLSearchParams(window.location.search);
@@ -163,7 +299,9 @@ loadFlightList().then(() => {
       sel.innerHTML += `<option value="${preFlightId}" selected>Flight #${preFlightId}</option>`;
       sel.value = preFlightId;
     }
-    loadFlightSounding();
+    setMode('flight');
+  } else {
+    setMode(sndMode);
   }
 });
 </script>
@@ -176,5 +314,15 @@ loadFlightList().then(() => {
   color:var(--text-muted); margin-bottom:4px;
 }
 .flight-banner strong { color:var(--text); }
+.flight-banner.hidden { display:none; }
+.snd-left { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.snd-mode-btns { display:flex; gap:2px; }
+.snd-mode-btn {
+  background:var(--bg-3); color:var(--text-2); border:1px solid var(--border);
+  border-radius:4px; padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer;
+}
+.snd-mode-btn:hover  { color:var(--text-1); }
+.snd-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.snd-ctl { display:flex; gap:6px; align-items:center; }
 </style>
 {% endblock %}

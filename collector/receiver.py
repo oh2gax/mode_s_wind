@@ -46,7 +46,7 @@ _CACHE_LOCK = threading.Lock()
 # approach-roughness capture (roll / track-rate / IAS / vertical-rate activity
 # on final).  Tuples:
 #   5,0: (ts, roll, track_rate, true_track, groundspeed, true_airspeed)
-#   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr)
+#   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr, mach)
 _BDS_SAMPLES_MAX = 16
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
@@ -123,6 +123,7 @@ def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
             _BDS60_SAMPLES.setdefault(icao, deque(maxlen=_BDS_SAMPLES_MAX)).append((
                 ts, result.get("indicated_airspeed"), result.get("magnetic_heading"),
                 result.get("inertial_vertical_rate"), result.get("baro_vertical_rate"),
+                result.get("mach"),
             ))
 
 
@@ -258,6 +259,7 @@ def _build_observation(icao: str, ts: float, result: dict,
             "bds60_mag_heading":   wind.get("bds60_mag_heading"),
             "bds60_ias":           wind.get("bds60_ias"),
             "bds60_mach":          wind.get("bds60_mach"),
+            "tm_temp":             wind.get("tm_temp"),
         })
 
     # Consolidated best-available fields
@@ -271,7 +273,8 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
 
       • TC 31 (operational status): ADS-B version, NIC supplement-A, NACp
         (NACp only for version ≥ 1 — undefined in version 0)
-      • TC 29 (target state & status, version 1/2 only): NACp
+      • TC 29 (target state & status, version 1/2 only): NACp; version 2 also
+        autopilot engaged / approach mode (approach roughness, rough_json "ap")
       • TC 19 (airborne velocity): NACv, and the GNSS − barometric altitude
         difference (ft) — a spoofed GNSS fix usually shows up as a sudden
         jump or a saturated value here
@@ -293,6 +296,11 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
         if result.get("nac_p") is not None:
             merged["nac_p"]    = result["nac_p"]
             merged["nac_p_ts"] = ts
+        # Autopilot / approach mode (version 2, mode-status bit set; None otherwise)
+        if result.get("autopilot") is not None:
+            merged["ap"]     = bool(result["autopilot"])
+            merged["ap_app"] = bool(result.get("approach_mode"))
+            merged["ap_ts"]  = ts
     elif tc == 19:
         if result.get("nac_v") is not None:
             merged["nac_v"] = result["nac_v"]

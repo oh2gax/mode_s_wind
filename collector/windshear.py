@@ -53,13 +53,17 @@ An aircraft is considered "on glideslope" when its altitude is within
 ±300 ft of this reference.
 """
 
+import json
 import math
+import zlib
 import re
 import threading
 import time
 import logging
 
 from collector.filter import is_blocked_registration
+from collector.atmos import tm_temp_c, trimmed_mean
+from collector.wind_calc import compute_wind
 
 log = logging.getLogger("modes.windshear")
 
@@ -134,6 +138,11 @@ ROUGH_HP_HALF_WIN    = 7.5     # s — half-width of the moving median removed b
                                # (intercept turn, glideslope capture, flap-speed steps)
                                # are removed, gust response of a few seconds remains
 ROUGH_HP_MIN_N       = 8       # samples needed for a high-pass statistic
+# Approach profile / series / autopilot (from 2026-10-09)
+PROF_PAIR_SEC        = 2.0     # BDS 5,0 and 6,0 replies paired within this for wind / temperature
+PROF_MAX_ROLL        = 5.0     # ° — no wind pair above this bank (as WIND_MAX_ROLL_DEG)
+AP_FRESH_SEC         = 10.0    # TC 29 autopilot state older than this is ignored
+SERIES_MAX_ROWS      = 900     # per list per landing (≈ 15 min at 1 reply/s)
 
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
@@ -804,7 +813,7 @@ class WindshearTracker:
                 self._capture_gnss(icao, aircraft, now, alt_msl, dist_thr, pos_frozen)
                 # Approach roughness (raw BDS 5,0 / 6,0 activity on final)
                 self._capture_rough(icao, aircraft, now, alt_msl, runway,
-                                    cross_track, ga_phase)
+                                    cross_track, ga_phase, dist_thr)
             # Reset band state when established aircraft leaves the corridor
             # (vectored-off, overflight, missed approach leaving laterally).
             # (kept when the aircraft left by crossing the threshold — landing)
@@ -1110,7 +1119,11 @@ class WindshearTracker:
             "gnss":          self._gnss_record(gnss),
             # Approach roughness per segment + METAR wind at landing time
             "rough":         self._rough_record(rough, now),
+            # Wind / headwind / Mach-TAS temperature per 200-ft band (from 2026-10-09)
+            "prof":          self._prof_record(rough),
         }
+        # Raw reply series for approach_series (DB only, not kept in RAM)
+        series = self._series_blob(rough, record)
         self._approach_history.insert(0, record)
         if len(self._approach_history) > APPROACH_HISTORY_MAX:
             self._approach_history.pop()
@@ -1124,7 +1137,7 @@ class WindshearTracker:
         # persisted immediately without coupling this class to the DB layer.
         if self._on_approach_committed is not None:
             try:
-                self._on_approach_committed(record)
+                self._on_approach_committed({**record, "series": series})
             except Exception as cb_exc:
                 log.warning("approach_committed callback failed: %s", cb_exc)
         log.info(
@@ -1210,7 +1223,7 @@ class WindshearTracker:
 
     def _capture_rough(self, icao: str, ac: dict, now: float, alt_msl: float,
                        runway: str | None, cross_track: float | None,
-                       ga_phase: str) -> None:
+                       ga_phase: str, dist_thr: float | None = None) -> None:
         """Collect the raw BDS 5,0 / 6,0 replies received since the previous
         sweep into the current altitude segment (lock held).
 
@@ -1218,6 +1231,11 @@ class WindshearTracker:
         so only replies received while established are ever collected.
         Replies that disagree with the ADS-B track / groundspeed (likely a
         mis-identified Comm-B register) are dropped and counted as "bad".
+
+        From 2026-10-09 the accepted replies are also kept as a raw series
+        (approach_series), paired per 200-ft band into wind / headwind /
+        Mach-TAS temperature (prof_json), and the TC 29 autopilot state is
+        recorded per sweep (rough_json "ap").
         """
         if self._bds_sample_fn is None:
             return
@@ -1249,6 +1267,31 @@ class WindshearTracker:
 
         S = r["seg"].setdefault(seg, {"roll": [], "tr": [], "ias": [], "vr": [],
                                       "vsrc": set(), "crab": [], "t0": None, "t1": None})
+        def _rd(v, nd):
+            return None if v is None else (int(round(v)) if nd == 0 else round(v, nd))
+        raw5 = r.setdefault("raw5", [])
+        raw6 = r.setdefault("raw6", [])
+        alt_r = int(round(alt_msl))
+
+        # Per-sweep state for the series and the autopilot summary
+        ap, app = ac.get("ap"), ac.get("ap_app")
+        if ac.get("ap_ts") is None or now - ac["ap_ts"] > AP_FRESH_SEC:
+            ap = app = None
+        if ap is not None:
+            r.setdefault("ap", []).append((alt_r, bool(ap), bool(app)))
+        sw = r.setdefault("sw", [])
+        if len(sw) < SERIES_MAX_ROWS:
+            def _f(v, nd):
+                return None if v is None else round(v, nd)
+            sw.append([round(now, 1), alt_r, ac.get("altitude"), _f(dist_thr, 2),
+                       _f(cross_track, 2), _f(ac.get("lat"), 5), _f(ac.get("lon"), 5),
+                       ac.get("groundspeed"), _f(ac.get("track"), 1),
+                       None if ap is None else int(ap), None if app is None else int(app)])
+        band = min(APPROACH_HISTORY_BANDS, key=lambda b: abs(alt_msl - b))
+        P = None
+        if abs(alt_msl - band) <= BAND_TOL_FT:
+            P = r.setdefault("prof", {}).setdefault(str(band), {"u": [], "v": [], "hw": [], "t": []})
+        ok50 = []                           # accepted BDS 5,0 replies of this sweep
 
         def _span(ts):
             S["t0"] = ts if S["t0"] is None else min(S["t0"], ts)
@@ -1266,11 +1309,19 @@ class WindshearTracker:
                 if trate is not None and abs(trate) <= 8.0:
                     S["tr"].append(trate)
             _span(ts)
+            ok50.append((ts, roll, ttrk, bgs, _tas))
+            if len(raw5) < SERIES_MAX_ROWS:
+                raw5.append([round(ts, 2), _rd(roll, 2), _rd(trate, 3), _rd(ttrk, 2),
+                             bgs, _tas, alt_r])
+            if P is not None and _tas is not None and bgs is not None:
+                P["hw"].append(_tas - bgs)          # headwind component (TAS − GS)
 
         decl = ac.get("mag_decl")
         if decl is None:
             decl = self.mag_declination
-        for ts, ias, mhdg, vri, vrb in b60:
+        for smp in b60:
+            ts, ias, mhdg, vri, vrb = smp[:5]
+            mach = smp[5] if len(smp) > 5 else None
             if ias is None or not 80 <= ias <= 260:
                 r["bad"] += 1
                 continue
@@ -1280,6 +1331,24 @@ class WindshearTracker:
                 if abs(crab) > 40.0:
                     r["bad"] += 1
                     continue
+            if len(raw6) < SERIES_MAX_ROWS:
+                raw6.append([round(ts, 2), ias, _rd(mhdg, 2), _rd(vri, 0), _rd(vrb, 0),
+                             _rd(mach, 3), alt_r])
+            if P is not None and ok50:
+                # pair with the nearest accepted BDS 5,0 reply of this sweep
+                p5 = min(ok50, key=lambda x: abs(x[0] - ts))
+                t5, roll5, ttrk5, bgs5, tas5 = p5
+                if abs(t5 - ts) <= PROF_PAIR_SEC and tas5 is not None:
+                    tm = tm_temp_c(tas5, mach)
+                    if tm is not None:
+                        P["t"].append(tm)
+                    if (mhdg is not None and decl is not None and ttrk5 is not None
+                            and bgs5 is not None and abs(roll5) <= PROF_MAX_ROLL):
+                        wspd, wdir = compute_wind(float(ttrk5), float(bgs5),
+                                                  (mhdg + decl) % 360.0, float(tas5))
+                        rd = math.radians(wdir)
+                        P["u"].append(-wspd * math.sin(rd))
+                        P["v"].append(-wspd * math.cos(rd))
             if len(S["ias"]) >= ROUGH_MAX_SAMPLES:
                 continue
             S["ias"].append((ts, ias))
@@ -1390,9 +1459,135 @@ class WindshearTracker:
                 out[name] = d
         if out and r and r.get("bad"):
             out["bad"] = r["bad"]
+        apl = (r or {}).get("ap") or []
+        if apl:
+            # Autopilot (ADS-B TC 29, version 2 transponders) while established:
+            # n / on sweeps with a known state, the same below 1000 ft MSL, the
+            # altitude where it was switched off (first on → off), approach mode
+            lo = [x for x in apl if x[0] <= 1000]
+            off_ft = next((apl[i][0] for i in range(1, len(apl))
+                           if apl[i - 1][1] and not apl[i][1]), None)
+            out["ap"] = {"n": len(apl), "on": sum(1 for x in apl if x[1]),
+                         "n_lo": len(lo), "on_lo": sum(1 for x in lo if x[1]),
+                         "off_ft": off_ft, "app": any(x[2] for x in apl)}
         if self._metar and now - self._metar_set_ts <= ROUGH_METAR_MAX_AGE:
             out["metar"] = dict(self._metar)
         return out or None
+
+    @staticmethod
+    def _prof_record(r: dict | None) -> dict | None:
+        """Per 200-ft band on final (prof_json): n wind pairs, vector-mean
+        wind wd / ws with sd (RMS vector deviation, kt), headwind component
+        hw (TAS − GS, kt, + = headwind) with hn replies, Mach/TAS
+        temperature t (°C, 10 % trimmed mean — at approach speeds one Mach
+        step of 0.004 is ~4 K, so a mean resolves better than a median)
+        with tn pairs.  None if nothing."""
+        out = {}
+        for band, P in ((r or {}).get("prof") or {}).items():
+            d = {}
+            n = len(P["u"])
+            if n:
+                um, vm = sum(P["u"]) / n, sum(P["v"]) / n
+                d["n"]  = n
+                d["ws"] = round(math.hypot(um, vm), 1)
+                d["wd"] = int(round((math.degrees(math.atan2(-um, -vm)) + 360) % 360)) % 360
+                d["sd"] = round(math.sqrt(sum((u - um) ** 2 + (v - vm) ** 2
+                                              for u, v in zip(P["u"], P["v"])) / n), 1)
+            if P["hw"]:
+                d["hw"] = round(sum(P["hw"]) / len(P["hw"]), 1)
+                d["hn"] = len(P["hw"])
+            if P["t"]:
+                d["t"]  = round(trimmed_mean(P["t"]), 1)
+                d["tn"] = len(P["t"])
+            if d:
+                out[band] = d
+        return out or None
+
+    # Column layout of the approach_series blob: (name, scale, delta-coded).
+    # Stored value = round(value × scale); delta-coded columns hold the
+    # difference to the previous row (first row absolute).  None stays None.
+    SERIES_COLS = {
+        "b50": (("t", 100, True), ("roll", 100, False), ("trate", 1000, False),
+                ("trk", 100, False), ("gs", 1, False), ("tas", 1, False),
+                ("alt", 1, True)),
+        "b60": (("t", 100, True), ("ias", 1, False), ("hdg", 100, False),
+                ("vri", 1, False), ("vrb", 1, False), ("mach", 1000, False),
+                ("alt", 1, True)),
+        "sw":  (("t", 10, True), ("alt", 1, True), ("palt", 1, False),
+                ("dthr", 100, False), ("xt", 100, False), ("lat", 100000, False),
+                ("lon", 100000, False), ("gs", 1, False), ("trk", 10, False),
+                ("ap", 1, False), ("app", 1, False)),
+    }
+
+    @classmethod
+    def _series_blob(cls, r: dict | None, record: dict) -> bytes | None:
+        """Raw series of one landing for approach_series: zlib-compressed JSON
+        {"v": 1, "t0", "icao", "type", "rwy", "cols": {list: [[name, scale,
+        delta], …]}, "b50": {col: [...]}, "b60": {...}, "sw": {...}} with
+          b50  BDS 5,0 replies: t (s after t0), roll °, track rate °/s,
+               true track °, GS kt, TAS kt, alt (ft MSL of the sweep)
+          b60  BDS 6,0 replies: t, IAS kt, magnetic heading °, inertial and
+               baro vertical rate ft/min, Mach, alt
+          sw   sweeps (3 s): t, alt ft MSL, pressure alt ft, distance to
+               threshold NM, cross-track NM, lat, lon, GS kt, track °,
+               autopilot 0/1, approach mode 0/1
+        Column values are integers: value × scale, delta-coded where marked
+        (see SERIES_COLS) — about 2–3 kB per landing.  Only replies accepted
+        while established on final (as the roughness statistics).
+        Decode: v = cumsum(col) if delta else col; value = v / scale."""
+        if not r:
+            return None
+        src = {"b50": r.get("raw5") or [], "b60": r.get("raw6") or [], "sw": r.get("sw") or []}
+        if not any(src.values()):
+            return None
+        t0 = min(x[0] for v in src.values() for x in v)
+        out = {"v": 1, "t0": round(t0, 2), "icao": record.get("icao"),
+               "type": record.get("aircraft_type"), "rwy": record.get("runway"),
+               "cols": {k: [list(c) for c in cols] for k, cols in cls.SERIES_COLS.items()}}
+        for key, cols in cls.SERIES_COLS.items():
+            rows = src[key]
+            block = {}
+            for i, (name, scale, delta) in enumerate(cols):
+                vals = []
+                prev = 0
+                for row in rows:
+                    v = row[i]
+                    if i == 0:
+                        v = v - t0
+                    if v is None:
+                        vals.append(None)
+                        continue
+                    iv = int(round(v * scale))
+                    if delta:
+                        vals.append(iv - prev)
+                        prev = iv
+                    else:
+                        vals.append(iv)
+                block[name] = vals
+            out[key] = block
+        return zlib.compress(json.dumps(out, separators=(",", ":")).encode(), 9)
+
+    @classmethod
+    def decode_series(cls, blob: bytes) -> dict:
+        """Inverse of _series_blob: {"b50"|"b60"|"sw": {col: [values]}} plus
+        the header fields (for analysis scripts)."""
+        d = json.loads(zlib.decompress(blob))
+        for key, cols in d.get("cols", {}).items():
+            block = d.get(key) or {}
+            for name, scale, delta in cols:
+                vals, acc, res = block.get(name, []), 0, []
+                for v in vals:
+                    if v is None:
+                        res.append(None)
+                        continue
+                    if delta:
+                        acc += v
+                        v = acc
+                    res.append(v / scale)
+                if name == "t":
+                    res = [None if v is None else round(v + d["t0"], 2) for v in res]
+                block[name] = res
+        return d
 
     def get_state(self) -> dict:
         """

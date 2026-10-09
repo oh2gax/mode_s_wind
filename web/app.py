@@ -435,13 +435,17 @@ def create_app(
         if not flight:
             return jsonify([])
 
+        # Temperature: Mach/TAS temperature also for rows stored before it was
+        # recorded (computed from their TAS and Mach), see collector/atmos.py
+        from collector.atmos import TEMP_SQL
         rows = db.execute(
-            """SELECT ts, altitude, lat, lon, best_wind_spd, best_wind_dir, best_temp
-               FROM observations
-               WHERE flight_id = ?
-                 AND altitude IS NOT NULL
-                 AND (best_wind_spd IS NOT NULL OR best_temp IS NOT NULL)
-               ORDER BY ts ASC""",
+            f"""SELECT ts, altitude, lat, lon, best_wind_spd, best_wind_dir,
+                       {TEMP_SQL} AS best_temp
+                FROM observations
+                WHERE flight_id = ?
+                  AND altitude IS NOT NULL
+                  AND (best_wind_spd IS NOT NULL OR {TEMP_SQL} IS NOT NULL)
+                ORDER BY ts ASC""",
             (flight["id"],),
         ).fetchall()
         return jsonify([dict(r) for r in rows])
@@ -567,11 +571,35 @@ def create_app(
     def sounding_api():
         """
         Aggregate meteo observations within SOUNDING_RADIUS_KM of receiver
-        over the last SOUNDING_WINDOW_MIN minutes, binned by pressure level.
+        over the last SOUNDING_WINDOW_MIN minutes (or ?minutes=, 10–360),
+        in altitude layers with the Mach/TAS temperature.
         """
         from web.api.sounding import build_sounding
-        result = build_sounding(cfg, get_db())
+        minutes = request.args.get("minutes", type=int)
+        result = build_sounding(cfg, get_db(), minutes)
         return jsonify(result)
+
+    @app.route("/api/sounding/hours")
+    def sounding_hours_api():
+        """Hours stored in the hourly profile archive (profile_hours) for a
+        UTC date: ?date=YYYY-MM-DD → [{ts, n}, …]."""
+        import re as _re
+        from web.api.sounding import list_profile_hours
+        date = request.args.get("date", "")
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+        return jsonify(list_profile_hours(get_db(), date))
+
+    @app.route("/api/sounding/hour")
+    def sounding_hour_api():
+        """Area sounding of one completed UTC hour from profile_hours:
+        ?ts=<hour start, Unix epoch>."""
+        from web.api.sounding import build_hour_sounding
+        ts = request.args.get("ts", type=int)
+        if ts is None:
+            return jsonify({"error": "ts required"}), 400
+        result = build_hour_sounding(get_db(), ts)
+        return jsonify(result), (404 if "error" in result else 200)
 
     @app.route("/api/flights/<int:flight_id>/sounding")
     def flight_sounding_api(flight_id: int):
@@ -676,7 +704,9 @@ def create_app(
         roughness per altitude segment + METAR wind, see _rough_record), or
         null for older rows, and "cond" — the provisional approach-conditions
         index computed from "rough" (collector/approach_cond.py; null when
-        there is not enough data).
+        there is not enough data), and "prof" (from 2026-10-09: per 200-ft
+        band averaged wind with n / SD, headwind component and Mach/TAS
+        temperature; null for older rows).
         """
         import json as _json
         window = request.args.get("window", type=int)
@@ -690,7 +720,7 @@ def create_app(
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json
+                          gnss_json, rough_json, prof_json
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -704,6 +734,8 @@ def create_app(
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
                 rg_txt = r.pop("rough_json", None)
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
+                pf_txt = r.pop("prof_json", None)
+                r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
@@ -717,7 +749,7 @@ def create_app(
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json
+                          gnss_json, rough_json, prof_json
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -731,6 +763,8 @@ def create_app(
                 r["gnss"] = _json.loads(g_txt) if g_txt else None
                 rg_txt = r.pop("rough_json", None)
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
+                pf_txt = r.pop("prof_json", None)
+                r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
@@ -755,6 +789,7 @@ def create_app(
             ws_tracker.clear_approach_history()
         db = get_db()
         db.execute("DELETE FROM approach_history")
+        db.execute("DELETE FROM approach_series")
         db.commit()
         return jsonify({"ok": True})
 

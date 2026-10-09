@@ -61,6 +61,8 @@ async function loadStats() {
     _fill('stat-gps',          d.gps_quality_hours);
     _fill('stat-gpsz',         d.gps_quality_zone_hours);
     if (d.gps_episodes) _fill('stat-episodes', d.gps_episodes);
+    if (d.approach_series) _fill('stat-apseries', d.approach_series);
+    if (d.profile_hours)   _fill('stat-profile',  d.profile_hours);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {

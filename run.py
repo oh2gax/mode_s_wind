@@ -102,6 +102,49 @@ def _housekeeping_thread(
             hk_log.warning("Housekeeping error: %s", exc)
 
 
+def _hourly_jobs_thread(cfg) -> None:
+    """
+    Background daemon for once-per-hour jobs (from 2026-10-09):
+
+      • Hourly atmospheric profile archive (profile_hours): a few minutes
+        after each hour change the area profile (wind + Mach/TAS temperature
+        per altitude layer) of the hour that ended is computed from the
+        observations and stored — one read query and one INSERT.  At startup
+        hours missing within the observations still in the database are
+        back-filled (slowly, in the background).
+      • Approach series retention: approach_series rows older than
+        APPROACH_SERIES_DAYS (default 90) are deleted once a day.
+    """
+    from database.db import get_db as _get_db
+    from collector.atmos import store_missing_profile_hours
+    hj_log = logging.getLogger("modes.hourly")
+    series_days = float(getattr(cfg, "APPROACH_SERIES_DAYS", 90))
+    last_purge = 0.0
+    first = True
+    while True:
+        try:
+            db = _get_db()
+            n = store_missing_profile_hours(
+                db, cfg.RECEIVER_LAT, cfg.RECEIVER_LON, cfg.SOUNDING_RADIUS_KM,
+                max_hours=31 * 24 if first else 48, pause_sec=0.2 if first else 0.0)
+            if n:
+                hj_log.info("Hourly profile archive: stored %d hour(s)", n)
+            first = False
+            if time.time() - last_purge > 86_400 and series_days > 0:
+                cur = db.execute("DELETE FROM approach_series WHERE ts < ?",
+                                 (time.time() - series_days * 86_400,))
+                db.commit()
+                last_purge = time.time()
+                if cur.rowcount:
+                    hj_log.info("Approach series: deleted %d rows older than %g days",
+                                cur.rowcount, series_days)
+        except Exception as exc:
+            hj_log.warning("Hourly jobs error: %s", exc)
+        # wake up 3 minutes after the next hour change
+        now = time.time()
+        time.sleep(max(60.0, (now // 3600 + 1) * 3600 + 180 - now))
+
+
 def _gps_quality_sweep(
     live_state: dict,
     live_lock: threading.RLock,
@@ -172,8 +215,8 @@ def _on_approach_committed(record: dict) -> None:
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
                 aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa,
-                gnss_json, rough_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                gnss_json, rough_json, prof_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -191,8 +234,16 @@ def _on_approach_committed(record: dict) -> None:
                  if record.get("gnss") else None),
                 (json.dumps(record["rough"], separators=(",", ":"))
                  if record.get("rough") else None),
+                (json.dumps(record["prof"], separators=(",", ":"))
+                 if record.get("prof") else None),
             ),
         )
+        # Raw reply series (research data, retention APPROACH_SERIES_DAYS) —
+        # same transaction, so no extra commit
+        if record.get("series"):
+            db.execute(
+                "INSERT INTO approach_series (ts, icao, runway, data) VALUES (?,?,?,?)",
+                (ts, record.get("icao", ""), record.get("runway"), record["series"]))
         db.commit()
     except Exception as exc:
         log.warning("approach_history DB write failed: %s", exc)
@@ -211,7 +262,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         rows = db.execute(
             """SELECT ts, time_utc, icao, callsign, registration,
                       aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                      gnss_json, rough_json
+                      gnss_json, rough_json, prof_json
                FROM approach_history
                WHERE ts > ?
                ORDER BY ts DESC
@@ -232,6 +283,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
                 "go_arounds":   row["go_arounds"] if row["go_arounds"] is not None else 0,
                 "gnss":         json.loads(row["gnss_json"]) if row["gnss_json"] else None,
                 "rough":        json.loads(row["rough_json"]) if row["rough_json"] else None,
+                "prof":         json.loads(row["prof_json"]) if row["prof_json"] else None,
             }
             for row in rows
         ]
@@ -364,6 +416,17 @@ def main() -> None:
     )
     hk_thread.start()
     log.info("Housekeeping thread started (live_state max age %.0f s)", LIVE_STATE_MAX_AGE_SEC)
+
+    # ── Hourly jobs (profile archive, approach series retention) ─────────
+    hourly_thread = threading.Thread(
+        target=_hourly_jobs_thread,
+        args=(cfg,),
+        name="hourly_jobs",
+        daemon=True,
+    )
+    hourly_thread.start()
+    log.info("Hourly jobs thread started (profile archive, approach series %g days)",
+             float(getattr(cfg, "APPROACH_SERIES_DAYS", 90)))
 
     # ── Autopurge background thread ───────────────────────────────────────
     autopurge_thread = threading.Thread(

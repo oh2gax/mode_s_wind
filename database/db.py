@@ -64,6 +64,9 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE gps_episodes ADD COLUMN mlat_cmp INTEGER",
         "ALTER TABLE gps_episodes ADD COLUMN gmb_min INTEGER",
         "ALTER TABLE gps_episodes ADD COLUMN gmb_max INTEGER",
+        # Mach/TAS temperature; approach profile per band (2026-10-09)
+        "ALTER TABLE observations ADD COLUMN tm_temp REAL",
+        "ALTER TABLE approach_history ADD COLUMN prof_json TEXT",
     ]
     for sql in _migrations:
         try:

@@ -21,8 +21,9 @@ All decoded observations are stored in a local SQLite database and presented thr
   - BDS 4,4 MRAR — Meteorological Routine Air Report (direct temp, pressure, humidity, wind, turbulence from aircraft avionics)
   - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels)
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
+  - BDS 5,0 + 6,0 **air temperature** — static air temperature from the true airspeed and the Mach number (since 2026-10-09; available for about 85 % of the observations, see [Air temperature](#air-temperature-bds-50--60))
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
-- **Skew-T atmospheric soundings** — per-flight vertical profiles for climbing/descending flights, accessible from the Sounding page or directly from the Flights browser
+- **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser)
 - **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar; clicking any aircraft immediately loads its full historical wind and temperature profile from the database, then continues accumulating live updates on top. Profile persists across page navigation — navigating away and back restores the full picture instantly.
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark theme toggle** — a **Dark / Light** button in the navbar switches all pages between the default dark theme and a blue-grey paper-toned light theme; preference is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette
@@ -104,6 +105,8 @@ When multiple sources are available for the same observation the `best_*` consol
 3. **COMPUTED** — wind vector calculated from BDS 5,0 + 6,0 pair
 4. **JSON** — temperature or wind injected from Radarcape's JSON feed
 
+Temperature (`best_temp`, since 2026-10-09): **MRAR → Mach/TAS temperature → MHR** (→ JSON in the live view). At EFHK MRAR is practically never received and BDS 4,5 hazard reports are rare and unreliable (often other Comm-B registers misidentified as BDS 4,5 — implausible icing / turbulence levels in most of them), so MHR comes last.
+
 ### Computed wind (BDS 5,0 + 6,0)
 
 Wind = ground vector − air vector. The ground vector is the true track and groundspeed from BDS 5,0; the air vector is the true heading and true airspeed. A BDS 5,0 and a BDS 6,0 reply from the same aircraft at most `WIND_MAX_PAIR_AGE` (10 s) apart are paired, and the result is rejected while the aircraft banks more than `WIND_MAX_ROLL_DEG` or turns faster than `WIND_MAX_TRACK_RATE`.
@@ -119,6 +122,14 @@ Wind = ground vector − air vector. The ground vector is the true track and gro
 | `IAS` | IAS (BDS 6,0) converted to TAS | Compressible-flow CAS → Mach → TAS at the ISA pressure for the altitude, same temperature as above. Requires a known altitude |
 
 If none of these can be determined (e.g. no TAS and no altitude yet), no wind is computed. Before 2026-09-25 IAS was used directly as TAS when TAS and Mach were missing, which is badly wrong at altitude (≈200 kt too low at FL350).
+
+### Air temperature (BDS 5,0 + 6,0)
+
+Since 2026-10-09 every observation with a wind pair also gets the **static air temperature** computed from the true airspeed (BDS 5,0, 2 kt resolution) and the Mach number (BDS 6,0, 0.004 resolution) reported by the same aircraft's air-data computer (`tm_temp` column, also `best_temp`):
+
+> a = TAS / M,  T = a² / (γ·R)  →  T [K] = 288.15 · (TAS / (661.47 kt · M))²
+
+Until then temperature came only from the rare MRAR / MHR replies — on 8–9 Oct 2026 just 147 of 35 841 stored observations had one; now about 85 % do. A single value scatters by about ±1.3 K at cruise (Mach 0.75–0.85) and ±3–4 K on approach (Mach 0.2–0.25), because the Mach step of 0.004 is a larger fraction of a small Mach number, so profiles use the (10 % trimmed) mean of many replies. Not computed below Mach 0.2 or more than 40 K from ISA. Checked against the Jokioinen radiosonde (8 Oct 2026 12 UTC, 850–260 hPa, two-hour mean over 150 km): mean difference +0.7 K, standard deviation 1.6 K. Older observations have no `tm_temp`, but the Sounding page computes it on the fly from their stored TAS and Mach (`collector/atmos.py`).
 
 ---
 
@@ -190,8 +201,9 @@ class Config:
     RADARCAPE_JSON_INTERVAL = 5.0     # not currently used — poller runs every 2 s (radarcape_json.py)
 
     # ── Sounding aggregation ──────────────────────────────────────────────
-    SOUNDING_RADIUS_KM = 150.0        # aggregate obs within this radius
-    SOUNDING_WINDOW_MIN = 60          # aggregate over this many past minutes
+    SOUNDING_RADIUS_KM = 150.0        # area sounding + hourly profile archive: obs within this radius
+    SOUNDING_WINDOW_MIN = 60          # default window of the "Area · now" sounding (minutes)
+    # APPROACH_SERIES_DAYS = 90       # optional: days to keep the raw approach series (approach_series; 0 = never purge)
 
     # ── Meteo source mode ─────────────────────────────────────────────────
     METEO_SOURCE_MODE = "HYBRID"      # "EHS" | "JSON" | "HYBRID"
@@ -480,12 +492,16 @@ Click the **✕** button to deselect and close the aircraft detail panel. The ME
 
 A permanently visible Skew-T Log-P diagram filling the full height of the right panel. The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
-**When no aircraft is selected** the diagram shows only the ISA reference grid and a "Click an aircraft to show profile" hint.
+**Scales (since 2026-10-09)** — pressure (hPa) on the left, altitude markers (**1–12 km**, pressure altitude) just right of the pressure axis, and the temperature scale (−40 … +30 °C at the bottom of the skewed axis) below the plot (it used to be clipped away). The panel is 460 px wide (was 378 px) and the temperature range is centred on the typical profile, so the curve no longer sits against the wind barbs. The dashed blue line is the ISA reference.
+
+**Area profile (since 2026-10-09)** — the profile of all aircraft within `SOUNDING_RADIUS_KM` over the last 60 minutes (the same as the Sounding page's **Area · now**, refreshed every 5 minutes) is drawn in grey: temperature curve with its 10–90 % range bars and, when no aircraft is selected, its temperature values and wind barbs. With an aircraft selected it stays in the background as a reference.
+
+**Hover read-out (since 2026-10-09)** — moving the mouse over the diagram shows the nearest level: altitude (ft, FL, km), pressure, temperature and wind — for the selected aircraft's observations, otherwise (or above / below them) for the area profile, with its 10–90 % temperature range, wind spread and number of replies.
 
 **When an aircraft is selected** the panel immediately loads the aircraft's full flight history from the database, then continues accumulating live updates:
 
 - **Wind barbs** — drawn in the aircraft's colour for each stored altitude observation, labelled with direction and speed in the format **248° 24kt** (FROM direction, meteorological convention). Older history barbs are shown at 40% opacity.
-- **Temperature dots** — plotted at the correct skewed-temperature position for each altitude observation.
+- **Temperature curve** — a dot for each shown altitude observation, joined into a line, with the values (°C) next to them (thinned so they do not overlap). Since 2026-10-09 the temperature is available for most observations (Mach/TAS temperature, also computed for older stored observations); single values scatter by a few degrees, especially at low speed, so compare with the grey area profile.
 - **Level indicator** — a dashed horizontal line showing the aircraft's current pressure level derived from barometric altitude via the ISA model. When temperature data is available a white-ringed coloured dot marks the point on the temperature curve; otherwise a small diamond appears on the pressure axis.
 
 **Profile persistence** — the profile is pre-loaded from the database the first time you click an aircraft during a page session. Navigating to another page and returning, then clicking the same aircraft again, restores the complete historical profile instantly from the database rather than starting from scratch.
@@ -541,21 +557,19 @@ The 🌡 **Sounding** button (visible on flights with sufficient altitude range)
 
 ### Sounding  `/sounding`
 
-Skew-T style atmospheric sounding for individual flights. Observations from a single flight are binned into 2 000 ft altitude bands to build a vertical profile. This works best for climbing departures or descending arrivals where the aircraft samples many different altitude layers.
+Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air temperature](#air-temperature-bds-50--60)). Three sources, selected with the buttons at the top left (the choice is remembered in the browser):
 
-Select a flight from the dropdown (populated with all flights that have meteo data and an altitude range > 5 000 ft, most recent first), then click **Load Sounding**.
+- **Area · now** (default) — all aircraft within `SOUNDING_RADIUS_KM` (150 km) of the receiver over the last 30 min, 60 min (default, `SOUNDING_WINDOW_MIN`), 2 h or 3 h
+- **Area · hour** — the **hourly profile archive** (`profile_hours`, from 9 Oct 2026): one stored profile per completed UTC hour, kept indefinitely — also after the observations themselves have been purged. Pick a date and hour; the hour list shows the observations used
+- **Flight** — profile of a single flight: select a flight from the dropdown (flights with meteo data and an altitude range > 5 000 ft, most recent first), then **Load Sounding**. The flight info banner shows callsign, ICAO24, time range, altitude range and observation count. The Flights page's 🌡 Sounding button opens this page with the flight pre-selected
 
-The flight info banner below the controls shows callsign, ICAO24, time range, altitude range, and observation count.
-
-You can also reach a specific flight's sounding directly from the Flights page via the 🌡 Sounding button, which opens this page with that flight pre-selected.
-
-`SOUNDING_RADIUS_KM` / `SOUNDING_WINDOW_MIN` in `config.py` apply only to the area-average sounding API (`/api/sounding`, all observations within the radius over the last N minutes, binned by pressure level); the Sounding page itself currently shows per-flight profiles.
+All three use the same altitude layers — 1 000 ft deep below 10 000 ft, 2 000 ft above (to 46 000 ft) — at the standard-atmosphere pressure of the layer's pressure altitude (Mode S altitude is referenced to 1013.25 hPa, so this is the measured static pressure). Temperature is the 10 % trimmed mean of the replies in the layer, wind the vector mean. (Before 2026-10-09 the area sounding binned observations by their reported pressure, which only the rare MRAR / MHR replies carry, so it was almost always empty; the page therefore showed only per-flight profiles, mostly without temperature.)
 
 #### Skew-T diagram
 
 The diagram shows:
 
-- **Red line** — temperature profile (°C)
+- **Red line** — temperature profile (°C); thin red bars show the 10–90 % range of the replies in each layer
 - **Wind barbs** on the right axis — wind speed and direction at each level (full barb = 10 kt, half barb = 5 kt, pennant = 50 kt)
 - Standard pressure levels labelled on the left axis
 
@@ -565,12 +579,12 @@ The table on the right shows each pressure level with:
 
 | Column | Description |
 |--------|-------------|
-| Press (hPa) | Pressure level |
-| Alt (ft) | Mean altitude of observations at this level |
-| Temp (°C) | Mean temperature |
-| Wind (kt) | Mean wind speed |
-| Dir (°) | Mean wind direction (FROM, meteorological convention) |
-| Obs | Number of observations contributing to this level |
+| Press (hPa) | Standard-atmosphere pressure of the layer centre |
+| Alt (ft) | Layer centre (pressure altitude) |
+| Temp (°C) | Trimmed mean temperature (hover: 10–90 % range) |
+| Wind (kt) | Vector-mean wind speed (hover: vector standard deviation) |
+| Dir (°) | Vector-mean wind direction (FROM, meteorological convention) |
+| Obs T / W | Replies used for temperature / wind |
 
 ---
 
@@ -1089,6 +1103,12 @@ Since 2026-10-06 every landing in Approach History also stores how "rough" the f
 
 Record-level keys: `bad` (replies dropped as inconsistent) and `metar` (`{"t": "DDHHMM", "dir": °, "spd": kt, "gst": kt or null, "var": "200V270" or null}`; omitted when no METAR has been received in the last 2 h). The JSON is about 300–450 bytes per landing (roughly 30 MB per year at EFHK traffic levels), written in the same insert as the landing itself.
 
+**Autopilot, wind / temperature profile and raw series (since 2026-10-09)** — three additions for later analysis, all written with the landing row (no extra commits):
+
+- `rough_json` key **`ap`** — autopilot state from ADS-B TC 29 (version 2 transponders; others have no `ap`) on the sweeps while established: `n` / `on` sweeps with a known state / with the autopilot engaged, `n_lo` / `on_lo` the same below 1 000 ft MSL, `off_ft` the altitude where it was switched off (first on → off), `app` approach mode seen. Separates hand-flown and coupled segments — the aircraft's response to turbulence depends on who flies.
+- **`prof_json`** column (`prof` in the API) — per 200-ft band of the final approach: `n` paired BDS 5,0 / 6,0 replies with the vector-mean wind `wd` / `ws` and its spread `sd` (kt) — instead of the single reading in `bands_json` —, the headwind component `hw` (TAS − GS, kt; `hn` replies) and the Mach/TAS temperature `t` (°C; `tn` pairs). Every landing is thus a small 3 000 → 200 ft sounding: low-level wind shear and the temperature lapse rate (stability) near the airport. About 0.5–1 kB per landing.
+- **`approach_series`** table — the raw replies behind the statistics (BDS 5,0: roll, track rate, track, GS, TAS; BDS 6,0: IAS, heading, vertical rates, Mach; each 3-s sweep: altitude, distance, cross-track, position, autopilot), zlib-compressed integer columns, about 2–3 kB per landing. Lets new methods (spectra, EDR-type turbulence estimates, other filters) be applied to past landings. Kept **`APPROACH_SERIES_DAYS`** (default 90; about 50 MB) and purged daily; `collector/windshear.py` `WindshearTracker.decode_series()` decodes a row.
+
 #### How the approach-conditions index is calculated
 
 From the roughness record the server computes one number per landing, **0 (smooth) to 10 (very rough)** — the *approach-conditions index* (provisional; `collector/approach_cond.py`). It is calculated when the data is requested (API field `cond`) and never stored, so a re-tune of the constants below re-scores all past landings. It is shown in the Approach History **Cond** mode and in the Windrose panel's **Cond** view.
@@ -1418,7 +1438,8 @@ Unique index on `(icao, t_start)`, index on `t_start`. Never auto-purged; manual
 | go_arounds | Integer count of go-arounds performed by this aircraft before the final landing; 0 for normal straight-in approaches |
 | qnh_hpa | METAR QNH (hPa) used to convert the band altitudes from pressure altitude to MSL; `NULL` for rows written before 2026-09-25 (bands are raw pressure altitude) or when no METAR QNH was available yet |
 | gnss_json | GNSS quality during the approach (since 2026-10-06, `NULL` before or when nothing was captured). `bands`: per altitude band (same keys and ±100 ft tolerance as `bands_json`) `{"nacp": lowest fresh NACp, "nic": lowest fresh NIC, "pa": largest age (s) of the aircraft's own ADS-B position, "fz": 1 if the position-freeze gate fired, "n": sweeps}`; `n` / `deg_n`: in-corridor sweeps / degraded sweeps; `first_deg`, `last_deg`, `rec`: `{"alt": ft MSL, "dist": NM to threshold}` of the first and last degraded sweep and of the first clean sweep after degradation. A sweep counts as degraded when NACp ≤ 6, NIC ≤ 6, the position freeze gate fired, or the aircraft is sending extended squitters but its own ADS-B position is ≥ 10 s old. Note that at the lowest altitudes `pa` also grows when the aircraft drops below the receiver's line of sight, so a large `pa` alone is not proof of jamming |
-| rough_json | Approach roughness on the established final (since 2026-10-06, `NULL` before): per segment `hi` (3 000–1 000 ft MSL) and `lo` (1 000–200 ft MSL) bank-angle, track-rate, IAS, vertical-rate and crab-angle statistics from all raw BDS 5,0 / 6,0 replies, plus the METAR wind / gust at landing time; see [Approach roughness logging](#approach-roughness-logging) |
+| rough_json | Approach roughness on the established final (since 2026-10-06, `NULL` before): per segment `hi` (3 000–1 000 ft MSL) and `lo` (1 000–200 ft MSL) bank-angle, track-rate, IAS, vertical-rate and crab-angle statistics from all raw BDS 5,0 / 6,0 replies, plus the METAR wind / gust at landing time, and from 2026-10-09 the autopilot state `ap`; see [Approach roughness logging](#approach-roughness-logging) |
+| prof_json | Wind / temperature profile of the final approach per 200-ft band (since 2026-10-09, `NULL` before): averaged wind with sample count and spread, headwind component (TAS − GS) and Mach/TAS temperature; see [Approach roughness logging](#approach-roughness-logging) |
 
 Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
@@ -1440,6 +1461,11 @@ Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (in
 - Computed wind: `wind_spd/dir/qual`, `tas_source` (`BDS50` / `MACH` / `IAS`, see [Computed wind](#computed-wind-bds-50--60)), `mag_decl` (declination used, °E)
 - Raw BDS 5,0 / 6,0 inputs (stored for re-processing)
 - Consolidated best values: `best_wind_spd/dir/temp/pressure`, `meteo_source`
+- `tm_temp` — static air temperature from BDS 5,0 TAS and BDS 6,0 Mach (°C, since 2026-10-09; see [Air temperature](#air-temperature-bds-50--60))
+
+**`profile_hours`** — hourly atmospheric profile archive (since 2026-10-09): one row per completed UTC hour (`ts` = hour start) with the area profile of all aircraft within `SOUNDING_RADIUS_KM` of the receiver, `data` = `{"r": radius km, "n": observations used, "lv": [[alt_lo, temp, temp_p10, temp_p90, temp_count, wind_dir, wind_spd, wind_sd, wind_count], …]}` per altitude layer (1 000 ft to 10 000 ft, 2 000 ft above). Computed a few minutes after each hour change from the observations (one read query and one insert; at startup missing hours are back-filled from the observations still in the database), so the profiles survive the observation autopurge. About 0.4–1.2 kB per row, 24 rows per day; never purged. Shown on the Sounding page (**Area · hour**).
+
+**`approach_series`** — raw reply series on final per landing (since 2026-10-09): `ts`, `icao`, `runway` (same as the `approach_history` row) and `data` = zlib-compressed JSON of integer columns (BDS 5,0 / 6,0 replies and the 3-s sweeps; layout in `WindshearTracker.SERIES_COLS`, decoded by `WindshearTracker.decode_series()`). About 2–3 kB per landing; rows older than `APPROACH_SERIES_DAYS` (default 90) are deleted daily, and with the approach history purges. See [Approach roughness logging](#approach-roughness-logging).
 
 ### Direct database queries
 
@@ -1536,15 +1562,16 @@ mode_s_wind/
 │   ├── aircraft_db.py         # Optional BaseStation.sqb registration / type lookup (cached, read-only)
 │   ├── writer.py              # Batched SQLite writer (storage mode, write throttle, flight sessions)
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind, TAS sources, ISA-deviation estimate
+│   ├── atmos.py               # Mach/TAS air temperature, altitude-layer profiles, hourly profile archive
 │   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
-│   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness)
+│   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness, autopilot, band profile, raw series)
 │   ├── approach_cond.py       # Provisional approach-conditions index (roughness → 0–10)
 │   ├── gps_quality.py         # Area-wide GPS quality monitor: hourly buckets (RAM + DB), degradation episode log
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
 │   ├── api/
-│   │   ├── sounding.py        # Sounding aggregation logic
+│   │   ├── sounding.py        # Sounding aggregation logic (area, hourly archive, single flight)
 │   │   └── windmap.py         # Gridded wind map aggregation logic
 │   └── templates/
 │       ├── base.html          # Navbar, status indicator, config badges
@@ -1593,7 +1620,7 @@ Authentication is handled separately from the main web credentials — all opera
 - **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge. Deletes run in batches of 5 000 rows, each committed separately, so the database write lock is only held briefly and the collector keeps storing live observations during a large purge (if the database is still momentarily locked, the collector keeps the observations in RAM and retries on its next flush instead of dropping them). Both purge types delete a flight row only when none of its observations remain — e.g. a flight that started before a chosen date range (crossed midnight) keeps its row and its earlier observations. **A large purge can take a long time** (on a Raspberry Pi roughly 2 000–7 000 observation rows per second, i.e. several minutes to tens of minutes for millions of rows); the result line appears on the page only when the purge has finished, and a browser may give up waiting after ~5 minutes while the server keeps purging. Completion is always logged: `Maintenance: deleted N observations, M flights` in `logs/modes_meteo.log`
 - **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` either older than a configurable threshold or within a chosen date range; useful for removing a maintenance day with incomplete data; the in-RAM GPS quality cache is reloaded immediately after the delete so the GPS Quality page reflects the change without a server restart
 - **Approach History purge** — `approach_history` is never auto-purged; manual purge controls are provided: **Older Than N Days** (Preview + Purge, default 90 days) and **Delete by Date Range** (From / To date pickers, same single-day shortcut as other sections); both operations also clear the in-RAM approach history list so the live panel stays consistent; the Delete button is only enabled after a non-zero Preview
-- **GPS Degradation Episode Log purge** — `gps_episodes` is never auto-purged and is not affected by the GPS Quality purge; manual controls: **Older Than N Days** (Preview + Purge, default 365 days) and **Delete by Date Range**; episodes are selected by their start time (UTC). The statistics table shows the row count and date range of `gps_episodes`
+- **GPS Degradation Episode Log purge** — `gps_episodes` is never auto-purged and is not affected by the GPS Quality purge; manual controls: **Older Than N Days** (Preview + Purge, default 365 days) and **Delete by Date Range**; episodes are selected by their start time (UTC). The statistics table shows the row count and date range of `gps_episodes` (and, since 2026-10-09, of `approach_series` and `profile_hours`; approach series are purged automatically after `APPROACH_SERIES_DAYS` and together with the approach history)
 - **Delete by Date Range** — Flight, GPS, Approach History and GPS Episode Log sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
 - **Autopurge** — optional daily scheduled purge for flight/meteo data only; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality, Approach History and the GPS Episode Log are never auto-purged
 
@@ -1622,7 +1649,9 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/flights/<id>` | Full observation track for one historical flight |
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |
 | GET | `/api/flights/suitable_soundings` | Flights eligible for per-flight sounding |
-| GET | `/api/sounding` | Area-average sounding from recent observations |
+| GET | `/api/sounding` | Area sounding of all aircraft within `SOUNDING_RADIUS_KM` over the last `?minutes=` (10–360, default `SOUNDING_WINDOW_MIN`): altitude layers with trimmed-mean Mach/TAS temperature (10–90 % range, count) and vector-mean wind (SD, count) |
+| GET | `/api/sounding/hours` | Hours stored in the hourly profile archive for `?date=YYYY-MM-DD` (UTC): `[{ts, n}, …]` |
+| GET | `/api/sounding/hour` | Hourly archive profile of one completed UTC hour, `?ts=<hour start>`; HTTP 404 when none is stored |
 | GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch); returns `[unavailable]` for a source only if the server has never successfully fetched it |

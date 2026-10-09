@@ -75,6 +75,15 @@ def get_stats(conn, db_path: str) -> dict:
         gpse = _table_stats("gps_episodes", "t_start", "date(t_start, 'unixepoch')")
     except Exception:
         gpse = {"rows": 0, "days": None, "oldest": None, "newest": None}
+    empty = {"rows": 0, "days": None, "oldest": None, "newest": None}
+    try:
+        aps = _table_stats("approach_series", "ts", "date(ts, 'unixepoch')")
+    except Exception:
+        aps = dict(empty)
+    try:
+        prof = _table_stats("profile_hours", "ts", "date(ts, 'unixepoch')")
+    except Exception:
+        prof = dict(empty)
 
     try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
@@ -88,6 +97,8 @@ def get_stats(conn, db_path: str) -> dict:
         "gps_quality_hours":     gps,
         "gps_quality_zone_hours": gpsz,
         "gps_episodes":          gpse,
+        "approach_series":       aps,
+        "profile_hours":         prof,
         "db_size_mb":            db_size_mb,
     }
 
@@ -360,6 +371,7 @@ def purge_approach_data(conn, days: int) -> dict:
     deleted = conn.execute(
         "DELETE FROM approach_history WHERE ts < ?", (cutoff,)
     ).rowcount
+    conn.execute("DELETE FROM approach_series WHERE ts < ?", (cutoff,))
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows", deleted)
     return {"approaches_deleted": deleted}
@@ -387,6 +399,8 @@ def purge_approach_date_range(conn, date_from: str, date_to: str) -> dict:
         "DELETE FROM approach_history WHERE date_utc BETWEEN ? AND ?",
         (date_from, date_to),
     ).rowcount
+    conn.execute("DELETE FROM approach_series WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+                 (date_from, date_to))
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows (%s – %s)",
              deleted, date_from, date_to)

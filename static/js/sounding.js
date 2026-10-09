@@ -75,9 +75,6 @@ function drawGrid(ctx) {
     ctx.moveTo(ML, y);
     ctx.lineTo(ML + PLOT_W, y);
     ctx.stroke();
-    ctx.fillStyle = T.label;
-    ctx.textAlign = 'right';
-    ctx.fillText(p, ML - 6, y + 4);
   }
 
   // Isotherms (skewed temperature lines)
@@ -88,13 +85,24 @@ function drawGrid(ctx) {
     ctx.moveTo(tToX(t, P_BOTTOM), pToY(P_BOTTOM));
     ctx.lineTo(tToX(t, P_TOP),    pToY(P_TOP));
     ctx.stroke();
-    // Label at bottom
+  }
+}
+
+// Axis labels — drawn outside the plot clip (inside drawGrid they were
+// clipped away, so the pressure and temperature scales never showed)
+function drawGridLabels(ctx) {
+  const T = skewTTheme();
+  ctx.font = '10px monospace';
+  ctx.fillStyle = T.label;
+  ctx.textAlign = 'right';
+  for (const p of [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100]) {
+    ctx.fillText(p, ML - 6, pToY(p) + 4);
+  }
+  ctx.fillStyle = T.isotLabel;
+  ctx.textAlign = 'center';
+  for (const t of [-80,-70,-60,-50,-40,-30,-20,-10,0,10,20,30]) {
     const x = tToX(t, P_BOTTOM);
-    if (x > ML && x < ML + PLOT_W) {
-      ctx.fillStyle = T.isotLabel;
-      ctx.textAlign = 'center';
-      ctx.fillText(t + '°', x, CANVAS_H - MB + 14);
-    }
+    if (x > ML && x < ML + PLOT_W) ctx.fillText(t + '°', x, CANVAS_H - MB + 14);
   }
 }
 
@@ -178,6 +186,7 @@ function renderSounding(levels) {
   ctx.clip();
   drawGrid(ctx);
   ctx.restore();
+  drawGridLabels(ctx);
 
   // Y axis line
   ctx.strokeStyle = T.axisLine;
@@ -212,6 +221,22 @@ function renderSounding(levels) {
     return;
   }
 
+  // ── Temperature spread (10–90 % of the replies in each layer) ───────────
+  ctx.save();
+  ctx.strokeStyle = 'rgba(239,68,68,0.45)';
+  ctx.lineWidth   = 1;
+  for (const l of tempLevels) {
+    if (l.temp_p10 == null || l.temp_p90 == null) continue;
+    const y  = pToY(l.pressure);
+    const x0 = tToX(l.temp_p10, l.pressure), x1 = tToX(l.temp_p90, l.pressure);
+    ctx.beginPath();
+    ctx.moveTo(x0, y); ctx.lineTo(x1, y);
+    ctx.moveTo(x0, y - 3); ctx.lineTo(x0, y + 3);
+    ctx.moveTo(x1, y - 3); ctx.lineTo(x1, y + 3);
+    ctx.stroke();
+  }
+  ctx.restore();
+
   // ── Temperature curve ───────────────────────────────────────────────────
   if (tempLevels.length >= 2) {
     ctx.strokeStyle = '#ef4444';
@@ -225,16 +250,21 @@ function renderSounding(levels) {
     ctx.stroke();
 
     ctx.fillStyle = '#ef4444';
+    let lastLblY = null;
     for (const l of tempLevels) {
       const x = tToX(l.temp, l.pressure);
       const y = pToY(l.pressure);
       ctx.beginPath();
       ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = T.dotRing;
-      ctx.font      = '9px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(l.temp.toFixed(1) + '°', x + 5, y + 3);
+      // value label only where it does not overlap the previous one
+      if (lastLblY == null || Math.abs(lastLblY - y) >= 11) {
+        ctx.fillStyle = T.dotRing;
+        ctx.font      = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(l.temp.toFixed(1) + '°', x + 5, y + 3);
+        lastLblY = y;
+      }
       ctx.fillStyle = '#ef4444';
     }
   } else if (tempLevels.length === 0) {
@@ -247,12 +277,16 @@ function renderSounding(levels) {
 
   // ── Wind barbs (right of plot area) ────────────────────────────────────
   const bx = ML + PLOT_W + 20;
+  let lastWY = null;
   for (const l of windLevels) {
     const y = pToY(l.pressure);
     ctx.fillStyle = T.barb;
     ctx.font      = '9px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(Math.round(l.wind_spd) + 'kt', bx + 28, y + 3);
+    if (lastWY == null || Math.abs(lastWY - y) >= 10) {
+      ctx.fillText(Math.round(l.wind_spd) + 'kt', bx + 28, y + 3);
+      lastWY = y;
+    }
     drawBarb(ctx, bx, y, l.wind_spd, l.wind_dir);
   }
 }

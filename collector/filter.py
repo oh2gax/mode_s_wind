@@ -160,7 +160,9 @@ def best_meteo(mrar: Optional[dict], mhr: Optional[dict],
     """
     Consolidate MRAR, MHR, and computed-wind into 'best_*' fields.
 
-    Priority: MRAR direct > MHR > computed wind
+    Priority: MRAR direct > MHR > computed wind; temperature
+    MRAR > Mach/TAS (wind["tm_temp"]) > MHR (BDS 4,5 hazard reports are
+    rare and often misidentified, so they come last)
     """
     best: dict = {}
 
@@ -172,9 +174,11 @@ def best_meteo(mrar: Optional[dict], mhr: Optional[dict],
         best["best_wind_spd"] = wind["wind_spd"]
         best["best_wind_dir"] = wind["wind_dir"]
 
-    # Temperature: MRAR > MHR
+    # Temperature: MRAR > Mach/TAS > MHR
     if mrar and "mrar_temp" in mrar:
         best["best_temp"] = mrar["mrar_temp"]
+    elif wind and wind.get("tm_temp") is not None:
+        best["best_temp"] = wind["tm_temp"]
     elif mhr and "mhr_temp" in mhr:
         best["best_temp"] = mhr["mhr_temp"]
 

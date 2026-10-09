@@ -85,7 +85,11 @@ CREATE TABLE IF NOT EXISTS observations (
     best_wind_dir   REAL,            -- degrees FROM
     best_temp       REAL,            -- °C  (MRAR preferred, else MHR)
     best_pressure   REAL,            -- hPa (MRAR preferred, else MHR)
-    meteo_source    TEXT             -- 'MRAR' | 'MHR' | 'COMPUTED' | 'NONE'
+    meteo_source    TEXT,            -- 'MRAR' | 'MHR' | 'COMPUTED' | 'NONE'
+    -- Static air temperature from BDS 5,0 TAS + BDS 6,0 Mach (°C; from
+    -- 2026-10-09, NULL before or when Mach < 0.2) — see collector/atmos.py.
+    -- best_temp = MRAR > this > MHR.
+    tm_temp         REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_icao_ts   ON observations(icao, ts);
@@ -169,7 +173,8 @@ CREATE TABLE IF NOT EXISTS approach_history (
     go_arounds    INTEGER NOT NULL DEFAULT 0, -- number of go-arounds before final landing
     qnh_hpa       REAL,                       -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
     gnss_json     TEXT,                       -- GNSS quality on final per band + first-degraded / recovery points (from 2026-10-06; NULL before)
-    rough_json    TEXT                        -- approach roughness per segment (bank / track-rate / IAS / vertical-rate activity, crab) + METAR wind (from 2026-10-06; NULL before)
+    rough_json    TEXT,                       -- approach roughness per segment (bank / track-rate / IAS / vertical-rate activity, crab) + METAR wind (from 2026-10-06; NULL before); "ap" autopilot state (from 2026-10-09)
+    prof_json     TEXT                        -- per 200-ft band: averaged wind (n, SD), headwind component, Mach/TAS temperature (from 2026-10-09; NULL before)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);
@@ -239,3 +244,35 @@ CREATE TABLE IF NOT EXISTS gps_episodes (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gps_ep_key   ON gps_episodes(icao, t_start);
 CREATE INDEX        IF NOT EXISTS idx_gps_ep_start ON gps_episodes(t_start);
+
+-- ── profile_hours ─────────────────────────────────────────────────────────────
+-- Hourly atmospheric profile archive (from 2026-10-09): one row per completed
+-- UTC hour, the area profile of all aircraft within SOUNDING_RADIUS_KM of the
+-- receiver — per altitude layer (1 000 ft to 10 000 ft, 2 000 ft to 46 000 ft)
+-- the median Mach/TAS temperature (p10 / p90, n) and the vector-mean wind
+-- (SD, n).  data = {"r": radius km, "n": observations used,
+--                   "lv": [[alt_lo, temp, p10, p90, tn, wdir, wspd, wsd, wn], …]}
+-- Computed from the observations at each hour change (read query + one
+-- INSERT), so the profiles survive the observation autopurge.  ~1–2 kB/row,
+-- 24 rows/day.  Never auto-purged.  Shown on the Sounding page (hourly archive).
+CREATE TABLE IF NOT EXISTS profile_hours (
+    ts    INTEGER PRIMARY KEY,   -- hour start (UTC epoch)
+    data  TEXT    NOT NULL
+);
+
+-- ── approach_series ───────────────────────────────────────────────────────────
+-- Raw Comm-B reply series on final for each landing (research data, from
+-- 2026-10-09): the BDS 5,0 / 6,0 replies used for the approach-conditions
+-- index plus the per-sweep position / altitude / autopilot state, so that
+-- new methods can be applied to past landings.  data = zlib-compressed JSON
+-- (see collector/windshear.py _series_blob).  Same ts / icao as the
+-- approach_history row.  ~2–4 kB per landing; kept APPROACH_SERIES_DAYS
+-- (default 90) days, purged daily.
+CREATE TABLE IF NOT EXISTS approach_series (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      REAL    NOT NULL,
+    icao    TEXT    NOT NULL,
+    runway  TEXT,
+    data    BLOB    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_apser_ts ON approach_series(ts);
