@@ -17,9 +17,9 @@ All decoded observations are stored in a local SQLite database and presented thr
 ## Features
 
 - **Real-time live map** — ATC-style aircraft display with 1-minute position trails, colour-coded by meteo data source, with optional callsign or ICAO24 labels
-- **Three meteo data sources** decoded simultaneously:
+- **Meteo data sources** decoded simultaneously:
   - BDS 4,4 MRAR — Meteorological Routine Air Report (direct temp, pressure, humidity, wind, turbulence from aircraft avionics)
-  - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels)
+  - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels; rare and often unreliable at EFHK — see [Data source priority](#data-source-priority))
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
   - BDS 5,0 + 6,0 **air temperature** — static air temperature from the true airspeed and the Mach number (since 2026-10-09; available for about 85 % of the observations, see [Air temperature](#air-temperature-bds-50--60))
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
@@ -90,7 +90,7 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /maintenance   DB maintenance
 ```
 
-Further background threads in `run.py`: **housekeeping** (see below) and **autopurge** (daily flight / meteo purge when enabled on the Maintenance page). The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
+Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and, since 2026-10-09, **hourly_jobs** (hourly profile archive `profile_hours` a few minutes after each hour, back-fill at startup, daily `approach_series` retention purge). The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -118,7 +118,7 @@ Wind = ground vector − air vector. The ground vector is the true track and gro
 | `tas_source` | Source | Notes |
 |---|---|---|
 | `BDS50` | TAS field of BDS 5,0 | Normal case — the same register that carries track and groundspeed; 2 kt resolution |
-| `MACH` | Mach (BDS 6,0) × speed of sound | Temperature = ISA at the pressure altitude + the current ISA deviation for that altitude band. The deviation is estimated continuously from all aircraft that report both TAS and Mach (their air-data computer's temperature: T = (TAS / Mach)² / (γ·R)), median of the last 30 min per 5 000 ft band; plain ISA when fewer than 5 samples exist. A 10 °C deviation left uncorrected would be ~2 % TAS error (~9 kt at cruise) |
+| `MACH` | Mach (BDS 6,0) × speed of sound | Temperature = ISA at the pressure altitude + the current ISA deviation for that altitude band. The deviation is estimated continuously from aircraft that report both TAS and Mach (Mach ≥ 0.40, at most one sample per aircraft per 20 s, |deviation| ≤ 30 K) (their air-data computer's temperature: T = (TAS / Mach)² / (γ·R)), median of the last 30 min per 5 000 ft band; plain ISA when fewer than 5 samples exist. A 10 °C deviation left uncorrected would be ~2 % TAS error (~9 kt at cruise) |
 | `IAS` | IAS (BDS 6,0) converted to TAS | Compressible-flow CAS → Mach → TAS at the ISA pressure for the altitude, same temperature as above. Requires a known altitude |
 
 If none of these can be determined (e.g. no TAS and no altitude yet), no wind is computed. Before 2026-09-25 IAS was used directly as TAS when TAS and Mach were missing, which is badly wrong at altitude (≈200 kt too low at FL350).
@@ -227,6 +227,12 @@ class Config:
     WINDSHEAR_THR_ELEVATION_FT = 179.0        # fallback threshold elevation (per-runway values in EFHK_RUNWAYS)
     WINDSHEAR_GS_OFFSET_FT = 0.0      # manual glideslope calibration trim (ft)
     WINDSHEAR_MAX_TRACK_DEV_DEG = 60.0        # max track deviation from approach hdg (°)
+    WINDSHEAR_GA_MIN_DESCENT_POLLS = 8        # go-around detector: descending sweeps before "approaching"
+    WINDSHEAR_GA_MIN_CLIMB_POLLS = 3          # consecutive climbing sweeps (3 s each) to confirm a go-around
+    WINDSHEAR_GA_MIN_ALT_GAIN_FT = 50.0       # minimum real altitude gain during the climb
+    WINDSHEAR_GA_CLIMB_FPM = 600.0            # climb rate that counts as go-around climb
+    WINDSHEAR_GA_MAX_ALT_FT = 2200.0          # go-around detection ceiling (ft)
+    WINDSHEAR_GA_FLASH_SEC = 60.0             # seconds the GO-AROUND flash stays on the strip
 
     # ── GPS Quality monitoring ────────────────────────────────────────────
     GPS_NACP_THRESHOLD = 6       # NACp ≤ this value is flagged as degraded
@@ -250,7 +256,7 @@ class Config:
     MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
 ```
 
-> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`), so an update of the code does not require updating `config.py` unless the change notes say so.
+> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
 
 Key values to change for your installation:
 
@@ -299,7 +305,7 @@ The system will log startup information and the web interface address:
 2025-05-11 12:00:00  INFO     modes.main             Radarcape   : 192.168.0.119:10003
 2025-05-11 12:00:00  INFO     modes.main             Web         : http://0.0.0.0:5010
 2025-05-11 12:00:00  INFO     modes.main             Source mode : HYBRID
-2025-05-11 12:00:00  INFO     modes.main             Storage mode: ALL
+2025-05-11 12:00:00  INFO     modes.main             Storage mode: METEO_ONLY
 ```
 
 Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for username and password.
@@ -307,6 +313,7 @@ Open `http://<raspberry-pi-ip>:5010` in a browser. You will be prompted for user
 ### 6. Running in the background (optional)
 
 ```bash
+mkdir -p logs
 nohup python3 run.py > logs/modes_wind.log 2>&1 &
 echo $! > run.pid          # save PID to stop later
 ```
@@ -382,7 +389,7 @@ Controls which decoded observations are written to the SQLite database.
 | `"METEO_ONLY"` | **Default.** Only observations that carry at least one decoded meteo value (`meteo_source ≠ NONE`) are written to disk. Position-only messages are used to update the live map in memory but are never persisted. This typically reduces database growth by 60–80% depending on what fraction of tracked aircraft are producing meteo data. Recommended for long-running deployments on SD card or when storage is limited. |
 | `"ALL"` | Every decoded observation is stored — positions, motion data, and meteo — regardless of whether it carries any meteorological values. This gives the most complete flight tracks and motion history but grows the database quickly. At a busy location like EFHK, the database can accumulate several hundred megabytes per day. |
 
-**Note:** In `METEO_ONLY` mode the `flights` table still records every flight session, but individual `observations` rows exist only for moments when meteo data was present. Flight track maps in the Flights browser will show only the positions where meteo was decoded rather than the full continuous path.
+**Note:** In `METEO_ONLY` mode observations without meteo data are dropped before they reach the database, so a `flights` row is created only once at least one meteo observation of that contact is stored, and its observation count and altitude range cover the stored rows only. Flight track maps in the Flights browser will show only the positions where meteo was decoded rather than the full continuous path.
 
 **SD card recommendation:** Even with `METEO_ONLY`, SQLite WAL mode generates frequent small writes which accelerate SD card wear. Moving the database to a USB SSD (update `DB_PATH` in `config.py`) is strongly recommended for any deployment intended to run continuously for more than a few days.
 
@@ -419,7 +426,8 @@ The top navigation bar always shows the connection status:
 
 - 🟢 **Live** — SSE stream active (Live page only)
 - 🟢 **Online** — web API responding (all other pages)
-- 🔴 **Reconnecting…** — connection lost, retrying automatically
+- 🔴 **Reconnecting…** — Live page: SSE connection lost, retrying automatically
+- 🔴 **Error** — other pages: the `/api/stats` request failed (retried every 15 s)
 
 The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), a **live UTC clock** displaying the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format (updated every second), and the **Dark / Light** theme toggle button which applies to all pages.
 
@@ -444,7 +452,7 @@ Aircraft are drawn in an ATC-style display:
 | 🔵 Blue | MRAR | BDS 4,4 Meteorological Routine Air Report — direct avionics data |
 | 🟢 Green | COMPUTED | Wind calculated from BDS 5,0 + BDS 6,0 pair |
 | 🟡 Amber | MHR | BDS 4,5 Meteorological Hazard Report |
-| 🟣 Purple | JSON | Temperature/wind from Radarcape JSON feed (MLAT source) |
+| 🟣 Purple | JSON | Temperature/wind injected from the Radarcape JSON feed (MLAT positions themselves are not marked by colour) |
 | ⚫ Grey | NONE | Aircraft visible but no meteo data decoded yet |
 
 #### Trail dots
@@ -472,6 +480,8 @@ The selected label mode persists across browser sessions.
 #### Bottom strip — METAR / TAF
 
 The bottom of the live map always shows the current METAR and TAF for the configured airport (`AIRPORT_ICAO` in `config.py`, default EFHK). The data is fetched server-side from NOAA and refreshed automatically every 10 minutes. METAR and TAF are displayed side-by-side in a fixed-position panel anchored to the right; selecting an aircraft does not shift or disturb this panel.
+
+**Wind vectors:** every aircraft with a wind reading also gets a short light-blue line pointing downwind (the direction the air moves; longer for stronger wind), so the wind field over the map is visible at a glance.
 
 #### Clicking an aircraft
 
@@ -571,11 +581,11 @@ The diagram shows:
 
 - **Red line** — temperature profile (°C); thin red bars show the 10–90 % range of the replies in each layer
 - **Wind barbs** on the right axis — wind speed and direction at each level (full barb = 10 kt, half barb = 5 kt, pennant = 50 kt)
-- Standard pressure levels labelled on the left axis
+- Pressure (hPa) labelled on the left axis, temperature (°C) along the bottom
 
 #### Level data table
 
-The table on the right shows each pressure level with:
+The table on the right shows each altitude layer with:
 
 | Column | Description |
 |--------|-------------|
@@ -634,7 +644,7 @@ When a low-altitude layer (1 000–4 000 ft) is selected, the system automatical
 pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
 ```
 
-For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the database for pressure altitudes between roughly 1 610 ft and 2 610 ft (with ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is sourced from the cached METAR fetched by the server every 10 minutes via `/api/wx`; it falls back to 1013.25 hPa until the first METAR is available. Raw pressure altitudes are never modified in the database.
+For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the database for pressure altitudes between about 1 916 ft and 2 916 ft (correction (1013.25 − 998) × 27.3 ≈ +416 ft, ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is sourced from the cached METAR, fetched by the server's background weather thread every 10 minutes (and served to the pages by `/api/wx`); it falls back to 1013.25 hPa until the first METAR is available. Raw pressure altitudes are never modified in the database.
 
 ---
 
@@ -798,7 +808,7 @@ In both modes a second smaller label shows the raw `dir/spd` for reference (when
 - **Amber hollow circle (Turn)** — wind quality rejection: the aircraft has a valid, actively updating position but no wind could be computed — typically because the bank angle (> `WIND_MAX_ROLL_DEG`, 5°) or turn rate (> `WIND_MAX_TRACK_RATE`, 1°/s) exceeded the wind-calculation quality gates during a turn, or no fresh BDS 5,0 / 6,0 pair was available. Amber circles during localizer intercept or go-around turns are entirely expected and require no action.
 - **Grey hollow circle (GPS)** — GPS-related suspension: either the position-freeze gate fired (`pos_frozen = True` — latitude/longitude is static while altitude descends, a GPS jamming signature), or no ADS-B position message is being received at all (GPS source dropped out). Grey circles on an established final approach are worth investigating.
 
-Both corridor circle types persist alongside valid wind barbs once wind data recovers — they are not cleared when the aircraft transitions from NONE to valid meteo, so the full NONE history remains visible on the canvas for the duration of the approach. Circles are only removed after the aircraft has been absent from the feed for 45 seconds (matching the server stale-out), which means brief reception gaps caused by GPS jamming no longer wipe the accumulated circle history. The canvas hint text includes a `(N pos-only)` count when NONE positions are accumulating but no valid wind data has arrived yet. The ILS profile legend shows amber **Turn** and grey **GPS** ring symbols for reference. The absence of any circles (no hollow rings at all alongside a gap in barbs) indicates that ADS-B position messages themselves have stopped arriving — a genuine position outage rather than a wind computation hold.
+Both corridor circle types persist alongside valid wind barbs once wind data recovers — they are not cleared when the aircraft transitions from NONE to valid meteo, so the full NONE history remains visible on the canvas for the duration of the approach. Circles are only removed after the aircraft has been absent from the feed for 45 seconds (browser-side; the server tracker itself drops an aircraft after 30 s), which means brief reception gaps caused by GPS jamming no longer wipe the accumulated circle history. The canvas hint text includes a `(N pos-only)` count when NONE positions are accumulating but no valid wind data has arrived yet. The ILS profile legend shows amber **Turn** and grey **GPS** ring symbols for reference. The absence of any circles (no hollow rings at all alongside a gap in barbs) indicates that ADS-B position messages themselves have stopped arriving — a genuine position outage rather than a wind computation hold.
 
 - **Small dashed amber circle (Pre-ILS)** — pre-corridor quality rejection: the aircraft is not yet inside the ILS corridor (cross-track or track deviation outside the corridor gates) but is producing `qc`-reason NONE data — the characteristic signature of a wide localizer intercept turn. These circles use a smaller radius (2 px vs 3 px) and a dashed stroke to distinguish them from established-approach circles. They are drawn using the `dist_nearest_thr_nm` field (distance to the closest runway threshold) as the X-axis position, giving an accurate placement even outside the corridor. Only `qc` events are shown pre-corridor — GPS-related NONE events outside the corridor are not visualised as they would be ambiguous. This prevents the common misreading where a wide turning arc before final looks identical to a GPS jamming gap.
 
@@ -824,7 +834,7 @@ The EFHK runway geometry is drawn on the compass as two plain crossing dashed li
 
 **METAR staleness colouring** — the METAR text in the weather strip below the map changes colour when the observation is getting old: **orange** at ≥ 60 minutes, **red** at ≥ 90 minutes, normal colour when fresh. Age is measured from the METAR issue time (same timestamp shown in the canvas corner), not from the browser's last fetch. The colour is re-evaluated every minute independently of the 10-minute fetch cycle so the transition happens on time.
 
-**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The wind rose keeps its 265 × 265 px size; in the Cond view the panel widens to the full width of the map controls bar above it (its left edge lines up with the `N ILS corridor` counter), giving the time axis more room. The Cond view plots the conditions index (0–10, see [How the approach-conditions index is calculated](#how-the-approach-conditions-index-is-calculated)) of every landing of the last **3 h**, **6 h**, **12 h** or **1 d** (the range button replaces Hist in this view and cycles `3h` → `6h` → `12h` → `1d`) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
+**Rose | Cond view selector** — two buttons below the canvas switch the panel between the wind rose and the **approach-conditions chart** (the choice is remembered in the browser). The wind rose keeps its 265 × 265 px size; in the Cond view the panel widens to the full width of the map controls bar above it (its left edge lines up with the `N ILS corridor` counter), giving the time axis more room. The Cond view plots the conditions index (0–10, see [How the approach-conditions index is calculated](#how-the-approach-conditions-index-is-calculated)) of every landing of the last **3 h**, **6 h**, **12 h** or **1 d** (the range button replaces Hist in this view and cycles `3h` → `6h` → `12h` → `1d`) as one dot per landing, coloured by aircraft class (`N` narrowbody, `R` regional jet, `T` turboprop, `W` widebody, `B` business jet), over faint level bands (Smooth → Very rough), with a green **running median** line (±30 min, at least 3 landings). Hovering a dot shows time, callsign, type, runway and index. The readout below gives the median of the last hour with its level and landing count, the median and maximum of the chart range, and the latest METAR wind. Data is re-fetched every 60 s while the Cond view is shown.
 
 The rose is intended to let you quickly judge whether the MODE-S wind profile measured during recent approaches matches the METAR surface observation — a useful sanity check for windshear monitoring and EHS data quality assessment.
 
@@ -890,7 +900,7 @@ Six independent detection algorithms are available from the dropdown. Switching 
 
 **Shear direction:** every detected event is classified as `▼LOSS` (headwind decreasing — the operationally hazardous case) or `▲GAIN` (headwind increasing). The label appears in the alert banner, the ILS-profile canvas zone label, and the event log compact line. Severity thresholds (monitor / warning / alarm) are unchanged and based on the magnitude of the change regardless of direction.
 
-**Noise reduction:** the Rate and Kinematic algorithms use a 3-sample median on both the reference and current measurement windows before computing the headwind differential. This suppresses single-sample transients (momentary IAS spikes, noisy BDS 6,0 decodes) without adding meaningful detection latency — three samples at the 3-second poll rate represent ~9 seconds of data.
+**Noise reduction:** the Kinematic algorithm uses a 3-sample median on both the reference and the current measurement window, the Rate algorithm on the reference window (compared with the aircraft's current headwind) before computing the headwind differential. This suppresses single-sample transients (momentary IAS spikes, noisy BDS 6,0 decodes) without adding meaningful detection latency — three samples at the 3-second poll rate represent ~9 seconds of data.
 
 **Establishment gate:** no algorithm can fire until an aircraft has accumulated at least 6 valid observations inside the corridor (≈15–20 seconds at the 3-second poll rate). This prevents false detections from the first wind snapshot, which is computed during the ILS intercept roll-out when the aircraft is transitioning from the turn onto final and the BDS 5,0/6,0 data is at its least stable.
 
@@ -999,7 +1009,7 @@ When an approach aircraft disappears from the tracker (landed or left the corrid
 baseline_HW = avg_wind_speed × cos(avg_wind_dir − runway_heading)
 ```
 
-If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 15 kt, shear is flagged.
+If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 10 kt (Monitor), ≥ 15 kt (Warning) or ≥ 25 kt (Alarm), shear is flagged — like the other algorithms, only for aircraft established in the corridor with at least the minimum number of corridor wind samples and valid meteo.
 
 **Physical basis:** the baseline represents the background low-level wind field sampled by multiple recent aircraft on the same approach path. A large deviation for the current aircraft suggests that the wind environment has changed sharply since the baseline was established — either spatially (a localised shear zone has developed) or temporally (a frontal passage or microburst onset has changed the surface wind since the last landing).
 
@@ -1181,9 +1191,9 @@ Landing score (3.5 + 2.2) / 2 = 2.85; narrowbody factor 1.0 → **index 2.9, Lig
 
 An area-wide real-time and historical monitor for GPS signal quality degradation across all aircraft tracked by the receiver. The page auto-refreshes every 30 seconds.
 
-Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zone) and `gps_quality_zone_hours` table (50 nm and 20 nm zones) so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (up to 72 rows per hour rollover — 24 per day for All, up to 24 per day per distance zone), so the write load is negligible. On startup the tracker reloads the last **6 months** of history automatically (`MAX_BUCKETS` in `collector/gps_quality.py`) — the charts are immediately populated from stored data, covering the full range of the `6m` selector below. The current (incomplete) hour, including the sets of aircraft already counted, is checkpointed every 60 s to the `gps_quality_live` table; after a restart the tracker resumes that hour, so a restart loses at most the last minute of data. (Before 2026-09-26 a restart discarded everything counted in the hour so far, which made the hour of a restart look almost empty.) If the process was down across an hour boundary, the interrupted hour is saved from its checkpoint on the next start. This data is never auto-purged — it accumulates indefinitely unless manually cleared from the [Maintenance](#maintenance--maintenance) page's GPS Quality purge section, so the `3m`/`6m` selectors are only as useful as how much history you choose to retain there. The heatmap response is capped independently at the most recent 31 days regardless of the time-series window — this matches the heatmap panel's own `14d`/`1m` range selector (see [GPS Quality](#gps-quality--gps) below), whose longest option is exactly 31 days.
+Hourly summary data is persisted to the SQLite `gps_quality_hours` table (All zone) and `gps_quality_zone_hours` table (50 nm and 20 nm zones) so that the time-series chart and heatmap survive process restarts. Only completed hours are written to the database (up to 3 rows per hour rollover — one for All and one per distance zone, i.e. up to 72 rows per day), so the write load is negligible. On startup the tracker reloads the last **6 months** of history automatically (`MAX_BUCKETS` in `collector/gps_quality.py`) — the charts are immediately populated from stored data, covering the full range of the `6m` selector below. The current (incomplete) hour, including the sets of aircraft already counted, is checkpointed every 60 s to the `gps_quality_live` table; after a restart the tracker resumes that hour, so a restart loses at most the last minute of data. (Before 2026-09-26 a restart discarded everything counted in the hour so far, which made the hour of a restart look almost empty.) If the process was down across an hour boundary, the interrupted hour is saved from its checkpoint on the next start. This data is never auto-purged — it accumulates indefinitely unless manually cleared from the [Maintenance](#maintenance--maintenance) page's GPS Quality purge section, so the `3m`/`6m` selectors are only as useful as how much history you choose to retain there. The heatmap response is capped independently at the most recent 31 days regardless of the time-series window — this matches the heatmap panel's own `14d`/`1m` range selector (see [GPS Quality](#gps-quality--gps) below), whose longest option is exactly 31 days.
 
-**Per-band detail (since 2026-10-06):** each hourly row (all three zones) also stores a `band_detail` JSON column with, per FL band, the number of distinct aircraft seen (`ac`), the number of distinct degraded aircraft (`deg`) and the signal mix (`sig`, event counts per signal). The existing `fl_bands` column only counts events, so a band with many events could not tell whether one aircraft or twenty were affected, nor which signals dominated; `band_detail` makes both visible per altitude layer. The JSON adds roughly 0.5–1 kB per hourly row; rows written before this change have `NULL`. The page does not display it yet — it is collected for later analysis (e.g. with `json_extract` in SQLite).
+**Per-band detail (since 2026-10-06):** each hourly row (all three zones) also stores a `band_detail` JSON column with, per FL band, the number of distinct aircraft seen (`ac`), the number of distinct degraded aircraft (`deg`) and the signal mix (`sig`, event counts per signal). The existing `fl_bands` column only counts events, so a band with many events could not tell whether one aircraft or twenty were affected, nor which signals dominated; `band_detail` makes both visible per altitude layer. The JSON adds roughly 0.5–1 kB per hourly row; rows written before this change have `NULL`. It is used by the heatmap's **% aircraft** mode and hover text (see *Layout* below) and can also be queried directly (e.g. with `json_extract` in SQLite).
 
 **Degradation episode log (since 2026-10-06):** in addition to the hourly counts, every continuous period of degradation of one aircraft is written as one row to the `gps_episodes` table (see [Database](#database)). An episode starts when an aircraft at or above `GPS_MIN_ALT_FT` raises any detection signal while it is within `GPS_EPISODE_RADIUS_NM` (optional config key, default 100 NM) of the airport; it is extended by every further degraded sweep, and clean gaps shorter than 120 s are merged into the same episode. It ends as `recovered` (120 s without any signal), `lost` (the aircraft disappeared from tracking while degraded — typical for an aircraft that loses its position completely) or `below_min_alt` (descended below `GPS_MIN_ALT_FT`, e.g. on final). Each row stores the start and end snapshot (position, altitude, track, vertical rate, groundspeed and distance from the airport; for the end also the age of the last position), the first clean position after the last degraded sweep (where the aircraft recovered), the altitude range, the lowest fresh NACp and NIC, the signals that occurred, and the callsign, type and registration. This answers questions the hourly buckets cannot, such as *at what altitude and distance did aircraft lose and recover GPS*, *how long did it last* and *in which direction were they flying*. Closed episodes are buffered in RAM and written in the same transaction as the 60-s current-hour checkpoint, so the log adds no extra database commits. The episodes still open are saved with the same checkpoint and once more when the server stops (SIGTERM / Ctrl+C): after a restart within 10 minutes they simply continue, so a restart no longer cuts an episode in two; after a longer stop they are written as ended at their last degraded sweep with end reason `shutdown`. Typical volume is a few hundred rows on a heavy jamming day (well under 1 MB per month). The log is **never auto-purged** — it is collected without a time limit and can be purged manually on the [Maintenance](#maintenance--maintenance) page. It is displayed on the [GPS Episodes](#gps-episodes--gps-episodes) page.
 
@@ -1237,10 +1247,10 @@ NACp comes from TC=29 (Target State & Status) and TC=31 (Aircraft Operational St
 | NACp | Horizontal accuracy | Interpretation |
 |------|---------------------|----------------|
 | 0 | Unknown | No position accuracy information available |
-| 1–3 | > 10 NM | Very poor — GPS effectively unusable |
-| 4–6 | 0.1 – 10 NM | Degraded — flagged by the tracker (threshold ≤ 6) |
-| 7–9 | 0.1 – 0.05 NM | Good to excellent |
-| 10–11 | < 30 m | Highest accuracy |
+| 1 / 2 / 3 | < 10 / < 4 / < 2 NM | Very poor |
+| 4 / 5 / 6 | < 1 / < 0.5 / < 0.3 NM | Degraded — flagged by the tracker (threshold ≤ 6) |
+| 7 / 8 | < 0.1 / < 0.05 NM | Good (RNP-grade) |
+| 9 / 10 / 11 | < 30 / < 10 / < 3 m | Excellent (typical healthy GNSS) |
 
 #### Layout
 
@@ -1441,7 +1451,7 @@ Unique index on `(icao, t_start)`, index on `t_start`. Never auto-purged; manual
 | rough_json | Approach roughness on the established final (since 2026-10-06, `NULL` before): per segment `hi` (3 000–1 000 ft MSL) and `lo` (1 000–200 ft MSL) bank-angle, track-rate, IAS, vertical-rate and crab-angle statistics from all raw BDS 5,0 / 6,0 replies, plus the METAR wind / gust at landing time, and from 2026-10-09 the autopilot state `ap`; see [Approach roughness logging](#approach-roughness-logging) |
 | prof_json | Wind / temperature profile of the final approach per 200-ft band (since 2026-10-09, `NULL` before): averaged wind with sample count and spread, headwind component (TAS − GS) and Mach/TAS temperature; see [Approach roughness logging](#approach-roughness-logging) |
 
-Indexed on `ts`, `date_utc`, and `runway`. Data volume is under 1 MB/year at typical EFHK approach rates. Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
+Indexed on `ts`, `date_utc`, and `runway`. Data volume: about 2 kB per landing with all JSON columns (bands ~0.4 kB, rough ~0.4 kB, GNSS ~0.6 kB, profile ~0.6 kB — measured 9 Oct 2026), i.e. roughly 0.5 MB per day or 150–200 MB per year at EFHK traffic (about 230 landings per day); never auto-purged (manual purge on the Maintenance page). Rows before 2026-10-06 are much smaller (bands only). Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
 **`maintenance_config`** — key/value store for maintenance page settings:
 
@@ -1456,14 +1466,15 @@ Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (in
 
 - Position: `lat`, `lon`, `altitude` (ft)
 - Motion: `groundspeed` (kt), `track` (°), `vert_rate` (ft/min)
+- `flight_id` (→ `flights.id`), `icao`, `ts`
 - MRAR: `mrar_wind_spd/dir/temp/pressure/humidity/turbulence/fom`
 - MHR: `mhr_temp/pressure/turbulence/wind_shear/icing/microburst/radio_height`
 - Computed wind: `wind_spd/dir/qual`, `tas_source` (`BDS50` / `MACH` / `IAS`, see [Computed wind](#computed-wind-bds-50--60)), `mag_decl` (declination used, °E)
-- Raw BDS 5,0 / 6,0 inputs (stored for re-processing)
+- Raw BDS 5,0 / 6,0 inputs (stored for re-processing): `bds50_true_track`, `bds50_groundspeed`, `bds50_true_airspeed`, `bds50_roll`, `bds60_mag_heading`, `bds60_ias`, `bds60_mach`
 - Consolidated best values: `best_wind_spd/dir/temp/pressure`, `meteo_source`
 - `tm_temp` — static air temperature from BDS 5,0 TAS and BDS 6,0 Mach (°C, since 2026-10-09; see [Air temperature](#air-temperature-bds-50--60))
 
-**`profile_hours`** — hourly atmospheric profile archive (since 2026-10-09): one row per completed UTC hour (`ts` = hour start) with the area profile of all aircraft within `SOUNDING_RADIUS_KM` of the receiver, `data` = `{"r": radius km, "n": observations used, "lv": [[alt_lo, temp, temp_p10, temp_p90, temp_count, wind_dir, wind_spd, wind_sd, wind_count], …]}` per altitude layer (1 000 ft to 10 000 ft, 2 000 ft above). Computed a few minutes after each hour change from the observations (one read query and one insert; at startup missing hours are back-filled from the observations still in the database), so the profiles survive the observation autopurge. About 0.4–1.2 kB per row, 24 rows per day; never purged. Shown on the Sounding page (**Area · hour**).
+**`profile_hours`** — hourly atmospheric profile archive (since 2026-10-09): one row per completed UTC hour (`ts` = hour start) with the area profile of all aircraft within `SOUNDING_RADIUS_KM` of the receiver, `data` = `{"r": radius km, "n": observations used, "lv": [[alt_lo, temp, temp_p10, temp_p90, temp_count, wind_dir, wind_spd, wind_sd, wind_count], …]}` per altitude layer (1 000 ft to 10 000 ft, 2 000 ft above). Computed a few minutes after each hour change from the observations (one read query and one insert; at startup missing hours of the last 31 days are back-filled from the observations still in the database), so the profiles survive the observation autopurge. About 0.4–1.2 kB per row, 24 rows per day; never purged. Shown on the Sounding page (**Area · hour**).
 
 **`approach_series`** — raw reply series on final per landing (since 2026-10-09): `ts`, `icao`, `runway` (same as the `approach_history` row) and `data` = zlib-compressed JSON of integer columns (BDS 5,0 / 6,0 replies and the 3-s sweeps; layout in `WindshearTracker.SERIES_COLS`, decoded by `WindshearTracker.decode_series()`). About 2–3 kB per landing; rows older than `APPROACH_SERIES_DAYS` (default 90) are deleted daily, and with the approach history purges. See [Approach roughness logging](#approach-roughness-logging).
 
@@ -1549,7 +1560,7 @@ mode_s_wind/
 ├── api_keys.py                # Local API keys (gitignored — not committed)
 ├── api_keys.py.example        # Template for api_keys.py (safe to commit)
 ├── run.py                     # Main entry point; starts collector, JSON poller, windshear / GPS sweeps,
-│                              # housekeeping and autopurge threads, then Flask
+│                              # housekeeping, autopurge and hourly-jobs threads, then Flask
 ├── requirements.txt           # Python dependencies (pyModeS, flask, pygeomag)
 ├── install.sh                 # Raspberry Pi install script (venv + dependencies)
 ├── database/
@@ -1610,6 +1621,8 @@ mode_s_wind/
 
 ## Maintenance  `/maintenance`
 
+The page has no navigation-bar link; open it by typing `/maintenance` after the server address.
+
 An administrator page for database housekeeping. It is accessible at `/maintenance` and rendered by `web/templates/maintenance.html`.
 
 Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt`). `MAINTENANCE_AUTH_FILE` is empty by default — while it is empty (or the file cannot be read) every login is rejected, so set the full path in your local `config.py`. Credentials are submitted with every operation and never stored in a server session.
@@ -1622,7 +1635,7 @@ Authentication is handled separately from the main web credentials — all opera
 - **Approach History purge** — `approach_history` is never auto-purged; manual purge controls are provided: **Older Than N Days** (Preview + Purge, default 90 days) and **Delete by Date Range** (From / To date pickers, same single-day shortcut as other sections); both operations also clear the in-RAM approach history list so the live panel stays consistent; the Delete button is only enabled after a non-zero Preview
 - **GPS Degradation Episode Log purge** — `gps_episodes` is never auto-purged and is not affected by the GPS Quality purge; manual controls: **Older Than N Days** (Preview + Purge, default 365 days) and **Delete by Date Range**; episodes are selected by their start time (UTC). The statistics table shows the row count and date range of `gps_episodes` (and, since 2026-10-09, of `approach_series` and `profile_hours`; approach series are purged automatically after `APPROACH_SERIES_DAYS` and together with the approach history)
 - **Delete by Date Range** — Flight, GPS, Approach History and GPS Episode Log sections each include a **Delete by Date Range** panel with From / To date pickers; entering the same date in both fields deletes a single day; the server validates the date format and rejects ranges where From > To
-- **Autopurge** — optional daily scheduled purge for flight/meteo data only; when enabled, a background thread checks once per hour and runs the purge if it has not yet run today; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality, Approach History and the GPS Episode Log are never auto-purged
+- **Autopurge** — optional daily scheduled purge for flight/meteo data only; when enabled, a background thread checks once per hour and runs the purge when the last run is more than 24 hours ago; settings (enabled/disabled, day threshold) are persisted in the `maintenance_config` DB table; GPS Quality, Approach History and the GPS Episode Log are never auto-purged
 
 **Reclaiming disk space after a purge (VACUUM):** SQLite does not shrink the database file automatically after deleting rows — freed pages are kept in an internal free list and reused by future writes, so the file stays the same size on disk. New data written after a purge will fill those free pages first, meaning the file will not grow again until all reclaimed space is consumed. To actually compact the file and release disk space to the OS, run `VACUUM` manually after stopping the server:
 

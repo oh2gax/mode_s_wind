@@ -373,6 +373,8 @@ def create_app(
                             "best_temp":      ac.get("best_temp"),
                             "best_pressure":  ac.get("best_pressure"),
                             "mrar_fom":       ac.get("mrar_fom"),
+                            "mrar_humidity":   ac.get("mrar_humidity"),
+                            "mrar_turbulence": ac.get("mrar_turbulence"),
                             "last_seen": ac.get("last_seen"),
                         })
 

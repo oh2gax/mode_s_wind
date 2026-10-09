@@ -157,7 +157,8 @@ CREATE INDEX IF NOT EXISTS idx_gps_zone_hours_ts ON gps_quality_zone_hours(ts DE
 -- (assumed landed).  bands_json is a JSON object keyed by altitude (ft as
 -- string) with {"dir": int, "spd": float} values or null when no wind was
 -- captured at that level.
--- Data volume: ~200–400 rows/day at EFHK; <1 MB/year.
+-- Data volume: ~200–400 rows/day at EFHK; ~2 kB/row with all JSON columns
+-- (from 2026-10-09), i.e. ~0.5 MB/day.  Never auto-purged.
 CREATE TABLE IF NOT EXISTS approach_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     ts            REAL    NOT NULL,    -- Unix epoch (UTC) of landing / stale-out
