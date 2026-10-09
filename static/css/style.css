@@ -2266,6 +2266,31 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .gps-flag-freeze { background: #0f3460; color: #67e8f9; border: 1px solid #0891b2; }
 .gps-flag-gap    { background: #4a1942; color: #f0abfc; border: 1px solid #7e22ce; }
 .gps-flag-adsb   { background: #0d3d38; color: #5eead4; border: 1px solid #0d9488; }
+.gps-flag-sev    { background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; }
+.gps-flag-spf    { background: #3b0a2a; color: #f9a8d4; border: 1px solid #f472b6; }
+.gps-summary-sev { color: #f87171; }
+.gps-live-table tr.gps-row-sev td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
+.gps-live-table tr.gps-row-sev .gps-td-cs { color: #f87171; }
+
+/* ── Severity & spoofing panel (right column) ────────────────────────────── */
+.gps-spoof-panel { display: flex; flex-direction: column; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.gps-spoof-body  { padding: 0.25rem 0.75rem 0.5rem; font-size: 11px; }
+.gps-spoof-sec   { color: var(--text-2); font-weight: 600; font-size: 10px; text-transform: uppercase;
+                   letter-spacing: 0.04em; margin: 0.45rem 0 0.15rem; display: flex; gap: 0.4rem; }
+.gps-spoof-cols  { margin-left: auto; text-transform: none; font-weight: 400; }
+.gps-spoof-dim   { color: var(--text-3); font-weight: 400; }
+.gps-spoof-line  { color: var(--text-3); padding: 2px 0; line-height: 1.4; }
+.gps-spoof-line b { color: var(--text-1); font-weight: 600; }
+.gps-spoof-note  { color: var(--text-3); font-style: italic; padding-top: 2px; }
+.gps-spoof-hit   { color: #f472b6; }
+.gps-spoof-ok    { color: #fde047; font-weight: 700; }
+.gps-spoof-table tr.gps-spoof-strong td:first-child { box-shadow: inset 3px 0 0 #fde047; }
+.gps-spoof-none  { padding: 0.6rem; }
+.gps-spoof-table { font-size: 11px; margin-top: 2px; }
+.gps-spoof-table td { padding: 0.2rem 0.3rem; }
+.gps-spoof-time  { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-2); }
+.gps-spoof-ind   { color: #f472b6; }
+.gps-spoof-val   { color: var(--text-2); white-space: nowrap; }
 .gps-flag-legend { display: flex; gap: 0.4rem; align-items: center; margin-left: auto; }
 
 /* ── Signal key panel ────────────────────────────────────────────────────── */
@@ -2397,6 +2422,14 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .gps-flag-nic    { background: #fce7f3; color: #be185d; border-color: #ec4899; }
 [data-theme="light"] .gps-flag-freeze { background: #cffafe; color: #0e7490; border-color: #06b6d4; }
 [data-theme="light"] .gps-flag-gap    { background: #fae8ff; color: #7e22ce; border-color: #a855f7; }
+[data-theme="light"] .gps-flag-sev    { background: #fee2e2; color: #b91c1c; border-color: #ef4444; }
+[data-theme="light"] .gps-flag-spf    { background: #fce7f3; color: #9d174d; border-color: #ec4899; }
+[data-theme="light"] .gps-summary-sev { color: #dc2626; }
+[data-theme="light"] .gps-live-table tr.gps-row-sev .gps-td-cs { color: #dc2626; }
+[data-theme="light"] .gps-spoof-hit,
+[data-theme="light"] .gps-spoof-ind   { color: #be185d; }
+[data-theme="light"] .gps-spoof-ok    { color: #a16207; }
+[data-theme="light"] .gps-spoof-table tr.gps-spoof-strong td:first-child { box-shadow: inset 3px 0 0 #ca8a04; }
 [data-theme="light"] .gps-key-desc    { color: #475569; }
 [data-theme="light"] .gps-key-note    { color: #64748b; }
 [data-theme="light"] .gps-no-data     { color: #94a3b8; }

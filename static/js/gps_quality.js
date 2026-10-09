@@ -2,7 +2,8 @@
  * gps_quality.js — GPS Quality monitoring page for MODE-S Wind.
  *
  * Polls /api/gps/state every 30 seconds and renders:
- *   • 24-hour time-series chart  (Chart.js)
+ *   • 24-hour time-series chart  (Chart.js); "10 min" view from /api/gps/detail
+ *   • Severity & spoofing panel (/api/gps/detail, every 60 s)
  *   • FL-band heatmap  (Canvas) — 14d / 1m day-range selector, 9 FL bands
  *   • Live degraded aircraft table
  */
@@ -65,6 +66,8 @@ function applyZone(zone) {
   });
   // Re-fetch immediately so charts update without waiting for the next interval
   fetchGpsState();
+  refreshT10();
+  refreshSpoofPanel();
 }
 
 // ── Range selector state ──────────────────────────────────────────────────────
@@ -90,10 +93,9 @@ function applyRange(range) {
   document.querySelectorAll('#gps-range-btns .gps-range-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.range === range);
   });
-  const cfg = RANGE_CONFIG[range];
-  const titleEl = document.getElementById('gps-chart-title');
-  if (titleEl) titleEl.textContent = 'GPS Degradation Events — ' + cfg.title;
+  updateTsTitle();
   if (lastFullTimeSeries.length > 0) updateTsChart(lastFullTimeSeries);
+  refreshT10();
 }
 
 // ── Heatmap day-range selector (independent of the time-series range above) ──
@@ -772,6 +774,7 @@ function heatTipHtml(cell) {
                  `Events: ${ev}`];
   if (bd && bd.ac) {
     lines.push(`Aircraft degraded: ${bd.deg} of ${bd.ac} (${Math.round(100 * bd.deg / bd.ac)} %, aircraft-hours)`);
+    if (bd.sev) lines.push(`Severe (position unusable): ${bd.sev}`);
     const sig = Object.entries(bd.sig || {}).filter(([, n]) => n > 0);
     const tot = sig.reduce((a, [, n]) => a + n, 0);
     if (tot > 0) {
@@ -843,8 +846,12 @@ function renderLiveTable(liveEvents) {
     const rcNm  = ac.nic_rc_m != null ? (ac.nic_rc_m / 1852).toFixed(ac.nic_rc_m < 1852 ? 2 : 1) + ' NM' : 'unknown';
     const nic   = ac.nic      != null ? `<span title="Rc ${rcNm}">${ac.nic}</span>` : '—';
     const nacv  = ac.nac_v    != null ? ac.nac_v : '—';
-    const flags = (ac.flags || []).map(f => FLAG_HTML[f] || f).join(' ');
-    return `<tr>
+    const fl_ = ac.flags || [];
+    // Severe = position unusable (NACp 0, NIC 0 or no own position)
+    const severe = (fl_.includes('nacp') && ac.nac_p === 0) || (fl_.includes('nic') && ac.nic === 0)
+                   || fl_.includes('gap') || fl_.includes('adsb_loss');
+    const flags = fl_.map(f => FLAG_HTML[f] || f).join(' ');
+    return `<tr${severe ? ' class="gps-row-sev" title="Severe — position unusable (NACp 0, NIC 0 or no own position)"' : ''}>
       <td class="gps-td-cs">${cs}</td>
       <td class="gps-td-icao">${ac.icao}</td>
       <td>${fl}</td>
@@ -997,6 +1004,263 @@ function renderStats(stats) {
   document.getElementById('gps-events-24h').textContent   = stats.events_24h   ?? '—';
   document.getElementById('gps-degraded-24h').textContent = stats.degraded_24h ?? '—';
   document.getElementById('gps-peak-hour').textContent    = stats.peak_hour    || 'None';
+  document.getElementById('gps-severe-24h').textContent   = stats.severe_24h   ?? '—';
+}
+
+// ── 10-minute view + severity / spoofing panel (data from 2026-10-09) ─────────
+// Both read /api/gps/detail (completed hours cached server-side, the hour in
+// progress live).  The 10-minute view replaces the events chart while the
+// "10 min" button is active; its window follows the range selector, capped at
+// 7 days.
+const T10_MAX_HOURS = 168;
+const SPOOF_META = {
+  mlat_dis: { lbl: 'ADS-B / MLAT mismatch', short: 'MLAT ≠', tip: 'Own ADS-B position disagrees with the MLAT position by more than 2 NM plus the distance flown in the time difference, on two consecutive comparisons (MLAT covers mainly higher altitudes)' },
+  gmb_sat:  { lbl: 'GNSS−baro at limit',    short: 'Alt limit', tip: 'GNSS − barometric altitude difference (velocity message) at its largest encodable value (> 3 137 ft)' },
+  gmb_jump: { lbl: 'GNSS−baro jump',        short: 'Alt jump', tip: 'GNSS − barometric altitude difference changed by ≥ 500 ft between two reports ≤ 30 s apart' },
+  pos_jump: { lbl: 'Position jump',         short: 'Pos jump', tip: 'Own ADS-B position stepped further than the groundspeed allows, confirmed by the next position' },
+};
+const SPOOF_ORDER = ['mlat_dis', 'gmb_sat', 'gmb_jump', 'pos_jump'];
+
+let tsView      = localStorage.getItem('ms_gps_ts_view') === '10m' ? '10m' : 'hour';
+let t10Chart    = null;
+let spoofHours  = Number(localStorage.getItem('ms_gps_spoof_hours')) || 24;
+if (![24, 168, 744].includes(spoofHours)) spoofHours = 24;
+
+function t10Hours() {
+  const cfg = RANGE_CONFIG[currentRange] || RANGE_CONFIG['1d'];
+  return Math.min(cfg.hours, T10_MAX_HOURS);
+}
+
+function _pad2(n) { return String(n).padStart(2, '0'); }
+function _hhmm(ts) { const d = new Date(ts * 1000); return `${_pad2(d.getUTCHours())}:${_pad2(d.getUTCMinutes())}`; }
+function _dmhm(ts) { const d = new Date(ts * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${_hhmm(ts)}`; }
+
+// Message in an empty chart
+const t10EmptyPlugin = {
+  id: 't10Empty',
+  afterDraw(chart) {
+    if (!chart.$emptyMsg) return;
+    const { ctx, chartArea: a } = chart;
+    if (!a) return;
+    ctx.save();
+    ctx.fillStyle = canvasTheme().textDim;
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(chart.$emptyMsg, (a.left + a.right) / 2, (a.top + a.bottom) / 2);
+    ctx.restore();
+  },
+};
+
+function initT10Chart() {
+  const ctx = document.getElementById('gps-t10-canvas').getContext('2d');
+  const th  = canvasTheme();
+  t10Chart = new Chart(ctx, {
+    type: 'bar',
+    plugins: [t10EmptyPlugin],
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Severe', data: [], backgroundColor: 'rgba(239,68,68,0.85)', borderColor: '#ef4444',
+          borderWidth: 1, stack: 'deg', order: 2, yAxisID: 'y' },
+        { label: 'Mild', data: [], backgroundColor: 'rgba(251,146,60,0.75)', borderColor: '#fb923c',
+          borderWidth: 1, stack: 'deg', order: 2, yAxisID: 'y' },
+        { label: 'Spoofing ind.', data: [], type: 'line', showLine: false, borderColor: '#f472b6',
+          backgroundColor: '#f472b6', pointStyle: 'triangle', order: 0, yAxisID: 'y',
+          pointRadius: ctx => (ctx.raw ? 5 : 0), pointHoverRadius: ctx => (ctx.raw ? 6 : 0) },
+        { label: '% FL050–250 degraded', data: [], type: 'line', borderColor: '#38bdf8',
+          borderWidth: 1.5, pointRadius: 0, pointHitRadius: 4, tension: 0.2, fill: false,
+          order: 1, yAxisID: 'y1', spanGaps: false },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 0 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: th.text, font: { size: 11 }, boxWidth: 12, padding: 8,
+                                            sort: (a, b) => a.datasetIndex - b.datasetIndex } },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const ts = t10Chart.$slotTs[items[0].dataIndex];
+              return `${_dmhm(ts)}–${_hhmm(ts + 600)} UTC`;
+            },
+            label: item => {
+              if (item.raw == null) return null;
+              if (item.datasetIndex === 3) return ` ${item.dataset.label}: ${item.raw} %`;
+              return ` ${item.dataset.label}: ${item.raw}`;
+            },
+            footer: items => {
+              const r = t10Chart.$rows[items[0].dataIndex];
+              if (!r) return ['No data'];
+              return [`Aircraft seen: ${r.ac} · degraded ${r.deg}`,
+                      `FL050–250: ${r.mdeg} of ${r.mac} degraded`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: th.axisLabel, maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } },
+             grid: { color: th.grid } },
+        y: { stacked: true, beginAtZero: true, position: 'left',
+             ticks: { color: th.axisLabel, precision: 0, font: { size: 10 } }, grid: { color: th.grid },
+             title: { display: true, text: 'Degraded aircraft / 10 min', color: th.axisLabel, font: { size: 10 } } },
+        y1: { beginAtZero: true, suggestedMax: 20, max: 100, position: 'right',
+              ticks: { color: '#38bdf8', font: { size: 10 }, callback: v => v + ' %' },
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: 'FL050–250 degraded', color: '#38bdf8', font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+async function fetchDetail(hours) {
+  const r = await fetch(`/api/gps/detail?zone=${encodeURIComponent(currentZone)}&hours=${hours}`);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function updateT10Chart(d) {
+  if (!t10Chart) return;
+  const keys = d.keys || ['ac', 'deg', 'sev', 'spf', 'mac', 'mdeg'];
+  const bySlot = {};
+  for (const s of d.slots || []) {
+    const o = {};
+    keys.forEach((k, i) => { o[k] = s[i + 1]; });
+    bySlot[s[0]] = o;
+  }
+  const now   = Date.now() / 1000;
+  const last  = Math.floor(now / 600) * 600;
+  let first   = Math.floor(now / 3600) * 3600 - ((d.hours_n || 24) - 1) * 3600;
+  if (d.since != null && d.since > first) first = d.since;   // nothing recorded before
+  const slotTs = [];
+  for (let t = first; t <= last; t += 600) slotTs.push(t);
+  const multiDay = slotTs.length > 144;
+  const rows = slotTs.map(t => bySlot[t] || null);
+  t10Chart.$slotTs = slotTs;
+  t10Chart.$rows   = rows;
+  t10Chart.data.labels = slotTs.map(t => (multiDay ? _dmhm(t) : _hhmm(t)));
+  t10Chart.data.datasets[0].data = rows.map(r => r ? r.sev : null);
+  t10Chart.data.datasets[1].data = rows.map(r => r ? Math.max(0, r.deg - r.sev) : null);
+  t10Chart.data.datasets[2].data = rows.map(r => r && r.spf ? r.spf : null);
+  t10Chart.data.datasets[3].data = rows.map(r => r && r.mac ? Math.round(1000 * r.mdeg / r.mac) / 10 : null);
+  t10Chart.options.scales.x.ticks.maxTicksLimit = multiDay ? 8 : 12;
+  t10Chart.$emptyMsg = d.since == null ? '10-minute data is recorded from 9 Oct 2026 — none in this window yet' : '';
+  t10Chart.update('none');
+}
+
+async function refreshT10() {
+  if (tsView !== '10m') return;
+  try { updateT10Chart(await fetchDetail(t10Hours())); } catch (_) { /* silent */ }
+}
+
+function applyTsView(view) {
+  tsView = view === '10m' ? '10m' : 'hour';
+  localStorage.setItem('ms_gps_ts_view', tsView);
+  document.querySelectorAll('#gps-ts-view-btns .gps-range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tsView === tsView);
+  });
+  const ev  = document.getElementById('gps-timeseries-canvas');
+  const t10 = document.getElementById('gps-t10-canvas');
+  ev.style.display  = tsView === 'hour' ? '' : 'none';
+  t10.style.display = tsView === '10m'  ? '' : 'none';
+  updateTsTitle();
+  if (tsView === '10m') {
+    if (!t10Chart) initT10Chart();
+    t10Chart.resize();
+    refreshT10();
+  } else if (tsChart) {
+    tsChart.resize();
+  }
+}
+
+function updateTsTitle() {
+  const titleEl = document.getElementById('gps-chart-title');
+  if (!titleEl) return;
+  const cfg = RANGE_CONFIG[currentRange] || RANGE_CONFIG['1d'];
+  if (tsView === '10m') {
+    const capped = cfg.hours > T10_MAX_HOURS;
+    titleEl.textContent = 'Degraded Aircraft per 10 min — ' + (capped ? 'Last 7 Days (max)' : cfg.title);
+  } else {
+    titleEl.textContent = 'GPS Degradation Events — ' + cfg.title;
+  }
+}
+
+// ── Severity & spoofing panel ─────────────────────────────────────────────────
+function _fmtFlagVal(e) {
+  const v = [];
+  if (e.mlat_nm != null)  v.push(`${e.mlat_nm} NM from MLAT`);
+  if (e.jump_nm != null)  v.push(`${e.jump_nm} NM jump`);
+  if (e.gmb_jump != null) v.push(`Δ ${e.gmb_jump > 0 ? '+' : ''}${e.gmb_jump} ft`);
+  if (e.gmb != null && (e.k || []).includes('gmb_sat')) v.push(`${e.gmb} ft`);
+  return v.join(' · ') || '—';
+}
+
+function renderSpoofPanel(d) {
+  const body = document.getElementById('gps-spoof-body');
+  if (!body) return;
+  const sev = d.severity || {}, sp = d.spoof || {};
+  if (d.since == null) {
+    body.innerHTML = '<div class="gps-no-data">Recorded from 9 Oct 2026 — no data in this window yet</div>';
+    return;
+  }
+  const sw = sev.sweeps || {};
+  const pct = sev.degraded_ach ? Math.round(100 * sev.severe_ach / sev.degraded_ach) : 0;
+  const since = d.since > Date.now() / 1000 - d.hours_n * 3600 + 3600
+    ? `<div class="gps-spoof-note">Data from ${_dmhm(d.since)} UTC</div>` : '';
+  let h = since;
+  h += `<div class="gps-spoof-sec">Severity <span class="gps-spoof-dim">(aircraft-hours)</span></div>
+    <div class="gps-stat-row"><span class="gps-stat-label">Degraded</span><span class="gps-stat-val">${sev.degraded_ach ?? 0}</span></div>
+    <div class="gps-stat-row"><span class="gps-stat-label"><span class="gps-flag gps-flag-sev">SEV</span> position unusable</span>
+      <span class="gps-stat-val">${sev.severe_ach ?? 0}${sev.degraded_ach ? ` <span class="gps-spoof-dim">(${pct} %)</span>` : ''}</span></div>
+    <div class="gps-spoof-line">Severe sweeps: NACp 0 <b>${sw.nacp0 || 0}</b> · NIC 0 <b>${sw.nic0 || 0}</b> · no own position <b>${sw.nopos || 0}</b></div>`;
+  h += `<div class="gps-spoof-sec">Spoofing indicators <span class="gps-spoof-dim gps-spoof-cols"
+      title="aircraft flagged · of them while reporting normal GPS quality (fresh NACp ≥ 7, no degradation signal — the strong spoofing case) · sweeps / events">aircraft · normal GPS · sweeps</span></div>`;
+  for (const k of SPOOF_ORDER) {
+    const c = (sp.kinds || {})[k] || { aircraft: 0, sweeps: 0 };
+    const ok = c.ok_aircraft || 0;
+    h += `<div class="gps-stat-row" title="${SPOOF_META[k].tip}"><span class="gps-stat-label">${SPOOF_META[k].lbl}</span>
+      <span class="gps-stat-val${c.aircraft ? ' gps-spoof-hit' : ''}">${c.aircraft} · <span class="${ok ? 'gps-spoof-ok' : ''}">${ok}</span> · ${c.sweeps}</span></div>`;
+  }
+  h += `<div class="gps-spoof-line" title="How often the checks could be made at all">Checked: ADS-B vs MLAT in <b>${sp.cmp || 0}</b> sweeps · GNSS−baro values in <b>${sp.gmb_n || 0}</b> sweeps</div>`;
+  const fl = sp.flagged || [];
+  if (!fl.length) {
+    h += '<div class="gps-no-data gps-spoof-none">No aircraft flagged</div>';
+  } else {
+    h += `<div class="gps-spoof-sec">Flagged aircraft${sp.flagged_total > fl.length ? ` <span class="gps-spoof-dim">(newest ${fl.length} of ${sp.flagged_total})</span>` : ''}</div>
+      <table class="gps-live-table gps-spoof-table"><thead><tr>
+        <th>UTC</th><th>Callsign</th><th>FL</th><th>NM</th><th title="NACp when first flagged">NACp</th><th>Indicator</th><th>Value</th></tr></thead><tbody>`;
+    for (const e of fl) {
+      const ind = (e.k || []).map(k => `<span title="${SPOOF_META[k] ? SPOOF_META[k].lbl + ' — ' + SPOOF_META[k].tip : k}">${SPOOF_META[k]?.short || k}</span>`).join(', ');
+      const t = spoofHours > 24 ? _dmhm(e.t) : _hhmm(e.t);
+      const strong = (e.q || []).length > 0;
+      h += `<tr${strong ? ' class="gps-spoof-strong" title="Flagged while the aircraft reported normal GPS quality — strong spoofing case"' : ''}><td class="gps-spoof-time">${t}</td>
+        <td class="gps-td-cs" title="${e.icao}">${e.cs || e.icao}</td>
+        <td>${e.alt != null ? String(Math.round(e.alt / 100)).padStart(3, '0') : '—'}</td>
+        <td>${e.dist != null ? Math.round(e.dist) : '—'}</td>
+        <td>${e.nacp != null ? e.nacp : '—'}</td>
+        <td class="gps-spoof-ind">${ind}</td><td class="gps-spoof-val">${_fmtFlagVal(e)}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+  body.innerHTML = h;
+}
+
+async function refreshSpoofPanel() {
+  try { renderSpoofPanel(await fetchDetail(spoofHours)); } catch (_) { /* silent */ }
+}
+
+function applySpoofRange(hours) {
+  spoofHours = [24, 168, 744].includes(hours) ? hours : 24;
+  localStorage.setItem('ms_gps_spoof_hours', String(spoofHours));
+  document.querySelectorAll('#gps-spoof-range-btns .gps-range-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.spoofRange) === spoofHours);
+  });
+  const t = document.getElementById('gps-spoof-title');
+  if (t) t.textContent = 'Severity & Spoofing — ' +
+    ({ 24: 'Last 24 Hours', 168: 'Last 7 Days', 744: 'Last 31 Days' })[spoofHours];
+  refreshSpoofPanel();
 }
 
 // ── Main poll loop ────────────────────────────────────────────────────────────────────────────
@@ -1079,8 +1343,21 @@ document.querySelectorAll('.gps-zone-btn').forEach(btn => {
   btn.classList.toggle('active', btn.dataset.zone === currentZone);
 });
 
+// Events / 10 min view of the time-series panel
+document.querySelectorAll('#gps-ts-view-btns .gps-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyTsView(btn.dataset.tsView));
+});
+applyTsView(tsView);
+
+// Severity & spoofing panel range
+document.querySelectorAll('#gps-spoof-range-btns .gps-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => applySpoofRange(Number(btn.dataset.spoofRange)));
+});
+applySpoofRange(spoofHours);
+
 fetchGpsState();
 setInterval(fetchGpsState, 30_000);
+setInterval(() => { refreshT10(); refreshSpoofPanel(); }, 60_000);
 setInterval(() => drawDonutAndStats(lastHeatmapData, lastFlBands), 60 * 60 * 1000); // hourly
 
 // Redraw canvases on theme change
@@ -1096,6 +1373,16 @@ window.onThemeChange = function () {
     tsChart.options.scales.y.grid.color          = th.grid;
     tsChart.options.scales.y.title.color         = th.axisLabel;
     tsChart.update('none');
+  }
+  if (t10Chart) {
+    const th = canvasTheme();
+    t10Chart.options.plugins.legend.labels.color = th.text;
+    for (const ax of ['x', 'y']) {
+      t10Chart.options.scales[ax].ticks.color = th.axisLabel;
+      t10Chart.options.scales[ax].grid.color  = th.grid;
+    }
+    t10Chart.options.scales.y.title.color = th.axisLabel;
+    t10Chart.update('none');
   }
   // Redraw heatmap with new theme
   fetchGpsState();

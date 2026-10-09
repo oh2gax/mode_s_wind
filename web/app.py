@@ -859,6 +859,26 @@ def create_app(
             zone = "all"
         return jsonify(gps_tracker.get_state(zone=zone))
 
+    @app.route("/api/gps/detail")
+    def gps_detail_api():
+        """10-minute slots, severity split and spoofing indicators for the
+        GPS Quality page (recorded since 2026-10-09).
+
+        ?zone=all|50nm|20nm (default all), ?hours=N (1 – 744, default 24).
+        Completed hours are read from the database once per hour and cached
+        in RAM; the hour in progress comes from the live tracker.
+        """
+        if gps_tracker is None:
+            return jsonify({"slots": [], "hours": [], "severity": {}, "spoof": {}, "since": None})
+        zone = request.args.get("zone", "all")
+        if zone not in ("all", "50nm", "20nm"):
+            zone = "all"
+        try:
+            hours = int(request.args.get("hours", 24))
+        except ValueError:
+            hours = 24
+        return jsonify(gps_tracker.get_detail(zone=zone, hours=hours))
+
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 
     @app.route("/api/wx")

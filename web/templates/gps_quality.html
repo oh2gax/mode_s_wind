@@ -14,6 +14,10 @@
       <span class="gps-summary-label">Aircraft affected 24h</span>
       <span class="gps-summary-val" id="gps-degraded-24h">—</span>
     </span>
+    <span class="gps-summary-item" title="Aircraft-hours with an unusable position (NACp 0, NIC 0 or no own ADS-B position) in the last 24 h — part of the affected aircraft. Recorded from 9 Oct 2026">
+      <span class="gps-summary-label">Severe 24h</span>
+      <span class="gps-summary-val gps-summary-sev" id="gps-severe-24h">—</span>
+    </span>
     <span class="gps-summary-item">
       <span class="gps-summary-label">Peak hour</span>
       <span class="gps-summary-val" id="gps-peak-hour">—</span>
@@ -43,6 +47,10 @@
       <div class="gps-chart-panel">
         <div class="gps-panel-hdr">
           <span class="gps-panel-title" id="gps-chart-title">GPS Degradation Events — Last 24 Hours</span>
+          <div class="gps-heatmap-range-btns" id="gps-ts-view-btns">
+            <button class="gps-range-btn active" data-ts-view="hour" title="Hourly (or daily) degradation events by signal">Events</button>
+            <button class="gps-range-btn" data-ts-view="10m" title="Degraded aircraft per 10 minutes, severe vs mild, with the share of FL050–250 traffic degraded and aircraft with a spoofing indicator (up to 7 days; recorded from 9 Oct 2026)">10 min</button>
+          </div>
           <div class="gps-range-btns" id="gps-range-btns">
             <button class="gps-range-btn active" data-range="1d">1d</button>
             <button class="gps-range-btn" data-range="2d">2d</button>
@@ -56,6 +64,7 @@
         </div>
         <div class="gps-chart-wrap">
           <canvas id="gps-timeseries-canvas"></canvas>
+          <canvas id="gps-t10-canvas" style="display:none"></canvas>
         </div>
       </div>
 
@@ -170,6 +179,21 @@
         </div>
       </div>
 
+      <!-- Severity and spoofing indicators (recorded from 2026-10-09) -->
+      <div class="gps-spoof-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title" id="gps-spoof-title">Severity &amp; Spoofing — Last 24 Hours</span>
+          <div class="gps-range-btns" id="gps-spoof-range-btns">
+            <button class="gps-range-btn active" data-spoof-range="24">1d</button>
+            <button class="gps-range-btn" data-spoof-range="168">7d</button>
+            <button class="gps-range-btn" data-spoof-range="744">1m</button>
+          </div>
+        </div>
+        <div class="gps-spoof-body" id="gps-spoof-body">
+          <div class="gps-no-data">Loading…</div>
+        </div>
+      </div>
+
       <!-- Signal key -->
       <div class="gps-key-panel">
         <div class="gps-panel-hdr">
@@ -195,6 +219,14 @@
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-adsb">ADS-B</span>
             <span class="gps-key-desc">Aircraft still transmitting ADS-B, but no own position for ≥45 s while MLAT keeps updating its position — GPS dropped out, MLAT covering. Common at EFHK during GPS jamming.</span>
+          </div>
+          <div class="gps-key-item">
+            <span class="gps-flag gps-flag-sev">SEV</span>
+            <span class="gps-key-desc">Severe — the position is unusable (live list: red callsign): NACp 0 (accuracy unknown), NIC 0 (no integrity) or no own ADS-B position at all (Gap / ADS-B). Everything else (NACp / NIC 1–6, Freeze) is milder degradation.</span>
+          </div>
+          <div class="gps-key-item">
+            <span class="gps-flag gps-flag-spf">SPF</span>
+            <span class="gps-key-desc">Spoofing indicators — a false position does not always lower NACp / NIC, so these are recorded separately (not counted as events): own ADS-B position &gt; 2 NM from the MLAT position (beyond the distance flown, on two consecutive comparisons; MLAT covers mainly higher altitudes); GNSS − baro altitude difference at its limit (&gt; 3 137 ft) or jumping ≥ 500 ft; position jump faster than the aircraft can fly, confirmed by the next position. A flag raised while the aircraft reports <i>normal</i> GPS quality (NACp ≥ 7, no degradation signal) is the strong spoofing case (yellow); flags during jamming (NACp 0) are more often the receiver re-acquiring. First thresholds — to be tuned with data.</span>
           </div>
           <div class="gps-key-note">
             All signals count only aircraft heard by this receiver. NACp: 0 = unknown · 1–3 = poor (&gt;10 NM) · 4–6 = moderate (0.1–10 NM) · 7–11 = excellent (&lt;0.1 NM). NIC: 8 = Rc &lt;0.1 NM · 7 = &lt;0.2 NM · 6 = 0.3–0.6 NM · ≤5 = ≥1 NM · 0 = unknown.

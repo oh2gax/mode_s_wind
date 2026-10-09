@@ -272,7 +272,9 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
       • TC 31 (operational status): ADS-B version, NIC supplement-A, NACp
         (NACp only for version ≥ 1 — undefined in version 0)
       • TC 29 (target state & status, version 1/2 only): NACp
-      • TC 19 (airborne velocity): NACv
+      • TC 19 (airborne velocity): NACv, and the GNSS − barometric altitude
+        difference (ft) — a spoofed GNSS fix usually shows up as a sudden
+        jump or a saturated value here
       • TC 9-18 / 20-22 (airborne position): NIC and containment radius Rc
     Each value gets its own timestamp so consumers can ignore stale values.
     """
@@ -294,6 +296,9 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
     elif tc == 19:
         if result.get("nac_v") is not None:
             merged["nac_v"] = result["nac_v"]
+        if result.get("geo_minus_baro") is not None:
+            merged["geo_minus_baro"] = result["geo_minus_baro"]
+            merged["gmb_ts"]         = ts
     elif 9 <= tc <= 18 or 20 <= tc <= 22:
         nic = nic_from_position(tc, merged.get("adsb_version"),
                                 merged.get("nic_a"), result.get("nic_b"))

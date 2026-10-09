@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS gps_quality_hours (
     method          INTEGER,                        -- counting-method version (see collector/gps_quality.py METHOD_VERSION)
     nic_events      INTEGER NOT NULL DEFAULT 0,     -- events flagged by the NIC (integrity) signal (method ≥ 4)
     band_detail     TEXT                            -- JSON per FL band: {"ac":{band:n},"deg":{band:n},"sig":{band:{signal:n}}} (from 2026-10-06; NULL before)
+                                                    -- from 2026-10-09 also "sev"/"s0" (severity), "spf"/"spa"/"spl"
+                                                    -- (spoofing indicators) and "t10" (10-minute slots);
+                                                    -- see collector/gps_quality.py module docstring
 );
 
 CREATE INDEX IF NOT EXISTS idx_gps_hours_ts ON gps_quality_hours(ts DESC);
@@ -222,7 +225,16 @@ CREATE TABLE IF NOT EXISTS gps_episodes (
     end_pos_age INTEGER,              -- s since the position last updated (any source)
     rec_lat REAL, rec_lon REAL, rec_alt INTEGER, rec_dist_nm REAL,
     end_reason    TEXT,
-    method        INTEGER             -- GPS counting-method version
+    method        INTEGER,            -- GPS counting-method version
+    -- since 2026-10-09 (NULL in older rows):
+    severe_sweeps INTEGER,            -- degraded sweeps with an unusable position
+                                      -- (NACp 0, NIC 0 or no own ADS-B position)
+    spoof         TEXT,               -- spoofing indicators seen while open, e.g.
+                                      -- "mlat_dis,gmb_jump" (mlat_dis|gmb_sat|gmb_jump|pos_jump)
+    max_mlat_nm   REAL,               -- largest own-ADS-B vs MLAT position distance flagged
+    mlat_cmp      INTEGER,            -- sweeps where ADS-B and MLAT could be compared
+    gmb_min       INTEGER,            -- GNSS − baro altitude difference range (ft, TC 19)
+    gmb_max       INTEGER
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gps_ep_key   ON gps_episodes(icao, t_start);

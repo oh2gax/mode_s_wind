@@ -193,6 +193,15 @@ def run_json_poller(
                             merged["lon"]     = parsed["lon"]
                             merged["pos_src"] = "MLAT"
                             n_pos_mlat += 1
+                            # Kept separately as well (lat/lon may be replaced
+                            # by our own ADS-B position): the GPS tracker
+                            # compares it with the aircraft's own ADS-B
+                            # position as a spoofing indicator
+                            if (parsed["lat"], parsed["lon"]) != (existing.get("mlat_lat"),
+                                                                  existing.get("mlat_lon")):
+                                merged["mlat_lat"] = parsed["lat"]
+                                merged["mlat_lon"] = parsed["lon"]
+                                merged["mlat_ts"]  = now
                         elif not existing.get("lat"):
                             # ADS-B from JSON: only fill if we have nothing yet
                             merged["lat"]     = parsed["lat"]

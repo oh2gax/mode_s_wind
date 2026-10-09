@@ -57,6 +57,13 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE gps_quality_zone_hours ADD COLUMN band_detail TEXT",
         "ALTER TABLE approach_history ADD COLUMN gnss_json TEXT",
         "ALTER TABLE approach_history ADD COLUMN rough_json TEXT",
+        # GPS episodes: severity and spoofing indicators (2026-10-09)
+        "ALTER TABLE gps_episodes ADD COLUMN severe_sweeps INTEGER",
+        "ALTER TABLE gps_episodes ADD COLUMN spoof TEXT",
+        "ALTER TABLE gps_episodes ADD COLUMN max_mlat_nm REAL",
+        "ALTER TABLE gps_episodes ADD COLUMN mlat_cmp INTEGER",
+        "ALTER TABLE gps_episodes ADD COLUMN gmb_min INTEGER",
+        "ALTER TABLE gps_episodes ADD COLUMN gmb_max INTEGER",
     ]
     for sql in _migrations:
         try:

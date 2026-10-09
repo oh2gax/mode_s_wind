@@ -5,6 +5,24 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-09 (GPS Quality: 10-minute resolution, severity split and spoofing indicators — recorded and shown on the page)
+
+- **GPS Quality — finer data for later analysis**, all stored in the existing hourly rows, checkpoint and episode rows (no extra database writes):
+  - **10-minute resolution**: each hourly row now also holds six 10-minute slots with the aircraft seen, degraded, severely degraded and with a spoofing indicator (all altitudes and FL050–250), per zone
+  - **Severity split**: a degraded aircraft is *severe* when its position is unusable (NACp 0, NIC 0 or no own ADS-B position); counted per FL band separately from the milder NACp / NIC 1–6 cases
+  - **Spoofing indicators**: own ADS-B position disagreeing with the MLAT position, GNSS − barometric altitude difference (from the velocity message) jumping or at its limit, and confirmed position jumps faster than the aircraft can fly. Recorded per FL band, with a list of the flagged aircraft per hour, and on the episode rows. The degradation counts and charts are unchanged
+- **GPS Quality page shows the new data**:
+  - **`10 min` view** of the time-series chart: degraded aircraft per 10 minutes split into severe / mild, the share of FL050–250 traffic degraded and markers for aircraft with a spoofing indicator (up to 7 days)
+  - **Severity & Spoofing panel** (right column, `1d` / `7d` / `1m`): severe vs degraded aircraft-hours, severe sweeps by kind, the spoofing indicators with how often each check could be made, and the list of flagged aircraft
+  - **Severe 24h** in the summary bar, severe aircraft-hours in the heatmap hover text, and a red marking for aircraft with a severe (unusable) position in the live table; the signal key explains severity and the spoofing indicators
+  - New API `/api/gps/detail`
+- **Spoofing indicators refined** (after the first hours of data):
+  - ADS-B / MLAT mismatch is counted only when it repeats on two consecutive comparisons with new positions — single MLAT or decoding outliers (one 144 NM mismatch in the first hours) are ignored
+  - Flags raised while the aircraft reports **normal GPS quality** (NACp ≥ 7, no degradation signal) are counted separately — the strong spoofing case; the first flags all came during jamming (NACp 0), where they are more likely the receiver re-acquiring. The flagged-aircraft list now also stores the NACp at the first flag. Shown on the GPS Quality page (Severity & Spoofing panel: *normal GPS* column, NACp column, yellow marking)
+- **GPS Episodes**: new columns `severe_sweeps`, `spoof`, `max_mlat_nm`, `mlat_cmp`, `gmb_min`, `gmb_max` (added automatically at startup); the detail popup shows them for new episodes
+
+---
+
 ## 2026-10-08 (Approach-conditions index class factors; Approach History registration filter; one browser tab per page)
 
 - **Navigation — one browser tab per page**: the navbar links now open each page in its own tab. A page that is already open is brought to the front without reloading (e.g. going from Windshear to GPS Quality and back keeps the Windshear selections); a page that is not open yet opens in a new tab

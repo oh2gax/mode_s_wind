@@ -114,6 +114,13 @@ function sigChips(sigStr) {
     `title="${SIG_META[k].tip}">${SIG_META[k].lbl}</span>`).join('');
 }
 
+const SPOOF_LABEL = {
+  mlat_dis: 'ADS-B/MLAT position mismatch',
+  gmb_sat:  'GNSS−baro at limit',
+  gmb_jump: 'GNSS−baro jump',
+  pos_jump: 'Position jump',
+};
+
 function popupHtml(e) {
   const sig = (e.signals || '').split(',').filter(Boolean)
     .map(k => SIG_META[k] ? SIG_META[k].lbl : k).join(', ');
@@ -130,6 +137,18 @@ function popupHtml(e) {
     ['Recovery', e.rec_alt != null ? `${fmtNm(e.rec_dist_nm)} NM · ${e.rec_alt} ft` : '—'],
     ['Ended', `<span style="color:${END_COLOR[e.end_class] || '#94a3b8'}">${END_LABEL[e.end_class] || e.end_class}</span>`],
   ];
+  // Severity and spoofing indicators (episodes logged from 2026-10-09)
+  if (e.severe_sweeps != null)
+    rows.push(['Severe', `${e.severe_sweeps} of ${e.sweeps} sweeps` +
+      ' <span class="gpe-note">(position unusable: NACp 0, NIC 0 or no own position)</span>']);
+  if (e.spoof || e.gmb_min != null || e.mlat_cmp) {
+    const sp = (e.spoof || '').split(',').filter(Boolean).map(k => SPOOF_LABEL[k] || k).join(', ');
+    let v = sp ? `<span style="color:#f472b6">${sp}</span>` : 'none';
+    if (e.max_mlat_nm != null) v += ` · ADS-B vs MLAT ${e.max_mlat_nm} NM`;
+    if (e.mlat_cmp) v += ` · ${e.mlat_cmp} MLAT comparisons`;
+    if (e.gmb_min != null) v += ` · GNSS−baro ${e.gmb_min}…${e.gmb_max} ft`;
+    rows.push(['Spoofing ind.', v]);
+  }
   return `<div class="gpe-popup">` +
     rows.map(([k, v]) => `<div><span class="gpe-pk">${k}</span>${v}</div>`).join('') + `</div>`;
 }
