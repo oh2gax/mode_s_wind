@@ -514,6 +514,8 @@ A permanently visible Skew-T Log-P diagram filling the full height of the right 
 - **Temperature curve** — a dot for each shown altitude observation, joined into a line, with the values (°C) next to them (thinned so they do not overlap). Since 2026-10-09 the temperature is available for most observations (Mach/TAS temperature, also computed for older stored observations); single values scatter by a few degrees, especially at low speed, so compare with the grey area profile.
 - **Level indicator** — a dashed horizontal line showing the aircraft's current pressure level derived from barometric altitude via the ISA model. When temperature data is available a white-ringed coloured dot marks the point on the temperature curve; otherwise a small diamond appears on the pressure axis.
 
+**Deselecting** — click an empty spot on the map, press **Esc**, close the aircraft's map popup (its ×) or use the ✕ in the aircraft detail panel to return the diagram to the area profile (since 2026-10-09).
+
 **Profile persistence** — the profile is pre-loaded from the database the first time you click an aircraft during a page session. Navigating to another page and returning, then clicking the same aircraft again, restores the complete historical profile instantly from the database rather than starting from scratch.
 
 **Wind history density slider** — controls how densely history barbs are drawn. Each step equals a 400 ft minimum altitude gap between consecutive barbs:

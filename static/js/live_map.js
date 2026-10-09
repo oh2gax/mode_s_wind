@@ -689,6 +689,11 @@ function upsertMarker(ac) {
       .bindPopup(popup)
       .addTo(map);
     m.on('click', () => selectAircraft(ac.icao));
+    // Closing the aircraft's popup (its × button) also deselects it, so the
+    // Atmosphere Profile returns to the area profile.  Only when this
+    // aircraft is still the selected one — clicking another aircraft closes
+    // this popup too, after or before selecting the new one.
+    m.on('popupclose', () => { if (selectedIcao === ac.icao) closeDetail(); });
     markers[ac.icao] = m;
   }
 
@@ -1041,6 +1046,14 @@ if (_mskWrap) {
 } else {
   drawMiniSounding();   // fallback: draw with default dimensions
 }
+
+// Deselect: clicking an empty spot on the map or pressing Esc returns the
+// Atmosphere Profile to the area profile (same as the ✕ in the detail panel).
+// Marker clicks do not reach the map (Leaflet markers do not bubble clicks).
+map.on('click', () => { if (selectedIcao) closeDetail(); });
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && selectedIcao) closeDetail();
+});
 
 // Area profile behind the mini Skew-T, refreshed every 5 minutes
 fetchMiniArea();
