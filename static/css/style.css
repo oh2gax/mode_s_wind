@@ -2601,3 +2601,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   color: #64748b;
 }
 .gpe-note { color: #94a3b8; font-style: italic; }
+
+/* Windshear: autopilot-engaged mark after the callsign (flight strip) */
+.ws-ap-mark { margin-left: 1px; font-weight: 700; cursor: help; }

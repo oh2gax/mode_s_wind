@@ -289,6 +289,15 @@ def _headwind_kt(
     return round(wind_spd * math.cos(math.radians(wind_dir - rwy_heading)), 1)
 
 
+def _ap_state(ac: dict, now: float, key: str):
+    """Fresh autopilot flag (True / False) from live_state, or None."""
+    ts = ac.get("ap_ts")
+    if ts is None or now - ts > AP_FRESH_SEC:
+        return None
+    v = ac.get(key)
+    return None if v is None else bool(v)
+
+
 def gs_status(
     altitude_ft: float,
     dist_thr_nm: float,
@@ -885,6 +894,10 @@ class WindshearTracker:
                 "best_temp":      temperature,
                 "meteo_source":   _meteo_src,
                 "none_reason":    none_reason,
+                # Autopilot engaged / approach mode (ADS-B TC 29, version 2
+                # transponders; None when unknown or older than AP_FRESH_SEC)
+                "ap":             _ap_state(aircraft, now, "ap"),
+                "ap_app":         _ap_state(aircraft, now, "ap_app"),
                 "pos_frozen":     pos_frozen,
                 "in_corridor":    in_corridor,
                 "approach_runway":runway,

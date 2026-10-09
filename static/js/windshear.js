@@ -634,7 +634,8 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     // near-stale (dot only).  The glideslope deviation is shown by the dot
     // colour (ON / HIGH / LOW) and no longer printed in the label.
     if (!nearStale) {
-      const label = ac.callsign || ac.icao;
+      // "*" = autopilot engaged (ADS-B TC 29, version 2 transponders only)
+      const label = (ac.callsign || ac.icao) + (ac.ap ? '*' : '');
 
       ilsCtx.fillStyle = color;
       ilsCtx.font      = '10px "Courier New", monospace';
@@ -1687,7 +1688,7 @@ function buildStrip(ac, wsSeverity = null) {
   </div>
   ${(sqkFlash || gaFlash) ? `<div class="ws-strip-flash-row">${sqkFlash}${gaFlash}</div>` : ''}
   <div class="ws-strip-id">
-    <span class="ws-strip-callsign">${csDisplay}</span>
+    <span class="ws-strip-callsign">${csDisplay}${ac.ap ? '<span class="ws-ap-mark" title="Autopilot engaged' + (ac.ap_app ? ', approach mode' : '') + ' (ADS-B)">*</span>' : ''}</span>
     ${returnBadge}
     <span class="ws-strip-type${typeNil}">${typeDisplay}</span>
   </div>
