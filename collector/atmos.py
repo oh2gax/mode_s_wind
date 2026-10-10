@@ -36,14 +36,16 @@ TM_MAX_ISA_DEV = 40.0  # K — reject values further than this from ISA
 
 # SQL expression giving the best temperature of an observation row:
 # MRAR (measured) → Mach/TAS temperature (stored from 2026-10-09, computed
-# from the stored BDS 5,0 TAS and BDS 6,0 Mach for older rows) → MHR.
-# MHR (BDS 4,5) hazard reports turned out to be unreliable, so MHR comes last.
+# from the stored BDS 5,0 TAS and BDS 6,0 Mach for older rows).
+# MHR (BDS 4,5) temperatures are not used (since 2026-10-10): most of them are
+# other Comm-B registers misidentified as BDS 4,5 — two thirds were more than
+# 40 K from ISA (median ISA + 47 K) and they widened the layer p10–p90 spreads
+# by up to 60 K.  They are still stored in mhr_temp for reference.
 TEMP_SQL = (
     "COALESCE(mrar_temp, tm_temp,"
     " CASE WHEN bds60_mach >= 0.2 AND bds50_true_airspeed >= 60"
     " THEN 288.15 * (bds50_true_airspeed / (661.47 * bds60_mach))"
-    "            * (bds50_true_airspeed / (661.47 * bds60_mach)) - 273.15 END,"
-    " mhr_temp)"
+    "            * (bds50_true_airspeed / (661.47 * bds60_mach)) - 273.15 END)"
 )
 
 # Layer edges (ft, pressure altitude) for soundings and the hourly archive:

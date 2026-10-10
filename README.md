@@ -19,7 +19,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Real-time live map** — ATC-style aircraft display with 1-minute position trails, colour-coded by meteo data source, with optional callsign or ICAO24 labels
 - **Meteo data sources** decoded simultaneously:
   - BDS 4,4 MRAR — Meteorological Routine Air Report (direct temp, pressure, humidity, wind, turbulence from aircraft avionics)
-  - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels; rare and often unreliable at EFHK — see [Data source priority](#data-source-priority))
+  - BDS 4,5 MHR — Meteorological Hazard Report (icing, wind shear, microburst, turbulence levels; rare and often unreliable at EFHK, its temperature is not used — see [Data source priority](#data-source-priority))
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
   - BDS 5,0 + 6,0 **air temperature** — static air temperature from the true airspeed and the Mach number (since 2026-10-09; available for about 85 % of the observations, see [Air temperature](#air-temperature-bds-50--60))
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
@@ -105,7 +105,7 @@ When multiple sources are available for the same observation the `best_*` consol
 3. **COMPUTED** — wind vector calculated from BDS 5,0 + 6,0 pair
 4. **JSON** — temperature or wind injected from Radarcape's JSON feed
 
-Temperature (`best_temp`, since 2026-10-09): **MRAR → Mach/TAS temperature → MHR** (→ JSON in the live view). At EFHK MRAR is practically never received and BDS 4,5 hazard reports are rare and unreliable (often other Comm-B registers misidentified as BDS 4,5 — implausible icing / turbulence levels in most of them), so MHR comes last.
+Temperature (`best_temp`, since 2026-10-09): **MRAR → Mach/TAS temperature** (→ JSON in the live view). At EFHK MRAR is practically never received. BDS 4,5 (MHR) temperatures are **not used since 2026-10-10** — not for `best_temp`, the area profiles, the Sounding page, the Live Map Skew-T or the hourly profile archive (`TEMP_SQL` in `collector/atmos.py`). Most BDS 4,5 replies at EFHK are other Comm-B registers misidentified as BDS 4,5: in 24 Sep – 10 Oct 2026 two thirds of their temperatures were more than 40 K from ISA (median ISA + 47 K, mostly FL340–400), and they widened the p10–p90 spread of the profile layers by up to 60 K. They made up only 0.5 % of the temperatures. The raw value is still stored in `mhr_temp`. Hourly profiles archived before 2026-10-10 may still contain them (wide p10–p90 bars in some hours).
 
 ### Computed wind (BDS 5,0 + 6,0)
 
