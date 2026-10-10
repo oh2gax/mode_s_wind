@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-10 (GPS spoofing indicators: 2+ independent checks marked)
+
+- **GPS Quality — Severity & Spoofing panel**: aircraft flagged by two or more independent checks in the same hour (ADS-B vs MLAT, GNSS − baro altitude, position jump) are counted on a new `2+ independent indicators` row and marked with a pink `2+` badge in the flagged-aircraft list; a `2+ only` button shows just those. A single large ADS-B / MLAT mismatch is more often an MLAT outlier; agreeing checks are the convincing spoofing cases
+- **GPS Episodes**: `SPF` / `SPF 2+` chips after the signal chips for episodes with spoofing indicators, a **Spoofing** filter (Any / Any indicator / 2+ independent) and a note in the detail popup when 2+ independent checks agree
+
+---
+
 ## 2026-10-09 (Air temperature from Mach / TAS and new Skew-T soundings; approach wind / temperature profile, autopilot and raw series; hourly profile archive; GPS Quality: 10-minute resolution, severity split and spoofing indicators)
 
 - **GPS Quality — finer data for later analysis**, all stored in the existing hourly rows, checkpoint and episode rows (no extra database writes):

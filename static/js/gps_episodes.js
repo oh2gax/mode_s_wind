@@ -121,6 +121,19 @@ const SPOOF_LABEL = {
   pos_jump: 'Position jump',
 };
 
+// Independent checks (the two GNSS − baro indicators come from the same value)
+const SPOOF_GROUP = { mlat_dis: 'mlat', gmb_sat: 'gmb', gmb_jump: 'gmb', pos_jump: 'pos' };
+function spoofKinds(e) { return (e.spoof || '').split(',').filter(Boolean); }
+function spoofGroups(e) { return new Set(spoofKinds(e).map(k => SPOOF_GROUP[k] || k)).size; }
+function spoofChip(e) {
+  const n = spoofGroups(e);
+  if (!n) return '';
+  const lbl = spoofKinds(e).map(k => SPOOF_LABEL[k] || k).join(', ');
+  return n >= 2
+    ? `<span class="gpe-chip gpe-chip-spf2" title="Spoofing indicators from 2+ independent checks: ${lbl}">SPF 2+</span>`
+    : `<span class="gpe-chip gpe-chip-spf" title="Spoofing indicator: ${lbl}">SPF</span>`;
+}
+
 function popupHtml(e) {
   const sig = (e.signals || '').split(',').filter(Boolean)
     .map(k => SIG_META[k] ? SIG_META[k].lbl : k).join(', ');
@@ -144,6 +157,7 @@ function popupHtml(e) {
   if (e.spoof || e.gmb_min != null || e.mlat_cmp) {
     const sp = (e.spoof || '').split(',').filter(Boolean).map(k => SPOOF_LABEL[k] || k).join(', ');
     let v = sp ? `<span style="color:#f472b6">${sp}</span>` : 'none';
+    if (spoofGroups(e) >= 2) v += ' <span class="gpe-note">(2+ independent checks agree)</span>';
     if (e.max_mlat_nm != null) v += ` · ADS-B vs MLAT ${e.max_mlat_nm} NM`;
     if (e.mlat_cmp) v += ` · ${e.mlat_cmp} MLAT comparisons`;
     if (e.gmb_min != null) v += ` · GNSS−baro ${e.gmb_min}…${e.gmb_max} ft`;
@@ -159,6 +173,7 @@ function applyFilters() {
   const sig    = document.getElementById('gpe-f-sig').value;
   const end    = document.getElementById('gpe-f-end').value;
   const altSel = document.getElementById('gpe-f-alt').value;
+  const spf    = document.getElementById('gpe-f-spf').value;
   let aLo = -1e9, aHi = 1e9;
   if (altSel) [aLo, aHi] = altSel.split('-').map(Number);
   // Altitude filter: the episode's altitude range overlaps the selected band
@@ -166,6 +181,7 @@ function applyFilters() {
     if ((e.duration_s || 0) < minDur) return false;
     if (sig && !(e.signals || '').split(',').includes(sig)) return false;
     if (end && e.end_class !== end) return false;
+    if (spf && spoofGroups(e) < (spf === 'multi' ? 2 : 1)) return false;
     if (altSel) {
       const lo = e.min_alt != null ? e.min_alt : startAlt(e);
       const hi = e.max_alt != null ? e.max_alt : startAlt(e);
@@ -275,7 +291,7 @@ function renderList() {
       <td class="gpe-cs">${e.callsign || e.icao}</td>
       <td>${e.aircraft_type || '—'}</td>
       <td class="gpe-mono">${fmtDur(e.duration_s)}</td>
-      <td class="gpe-chips">${sigChips(e.signals)}</td>
+      <td class="gpe-chips">${sigChips(e.signals)}${spoofChip(e)}</td>
       <td class="gpe-mono">${fmtFl(startAlt(e))}</td>
       <td class="gpe-mono"${e.start_edge ? ' title="Entered the radius already degraded"' : ''}>${fmtNm(e.start_dist_nm)}${e.start_edge ? '*' : ''}→${fmtNm(e.end_dist_nm)}</td>
       <td style="color:${col}">${END_LABEL[e.end_class] || e.end_class || '—'}</td>
@@ -456,7 +472,7 @@ document.getElementById('gpe-live-btn').addEventListener('click', () => {
   syncTimeButtons();
   loadEpisodes();
 });
-for (const id of ['gpe-f-dur', 'gpe-f-sig', 'gpe-f-end', 'gpe-f-alt']) {
+for (const id of ['gpe-f-dur', 'gpe-f-sig', 'gpe-f-end', 'gpe-f-alt', 'gpe-f-spf']) {
   document.getElementById(id).addEventListener('change', applyFilters);
 }
 

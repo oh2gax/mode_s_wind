@@ -2298,6 +2298,13 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .gps-spoof-table td { padding: 0.2rem 0.3rem; }
 .gps-spoof-time  { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-2); }
 .gps-spoof-ind   { color: #f472b6; }
+.gps-spoof-ind-multi { font-weight: 700; }
+.gps-spoof-multi { display: inline-block; padding: 0 3px; border-radius: 3px; font-size: 9px; font-weight: 700;
+                   line-height: 13px; background: #f472b6; color: #1a0a14; vertical-align: 1px; }
+.gps-spoof-filter { margin-left: auto; background: transparent; border: 1px solid var(--border); color: var(--text-3);
+                    border-radius: 3px; font-size: 9px; padding: 0 5px; cursor: pointer; text-transform: none;
+                    font-weight: 600; letter-spacing: 0; }
+.gps-spoof-filter.active { border-color: #f472b6; color: #f472b6; }
 .gps-spoof-val   { color: var(--text-2); white-space: nowrap; }
 .gps-flag-legend { display: flex; gap: 0.4rem; align-items: center; margin-left: auto; }
 
@@ -2437,6 +2444,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .gps-spoof-hit,
 [data-theme="light"] .gps-spoof-ind   { color: #be185d; }
 [data-theme="light"] .gps-spoof-ok    { color: #a16207; }
+[data-theme="light"] .gps-spoof-multi,
+[data-theme="light"] .gpe-chip-spf2   { background: #db2777; color: #fff; border-color: #db2777; }
+[data-theme="light"] .gps-spoof-filter.active,
+[data-theme="light"] .gpe-chip-spf    { color: #be185d; border-color: #db2777; }
 [data-theme="light"] .gps-spoof-table tr.gps-spoof-strong td:first-child { box-shadow: inset 3px 0 0 #ca8a04; }
 [data-theme="light"] .gps-key-desc    { color: #475569; }
 [data-theme="light"] .gps-key-note    { color: #64748b; }
@@ -2535,6 +2546,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   padding: 1px 3px;
   margin-right: 2px;
 }
+.gpe-chip-spf  { color: #f472b6; border-color: #f472b6; }
+.gpe-chip-spf2 { color: #1a0a14; background: #f472b6; border-color: #f472b6; font-weight: 700; }
 .gpe-empty {
   text-align: center !important;
   color: var(--text-3) !important;

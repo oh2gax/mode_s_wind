@@ -1020,6 +1020,16 @@ const SPOOF_META = {
   pos_jump: { lbl: 'Position jump',         short: 'Pos jump', tip: 'Own ADS-B position stepped further than the groundspeed allows, confirmed by the next position' },
 };
 const SPOOF_ORDER = ['mlat_dis', 'gmb_sat', 'gmb_jump', 'pos_jump'];
+// Independent checks: the MLAT comparison, the GNSS − baro altitude (its two
+// indicators come from the same value) and the own position track.  Two or
+// more of them agreeing is much stronger evidence than one alone — a single
+// large MLAT mismatch is more often an MLAT outlier.
+const SPOOF_GROUP = { mlat_dis: 'mlat', gmb_sat: 'gmb', gmb_jump: 'gmb', pos_jump: 'pos' };
+function spoofGroups(kinds) {
+  return new Set((kinds || []).map(k => SPOOF_GROUP[k] || k)).size;
+}
+const SPOOF_MULTI_TIP = 'Flagged by two or more independent checks in the same hour (ADS-B vs MLAT, GNSS−baro altitude, position jump; the two GNSS−baro indicators count as one)';
+let spoofMultiOnly = localStorage.getItem('ms_gps_spoof_multi') === 'true';
 
 let tsView      = localStorage.getItem('ms_gps_ts_view') === '10m' ? '10m' : 'hour';
 let t10Chart    = null;
@@ -1223,16 +1233,27 @@ function renderSpoofPanel(d) {
     h += `<div class="gps-stat-row" title="${SPOOF_META[k].tip}"><span class="gps-stat-label">${SPOOF_META[k].lbl}</span>
       <span class="gps-stat-val${c.aircraft ? ' gps-spoof-hit' : ''}">${c.aircraft} · <span class="${ok ? 'gps-spoof-ok' : ''}">${ok}</span> · ${c.sweeps}</span></div>`;
   }
+  const multiAc = new Set((sp.flagged || []).filter(e => spoofGroups(e.k) >= 2).map(e => e.icao)).size;
+  h += `<div class="gps-stat-row" title="${SPOOF_MULTI_TIP}"><span class="gps-stat-label"><span class="gps-spoof-multi">2+</span> independent indicators</span>
+      <span class="gps-stat-val${multiAc ? ' gps-spoof-hit' : ''}">${multiAc} aircraft</span></div>`;
   h += `<div class="gps-spoof-line" title="How often the checks could be made at all">Checked: ADS-B vs MLAT in <b>${sp.cmp || 0}</b> sweeps · GNSS−baro values in <b>${sp.gmb_n || 0}</b> sweeps</div>`;
-  const fl = sp.flagged || [];
+  const flAll = sp.flagged || [];
+  const fl = spoofMultiOnly ? flAll.filter(e => spoofGroups(e.k) >= 2) : flAll;
+  const multiBtn = flAll.length
+    ? `<button class="gps-spoof-filter${spoofMultiOnly ? ' active' : ''}" id="gps-spoof-multi-btn" title="Show only aircraft with 2+ independent indicators">2+ only</button>` : '';
   if (!fl.length) {
-    h += '<div class="gps-no-data gps-spoof-none">No aircraft flagged</div>';
+    h += `<div class="gps-spoof-sec">Flagged aircraft${multiBtn}</div>`;
+    h += `<div class="gps-no-data gps-spoof-none">${flAll.length ? 'No aircraft with 2+ independent indicators' : 'No aircraft flagged'}</div>`;
   } else {
-    h += `<div class="gps-spoof-sec">Flagged aircraft${sp.flagged_total > fl.length ? ` <span class="gps-spoof-dim">(newest ${fl.length} of ${sp.flagged_total})</span>` : ''}</div>
+    const cnt = spoofMultiOnly ? ` <span class="gps-spoof-dim">(${fl.length} of ${flAll.length})</span>`
+      : (sp.flagged_total > fl.length ? ` <span class="gps-spoof-dim">(newest ${fl.length} of ${sp.flagged_total})</span>` : '');
+    h += `<div class="gps-spoof-sec">Flagged aircraft${cnt}${multiBtn}</div>
       <table class="gps-live-table gps-spoof-table"><thead><tr>
         <th>UTC</th><th>Callsign</th><th>FL</th><th>NM</th><th title="NACp when first flagged">NACp</th><th>Indicator</th><th>Value</th></tr></thead><tbody>`;
     for (const e of fl) {
-      const ind = (e.k || []).map(k => `<span title="${SPOOF_META[k] ? SPOOF_META[k].lbl + ' — ' + SPOOF_META[k].tip : k}">${SPOOF_META[k]?.short || k}</span>`).join(', ');
+      const multi = spoofGroups(e.k) >= 2;
+      const ind = (multi ? `<span class="gps-spoof-multi" title="${SPOOF_MULTI_TIP}">2+</span> ` : '') +
+        (e.k || []).map(k => `<span title="${SPOOF_META[k] ? SPOOF_META[k].lbl + ' — ' + SPOOF_META[k].tip : k}">${SPOOF_META[k]?.short || k}</span>`).join(', ');
       const t = spoofHours > 24 ? _dmhm(e.t) : _hhmm(e.t);
       const strong = (e.q || []).length > 0;
       h += `<tr${strong ? ' class="gps-spoof-strong" title="Flagged while the aircraft reported normal GPS quality — strong spoofing case"' : ''}><td class="gps-spoof-time">${t}</td>
@@ -1240,11 +1261,17 @@ function renderSpoofPanel(d) {
         <td>${e.alt != null ? String(Math.round(e.alt / 100)).padStart(3, '0') : '—'}</td>
         <td>${e.dist != null ? Math.round(e.dist) : '—'}</td>
         <td>${e.nacp != null ? e.nacp : '—'}</td>
-        <td class="gps-spoof-ind">${ind}</td><td class="gps-spoof-val">${_fmtFlagVal(e)}</td></tr>`;
+        <td class="gps-spoof-ind${multi ? ' gps-spoof-ind-multi' : ''}">${ind}</td><td class="gps-spoof-val">${_fmtFlagVal(e)}</td></tr>`;
     }
     h += '</tbody></table>';
   }
   body.innerHTML = h;
+  const mb = document.getElementById('gps-spoof-multi-btn');
+  if (mb) mb.addEventListener('click', () => {
+    spoofMultiOnly = !spoofMultiOnly;
+    localStorage.setItem('ms_gps_spoof_multi', String(spoofMultiOnly));
+    renderSpoofPanel(d);
+  });
 }
 
 async function refreshSpoofPanel() {
