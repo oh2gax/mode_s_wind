@@ -67,6 +67,9 @@ def init_db(db_path: str) -> None:
         # Mach/TAS temperature; approach profile per band (2026-10-09)
         "ALTER TABLE observations ADD COLUMN tm_temp REAL",
         "ALTER TABLE approach_history ADD COLUMN prof_json TEXT",
+        # Heading calibration (2026-10-10)
+        "ALTER TABLE observations ADD COLUMN hdg_off REAL",
+        "ALTER TABLE observations ADD COLUMN hdg_src TEXT",
     ]
     for sql in _migrations:
         try:

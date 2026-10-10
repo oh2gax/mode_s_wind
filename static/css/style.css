@@ -88,6 +88,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ac-item:hover, .ac-item.selected { background: var(--bg-3); }
 .ac-callsign { font-weight: 700; font-size: 13px; }
 .ac-icao     { font-size: 11px; color: var(--text-3); margin-left: 6px; }
+.ac-reg      { font-size: 11px; color: var(--text-2); margin-left: 6px; font-weight: 600; }
 .ac-detail   { font-size: 11px; color: var(--text-2); margin-top: 2px; }
 .ac-meteo    { font-size: 10px; color: var(--green); margin-top: 1px; }
 .ac-placeholder { padding: 1rem; color: var(--text-3); font-style: italic; }
@@ -113,7 +114,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                        border-bottom: 1px solid var(--border); flex-shrink: 0;
                        height: 30px; box-sizing: border-box; }
 .detail-callsign { font-weight: 700; font-size: 14px; }
-.detail-icao     { font-size: 11px; color: var(--text-3); }
+.detail-icao     { font-size: 11px; color: var(--text-2); white-space: nowrap;
+                   overflow: hidden; text-overflow: ellipsis; }
 .detail-grid { display: grid; grid-template-columns: repeat(6, 1fr);
                align-content: start; overflow: hidden; }
 .detail-cell { padding: 4px 10px; border-right: 1px solid var(--border);

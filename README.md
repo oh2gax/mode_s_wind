@@ -90,7 +90,7 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /maintenance   DB maintenance
 ```
 
-Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and, since 2026-10-09, **hourly_jobs** (hourly profile archive `profile_hours` a few minutes after each hour, back-fill at startup, daily `approach_series` retention purge). The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
+Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and, since 2026-10-09, **hourly_jobs** (hourly profile archive `profile_hours` a few minutes after each hour, back-fill at startup, daily `approach_series` retention purge, and since 2026-10-10 the hourly save of the heading calibration `heading_cal`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -122,6 +122,44 @@ Wind = ground vector − air vector. The ground vector is the true track and gro
 | `IAS` | IAS (BDS 6,0) converted to TAS | Compressible-flow CAS → Mach → TAS at the ISA pressure for the altitude, same temperature as above. Requires a known altitude |
 
 If none of these can be determined (e.g. no TAS and no altitude yet), no wind is computed. Before 2026-09-25 IAS was used directly as TAS when TAS and Mach were missing, which is badly wrong at altitude (≈200 kt too low at FL350).
+
+### Heading calibration (per airframe)
+
+Since 2026-10-10 the system learns and corrects a **heading offset for each airframe** (`collector/heading_cal.py`). The declination is already correct (WMM2025, above), but the magnetic heading an aircraft reports in BDS 6,0 has its own small offset: most airliners convert their inertial true heading to magnetic heading with a magnetic-variation table stored in the avionics, and that table is often years old. Declination at Helsinki has grown from 7.0° (2005) to 10.5° (2026), so for example a 2015 table makes the reported heading about 2° too large once today's declination is added back. One degree at 450 kt is about 8 kt of wind error across the aircraft's heading.
+
+The study behind this (`tmp_files/Articles/ModeS_Upper_Air_Profiles_10_2026.pdf`, Sect. 3.6) found offsets of +1.5° on average for 403 airframes (24 Sep – 10 Oct 2026), stable between two periods and grouped by aircraft type (E190 3.5°, CRJ900 / A220 2.1–2.3°, A320neo / A350 1.1–1.2°, B777-300ER ≈ 0°). Correcting them reduced the difference between the area-mean wind and the Jokioinen soundings from 11.5 to 9.1 kt RMS and halved the spread of single-aircraft winds. A replay of the stored data through the live learner (starting from nothing, using only past data) gave 11.1 → 8.9 kt.
+
+**Learning** (continuous, in RAM): for each aircraft at most one sample every 30 s — true airspeed ≥ 100 kt, roll ≤ 5°, within `HEADING_CAL_RADIUS_KM` (default `SOUNDING_RADIUS_KM`) of the receiver. The aircraft's wind is compared with the mean (corrected) wind of the *other* aircraft in the same altitude layer during the last 60 minutes (at least 4 other airframes). A heading offset δ shows up as a wind error at right angles to the heading, proportional to the airspeed, so per airframe δ = −Σ V (r·n̂) / Σ V² (r = wind difference, n̂ = unit vector to the right of the heading; differences above 40 kt ignored). The sums fade with a half-life of `HEADING_CAL_HALFLIFE_DAYS` (30 days), so an avionics database update is followed within weeks; if three consecutive flights of an airframe disagree with its long-term value by more than 1.5°, it restarts from those flights.
+
+**Applying** — true heading = magnetic heading + declination − δ, where δ is:
+
+| `hdg_src` | Offset used | Shown in Live Map as |
+|---|---|---|
+| `A` | the airframe's own value, after data from ≥ `HEADING_CAL_MIN_FLIGHTS` (2) flights and ≥ 20 samples (about ±0.5°) | `+1.6° own` |
+| `T` | otherwise the median of its aircraft type (≥ 3 calibrated airframes; type from the JSON feed or BaseStation.sqb) | `+2.1° type` |
+| `F` | otherwise the median of all calibrated airframes (≥ 10) | `+1.6° fleet` |
+| `D` | otherwise `HEADING_CAL_DEFAULT_DEG` (1.5°) | `+1.5° default` |
+| `X` | airframe whose own offset exceeds `HEADING_CAL_EXCLUDE_DEG` (5°) — probably a different heading reference: its winds are **not used** (no best wind) | `excluded` |
+
+The **raw wind is kept**: `observations.wind_spd / wind_dir` stay uncorrected, while `best_wind_spd / best_wind_dir` — used by everything (Live Map, area profiles, Sounding, Wind Map, Windshear and approach history, hourly profile archive) — are corrected. The offset applied and its source are stored per observation (`hdg_off`, `hdg_src`), so the raw and corrected winds can always be compared or recomputed. The approach-profile winds on final (`prof_json`) are corrected the same way; the crab angle and the raw approach series keep the reported heading. Observations stored before 2026-10-10 are not changed.
+
+**Storage and start-up** — the learnt values are kept in the `heading_cal` table (one row per airframe, about 1–2 thousand rows), written **once an hour** (only the airframes that changed) and at shutdown, and loaded at startup. On the first start with an empty table the offsets are learnt once from the stored observations of the last `HEADING_CAL_BOOTSTRAP_DAYS` (30) days in a background thread (read only; about 30 s and up to ~70 MB of memory on a Raspberry Pi 4 for 30 days of data), so the correction is in use from the start. `/api/heading_cal` lists the mode, fleet and type medians and every airframe's offset.
+
+**Config** (all optional, `getattr` defaults):
+
+| Key | Default | |
+|---|---|---|
+| `HEADING_CAL_MODE` | `"apply"` | `"apply"` learn and correct · `"learn"` learn only (offset stored with a lower-case `hdg_src`, wind not corrected) · `"off"` disabled |
+| `HEADING_CAL_DEFAULT_DEG` | `1.5` | offset before any airframe / type / fleet value exists |
+| `HEADING_CAL_MIN_FLIGHTS` | `2` | flights with data before an airframe's own value is used |
+| `HEADING_CAL_MIN_SAMPLES` | `20` | samples (faded) before an airframe's own value is used |
+| `HEADING_CAL_EXCLUDE_DEG` | `5.0` | airframes with a larger own offset are excluded |
+| `HEADING_CAL_HALFLIFE_DAYS` | `30` | fading half-life of the learnt sums |
+| `HEADING_CAL_RADIUS_KM` | `SOUNDING_RADIUS_KM` | learning area around the receiver |
+| `HEADING_CAL_SAMPLE_SEC` | `30` | at most one learning sample per aircraft per this many seconds |
+| `HEADING_CAL_BOOTSTRAP_DAYS` | `30` | days of stored observations learnt from on the first start (0 = no bootstrap) |
+
+The offsets are relative to the fleet as a whole (the shared part was confirmed against the radiosondes); the radiosonde comparison remains the long-term check. Airspeed (TAS) is not corrected — its per-airframe offsets were not repeatable.
 
 ### Air temperature (BDS 5,0 + 6,0)
 
@@ -204,6 +242,8 @@ class Config:
     SOUNDING_RADIUS_KM = 150.0        # area sounding + hourly profile archive: obs within this radius
     SOUNDING_WINDOW_MIN = 60          # default window of the "Area · now" sounding (minutes)
     # APPROACH_SERIES_DAYS = 90       # optional: days to keep the raw approach series (approach_series; 0 = never purge)
+    # HEADING_CAL_MODE = "apply"      # optional: per-airframe heading calibration "apply" | "learn" | "off"
+    #                                 # (other HEADING_CAL_* keys: see "Heading calibration" above)
 
     # ── Meteo source mode ─────────────────────────────────────────────────
     METEO_SOURCE_MODE = "HYBRID"      # "EHS" | "JSON" | "HYBRID"
@@ -256,7 +296,7 @@ class Config:
     MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
 ```
 
-> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
+> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
 
 Key values to change for your installation:
 
@@ -461,16 +501,17 @@ Each aircraft leaves a trail of fading dots showing its position over the past ~
 
 #### Left panel — Aircraft list
 
-Lists all currently visible aircraft sorted alphabetically. Shows callsign, ICAO24 code, altitude, ground speed, and the current wind/temperature reading if available. Click any row to select that aircraft and open the detail strip.
+Lists all currently visible aircraft sorted alphabetically. Shows callsign, registration and ICAO24 code (e.g. `FIN7KM  OH-LKH  461E1B`), aircraft type, altitude, ground speed, and the current wind/temperature reading if available. Registration and type come from the Radarcape JSON feed or the optional BaseStation.sqb; an aircraft without a callsign is listed under its registration (or ICAO24). Click any row to select that aircraft and open the detail strip.
 
 **Meteo only** checkbox — hides all aircraft that do not currently have any decoded meteo data. Defaults **on**; state persists across browser sessions.
 
 #### Map labels
 
-**Labels checkbox** — toggles callsign or ICAO24 labels next to each aircraft symbol on the map. Defaults **on**; state persists across browser sessions.
+**Labels checkbox** — toggles callsign, registration or ICAO24 labels next to each aircraft symbol on the map. Defaults **on**; state persists across browser sessions.
 
 **Label mode selector** — choose between:
 - **Callsign** — shows the flight's callsign (e.g. FIN3GJ). Once a callsign has been seen for an aircraft it is cached and will never revert to the ICAO24 code even if some subsequent messages do not include it.
+- **Registration** — shows the aircraft's registration (e.g. OH-LKH) when known, otherwise the callsign or ICAO24 code.
 - **ICAO24** — always shows the aircraft's ICAO 24-bit address (e.g. 461F52).
 
 The selected label mode persists across browser sessions.
@@ -489,10 +530,12 @@ Clicking an aircraft symbol or list entry:
 
 1. **Enlarges the symbol** on the map for easy tracking
 2. **Opens the aircraft detail panel** on the left side of the bottom strip showing all decoded values:
+   - Header: callsign, then registration · aircraft type · ICAO24 code (e.g. `FIN7KM  OH-LKH · E190 · 461E1B`) and the meteo source badge. The map popup of the aircraft shows the same identity line
    - Altitude, ground speed, track, vertical rate (shown in **fpm**)
    - Wind speed and direction
    - Temperature, pressure, humidity
-   - Turbulence level and Figure of Merit (FOM) if from MRAR
+   - Turbulence level if from MRAR
+   - **Hdg corr** — the heading correction used for this aircraft's wind (e.g. `+1.6° own`, `+2.1° type`, `+1.5° default`, `excluded`; see [Heading calibration](#heading-calibration-per-airframe)); the MRAR Figure of Merit (FOM) is shown in this cell instead when an MRAR reply is received
    - Meteo source badge
 3. **Overlays the aircraft's full wind profile** on the Atmosphere Profile panel (right side) — see below
 
@@ -1494,6 +1537,9 @@ Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (in
 - Raw BDS 5,0 / 6,0 inputs (stored for re-processing): `bds50_true_track`, `bds50_groundspeed`, `bds50_true_airspeed`, `bds50_roll`, `bds60_mag_heading`, `bds60_ias`, `bds60_mach`
 - Consolidated best values: `best_wind_spd/dir/temp/pressure`, `meteo_source`
 - `tm_temp` — static air temperature from BDS 5,0 TAS and BDS 6,0 Mach (°C, since 2026-10-09; see [Air temperature](#air-temperature-bds-50--60))
+- `hdg_off`, `hdg_src` — heading calibration (since 2026-10-10): offset (°) subtracted from the true heading for `best_wind_*` and its source (`A` own airframe, `T` type median, `F` fleet median, `D` default, `X` excluded — no best wind; lower case = learn mode, not applied). `wind_spd / wind_dir` are the raw, uncorrected wind. See [Heading calibration](#heading-calibration-per-airframe)
+
+**`heading_cal`** — per-airframe heading offsets learnt from the data (since 2026-10-10): `icao` (primary key), `typ` (ICAO aircraft type), `s`, `w`, `n` (faded least-squares sums and sample count; offset = −s/w), `t` (time the sums were last faded to), `flights` (completed flights with data), `last_ts`, `delta` (current offset, °), `updated`. One row per airframe (about 1–2 thousand rows), written once an hour for the airframes that changed and at shutdown; rows of airframes unseen for 8 half-lives (240 days) are deleted.
 
 **`profile_hours`** — hourly atmospheric profile archive (since 2026-10-09): one row per completed UTC hour (`ts` = hour start) with the area profile of all aircraft within `SOUNDING_RADIUS_KM` of the receiver, `data` = `{"r": radius km, "n": observations used, "lv": [[alt_lo, temp, temp_p10, temp_p90, temp_count, wind_dir, wind_spd, wind_sd, wind_count], …]}` per altitude layer (1 000 ft to 10 000 ft, 2 000 ft above). Computed a few minutes after each hour change from the observations (one read query and one insert; at startup missing hours of the last 31 days are back-filled from the observations still in the database), so the profiles survive the observation autopurge. About 0.4–1.2 kB per row, 24 rows per day; never purged. Shown on the Sounding page (**Area · hour**).
 
@@ -1596,6 +1642,7 @@ mode_s_wind/
 │   ├── wind_calc.py           # BDS 5,0 + 6,0 computed wind, TAS sources, ISA-deviation estimate
 │   ├── atmos.py               # Mach/TAS air temperature, altitude-layer profiles, hourly profile archive
 │   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
+│   ├── heading_cal.py         # Per-airframe heading offset learning and wind correction
 │   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness, autopilot, band profile, raw series)
 │   ├── approach_cond.py       # Provisional approach-conditions index (roughness → 0–10)
 │   ├── gps_quality.py         # Area-wide GPS quality monitor: hourly buckets (RAM + DB), degradation episode log
@@ -1688,6 +1735,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/sounding/hours` | Hours stored in the hourly profile archive for `?date=YYYY-MM-DD` (UTC): `[{ts, n}, …]` |
 | GET | `/api/sounding/hour` | Hourly archive profile of one completed UTC hour, `?ts=<hour start>`; HTTP 404 when none is stored |
 | GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |
+| GET | `/api/heading_cal` | Heading calibration status: mode, airframe counts (calibrated / excluded), fleet and aircraft-type median offsets, and each airframe's offset, flights, samples and status (`?airframes=0` omits the list); RAM-only |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch), `qnh_hpa` and `elev_ft` (airport elevation for the Live Map ground line); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |

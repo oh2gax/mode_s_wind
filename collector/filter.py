@@ -167,10 +167,16 @@ def best_meteo(mrar: Optional[dict], mhr: Optional[dict],
     """
     best: dict = {}
 
-    # Wind: MRAR > computed
+    # Wind: MRAR > computed.  With the heading calibration applied
+    # (collector/heading_cal.py) the computed wind is the corrected one
+    # (cal_spd / cal_dir; None = airframe excluded → no best wind).
     if mrar and "mrar_wind_spd" in mrar:
         best["best_wind_spd"] = mrar["mrar_wind_spd"]
         best["best_wind_dir"] = mrar.get("mrar_wind_dir")
+    elif wind and "cal_spd" in wind:
+        if wind["cal_spd"] is not None:
+            best["best_wind_spd"] = wind["cal_spd"]
+            best["best_wind_dir"] = wind["cal_dir"]
     elif wind:
         best["best_wind_spd"] = wind["wind_spd"]
         best["best_wind_dir"] = wind["wind_dir"]

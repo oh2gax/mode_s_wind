@@ -212,7 +212,7 @@ class BatchWriter:
                     bds50_true_track, bds50_groundspeed, bds50_true_airspeed, bds50_roll,
                     bds60_mag_heading, bds60_ias, bds60_mach,
                     best_wind_spd, best_wind_dir, best_temp, best_pressure,
-                    meteo_source, tm_temp
+                    meteo_source, tm_temp, hdg_off, hdg_src
                 ) VALUES (
                     :flight_id, :icao, :ts,
                     :lat, :lon, :altitude,
@@ -225,7 +225,7 @@ class BatchWriter:
                     :bds50_true_track, :bds50_groundspeed, :bds50_true_airspeed, :bds50_roll,
                     :bds60_mag_heading, :bds60_ias, :bds60_mach,
                     :best_wind_spd, :best_wind_dir, :best_temp, :best_pressure,
-                    :meteo_source, :tm_temp
+                    :meteo_source, :tm_temp, :hdg_off, :hdg_src
                 )""",
                 {
                     "flight_id": fid,
@@ -276,6 +276,9 @@ class BatchWriter:
                     "meteo_source":  obs.get("meteo_source", "NONE"),
                     # Static air temperature from BDS 5,0 TAS + BDS 6,0 Mach
                     "tm_temp":       obs.get("tm_temp"),
+                    # Heading calibration (collector/heading_cal.py)
+                    "hdg_off":       obs.get("hdg_off"),
+                    "hdg_src":       obs.get("hdg_src"),
                 },
             )
 

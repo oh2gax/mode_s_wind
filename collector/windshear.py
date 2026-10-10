@@ -1332,6 +1332,13 @@ class WindshearTracker:
         decl = ac.get("mag_decl")
         if decl is None:
             decl = self.mag_declination
+        # Per-airframe heading calibration (collector/heading_cal.py) for the
+        # profile winds: the offset applied to this aircraft's other winds
+        # (sources A/T/F/D); "X" = excluded airframe, no profile winds.  The
+        # crab angle and the raw series keep the reported heading.
+        _hsrc = ac.get("hdg_src")
+        _hoff = ac.get("hdg_off") if _hsrc in ("A", "T", "F", "D") else 0.0
+        _hexcl = _hsrc == "X"
         for smp in b60:
             ts, ias, mhdg, vri, vrb = smp[:5]
             mach = smp[5] if len(smp) > 5 else None
@@ -1356,9 +1363,11 @@ class WindshearTracker:
                     if tm is not None:
                         P["t"].append(tm)
                     if (mhdg is not None and decl is not None and ttrk5 is not None
-                            and bgs5 is not None and abs(roll5) <= PROF_MAX_ROLL):
+                            and bgs5 is not None and abs(roll5) <= PROF_MAX_ROLL
+                            and not _hexcl):
                         wspd, wdir = compute_wind(float(ttrk5), float(bgs5),
-                                                  (mhdg + decl) % 360.0, float(tas5))
+                                                  (mhdg + decl - (_hoff or 0.0)) % 360.0,
+                                                  float(tas5))
                         rd = math.radians(wdir)
                         P["u"].append(-wspd * math.sin(rd))
                         P["v"].append(-wspd * math.cos(rd))

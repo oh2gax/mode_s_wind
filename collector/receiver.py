@@ -29,6 +29,7 @@ from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao,
 from collector.wind_calc import try_compute_wind
 from collector.declination import declination as mag_declination_at
 from collector import aircraft_db
+from collector import heading_cal
 from collector.writer import BatchWriter
 from config import Config
 
@@ -260,6 +261,8 @@ def _build_observation(icao: str, ts: float, result: dict,
             "bds60_ias":           wind.get("bds60_ias"),
             "bds60_mach":          wind.get("bds60_mach"),
             "tm_temp":             wind.get("tm_temp"),
+            "hdg_off":             wind.get("hdg_off"),
+            "hdg_src":             wind.get("hdg_src"),
         })
 
     # Consolidated best-available fields
@@ -422,6 +425,18 @@ def run_collector(
                 wind: Optional[dict] = _try_pair_wind(
                     icao, ts, cfg, current_altitude, _pos_lat, _pos_lon
                 )
+
+                # ── Per-airframe heading calibration ─────────────────────
+                # Learns the airframe's heading offset and (mode "apply")
+                # adds the corrected wind (cal_spd / cal_dir) → best_wind_*.
+                _hc = heading_cal.get()
+                if wind and _hc is not None and _hc.enabled:
+                    _typ = cached.get("aircraft_type") or aircraft_db.lookup(icao)[1]
+                    try:
+                        wind.update(_hc.process(icao, ts, wind, _pos_lat, _pos_lon,
+                                                current_altitude, _typ))
+                    except Exception as exc:
+                        log.debug("Heading calibration error: %s", exc)
 
                 # ── Build observation ────────────────────────────────────
                 obs = _build_observation(icao, ts, result, msg_hex, wind, mrar, mhr)

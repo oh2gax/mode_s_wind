@@ -91,7 +91,23 @@ function acColor(ac) {
 
 function getLabelText(ac) {
   if (labelMode === 'icao') return ac.icao;
+  if (labelMode === 'reg')  return ac.registration || callsignCache[ac.icao] || ac.icao;
   return callsignCache[ac.icao] || ac.icao;
+}
+
+// Escape text from the data feeds before it goes into innerHTML
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Secondary identity line: registration · type · ICAO24 (whatever is known)
+function idLine(ac, withIcao = true) {
+  const parts = [];
+  if (ac.registration)  parts.push(ac.registration);
+  if (ac.aircraft_type) parts.push(ac.aircraft_type);
+  if (withIcao)         parts.push(ac.icao);
+  return parts.map(esc).join(' · ');
 }
 
 // ── Wind profile history (per aircraft) ───────────────────────────────────
@@ -989,7 +1005,9 @@ function upsertMarker(ac) {
   const icon     = makeIcon(color, ac.track, selected);
   const label    = getLabelText(ac);
 
-  let popup = `<b>${label}</b>  <span style="color:${color}">${ac.meteo_source || 'NONE'}</span><br>`;
+  const cs = callsignCache[ac.icao] || ac.callsign;
+  let popup = `<b>${esc(cs || ac.registration || ac.icao)}</b>  <span style="color:${color}">${ac.meteo_source || 'NONE'}</span><br>`;
+  popup += `<span style="color:var(--text-3,#9ca3af);font-size:11px">${idLine(ac)}</span><br>`;
   if (ac.altitude)    popup += `${ac.altitude.toLocaleString()} ft &nbsp;`;
   if (ac.groundspeed) popup += `${ac.groundspeed} kt &nbsp;`;
   if (ac.track)       popup += `${ac.track.toFixed(0)}°<br>`;
@@ -1076,10 +1094,11 @@ function renderList(data) {
 
     div.innerHTML = `
       <div>
-        <span class="ac-callsign" style="color:${color}">${ac.callsign || ac.icao}</span>
-        <span class="ac-icao">${ac.callsign ? ac.icao : ''}</span>
+        <span class="ac-callsign" style="color:${color}">${esc(ac.callsign || ac.registration || ac.icao)}</span>
+        ${ac.registration && ac.callsign ? `<span class="ac-reg">${esc(ac.registration)}</span>` : ''}
+        <span class="ac-icao">${ac.callsign || ac.registration ? ac.icao : ''}</span>
       </div>
-      <div class="ac-detail">${ac.altitude != null ? ac.altitude.toLocaleString() + ' ft' : '–'}
+      <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${ac.altitude != null ? ac.altitude.toLocaleString() + ' ft' : '–'}
         ${ac.groundspeed != null ? ' · ' + ac.groundspeed + ' kt' : ''}</div>
       <div class="ac-meteo">${meteoLine}</div>
     `;
@@ -1101,8 +1120,11 @@ function selectAircraft(icao) {
 
   document.getElementById('detail-ac-panel').classList.remove('hidden');
 
-  document.getElementById('detail-callsign').textContent = ac.icao;
-  document.getElementById('detail-icao').textContent     = '';
+  // Header: callsign, then registration · type · ICAO24
+  const csSel = callsignCache[ac.icao] || ac.callsign;
+  document.getElementById('detail-callsign').textContent = csSel || ac.registration || ac.icao;
+  document.getElementById('detail-icao').textContent     =
+    [csSel ? ac.registration : null, ac.aircraft_type, ac.icao].filter(Boolean).join(' · ');
 
   const src   = ac.meteo_source || 'NONE';
   const badge = document.getElementById('detail-bds');
@@ -1124,7 +1146,24 @@ function selectAircraft(icao) {
   set('d-hum',   ac.mrar_humidity  != null ? ac.mrar_humidity.toFixed(0)  : null, '%');
   const turbMap = ['NIL', 'Light', 'Moderate', 'Severe'];
   set('d-turb',  ac.mrar_turbulence != null ? turbMap[ac.mrar_turbulence] : null);
-  set('d-fom',   ac.mrar_fom);
+  // Heading calibration (collector/heading_cal.py); the rarely received MRAR
+  // figure of merit takes the cell when present
+  if (ac.mrar_fom != null) {
+    document.getElementById('d-hdg-label').textContent = 'FOM';
+    set('d-hdg', ac.mrar_fom);
+  } else {
+    document.getElementById('d-hdg-label').textContent = 'Hdg corr';
+    const HSRC = { A: 'own', T: 'type', F: 'fleet', D: 'default', X: 'excluded' };
+    const hs = ac.hdg_src;
+    let ht = null;
+    if (hs === 'X') ht = 'excluded';
+    else if (hs && ac.hdg_off != null) {
+      const lbl = HSRC[hs.toUpperCase()] || hs;
+      ht = (ac.hdg_off >= 0 ? '+' : '') + ac.hdg_off.toFixed(1) + '° ' + lbl +
+           (hs === hs.toLowerCase() ? ' (learn)' : '');
+    }
+    set('d-hdg', ht);
+  }
   set('d-src',   src);
 
   // Update mini sounding overlay — includes full wind history for the profile

@@ -361,6 +361,8 @@ def create_app(
                         slim.append({
                             "icao":     ac.get("icao"),
                             "callsign": ac.get("callsign"),
+                            "registration":  ac.get("registration"),
+                            "aircraft_type": ac.get("aircraft_type"),
                             "lat":      ac.get("lat"),
                             "lon":      ac.get("lon"),
                             "altitude": ac.get("altitude"),
@@ -375,6 +377,8 @@ def create_app(
                             "mrar_fom":       ac.get("mrar_fom"),
                             "mrar_humidity":   ac.get("mrar_humidity"),
                             "mrar_turbulence": ac.get("mrar_turbulence"),
+                            "hdg_off":        ac.get("hdg_off"),
+                            "hdg_src":        ac.get("hdg_src"),
                             "last_seen": ac.get("last_seen"),
                         })
 
@@ -666,6 +670,21 @@ def create_app(
             "live_aircraft":    n_live,
             "live_with_meteo":  n_meteo_live,
         })
+
+    # ── Heading calibration API (collector/heading_cal.py) ──────────────────
+
+    @app.route("/api/heading_cal")
+    def heading_cal_api():
+        """Per-airframe heading offsets learnt from the data: mode, counts,
+        fleet and aircraft-type medians, and (unless ?airframes=0) one entry
+        per airframe (offset °, flights, samples, status A / X / learning).
+        RAM only."""
+        from collector import heading_cal
+        hc = heading_cal.get()
+        if hc is None:
+            return jsonify({"mode": "off"})
+        inc = request.args.get("airframes", "1") not in ("0", "false", "no")
+        return jsonify(hc.summary(include_airframes=inc))
 
     # ── Windshear approach state API ──────────────────────────────────────
 

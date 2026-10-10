@@ -88,8 +88,16 @@ CREATE TABLE IF NOT EXISTS observations (
     meteo_source    TEXT,            -- 'MRAR' | 'MHR' | 'COMPUTED' | 'NONE'
     -- Static air temperature from BDS 5,0 TAS + BDS 6,0 Mach (°C; from
     -- 2026-10-09, NULL before or when Mach < 0.2) — see collector/atmos.py.
-    -- best_temp = MRAR > this > MHR.
-    tm_temp         REAL
+    -- best_temp = MRAR > this (MHR temperatures not used since 2026-10-10).
+    tm_temp         REAL,
+    -- Heading calibration (from 2026-10-10, collector/heading_cal.py):
+    -- offset subtracted from the true heading for best_wind_* (°; reported −
+    -- true heading) and its source: A = own airframe value, T = aircraft-type
+    -- median, F = fleet median, D = default, X = airframe excluded (no best
+    -- wind); lower case = learn mode (not applied).  wind_spd / wind_dir stay
+    -- the raw, uncorrected wind.
+    hdg_off         REAL,
+    hdg_src         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_icao_ts   ON observations(icao, ts);
@@ -277,3 +285,23 @@ CREATE TABLE IF NOT EXISTS approach_series (
     data    BLOB    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_apser_ts ON approach_series(ts);
+
+-- ── heading_cal ───────────────────────────────────────────────────────────────
+-- Per-airframe heading offset learnt from the data (from 2026-10-10, see
+-- collector/heading_cal.py).  s / w / n are the faded least-squares sums
+-- (offset = −s/w in radians), t the time they were last faded to, flights the
+-- completed flights with data.  One row per airframe (~1–2 thousand rows),
+-- written once an hour for the airframes that changed; rows unseen for
+-- 8 half-lives are deleted.
+CREATE TABLE IF NOT EXISTS heading_cal (
+    icao     TEXT PRIMARY KEY,
+    typ      TEXT,              -- ICAO aircraft type (JSON feed / BaseStation.sqb)
+    s        REAL NOT NULL,
+    w        REAL NOT NULL,
+    n        REAL NOT NULL,     -- faded sample count
+    t        REAL NOT NULL,
+    flights  INTEGER NOT NULL DEFAULT 0,
+    last_ts  REAL,              -- last learning sample
+    delta    REAL,              -- current offset (°), for convenience
+    updated  REAL
+);

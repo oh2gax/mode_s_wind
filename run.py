@@ -43,6 +43,7 @@ from collector.windshear import WindshearTracker
 from collector.gps_quality import GpsQualityTracker
 from database import maintenance as maint
 from collector import aircraft_db
+from collector import heading_cal
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -114,6 +115,8 @@ def _hourly_jobs_thread(cfg) -> None:
         back-filled (slowly, in the background).
       • Approach series retention: approach_series rows older than
         APPROACH_SERIES_DAYS (default 90) are deleted once a day.
+      • Heading calibration (from 2026-10-10): the per-airframe heading
+        offsets that changed during the hour are written to heading_cal.
     """
     from database.db import get_db as _get_db
     from collector.atmos import store_missing_profile_hours
@@ -130,6 +133,11 @@ def _hourly_jobs_thread(cfg) -> None:
             if n:
                 hj_log.info("Hourly profile archive: stored %d hour(s)", n)
             first = False
+            _hc = heading_cal.get()
+            if _hc is not None and _hc.enabled:
+                n_hc = _hc.save(db)
+                if n_hc:
+                    hj_log.info("Heading calibration: saved %d airframe(s)", n_hc)
             if time.time() - last_purge > 86_400 and series_days > 0:
                 cur = db.execute("DELETE FROM approach_series WHERE ts < ?",
                                  (time.time() - series_days * 86_400,))
@@ -249,6 +257,27 @@ def _on_approach_committed(record: dict) -> None:
         log.warning("approach_history DB write failed: %s", exc)
 
 
+def _heading_cal_bootstrap(hc) -> None:
+    """One-off: learn the heading offsets from the stored observations of the
+    last HEADING_CAL_BOOTSTRAP_DAYS when the heading_cal table is empty
+    (first start with the feature), then save them."""
+    from database.db import get_db as _get_db
+    hc_log = logging.getLogger("modes.heading_cal")
+    try:
+        t0 = time.time()
+        time.sleep(20)                      # let the collector start first
+        db = _get_db()
+        n = hc.bootstrap(db, typ_fn=lambda icao: aircraft_db.lookup(icao)[1])
+        hc.save(db)
+        s = hc.summary(include_airframes=False)
+        hc_log.info("Heading calibration bootstrap: %d airframe(s) from the last %g days "
+                    "(%d calibrated, %d excluded, fleet median %s°) in %.0f s",
+                    n, hc.bootstrap_days, s["calibrated"], s["excluded"],
+                    s["fleet_median_deg"], time.time() - t0 - 20)
+    except Exception as exc:
+        hc_log.warning("Heading calibration bootstrap failed: %s", exc)
+
+
 def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None:
     """
     Load the last `hours` of approach records from the DB into the tracker's
@@ -322,6 +351,21 @@ def main() -> None:
     # main database (data/BaseStation.sqb); used only if the file exists.
     aircraft_db.init(getattr(cfg, "BASESTATION_DB_PATH", None)
                      or os.path.join(os.path.dirname(os.path.abspath(cfg.DB_PATH)), "BaseStation.sqb"))
+
+    # ── Per-airframe heading calibration (collector/heading_cal.py) ───────
+    hc = heading_cal.init(cfg)
+    if hc.enabled:
+        from database.db import get_db as _get_db
+        try:
+            n_loaded = hc.load(_get_db())
+            log.info("Heading calibration: mode %s, %d airframe(s) loaded", hc.mode, n_loaded)
+            if n_loaded == 0 and hc.bootstrap_days > 0:
+                threading.Thread(target=_heading_cal_bootstrap, args=(hc,),
+                                 name="heading_cal_boot", daemon=True).start()
+        except Exception as exc:
+            log.warning("Heading calibration load failed: %s", exc)
+    else:
+        log.info("Heading calibration: off")
 
     # ── Shared live state ─────────────────────────────────────────────────
     live_state: dict = {}
@@ -483,6 +527,13 @@ def main() -> None:
             log.info("GPS quality: final checkpoint written")
         except Exception as exc:
             log.warning("GPS quality: final checkpoint failed: %s", exc)
+        try:
+            if hc.enabled:
+                from database.db import get_db as _get_db
+                n_hc = hc.save(_get_db())
+                log.info("Heading calibration: %d airframe(s) saved at shutdown", n_hc)
+        except Exception as exc:
+            log.warning("Heading calibration: final save failed: %s", exc)
 
 
 if __name__ == "__main__":

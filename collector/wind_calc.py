@@ -357,6 +357,7 @@ def try_compute_wind(
         "wind_dir":              round(wind_dir, 1),
         "wind_qual":             round(qual, 3),
         "tas_source":            tas_source,
+        "tas_kt":                tas,          # resolved TAS (heading calibration)
         "mag_decl":              round(mag_declination, 2),
         "bds50_true_track":      true_track,
         "bds50_groundspeed":     groundspeed,

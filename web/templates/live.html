@@ -20,6 +20,7 @@
         </label>
         <select id="label-mode" class="label-mode-select">
           <option value="callsign">Callsign</option>
+          <option value="reg">Registration</option>
           <option value="icao">ICAO24</option>
         </select>
       </div>
@@ -91,7 +92,7 @@
       <div class="detail-cell"><span class="dlabel">Pressure</span><span id="d-pres">–</span></div>
       <div class="detail-cell"><span class="dlabel">Humidity</span><span id="d-hum">–</span></div>
       <div class="detail-cell"><span class="dlabel">Turbulence</span><span id="d-turb">–</span></div>
-      <div class="detail-cell"><span class="dlabel">FOM</span><span id="d-fom">–</span></div>
+      <div class="detail-cell" title="Heading calibration: offset subtracted from the reported heading for this aircraft's wind. own = learnt for this airframe, type / fleet = median of calibrated airframes, default = before any calibration, excluded = offset over the limit, wind not used. MRAR figure of merit (FOM) is shown here instead when received."><span class="dlabel" id="d-hdg-label">Hdg corr</span><span id="d-hdg">–</span></div>
       <div class="detail-cell"><span class="dlabel">Source</span><span id="d-src">–</span></div>
     </div>
   </div>
