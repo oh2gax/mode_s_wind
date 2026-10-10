@@ -500,7 +500,7 @@ Click the **✕** button to deselect and close the aircraft detail panel. The ME
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible Skew-T Log-P diagram filling the full height of the right panel. The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
+A permanently visible Skew-T Log-P diagram filling the full height of the right panel. A user guide with screenshots — how to read the diagram, the upper-air parameters, where the data come from, all controls and analysis levels, and the limitations — is in [`doc/SkewT_User_Guide.pdf`](doc/SkewT_User_Guide.pdf). The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
 **Scales (since 2026-10-09)** — pressure (hPa) on the left, altitude markers (**1–12 km**, pressure altitude) just right of the pressure axis, and the temperature scale (−40 … +30 °C at the bottom of the skewed axis) below the plot (it used to be clipped away). The panel is 540 px wide (378 px before 9 Oct, 460 px until 10 Oct) and the temperature range is centred on the typical profile, so the curve no longer sits against the wind barbs. The dashed blue line is the ISA reference.
 
