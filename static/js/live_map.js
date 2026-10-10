@@ -58,6 +58,9 @@ let showLabels  = localStorage.getItem('ms_showLabels') !== 'false';
 let showTrack   = localStorage.getItem('ms_showTrack')  === 'true';   // default OFF
 let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
 let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
+// Vertical smoothing of the area temperature profile (0 = off, 1 = 3 layers, 2 = 5 layers)
+let areaSmooth  = parseInt(localStorage.getItem('ms_areaSmooth') || '0', 10);
+if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
 
 let selectedTrackLayer = null;   // Leaflet polyline for selected aircraft's DB track
 // Track of the selected aircraft: [[lat, lon, ts], …] — its stored positions
@@ -188,6 +191,43 @@ function mskX(t, p) {
   return base + skew * MSK.SK;
 }
 
+// ── Dry and moist (saturated pseudo-) adiabats ────────────────────────────
+// Reference curves only; they need no humidity data.  Dry: T = θ·(p/1000)^κ.
+// Moist: dT/dp = (Rd·T + Lv·rs) / (p·(cp + Lv²·rs·ε/(Rd·T²))), integrated
+// from 1000 hPa (start = wet-bulb potential temperature θw).
+const ADI_RD = 287.04, ADI_CP = 1005.7, ADI_LV = 2.501e6, ADI_EPS = 0.622;
+function adiEs(tc) { return 6.112 * Math.exp(17.67 * tc / (tc + 243.5)); }   // hPa
+function adiMoistRate(p, tk) {
+  const es = adiEs(tk - 273.15), rs = ADI_EPS * es / Math.max(p - es, 1);
+  return (ADI_RD * tk + ADI_LV * rs) /
+         (p * (ADI_CP + ADI_LV * ADI_LV * rs * ADI_EPS / (ADI_RD * tk * tk)));
+}
+const _adiCache = {};
+function adiabatCurves(pTop, pBot, thetaDryK, thetaWetC) {
+  const key = [pTop, pBot, thetaDryK.join(), thetaWetC.join()].join('|');
+  if (_adiCache[key]) return _adiCache[key];
+  const ps = [];
+  for (let p = pBot; p >= pTop; p -= 10) ps.push(p);
+  if (ps[ps.length - 1] !== pTop) ps.push(pTop);
+  const dry = thetaDryK.map(th => ps.map(p => [p, th * Math.pow(p / 1000, ADI_RD / ADI_CP) - 273.15]));
+  const moist = thetaWetC.map(tw => {
+    const integ = (from, to, step) => {        // RK2 in pressure, returns [[p, °C], …]
+      const out = []; let p = from, t = tw + 273.15;
+      out.push([p, t - 273.15]);
+      while ((step < 0 && p > to) || (step > 0 && p < to)) {
+        const dp = step < 0 ? Math.max(step, to - p) : Math.min(step, to - p);
+        const k1 = adiMoistRate(p, t), k2 = adiMoistRate(p + dp, t + k1 * dp);
+        t += 0.5 * (k1 + k2) * dp; p += dp;
+        out.push([p, t - 273.15]);
+      }
+      return out;
+    };
+    const up = integ(1000, pTop, -5), down = integ(1000, pBot, 5);
+    return down.reverse().concat(up.slice(1));
+  });
+  return (_adiCache[key] = { dry, moist });
+}
+
 // ── Mini wind barb (scaled for small canvas) ──────────────────────────────
 // color defaults to grey for area sounding barbs; pass aircraft colour for overlays.
 function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
@@ -245,6 +285,10 @@ function miniSkewTTheme() {
     kmLabel:   light ? '#94a3b8' : '#3b4b5e',
     area:      light ? '#64748b' : '#94a3b8',
     tempLbl:   light ? '#1e293b' : '#e2e8f0',
+    dryAdi:    light ? '#e2c3a0' : '#54422d',
+    ground:    light ? '#8b6f4e' : '#7c6345',
+    groundLbl: light ? '#6b5137' : '#b08d62',
+    moistAdi:  light ? '#a9d4b7' : '#2a5640',
   };
 }
 
@@ -261,12 +305,36 @@ async function fetchMiniArea() {
   } catch (_) { /* silent */ }
 }
 
+// Weighted running mean of the layer temperatures over 3 (1-2-1) or 5
+// (1-2-3-2-1) neighbouring layers with a temperature, each also weighted by
+// √(replies) so that thin layers count less.  Only for display: the raw
+// value is kept in temp_raw.  Strong smoothing also softens inversions and
+// the tropopause.
+const SMOOTH_KERNELS = { 1: [1, 2, 1], 2: [1, 2, 3, 2, 1] };
+function smoothAreaTemps(tl, mode) {
+  const k = SMOOTH_KERNELS[mode];
+  if (!k) return tl.map(l => ({ ...l, temp_raw: l.temp }));
+  const h = (k.length - 1) / 2;
+  return tl.map((l, i) => {
+    let sw = 0, st = 0;
+    for (let j = -h; j <= h; j++) {
+      const m = tl[i + j];
+      if (!m) continue;
+      const w = k[j + h] * Math.sqrt(Math.max(1, m.temp_count || 1));
+      sw += w; st += w * m.temp;
+    }
+    return { ...l, temp_raw: l.temp, temp: st / sw };
+  });
+}
+
 function drawMiniArea(ctx, T, withBarbs) {
   if (!miniArea || !miniArea.levels) return;
   const { ML, PW, PT, PB, W } = MSK;
-  const lv = miniArea.levels.filter(l => l.pressure >= PT && l.pressure <= PB)
+  const lv0 = miniArea.levels.filter(l => l.pressure >= PT && l.pressure <= PB)
                              .sort((a, b) => b.pressure - a.pressure);
-  const tl = lv.filter(l => l.temp != null);
+  const tl = smoothAreaTemps(lv0.filter(l => l.temp != null), areaSmooth);
+  const sm = new Map(tl.map(l => [l.alt_lo, l]));
+  const lv = lv0.map(l => sm.get(l.alt_lo) || l);
   ctx.save();
   ctx.globalAlpha = withBarbs ? 0.9 : 0.45;
   // 10–90 % range bars
@@ -311,9 +379,40 @@ function drawMiniArea(ctx, T, withBarbs) {
   ctx.restore();
   for (const l of lv) {
     miniHoverPts.push({ y: mskY(l.pressure), src: 'area', alt_ft: l.altitude, p: l.pressure,
-                        t: l.temp, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
+                        t: l.temp, traw: areaSmooth ? l.temp_raw : null, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
                         ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count });
   }
+}
+
+// Ground line at the airport's station pressure (QNH reduced to the field
+// elevation), shading below it, and the METAR surface temperature.  Aircraft
+// pressure altitudes refer to 1013.25 hPa, so the layers below this line are
+// below ground (e.g. the 0–1000 ft layer when QNH is low).
+function drawMiniGround(ctx, T) {
+  if (!miniSfc) return;
+  const { ML, PW, MT, PH, PB, PT } = MSK;
+  const p = miniSfc.p;
+  if (p > PB || p < PT) return;
+  const y = mskY(p);
+  ctx.save();
+  ctx.fillStyle = T.ground; ctx.globalAlpha = 0.18;
+  ctx.fillRect(ML, y, PW, MT + PH - y);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = T.ground; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+  ctx.font = '9px monospace'; ctx.fillStyle = T.groundLbl; ctx.textAlign = 'right';
+  ctx.fillText(`${miniSfc.station || 'ground'} ${Math.round(p)} hPa (QNH ${Math.round(miniSfc.qnh)})`, ML + PW - 4, y - 3);
+  if (miniSfc.t != null) {
+    const x = mskX(miniSfc.t, p);
+    if (x >= ML && x <= ML + PW) {
+      ctx.fillStyle = T.groundLbl; ctx.strokeStyle = T.bg; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.textAlign = 'left'; ctx.fillText(`${miniSfc.t}°`, x + 7, y + 11);
+    }
+  }
+  ctx.restore();
+  miniHoverPts.push({ y, src: 'sfc', p, t: miniSfc.t, alt_ft: null });
 }
 
 // Hover read-out: nearest level / observation to the mouse (aircraft points
@@ -329,7 +428,7 @@ function miniHover(ev) {
   for (const src of [pref, pref === 'ac' ? 'area' : null]) {
     if (!src) continue;
     for (const p of miniHoverPts) {
-      if (p.src !== src) continue;
+      if (p.src !== src && p.src !== 'sfc') continue;
       const d = Math.abs(p.y - my);
       if (d <= 25 && (!best || d < Math.abs(best.y - my))) best = p;
     }
@@ -337,12 +436,26 @@ function miniHover(ev) {
   }
   if (!best) { tip.style.display = 'none'; return; }
   const ft  = best.alt_ft != null ? Math.round(best.alt_ft) : null;
+  if (best.src === 'sfc' && miniSfc) {
+    tip.innerHTML = [`<b>Ground, ${miniSfc.station || 'airport'} METAR ${miniSfc.time}</b>`,
+      `QNH ${Math.round(miniSfc.qnh)} hPa · elevation ${Math.round(miniSfc.elev)} ft`,
+      `Station pressure ${miniSfc.p.toFixed(1)} hPa`,
+      miniSfc.t != null ? `Temp ${miniSfc.t} °C` : '',
+      `<span class="mini-tip-dim">Layers below this line are below ground (pressure altitude, 1013.25 hPa)</span>`]
+      .filter(Boolean).join('<br>');
+    tip.style.display = 'block';
+    const wrap0 = canvas.parentElement.getBoundingClientRect();
+    tip.style.top  = Math.max(4, Math.min(ev.clientY - wrap0.top - tip.offsetHeight - 8, r.height - tip.offsetHeight)) + 'px';
+    tip.style.left = '8px';
+    return;
+  }
   const lines = [
     `<b>${best.src === 'ac' ? (getLabelText(aircraftData[selectedIcao] || {}) || 'Aircraft') : 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min'}</b>`,
     ft != null ? `${ft.toLocaleString()} ft · FL${String(Math.round(ft / 100)).padStart(3, '0')} · ${(ft * 0.0003048).toFixed(1)} km` : '',
     `${Math.round(best.p)} hPa`,
   ];
   if (best.t != null) lines.push(`Temp ${best.t.toFixed(1)} °C` +
+      (best.traw != null ? ` <span class="mini-tip-dim">(smoothed; layer ${best.traw.toFixed(1)})</span>` : '') +
       (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn})</span>` : ''));
   if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
       (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
@@ -403,6 +516,22 @@ function drawMiniSounding() {
 
   ctx.restore();
 
+  // Dry (solid) and moist (dashed) adiabats, every 10 K, clipped to the plot
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+  const adi = adiabatCurves(PT, PB, [250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400],
+                            [-10, 0, 10, 20, 30]);
+  const adiLine = (pts) => {
+    ctx.beginPath();
+    pts.forEach(([p, t], i) => { const x = mskX(t, p), y = mskY(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  };
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = T.dryAdi;   ctx.setLineDash([]);     adi.dry.forEach(adiLine);
+  ctx.strokeStyle = T.moistAdi; ctx.setLineDash([4, 3]); adi.moist.forEach(adiLine);
+  ctx.setLineDash([]);
+  ctx.restore();
+
   // Temperature scale below the plot (outside the clip — inside it the
   // labels were cut off)
   ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = T.label;
@@ -446,6 +575,9 @@ function drawMiniSounding() {
   }
   ctx.stroke();
   ctx.setLineDash([]);
+
+  // ── Ground: station pressure from the METAR QNH, with the surface temperature ─
+  drawMiniGround(ctx, T);
 
   // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
   // Grey background reference; with no aircraft selected it is the profile
@@ -1064,12 +1196,44 @@ if (densitySlider) {
   });
 }
 
+// ── Area profile smoothing selector ───────────────────────────────────────
+const smoothSel = document.getElementById('area-smooth');
+if (smoothSel) {
+  smoothSel.value = String(areaSmooth);
+  smoothSel.addEventListener('change', e => {
+    areaSmooth = parseInt(e.target.value, 10) || 0;
+    localStorage.setItem('ms_areaSmooth', String(areaSmooth));
+    drawMiniSounding();
+  });
+}
+
 // ── METAR / TAF fetcher ───────────────────────────────────────────────────
+// Surface point for the mini Skew-T from the METAR: station pressure (QNH
+// reduced to the airport elevation) and air temperature.  The dewpoint is not
+// used — the aircraft data carry no humidity, so the diagram stays dry.
+let miniSfc = null;   // {p, qnh, t, elev, station, time}
+function parseMetarSfc(d) {
+  const m = d.metar || '';
+  const qnh = d.qnh_hpa != null ? Number(d.qnh_hpa) : (() => {
+    const q = m.match(/\sQ(\d{4})\b/); if (q) return Number(q[1]);
+    const a = m.match(/\sA(\d{4})\b/); return a ? Number(a[1]) * 0.338639 : null;
+  })();
+  if (!qnh || qnh < 900 || qnh > 1100) return null;
+  const tm = m.match(/\s(M?\d{2})\/(M?\d{2}|\/\/)?(?=\s)/);
+  const t  = tm ? (tm[1][0] === 'M' ? -Number(tm[1].slice(1)) : Number(tm[1])) : null;
+  const elev = d.elev_ft != null ? Number(d.elev_ft) : 179;
+  const p  = qnh * Math.pow(1 - 2.25577e-5 * elev * 0.3048, 5.25588);   // QNH → station pressure
+  const st = m.match(/\b([A-Z]{4})\s\d{6}Z/), tt = m.match(/\s(\d{2})(\d{2})(\d{2})Z\s/);
+  return { p, qnh, t, elev, station: st ? st[1] : '', time: tt ? `${tt[2]}:${tt[3]}Z` : '' };
+}
+
 async function fetchWx() {
   try {
     const r = await fetch('/api/wx');
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
+    miniSfc = parseMetarSfc(d);
+    drawMiniSounding();
     const metarEl = document.getElementById('wx-metar');
     const tafEl   = document.getElementById('wx-taf');
     if (metarEl) metarEl.textContent = d.metar || '–';

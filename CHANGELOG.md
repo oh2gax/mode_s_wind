@@ -5,8 +5,11 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-10 (GPS spoofing indicators: 2+ independent checks marked)
+## 2026-10-10 (GPS spoofing indicators: 2+ independent checks marked; dry and moist adiabats, smoothing and ground line on the Skew-T diagrams)
 
+- **Skew-T diagrams — dry and moist adiabats**: faint dry adiabats (solid) and moist / saturated adiabats (dashed), every 10 K, on the Sounding page (with a key) and the Live Map Atmosphere Profile, for reading the stability of the measured temperature profile. Reference curves only, no humidity data needed. The Live Map right panel is wider (540 px, was 460 px) to keep the diagram readable
+- **Live Map Atmosphere Profile — ground line**: the airport's station pressure from the METAR QNH and field elevation is drawn as a ground line (area below shaded) with the METAR surface temperature; hover shows QNH, station pressure and temperature. At low QNH the lowest pressure-altitude layers lie below ground. `/api/wx` also returns `elev_ft`
+- **Live Map Atmosphere Profile — Smooth selector**: Off / 3 layers / 5 layers vertical running mean of the 60-min area temperature profile (weighted by the number of replies), e.g. for comparing lapse rates with the adiabats; the hover shows the smoothed and the layer value; remembered in the browser
 - **GPS Quality — Severity & Spoofing panel**: aircraft flagged by two or more independent checks in the same hour (ADS-B vs MLAT, GNSS − baro altitude, position jump) are counted on a new `2+ independent indicators` row and marked with a pink `2+` badge in the flagged-aircraft list; a `2+ only` button shows just those. A single large ADS-B / MLAT mismatch is more often an MLAT outlier; agreeing checks are the convincing spoofing cases
 - **GPS Episodes**: `SPF` / `SPF 2+` chips after the signal chips for episodes with spoofing indicators, a **Spoofing** filter (Any / Any indicator / 2+ independent) and a note in the detail popup when 2+ independent checks agree
 

@@ -41,6 +41,43 @@ function tToX(t, p) {
   return base + skewPx * 0.5;  // 0.5 controls skew angle
 }
 
+// ── Dry and moist (saturated pseudo-) adiabats ────────────────────────────
+// Reference curves only; they need no humidity data.  Dry: T = θ·(p/1000)^κ.
+// Moist: dT/dp = (Rd·T + Lv·rs) / (p·(cp + Lv²·rs·ε/(Rd·T²))), integrated
+// from 1000 hPa (start = wet-bulb potential temperature θw).
+const ADI_RD = 287.04, ADI_CP = 1005.7, ADI_LV = 2.501e6, ADI_EPS = 0.622;
+function adiEs(tc) { return 6.112 * Math.exp(17.67 * tc / (tc + 243.5)); }   // hPa
+function adiMoistRate(p, tk) {
+  const es = adiEs(tk - 273.15), rs = ADI_EPS * es / Math.max(p - es, 1);
+  return (ADI_RD * tk + ADI_LV * rs) /
+         (p * (ADI_CP + ADI_LV * ADI_LV * rs * ADI_EPS / (ADI_RD * tk * tk)));
+}
+const _adiCache = {};
+function adiabatCurves(pTop, pBot, thetaDryK, thetaWetC) {
+  const key = [pTop, pBot, thetaDryK.join(), thetaWetC.join()].join('|');
+  if (_adiCache[key]) return _adiCache[key];
+  const ps = [];
+  for (let p = pBot; p >= pTop; p -= 10) ps.push(p);
+  if (ps[ps.length - 1] !== pTop) ps.push(pTop);
+  const dry = thetaDryK.map(th => ps.map(p => [p, th * Math.pow(p / 1000, ADI_RD / ADI_CP) - 273.15]));
+  const moist = thetaWetC.map(tw => {
+    const integ = (from, to, step) => {        // RK2 in pressure, returns [[p, °C], …]
+      const out = []; let p = from, t = tw + 273.15;
+      out.push([p, t - 273.15]);
+      while ((step < 0 && p > to) || (step > 0 && p < to)) {
+        const dp = step < 0 ? Math.max(step, to - p) : Math.min(step, to - p);
+        const k1 = adiMoistRate(p, t), k2 = adiMoistRate(p + dp, t + k1 * dp);
+        t += 0.5 * (k1 + k2) * dp; p += dp;
+        out.push([p, t - 273.15]);
+      }
+      return out;
+    };
+    const up = integ(1000, pTop, -5), down = integ(1000, pBot, 5);
+    return down.reverse().concat(up.slice(1));
+  });
+  return (_adiCache[key] = { dry, moist });
+}
+
 // ── Theme-aware colour palette for canvas drawing ─────────────────────────
 function skewTTheme() {
   const light = document.documentElement.dataset.theme === 'light';
@@ -57,6 +94,8 @@ function skewTTheme() {
     dotRing:   light ? '#1e293b' : '#e2e8f0',
     noData:    light ? '#64748b' : '#64748b',
     windOnly:  light ? '#64748b' : '#4b5563',
+    dryAdi:    light ? '#e2c3a0' : '#584530',
+    moistAdi:  light ? '#a9d4b7' : '#2c5a43',
   };
 }
 
@@ -86,6 +125,31 @@ function drawGrid(ctx) {
     ctx.lineTo(tToX(t, P_TOP),    pToY(P_TOP));
     ctx.stroke();
   }
+
+  // Dry (solid) and moist (dashed) adiabats, every 10 K
+  const thetas = []; for (let th = 240; th <= 470; th += 10) thetas.push(th);
+  const adi = adiabatCurves(P_TOP, P_BOTTOM, thetas, [-20, -10, 0, 10, 20, 30]);
+  const adiLine = (pts) => {
+    ctx.beginPath();
+    pts.forEach(([p, t], i) => { const x = tToX(t, p), y = pToY(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  };
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ML, MT, PLOT_W, PLOT_H); ctx.clip();
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = T.dryAdi;   ctx.setLineDash([]);     adi.dry.forEach(adiLine);
+  ctx.strokeStyle = T.moistAdi; ctx.setLineDash([5, 4]); adi.moist.forEach(adiLine);
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Key for the adiabats (empty cold upper-left corner of the diagram)
+  ctx.font = '9px sans-serif'; ctx.textAlign = 'left'; ctx.lineWidth = 1.2;
+  const kx = ML + 8, ky = MT + 12;
+  ctx.strokeStyle = T.dryAdi; ctx.beginPath(); ctx.moveTo(kx, ky - 3); ctx.lineTo(kx + 16, ky - 3); ctx.stroke();
+  ctx.fillStyle = T.label; ctx.fillText('dry adiabat', kx + 20, ky);
+  ctx.strokeStyle = T.moistAdi; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(kx, ky + 9); ctx.lineTo(kx + 16, ky + 9); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillText('moist adiabat', kx + 20, ky + 12);
 }
 
 // Axis labels — drawn outside the plot clip (inside drawGrid they were

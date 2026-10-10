@@ -944,6 +944,9 @@ def create_app(
         # QNH fallback: use _qnh_cache if wx_cache has not set one yet.
         if data.get("qnh_hpa") is None:
             data["qnh_hpa"] = _qnh_cache["hpa"] if _qnh_cache["updated"] > 0 else None
+        # Airport elevation (ft) for the station pressure / ground line of the
+        # Live Map Skew-T (threshold elevation, EFHK 179 ft)
+        data["elev_ft"] = float(getattr(cfg, "WINDSHEAR_THR_ELEVATION_FT", 179.0))
 
         return jsonify(data)
 
