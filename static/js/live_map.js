@@ -60,6 +60,11 @@ let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
 let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
 // Vertical smoothing of the area temperature profile (0 = off, 1 = 3 layers, 2 = 5 layers)
 let areaSmooth  = parseInt(localStorage.getItem('ms_areaSmooth') || '0', 10);
+// Skew-T analysis overlay: 0 off, 1 levels, 2 + stability, 3 + turbulence,
+// 4 + thermal advection and contrail levels, 5 + dry thermal top
+const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Full'];
+let anaLevel    = parseInt(localStorage.getItem('ms_skewtAna') || '0', 10);
+if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
 
 let selectedTrackLayer = null;   // Leaflet polyline for selected aircraft's DB track
@@ -287,6 +292,17 @@ function miniSkewTTheme() {
     tempLbl:   light ? '#1e293b' : '#e2e8f0',
     dryAdi:    light ? '#e2c3a0' : '#54422d',
     ground:    light ? '#8b6f4e' : '#7c6345',
+    anaTrop:   light ? '#7c3aed' : '#a78bfa',
+    anaZero:   light ? '#0284c7' : '#38bdf8',
+    anaIso:    light ? '#64748b' : '#7dd3fc',
+    anaWind:   light ? '#b45309' : '#fbbf24',
+    anaInv:    light ? '#ea580c' : '#fb923c',
+    anaWarm:   light ? '#dc2626' : '#f87171',
+    anaCold:   light ? '#2563eb' : '#60a5fa',
+    anaCon:    light ? '#475569' : '#cbd5e1',
+    anaTherm:  light ? '#c2410c' : '#fdba74',
+    anaLblBg:  light ? 'rgba(238,242,247,0.85)' : 'rgba(12,22,32,0.8)',
+    stUnst:    '#ef4444', stCond: '#f59e0b', stStab: '#22c55e', stInv: '#a855f7',
     groundLbl: light ? '#6b5137' : '#b08d62',
     moistAdi:  light ? '#a9d4b7' : '#2a5640',
   };
@@ -413,6 +429,162 @@ function drawMiniGround(ctx, T) {
   }
   ctx.restore();
   miniHoverPts.push({ y, src: 'sfc', p, t: miniSfc.t, alt_ft: null });
+}
+
+// ── Skew-T analysis overlay (skewt_analysis.js) ─────────────────────────────
+// Lines / bands across the plot, labels at its right edge (spread so they do
+// not overlap), the stability strip just right of the pressure axis.
+function drawMiniAnalysis(ctx, T) {
+  if (!miniArea || !miniArea.levels || typeof analyzeSkewT !== 'function') return;
+  const { ML, PW, MT, PH, PT, PB } = MSK;
+  const a = analyzeSkewT(miniArea.levels, { lat: RECEIVER_LAT,
+                                             sfc: miniSfc && miniSfc.t != null ? { p: miniSfc.p, t: miniSfc.t } : null });
+  const fl = ft => 'FL' + String(Math.max(0, Math.round(ft / 100))).padStart(3, '0');
+  const inPlot = p => p >= PT && p <= PB;
+  const labels = [];                       // {y, text, color}
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+  const hline = (p, color, dash, width = 1) => {
+    const y = mskY(p);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke(); ctx.setLineDash([]);
+    return y;
+  };
+
+  // Tropopause: band ±1 000 ft and a dashed line
+  if (a.trop && inPlot(a.trop.p)) {
+    const y1 = mskY(altToPressHPa(a.trop.alt + 1000)), y2 = mskY(altToPressHPa(a.trop.alt - 1000));
+    ctx.fillStyle = T.anaTrop; ctx.globalAlpha = 0.12; ctx.fillRect(ML, y1, PW, y2 - y1); ctx.globalAlpha = 1;
+    const y = hline(a.trop.p, T.anaTrop, [6, 3], 1.2);
+    labels.push({ y, color: T.anaTrop,
+                  text: `TROP ${fl(a.trop.alt)} ${Math.round(a.trop.t)}°${a.trop.q === '?' ? ' ?' : ''}` });
+  }
+  // 0 °C (all real crossings), −10 / −20 °C from level 2
+  for (const z of a.isotherms[0]) if (inPlot(z.p))
+    labels.push({ y: hline(z.p, T.anaZero, [5, 3], 1.2), color: T.anaZero, text: `0° ${fl(z.alt)}` });
+  if (anaLevel >= 2) for (const tc of [-10, -20]) for (const z of a.isotherms[tc]) if (inPlot(z.p))
+    labels.push({ y: hline(z.p, T.anaIso, [1, 3]), color: T.anaIso, text: `${tc}° ${fl(z.alt)}` });
+
+  // Max wind / jet and low-level jet: a short tick at the right edge
+  const windMark = (w, txt) => {
+    if (!w || !inPlot(w.p)) return;
+    const y = mskY(w.p);
+    ctx.strokeStyle = T.anaWind; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(ML + PW - 18, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+    labels.push({ y, color: T.anaWind, text: txt });
+  };
+  if (a.maxWind) windMark(a.maxWind, `${a.maxWind.jet ? 'JET' : 'MAX'} ${Math.round(a.maxWind.spd)}kt ${fl(a.maxWind.alt)}`);
+  if (a.llj) windMark(a.llj, `LLJ ${Math.round(a.llj.spd)}kt ${Math.round(a.llj.alt / 100) * 100}ft`);
+
+  if (anaLevel >= 2) {
+    // Inversions: shaded layer
+    for (const v of a.inversions) {
+      if (!inPlot(v.pBot) && !inPlot(v.pTop)) continue;
+      const yb = mskY(Math.min(v.pBot, PB)), yt = mskY(Math.max(v.pTop, PT));
+      ctx.fillStyle = T.anaInv; ctx.globalAlpha = 0.14; ctx.fillRect(ML, yt, PW, yb - yt); ctx.globalAlpha = 1;
+      labels.push({ y: (yb + yt) / 2, color: T.anaInv,
+                    text: `INV +${v.dT.toFixed(1)}° ${fl(v.altBot)}–${fl(v.altTop).slice(2)}` });
+    }
+  }
+  if (anaLevel >= 3) {
+    // Wind shear / turbulence risk: a bar at the right edge of the plot
+    for (const s of a.turbulence) {
+      const yb = mskY(Math.min(s.pBot, PB)), yt = mskY(Math.max(s.pTop, PT));
+      ctx.fillStyle = s.cls === 'likely' ? T.stUnst : T.stCond;
+      ctx.globalAlpha = 0.85; ctx.fillRect(ML + PW - 5, yt, 4, yb - yt); ctx.globalAlpha = 1;
+      labels.push({ y: (yb + yt) / 2, color: s.cls === 'likely' ? T.stUnst : T.stCond,
+                    text: `${s.cls === 'likely' ? 'TURB' : 'SHEAR'} ${fl(s.altBot)}–${fl(s.altTop).slice(2)} ` +
+                          `${Math.round(s.shear)}kt/1000ft Ri ${s.ri < 10 ? s.ri.toFixed(1) : '>10'}` });
+    }
+  }
+  if (anaLevel >= 5 && a.thermal) {
+    // Dry thermal top: METAR surface temperature lifted along the dry adiabat
+    const th = a.thermal;
+    if (th.na) {
+      labels.push({ y: MT + PH - 30, color: T.anaTherm, text: `THERMAL TOP: n/a (${th.na})` });
+    } else if (th.none) {
+      labels.push({ y: mskY(Math.min(th.p, PB)) - 14, color: T.anaTherm, text: 'THERMALS: none (stable surface layer)' });
+    } else if (inPlot(th.p)) {
+      const theta = (miniSfc.t + 273.15) * Math.pow(1000 / miniSfc.p, 0.2857);
+      ctx.strokeStyle = T.anaTherm; ctx.lineWidth = 1.8; ctx.beginPath();
+      let first = true;
+      for (let p = miniSfc.p; p >= th.p - 0.01; p -= 5) {
+        const pp = Math.max(p, th.p);
+        const x = mskX(theta * Math.pow(pp / 1000, 0.2857) - 273.15, pp), y = mskY(pp);
+        first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
+      }
+      ctx.lineTo(mskX(th.tTop, th.p), mskY(th.p));
+      ctx.stroke();
+      const y = hline(th.p, T.anaTherm, [4, 3]);
+      labels.push({ y, color: T.anaTherm,
+                    text: `THERMAL TOP ${Math.round(th.agl / 100) * 100}ft AGL (${fl(th.alt)})` });
+    }
+  }
+  if (anaLevel >= 4) {
+    // Thermal advection: a red (warm) / blue (cold) bar left of the shear bar
+    for (const v of a.advection) {
+      if (!inPlot(v.pBot) && !inPlot(v.pTop)) continue;
+      const yb = mskY(Math.min(v.pBot, PB)), yt = mskY(Math.max(v.pTop, PT));
+      const c = v.adv > 0 ? T.anaWarm : T.anaCold;
+      ctx.fillStyle = c; ctx.globalAlpha = 0.75; ctx.fillRect(ML + PW - 11, yt + 1, 4, yb - yt - 2); ctx.globalAlpha = 1;
+      labels.push({ y: (yb + yt) / 2, color: c,
+                    text: `${v.adv > 0 ? 'WAA +' : 'CAA '}${v.adv.toFixed(1)}K/h ${v.pBot}–${v.pTop}` });
+    }
+    // Contrails: Schmidt–Appleman threshold curves (dashed = saturated air,
+    // dotted = dry air) from 500 hPa up, and the lowest levels below them
+    const curve = (key, dash) => {
+      ctx.strokeStyle = T.anaCon; ctx.lineWidth = 1; ctx.setLineDash(dash); ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      let first = true;
+      for (let p = 500; p >= PT; p -= 10) {
+        const x = mskX(skewtContrailThresholds(p)[key], p), y = mskY(p);
+        first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
+      }
+      ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    };
+    curve('tLM', [6, 3]); curve('tLC', [1, 3]);
+    if (a.contrail && inPlot(a.contrail.pHumid)) {
+      const c = a.contrail;
+      const y = hline(c.pHumid, T.anaCon, [2, 2]);
+      if (c.pDry != null && c.pDry !== c.pHumid && inPlot(c.pDry)) hline(c.pDry, T.anaCon, [2, 2]);
+      labels.push({ y, color: T.anaCon,
+                    text: `CONTRAIL ${fl(c.altHumid)}+ humid` + (c.altDry != null ? ` / ${fl(c.altDry)}+ dry` : '') });
+    }
+  }
+  ctx.restore();
+
+  // Stability strip just right of the pressure axis
+  if (anaLevel >= 2) {
+    const col = { unstable: T.stUnst, conditional: T.stCond, stable: T.stStab, inversion: T.stInv };
+    for (const s of a.stability) {
+      if (!inPlot(s.pBot) && !inPlot(s.pTop)) continue;
+      const yb = mskY(Math.min(s.pBot, PB)), yt = mskY(Math.max(s.pTop, PT));
+      ctx.fillStyle = col[s.cls]; ctx.globalAlpha = 0.8;
+      ctx.fillRect(ML + 1, yt, 5, yb - yt); ctx.globalAlpha = 1;
+    }
+    // key, bottom-left (cold low-level corner, normally empty)
+    ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
+    let kx = ML + 10; const ky = MT + PH - 6;
+    for (const [c, t] of [[T.stUnst, 'unstable'], [T.stCond, 'cond.'], [T.stStab, 'stable'], [T.stInv, 'inv.']]) {
+      ctx.fillStyle = c; ctx.fillRect(kx, ky - 6, 6, 6);
+      ctx.fillStyle = T.area; ctx.fillText(t, kx + 8, ky); kx += ctx.measureText(t).width + 16;
+    }
+  }
+
+  // Labels at the right edge of the plot, spread so they do not overlap
+  ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  labels.sort((p, q) => p.y - q.y);
+  const H = 11; let last = MT - H;
+  for (const l of labels) { l.y = Math.max(l.y - 2, last + H); last = l.y; }
+  for (let i = labels.length - 1, lim = MT + PH - 2; i >= 0; i--) {   // keep inside the plot
+    labels[i].y = Math.min(labels[i].y, lim); lim = labels[i].y - H;
+  }
+  const x = ML + PW - 8;
+  for (const l of labels) {
+    const w = ctx.measureText(l.text).width;
+    ctx.fillStyle = T.anaLblBg; ctx.fillRect(x - w - 3, l.y - 8, w + 6, 11);
+    ctx.fillStyle = l.color; ctx.fillText(l.text, x, l.y);
+  }
 }
 
 // Hover read-out: nearest level / observation to the mouse (aircraft points
@@ -550,7 +722,7 @@ function drawMiniSounding() {
     ctx.strokeStyle = T.axisLine; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + 4, y); ctx.stroke();
     ctx.fillStyle = T.kmLabel;
-    ctx.fillText(km + ' km', ML + 6, y + 3);
+    ctx.fillText(km + ' km', ML + (anaLevel >= 2 ? 10 : 6), y + 3);
   }
   miniHoverPts = [];
 
@@ -584,13 +756,18 @@ function drawMiniSounding() {
   // shown, with its wind barbs.
   drawMiniArea(ctx, T, !miniAcOverlay);
 
+  // ── Automatic analysis of the area profile (button in the panel title) ──
+  if (anaLevel > 0) drawMiniAnalysis(ctx, T);
+
   // ── No aircraft selected hint ───────────────────────────────────────────
   if (!miniAcOverlay) {
     ctx.fillStyle = T.hint; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
     const msg = miniArea && miniArea.levels && miniArea.levels.length
       ? `Area profile, last ${miniArea.window_min} min — click an aircraft`
       : 'Click an aircraft to show its profile';
-    ctx.fillText(msg, ML + PW / 2, MT + 12);
+    // with the analysis on, the right edge holds its labels → hint on the left
+    if (anaLevel > 0) { ctx.textAlign = 'left'; ctx.fillText(msg, ML + 12, MT + 12); }
+    else ctx.fillText(msg, ML + PW / 2, MT + 12);
   }
 
   // ── Aircraft overlay ────────────────────────────────────────────────────
@@ -1194,6 +1371,24 @@ if (densitySlider) {
     densityVal.textContent = windDensity;
     drawMiniSounding();   // re-render immediately with new density
   });
+}
+
+// ── Skew-T analysis button (panel title): click / mouse wheel steps the level ─
+const anaBtn = document.getElementById('skewt-ana-btn');
+function setAnaLevel(v, redraw = true) {
+  anaLevel = (v + ANA_NAMES.length) % ANA_NAMES.length;
+  localStorage.setItem('ms_skewtAna', String(anaLevel));
+  if (anaBtn) {
+    anaBtn.textContent = 'Analysis: ' + ANA_NAMES[anaLevel];
+    anaBtn.classList.toggle('active', anaLevel > 0);
+  }
+  if (redraw) drawMiniSounding();
+}
+if (anaBtn) {
+  anaBtn.addEventListener('click', () => setAnaLevel(anaLevel + 1));
+  anaBtn.addEventListener('wheel', ev => { ev.preventDefault(); setAnaLevel(anaLevel + (ev.deltaY > 0 ? 1 : -1)); },
+                          { passive: false });
+  setAnaLevel(anaLevel, false);   // the first draw happens later (resize observer)
 }
 
 // ── Area profile smoothing selector ───────────────────────────────────────

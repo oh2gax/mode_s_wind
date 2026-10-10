@@ -43,7 +43,11 @@
 
   <!-- Right panel: mini sounding profile -->
   <aside class="panel-right">
-    <div class="panel-header">Atmosphere Profile</div>
+    <div class="panel-header panel-header-row">
+      <div>Atmosphere Profile</div>
+      <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
+              title="Automatic analysis of the area profile (last 60 min). Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat). Temperature and wind only — no humidity data.">Analysis: Off</button>
+    </div>
     <div id="detail-panel" class="mini-sounding-wrap">
       <canvas id="mini-sounding-canvas"></canvas>
       <div id="mini-skewt-tip" class="mini-skewt-tip" style="display:none"></div>
@@ -112,5 +116,6 @@
 const RECEIVER_LAT = {{ receiver_lat }};
 const RECEIVER_LON = {{ receiver_lon }};
 </script>
+<script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/live_map.js') }}"></script>
 {% endblock %}
