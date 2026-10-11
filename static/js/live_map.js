@@ -117,6 +117,9 @@ function idLine(ac, withIcao = true) {
 // mini Skew-T can show a full vertical wind profile, not just one barb.
 function updateWindHistory(ac) {
   if (!ac.best_wind_spd || !ac.best_wind_dir || !ac.altitude) return;
+  // Wind / temperature from radar replies older than WIND_MAX_AGE_SEC: they
+  // were measured at another altitude, so they are not placed at this one
+  if (ac.wind_stale) return;
 
   if (!windHistory[ac.icao]) windHistory[ac.icao] = [];
   const hist = windHistory[ac.icao];

@@ -461,6 +461,7 @@ def main() -> None:
         on_approach_committed = _on_approach_committed,
         bds_sample_fn         = get_bds_samples,
         mag_declination       = cfg.MAG_DECLINATION,
+        wind_max_age          = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0)),
     )
 
     # Pre-populate RAM approach history from the last 24 h of DB records so

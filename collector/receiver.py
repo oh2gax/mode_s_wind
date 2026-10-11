@@ -196,7 +196,7 @@ def _try_pair_wind(icao: str, ts: float, cfg: Config,
     else:
         decl = cfg.MAG_DECLINATION
 
-    return try_compute_wind(
+    wind = try_compute_wind(
         bds50         = bds50,
         bds60         = bds60,
         altitude_ft   = altitude,
@@ -207,6 +207,15 @@ def _try_pair_wind(icao: str, ts: float, cfg: Config,
         icao          = icao,
         ts            = ts,
     )
+    if wind:
+        # Time of the older of the two replies.  The pair is re-used with
+        # every later message of the aircraft (up to 60 s), stamped with the
+        # aircraft's current altitude; consumers that place the wind at an
+        # altitude (stored observations, Windshear ILS profile, approach
+        # bands, Live Map aircraft profile) skip it when it is older than
+        # WIND_MAX_AGE_SEC.
+        wind["wind_ts"] = min(ts50, ts60)
+    return wind
 
 
 def _build_observation(icao: str, ts: float, result: dict,
@@ -263,6 +272,7 @@ def _build_observation(icao: str, ts: float, result: dict,
             "tm_temp":             wind.get("tm_temp"),
             "hdg_off":             wind.get("hdg_off"),
             "hdg_src":             wind.get("hdg_src"),
+            "wind_ts":             wind.get("wind_ts"),
         })
 
     # Consolidated best-available fields
@@ -318,6 +328,24 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
             merged["nic_ts"] = ts
 
 
+# Computed-wind fields cleared from a stored observation whose BDS 5,0 / 6,0
+# pair is older than WIND_MAX_AGE_SEC (see run_collector)
+_WIND_FIELDS = ("wind_spd", "wind_dir", "wind_qual", "tas_source", "mag_decl",
+                "bds50_true_track", "bds50_groundspeed", "bds50_true_airspeed",
+                "bds50_roll", "bds60_mag_heading", "bds60_ias", "bds60_mach",
+                "tm_temp", "hdg_off", "hdg_src", "wind_ts",
+                "best_wind_spd", "best_wind_dir", "best_temp", "best_pressure",
+                "meteo_source")
+
+
+def _without_stale_wind(obs: dict, mrar: Optional[dict], mhr: Optional[dict]) -> dict:
+    """Copy of obs for the database without the (stale) computed wind and
+    Mach/TAS temperature; MRAR / MHR values of the same message are kept."""
+    out = {k: v for k, v in obs.items() if k not in _WIND_FIELDS}
+    out.update(best_meteo(mrar, mhr, None))
+    return out
+
+
 def _is_worth_storing(obs: dict) -> bool:
     """
     Return True if an observation carries enough data to be worth writing.
@@ -356,6 +384,9 @@ def run_collector(
     )
 
     pipe = PipeDecoder(surface_ref=(cfg.RECEIVER_LAT, cfg.RECEIVER_LON))
+    # Max age (s) of the older BDS 5,0 / 6,0 reply for a computed wind to be
+    # stored with the observation (optional config key)
+    wind_max_age = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0))
 
     while True:
         try:
@@ -578,6 +609,12 @@ def run_collector(
                     obs["callsign"] = merged["callsign"]
 
                 # ── Write to DB ───────────────────────────────────────────
+                # A computed wind / Mach-TAS temperature from replies older
+                # than WIND_MAX_AGE_SEC is not stored: it would be written at
+                # the aircraft's current altitude, not where it was measured.
+                if (wind and obs.get("wind_ts") is not None
+                        and ts - obs["wind_ts"] > wind_max_age):
+                    obs = _without_stale_wind(obs, mrar, mhr)
                 if _is_worth_storing(obs):
                     writer.add(obs)
 

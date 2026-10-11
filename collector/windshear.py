@@ -379,8 +379,13 @@ class WindshearTracker:
         on_approach_committed       = None,
         bds_sample_fn               = None,
         mag_declination: float | None = None,
+        wind_max_age: float         = 6.0,
     ):
         self.airport_lat          = airport_lat
+        # Max age (s) of the older BDS 5,0 / 6,0 reply behind the live wind
+        # (live_state "wind_ts") for it to be used at the aircraft's current
+        # altitude: approach bands, windrose buffer, ILS barbs and detection
+        self.wind_max_age         = wind_max_age
         self.airport_lon          = airport_lon
         self.max_dist_nm          = max_dist_nm
         self.max_alt_ft           = max_alt_ft
@@ -610,6 +615,13 @@ class WindshearTracker:
         wind_spd    = aircraft.get("best_wind_spd")
         wind_dir    = aircraft.get("best_wind_dir")
         temperature = aircraft.get("best_temp")
+        # Stale wind: the computed wind comes from a BDS 5,0 / 6,0 pair whose
+        # older reply is more than wind_max_age old (low on final the radar
+        # replies often stop while ADS-B positions continue) — it was measured
+        # higher up and is not used where its altitude matters.
+        _wts = aircraft.get("wind_ts")
+        wind_stale = bool(aircraft.get("meteo_source") == "COMPUTED" and _wts is not None
+                          and now - _wts > self.wind_max_age)
         squawk      = aircraft.get("squawk")
         ias         = aircraft.get("bds60_ias")
         rwy_thr_elev = next(
@@ -843,7 +855,7 @@ class WindshearTracker:
             # after a threshold crossing (rollout wind is not meaningful).
             alt_msl = alt - qnh_corr
             if (in_corridor and not pos_frozen and landing_rwy is None
-                    and wind_spd is not None and wind_dir is not None
+                    and wind_spd is not None and wind_dir is not None and not wind_stale
                     and aircraft.get("meteo_source", "NONE") != "NONE"):
                 bw = self._band_winds.setdefault(icao, {
                     "icao": icao, "callsign": callsign, "runway": runway,
@@ -882,6 +894,7 @@ class WindshearTracker:
                     and alt <= WINDROSE_OBS_MAX_ALT_FT
                     and wind_spd is not None
                     and wind_dir is not None
+                    and not wind_stale
                     and aircraft.get("meteo_source", "NONE") != "NONE"):
                 wr_hist = self._windrose_obs.setdefault(icao, [])
                 wr_last = wr_hist[-1] if wr_hist else None
@@ -935,6 +948,10 @@ class WindshearTracker:
                 "best_temp":      temperature,
                 "meteo_source":   _meteo_src,
                 "none_reason":    none_reason,
+                # Wind / temperature from replies older than wind_max_age:
+                # shown in the strip, but not drawn as a barb or used by the
+                # detection (it was measured higher up)
+                "wind_stale":     wind_stale,
                 # Autopilot engaged / approach mode (ADS-B TC 29, version 2
                 # transponders; None when unknown or older than AP_FRESH_SEC)
                 "ap":             _ap_state(aircraft, now, "ap"),

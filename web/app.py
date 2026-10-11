@@ -188,22 +188,25 @@ def _parse_metar_wind(metar_text: str) -> dict | None:
       'dir'      — integer degrees (0–360), or None for variable direction
       'spd'      — integer knots
       'variable' — True when direction is variable (VRB group)
+      'gust'     — integer knots of the gust group (Gxx), or None
 
     Returns None if no recognisable wind group is found.
     """
     import re
     # Variable wind: VRBssKT
-    m = re.search(r"\bVRB(\d{2,3})KT\b", metar_text)
+    m = re.search(r"\bVRB(\d{2,3})(?:G(\d{2,3}))?KT\b", metar_text)
     if m:
-        return {"dir": None, "spd": int(m.group(1)), "variable": True}
+        return {"dir": None, "spd": int(m.group(1)), "variable": True,
+                "gust": int(m.group(2)) if m.group(2) else None}
     # Calm: 00000KT
     m = re.search(r"\b00000KT\b", metar_text)
     if m:
-        return {"dir": 0, "spd": 0, "variable": False}
-    # Normal: DDDssKT or DDDssGggKT (gusts ignored)
-    m = re.search(r"\b(\d{3})(\d{2,3})(?:G\d+)?KT\b", metar_text)
+        return {"dir": 0, "spd": 0, "variable": False, "gust": None}
+    # Normal: DDDssKT or DDDssGggKT
+    m = re.search(r"\b(\d{3})(\d{2,3})(?:G(\d{2,3}))?KT\b", metar_text)
     if m:
-        return {"dir": int(m.group(1)), "spd": int(m.group(2)), "variable": False}
+        return {"dir": int(m.group(1)), "spd": int(m.group(2)), "variable": False,
+                "gust": int(m.group(3)) if m.group(3) else None}
     return None
 
 
@@ -347,6 +350,8 @@ def create_app(
         Server-Sent Events endpoint.
         Pushes the full aircraft list every 3 seconds.
         """
+        wind_max_age = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0))
+
         def generate():
             while True:
                 try:
@@ -379,6 +384,12 @@ def create_app(
                             "mrar_turbulence": ac.get("mrar_turbulence"),
                             "hdg_off":        ac.get("hdg_off"),
                             "hdg_src":        ac.get("hdg_src"),
+                            # computed wind from replies older than
+                            # WIND_MAX_AGE_SEC (measured higher / lower up):
+                            # not added to the aircraft's Skew-T profile
+                            "wind_stale": bool(ac.get("meteo_source") == "COMPUTED"
+                                               and ac.get("wind_ts") is not None
+                                               and now - ac["wind_ts"] > wind_max_age),
                             "last_seen": ac.get("last_seen"),
                         })
 

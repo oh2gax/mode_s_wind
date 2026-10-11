@@ -384,6 +384,7 @@ function wsCanvasTheme() {
     staleGlow:  light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.08)',
     dotBorder:  '#000',
     barbHint:   light ? '#64748b' : '#475569',
+    metar:      light ? '#0284c7' : '#38bdf8',   // METAR surface wind barb at the threshold
     // Wind Rose
     roseBg:     light ? '#e8edf3' : '#0a121c',
     roseOuter:  light ? '#b8c8d8' : '#1a2d40',
@@ -836,6 +837,48 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     ilsCtx.textAlign  = 'left';
     ilsCtx.fillText('Click a strip to show wind barbs', M.left + 4, M.top + 22);
   }
+
+  // ── METAR surface wind at the threshold ───────────────────────────────────
+  // The 10 m wind of the METAR as a barb at 0 NM on the threshold elevation:
+  // the lowest true wind of the profile (aircraft replies usually stop at
+  // 400–800 ft), so the change from the lowest aircraft barb to the surface
+  // is visible.  With HW / XW on, the component for the same runway is shown.
+  if (barbLayerActive && metarWind) {
+    // anchored just left of the threshold so a barb pointing right stays on the canvas
+    drawMetarBarb(aircraft, distX(0) - 10, altY(gsBaseline), CT);
+  }
+}
+
+/** METAR surface-wind barb (cyan) with its label, at the threshold point. */
+function drawMetarBarb(aircraft, x, y, CT) {
+  const mw = metarWind;
+  const gust = mw.gust ? `G${mw.gust}` : '';
+  let txt;
+  ilsCtx.save();
+  if (mw.variable || mw.dir == null) {
+    ilsCtx.strokeStyle = CT.metar; ilsCtx.lineWidth = 1.5;
+    ilsCtx.beginPath(); ilsCtx.arc(x, y, 5, 0, 2 * Math.PI); ilsCtx.stroke();
+    txt = `MET VRB/${mw.spd}${gust}`;
+  } else {
+    drawWindBarb(ilsCtx, x, y, mw.spd, mw.dir, CT.metar);
+    ilsCtx.fillStyle = CT.metar;
+    ilsCtx.beginPath(); ilsCtx.arc(x, y, 2.5, 0, 2 * Math.PI); ilsCtx.fill();
+    txt = `MET ${String(mw.dir).padStart(3, '0')}/${mw.spd}${gust}`;
+    // Component for the runway of the selected aircraft (or the dropdown)
+    if (barbHwMode !== 'off') {
+      const selAc = aircraft.find(a => a.icao === barbSelectedIcao);
+      const hdg = getRwyHeading(selAc?.approach_runway || document.getElementById('ws-ils-rwy').value);
+      if (hdg != null) {
+        const c = Math.round(barbHwMode === 'hw' ? hwKt(mw.spd, mw.dir, hdg) : xwKt(mw.spd, mw.dir, hdg));
+        txt += `  ${c >= 0 ? '+' : ''}${c} ${barbHwMode.toUpperCase()}`;
+      }
+    }
+  }
+  ilsCtx.fillStyle = CT.metar;
+  ilsCtx.font      = 'bold 9px "Courier New", monospace';
+  ilsCtx.textAlign = 'right';
+  ilsCtx.fillText(txt, x - 10, y + 13);
+  ilsCtx.restore();
 }
 
 // ── QNH-corrected glideslope status ──────────────────────────────────────────
@@ -1069,6 +1112,7 @@ function detectPairwise(aircraft) {
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway) continue;
     if (ac.meteo_source === 'NONE') continue;   // skip grey aircraft — stale headwind_kt can trigger false alarms
+    if (ac.wind_stale) continue;                // headwind from older radar replies — measured higher up
     if (ac.headwind_kt == null) continue;
     if (computeGsStatus(ac) !== 'ON') continue;
     if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
@@ -1244,6 +1288,7 @@ function detectRate(aircraft) {
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
     if (ac.meteo_source === 'NONE') continue;   // stale headwind_kt vs stored history = false alarm
+    if (ac.wind_stale) continue;                // headwind from older radar replies — measured higher up
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
 
@@ -1310,6 +1355,7 @@ function detectBaseline(aircraft) {
   for (const ac of aircraft) {
     if (!ac.in_corridor || !ac.approach_runway || ac.headwind_kt == null) continue;
     if (ac.meteo_source === 'NONE') continue;   // stale headwind_kt vs baseline = false alarm
+    if (ac.wind_stale) continue;                // headwind from older radar replies — measured higher up
     if ((wsWindHistory[ac.icao] || []).length < WS_MIN_CORRIDOR_SAMPLES) continue;
     const rwyHdg = getRwyHeading(ac.approach_runway);
     if (rwyHdg == null) continue;
@@ -2855,6 +2901,7 @@ async function fetchApproachState() {
     for (const ac of corridor) {
       if (ac.meteo_source === 'NONE') continue;   // don't feed grey aircraft into kinematic buffer
       if (ac.ias == null || ac.groundspeed == null) continue;
+      if (ac.wind_stale) continue;   // IAS from older radar replies — would fake an IAS − GS change
       if (ac.pos_frozen) {
         delete wsKinHistory[ac.icao];   // purge stale entries immediately
         continue;
@@ -2869,6 +2916,7 @@ async function fetchApproachState() {
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
       if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
+      if (ac.wind_stale) continue;                // wind from older radar replies — measured higher up
       if (ac.pos_frozen) continue;                // skip GPS-frozen position — barb would stack vertically
       if (!wsWindHistory[ac.icao]) wsWindHistory[ac.icao] = [];
       const hist = wsWindHistory[ac.icao];
@@ -2893,6 +2941,7 @@ async function fetchApproachState() {
     for (const ac of corridor) {
       if (ac.dist_thr_nm == null || ac.best_wind_spd == null || ac.best_wind_dir == null) continue;
       if (ac.meteo_source === 'NONE') continue;   // skip stale values from grey aircraft
+      if (ac.wind_stale) continue;                // wind from older radar replies — measured higher up
       if (ac.pos_frozen) continue;                // skip GPS-frozen position — barb would stack vertically
       if (!wsWindHiHistory[ac.icao]) wsWindHiHistory[ac.icao] = [];
       const hiHist = wsWindHiHistory[ac.icao];
