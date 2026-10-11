@@ -235,6 +235,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .snd-skewt-box canvas { position: absolute; left: 0; top: 0; display: block;
                         border-radius: 4px; cursor: crosshair; }
 .snd-skewt-ctl { padding: 2px 8px 6px; }
+.snd-weak { color: #f87171; font-weight: 600; }
+[data-theme="light"] .snd-weak { color: #dc2626; }
 .sounding-table-wrap { flex: 1; background: var(--bg-1); border: 1px solid var(--border);
                        border-radius: 6px; overflow: auto; display: flex; flex-direction: column; }
 .sounding-controls { display: flex; align-items: center; justify-content: space-between;

@@ -75,6 +75,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       miniSfc = null, miniAcOverlay = null, windDensity = 2,
       acLabel = 'Aircraft', profileTitle = 'Area, last 60 min', hintText = null;
   let miniHoverPts = [];   // [{y, src, alt_ft, p, t, ws, wd, n…}] rebuilt on every draw
+  let topOff = 0;          // extra offset of the top-left texts when the data badge is shown
 
   // ── Mini Skew-T geometry ──────────────────────────────────────────────────
   // Canvas sized to the right panel (resizeMiniCanvas).  Log-pressure Y, skewed temperature X.
@@ -210,6 +211,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       groundLbl: light ? '#6b5137' : '#b08d62',
       moistAdi:  light ? '#a9d4b7' : '#2a5640',
       dew:       light ? '#15803d' : '#4ade80',      // METAR dewpoint, mixing-ratio line
+      weak:      light ? '#dc2626' : '#f87171',      // layer from only 1–2 aircraft
+      dqGood:    light ? '#15803d' : '#4ade80', dqFair: light ? '#b45309' : '#fbbf24', dqLow: light ? '#dc2626' : '#f87171',
       cape:      light ? 'rgba(220,38,38,0.13)' : 'rgba(248,113,113,0.16)',
     };
   }
@@ -308,7 +311,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     }
     // Legend (top-left of the plot)
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = T.apt;
-    ctx.fillText(`AIRPORT ${miniLow.window_min} min: ${miniLow.arrivals} arr / ${miniLow.departures} dep`, ML + 12, MT + (zoom ? 12 : 24));
+    ctx.fillText(`AIRPORT ${miniLow.window_min} min: ${miniLow.arrivals} arr / ${miniLow.departures} dep`, ML + 12, MT + topOff + (zoom ? 12 : 24));
     ctx.restore();
     for (const l of lv) {
       miniHoverPts.push({ y: mskY(l.pressure), src: 'apt', alt_ft: l.altitude, alt_msl: l.alt_msl, p: l.pressure,
@@ -369,13 +372,20 @@ function createSkewT(canvas, tip, cfg = {}) {
       });
       ctx.stroke();
     }
+    // layers resting on only one or two aircraft: hollow ring (data-validity cue)
+    const weak = l => l.ac_count != null && l.ac_count <= 2;
+    ctx.strokeStyle = T.weak; ctx.lineWidth = 1.2;
+    for (const l of tl) {
+      if (!weak(l)) continue;
+      ctx.beginPath(); ctx.arc(mskX(l.temp, l.pressure), mskY(l.pressure), 3.2, 0, 2 * Math.PI); ctx.stroke();
+    }
     if (strong) {
       let lastT = null, lastW = null;
       ctx.font = '9px monospace';
       for (const l of tl) {
         const y = mskY(l.pressure);
         if (lastT != null && Math.abs(y - lastT) < 12) continue;
-        ctx.fillStyle = T.tempLbl; ctx.textAlign = 'left';
+        ctx.fillStyle = weak(l) ? T.weak : T.tempLbl; ctx.textAlign = 'left';
         ctx.fillText(l.temp.toFixed(0) + '°', mskX(l.temp, l.pressure) + 5, y + 3);
         lastT = y;
       }
@@ -393,8 +403,36 @@ function createSkewT(canvas, tip, cfg = {}) {
     for (const l of lv) {
       miniHoverPts.push({ y: mskY(l.pressure), src: 'area', alt_ft: l.altitude, p: l.pressure,
                           t: l.temp, traw: areaSmooth ? l.temp_raw : null, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
-                          ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count });
+                          ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count, ac: l.ac_count });
     }
+  }
+
+  // ── Data-validity badge (top-left): aircraft behind the area profile ─────────
+  // GOOD ≥ 20 aircraft per hour of window, FAIR 8–19, LOW < 8 (typical: 25–70
+  // by day, 2–5 around midnight).  Layers from 1–2 aircraft carry a ring.
+  function dataQuality() {
+    if (!miniArea || miniArea.aircraft == null || !miniArea.levels || !miniArea.levels.length) return null;
+    const win = Math.max(30, miniArea.window_min || 60);
+    const rate = miniArea.aircraft * 60 / win;
+    const cls = rate >= 20 ? 'GOOD' : rate >= 8 ? 'FAIR' : 'LOW';
+    const weakN = miniArea.levels.filter(l => l.ac_count != null && l.ac_count <= 2 && l.temp != null
+                                            && l.pressure >= MSK.PT && l.pressure <= MSK.PB).length;
+    return { cls, n: miniArea.aircraft, obs: miniArea.obs_used, weakN };
+  }
+  function drawDataBadge(ctx, T) {
+    const q = dataQuality();
+    if (!q) return;
+    const { ML, MT } = MSK;
+    const col = q.cls === 'GOOD' ? T.dqGood : q.cls === 'FAIR' ? T.dqFair : T.dqLow;
+    const main = `DATA ${q.cls} · ${q.n} aircraft · ${q.obs} obs`;
+    const key = q.weakN ? `  ○ = 1–2 aircraft` : '';
+    ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    const x = ML + 16, y = MT + 12, w = ctx.measureText(main + key).width + 16;
+    ctx.fillStyle = T.anaLblBg; ctx.fillRect(x - 3, y - 9, w, 12);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + 3, y - 3, 3, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillText(main, x + 10, y);
+    if (key) { ctx.fillStyle = T.weak; ctx.fillText(key, x + 10 + ctx.measureText(main).width, y); }
+    ctx.restore();
   }
 
   // Ground line at the airport's station pressure (QNH reduced to the field
@@ -779,7 +817,9 @@ function createSkewT(canvas, tip, cfg = {}) {
     ];
     if (best.t != null) lines.push(`Temp ${best.t.toFixed(1)} °C` +
         (best.traw != null ? ` <span class="mini-tip-dim">(smoothed; layer ${best.traw.toFixed(1)})</span>` : '') +
-        (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn})</span>` : ''));
+        (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn}${best.ac != null ? ', ' + best.ac + ' aircraft' : ''})</span>` : ''));
+    if (best.src === 'area' && best.ac != null && best.ac <= 2)
+      lines.push(`<span style="color:${miniSkewTTheme().weak}">Only ${best.ac} aircraft in this layer — single-aircraft value, read with care</span>`);
     if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
         (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
     tip.innerHTML = lines.filter(Boolean).join('<br>');
@@ -910,6 +950,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.setLineDash([]);
 
     // ── Ground: station pressure from the METAR QNH, with the surface temperature ─
+    topOff = dataQuality() ? 14 : 0;
     drawMiniGround(ctx, T);
 
     // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
@@ -932,7 +973,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         : 'Click an aircraft to show its profile';
       // with the analysis on, the right edge holds its labels → hint on the left
       if (zoom || !msg) { /* airport legend sits at the top-left */ }
-      else if (anaLevel > 0) { ctx.textAlign = 'left'; ctx.fillText(msg, ML + 12, MT + 12); }
+      else if (anaLevel > 0 || topOff) { ctx.textAlign = 'left'; ctx.fillText(msg, ML + 12, MT + topOff + 12); }
       else ctx.fillText(msg, ML + PW / 2, MT + 12);
     }
 
@@ -1046,6 +1087,9 @@ function createSkewT(canvas, tip, cfg = {}) {
         }
       }
     }
+
+    // ── Data-validity badge on top of everything ────────────────────────────
+    drawDataBadge(ctx, T);
   }
 
 

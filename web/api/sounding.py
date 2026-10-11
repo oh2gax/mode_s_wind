@@ -34,22 +34,24 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
     pressure, which only the rare MRAR / MHR replies carry, so this view was
     almost always empty.)
 
-    Returns {"mode": "area", "window_min", "radius_km", "obs_used",
-             "generated_at", "levels"} — levels surface first.
+    Returns {"mode": "area", "window_min", "radius_km", "obs_used", "aircraft",
+             "generated_at", "levels"} — levels surface first; each level
+    also has ac_count (distinct aircraft in the layer).
     """
     import datetime
     now = time.time()
     minutes = int(minutes or cfg.SOUNDING_WINDOW_MIN)
     minutes = max(10, min(minutes, 360))
-    levels, used = area_profile(db, now - minutes * 60, now,
-                                cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
-                                cfg.SOUNDING_RADIUS_KM)
+    levels, used, n_ac = area_profile(db, now - minutes * 60, now,
+                                      cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                      cfg.SOUNDING_RADIUS_KM, with_aircraft=True)
     return {
         "mode":         "area",
         "window_min":   minutes,
         "radius_km":    cfg.SOUNDING_RADIUS_KM,
         "obs_used":     used,
-        "generated_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "aircraft":     n_ac,                 # distinct aircraft (data-validity indicator)
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       levels,
     }
 
@@ -68,6 +70,7 @@ def build_hour_sounding(db: sqlite3.Connection, hour_ts: int) -> dict:
         "hour_ts":      row["ts"],
         "radius_km":    d.get("r"),
         "obs_used":     d.get("n", 0),
+        "aircraft":     d.get("a"),           # distinct aircraft; None for hours stored before it was added
         "generated_at": datetime.datetime.utcfromtimestamp(row["ts"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       unpack_levels(d.get("lv")),
         # METAR surface values of the hour (from 2026-10-11): z DDHHMM, q QNH,
@@ -154,7 +157,7 @@ def build_flight_sounding(flight_id: int, db: sqlite3.Connection) -> dict:
     return {
         "flight":       flight,
         "obs_used":     obs_used,
-        "generated_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       levels,
         "mode":         "flight",
     }

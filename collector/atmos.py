@@ -114,20 +114,24 @@ def _pct(sorted_vals, q):
 
 
 def aggregate_layers(rows) -> list:
-    """Aggregate (alt_ft, temp_c, wind_spd, wind_dir) rows into layers.
+    """Aggregate (alt_ft, temp_c, wind_spd, wind_dir[, icao]) rows into layers.
 
     Returns a list of level dicts (surface first) for layers with data:
       alt_lo / alt_hi / altitude (centre, ft), pressure (ISA hPa at centre),
       temp (10 % trimmed mean °C), temp_p10 / temp_p90, temp_count,
       wind_spd / wind_dir (vector mean), wind_sd (RMS vector deviation, kt),
-      wind_count.
+      wind_count; ac_count (distinct aircraft in the layer) when the rows
+      carry the aircraft address as a fifth element.
     """
     acc: dict = {}
-    for alt, temp, spd, wdir in rows:
+    for row in rows:
+        alt, temp, spd, wdir = row[:4]
         i = layer_of(alt)
         if i is None:
             continue
-        a = acc.setdefault(i, {"t": [], "u": [], "v": []})
+        a = acc.setdefault(i, {"t": [], "u": [], "v": [], "ac": set()})
+        if len(row) > 4 and row[4]:
+            a["ac"].add(row[4])
         if temp is not None:
             a["t"].append(float(temp))
         if spd is not None and wdir is not None:
@@ -155,6 +159,8 @@ def aggregate_layers(rows) -> list:
             lv["wind_sd"] = round(math.sqrt(sum((u - um) ** 2 + (v - vm) ** 2
                                                 for u, v in zip(a["u"], a["v"])) / n), 1)
             lv["wind_count"] = n
+        if a["ac"]:
+            lv["ac_count"] = len(a["ac"])
         out.append(lv)
     return out
 
@@ -167,11 +173,13 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 
 
 def area_profile(db, t0: float, t1: float, lat: float, lon: float,
-                 radius_km: float) -> tuple[list, int]:
+                 radius_km: float, with_aircraft: bool = False):
     """Layer profile of all observations in [t0, t1) within radius_km of
-    (lat, lon).  Returns (levels, observations used).  Read only."""
+    (lat, lon).  Returns (levels, observations used), or with
+    with_aircraft=True (levels, observations used, distinct aircraft); the
+    levels then carry ac_count (aircraft per layer).  Read only."""
     rows = db.execute(
-        f"""SELECT altitude, lat, lon, best_wind_spd, best_wind_dir,
+        f"""SELECT altitude, lat, lon, best_wind_spd, best_wind_dir, icao,
                    {TEMP_SQL} AS temp
             FROM observations
             WHERE ts >= ? AND ts < ?
@@ -187,17 +195,20 @@ def area_profile(db, t0: float, t1: float, lat: float, lon: float,
                 continue
         except (TypeError, ValueError):
             continue
-        use.append((r["altitude"], r["temp"], r["best_wind_spd"], r["best_wind_dir"]))
+        use.append((r["altitude"], r["temp"], r["best_wind_spd"], r["best_wind_dir"], r["icao"]))
+    if with_aircraft:
+        return aggregate_layers(use), len(use), len({u[4] for u in use if u[4]})
     return aggregate_layers(use), len(use)
 
 
 # ── Hourly profile archive (profile_hours table) ──────────────────────────────
 # One row per completed UTC hour: the area profile of that hour, compact.
-# Level list entries: [alt_lo, temp, p10, p90, tn, wdir, wspd, wsd, wn]
-# (None where a layer has no temperature or no wind).
+# Level list entries: [alt_lo, temp, p10, p90, tn, wdir, wspd, wsd, wn, ac]
+# (None where a layer has no temperature or no wind; ac = distinct aircraft,
+# missing in rows stored before it was added — unpack_levels copes).
 
 PROFILE_KEYS = ("alt_lo", "temp", "temp_p10", "temp_p90", "temp_count",
-                "wind_dir", "wind_spd", "wind_sd", "wind_count")
+                "wind_dir", "wind_spd", "wind_sd", "wind_count", "ac_count")
 
 
 def pack_levels(levels: list) -> list:
@@ -264,12 +275,12 @@ def store_missing_profile_hours(db, lat: float, lon: float, radius_km: float,
     for h in range(first, cur_hour, 3600):
         if h in have:
             continue
-        levels, used = area_profile(db, h, h + 3600, lat, lon, radius_km)
+        levels, used, n_ac = area_profile(db, h, h + 3600, lat, lon, radius_km, with_aircraft=True)
         if pause_sec:
             _time.sleep(pause_sec)     # back-fill: leave CPU / SD card to the collector
         if not used:
             continue
-        rec = {"r": radius_km, "n": used, "lv": pack_levels(levels)}
+        rec = {"r": radius_km, "n": used, "a": n_ac, "lv": pack_levels(levels)}
         if metar_sfc and h == cur_hour - 3600 and _metar_in_hour(metar_sfc.get("z"), h):
             rec["m"] = {k: v for k, v in metar_sfc.items() if v is not None}
         rows.append((h, json.dumps(rec, separators=(",", ":"))))

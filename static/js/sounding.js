@@ -123,6 +123,7 @@ function fillTable(levels, header) {
       <td class="num" title="${wTip}">${l.wind_spd != null ? l.wind_spd.toFixed(1) : '–'}</td>
       <td class="num">${l.wind_dir != null ? l.wind_dir.toFixed(0) + '°' : '–'}</td>
       <td class="num text-dim">${l.temp_count || 0} / ${l.wind_count || 0}</td>
+      <td class="num ${l.ac_count != null && l.ac_count <= 2 ? 'snd-weak' : 'text-dim'}">${l.ac_count != null ? l.ac_count : '–'}</td>
     </tr>`);
   }
   document.getElementById('table-header').textContent = header;
@@ -136,7 +137,7 @@ function showProfile(d, header, metaPrefix, title, hint, lowQs, sfc) {
   sndTitle = title; sndHint = hint; sndSfc = sfc || null;
   fillTable(levels, header);
   document.getElementById('sounding-meta').textContent =
-    `${metaPrefix}${d.obs_used} obs used · ${levels.length} levels`;
+    `${metaPrefix}${d.obs_used} obs used${d.aircraft != null ? ' · ' + d.aircraft + ' aircraft' : ''} · ${levels.length} levels`;
   drawChart();
   fetchLow(lowQs);
 }
