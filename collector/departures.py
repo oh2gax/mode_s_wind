@@ -27,7 +27,9 @@ Detection (every windshear sweep, ~3 s, from live_state):
 Compared with approaches, a departure gives fewer replies per band (it climbs
 4–5× faster than the 700–800 fpm of a 3° glide path) and turns earlier, so
 fewer wind pairs pass the bank gate; the temperature is unaffected by turns.
-A go-around climbing out of the approach is flagged ("ga") and kept.
+A go-around climbing out of the approach is flagged ("ga") and kept: the
+aircraft was established on an approach (descending in an ILS corridor) in
+the windshear tracker when its climb began.
 """
 
 from __future__ import annotations

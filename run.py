@@ -475,7 +475,10 @@ def main() -> None:
             cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON, get_bds_samples,
             qnh_fn=lambda: (ws_tracker._qnh_hpa, ws_tracker._qnh_corr_ft()),
             on_commit=_on_departure_committed,
-            approach_state_fn=lambda icao: icao in ws_tracker._state,
+            # go-around only when the aircraft was established on an approach:
+            # the windshear tracker also holds departures seen on the runway
+            approach_state_fn=lambda icao: (ws_tracker._state.get(icao) or {}).get("ga_phase")
+                                           in ("APPROACHING", "GO_AROUND"),
             mag_declination=cfg.MAG_DECLINATION,
         )
 

@@ -9,5 +9,8 @@ data/*.db-wal
 data/*.db-shm
 data/*.sqb
 
+# Monthly archive files and snapshots (Maintenance page)
+data/archive/
+
 # Local scratch folder for screenshots and other working files
 tmp_files/
