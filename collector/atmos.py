@@ -219,13 +219,35 @@ def unpack_levels(packed: list) -> list:
     return out
 
 
+def _metar_in_hour(z, hour_ts: int) -> bool:
+    """METAR observation time "DDHHMM" within [hour, hour + 80 min)."""
+    import datetime as _dt
+    try:
+        d, hh, mm = int(z[:2]), int(z[2:4]), int(z[4:6])
+    except (TypeError, ValueError):
+        return False
+    h = _dt.datetime.fromtimestamp(hour_ts, _dt.timezone.utc)
+    for base in (h, h - _dt.timedelta(days=20), h + _dt.timedelta(days=20)):   # month change
+        try:
+            t = base.replace(day=d, hour=hh, minute=mm, second=0, microsecond=0)
+        except ValueError:
+            continue
+        if 0 <= (t - h).total_seconds() < 80 * 60:
+            return True
+    return False
+
+
 def store_missing_profile_hours(db, lat: float, lon: float, radius_km: float,
                                 max_hours: int = 31 * 24, now: float | None = None,
-                                pause_sec: float = 0.0) -> int:
+                                pause_sec: float = 0.0, metar_sfc: dict | None = None) -> int:
     """Compute and store the area profile of every completed UTC hour of the
     last max_hours that has no profile_hours row yet (normally just the hour
     that ended; after a first start or a stop it back-fills from the
     observations still in the database).  All rows in one commit.
+    metar_sfc (from 2026-10-11): the latest METAR surface values
+    {"z", "q", "tt", "td", "cld"} — stored as "m" with the hour that has
+    just ended when its observation time (DDHHMM) lies in that hour or up to
+    20 min after it (back-filled older hours get none).
     Returns the number of hours stored."""
     import json
     import time as _time
@@ -247,8 +269,10 @@ def store_missing_profile_hours(db, lat: float, lon: float, radius_km: float,
             _time.sleep(pause_sec)     # back-fill: leave CPU / SD card to the collector
         if not used:
             continue
-        rows.append((h, json.dumps({"r": radius_km, "n": used, "lv": pack_levels(levels)},
-                                   separators=(",", ":"))))
+        rec = {"r": radius_km, "n": used, "lv": pack_levels(levels)}
+        if metar_sfc and h == cur_hour - 3600 and _metar_in_hour(metar_sfc.get("z"), h):
+            rec["m"] = {k: v for k, v in metar_sfc.items() if v is not None}
+        rows.append((h, json.dumps(rec, separators=(",", ":"))))
     if rows:
         db.executemany("INSERT OR IGNORE INTO profile_hours (ts, data) VALUES (?, ?)", rows)
         db.commit()

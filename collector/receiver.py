@@ -352,6 +352,7 @@ def run_collector(
         flight_gap_sec      = cfg.FLIGHT_GAP_SEC,
         storage_mode        = cfg.STORAGE_MODE,
         write_min_interval  = cfg.WRITE_MIN_INTERVAL_SEC,
+        write_on_layer_change = getattr(cfg, "WRITE_ON_LAYER_CHANGE", True),
     )
 
     pipe = PipeDecoder(surface_ref=(cfg.RECEIVER_LAT, cfg.RECEIVER_LON))

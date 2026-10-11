@@ -25,6 +25,15 @@
  *               (opts.sfc = {p: station pressure, t: °C}) lifted along the dry
  *               adiabat to where it meets the profile; none = stable at the surface;
  *               na = reason when it cannot be computed (no METAR temperature, …)
+ *   parcel      (from 2026-10-11, when opts.sfc.td — the METAR dewpoint — is given)
+ *               surface parcel: {w (g/kg), spread (T − Td), rh (%), lcl {p, t, agl, alt},
+ *               path [[p, °C], …] (dry adiabat to the LCL, moist adiabat above),
+ *               lfc {p, alt} | null, el {p, alt, agl} | null, cape, cin (J/kg),
+ *               li (K, 500 hPa) | null, cuBase (the dry thermals reach the LCL)}.
+ *               Parcel and environment use the plain temperature (no virtual
+ *               temperature correction — there is no humidity aloft), so CAPE is
+ *               a rough indication; the LCL (Bolton 1980) estimates the base of
+ *               cumulus formed from surface air.
  *
  * Temperatures are smoothed lightly (3 layers, weights 1-2-1 × √replies) for
  * the lapse-rate based features; inversions use the layer means with a
@@ -44,6 +53,11 @@
     const tk = tc + 273.15, e = es(tc), rs = EPS * e / Math.max(p - e, 1);
     const dTdp = (RD * tk + LV * rs) / (p * (CP + LV * LV * rs * EPS / (RD * tk * tk)));
     return dTdp * p * G / (RD * tk) * 1000;
+  }
+  // Moist adiabat as dT/dp (K/hPa) at p (hPa) and tk (K)
+  function moistDTdp(p, tk) {
+    const e = es(tk - 273.15), rs = EPS * e / Math.max(p - e, 1);
+    return (RD * tk + LV * rs) / (p * (CP + LV * LV * rs * EPS / (RD * tk * tk)));
   }
   // True thickness (m) between two pressures with mean temperature tMean (°C)
   function thick(pLo, pHi, tMean) { return RD * (tMean + 273.15) / G * Math.log(pLo / pHi); }
@@ -276,11 +290,99 @@
         if (!out.thermal) out.thermal = { na: 'surface air warmer than the whole profile' };
       }
     }
+
+    // ── Surface parcel with the METAR dewpoint (from 2026-10-11) ───────────
+    //    LCL (Bolton 1980), dry adiabat to the LCL and moist adiabat above,
+    //    compared with the profile: LFC, EL, CAPE / CIN and the 500 hPa
+    //    Lifted Index.  The environment is the METAR surface temperature at
+    //    the station pressure and the (smoothed) layers above the ground.
+    if (sfc && sfc.p && sfc.t != null && sfc.td != null && sfc.td <= sfc.t + 0.5) {
+      const td = Math.min(sfc.td, sfc.t);
+      const T0 = sfc.t + 273.15, Td0 = td + 273.15, p0 = sfc.p;
+      const e0 = es(td);
+      const par = { w: 1000 * EPS * e0 / (p0 - e0), spread: sfc.t - td,
+                    rh: 100 * e0 / es(sfc.t), lfc: null, el: null, cape: 0, cin: 0, li: null };
+      const TL = 1 / (1 / (Td0 - 56) + Math.log(T0 / Td0) / 800) + 56;
+      const pL = p0 * Math.pow(TL / T0, CP / RD);
+      par.lcl = { p: pL, t: TL - 273.15, alt: pToAltFt(pL),
+                  agl: thick(p0, pL, (sfc.t + TL - 273.15) / 2) / 0.3048 };
+      // parcel path, 5 hPa steps (RK2 on the moist adiabat)
+      const path = [];
+      for (let p = p0; p > pL; p -= 5) path.push([p, T0 * Math.pow(p / p0, RD / CP) - 273.15]);
+      path.push([pL, TL - 273.15]);
+      let p = pL, tk = TL;
+      while (p > 150) {
+        const dp = -Math.min(5, p - 150);
+        const k1 = moistDTdp(p, tk), k2 = moistDTdp(p + dp, tk + k1 * dp);
+        tk += 0.5 * (k1 + k2) * dp; p += dp;
+        path.push([p, tk - 273.15]);
+      }
+      par.path = path;
+      // environment: surface + layers above the ground, interpolated in log p
+      const env = [{ p: p0, t: sfc.t }].concat(T.filter(l => l.p < p0 - 5).map(l => ({ p: l.p, t: l.t })));
+      par.env = env;
+      const envT = pp => {
+        for (let i = 0; i < env.length - 1; i++) {
+          const a = env[i], b = env[i + 1];
+          if (pp <= a.p && pp >= b.p) {
+            const f = (Math.log(pp) - Math.log(a.p)) / (Math.log(b.p) - Math.log(a.p));
+            return a.t + f * (b.t - a.t);
+          }
+        }
+        return null;
+      };
+      // buoyancy along the path; CAPE = positive area above the LFC up to the
+      // EL, CIN = negative area between the surface and the LFC
+      let prevB = null, negBelow = 0, posArea = 0, top = null;
+      for (let i = 1; i < path.length; i++) {
+        const [pa, ta] = path[i - 1], [pb, tb] = path[i];
+        const ea = envT(pa), eb = envT(pb);
+        if (ea == null || eb == null) { top = pa; break; }
+        const ba = ta - ea, bb = tb - eb;
+        const area = RD * ((ba + bb) / 2) * Math.log(pa / pb);      // J/kg
+        if (bb > 0 && pb <= pL + 0.01) {
+          if (!par.lfc) {
+            const f = ba < 0 ? ba / (ba - bb) : 0;
+            const pf = Math.exp(Math.log(pa) + f * (Math.log(pb) - Math.log(pa)));
+            par.lfc = { p: pf, alt: pToAltFt(pf) };
+            par.cin = negBelow;
+          }
+          if (par.lfc) { posArea += Math.max(area, 0); par.el = null; }
+        } else if (bb <= 0 && par.lfc && !par.el && prevB > 0) {
+          const f = ba / (ba - bb);
+          const pe = Math.exp(Math.log(pa) + f * (Math.log(pb) - Math.log(pa)));
+          par.el = { p: pe, alt: pToAltFt(pe) };
+          posArea += Math.max(area * f, 0);
+          par.cape = posArea;
+          break;                                  // the first positive area only
+        } else if (!par.lfc) negBelow += Math.min(area, 0);
+        prevB = bb;
+      }
+      if (par.lfc && !par.el) {                    // still buoyant at the profile top
+        par.cape = posArea;
+        par.el = top != null ? { p: top, alt: pToAltFt(top), open: true } : null;
+      }
+      if (!par.lfc) par.cin = negBelow;
+      if (par.el) par.el.agl = thick(p0, par.el.p, (sfc.t + (envT(par.el.p) ?? sfc.t)) / 2) / 0.3048;
+      // Lifted Index at 500 hPa
+      const e5 = envT(500);
+      if (e5 != null) {
+        let t5 = null;
+        for (let i = 1; i < path.length; i++)
+          if (path[i][0] <= 500) { const [pa, ta] = path[i - 1], [pb, tb] = path[i];
+            t5 = ta + (tb - ta) * (Math.log(500 / pa) / Math.log(pb / pa)); break; }
+        if (t5 != null) par.li = e5 - t5;
+      }
+      // do the dry thermals from the surface reach the LCL (cumulus base)?
+      par.cuBase = !!(out.thermal && !out.thermal.na && !out.thermal.none && out.thermal.p <= pL);
+      out.parcel = par;
+    }
     return out;
   }
 
   root.analyzeSkewT = analyzeSkewT;
   root.skewtMoistLapse = moistLapse;
   root.skewtContrailThresholds = contrailThresholds;
+  root.skewtEs = es;
   if (typeof module !== 'undefined') module.exports = { analyzeSkewT, moistLapse, contrailThresholds };
 })(typeof window !== 'undefined' ? window : globalThis);

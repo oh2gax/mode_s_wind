@@ -144,32 +144,55 @@ function updateWindHistory(ac) {
 }
 
 // ── Mini sounding profile ─────────────────────────────────────────────────
+// The Skew-T itself is drawn by static/js/skewt_chart.js (createSkewT), the
+// same diagram as on the Sounding page; this page supplies its data and
+// options and keeps the controls.
 
 let miniAcOverlay  = null; // {alt_ft, temp_c, color} when aircraft selected
+let miniSfc        = null; // METAR ground point {p, qnh, t, td, elev, station, time, cld}
 
-// ── ISA helpers ───────────────────────────────────────────────────────────
-function altToPressHPa(alt_ft) {
-  const m = alt_ft * 0.3048;
-  if (m <= 11000) return 1013.25 * Math.pow(1 - 0.0065 * m / 288.15, 5.2561);
-  return 226.32 * Math.exp(-0.0001577 * (m - 11000));
-}
-function isaTempP(p_hPa) {
-  // ISA temperature (°C) at a given pressure (hPa)
-  if (p_hPa >= 226.32) return 288.15 * Math.pow(p_hPa / 1013.25, 0.19026) - 273.15;
-  return -56.5;
+// ── Area profile for the mini Skew-T (from /api/sounding, every 5 min) ──────
+let miniArea     = null;   // last /api/sounding response
+
+async function fetchMiniArea() {
+  try {
+    const r = await fetch('/api/sounding?minutes=60');
+    if (!r.ok) return;
+    miniArea = await r.json();
+    drawMiniSounding();
+  } catch (_) { /* silent */ }
+  fetchMiniLow();
 }
 
-// ── Mini Skew-T geometry ──────────────────────────────────────────────────
-// Canvas sized to the right panel (resizeMiniCanvas).  Log-pressure Y, skewed temperature X.
-const MSK = {
-  W: 362, H: 346,
-  ML: 30, MR: 112, MT: 14, MB: 22,
-  TL: -40, TR: 40,   // temperature range °C at the bottom (skewed: −60 … −40 °C fit at 200–300 hPa)
-  PT: 200, PB: 1050, // pressure range hPa
-  SK: 0.38,          // skew factor (higher = more tilt)
-};
-MSK.PW = MSK.W - MSK.ML - MSK.MR;
-MSK.PH = MSK.H - MSK.MT - MSK.MB;
+// ── Airport low-level profile (landings + departures, /api/lowlevel) ──────
+// aptMode: 'off' | 'overlay' (amber profile 200–3 000 ft MSL on the diagram)
+// | 'zoom' (diagram range surface … 850 hPa, airport profile with its winds)
+let aptMode = localStorage.getItem('ms_aptMode') || 'off';
+let miniLow = null;    // last /api/lowlevel response
+async function fetchMiniLow() {
+  if (aptMode === 'off') { miniLow = null; return; }
+  try {
+    const r = await fetch('/api/lowlevel?minutes=60');
+    if (!r.ok) return;
+    miniLow = await r.json();
+    drawMiniSounding();
+  } catch (_) { /* silent */ }
+}
+
+const skewt = createSkewT(document.getElementById('mini-sounding-canvas'),
+                          document.getElementById('mini-skewt-tip'), { lat: RECEIVER_LAT });
+
+function syncSkewT() {
+  skewt.set({
+    area: miniArea, low: miniLow, aptMode, anaLevel, smooth: areaSmooth, sfc: miniSfc,
+    ac: miniAcOverlay, density: windDensity,
+    acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
+    profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
+    hint: null,
+  });
+}
+function drawMiniSounding() { syncSkewT(); skewt.draw(); }
+function miniHover(ev)      { syncSkewT(); skewt.hover(ev); }
 
 // ── Responsive canvas sizing ───────────────────────────────────────────────
 // Fills all available height in the right panel.  Called once on load and
@@ -179,723 +202,15 @@ function resizeMiniCanvas() {
   if (!canvas) return;
   const wrap = canvas.parentElement;
   if (!wrap || wrap.clientWidth === 0) return;
-
   // Sum the heights of every sibling element (density row, ac-info line)
   let fixedH = 0;
   for (const child of wrap.children) {
-    if (child !== canvas) fixedH += child.offsetHeight + 4; // 4 = flex gap
+    if (child !== canvas && child.id !== 'mini-skewt-tip') fixedH += child.offsetHeight + 4; // 4 = flex gap
   }
   fixedH += 8; // wrap top + bottom padding (4px each)
-
   const w = Math.max(160, wrap.clientWidth  - 8);
   const h = Math.max(160, wrap.clientHeight - fixedH);
-
-  if (canvas.width === w && canvas.height === h) return; // nothing changed
-
-  canvas.width  = w;
-  canvas.height = h;
-  MSK.W  = w;
-  MSK.H  = h;
-  MSK.PW = w - MSK.ML - MSK.MR;
-  MSK.PH = h - MSK.MT - MSK.MB;
-  drawMiniSounding();
-}
-
-function mskY(p) {
-  const lt = Math.log(MSK.PT), lb = Math.log(MSK.PB);
-  return MSK.MT + MSK.PH * (Math.log(p) - lt) / (lb - lt);
-}
-function mskX(t, p) {
-  const base = MSK.ML + MSK.PW * (t - MSK.TL) / (MSK.TR - MSK.TL);
-  const skew = MSK.PH * (Math.log(MSK.PB) - Math.log(p)) /
-                        (Math.log(MSK.PB) - Math.log(MSK.PT));
-  return base + skew * MSK.SK;
-}
-
-// ── Dry and moist (saturated pseudo-) adiabats ────────────────────────────
-// Reference curves only; they need no humidity data.  Dry: T = θ·(p/1000)^κ.
-// Moist: dT/dp = (Rd·T + Lv·rs) / (p·(cp + Lv²·rs·ε/(Rd·T²))), integrated
-// from 1000 hPa (start = wet-bulb potential temperature θw).
-const ADI_RD = 287.04, ADI_CP = 1005.7, ADI_LV = 2.501e6, ADI_EPS = 0.622;
-function adiEs(tc) { return 6.112 * Math.exp(17.67 * tc / (tc + 243.5)); }   // hPa
-function adiMoistRate(p, tk) {
-  const es = adiEs(tk - 273.15), rs = ADI_EPS * es / Math.max(p - es, 1);
-  return (ADI_RD * tk + ADI_LV * rs) /
-         (p * (ADI_CP + ADI_LV * ADI_LV * rs * ADI_EPS / (ADI_RD * tk * tk)));
-}
-const _adiCache = {};
-function adiabatCurves(pTop, pBot, thetaDryK, thetaWetC) {
-  const key = [pTop, pBot, thetaDryK.join(), thetaWetC.join()].join('|');
-  if (_adiCache[key]) return _adiCache[key];
-  const ps = [];
-  for (let p = pBot; p >= pTop; p -= 10) ps.push(p);
-  if (ps[ps.length - 1] !== pTop) ps.push(pTop);
-  const dry = thetaDryK.map(th => ps.map(p => [p, th * Math.pow(p / 1000, ADI_RD / ADI_CP) - 273.15]));
-  const moist = thetaWetC.map(tw => {
-    const integ = (from, to, step) => {        // RK2 in pressure, returns [[p, °C], …]
-      const out = []; let p = from, t = tw + 273.15;
-      out.push([p, t - 273.15]);
-      while ((step < 0 && p > to) || (step > 0 && p < to)) {
-        const dp = step < 0 ? Math.max(step, to - p) : Math.min(step, to - p);
-        const k1 = adiMoistRate(p, t), k2 = adiMoistRate(p + dp, t + k1 * dp);
-        t += 0.5 * (k1 + k2) * dp; p += dp;
-        out.push([p, t - 273.15]);
-      }
-      return out;
-    };
-    const up = integ(1000, pTop, -5), down = integ(1000, pBot, 5);
-    return down.reverse().concat(up.slice(1));
-  });
-  return (_adiCache[key] = { dry, moist });
-}
-
-// ── Mini wind barb (scaled for small canvas) ──────────────────────────────
-// color defaults to grey for area sounding barbs; pass aircraft colour for overlays.
-function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
-  if (speedKt == null || dirFrom == null) return;
-  const spd   = Math.round(speedKt / 5) * 5;
-  const angle = dirFrom * Math.PI / 180;  // staff points FROM wind direction (met convention)
-  const sLen  = 14;
-  const ex    = x + sLen * Math.sin(angle);
-  const ey    = y - sLen * Math.cos(angle);
-
-  ctx.strokeStyle = color; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
-
-  let rem = spd, pos = 0;
-  const step = 3;
-
-  while (rem >= 50) {
-    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
-    const tx = sx + 7 * Math.cos(angle),  ty = sy + 7 * Math.sin(angle);
-    const mx = sx + step * Math.sin(angle), my = sy - step * Math.cos(angle);
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.lineTo(mx, my);
-    ctx.closePath(); ctx.fill();
-    pos += step + 1; rem -= 50;
-  }
-  while (rem >= 10) {
-    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
-    const px = sx + 7 * Math.cos(angle),  py = sy + 7 * Math.sin(angle);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
-    pos += step; rem -= 10;
-  }
-  if (rem >= 5) {
-    const sx = ex - pos * Math.sin(angle), sy = ey + pos * Math.cos(angle);
-    const px = sx + 4 * Math.cos(angle),  py = sy + 4 * Math.sin(angle);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
-  }
-}
-
-
-// ── Theme-aware colour palette for mini Skew-T canvas ────────────────────
-function miniSkewTTheme() {
-  const light = document.documentElement.dataset.theme === 'light';
-  return {
-    bg:        light ? '#eef2f7' : '#0c1620',
-    isobarMaj: light ? '#c5d0da' : '#1e2a3a',
-    isobarMin: light ? '#d8e0e8' : '#172030',
-    isotherm0: light ? '#9ab4c8' : '#1e3a5f',
-    isothermN: light ? '#cdd7e0' : '#182030',
-    isotLabel: light ? '#64748b' : '#374151',
-    axisLine:  light ? '#94a3b8' : '#2d3f52',
-    isa:       light ? '#9ab4c8' : '#1e3a5f',
-    label:     light ? '#475569' : '#374151',
-    hint:      light ? '#64748b' : '#374151',
-    dotRing:   light ? '#1e293b' : '#ffffff',
-    kmLabel:   light ? '#94a3b8' : '#3b4b5e',
-    area:      light ? '#64748b' : '#94a3b8',
-    tempLbl:   light ? '#1e293b' : '#e2e8f0',
-    dryAdi:    light ? '#e2c3a0' : '#54422d',
-    ground:    light ? '#8b6f4e' : '#7c6345',
-    anaTrop:   light ? '#7c3aed' : '#a78bfa',
-    anaZero:   light ? '#0284c7' : '#38bdf8',
-    anaIso:    light ? '#64748b' : '#7dd3fc',
-    anaWind:   light ? '#b45309' : '#fbbf24',
-    anaInv:    light ? '#ea580c' : '#fb923c',
-    anaWarm:   light ? '#dc2626' : '#f87171',
-    anaCold:   light ? '#2563eb' : '#60a5fa',
-    anaCon:    light ? '#475569' : '#cbd5e1',
-    anaTherm:  light ? '#c2410c' : '#fdba74',
-    anaLblBg:  light ? 'rgba(238,242,247,0.85)' : 'rgba(12,22,32,0.8)',
-    stUnst:    '#ef4444', stCond: '#f59e0b', stStab: '#22c55e', stInv: '#a855f7',
-    groundLbl: light ? '#6b5137' : '#b08d62',
-    moistAdi:  light ? '#a9d4b7' : '#2a5640',
-  };
-}
-
-// ── Area profile for the mini Skew-T (from /api/sounding, every 5 min) ──────
-let miniArea     = null;   // last /api/sounding response
-let miniHoverPts = [];     // [{y, src, alt_ft, p, t, ws, wd, n…}] rebuilt on every draw
-
-async function fetchMiniArea() {
-  try {
-    const r = await fetch('/api/sounding?minutes=60');
-    if (!r.ok) return;
-    miniArea = await r.json();
-    drawMiniSounding();
-  } catch (_) { /* silent */ }
-}
-
-// Weighted running mean of the layer temperatures over 3 (1-2-1) or 5
-// (1-2-3-2-1) neighbouring layers with a temperature, each also weighted by
-// √(replies) so that thin layers count less.  Only for display: the raw
-// value is kept in temp_raw.  Strong smoothing also softens inversions and
-// the tropopause.
-const SMOOTH_KERNELS = { 1: [1, 2, 1], 2: [1, 2, 3, 2, 1] };
-function smoothAreaTemps(tl, mode) {
-  const k = SMOOTH_KERNELS[mode];
-  if (!k) return tl.map(l => ({ ...l, temp_raw: l.temp }));
-  const h = (k.length - 1) / 2;
-  return tl.map((l, i) => {
-    let sw = 0, st = 0;
-    for (let j = -h; j <= h; j++) {
-      const m = tl[i + j];
-      if (!m) continue;
-      const w = k[j + h] * Math.sqrt(Math.max(1, m.temp_count || 1));
-      sw += w; st += w * m.temp;
-    }
-    return { ...l, temp_raw: l.temp, temp: st / sw };
-  });
-}
-
-function drawMiniArea(ctx, T, withBarbs) {
-  if (!miniArea || !miniArea.levels) return;
-  const { ML, PW, PT, PB, W } = MSK;
-  const lv0 = miniArea.levels.filter(l => l.pressure >= PT && l.pressure <= PB)
-                             .sort((a, b) => b.pressure - a.pressure);
-  const tl = smoothAreaTemps(lv0.filter(l => l.temp != null), areaSmooth);
-  const sm = new Map(tl.map(l => [l.alt_lo, l]));
-  const lv = lv0.map(l => sm.get(l.alt_lo) || l);
-  ctx.save();
-  ctx.globalAlpha = withBarbs ? 0.9 : 0.45;
-  // 10–90 % range bars
-  ctx.strokeStyle = T.area; ctx.lineWidth = 1;
-  for (const l of tl) {
-    if (l.temp_p10 == null) continue;
-    const y = mskY(l.pressure);
-    ctx.beginPath();
-    ctx.moveTo(mskX(l.temp_p10, l.pressure), y); ctx.lineTo(mskX(l.temp_p90, l.pressure), y);
-    ctx.globalAlpha = withBarbs ? 0.35 : 0.2; ctx.stroke();
-  }
-  ctx.globalAlpha = withBarbs ? 0.9 : 0.45;
-  if (tl.length >= 2) {
-    ctx.strokeStyle = T.area; ctx.lineWidth = withBarbs ? 2 : 1.5;
-    ctx.beginPath();
-    tl.forEach((l, i) => {
-      const x = mskX(l.temp, l.pressure), y = mskY(l.pressure);
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.stroke();
-  }
-  if (withBarbs) {
-    let lastT = null, lastW = null;
-    ctx.font = '9px monospace';
-    for (const l of tl) {
-      const y = mskY(l.pressure);
-      if (lastT != null && Math.abs(y - lastT) < 12) continue;
-      ctx.fillStyle = T.tempLbl; ctx.textAlign = 'left';
-      ctx.fillText(l.temp.toFixed(0) + '°', mskX(l.temp, l.pressure) + 5, y + 3);
-      lastT = y;
-    }
-    for (const l of lv) {
-      if (l.wind_spd == null) continue;
-      const y = mskY(l.pressure);
-      if (lastW != null && Math.abs(y - lastW) < 9) continue;   // keep the barbs readable
-      drawMiniBarb(ctx, ML + PW + 22, y, l.wind_spd, l.wind_dir, T.area);
-      ctx.fillStyle = T.area; ctx.textAlign = 'right';
-      ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, y + 3);
-      lastW = y;
-    }
-  }
-  ctx.restore();
-  for (const l of lv) {
-    miniHoverPts.push({ y: mskY(l.pressure), src: 'area', alt_ft: l.altitude, p: l.pressure,
-                        t: l.temp, traw: areaSmooth ? l.temp_raw : null, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
-                        ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count });
-  }
-}
-
-// Ground line at the airport's station pressure (QNH reduced to the field
-// elevation), shading below it, and the METAR surface temperature.  Aircraft
-// pressure altitudes refer to 1013.25 hPa, so the layers below this line are
-// below ground (e.g. the 0–1000 ft layer when QNH is low).
-function drawMiniGround(ctx, T) {
-  if (!miniSfc) return;
-  const { ML, PW, MT, PH, PB, PT } = MSK;
-  const p = miniSfc.p;
-  if (p > PB || p < PT) return;
-  const y = mskY(p);
-  ctx.save();
-  ctx.fillStyle = T.ground; ctx.globalAlpha = 0.18;
-  ctx.fillRect(ML, y, PW, MT + PH - y);
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = T.ground; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
-  ctx.font = '9px monospace'; ctx.fillStyle = T.groundLbl; ctx.textAlign = 'right';
-  ctx.fillText(`${miniSfc.station || 'ground'} ${Math.round(p)} hPa (QNH ${Math.round(miniSfc.qnh)})`, ML + PW - 4, y - 3);
-  if (miniSfc.t != null) {
-    const x = mskX(miniSfc.t, p);
-    if (x >= ML && x <= ML + PW) {
-      ctx.fillStyle = T.groundLbl; ctx.strokeStyle = T.bg; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath();
-      ctx.fill(); ctx.stroke();
-      ctx.textAlign = 'left'; ctx.fillText(`${miniSfc.t}°`, x + 7, y + 11);
-    }
-  }
-  ctx.restore();
-  miniHoverPts.push({ y, src: 'sfc', p, t: miniSfc.t, alt_ft: null });
-}
-
-// ── Skew-T analysis overlay (skewt_analysis.js) ─────────────────────────────
-// Lines / bands across the plot, labels at its right edge (spread so they do
-// not overlap), the stability strip just right of the pressure axis.
-function drawMiniAnalysis(ctx, T) {
-  if (!miniArea || !miniArea.levels || typeof analyzeSkewT !== 'function') return;
-  const { ML, PW, MT, PH, PT, PB } = MSK;
-  const a = analyzeSkewT(miniArea.levels, { lat: RECEIVER_LAT,
-                                             sfc: miniSfc && miniSfc.t != null ? { p: miniSfc.p, t: miniSfc.t } : null });
-  const fl = ft => 'FL' + String(Math.max(0, Math.round(ft / 100))).padStart(3, '0');
-  const inPlot = p => p >= PT && p <= PB;
-  const labels = [];                       // {y, text, color}
-  ctx.save();
-  ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
-  const hline = (p, color, dash, width = 1) => {
-    const y = mskY(p);
-    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
-    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke(); ctx.setLineDash([]);
-    return y;
-  };
-
-  // Tropopause: band ±1 000 ft and a dashed line
-  if (a.trop && inPlot(a.trop.p)) {
-    const y1 = mskY(altToPressHPa(a.trop.alt + 1000)), y2 = mskY(altToPressHPa(a.trop.alt - 1000));
-    ctx.fillStyle = T.anaTrop; ctx.globalAlpha = 0.12; ctx.fillRect(ML, y1, PW, y2 - y1); ctx.globalAlpha = 1;
-    const y = hline(a.trop.p, T.anaTrop, [6, 3], 1.2);
-    labels.push({ y, color: T.anaTrop,
-                  text: `TROP ${fl(a.trop.alt)} ${Math.round(a.trop.t)}°${a.trop.q === '?' ? ' ?' : ''}` });
-  }
-  // 0 °C (all real crossings), −10 / −20 °C from level 2
-  for (const z of a.isotherms[0]) if (inPlot(z.p))
-    labels.push({ y: hline(z.p, T.anaZero, [5, 3], 1.2), color: T.anaZero, text: `0° ${fl(z.alt)}` });
-  if (anaLevel >= 2) for (const tc of [-10, -20]) for (const z of a.isotherms[tc]) if (inPlot(z.p))
-    labels.push({ y: hline(z.p, T.anaIso, [1, 3]), color: T.anaIso, text: `${tc}° ${fl(z.alt)}` });
-
-  // Max wind / jet and low-level jet: a short tick at the right edge
-  const windMark = (w, txt) => {
-    if (!w || !inPlot(w.p)) return;
-    const y = mskY(w.p);
-    ctx.strokeStyle = T.anaWind; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(ML + PW - 18, y); ctx.lineTo(ML + PW, y); ctx.stroke();
-    labels.push({ y, color: T.anaWind, text: txt });
-  };
-  if (a.maxWind) windMark(a.maxWind, `${a.maxWind.jet ? 'JET' : 'MAX'} ${Math.round(a.maxWind.spd)}kt ${fl(a.maxWind.alt)}`);
-  if (a.llj) windMark(a.llj, `LLJ ${Math.round(a.llj.spd)}kt ${Math.round(a.llj.alt / 100) * 100}ft`);
-
-  if (anaLevel >= 2) {
-    // Inversions: shaded layer
-    for (const v of a.inversions) {
-      if (!inPlot(v.pBot) && !inPlot(v.pTop)) continue;
-      const yb = mskY(Math.min(v.pBot, PB)), yt = mskY(Math.max(v.pTop, PT));
-      ctx.fillStyle = T.anaInv; ctx.globalAlpha = 0.14; ctx.fillRect(ML, yt, PW, yb - yt); ctx.globalAlpha = 1;
-      labels.push({ y: (yb + yt) / 2, color: T.anaInv,
-                    text: `INV +${v.dT.toFixed(1)}° ${fl(v.altBot)}–${fl(v.altTop).slice(2)}` });
-    }
-  }
-  if (anaLevel >= 3) {
-    // Wind shear / turbulence risk: a bar at the right edge of the plot
-    for (const s of a.turbulence) {
-      const yb = mskY(Math.min(s.pBot, PB)), yt = mskY(Math.max(s.pTop, PT));
-      ctx.fillStyle = s.cls === 'likely' ? T.stUnst : T.stCond;
-      ctx.globalAlpha = 0.85; ctx.fillRect(ML + PW - 5, yt, 4, yb - yt); ctx.globalAlpha = 1;
-      labels.push({ y: (yb + yt) / 2, color: s.cls === 'likely' ? T.stUnst : T.stCond,
-                    text: `${s.cls === 'likely' ? 'TURB' : 'SHEAR'} ${fl(s.altBot)}–${fl(s.altTop).slice(2)} ` +
-                          `${Math.round(s.shear)}kt/1000ft Ri ${s.ri < 10 ? s.ri.toFixed(1) : '>10'}` });
-    }
-  }
-  if (anaLevel >= 5 && a.thermal) {
-    // Dry thermal top: METAR surface temperature lifted along the dry adiabat
-    const th = a.thermal;
-    if (th.na) {
-      labels.push({ y: MT + PH - 30, color: T.anaTherm, text: `THERMAL TOP: n/a (${th.na})` });
-    } else if (th.none) {
-      labels.push({ y: mskY(Math.min(th.p, PB)) - 14, color: T.anaTherm, text: 'THERMALS: none (stable surface layer)' });
-    } else if (inPlot(th.p)) {
-      const theta = (miniSfc.t + 273.15) * Math.pow(1000 / miniSfc.p, 0.2857);
-      ctx.strokeStyle = T.anaTherm; ctx.lineWidth = 1.8; ctx.beginPath();
-      let first = true;
-      for (let p = miniSfc.p; p >= th.p - 0.01; p -= 5) {
-        const pp = Math.max(p, th.p);
-        const x = mskX(theta * Math.pow(pp / 1000, 0.2857) - 273.15, pp), y = mskY(pp);
-        first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
-      }
-      ctx.lineTo(mskX(th.tTop, th.p), mskY(th.p));
-      ctx.stroke();
-      const y = hline(th.p, T.anaTherm, [4, 3]);
-      labels.push({ y, color: T.anaTherm,
-                    text: `THERMAL TOP ${Math.round(th.agl / 100) * 100}ft AGL (${fl(th.alt)})` });
-    }
-  }
-  if (anaLevel >= 4) {
-    // Thermal advection: a red (warm) / blue (cold) bar left of the shear bar
-    for (const v of a.advection) {
-      if (!inPlot(v.pBot) && !inPlot(v.pTop)) continue;
-      const yb = mskY(Math.min(v.pBot, PB)), yt = mskY(Math.max(v.pTop, PT));
-      const c = v.adv > 0 ? T.anaWarm : T.anaCold;
-      ctx.fillStyle = c; ctx.globalAlpha = 0.75; ctx.fillRect(ML + PW - 11, yt + 1, 4, yb - yt - 2); ctx.globalAlpha = 1;
-      labels.push({ y: (yb + yt) / 2, color: c,
-                    text: `${v.adv > 0 ? 'WAA +' : 'CAA '}${v.adv.toFixed(1)}K/h ${v.pBot}–${v.pTop}` });
-    }
-    // Contrails: Schmidt–Appleman threshold curves (dashed = saturated air,
-    // dotted = dry air) from 500 hPa up, and the lowest levels below them
-    const curve = (key, dash) => {
-      ctx.strokeStyle = T.anaCon; ctx.lineWidth = 1; ctx.setLineDash(dash); ctx.globalAlpha = 0.7;
-      ctx.beginPath();
-      let first = true;
-      for (let p = 500; p >= PT; p -= 10) {
-        const x = mskX(skewtContrailThresholds(p)[key], p), y = mskY(p);
-        first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
-      }
-      ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
-    };
-    curve('tLM', [6, 3]); curve('tLC', [1, 3]);
-    if (a.contrail && inPlot(a.contrail.pHumid)) {
-      const c = a.contrail;
-      const y = hline(c.pHumid, T.anaCon, [2, 2]);
-      if (c.pDry != null && c.pDry !== c.pHumid && inPlot(c.pDry)) hline(c.pDry, T.anaCon, [2, 2]);
-      labels.push({ y, color: T.anaCon,
-                    text: `CONTRAIL ${fl(c.altHumid)}+ humid` + (c.altDry != null ? ` / ${fl(c.altDry)}+ dry` : '') });
-    }
-  }
-  ctx.restore();
-
-  // Stability strip just right of the pressure axis
-  if (anaLevel >= 2) {
-    const col = { unstable: T.stUnst, conditional: T.stCond, stable: T.stStab, inversion: T.stInv };
-    for (const s of a.stability) {
-      if (!inPlot(s.pBot) && !inPlot(s.pTop)) continue;
-      const yb = mskY(Math.min(s.pBot, PB)), yt = mskY(Math.max(s.pTop, PT));
-      ctx.fillStyle = col[s.cls]; ctx.globalAlpha = 0.8;
-      ctx.fillRect(ML + 1, yt, 5, yb - yt); ctx.globalAlpha = 1;
-    }
-    // key, bottom-left (cold low-level corner, normally empty)
-    ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
-    let kx = ML + 10; const ky = MT + PH - 6;
-    for (const [c, t] of [[T.stUnst, 'unstable'], [T.stCond, 'cond.'], [T.stStab, 'stable'], [T.stInv, 'inv.']]) {
-      ctx.fillStyle = c; ctx.fillRect(kx, ky - 6, 6, 6);
-      ctx.fillStyle = T.area; ctx.fillText(t, kx + 8, ky); kx += ctx.measureText(t).width + 16;
-    }
-  }
-
-  // Labels at the right edge of the plot, spread so they do not overlap
-  ctx.font = '9px monospace'; ctx.textAlign = 'right';
-  labels.sort((p, q) => p.y - q.y);
-  const H = 11; let last = MT - H;
-  for (const l of labels) { l.y = Math.max(l.y - 2, last + H); last = l.y; }
-  for (let i = labels.length - 1, lim = MT + PH - 2; i >= 0; i--) {   // keep inside the plot
-    labels[i].y = Math.min(labels[i].y, lim); lim = labels[i].y - H;
-  }
-  const x = ML + PW - 8;
-  for (const l of labels) {
-    const w = ctx.measureText(l.text).width;
-    ctx.fillStyle = T.anaLblBg; ctx.fillRect(x - w - 3, l.y - 8, w + 6, 11);
-    ctx.fillStyle = l.color; ctx.fillText(l.text, x, l.y);
-  }
-}
-
-// Hover read-out: nearest level / observation to the mouse (aircraft points
-// first when an aircraft is selected), shown in a small box over the canvas
-function miniHover(ev) {
-  const canvas = document.getElementById('mini-sounding-canvas');
-  const tip    = document.getElementById('mini-skewt-tip');
-  if (!canvas || !tip) return;
-  const r  = canvas.getBoundingClientRect();
-  const my = (ev.clientY - r.top) * (canvas.height / r.height);
-  const pref = miniAcOverlay ? 'ac' : 'area';
-  let best = null;
-  for (const src of [pref, pref === 'ac' ? 'area' : null]) {
-    if (!src) continue;
-    for (const p of miniHoverPts) {
-      if (p.src !== src && p.src !== 'sfc') continue;
-      const d = Math.abs(p.y - my);
-      if (d <= 25 && (!best || d < Math.abs(best.y - my))) best = p;
-    }
-    if (best) break;
-  }
-  if (!best) { tip.style.display = 'none'; return; }
-  const ft  = best.alt_ft != null ? Math.round(best.alt_ft) : null;
-  if (best.src === 'sfc' && miniSfc) {
-    tip.innerHTML = [`<b>Ground, ${miniSfc.station || 'airport'} METAR ${miniSfc.time}</b>`,
-      `QNH ${Math.round(miniSfc.qnh)} hPa · elevation ${Math.round(miniSfc.elev)} ft`,
-      `Station pressure ${miniSfc.p.toFixed(1)} hPa`,
-      miniSfc.t != null ? `Temp ${miniSfc.t} °C` : '',
-      `<span class="mini-tip-dim">Layers below this line are below ground (pressure altitude, 1013.25 hPa)</span>`]
-      .filter(Boolean).join('<br>');
-    tip.style.display = 'block';
-    const wrap0 = canvas.parentElement.getBoundingClientRect();
-    tip.style.top  = Math.max(4, Math.min(ev.clientY - wrap0.top - tip.offsetHeight - 8, r.height - tip.offsetHeight)) + 'px';
-    tip.style.left = '8px';
-    return;
-  }
-  const lines = [
-    `<b>${best.src === 'ac' ? (getLabelText(aircraftData[selectedIcao] || {}) || 'Aircraft') : 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min'}</b>`,
-    ft != null ? `${ft.toLocaleString()} ft · FL${String(Math.round(ft / 100)).padStart(3, '0')} · ${(ft * 0.0003048).toFixed(1)} km` : '',
-    `${Math.round(best.p)} hPa`,
-  ];
-  if (best.t != null) lines.push(`Temp ${best.t.toFixed(1)} °C` +
-      (best.traw != null ? ` <span class="mini-tip-dim">(smoothed; layer ${best.traw.toFixed(1)})</span>` : '') +
-      (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn})</span>` : ''));
-  if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
-      (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
-  tip.innerHTML = lines.filter(Boolean).join('<br>');
-  tip.style.display = 'block';
-  const wrap = canvas.parentElement.getBoundingClientRect();
-  const y = ev.clientY - wrap.top;
-  tip.style.top  = Math.max(4, Math.min(y - tip.offsetHeight - 8, r.height - tip.offsetHeight)) + 'px';
-  tip.style.left = '8px';
-  // crosshair at the chosen level
-  drawMiniSounding();
-  const ctx = canvas.getContext('2d');
-  ctx.save();
-  ctx.strokeStyle = miniSkewTTheme().tempLbl; ctx.globalAlpha = 0.5; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.moveTo(MSK.ML, best.y); ctx.lineTo(MSK.W - 2, best.y); ctx.stroke();
-  ctx.restore();
-}
-
-function drawMiniSounding() {
-  const canvas = document.getElementById('mini-sounding-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const { W, H, ML, MR, MT, MB, PW, PH, TL, TR, PT, PB } = MSK;
-  const barbX = ML + PW + 20;  // X of the wind barbs (staff up to 14 px each way)
-  const T = miniSkewTTheme();
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = T.bg;
-  ctx.fillRect(0, 0, W, H);
-
-  // ── Clip to plot + barb area for grid ──────────────────────────────────
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, MT, W, PH);
-  ctx.clip();
-
-  // Isobars (horizontal lines + pressure labels)
-  const isobars = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
-  ctx.font = '9px monospace'; ctx.textAlign = 'right';
-  for (const p of isobars) {
-    if (p < PT || p > PB) continue;
-    const y = mskY(p);
-    ctx.strokeStyle = p % 100 === 0 ? T.isobarMaj : T.isobarMin;
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
-    ctx.fillStyle = T.isotLabel;
-    ctx.fillText(p, ML - 3, y + 3);
-  }
-
-  // Isotherms (skewed temperature lines)
-  for (const t of [-90, -80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30]) {
-    const x1 = mskX(t, PB), y1 = mskY(PB);
-    const x2 = mskX(t, PT), y2 = mskY(PT);
-    ctx.strokeStyle = t === 0 ? T.isotherm0 : T.isothermN;
-    ctx.lineWidth   = t === 0 ? 1.2 : 0.7;
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-  }
-
-  ctx.restore();
-
-  // Dry (solid) and moist (dashed) adiabats, every 10 K, clipped to the plot
-  ctx.save();
-  ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
-  const adi = adiabatCurves(PT, PB, [250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400],
-                            [-10, 0, 10, 20, 30]);
-  const adiLine = (pts) => {
-    ctx.beginPath();
-    pts.forEach(([p, t], i) => { const x = mskX(t, p), y = mskY(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  };
-  ctx.lineWidth = 0.8;
-  ctx.strokeStyle = T.dryAdi;   ctx.setLineDash([]);     adi.dry.forEach(adiLine);
-  ctx.strokeStyle = T.moistAdi; ctx.setLineDash([4, 3]); adi.moist.forEach(adiLine);
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  // Temperature scale below the plot (outside the clip — inside it the
-  // labels were cut off)
-  ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = T.label;
-  for (const t of [-40, -30, -20, -10, 0, 10, 20, 30]) {
-    const x1 = mskX(t, PB);
-    if (x1 >= ML + 6 && x1 <= ML + PW - 6) ctx.fillText(t + '°', x1, MT + PH + 14);
-  }
-
-  // Altitude markers (pressure altitude, km) just right of the pressure axis
-  // (the cold upper-left corner of a Skew-T is empty)
-  ctx.font = '9px monospace'; ctx.textAlign = 'left';
-  for (const km of [1, 2, 3, 4, 5, 6, 8, 10, 12]) {
-    const p = altToPressHPa(km * 3280.84);
-    if (p < PT || p > PB) continue;
-    const y = mskY(p);
-    ctx.strokeStyle = T.axisLine; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + 4, y); ctx.stroke();
-    ctx.fillStyle = T.kmLabel;
-    ctx.fillText(km + ' km', ML + (anaLevel >= 2 ? 10 : 6), y + 3);
-  }
-  miniHoverPts = [];
-
-  // Y axis line
-  ctx.strokeStyle = T.axisLine; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.stroke();
-
-  // ── ISA reference (dashed blue) ─────────────────────────────────────────
-  const isaPs = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
-  ctx.strokeStyle = T.isa; ctx.lineWidth = 1.2;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  let isaFirst = true;
-  for (const p of isaPs) {
-    if (p < PT || p > PB) continue;
-    const t = isaTempP(p);
-    const x = mskX(t, p), y = mskY(p);
-    if (x >= ML && x <= ML + PW) {
-      isaFirst ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      isaFirst = false;
-    }
-  }
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // ── Ground: station pressure from the METAR QNH, with the surface temperature ─
-  drawMiniGround(ctx, T);
-
-  // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
-  // Grey background reference; with no aircraft selected it is the profile
-  // shown, with its wind barbs.
-  drawMiniArea(ctx, T, !miniAcOverlay);
-
-  // ── Automatic analysis of the area profile (button in the panel title) ──
-  if (anaLevel > 0) drawMiniAnalysis(ctx, T);
-
-  // ── No aircraft selected hint ───────────────────────────────────────────
-  if (!miniAcOverlay) {
-    ctx.fillStyle = T.hint; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
-    const msg = miniArea && miniArea.levels && miniArea.levels.length
-      ? `Area profile, last ${miniArea.window_min} min — click an aircraft`
-      : 'Click an aircraft to show its profile';
-    // with the analysis on, the right edge holds its labels → hint on the left
-    if (anaLevel > 0) { ctx.textAlign = 'left'; ctx.fillText(msg, ML + 12, MT + 12); }
-    else ctx.fillText(msg, ML + PW / 2, MT + 12);
-  }
-
-  // ── Aircraft overlay ────────────────────────────────────────────────────
-  if (miniAcOverlay) {
-    const { temp_c, pressure, alt_ft, color, windHistory: wh } = miniAcOverlay;
-
-    // ── Wind + temperature history (density-filtered vertical profile) ──
-    if (wh && wh.length > 0) {
-      // Build density-filtered index list: include a point only when altitude
-      // has changed by at least windDensity × 400 ft since the last included.
-      const minGapFt = windDensity * 400;
-      const shownIdx = [];
-      let lastShownAlt = null;
-      for (let i = 0; i < wh.length; i++) {
-        if (lastShownAlt === null || Math.abs(wh[i].alt_ft - lastShownAlt) >= minGapFt) {
-          shownIdx.push(i);
-          lastShownAlt = wh[i].alt_ft;
-        }
-      }
-      // Always include the most recent observation regardless of gap
-      if (shownIdx[shownIdx.length - 1] !== wh.length - 1) shownIdx.push(wh.length - 1);
-
-      // Temperature line through the shown points (sorted by pressure)
-      const tPts = shownIdx.map(i => wh[i])
-        .filter(o => o.temp_c != null && o.pressure >= PT && o.pressure <= PB)
-        .sort((a, b) => b.pressure - a.pressure);
-      if (tPts.length >= 2) {
-        ctx.strokeStyle = color + 'cc'; ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        tPts.forEach((o, i) => {
-          const x = mskX(o.temp_c, o.pressure), y = mskY(o.pressure);
-          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-        });
-        ctx.stroke();
-      }
-      // Temperature values next to the points (thinned so they do not overlap)
-      let lastLblY = null;
-      ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      for (const o of tPts) {
-        const y = mskY(o.pressure);
-        if (lastLblY != null && Math.abs(y - lastLblY) < 12) continue;
-        ctx.fillStyle = T.tempLbl;
-        ctx.fillText(o.temp_c.toFixed(0) + '°', mskX(o.temp_c, o.pressure) + 5, y + 3);
-        lastLblY = y;
-      }
-
-      let lastBarbLblY = null;
-      for (const idx of shownIdx) {
-        const obs = wh[idx];
-        if (obs.pressure < PT || obs.pressure > PB) continue;
-        const oy        = mskY(obs.pressure);
-        const isCurrent = (idx === wh.length - 1);
-        const barbColor = isCurrent ? color : color + '66';
-        miniHoverPts.push({ y: oy, src: 'ac', alt_ft: obs.alt_ft, p: obs.pressure,
-                            t: obs.temp_c, ws: obs.wind_spd, wd: obs.wind_dir });
-
-        // Temperature dot on the skewed T axis
-        if (obs.temp_c != null) {
-          const ox = mskX(obs.temp_c, obs.pressure);
-          ctx.fillStyle = barbColor;
-          ctx.beginPath();
-          ctx.arc(ox, oy, isCurrent ? 3 : 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Wind barb in aircraft colour + speed label
-        if (obs.wind_spd != null && obs.wind_dir != null) {
-          drawMiniBarb(ctx, barbX + 2, oy, obs.wind_spd, obs.wind_dir, barbColor);
-          if (isCurrent || lastBarbLblY == null || Math.abs(oy - lastBarbLblY) >= 11) {
-            ctx.fillStyle = barbColor;
-            ctx.font      = '9px monospace'; ctx.textAlign = 'right';
-            ctx.fillText(Math.round(obs.wind_dir) + '° ' + Math.round(obs.wind_spd) + 'kt', W - 2, oy + 3);
-            lastBarbLblY = oy;
-          }
-        }
-      }
-    }
-
-    // ── Current altitude/pressure level indicator ───────────────────────
-    // Always show a dashed horizontal line at the aircraft's current level,
-    // even when temperature data is not available.
-    const p = (pressure != null) ? pressure
-            : (alt_ft  != null) ? altToPressHPa(alt_ft)
-            : null;
-
-    if (p != null && p >= PT && p <= PB) {
-      const y = mskY(p);
-
-      // Full-width dashed line spanning plot + barb area
-      ctx.strokeStyle = color; ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - 2, y); ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Circle on temperature profile (only if temp available)
-      if (temp_c != null) {
-        const x = mskX(temp_c, p);
-        ctx.strokeStyle = T.dotRing; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
-      } else {
-        // No temp: draw a small diamond on the pressure axis instead
-        const dx = ML + 5, dy = y;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(dx, dy - 5); ctx.lineTo(dx + 4, dy);
-        ctx.lineTo(dx, dy + 5); ctx.lineTo(dx - 4, dy);
-        ctx.closePath(); ctx.fill();
-      }
-    }
-  }
+  if (skewt.resize(w, h)) drawMiniSounding();
 }
 
 // ── ATC-style aircraft icon ───────────────────────────────────────────────
@@ -1430,6 +745,18 @@ if (anaBtn) {
   setAnaLevel(anaLevel, false);   // the first draw happens later (resize observer)
 }
 
+// ── Airport low-level profile selector (Off / Overlay / Zoom) ─────────────
+const aptSel = document.getElementById('apt-mode');
+if (aptSel) {
+  aptSel.value = aptMode;
+  aptSel.addEventListener('change', e => {
+    aptMode = e.target.value;
+    localStorage.setItem('ms_aptMode', aptMode);
+    drawMiniSounding();
+    fetchMiniLow();
+  });
+}
+
 // ── Area profile smoothing selector ───────────────────────────────────────
 const smoothSel = document.getElementById('area-smooth');
 if (smoothSel) {
@@ -1442,24 +769,10 @@ if (smoothSel) {
 }
 
 // ── METAR / TAF fetcher ───────────────────────────────────────────────────
-// Surface point for the mini Skew-T from the METAR: station pressure (QNH
-// reduced to the airport elevation) and air temperature.  The dewpoint is not
-// used — the aircraft data carry no humidity, so the diagram stays dry.
-let miniSfc = null;   // {p, qnh, t, elev, station, time}
-function parseMetarSfc(d) {
-  const m = d.metar || '';
-  const qnh = d.qnh_hpa != null ? Number(d.qnh_hpa) : (() => {
-    const q = m.match(/\sQ(\d{4})\b/); if (q) return Number(q[1]);
-    const a = m.match(/\sA(\d{4})\b/); return a ? Number(a[1]) * 0.338639 : null;
-  })();
-  if (!qnh || qnh < 900 || qnh > 1100) return null;
-  const tm = m.match(/\s(M?\d{2})\/(M?\d{2}|\/\/)?(?=\s)/);
-  const t  = tm ? (tm[1][0] === 'M' ? -Number(tm[1].slice(1)) : Number(tm[1])) : null;
-  const elev = d.elev_ft != null ? Number(d.elev_ft) : 179;
-  const p  = qnh * Math.pow(1 - 2.25577e-5 * elev * 0.3048, 5.25588);   // QNH → station pressure
-  const st = m.match(/\b([A-Z]{4})\s\d{6}Z/), tt = m.match(/\s(\d{2})(\d{2})(\d{2})Z\s/);
-  return { p, qnh, t, elev, station: st ? st[1] : '', time: tt ? `${tt[2]}:${tt[3]}Z` : '' };
-}
+// Surface point for the mini Skew-T from the METAR (parseMetarSfc in
+// skewt_chart.js): station pressure (QNH reduced to the airport elevation),
+// air temperature and, from 2026-10-11, the dewpoint and lowest cloud group.
+// (miniSfc is declared with the other Skew-T state above)
 
 async function fetchWx() {
   try {
@@ -1508,11 +821,7 @@ setInterval(fetchMiniArea, 5 * 60 * 1000);
   const c = document.getElementById('mini-sounding-canvas');
   if (!c) return;
   c.addEventListener('mousemove', miniHover);
-  c.addEventListener('mouseleave', () => {
-    const tip = document.getElementById('mini-skewt-tip');
-    if (tip) tip.style.display = 'none';
-    drawMiniSounding();
-  });
+  c.addEventListener('mouseleave', () => { syncSkewT(); skewt.leave(); });
 })();
 
 // Redraw mini Skew-T and swap map tile when the global page theme changes

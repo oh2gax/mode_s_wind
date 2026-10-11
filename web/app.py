@@ -585,6 +585,18 @@ def create_app(
         result = build_sounding(cfg, get_db(), minutes)
         return jsonify(result)
 
+    @app.route("/api/lowlevel")
+    def lowlevel_api():
+        """Airport low-level profile: the 200 ft band profiles of the landings
+        and departures of the last ?minutes= (10–360, default 60) pooled
+        (web/api/lowlevel.py); ?end=<Unix s> ends the window at that time
+        instead of now (Sounding page: hourly archive / flight)."""
+        from web.api.lowlevel import lowlevel_profile
+        end = request.args.get("end", type=float)
+        if end is not None and not (0 < end <= time.time() + 3600):
+            end = None
+        return jsonify(lowlevel_profile(get_db(), request.args.get("minutes", 60, type=int), now=end))
+
     @app.route("/api/sounding/hours")
     def sounding_hours_api():
         """Hours stored in the hourly profile archive (profile_hours) for a
@@ -1027,14 +1039,41 @@ def create_app(
         enabled = bool(data.get("enabled", False))
         days    = int(data.get("days", 30))
         maint.set_autopurge_config(get_db(), enabled, days)
-        return jsonify({"ok": True, "enabled": enabled, "days": days})
+        out = {"ok": True, "enabled": enabled, "days": days}
+        if "archive" in data:                 # "Archive before purge" (database/archive.py)
+            from database import archive as _arc
+            _arc.set_enabled(get_db(), bool(data.get("archive")))
+            out["archive"] = bool(data.get("archive"))
+        return jsonify(out)
 
     @app.route("/api/maintenance/flight/autopurge-config", methods=["POST"])
     def maintenance_autopurge_config():
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
-        return jsonify(maint.get_autopurge_config(get_db()))
+        from database import archive as _arc
+        out = maint.get_autopurge_config(get_db())
+        out["archive"] = _arc.is_enabled(get_db())
+        return jsonify(out)
+
+    # ── Archive files and snapshots (database/archive.py) ─────────────────
+
+    @app.route("/api/maintenance/archive/list", methods=["POST"])
+    def maintenance_archive_list():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from database import archive as _arc
+        db = get_db()
+        return jsonify({"status": _arc.get_status(db), "files": _arc.list_archives(db)})
+
+    @app.route("/api/maintenance/archive/snapshot", methods=["POST"])
+    def maintenance_archive_snapshot():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from database import archive as _arc
+        return jsonify(_arc.create_snapshot(cfg.DB_PATH))
 
     @app.route("/api/maintenance/gps/preview", methods=["POST"])
     def maintenance_gps_preview():

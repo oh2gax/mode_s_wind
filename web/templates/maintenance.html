@@ -40,6 +40,7 @@
         <div class="maint-stat-row maint-stat-protected" id="stat-episodes"><span>gps_episodes ⚿</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row" id="stat-apseries" title="Raw reply series on final per landing — kept APPROACH_SERIES_DAYS (default 90) days, purged automatically; also removed with the approach history"><span>approach_series</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row maint-stat-protected" id="stat-profile" title="Hourly wind / temperature profile archive — never purged"><span>profile_hours ⚿</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
+        <div class="maint-stat-row" id="stat-depprof" title="Departure climb-out profiles (temperature / wind per 200 ft) — kept DEPARTURE_PROFILE_DAYS (default 90) days, purged automatically (archived first when Archive before purge is on)"><span>departure_profiles</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row maint-stat-size" id="stat-dbsize"><span>DB file size</span><span id="stat-dbsize-val">—</span><span></span><span></span><span></span></div>
       </div>
     </div>
@@ -63,10 +64,36 @@
           <label class="maint-label">Keep last</label>
           <input type="number" id="autopurge-days" class="maint-input maint-input-num" min="1" max="365" value="30">
           <span class="maint-label">days</span>
+          <label class="maint-label" style="margin-left:1rem">Archive before purge</label>
+          <select id="archive-enable" class="maint-select">
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </select>
           <button id="autopurge-save-btn" class="maint-btn maint-btn-primary">Save</button>
           <span id="autopurge-status" class="maint-op-status"></span>
         </div>
-        <div class="maint-hint">When enabled, flight &amp; meteo records older than the threshold are automatically purged once per day. GPS Quality, Approach History and the GPS Episode Log are never auto-purged.</div>
+        <div class="maint-hint">When enabled, flight &amp; meteo records older than the threshold are automatically purged once per day. GPS Quality, Approach History and the GPS Episode Log are never auto-purged.
+          <br><b>Archive before purge</b>: every flight &amp; meteo purge (automatic and manual) first copies the observations and their flights to a monthly archive file (<code>modes_meteo_archive_YYYY-MM.db</code>, see below), and the daily retention purges of <code>approach_series</code> and <code>departure_profiles</code> do the same. Nothing is deleted unless the copy succeeded and was checked.</div>
+      </div>
+
+      <!-- Archive files and snapshots -->
+      <div class="maint-panel">
+        <div class="maint-panel-title">Archive Files &amp; Snapshots</div>
+        <div class="maint-row">
+          <span class="maint-label" id="archive-dir">Folder: —</span>
+          <span class="maint-label" id="archive-free"></span>
+          <button id="archive-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+          <button id="snapshot-btn" class="maint-btn">Create snapshot now</button>
+          <span id="snapshot-status" class="maint-op-status"></span>
+        </div>
+        <div id="archive-error" class="maint-op-status maint-status-error"></div>
+        <div class="maint-stats-grid">
+          <div class="maint-stat-row maint-stat-hdr maint-arc-row">
+            <span>File</span><span>Size</span><span>Observations</span><span>First</span><span>Last</span>
+          </div>
+          <div id="archive-list"><div class="maint-stat-row maint-arc-row"><span>—</span></div></div>
+        </div>
+        <div class="maint-hint">Monthly archive files hold the purged observations (all columns, same ids) with their flights, and the archived approach series and departure profiles. A <b>snapshot</b> is a compact copy of the whole running database (all tables) at that moment, e.g. for analysis on another computer. Both are ordinary SQLite files; <code>tools/archive_query.py</code> combines the archive files with the running database.</div>
       </div>
 
       <!-- Manual purge -->

@@ -305,3 +305,30 @@ CREATE TABLE IF NOT EXISTS heading_cal (
     delta    REAL,              -- current offset (°), for convenience
     updated  REAL
 );
+
+-- ── departure_profiles ────────────────────────────────────────────────────────
+-- Climb-out profile of each departure from the airport (from 2026-10-11,
+-- collector/departures.py): Mach/TAS temperature and wind per 200 ft band from
+-- 200 to 3 000 ft MSL, built from every raw BDS 5,0 / 6,0 reply during the
+-- climb (not throttled).  prof_json has the same format as
+-- approach_history.prof_json: {"band_ft": {"n", "ws", "wd", "sd", "t", "tn"}}.
+-- Together with the approach profiles it gives the airport low-level profile
+-- (/api/lowlevel, Live Map Skew-T).  About 0.5–1 kB per departure; kept
+-- DEPARTURE_PROFILE_DAYS (default 90) days, purged daily (archived first when
+-- "Archive before purge" is on).
+CREATE TABLE IF NOT EXISTS departure_profiles (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            REAL    NOT NULL,   -- time the climb reached the top band / was closed
+    t_start       REAL,               -- first sample
+    icao          TEXT    NOT NULL,
+    callsign      TEXT,
+    registration  TEXT,
+    aircraft_type TEXT,
+    qnh_hpa       REAL,               -- METAR QNH used for the MSL altitudes
+    track         REAL,               -- initial climb track (°)
+    lat           REAL,               -- first position
+    lon           REAL,
+    ga            INTEGER NOT NULL DEFAULT 0,   -- 1 = climb-out of a go-around
+    prof_json     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_depprof_ts ON departure_profiles(ts);

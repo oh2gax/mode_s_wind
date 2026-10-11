@@ -324,6 +324,32 @@ def gs_status(
 
 # ── WindshearTracker ──────────────────────────────────────────────────────────
 
+
+def parse_metar_surface(metar_text: str) -> dict:
+    """Air temperature, dewpoint, QNH and lowest cloud group of a METAR
+    (from 2026-10-11): {"tt": °C, "td": °C, "q": hPa, "cld": str} — values
+    None when the group is missing (td None for "//")."""
+    out = {"tt": None, "td": None, "q": None, "cld": None}
+    if not metar_text:
+        return out
+    m = re.search(r"\s(M?\d{2})/(M?\d{2}|//)?(?=\s|$)", metar_text)
+    if m:
+        conv = lambda g: -int(g[1:]) if g.startswith("M") else int(g)
+        out["tt"] = conv(m.group(1))
+        if m.group(2) and m.group(2) != "//":
+            out["td"] = conv(m.group(2))
+    q = re.search(r"\bQ(\d{3,4})\b", metar_text)
+    if q:
+        out["q"] = int(q.group(1))
+    else:
+        a = re.search(r"\bA(\d{4})\b", metar_text)
+        if a:
+            out["q"] = round(int(a.group(1)) * 0.338639, 1)
+    c = re.search(r"\b((?:FEW|SCT|BKN|OVC)\d{3}(?:CB|TCU)?|VV\d{3}|CAVOK|NSC|NCD|SKC|CLR)\b", metar_text)
+    if c:
+        out["cld"] = c.group(1)
+    return out
+
 class WindshearTracker:
     """
     Thread-safe in-RAM store for aircraft currently on approach.
@@ -410,7 +436,10 @@ class WindshearTracker:
 
         Called by the WX poll thread with the raw METAR text.  Keeps
         {"t": "DDHHMM" observation time, "dir": ° or None (VRB), "spd": kt,
-        "gst": kt or None, "var": "200V260" or None}.
+        "gst": kt or None, "var": "200V260" or None} and, from 2026-10-11,
+        "tt" / "td" (air temperature / dewpoint °C, None if missing), "q"
+        (QNH hPa) and "cld" (lowest cloud group, e.g. "BKN008", or "CAVOK" /
+        "NSC" / "NCD" / "SKC" / "CLR" / "VV002"; None if none reported).
         """
         if not metar_text:
             return
@@ -426,8 +455,20 @@ class WindshearTracker:
             "spd": int(round(int(w.group(2)) * k)),
             "gst": int(round(int(w.group(3)) * k)) if w.group(3) else None,
             "var": v.group(1) if v else None,
+            **parse_metar_surface(metar_text),
         }
         self._metar_set_ts = time.time()
+
+    def metar_surface(self, max_age: float = 5400.0) -> dict | None:
+        """Latest METAR surface values for the hourly profile archive:
+        {"z": "DDHHMM", "q": QNH, "tt": °C, "td": °C, "cld": …} or None when
+        no METAR has been received for max_age seconds or it has no
+        temperature."""
+        m = self._metar
+        if not m or time.time() - self._metar_set_ts > max_age or m.get("tt") is None:
+            return None
+        return {"z": m.get("t"), "q": m.get("q"), "tt": m.get("tt"),
+                "td": m.get("td"), "cld": m.get("cld")}
 
     def _qnh_corr_ft(self) -> float:
         """Pressure altitude minus MSL altitude (ft); 0 when QNH is unknown."""

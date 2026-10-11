@@ -13,6 +13,10 @@ Provides:
   - set_autopurge_config()      — writes autopurge settings
   - run_autopurge_if_needed()   — called by background thread; runs purge when due
 
+With "Archive before purge" enabled (database/archive.py), every flight &
+meteo purge — automatic or manual — first copies the rows to the monthly
+archive files; if that fails the purge is skipped (result key "error").
+
 Approach history can be purged manually via purge_approach_data() and
 purge_approach_date_range(); it is NEVER touched by the autopurge scheduler.
 The GPS degradation episode log (gps_episodes) likewise: manual purge only,
@@ -23,6 +27,8 @@ import logging
 import os
 import time
 import datetime
+
+from database import archive
 
 log = logging.getLogger("modes.maintenance")
 
@@ -84,6 +90,10 @@ def get_stats(conn, db_path: str) -> dict:
         prof = _table_stats("profile_hours", "ts", "date(ts, 'unixepoch')")
     except Exception:
         prof = dict(empty)
+    try:
+        depp = _table_stats("departure_profiles", "ts", "date(ts, 'unixepoch')")
+    except Exception:
+        depp = dict(empty)
 
     try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
@@ -99,6 +109,7 @@ def get_stats(conn, db_path: str) -> dict:
         "gps_episodes":          gpse,
         "approach_series":       aps,
         "profile_hours":         prof,
+        "departure_profiles":    depp,
         "db_size_mb":            db_size_mb,
     }
 
@@ -185,6 +196,13 @@ def purge_flight_data(conn, days: int) -> dict:
     log.info("Maintenance: purging flight data older than %d days (cutoff %s)",
              days, datetime.datetime.utcfromtimestamp(cutoff).isoformat())
 
+    # Archive before purge (when enabled): copy first, delete only if it worked
+    try:
+        arc = archive.archive_before_delete(conn, 0.0, cutoff, ("observations",))
+    except archive.ArchiveError as exc:
+        return {"observations_deleted": 0, "flights_deleted": 0,
+                "error": f"Archive failed, nothing deleted: {exc}"}
+
     # Delete observations first (FK references flights), in small batches
     obs_del = _batched_delete(conn, "observations", "ts < ?", (cutoff,))
 
@@ -199,7 +217,10 @@ def purge_flight_data(conn, days: int) -> dict:
         (cutoff,),
     )
     log.info("Maintenance: deleted %d observations, %d flights", obs_del, flt_del)
-    return {"observations_deleted": obs_del, "flights_deleted": flt_del}
+    out = {"observations_deleted": obs_del, "flights_deleted": flt_del}
+    if arc is not None:
+        out["archived"] = arc
+    return out
 
 
 # ── GPS quality purge ─────────────────────────────────────────────────────────
@@ -277,6 +298,11 @@ def purge_flight_date_range(conn, date_from: str, date_to: str) -> dict:
     _validate_date_range(date_from, date_to)
     log.info("Maintenance: purging flight data for date range %s – %s", date_from, date_to)
     t0, t1 = _date_range_ts(date_from, date_to)
+    try:
+        arc = archive.archive_before_delete(conn, t0, t1, ("observations",))
+    except archive.ArchiveError as exc:
+        return {"observations_deleted": 0, "flights_deleted": 0,
+                "error": f"Archive failed, nothing deleted: {exc}"}
     obs_del = _batched_delete(conn, "observations", "ts >= ? AND ts < ?", (t0, t1))
     # Only delete flights that no longer have any observations.  A flight that
     # started before date_from (e.g. crossed midnight) still owns observations
@@ -290,7 +316,10 @@ def purge_flight_date_range(conn, date_from: str, date_to: str) -> dict:
     )
     log.info("Maintenance: deleted %d observations, %d flights (%s – %s)",
              obs_del, flt_del, date_from, date_to)
-    return {"observations_deleted": obs_del, "flights_deleted": flt_del}
+    out = {"observations_deleted": obs_del, "flights_deleted": flt_del}
+    if arc is not None:
+        out["archived"] = arc
+    return out
 
 
 def preview_gps_date_purge(conn, date_from: str, date_to: str) -> dict:

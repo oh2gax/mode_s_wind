@@ -40,6 +40,7 @@ from database.db import init_db
 from collector.receiver import run_collector, prune_bds_cache, get_bds_samples
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
+from collector.departures import DepartureTracker
 from collector.gps_quality import GpsQualityTracker
 from database import maintenance as maint
 from collector import aircraft_db
@@ -103,18 +104,22 @@ def _housekeeping_thread(
             hk_log.warning("Housekeeping error: %s", exc)
 
 
-def _hourly_jobs_thread(cfg) -> None:
+def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
     """
     Background daemon for once-per-hour jobs (from 2026-10-09):
 
       • Hourly atmospheric profile archive (profile_hours): a few minutes
         after each hour change the area profile (wind + Mach/TAS temperature
         per altitude layer) of the hour that ended is computed from the
-        observations and stored — one read query and one INSERT.  At startup
-        hours missing within the observations still in the database are
-        back-filled (slowly, in the background).
-      • Approach series retention: approach_series rows older than
-        APPROACH_SERIES_DAYS (default 90) are deleted once a day.
+        observations and stored — one read query and one INSERT, with the
+        latest METAR temperature / dewpoint / QNH / lowest cloud (from
+        2026-10-11, for the Sounding page's ground line and parcel analysis).
+        At startup hours missing within the observations still in the
+        database are back-filled (slowly, in the background).
+      • Retention: approach_series rows older than APPROACH_SERIES_DAYS and
+        departure_profiles rows older than DEPARTURE_PROFILE_DAYS (default 90
+        each) are deleted once a day — archived first when "Archive before
+        purge" is enabled (database/archive.py).
       • Heading calibration (from 2026-10-10): the per-airframe heading
         offsets that changed during the hour are written to heading_cal.
     """
@@ -122,6 +127,7 @@ def _hourly_jobs_thread(cfg) -> None:
     from collector.atmos import store_missing_profile_hours
     hj_log = logging.getLogger("modes.hourly")
     series_days = float(getattr(cfg, "APPROACH_SERIES_DAYS", 90))
+    dep_days    = float(getattr(cfg, "DEPARTURE_PROFILE_DAYS", 90))
     last_purge = 0.0
     first = True
     while True:
@@ -129,7 +135,8 @@ def _hourly_jobs_thread(cfg) -> None:
             db = _get_db()
             n = store_missing_profile_hours(
                 db, cfg.RECEIVER_LAT, cfg.RECEIVER_LON, cfg.SOUNDING_RADIUS_KM,
-                max_hours=31 * 24 if first else 48, pause_sec=0.2 if first else 0.0)
+                max_hours=31 * 24 if first else 48, pause_sec=0.2 if first else 0.0,
+                metar_sfc=metar_fn() if metar_fn else None)
             if n:
                 hj_log.info("Hourly profile archive: stored %d hour(s)", n)
             first = False
@@ -138,14 +145,26 @@ def _hourly_jobs_thread(cfg) -> None:
                 n_hc = _hc.save(db)
                 if n_hc:
                     hj_log.info("Heading calibration: saved %d airframe(s)", n_hc)
-            if time.time() - last_purge > 86_400 and series_days > 0:
-                cur = db.execute("DELETE FROM approach_series WHERE ts < ?",
-                                 (time.time() - series_days * 86_400,))
-                db.commit()
+            if time.time() - last_purge > 86_400:
                 last_purge = time.time()
-                if cur.rowcount:
-                    hj_log.info("Approach series: deleted %d rows older than %g days",
-                                cur.rowcount, series_days)
+                # Retention purges of the raw approach series and the departure
+                # profiles; with "Archive before purge" enabled the rows are
+                # first copied to the monthly archive files (skipped on error)
+                from database import archive as _arc
+                for table, days in (("approach_series", series_days),
+                                    ("departure_profiles", dep_days)):
+                    if days <= 0:
+                        continue
+                    cutoff = time.time() - days * 86_400
+                    try:
+                        _arc.archive_before_delete(db, 0.0, cutoff, (table,))
+                    except _arc.ArchiveError:
+                        continue                  # logged; nothing deleted
+                    cur = db.execute(f"DELETE FROM {table} WHERE ts < ?", (cutoff,))
+                    db.commit()
+                    if cur.rowcount:
+                        hj_log.info("%s: deleted %d rows older than %g days",
+                                    table, cur.rowcount, days)
         except Exception as exc:
             hj_log.warning("Hourly jobs error: %s", exc)
         # wake up 3 minutes after the next hour change
@@ -183,12 +202,14 @@ def _windshear_sweep(
     live_state: dict,
     live_lock: threading.RLock,
     tracker: WindshearTracker,
+    dep_tracker: "DepartureTracker | None" = None,
 ) -> None:
     """
     Background daemon: sweeps live_state every 3 seconds, feeds each
     aircraft into the windshear tracker, then prunes stale entries.
     Runs independently of the SSE endpoint so the approach history is
-    always current even when no browser tab is open.
+    always current even when no browser tab is open.  The departure
+    climb-out capture (collector/departures.py) runs in the same sweep.
     """
     while True:
         try:
@@ -198,10 +219,38 @@ def _windshear_sweep(
             for ac in snapshot:
                 if now - ac.get("last_seen", 0) < 30:   # windshear tracker drops stale ac fast
                     tracker.update(ac)
+                    if dep_tracker is not None:
+                        try:
+                            dep_tracker.update(ac, now)
+                        except Exception as exc:
+                            log.debug("Departure capture error: %s", exc)
             tracker.prune_stale()
+            if dep_tracker is not None:
+                dep_tracker.prune(now)
         except Exception as exc:
             log.debug("Windshear sweep error: %s", exc)
         time.sleep(3)
+
+
+def _on_departure_committed(record: dict) -> None:
+    """Write one departure climb-out profile (collector/departures.py) to
+    departure_profiles — called from the windshear sweep thread."""
+    from database.db import get_db
+    db = get_db()
+    try:
+        db.execute(
+            """INSERT INTO departure_profiles
+               (ts, t_start, icao, callsign, registration, aircraft_type, qnh_hpa,
+                track, lat, lon, ga, prof_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (record["ts"], record.get("t_start"), record["icao"], record.get("callsign"),
+             record.get("registration"), record.get("aircraft_type"), record.get("qnh_hpa"),
+             record.get("track"), record.get("lat"), record.get("lon"),
+             1 if record.get("ga") else 0,
+             json.dumps(record["prof"], separators=(",", ":"))))
+        db.commit()
+    except Exception as exc:
+        log.warning("departure_profiles DB write failed: %s", exc)
 
 
 def _on_approach_committed(record: dict) -> None:
@@ -418,9 +467,21 @@ def main() -> None:
     # the list is immediately available without waiting for the first landing.
     _preload_approach_history(ws_tracker, cfg.DB_PATH, hours=24)
 
+    # Departure climb-out profiles (collector/departures.py); optional
+    # DEPARTURE_PROFILES = False turns the capture off
+    dep_tracker = None
+    if getattr(cfg, "DEPARTURE_PROFILES", True):
+        dep_tracker = DepartureTracker(
+            cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON, get_bds_samples,
+            qnh_fn=lambda: (ws_tracker._qnh_hpa, ws_tracker._qnh_corr_ft()),
+            on_commit=_on_departure_committed,
+            approach_state_fn=lambda icao: icao in ws_tracker._state,
+            mag_declination=cfg.MAG_DECLINATION,
+        )
+
     ws_thread = threading.Thread(
         target=_windshear_sweep,
-        args=(live_state, live_lock, ws_tracker),
+        args=(live_state, live_lock, ws_tracker, dep_tracker),
         name="ws_sweep",
         daemon=True,
     )
@@ -464,7 +525,7 @@ def main() -> None:
     # ── Hourly jobs (profile archive, approach series retention) ─────────
     hourly_thread = threading.Thread(
         target=_hourly_jobs_thread,
-        args=(cfg,),
+        args=(cfg, ws_tracker.metar_surface),
         name="hourly_jobs",
         daemon=True,
     )

@@ -70,6 +70,9 @@ def build_hour_sounding(db: sqlite3.Connection, hour_ts: int) -> dict:
         "obs_used":     d.get("n", 0),
         "generated_at": datetime.datetime.utcfromtimestamp(row["ts"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       unpack_levels(d.get("lv")),
+        # METAR surface values of the hour (from 2026-10-11): z DDHHMM, q QNH,
+        # tt / td temperature / dewpoint °C, cld lowest cloud group
+        "sfc":          d.get("m"),
     }
 
 
@@ -106,8 +109,8 @@ def build_flight_sounding(flight_id: int, db: sqlite3.Connection) -> dict:
     where the aircraft samples multiple altitude layers.  For level cruise
     flights only a single or very few levels will be populated.
 
-    Returns the same dict shape as build_sounding() so the same
-    renderSounding() JS function can display it.
+    Returns the same dict shape as build_sounding() so the same Skew-T
+    (static/js/skewt_chart.js) can display it.
     """
     import datetime
 

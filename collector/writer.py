@@ -19,6 +19,7 @@ import time
 from typing import Optional
 
 from database.db import get_db
+from collector.atmos import layer_of
 
 log = logging.getLogger("modes.writer")
 
@@ -26,6 +27,14 @@ log = logging.getLogger("modes.writer")
 # Upper bound on observations held for retry while the DB is locked
 # (~a few minutes of traffic); beyond this the batch is dropped as before.
 MAX_RETRY_BUFFER = 50_000
+
+# Layer-aware throttle (from 2026-10-11): an observation with meteo data is
+# also written when the aircraft has entered a new sounding layer (1 000 ft
+# below 10 000 ft, 2 000 ft above — collector/atmos.py) since its last stored
+# row, but not sooner than this after it.  Climbing / descending aircraft then
+# get a value in every layer (at 3 000–4 000 fpm a 1 000 ft layer takes only
+# 15–20 s, so a 30 s throttle skipped layers); level flight is unchanged.
+LAYER_MIN_SPACING_SEC = 5.0
 
 # How often the per-ICAO session / throttle dicts are pruned (seconds).
 # Without pruning they keep one entry for every aircraft ever received.
@@ -37,11 +46,15 @@ class BatchWriter:
 
     def __init__(self, write_interval: float, flight_gap_sec: float,
                  storage_mode: str = "ALL",
-                 write_min_interval: float = 0.0) -> None:
+                 write_min_interval: float = 0.0,
+                 write_on_layer_change: bool = True) -> None:
         self._interval          = write_interval
         self._flight_gap        = flight_gap_sec
         self._storage_mode      = storage_mode
         self._write_min_interval = write_min_interval
+        self._layer_trigger     = bool(write_on_layer_change)
+        # ICAO → sounding layer index of the last observation written
+        self._last_layer: dict[str, int] = {}
         self._buffer: list[dict] = []
         self._last_flush = time.monotonic()
 
@@ -63,6 +76,10 @@ class BatchWriter:
            than WRITE_MIN_INTERVAL_SEC after the last stored one for the
            same ICAO.  Prevents dozens of near-identical cruise-level rows
            while still capturing altitude changes during climbs/descents.
+           Layer-aware (WRITE_ON_LAYER_CHANGE, default on): an observation
+           with meteo data is written earlier when the aircraft has entered
+           a new sounding layer since its last stored row (at least
+           LAYER_MIN_SPACING_SEC after it).
         """
         if (self._storage_mode == "METEO_ONLY"
                 and obs.get("meteo_source", "NONE") == "NONE"):
@@ -72,9 +89,16 @@ class BatchWriter:
             icao = obs.get("icao", "")
             ts   = obs.get("ts", 0.0)
             last = self._last_written.get(icao, 0.0)
+            lay  = layer_of(obs.get("altitude")) if self._layer_trigger else None
             if ts - last < self._write_min_interval:
-                return
+                prev = self._last_layer.get(icao)
+                if not (lay is not None and prev is not None and lay != prev
+                        and ts - last >= LAYER_MIN_SPACING_SEC
+                        and obs.get("meteo_source", "NONE") != "NONE"):
+                    return
             self._last_written[icao] = ts
+            if lay is not None:
+                self._last_layer[icao] = lay
 
         self._buffer.append(obs)
 
@@ -136,6 +160,7 @@ class BatchWriter:
         w_cut = now - max(self._write_min_interval, 60.0)
         self._sessions = {k: v for k, v in self._sessions.items() if v[1] >= s_cut}
         self._last_written = {k: v for k, v in self._last_written.items() if v >= w_cut}
+        self._last_layer   = {k: v for k, v in self._last_layer.items() if k in self._last_written}
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

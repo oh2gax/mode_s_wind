@@ -226,13 +226,17 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                         border: 1px solid var(--border); border-radius: 6px; }
 
 /* ── Sounding page ──────────────────────────────────────────────────────── */
-.sounding-layout { display: flex; gap: 1.5rem; flex: 1; min-height: 0; }
-.skewt-wrap { flex-shrink: 0; background: var(--bg-1); border: 1px solid var(--border);
-              border-radius: 6px; padding: 12px; }
-#skewt-canvas { display: block; background: #0c1620; border-radius: 4px; }
-.skewt-legend { margin-top: 8px; font-size: 12px; color: var(--text-2); text-align: center; }
+.sounding-layout { display: flex; gap: 1.5rem; flex: 1; min-height: 560px; }
+/* Skew-T panel: the Live Map diagram (skewt_chart.js), sized to the panel */
+.skewt-wrap { background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; }
+.snd-skewt-wrap { flex: 0 1 780px; min-width: 380px; display: flex; flex-direction: column;
+                  overflow: hidden; }
+.snd-skewt-box { position: relative; flex: 1; min-height: 0; margin: 4px; }
+.snd-skewt-box canvas { position: absolute; left: 0; top: 0; display: block;
+                        border-radius: 4px; cursor: crosshair; }
+.snd-skewt-ctl { padding: 2px 8px 6px; }
 .sounding-table-wrap { flex: 1; background: var(--bg-1); border: 1px solid var(--border);
-                       border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
+                       border-radius: 6px; overflow: auto; display: flex; flex-direction: column; }
 .sounding-controls { display: flex; align-items: center; justify-content: space-between;
                      background: var(--bg-1); border: 1px solid var(--border);
                      border-radius: 6px; padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
@@ -1920,7 +1924,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 
 /* Skew-T canvas background (hardcoded on the canvas element itself) */
-[data-theme="light"] #skewt-canvas { background: #eef2f7; }
 
 /* Aircraft callsign labels on the Leaflet map.
    Dark mode: light text + dark shadow.  Light mode: dark text + white shadow. */
@@ -2425,6 +2428,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .maint-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .maint-label { font-size: 12px; color: var(--text-2); }
 .maint-hint { font-size: 11px; color: var(--text-3); margin-top: 0.4rem; line-height: 1.4; }
+.maint-stat-row.maint-arc-row { grid-template-columns: minmax(220px, 1.4fr) 70px 1.2fr 130px 130px; }
 .maint-stats-grid { padding: 0.5rem 0; }
 /* 5 columns: Table | Rows | Days | Oldest | Newest */
 .maint-stat-row { display: grid; grid-template-columns: 200px 65px 50px 1fr 1fr; gap: 0.5rem; padding: 0.3rem 1rem; font-size: 12px; font-variant-numeric: tabular-nums; }

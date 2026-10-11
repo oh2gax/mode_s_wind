@@ -63,6 +63,7 @@ async function loadStats() {
     if (d.gps_episodes) _fill('stat-episodes', d.gps_episodes);
     if (d.approach_series) _fill('stat-apseries', d.approach_series);
     if (d.profile_hours)   _fill('stat-profile',  d.profile_hours);
+    if (d.departure_profiles) _fill('stat-depprof', d.departure_profiles);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {
@@ -77,15 +78,75 @@ async function loadAutopurgeConfig() {
     const d = await _api('/api/maintenance/flight/autopurge-config');
     document.getElementById('autopurge-enable').value = d.enabled ? '1' : '0';
     document.getElementById('autopurge-days').value   = d.days || 30;
+    document.getElementById('archive-enable').value   = d.archive ? '1' : '0';
   } catch (_) {}
 }
+
+// ── Archive files and snapshots ──────────────────────────────────────────────
+
+function _utc(ts) {
+  return ts ? new Date(ts * 1000).toISOString().slice(0, 16).replace('T', ' ') : '—';
+}
+
+let _snapTimer = null;
+async function loadArchives() {
+  try {
+    const d = await _api('/api/maintenance/archive/list');
+    const s = d.status || {};
+    document.getElementById('archive-dir').textContent  = `Folder: ${s.dir || '—'}`;
+    document.getElementById('archive-free').textContent = s.free_mb != null ? `· ${_fmt(s.free_mb)} MB free` : '';
+    document.getElementById('archive-error').textContent = s.last_error ? `Last archive error: ${s.last_error}` : '';
+    const list = document.getElementById('archive-list');
+    const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    list.innerHTML = (d.files || []).length ? '' :
+      '<div class="maint-stat-row maint-arc-row"><span>No archive files yet</span></div>';
+    for (const f of d.files || []) {
+      const row = document.createElement('div');
+      row.className = 'maint-stat-row maint-arc-row';
+      const extra = [f.approach_series ? `${_fmt(f.approach_series)} appr. series` : '',
+                     f.departure_profiles ? `${_fmt(f.departure_profiles)} dep. profiles` : '']
+                    .filter(Boolean).join(', ');
+      row.innerHTML = `<span title="${f.kind}">${esc(f.file)}</span><span>${f.size_mb} MB</span>` +
+        `<span>${f.obs_rows != null ? _fmt(f.obs_rows) : '—'}${extra ? ' · ' + esc(extra) : ''}</span>` +
+        `<span>${_utc(f.first)}</span><span>${_utc(f.last)}</span>`;
+      list.appendChild(row);
+    }
+    const sn = s.snapshot || {};
+    if (sn.running) {
+      _setStatus('snapshot-status', `Writing ${sn.file}…`);
+      clearTimeout(_snapTimer); _snapTimer = setTimeout(loadArchives, 3000);
+    } else if (sn.error) {
+      _setStatus('snapshot-status', `Snapshot failed: ${sn.error}`, true);
+    } else if (sn.file && sn.finished) {
+      _setStatus('snapshot-status', `Snapshot ${sn.file} written (${sn.size_mb} MB)`);
+    }
+  } catch (e) {
+    _setStatus('snapshot-status', `Error: ${e.message}`, true);
+  }
+}
+
+document.getElementById('archive-refresh-btn').addEventListener('click', loadArchives);
+document.getElementById('snapshot-btn').addEventListener('click', async () => {
+  if (!confirm('Write a compact copy of the whole database to the archive folder now? ' +
+               'This takes a while and needs free space up to the database size.')) return;
+  try {
+    const d = await _api('/api/maintenance/archive/snapshot');
+    if (d.error && !d.running) throw new Error(d.error);
+    _setStatus('snapshot-status', `Writing ${d.file}…`);
+    clearTimeout(_snapTimer); _snapTimer = setTimeout(loadArchives, 3000);
+  } catch (e) {
+    _setStatus('snapshot-status', `Error: ${e.message}`, true);
+  }
+});
 
 document.getElementById('autopurge-save-btn').addEventListener('click', async () => {
   const enabled = document.getElementById('autopurge-enable').value === '1';
   const days    = parseInt(document.getElementById('autopurge-days').value, 10) || 30;
+  const archive = document.getElementById('archive-enable').value === '1';
   try {
-    await _api('/api/maintenance/flight/autopurge', { enabled, days });
-    _setStatus('autopurge-status', `Saved — autopurge ${enabled ? 'enabled' : 'disabled'}, threshold ${days} days`);
+    await _api('/api/maintenance/flight/autopurge', { enabled, days, archive });
+    _setStatus('autopurge-status', `Saved — autopurge ${enabled ? 'enabled' : 'disabled'}, threshold ${days} days, ` +
+                                   `archive before purge ${archive ? 'on' : 'off'}`);
   } catch (e) {
     _setStatus('autopurge-status', `Error: ${e.message}`, true);
   }
@@ -124,8 +185,11 @@ document.getElementById('flight-purge-btn').addEventListener('click', async () =
   const days = parseInt(document.getElementById('flight-days').value, 10) || 30;
   try {
     const d = await _api('/api/maintenance/flight/purge', { days });
+    if (d.error) throw new Error(d.error);
     _setStatus('flight-purge-result',
-      `Deleted: ${_fmt(d.observations_deleted)} observations, ${_fmt(d.flights_deleted)} flights`);
+      `Deleted: ${_fmt(d.observations_deleted)} observations, ${_fmt(d.flights_deleted)} flights` +
+      (d.archived ? ` (archived first: ${_fmt(d.archived.observations)} observations)` : ''));
+    loadArchives();
     document.getElementById('flight-preview-result').textContent = '';
     await loadStats();
   } catch (e) {
@@ -190,6 +254,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     statusEl.className = 'maint-auth-status maint-status-ok';
     await loadStats();
     await loadAutopurgeConfig();
+    await loadArchives();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
@@ -329,7 +394,9 @@ document.getElementById('flight-date-purge-btn').addEventListener('click', async
     const d = await _api('/api/maintenance/flight/date-purge', { date_from, date_to });
     if (d.error) throw new Error(d.error);
     _setStatus('flight-date-purge-result',
-      `Deleted: ${_fmt(d.observations_deleted)} observations, ${_fmt(d.flights_deleted)} flights`);
+      `Deleted: ${_fmt(d.observations_deleted)} observations, ${_fmt(d.flights_deleted)} flights` +
+      (d.archived ? ` (archived first: ${_fmt(d.archived.observations)} observations)` : ''));
+    loadArchives();
     document.getElementById('flight-date-preview-result').textContent = '';
     await loadStats();
   } catch (e) {
