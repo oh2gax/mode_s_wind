@@ -66,6 +66,8 @@ const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Ful
 let anaLevel    = parseInt(localStorage.getItem('ms_skewtAna') || '0', 10);
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
+// Skew-T data-validity indicator (badge, rings on 1–2-aircraft layers); default ON
+let dqShow      = localStorage.getItem('ms_skewtDq') !== 'false';
 
 let selectedTrackLayer = null;   // Leaflet polyline for selected aircraft's DB track
 // Track of the selected aircraft: [[lat, lon, ts], …] — its stored positions
@@ -188,7 +190,7 @@ function syncSkewT() {
     ac: miniAcOverlay, density: windDensity,
     acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
     profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
-    hint: null,
+    hint: null, dq: dqShow,
   });
 }
 function drawMiniSounding() { syncSkewT(); skewt.draw(); }
@@ -400,12 +402,12 @@ function renderList(data) {
     div.dataset.icao = ac.icao;
     const color = acColor(ac);
 
-    let meteoLine = '';
+    const meteo = [];
     if (ac.best_wind_spd != null)
-      meteoLine += `💨 ${ac.best_wind_spd.toFixed(0)} kt @ ${ac.best_wind_dir?.toFixed(0)}° `;
+      meteo.push(`${ac.best_wind_spd.toFixed(0)} kt @ ${ac.best_wind_dir?.toFixed(0)}°`);
     if (ac.best_temp != null)
-      meteoLine += `🌡 ${ac.best_temp.toFixed(1)}°C`;
-    if (!meteoLine) meteoLine = 'No meteo';
+      meteo.push(`${ac.best_temp.toFixed(1)}°C`);
+    const meteoLine = meteo.length ? meteo.join(' · ') : 'No meteo';
 
     div.innerHTML = `
       <div>
@@ -743,6 +745,17 @@ if (anaBtn) {
   anaBtn.addEventListener('wheel', ev => { ev.preventDefault(); setAnaLevel(anaLevel + (ev.deltaY > 0 ? 1 : -1)); },
                           { passive: false });
   setAnaLevel(anaLevel, false);   // the first draw happens later (resize observer)
+}
+
+// ── Data-validity indicator tick box (panel title) ────────────────────────
+const dqChk = document.getElementById('skewt-dq');
+if (dqChk) {
+  dqChk.checked = dqShow;
+  dqChk.addEventListener('change', e => {
+    dqShow = e.target.checked;
+    localStorage.setItem('ms_skewtDq', String(dqShow));
+    drawMiniSounding();
+  });
 }
 
 // ── Airport low-level profile selector (Off / Overlay / Zoom) ─────────────

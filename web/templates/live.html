@@ -46,8 +46,11 @@
   <aside class="panel-right">
     <div class="panel-header panel-header-row">
       <div>Atmosphere Profile</div>
+      <span class="skewt-hdr-ctl">
+      <label class="toggle-label" title="Data-validity indicator: a badge at the top left with the number of distinct aircraft and replies behind the area profile (GOOD ≥ 20 aircraft per hour, FAIR 8–19, LOW &lt; 8 — typically LOW around midnight), a red ring on layers measured by only 1–2 aircraft, and a warning in the hover read-out of such layers. The setting is shared with the Sounding page."><input type="checkbox" id="skewt-dq"> Data quality</label>
       <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
               title="Automatic analysis of the area profile (last 60 min). Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; surface parcel from the METAR temperature and dewpoint: LCL / cumulus base compared with the METAR cloud group, parcel curve, CAPE / CIN, Lifted Index, equilibrium level). No humidity aloft — only the METAR dewpoint at the surface.">Analysis: Off</button>
+      </span>
     </div>
     <div id="detail-panel" class="mini-sounding-wrap">
       <canvas id="mini-sounding-canvas"></canvas>

@@ -23,11 +23,12 @@ function _lsGet(k, d) { try { const v = localStorage.getItem(k); return v == nul
 function _lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* private mode */ } }
 function _pad(n) { return String(n).padStart(2, '0'); }
 
-// ── Chart state (Analysis / Smooth / Airport shared with the Live Map) ────
+// ── Chart state (Analysis / Smooth / Airport / Data quality shared with the Live Map)
 let sndMode    = _lsGet('ms_snd_mode', 'area');
 let anaLevel   = parseInt(_lsGet('ms_skewtAna', '0'), 10);
 let areaSmooth = parseInt(_lsGet('ms_areaSmooth', '0'), 10);
 let aptMode    = _lsGet('ms_aptMode', 'off');
+let dqShow     = _lsGet('ms_skewtDq', 'true') !== 'false';   // data-validity indicator
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
 if (!['off', 'overlay', 'zoom'].includes(aptMode)) aptMode = 'off';
@@ -46,7 +47,7 @@ const skewt = createSkewT(document.getElementById('skewt-canvas'),
 
 function syncChart() {
   skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, smooth: areaSmooth,
-              sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint });
+              sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow });
 }
 function drawChart() { syncChart(); skewt.draw(); }
 
@@ -317,6 +318,14 @@ smoothSel.value = String(areaSmooth);
 smoothSel.addEventListener('change', e => {
   areaSmooth = parseInt(e.target.value, 10) || 0;
   _lsSet('ms_areaSmooth', String(areaSmooth));
+  drawChart();
+});
+
+const dqChk = document.getElementById('skewt-dq');
+dqChk.checked = dqShow;
+dqChk.addEventListener('change', e => {
+  dqShow = e.target.checked;
+  _lsSet('ms_skewtDq', String(dqShow));
   drawChart();
 });
 

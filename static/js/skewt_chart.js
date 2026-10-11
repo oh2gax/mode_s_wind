@@ -4,7 +4,7 @@
  *
  *   const chart = createSkewT(canvas, tipElement, { lat: 60.3 });
  *   chart.set({ area, low, aptMode, anaLevel, smooth, sfc, ac, density,
- *               acLabel, profileTitle, hint });
+ *               acLabel, profileTitle, hint, dq });
  *   chart.resize(width, height);  chart.draw();
  *   canvas.addEventListener('mousemove', ev => chart.hover(ev));
  *
@@ -16,6 +16,8 @@
  *            windHistory} or null;  density: aircraft point thinning
  *   acLabel / profileTitle  hover titles;  hint  text at the top (null =
  *            the Live Map default, '' = none)
+ *   dq       data-validity indicator on/off (badge, rings on 1–2-aircraft
+ *            layers, hover warning); default on
  *
  * Needs skewt_analysis.js (analyzeSkewT, skewtMoistLapse,
  * skewtContrailThresholds) loaded first.
@@ -73,7 +75,8 @@ function createSkewT(canvas, tip, cfg = {}) {
   // State, set by the page with set()
   let miniArea = null, miniLow = null, aptMode = 'off', anaLevel = 0, areaSmooth = 0,
       miniSfc = null, miniAcOverlay = null, windDensity = 2,
-      acLabel = 'Aircraft', profileTitle = 'Area, last 60 min', hintText = null;
+      acLabel = 'Aircraft', profileTitle = 'Area, last 60 min', hintText = null,
+      dqShow = true;      // data-validity indicator (badge, rings, hover warning)
   let miniHoverPts = [];   // [{y, src, alt_ft, p, t, ws, wd, n…}] rebuilt on every draw
   let topOff = 0;          // extra offset of the top-left texts when the data badge is shown
 
@@ -373,7 +376,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       ctx.stroke();
     }
     // layers resting on only one or two aircraft: hollow ring (data-validity cue)
-    const weak = l => l.ac_count != null && l.ac_count <= 2;
+    const weak = l => dqShow && l.ac_count != null && l.ac_count <= 2;
     ctx.strokeStyle = T.weak; ctx.lineWidth = 1.2;
     for (const l of tl) {
       if (!weak(l)) continue;
@@ -411,7 +414,7 @@ function createSkewT(canvas, tip, cfg = {}) {
   // GOOD ≥ 20 aircraft per hour of window, FAIR 8–19, LOW < 8 (typical: 25–70
   // by day, 2–5 around midnight).  Layers from 1–2 aircraft carry a ring.
   function dataQuality() {
-    if (!miniArea || miniArea.aircraft == null || !miniArea.levels || !miniArea.levels.length) return null;
+    if (!dqShow || !miniArea || miniArea.aircraft == null || !miniArea.levels || !miniArea.levels.length) return null;
     const win = Math.max(30, miniArea.window_min || 60);
     const rate = miniArea.aircraft * 60 / win;
     const cls = rate >= 20 ? 'GOOD' : rate >= 8 ? 'FAIR' : 'LOW';
@@ -818,7 +821,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (best.t != null) lines.push(`Temp ${best.t.toFixed(1)} °C` +
         (best.traw != null ? ` <span class="mini-tip-dim">(smoothed; layer ${best.traw.toFixed(1)})</span>` : '') +
         (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn}${best.ac != null ? ', ' + best.ac + ' aircraft' : ''})</span>` : ''));
-    if (best.src === 'area' && best.ac != null && best.ac <= 2)
+    if (dqShow && best.src === 'area' && best.ac != null && best.ac <= 2)
       lines.push(`<span style="color:${miniSkewTTheme().weak}">Only ${best.ac} aircraft in this layer — single-aircraft value, read with care</span>`);
     if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
         (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
@@ -1114,6 +1117,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     if ('acLabel' in o)      acLabel = o.acLabel;
     if ('profileTitle' in o) profileTitle = o.profileTitle;
     if ('hint' in o)         hintText = o.hint;
+    if ('dq' in o)           dqShow = o.dq !== false;
   }
 
   function leave() {

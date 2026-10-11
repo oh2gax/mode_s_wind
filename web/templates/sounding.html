@@ -53,8 +53,11 @@
     <div class="skewt-wrap snd-skewt-wrap">
       <div class="panel-header panel-header-row">
         <div>Skew-T</div>
+        <span class="skewt-hdr-ctl">
+        <label class="toggle-label" title="Data-validity indicator: a badge at the top left with the number of distinct aircraft and replies behind the area profile (GOOD ≥ 20 aircraft per hour, FAIR 8–19, LOW &lt; 8 — typically LOW around midnight), a red ring on layers measured by only 1–2 aircraft, and a warning in the hover read-out of such layers. Area profiles only (Area · hour from 11 Oct 2026). The setting is shared with the Live Map."><input type="checkbox" id="skewt-dq"> Data quality</label>
         <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
                 title="Automatic analysis of the shown profile. Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; with the METAR dewpoint the surface parcel: LCL / cumulus base compared with the METAR cloud group, CAPE / CIN, Lifted Index, equilibrium level; Area · now, and Area · hour from 11 Oct 2026 when a METAR was stored with the hour). Temperature and wind only — no humidity data. The setting is shared with the Live Map.">Analysis: Off</button>
+        </span>
       </div>
       <div id="skewt-box" class="snd-skewt-box">
         <canvas id="skewt-canvas"></canvas>
