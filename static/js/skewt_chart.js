@@ -313,8 +313,12 @@ function createSkewT(canvas, tip, cfg = {}) {
       ctx.restore();
     }
     // Legend (top-left of the plot)
-    ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = T.apt;
-    ctx.fillText(`AIRPORT ${miniLow.window_min} min: ${miniLow.arrivals} arr / ${miniLow.departures} dep`, ML + 12, MT + topOff + (zoom ? 12 : 24));
+    // on a label background, so it stays readable where it crosses the top of the curve
+    ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    const aptTxt = `AIRPORT ${miniLow.window_min} min: ${miniLow.arrivals} arr / ${miniLow.departures} dep`;
+    const aptY = MT + topOff + (zoom ? 12 : 24);
+    ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, aptY - 9, ctx.measureText(aptTxt).width + 6, 12);
+    ctx.fillStyle = T.apt; ctx.fillText(aptTxt, ML + 12, aptY);
     ctx.restore();
     for (const l of lv) {
       miniHoverPts.push({ y: mskY(l.pressure), src: 'apt', alt_ft: l.altitude, alt_msl: l.alt_msl, p: l.pressure,
