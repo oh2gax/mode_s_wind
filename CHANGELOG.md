@@ -17,6 +17,8 @@ No version numbers — entries are organised by date.
 - Departure climb-out profiles are also stored with winds only (≥ 3 bands with temperature or wind): turboprops report no Mach, so their climbs were dropped before
 - Zoom mode: shear / turbulence labels of layers outside the zoomed range are no longer stacked at the top
 - **Skew-T user guide, version 2** (`doc/SkewT_User_Guide.pdf`, 13 pages): new sections on the airport low-level profile, the surface parcel with the METAR dewpoint (LCL vs METAR cloud, CAPE / CIN, Lifted Index, fog / low stratus flag — with a real low-stratus case of 11 Oct 2026) and the Sounding page; dewpoint and Airport selector in the diagram anatomy; heading correction, limitations, quick reference and formulas updated; all screenshots renewed
+- README describes the current features only: the dated "since …" / "before …" notes were removed (the history is kept in this changelog); notes on older database rows (`NULL` columns etc.) remain, without dates
+- README screenshots updated (main screen, Approach / Windshear) and a Skew-T screenshot (Atmosphere Profile, Analysis Full) added to the Atmosphere Profile section
 - **Sounding page uses the Live Map Skew-T**: the diagram code of the Live Map *Atmosphere Profile* moved to the new shared `static/js/skewt_chart.js`, and the Sounding page now draws with it (sized to the window) instead of its own older renderer — same look, hover read-out, **Analysis**, **Smooth** and **Airport** controls (settings shared with the Live Map). The airport low-level profile follows the shown period (Area · now: the selected window; Area · hour: that hour; Flight: the flight ± 15 min; new optional `end` parameter of `/api/lowlevel`); the METAR ground line is drawn for Area · now
 
 ---
