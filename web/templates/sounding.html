@@ -128,6 +128,17 @@
       </div>
     </div>
 
+    <!-- Indices: stability indices and levels of the shown profile and of the sonde (skewt_indices.js) -->
+    <div class="snd-idx-wrap" id="snd-idx">
+      <div class="panel-header panel-header-row">
+        <div title="Stability indices and characteristic levels computed with the same method from the shown Mode S profile and from the radiosonde (averaged into the same layers). Hover a row for its definition, a value for details.">Indices</div>
+        <button id="snd-idx-hide" class="snd-idx-btn" type="button" title="Hide the indices panel">⟨</button>
+      </div>
+      <div class="snd-idx-scroll"><table class="snd-idx-table" id="snd-idx-table"></table></div>
+      <div class="snd-idx-note" id="snd-idx-note"></div>
+    </div>
+    <button id="snd-idx-show" class="snd-idx-tab" type="button" title="Show the indices panel">Indices ⟩</button>
+
     <!-- Data table -->
     <div class="sounding-table-wrap">
       <div class="panel-header" id="table-header">Profile levels</div>
@@ -165,6 +176,7 @@
 {% block scripts %}
 <script>const RECEIVER_LAT = {{ receiver_lat }};</script>
 <script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
+<script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/sounding.js') }}"></script>
 
@@ -205,5 +217,45 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 .sv-chart svg { display:block; width:100%; height:auto; }
 .sv-scroll { max-height:340px; overflow:auto; }
 .sv-empty { padding:16px; color:var(--text-3); font-style:italic; }
+/* Indices panel between the diagram and the level table */
+.snd-idx-wrap { flex:0 0 370px; background:var(--bg-1); border:1px solid var(--border); border-radius:6px;
+                display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+.snd-idx-scroll { flex:1; overflow:auto; min-height:0; }
+.snd-idx-table { width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.snd-idx-table th { position:sticky; top:0; background:var(--bg-2, var(--bg-1)); color:var(--text-2); font-weight:600;
+                    text-align:right; padding:5px 6px; border-bottom:1px solid var(--border); white-space:nowrap; z-index:1; }
+.snd-idx-table th:first-child { text-align:left; }
+.snd-idx-table th small { display:block; font-weight:500; font-size:10px; color:var(--text-3); }
+.snd-idx-table td { padding:3px 6px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; color:var(--text-1); }
+.snd-idx-table td:first-child { text-align:left; color:var(--text-2); cursor:help; }
+.snd-idx-table tr.grp td { background:var(--bg-3); color:var(--text-2); font-size:10.5px; font-weight:700;
+                           text-transform:uppercase; letter-spacing:.4px; padding:4px 8px; cursor:default; }
+.snd-idx-table td.na { color:var(--text-3); }
+.snd-idx-table td.warn { color:#fbbf24; font-weight:600; }
+.snd-idx-table td.alert { color:#f87171; font-weight:700; }
+[data-theme="light"] .snd-idx-table td.warn { color:#b45309; }
+[data-theme="light"] .snd-idx-table td.alert { color:#dc2626; }
+.snd-idx-table th.low { color:#f87171; }
+[data-theme="light"] .snd-idx-table th.low { color:#dc2626; }
+.snd-idx-note { font-size:10.5px; line-height:1.4; color:var(--text-3); padding:6px 9px 8px; border-top:1px solid var(--border); }
+.snd-idx-btn { background:none; border:1px solid var(--border); color:var(--text-2); border-radius:4px;
+               font-size:12px; line-height:1; padding:2px 7px; cursor:pointer; }
+.snd-idx-btn:hover { color:var(--text-1); }
+.snd-idx-tab { display:none; writing-mode:vertical-rl; background:var(--bg-1); border:1px solid var(--border);
+               border-radius:6px; color:var(--text-2); font-size:12px; font-weight:600; padding:10px 4px; cursor:pointer; align-self:flex-start; }
+.snd-idx-tab:hover { color:var(--text-1); }
+.sounding-layout.idx-hidden .snd-idx-wrap { display:none; }
+.sounding-layout.idx-hidden .snd-idx-tab { display:block; }
+/* narrower screens: compact level table so the sonde columns still fit */
+@media (max-width: 1800px) {
+  .sounding-table-wrap .data-table th, .sounding-table-wrap .data-table td { padding:4px 4px; font-size:11.5px; }
+  .sounding-table-wrap .data-table td { white-space:nowrap; }
+  .snd-skewt-wrap { flex-basis:680px; }
+  .sounding-table-wrap .data-table th { white-space:normal; line-height:1.2; }
+}
+@media (max-width: 1250px) {
+  .sounding-layout { flex-wrap:wrap; }
+  .sounding-layout .sounding-table-wrap { flex:1 1 100%; }
+}
 </style>
 {% endblock %}

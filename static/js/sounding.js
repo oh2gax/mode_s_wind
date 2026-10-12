@@ -58,7 +58,74 @@ function syncChart() {
               sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
               sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef });
 }
-function drawChart() { syncChart(); skewt.draw(); }
+function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
+
+// ── Indices panel (skewt_indices.js): the shown Mode S profile and the sonde,
+// computed with the same method (the sonde averaged into the Mode S layers)
+let idxShow = _lsGet('ms_sndIdx', 'true') !== 'false';
+let idxKey = null;
+function renderIndices(force = false) {
+  const tbl = document.getElementById('snd-idx-table');
+  if (!tbl || !idxShow || typeof skewtIndices !== 'function') return;
+  const sonde = sondeShow && sndSonde && sndSonde.found ? sndSonde : null;
+  const key = [sndProfile, sonde, sndSfc, sndMode];
+  if (!force && idxKey && key.every((v, i) => v === idxKey[i])) return;
+  idxKey = key;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const levels = sndProfile && sndProfile.levels ? sndProfile.levels : [];
+  const sfc = sndSfc && sndSfc.t != null
+    ? { p: sndSfc.p, t: sndSfc.t, td: sndSfc.td, elev: sndSfc.elev, qnh: sndSfc.qnh,
+        src: `METAR ${sndSfc.station || ''} ${sndSfc.time || ''}`.trim() } : null;
+  const lat = typeof RECEIVER_LAT !== 'undefined' ? RECEIVER_LAT : 60.3;
+  const M = levels.length ? skewtIndices(levels, { sfc, lat,
+              noSfc: sndMode === 'flight' ? 'flight profile: no surface observation' : 'no METAR with this profile' }) : null;
+  let S = null;
+  if (sonde) {
+    const sl = (sonde.levels || []).slice().sort((a, b) => b.pressure - a.pressure);
+    const s0 = sl.find(l => l.temp != null);
+    const ssfc = s0 ? { p: s0.pressure, t: s0.temp, td: s0.dewpoint, elev: s0.z_m != null ? s0.z_m / 0.3048 : null,
+                        src: `${sonde.station || 'sonde'} surface` } : null;
+    S = skewtIndices(skewtSondeLayers(sl), { sfc: ssfc, lat: sonde.lat || lat, humid: true, top: sonde.min_p });
+  }
+  const ac = sndProfile && sndProfile.aircraft != null ? sndProfile.aircraft : null;
+  const win = sndProfile && sndProfile.window_min ? sndProfile.window_min / 60 : 1;
+  const low = sndMode !== 'flight' && ac != null && ac / Math.max(1, win) < 8;
+  const st = sonde ? new Date(sonde.nominal * 1000) : null;
+  const sName = sonde ? (sonde.station || 'Sonde').split(/\s+/)[0] : '';
+  let h = `<thead><tr><th>Index</th><th class="${low ? 'low' : ''}" title="${low ? 'LOW data: few aircraft behind the profile' : ''}">Mode S` +
+          `<small>${sndMode === 'flight' ? 'flight' : ac != null ? ac + ' aircraft' + (low ? ' · LOW' : '') : 'area'}</small></th>` +
+          (S ? `<th title="${esc(sonde.station)} ${st.getUTCDate()}.${st.getUTCMonth() + 1}. ${_pad(st.getUTCHours())} UTC${sonde.qc ? ' — top cut: ' + esc(sonde.qc) : ''}">${esc(sName.charAt(0) + sName.slice(1).toLowerCase())}` +
+               `<small>${st.getUTCDate()}.${st.getUTCMonth() + 1}. ${_pad(st.getUTCHours())} UTC</small></th>` : '') +
+          `</tr></thead><tbody>`;
+  const cell = r => {
+    if (!r) return '<td class="na">–</td>';
+    const tip = r.na ? r.na : r.tip || '';
+    return `<td class="${r.na ? 'na' : r.cls || ''}" title="${esc(tip)}">${esc(r.txt)}</td>`;
+  };
+  for (const [grp, k, label, expl] of SKEWT_INDEX_ROWS) {
+    if (grp) h += `<tr class="grp"><td colspan="${S ? 3 : 2}">${esc(grp)}</td></tr>`;
+    h += `<tr><td title="${esc(expl)}">${esc(label)}</td>${M ? cell(M.rows[k]) : '<td class="na">–</td>'}${S ? cell(S.rows[k]) : ''}</tr>`;
+  }
+  tbl.innerHTML = h + '</tbody>';
+  const notes = [];
+  if (!M) notes.push('No profile loaded.');
+  else {
+    notes.push('Mode S: aircraft temperature / wind' + (sfc ? ' + METAR surface T / Td' : '') + '; humidity-aloft indices are sonde only.');
+    if (M.info.gaps.length) notes.push(`Mode S profile has data gaps (${M.info.gaps.join(', ')}): levels found above a gap are uncertain.`);
+    if (low) notes.push('LOW data: few aircraft — single-aircraft layers can be several degrees off.');
+  }
+  if (S) notes.push('Sonde: averaged into the same layers, own surface values (about 100 km NW, inland).' +
+                    (sonde.min_p > 150 ? ` Partial: to ${Math.round(sonde.min_p)} hPa.` : ''));
+  else if (!sondeShow) notes.push('Tick Sonde to compare with the radiosonde.');
+  notes.push('Heights: ft AMSL from the surface (FL without one). Hover for details.');
+  document.getElementById('snd-idx-note').innerHTML = notes.map(esc).join(' ');
+}
+function setIdxShow(v) {
+  idxShow = v;
+  _lsSet('ms_sndIdx', String(v));
+  document.querySelector('.sounding-layout').classList.toggle('idx-hidden', !v);
+  if (v) renderIndices(true);
+}
 
 function resizeChart() {
   const box = document.getElementById('skewt-box');
@@ -441,6 +508,10 @@ aptSel.addEventListener('change', e => {
   _lsSet('ms_aptMode', aptMode);
   fetchLow(sndLowQs);
 });
+
+document.getElementById('snd-idx-hide').addEventListener('click', () => setIdxShow(false));
+document.getElementById('snd-idx-show').addEventListener('click', () => setIdxShow(true));
+document.querySelector('.sounding-layout').classList.toggle('idx-hidden', !idxShow);
 
 const canvasEl = document.getElementById('skewt-canvas');
 canvasEl.addEventListener('mousemove', ev => { syncChart(); skewt.hover(ev); });

@@ -23,7 +23,7 @@ All decoded observations are stored in a local SQLite database and presented thr
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
   - BDS 5,0 + 6,0 **air temperature** — static air temperature from the true airspeed and the Mach number (available for about 85 % of the observations, see [Air temperature](#air-temperature-bds-50--60))
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
-- **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser); the Jokioinen radiosonde (FMI open data) can be drawn for comparison, and every sounding is verified against the area profile automatically (**Sonde check**)
+- **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser); the Jokioinen radiosonde (FMI open data) can be drawn for comparison, and every sounding is verified against the area profile automatically (**Sonde check**); an **Indices** panel gives the stability indices and characteristic levels (CAPE, Lifted Index, LCL, freezing level, tropopause, lapse rates, wind shear …) of the shown profile next to those of the sonde
 - **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar; clicking any aircraft immediately loads its full historical wind and temperature profile from the database, then continues accumulating live updates on top. Profile persists across page navigation — navigating away and back restores the full picture instantly.
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark theme toggle** — a **Dark / Light** button in the navbar switches all pages between the default dark theme and a blue-grey paper-toned light theme; preference is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette
@@ -686,6 +686,23 @@ The Sounding page uses **the same Skew-T diagram as the Live Map *Atmosphere Pro
 - **Airport**: Off / Overlay / Zoom — the airport low-level profile (200 ft bands from the landings and departures) **of the shown period**: Area · now — the selected window; Area · hour — that hour; Flight — the flight's time ± 15 min (`/api/lowlevel?…&end=`)
 
 These settings are shared with the Live Map (remembered in the browser). The METAR ground line with temperature and dewpoint (and so the thermal top and surface parcel of Analysis *Full*) is drawn for **Area · now** (current METAR) and **Area · hour** (the METAR stored with the hourly profile); flights have none. The aircraft overlay of the Live Map does not apply here.
+
+#### Indices panel
+
+Between the diagram and the level table, the **Indices** panel lists stability indices and characteristic levels of the shown profile (**Mode S** column) and — with the **Sonde** tick box on — of the radiosonde shown in the diagram (**Jokioinen** column), computed by the same code (`static/js/skewt_indices.js`, built on the diagram's automatic analysis in `skewt_analysis.js`), so the two columns compare directly. Hover a row label for the definition and a value for details (pressure, all inversions / turbulence layers, the reason when a value cannot be given). The ⟨ button hides the panel (a slim *Indices* tab brings it back; remembered in the browser); on narrow screens the level table moves below the diagram.
+
+| Group | Rows |
+|-------|------|
+| Surface & parcel | surface T / Td; LCL (cloud base of surface air, Bolton 1980); CCL and convective temperature (amber when the surface has reached it); dry thermal top; LFC; EL; CAPE; CIN (only with an LFC); Lifted Index (500 hPa); Showalter; K index; Total Totals; Vertical Totals (T850 − T500); precipitable water |
+| Levels | 0 / −10 / −20 °C levels (with the number of further crossings); WMO tropopause; contrail formation levels (humid air / any humidity, Schmidt–Appleman) |
+| Lapse rates & thickness | lapse rate 0–3 km above the ground, 850–500 and 700–500 hPa; 1000–500 hPa thickness; temperatures (sonde: and dewpoints) at 850 / 700 / 500 hPa |
+| Wind | bulk shear 0–1 / 0–3 / 0–6 km (from the lowest layer); max wind; low-level jet; lowest inversion; turbulence layers; strongest thermal advection |
+
+- **Mode S**: the aircraft temperature and wind layers; the surface point is the METAR temperature / dewpoint (Area · now: current METAR; Area · hour: the METAR stored with the hour; a flight has none, so the surface-based values are left out). The aircraft report no humidity, so Showalter, K index, Total Totals and precipitable water are sonde only; the parcel values (LCL, CAPE, LI …) use the METAR dewpoint at the surface only.
+- **Sonde**: averaged into the same layers as the aircraft profile (1 000 ft below 10 000 ft, 2 000 ft above), with its own surface values (Jokioinen, about 100 km NW and inland) — the comparison shows measurement differences, not resolution. Values above the top of a partial sounding are left out.
+- Heights are hypsometric from the surface point (feet above the ground for the parcel levels, above mean sea level for the isotherms); without a surface point flight levels. Plain temperature throughout, no virtual-temperature correction. Temperatures are not interpolated across a data gap of more than one missing 2 000 ft layer; the panel note lists such gaps and a LOW data warning when few aircraft are behind the profile.
+- Colours: amber / red for values that indicate instability or strong gradients (e.g. Lifted Index ≤ −1 / ≤ −5, CAPE ≥ 100 / ≥ 1000 J/kg, K index ≥ 26 / ≥ 31, Total Totals ≥ 44 / ≥ 50, lapse rate ≥ 7 / ≥ 9 K/km, 0–6 km shear ≥ 40 kt).
+- Checked on the hourly profiles at the launch hours of the Jokioinen soundings of 11–12 Oct 2026 (five with enough aircraft data): lapse rates within 1 K/km, 1000–500 hPa thickness within 1 dam, Vertical Totals −0.3 … +2.7 (mean +1.1), −10 / −20 °C levels within 800 ft, tropopause within 2 000 ft; the 0 °C level was 300–2 000 ft higher from the aircraft (850 hPa up to 2 K warmer: the low-level air at Jokioinen, inland, was colder) and the max wind 3–27 kt stronger (as in the Sonde check).
 
 #### Level data table
 
@@ -1737,6 +1754,7 @@ mode_s_wind/
 │       ├── live_map.js        # Live map, ATC display, atmosphere profile
 │       ├── skewt_analysis.js  # Skew-T analysis: tropopause, isotherms, wind max, inversions, stability, shear / Ri
 │       ├── skewt_chart.js     # Skew-T diagram (createSkewT), shared by the Live Map and the Sounding page
+│       ├── skewt_indices.js   # Stability indices and levels for the Sounding page's Indices panel
 │       ├── sounding.js        # Sounding page: sources, data table, diagram controls
 │       ├── windmap.js         # Wind map barb rendering + controls
 │       ├── windshear.js       # Approach strips, ILS profile, windshear detection
