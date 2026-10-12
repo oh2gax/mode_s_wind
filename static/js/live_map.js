@@ -173,6 +173,19 @@ async function fetchMiniArea() {
   fetchMiniLow();
 }
 
+// ── Radiosonde (Jokioinen, /api/sonde) — 'Sonde' tick box, default off ─────
+let sondeShow = localStorage.getItem('ms_skewtSonde') === 'true';
+let miniSonde = null;  // /api/sonde response (found: false → "no sounding" note)
+async function fetchMiniSonde() {
+  if (!sondeShow) { miniSonde = null; return; }
+  try {
+    const r = await fetch('/api/sonde');
+    if (!r.ok) return;
+    miniSonde = await r.json();
+    drawMiniSounding();
+  } catch (_) { /* silent */ }
+}
+
 // ── Airport low-level profile (landings + departures, /api/lowlevel) ──────
 // aptMode: 'off' | 'overlay' (amber profile 200–3 000 ft MSL on the diagram)
 // | 'zoom' (diagram range surface … 850 hPa, airport profile with its winds)
@@ -197,7 +210,7 @@ function syncSkewT() {
     ac: miniAcOverlay, density: windDensity,
     acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
     profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
-    hint: null, dq: dqShow,
+    hint: null, dq: dqShow, sonde: sondeShow ? miniSonde : null, sondeRef: null,
   });
 }
 function drawMiniSounding() { syncSkewT(); skewt.draw(); }
@@ -796,6 +809,21 @@ if (dqChk) {
     drawMiniSounding();
   });
 }
+
+// ── Radiosonde tick box (panel title); refreshed every 10 min while on ─────
+const sondeChk = document.getElementById('skewt-sonde');
+if (sondeChk) {
+  sondeChk.checked = sondeShow;
+  sondeChk.addEventListener('change', e => {
+    sondeShow = e.target.checked;
+    localStorage.setItem('ms_skewtSonde', String(sondeShow));
+    drawMiniSounding();
+    fetchMiniSonde();
+  });
+}
+fetchMiniSonde();
+setInterval(fetchMiniSonde, 10 * 60 * 1000);
+setInterval(() => { if (sondeShow && miniSonde) drawMiniSounding(); }, 60 * 1000);   // age label
 
 // ── Airport low-level profile selector (Off / Overlay / Zoom) ─────────────
 const aptSel = document.getElementById('apt-mode');

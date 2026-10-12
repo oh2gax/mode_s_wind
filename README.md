@@ -23,7 +23,7 @@ All decoded observations are stored in a local SQLite database and presented thr
   - BDS 5,0 + 6,0 computed wind — wind vector derived from true track, ground speed, magnetic heading and airspeed
   - BDS 5,0 + 6,0 **air temperature** — static air temperature from the true airspeed and the Mach number (available for about 85 % of the observations, see [Air temperature](#air-temperature-bds-50--60))
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
-- **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser)
+- **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser); the Jokioinen radiosonde (FMI open data) can be drawn for comparison, and every sounding is verified against the area profile automatically (**Sonde check**)
 - **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar; clicking any aircraft immediately loads its full historical wind and temperature profile from the database, then continues accumulating live updates on top. Profile persists across page navigation — navigating away and back restores the full picture instantly.
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark theme toggle** — a **Dark / Light** button in the navbar switches all pages between the default dark theme and a blue-grey paper-toned light theme; preference is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette
@@ -90,7 +90,7 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /maintenance   DB maintenance
 ```
 
-Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
+Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`, the radiosonde verification `sonde_verification`). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -248,6 +248,9 @@ class Config:
     # ARCHIVE_DIR = "data/archive"    # optional: folder of the monthly archive files and snapshots
     # DEPARTURE_PROFILES = True       # optional: departure climb-out profile capture (departure_profiles)
     # DEPARTURE_PROFILE_DAYS = 90     # optional: days to keep departure_profiles (0 = never purge)
+    # SONDE_FETCH = True              # optional: fetch radiosonde soundings from FMI open data
+    # SONDE_PLACE = "Jokioinen"       # optional: FMI sounding station
+    # SONDE_KEEP_DAYS = 365           # optional: days to keep the files in data/soundings (0 = forever)
     # WIND_MAX_AGE_SEC = 6.0          # optional: max age (s) of the older BDS 5,0 / 6,0 reply for a wind placed at an altitude
     # HEADING_CAL_MODE = "apply"      # optional: per-airframe heading calibration "apply" | "learn" | "off"
     #                                 # (other HEADING_CAL_* keys: see "Heading calibration" above)
@@ -303,7 +306,7 @@ class Config:
     MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
 ```
 
-> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `WIND_MAX_AGE_SEC` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
+> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `WIND_MAX_AGE_SEC`, `SONDE_*` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
 
 Key values to change for your installation:
 
@@ -593,6 +596,10 @@ The analysis uses temperature and wind (humidity only from the METAR dewpoint at
 
 **Data badge** — with the **Data quality** tick box at the right of the panel title ticked (default; the choice is remembered in the browser and shared with the Sounding page), the top-left corner of the diagram tells how much data the area profile rests on, e.g. `DATA GOOD · 66 aircraft · 1610 obs`: the number of distinct aircraft and observations in the window, coloured **GOOD** (green, ≥ 20 aircraft per hour of window), **FAIR** (amber, 8–19) or **LOW** (red, < 8). At EFHK a daytime hour has 25–70 aircraft within 150 km, about 20 per altitude band; around midnight UTC only 2–5, often a single aircraft per layer. Layers that rest on only **one or two aircraft** are marked with a small red ring and red value — single-aircraft values that can be off by several degrees or knots — and the key `○ = 1–2 aircraft` is added to the badge; the hover read-out gives the number of aircraft of every layer. The automatic analysis still runs on such layers, so features found in a LOW profile (inversions, shear, turbulence) deserve extra caution. Unticking **Data quality** hides the badge, the rings and the hover warning (the aircraft counts stay in the hover read-out).
 
+**Sonde (radiosonde)** — the **Sonde** tick box in the panel title (off by default; remembered in the browser and shared with the Sounding page) adds the latest **Jokioinen radiosonde** (about 100 km north-west of EFHK) to the diagram for comparison: its temperature as a pink line, its **dewpoint** as a green dashed line — humidity aloft, which the aircraft do not report — and its winds as pink barbs along the right edge of the plot. The label below the top-left texts gives the launch time and the **age** of the sounding, e.g. `JOKIOINEN 12.10. 06 UTC · 4 h 35 min old`, and how much the area profile differs from it over the common layers, e.g. `Δ area−sonde: T +0.4 K (RMS 1.1) · wind 7 kt RMS · 18 layers`; the lines fade after 6 h and 12 h and the label turns amber after 12 h, so you can follow the live profile moving away from an ageing sounding. The hover read-out adds the sonde's temperature, dewpoint, relative humidity and wind at the same level. Many FMI open-data profiles stop early (00 UTC flights usually near 350 hPa); the label then adds `to 350 hPa`. Jokioinen is inland: at night it is often a few degrees colder near the ground than the airport area (a real difference, not an error of either). With no sounding in the last 36 h the label says so.
+
+The soundings come from **FMI open data** (stored query `fmi::observations::weather::sounding::multipointcoverage`, CC BY 4.0): a background thread (`collector/sondes.py`) looks for each new sounding about 1.5 h after the 00, 06 and 12 UTC launches, every 20 min until it appears (at most 8 h), and fills gaps of the last two days at start. Each sounding is stored as one gzipped JSON file in `data/soundings/` (`jokioinen_YYYYMMDDHH.json.gz`, about 6 kB: the ascending part thinned to about every 3 hPa plus the turning points of the temperature and dewpoint curves) and kept `SONDE_KEEP_DAYS` (default 365) days — a few small HTTPS requests and about four file writes a day, nothing in the database. Optional `config.py` keys: `SONDE_FETCH` (default `True`), `SONDE_PLACE` (`"Jokioinen"`), `SONDE_KEEP_DAYS`, `SONDE_DIR`. The stored soundings are also verified against the area profile automatically — see the Sounding page's **Sonde check**.
+
 **Hover read-out** — moving the mouse over the diagram shows the nearest level: altitude (ft, FL, km), pressure, temperature and wind — for the selected aircraft's observations, otherwise (or above / below them) for the area profile, with its 10–90 % temperature range, wind spread, number of replies and number of aircraft (with a warning for layers from only one or two aircraft).
 
 **When an aircraft is selected** the panel immediately loads the aircraft's full flight history from the database, then continues accumulating live updates:
@@ -662,6 +669,8 @@ Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air tempe
 - **Area · hour** — the **hourly profile archive** (`profile_hours`): one stored profile per completed UTC hour, kept indefinitely — also after the observations themselves have been purged. Pick a date and hour; the hour list shows the observations used
 - **Flight** — profile of a single flight: select a flight from the dropdown (flights with meteo data and an altitude range > 5 000 ft, most recent first), then **Load Sounding**. The flight info banner shows callsign, ICAO24, time range, altitude range and observation count. The Flights page's 🌡 Sounding button opens this page with the flight pre-selected
 
+A fourth button, **Sonde check**, replaces the diagram with the automatic verification against the radiosonde (see [Sonde check](#sonde-check) below).
+
 All three use the same altitude layers — 1 000 ft deep below 10 000 ft, 2 000 ft above (to 46 000 ft) — at the standard-atmosphere pressure of the layer's pressure altitude (Mode S altitude is referenced to 1013.25 hPa, so this is the measured static pressure). Temperature is the 10 % trimmed mean of the replies in the layer, wind the vector mean.
 
 #### Skew-T diagram
@@ -670,6 +679,7 @@ The Sounding page uses **the same Skew-T diagram as the Live Map *Atmosphere Pro
 
 - **Analysis** button (panel title; click or mouse wheel): Off / Levels / Stability / Turbulence / Advection / Full — the automatic analysis of the shown profile
 - **Data quality** tick box (panel title): the data badge with the aircraft count, red rings on 1–2-aircraft layers and the hover warning — area profiles only (Area · now, and Area · hour for hours archived with the aircraft count); flight profiles come from one aircraft and have no badge
+- **Sonde** tick box (panel title): the Jokioinen radiosonde (see the Live Map *Atmosphere Profile*) — Area · now: the latest sounding; Area · hour and Flight: the newest sounding launched by the end of that hour or flight (at most 36 h older), with its age counted to the middle of the hour or flight. With the tick box on, a **sounding selector** next to it lists every stored sounding (`12.10. 12 UTC`, partial ones with their top, `· to 350 hPa`): **Auto** follows the rule above, or pick any sounding to compare with the shown profile (the age is then counted from that launch). The level table gets the sonde columns (below)
 - **Smooth**: Off / 3 layers / 5 layers vertical running mean of the temperature profile
 - **Airport**: Off / Overlay / Zoom — the airport low-level profile (200 ft bands from the landings and departures) **of the shown period**: Area · now — the selected window; Area · hour — that hour; Flight — the flight's time ± 15 min (`/api/lowlevel?…&end=`)
 
@@ -688,6 +698,19 @@ The table on the right shows each altitude layer with:
 | Dir (°) | Vector-mean wind direction (FROM, meteorological convention) |
 | Obs T / W | Replies used for temperature / wind |
 | A/C | Distinct aircraft in the layer (red: only 1–2, a single-aircraft value); the line above the table also gives the total aircraft of the profile |
+| Sonde T | Radiosonde temperature at the layer's pressure (interpolated in log pressure) — with the **Sonde** tick box on; `–` above the top of the sounding |
+| ΔT | Layer temperature − sonde (K); amber when more than 2 K |
+| Sonde wind | Radiosonde wind direction / speed (kt) at the layer |
+| ΔV (kt) | Length of the vector difference layer wind − sonde wind; amber when more than 10 kt |
+
+#### Sonde check
+
+**Sonde check** (fourth source button) shows how well the Mode S area profile agrees with the radiosonde, from the table `sonde_verification` that the hourly jobs fill automatically (`collector/sonde_verif.py`). Period buttons **7 d / 30 d / 90 d / 1 y** (remembered in the browser).
+
+- **At launch** — every stored sounding is compared with the area profile of ±1 h around its launch (all aircraft within `SOUNDING_RADIUS_KM`, computed from the observations once the hour after the launch is over): temperature bias area − sonde and its standard deviation, wind vector RMS difference and speed bias. Tiles give the totals of the period, a table splits them by altitude band (0–5 000, 5–10 000, 10–20 000, 20–30 000 ft, above 30 000 ft) and a list shows each verified launch with the top of the sounding and the number of aircraft (red below 16, i.e. a LOW night profile; amber values: T RMS > 2 K, wind RMS > 15 kt).
+- **By age of the sounding** — every archived hourly profile (`profile_hours`, once it is 3 h old) is compared with the newest sounding launched by the middle of that hour (+ 15 min, at most 24 h before). Two bar charts give the temperature and wind RMS difference by the age of the sounding (0–1, 1–2, 2–3, 3–4, 4–6, 6–8, 8–10, 10–12, 12–18, 18–24 h) with the at-launch value as a dashed line: how fast the atmosphere moves away from a sounding, and so what a live profile adds between the launches.
+
+Layers count when they have ≥ 3 replies and lie within the sounding's range (FMI profiles may stop early). Jokioinen is about 100 km north-west and inland, so part of the difference is real (cooler nights near the ground), and the totals are pooled over layers (each row weighted by its layer count). Missing rows of the last 14 days are added at each run — soundings that arrive late, or a restart — so the table fills by itself; a few small inserts an hour.
 
 ---
 
@@ -1576,6 +1599,8 @@ Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (in
 
 **`profile_hours`** — hourly atmospheric profile archive: one row per completed UTC hour (`ts` = hour start) with the area profile of all aircraft within `SOUNDING_RADIUS_KM` of the receiver, `data` = `{"r": radius km, "n": observations used, "a": distinct aircraft, "lv": [[alt_lo, temp, temp_p10, temp_p90, temp_count, wind_dir, wind_spd, wind_sd, wind_count, ac_count], …]}` per altitude layer (1 000 ft to 10 000 ft, 2 000 ft above), and `"m": {"z": "DDHHMM", "q": QNH, "tt": °C, "td": °C, "cld": "BKN014"}` — the latest METAR of that hour (observation time within the hour or up to 20 min after; back-filled hours have none), for the Sounding page's ground line, dewpoint and parcel analysis. Computed a few minutes after each hour change from the observations (one read query and one insert; at startup missing hours of the last 31 days are back-filled from the observations still in the database), so the profiles survive the observation autopurge. About 0.4–1.2 kB per row, 24 rows per day; never purged. Shown on the Sounding page (**Area · hour**).
 
+**`sonde_verification`** — automatic comparison of the area profile with the radiosonde (`collector/sonde_verif.py`, shown under **Sonde check** on the Sounding page): `kind` (`launch` — area profile ±1 h around a sounding's launch; `hour` — an archived hourly profile vs the newest earlier sounding), `ts` (launch time / hour start, unique per kind), `sonde_key` (YYYYMMDDHH), `age_h` (profile middle − launch, h), `min_p` (top of the sounding, hPa), `aircraft`, `obs`, `n_t` / `t_bias` / `t_rms` (temperature layers, area − sonde, K), `n_w` / `w_rms` / `ws_bias` (wind layers, vector RMS difference and speed bias, kt) and `bands` (JSON, the same per altitude band). Written by the hourly jobs (3 launch rows and up to 24 hour rows a day, about 0.3 kB each); never purged.
+
 **`approach_series`** — raw reply series on final per landing: `ts`, `icao`, `runway` (same as the `approach_history` row) and `data` = zlib-compressed JSON of integer columns (BDS 5,0 / 6,0 replies and the 3-s sweeps; layout in `WindshearTracker.SERIES_COLS`, decoded by `WindshearTracker.decode_series()`). About 2–3 kB per landing; rows older than `APPROACH_SERIES_DAYS` (default 90) are deleted daily, and with the approach history purges. See [Approach roughness logging](#approach-roughness-logging).
 
 ### Direct database queries
@@ -1680,6 +1705,8 @@ mode_s_wind/
 │   ├── declination.py         # Position-based magnetic declination (WMM2025 via pygeomag)
 │   ├── heading_cal.py         # Per-airframe heading offset learning and wind correction
 │   ├── departures.py          # Departure climb-out profile capture (200 ft bands, raw replies)
+│   ├── sondes.py              # Radiosonde soundings from FMI open data (fetch, store in data/soundings)
+│   ├── sonde_verif.py         # Automatic verification of the area profile against the radiosonde (Sonde check)
 │   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness, autopilot, band profile, raw series)
 │   ├── approach_cond.py       # Provisional approach-conditions index (roughness → 0–10)
 │   ├── gps_quality.py         # Area-wide GPS quality monitor: hourly buckets (RAM + DB), degradation episode log
@@ -1720,7 +1747,7 @@ mode_s_wind/
 │   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
 │                              # Present but not currently loaded by any page (reserved for future overlays)
 ├── doc/                       # README screenshots, Skew-T user guide (SkewT_User_Guide.pdf), Approach Conditions Index article
-├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb
+├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb; soundings/ (radiosondes)
 ├── logs/                      # Log files (created at runtime)
 └── tmp_files/                 # Local scratch folder (gitignored)
 ```
@@ -1774,6 +1801,9 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |
 | GET | `/api/flights/suitable_soundings` | Flights eligible for per-flight sounding |
 | GET | `/api/sounding` | Area sounding of all aircraft within `SOUNDING_RADIUS_KM` over the last `?minutes=` (10–360, default `SOUNDING_WINDOW_MIN`): altitude layers with trimmed-mean Mach/TAS temperature (10–90 % range, count), vector-mean wind (SD, count) and `ac_count` (distinct aircraft per layer); `aircraft` = distinct aircraft in the window |
+| GET | `/api/sondes` | Stored radiosonde soundings (`data/soundings/`): `station`, `fetch`, `keep_days`, `last_fetch` and `items` (newest first: `key` YYYYMMDDHH, `nominal`, `launch`, `end`, `min_p`, `n` stored levels, `n_raw`) |
+| GET | `/api/sonde/verification` | Sonde check summary of the last `?days=` (1–366, default 30) days from `sonde_verification`: `launch_total`, `hour_total` and per altitude band (`bands`) / age bin (`age`, with `lo` / `hi` hours) pooled `rows`, `n_t`, `n_w`, `t_bias`, `t_sd`, `t_rms`, `w_rms`, `ws_bias`; `launches` (newest first, one per verified launch) |
+| GET | `/api/sonde` | One sounding for the Skew-T: `?key=YYYYMMDDHH`, or `?at=<Unix s>` (newest launched at or before that time, at most `?max_age_h=` 36 h older), default the latest; `levels` with `pressure`, `altitude` (ISA pressure altitude, ft), `z_m`, `temp`, `dewpoint`, `wind_dir`, `wind_spd` (kt); `{"found": false}` when there is none |
 | GET | `/api/sounding/hours` | Hours stored in the hourly profile archive for `?date=YYYY-MM-DD` (UTC): `[{ts, n}, …]` |
 | GET | `/api/sounding/hour` | Hourly archive profile of one completed UTC hour, `?ts=<hour start>`; `sfc` = the METAR stored with the hour (`z`, `q`, `tt`, `td`, `cld`) or null; HTTP 404 when none is stored |
 | GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |

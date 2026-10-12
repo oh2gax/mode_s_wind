@@ -608,6 +608,52 @@ def create_app(
             end = None
         return jsonify(lowlevel_profile(get_db(), request.args.get("minutes", 60, type=int), now=end))
 
+    @app.route("/api/sondes")
+    def sondes_api():
+        """Stored radiosonde soundings (collector/sondes.py, FMI open data):
+        {station, fetch, last_fetch, items: [{key, nominal, launch, min_p, n, …}]}
+        newest first."""
+        from collector import sondes as _sondes
+        st = _sondes.get()
+        if st is None:
+            return jsonify({"station": None, "fetch": False, "items": []})
+        lf = st.last_fetch
+        return jsonify({"station": st.place, "fetch": st.enabled, "keep_days": st.keep_days,
+                        "last_fetch": {"ts": lf[0], "result": lf[1]} if lf else None,
+                        "items": st.items()})
+
+    @app.route("/api/sonde")
+    def sonde_api():
+        """One radiosonde sounding for the Skew-T: ?key=YYYYMMDDHH, or ?at=<Unix s>
+        (newest launched at or before that time, at most ?max_age_h=36 h older),
+        default the latest.  {found: false} when there is none."""
+        from collector import sondes as _sondes
+        st = _sondes.get()
+        if st is None:
+            return jsonify({"found": False})
+        key = request.args.get("key")
+        if not key:
+            at = request.args.get("at", type=float)
+            key = st.find(at, request.args.get("max_age_h", 36.0, type=float))
+        rec = st.load(key) if key else None
+        if rec is None:
+            return jsonify({"found": False, "station": st.place})
+        return jsonify({"found": True, "key": rec["key"], "src": rec.get("src"),
+                        "station": rec.get("station") or st.place, "wmo": rec.get("wmo"),
+                        "nominal": rec.get("nominal"), "launch": rec.get("launch"),
+                        "end": rec.get("end"), "min_p": rec.get("min_p"),
+                        "n_raw": rec.get("n_raw"), "lat": rec.get("lat"), "lon": rec.get("lon"),
+                        "levels": _sondes.levels_for_chart(rec)})
+
+    @app.route("/api/sonde/verification")
+    def sonde_verification_api():
+        """Mode S area profile vs radiosonde (collector/sonde_verif.py) over the
+        last ?days= (1–366, default 30): pooled launch statistics, per band,
+        difference vs sounding age, and the list of verified launches."""
+        from collector import sonde_verif as _sv
+        days = max(1.0, min(366.0, request.args.get("days", 30, type=float)))
+        return jsonify(_sv.summary(get_db(), days))
+
     @app.route("/api/sounding/hours")
     def sounding_hours_api():
         """Hours stored in the hourly profile archive (profile_hours) for a

@@ -13,6 +13,16 @@
         <button class="snd-mode-btn" data-mode="area" title="All aircraft within {{ sounding_radius|int }} km of the receiver over the last minutes">Area · now</button>
         <button class="snd-mode-btn" data-mode="hour" title="Hourly profile archive (all aircraft within {{ sounding_radius|int }} km, one completed UTC hour) — kept after the observations are purged">Area · hour</button>
         <button class="snd-mode-btn" data-mode="flight" title="Profile from a single climbing or descending flight">Flight</button>
+        <button class="snd-mode-btn" data-mode="verif" title="Automatic verification: the Mode S area profile compared with every stored Jokioinen radiosonde, and how the difference grows as a sounding ages">Sonde check</button>
+      </span>
+
+      <span class="snd-ctl" id="snd-verif-ctl">
+        <span class="snd-mode-btns" id="sv-days-btns">
+          <button class="snd-mode-btn" data-days="7">7 d</button>
+          <button class="snd-mode-btn" data-days="30">30 d</button>
+          <button class="snd-mode-btn" data-days="90">90 d</button>
+          <button class="snd-mode-btn" data-days="365">1 y</button>
+        </span>
       </span>
 
       <span class="snd-ctl" id="snd-area-ctl">
@@ -47,6 +57,39 @@
   <!-- Flight info banner -->
   <div id="flight-banner" class="flight-banner hidden"></div>
 
+  <!-- Sonde check: automatic verification against the radiosonde (sonde_verification) -->
+  <div id="snd-verif" class="snd-verif" style="display:none">
+    <div class="sv-tiles" id="sv-tiles"></div>
+    <div class="sv-row">
+      <div class="sv-panel">
+        <div class="panel-header">Temperature: area − sonde, RMS by age of the sounding</div>
+        <div class="sv-chart" id="sv-age-t"></div>
+      </div>
+      <div class="sv-panel">
+        <div class="panel-header">Wind: vector RMS difference by age of the sounding</div>
+        <div class="sv-chart" id="sv-age-w"></div>
+      </div>
+    </div>
+    <div class="sv-row">
+      <div class="sv-panel sv-narrow">
+        <div class="panel-header">At launch, by altitude band</div>
+        <table class="data-table compact" id="sv-bands"></table>
+      </div>
+      <div class="sv-panel">
+        <div class="panel-header">Verified launches (area profile ±1 h around the launch)</div>
+        <div class="sv-scroll"><table class="data-table compact" id="sv-launches"></table></div>
+      </div>
+    </div>
+    <div class="sounding-note" id="sv-note">
+      Each stored Jokioinen sounding is compared with the Mode S area profile of ±1 h around its launch (all aircraft
+      within the sounding radius; layers with ≥ 3 replies within the sounding's height range; sonde values interpolated
+      in log pressure). Every archived hourly profile is also compared with the newest sounding launched by then: the
+      difference grows as the sounding ages and the air mass changes — the reason for a live profile.
+      Jokioinen is about 100 km north-west and inland (cooler nights near the ground). Winds before 10 Oct 2026 are
+      without the per-airframe heading correction.
+    </div>
+  </div>
+
   <div class="sounding-layout">
 
     <!-- Skew-T: the same diagram as the Live Map Atmosphere Profile (skewt_chart.js) -->
@@ -55,6 +98,10 @@
         <div>Skew-T</div>
         <span class="skewt-hdr-ctl">
         <label class="toggle-label" title="Data-validity indicator: a badge at the top left with the number of distinct aircraft and replies behind the area profile (GOOD ≥ 20 aircraft per hour, FAIR 8–19, LOW &lt; 8 — typically LOW around midnight), a red ring on layers measured by only 1–2 aircraft, and a warning in the hover read-out of such layers. Area profiles only (Area · hour from 11 Oct 2026). The setting is shared with the Live Map."><input type="checkbox" id="skewt-dq"> Data quality</label>
+        <label class="toggle-label" title="Radiosonde from Jokioinen (about 100 km north-west; FMI open data, launches at 00, 06 and 12 UTC, stored on the server): temperature (pink line), dewpoint (green dashed — humidity aloft, which the aircraft do not report) and winds (pink barbs along the right edge of the plot). The label gives its age and the difference of the area profile from it; the lines fade as the sounding ages. Many FMI profiles stop early (00 UTC often near 350 hPa): the label then says how high it reaches. Jokioinen is inland: at night it is often colder near the ground than the airport area. Area · now: the latest sounding; Area · hour and Flight: the newest sounding launched by then (at most 36 h older). The setting is shared with the Live Map."><input type="checkbox" id="skewt-sonde"> Sonde</label>
+        <select id="sonde-pick" class="label-mode-select" title="Which radiosonde: Auto = the latest (Area · now) or the newest launched by the end of the shown hour / flight; or any stored sounding">
+          <option value="auto">Auto</option>
+        </select>
         <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
                 title="Automatic analysis of the shown profile. Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; with the METAR dewpoint the surface parcel: LCL / cumulus base compared with the METAR cloud group, CAPE / CIN, Lifted Index, equilibrium level; Area · now, and Area · hour from 11 Oct 2026 when a METAR was stored with the hour). Temperature and wind only — no humidity data. The setting is shared with the Live Map.">Analysis: Off</button>
         </span>
@@ -94,6 +141,10 @@
             <th class="num">Dir (°)</th>
             <th class="num" title="Replies used for temperature / wind">Obs T / W</th>
             <th class="num" title="Distinct aircraft in the layer (red: only 1–2, a single-aircraft value)">A/C</th>
+            <th class="num snd-sonde-col" title="Radiosonde temperature at the layer's pressure (log-pressure interpolation)">Sonde T</th>
+            <th class="num snd-sonde-col" title="Area profile minus sonde temperature (amber: more than 2 K)">ΔT</th>
+            <th class="num snd-sonde-col" title="Radiosonde wind at the layer's pressure">Sonde wind</th>
+            <th class="num snd-sonde-col" title="Vector difference of the area wind from the sonde wind (amber: more than 10 kt)">ΔV (kt)</th>
           </tr>
         </thead>
         <tbody id="sounding-tbody"></tbody>
@@ -135,5 +186,24 @@
 .snd-mode-btn:hover  { color:var(--text-1); }
 .snd-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
 .snd-ctl { display:flex; gap:6px; align-items:center; }
+.snd-sonde-col { display:none; }
+table.with-sonde .snd-sonde-col { display:table-cell; }
+.snd-dev { color:#fbbf24; font-weight:600; }
+[data-theme="light"] .snd-dev { color:#b45309; }
+#sonde-pick { display:none; }
+.snd-verif { display:flex; flex-direction:column; gap:14px; }
+.sv-tiles { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; }
+.sv-tile { background:var(--bg-1); border:1px solid var(--border); border-radius:6px; padding:10px 14px; }
+.sv-tile .v { font-size:22px; font-weight:700; color:var(--text-1); font-variant-numeric:tabular-nums; }
+.sv-tile .v small { font-size:13px; font-weight:600; color:var(--text-2); }
+.sv-tile .l { font-size:12px; color:var(--text-2); margin-top:2px; }
+.sv-row { display:flex; gap:14px; align-items:stretch; }
+.sv-panel { flex:1; background:var(--bg-1); border:1px solid var(--border); border-radius:6px; min-width:0; }
+.sv-narrow { flex:0 0 auto; max-width:50%; overflow-x:auto; }
+@media (max-width: 1100px) { .sv-row { flex-wrap:wrap; } .sv-row > .sv-panel { flex:1 1 100%; max-width:none; } .sv-tiles { grid-template-columns:repeat(2, 1fr); } }
+.sv-chart { padding:6px 10px 10px; }
+.sv-chart svg { display:block; width:100%; height:auto; }
+.sv-scroll { max-height:340px; overflow:auto; }
+.sv-empty { padding:16px; color:var(--text-3); font-style:italic; }
 </style>
 {% endblock %}

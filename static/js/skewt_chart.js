@@ -4,7 +4,7 @@
  *
  *   const chart = createSkewT(canvas, tipElement, { lat: 60.3 });
  *   chart.set({ area, low, aptMode, anaLevel, smooth, sfc, ac, density,
- *               acLabel, profileTitle, hint, dq });
+ *               acLabel, profileTitle, hint, dq, sonde, sondeRef });
  *   chart.resize(width, height);  chart.draw();
  *   canvas.addEventListener('mousemove', ev => chart.hover(ev));
  *
@@ -18,6 +18,8 @@
  *            the Live Map default, '' = none)
  *   dq       data-validity indicator on/off (badge, rings on 1–2-aircraft
  *            layers, hover warning); default on
+ *   sonde    radiosonde from /api/sonde ({levels, launch, min_p, station…})
+ *            or null;  sondeRef: time its age is counted to (null = now)
  *
  * Needs skewt_analysis.js (analyzeSkewT, skewtMoistLapse,
  * skewtContrailThresholds) loaded first.
@@ -76,7 +78,10 @@ function createSkewT(canvas, tip, cfg = {}) {
   let miniArea = null, miniLow = null, aptMode = 'off', anaLevel = 0, areaSmooth = 0,
       miniSfc = null, miniAcOverlay = null, windDensity = 2,
       acLabel = 'Aircraft', profileTitle = 'Area, last 60 min', hintText = null,
-      dqShow = true;      // data-validity indicator (badge, rings, hover warning)
+      dqShow = true,      // data-validity indicator (badge, rings, hover warning)
+      miniSonde = null,   // radiosonde (/api/sonde) or null
+      sondeRef = null,    // time (Unix s) the sonde age is counted to; null = now
+      sondeNote = null;   // "no sounding" text when switched on but none found
   let miniHoverPts = [];   // [{y, src, alt_ft, p, t, ws, wd, n…}] rebuilt on every draw
   let topOff = 0;          // extra offset of the top-left texts when the data badge is shown
 
@@ -217,6 +222,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       weak:      light ? '#dc2626' : '#f87171',      // layer from only 1–2 aircraft
       dqGood:    light ? '#15803d' : '#4ade80', dqFair: light ? '#b45309' : '#fbbf24', dqLow: light ? '#dc2626' : '#f87171',
       cape:      light ? 'rgba(220,38,38,0.13)' : 'rgba(248,113,113,0.16)',
+      sonde:     light ? '#be185d' : '#f472b6',      // radiosonde (Jokioinen)
+      sondeOld:  light ? '#b45309' : '#fbbf24',      // its label when older than 12 h
     };
   }
 
@@ -412,6 +419,142 @@ function createSkewT(canvas, tip, cfg = {}) {
                           t: l.temp, traw: areaSmooth ? l.temp_raw : null, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
                           ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count, ac: l.ac_count });
     }
+  }
+
+  // ── Radiosonde (Jokioinen, FMI open data) ────────────────────────────────
+  // Temperature (pink line), dewpoint (green dashed — humidity aloft, which the
+  // aircraft do not report) and winds (pink barbs along the right edge of the
+  // plot).  The lines fade with the age of the sounding.
+  function sondeAgeS() {
+    if (!miniSonde) return null;
+    const ref = sondeRef != null ? sondeRef : Date.now() / 1000;
+    return ref - (miniSonde.launch || miniSonde.nominal);
+  }
+  function sondeAlpha() {
+    const a = sondeAgeS();
+    return a == null ? 1 : a <= 6 * 3600 ? 1 : a <= 12 * 3600 ? 0.75 : 0.5;
+  }
+  // Values at pressure p, interpolated in log p (null outside the profile)
+  function sondeAt(p) {
+    if (!miniSonde) return null;
+    const out = {};
+    const L = miniSonde.levels;                     // pressure descending
+    const interp = (key) => {
+      let a = null;
+      for (const l of L) {
+        if (l[key] == null) continue;
+        if (l.pressure >= p) { a = l; continue; }
+        if (!a) return null;
+        const f = (Math.log(a.pressure) - Math.log(p)) / (Math.log(a.pressure) - Math.log(l.pressure));
+        return [a, l, f];
+      }
+      return a && Math.abs(a.pressure - p) < 0.5 ? [a, a, 0] : null;
+    };
+    const t = interp('temp');
+    if (t) out.t = t[0].temp + (t[1].temp - t[0].temp) * t[2];
+    const d = interp('dewpoint');
+    if (d) out.td = d[0].dewpoint + (d[1].dewpoint - d[0].dewpoint) * d[2];
+    const w = interp('wind_spd');
+    if (w) {
+      const uv = l => [-l.wind_spd * Math.sin(l.wind_dir * Math.PI / 180), -l.wind_spd * Math.cos(l.wind_dir * Math.PI / 180)];
+      const [u0, v0] = uv(w[0]), [u1, v1] = uv(w[1]);
+      const u = u0 + (u1 - u0) * w[2], v = v0 + (v1 - v0) * w[2];
+      out.ws = Math.hypot(u, v);
+      out.wd = (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360;
+      out.u = u; out.v = v;
+    }
+    return (out.t != null || out.ws != null) ? out : null;
+  }
+  // Area profile minus sonde over the common layers (≥ 3 replies)
+  function sondeDiff() {
+    if (!miniSonde || !miniArea || !miniArea.levels) return null;
+    let n = 0, s = 0, s2 = 0, nw = 0, w2 = 0;
+    for (const l of miniArea.levels) {
+      const sv = sondeAt(l.pressure);
+      if (!sv) continue;
+      if (l.temp != null && (l.temp_count || 0) >= 3 && sv.t != null) {
+        const d = l.temp - sv.t; n++; s += d; s2 += d * d;
+      }
+      if (l.wind_spd != null && (l.wind_count || 0) >= 3 && sv.u != null) {
+        const r = l.wind_dir * Math.PI / 180;
+        const du = -l.wind_spd * Math.sin(r) - sv.u, dv = -l.wind_spd * Math.cos(r) - sv.v;
+        nw++; w2 += du * du + dv * dv;
+      }
+    }
+    if (!n && !nw) return null;
+    return { n, bias: n ? s / n : null, rms: n ? Math.sqrt(s2 / n) : null, nw, wrms: nw ? Math.sqrt(w2 / nw) : null };
+  }
+  function drawSondeProfile(ctx, T) {
+    if (!miniSonde) return;
+    const { ML, PW, MT, PH, PT, PB } = MSK;
+    const L = miniSonde.levels.filter(l => l.pressure >= PT * 0.97 && l.pressure <= PB * 1.02);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+    ctx.globalAlpha = sondeAlpha();
+    const line = (key, color, width, dash) => {
+      const pts = L.filter(l => l[key] != null);
+      if (pts.length < 2) return;
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
+      ctx.beginPath();
+      pts.forEach((l, i) => { const x = mskX(l[key], l.pressure), y = mskY(l.pressure); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    };
+    line('dewpoint', T.dew, 1.2, [5, 3]);
+    line('temp', T.sonde, 1.7, []);
+    ctx.setLineDash([]);
+    // winds: barbs just inside the right edge of the plot, ≥ 17 px apart
+    let lastY = null;
+    for (const l of L) {
+      if (l.wind_spd == null || l.wind_dir == null) continue;
+      const y = mskY(l.pressure);
+      if (y < MT + 4 || y > MT + PH - 2 || (lastY != null && Math.abs(y - lastY) < 17)) continue;
+      drawMiniBarb(ctx, ML + PW - 14, y, l.wind_spd, l.wind_dir, T.sonde);
+      lastY = y;
+    }
+    ctx.restore();
+  }
+  function drawSondeLabel(ctx, T, y) {
+    if (!miniSonde) return;
+    const age = sondeAgeS();
+    const h = Math.floor(Math.max(0, age) / 3600), m = Math.floor(Math.max(0, age) % 3600 / 60);
+    const nom = new Date(miniSonde.nominal * 1000);
+    const day = `${nom.getUTCDate()}.${nom.getUTCMonth() + 1}.`;
+    const ageTxt = age < 0 ? 'later than the profile' : `${h} h ${String(m).padStart(2, '0')} min old`;
+    const partial = miniSonde.min_p != null && miniSonde.min_p > 150 ? ` · to ${Math.round(miniSonde.min_p)} hPa` : '';
+    const l1 = `${(miniSonde.station || 'SONDE').toUpperCase()} ${day} ${String(nom.getUTCHours()).padStart(2, '0')} UTC · ${ageTxt}${partial}`;
+    const dd = sondeDiff();
+    const l2 = dd ? `Δ area−sonde: ` + (dd.n ? `T ${dd.bias >= 0 ? '+' : ''}${dd.bias.toFixed(1)} K (RMS ${dd.rms.toFixed(1)})` : '') +
+                    (dd.nw ? `${dd.n ? ' · ' : ''}wind ${Math.round(dd.wrms)} kt RMS` : '') + ` · ${Math.max(dd.n, dd.nw)} layers` : '';
+    const { ML } = MSK;
+    ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    const col = age > 12 * 3600 ? T.sondeOld : T.sonde;
+    [l1, l2].filter(Boolean).forEach((txt, i) => {
+      const yy = y + i * 12, w = ctx.measureText(txt).width + 16;
+      ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, w, 12);
+      if (i === 0) {                              // legend swatch: pink line + green dash
+        ctx.strokeStyle = T.sonde; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ML + 11, yy - 5); ctx.lineTo(ML + 18, yy - 5); ctx.stroke();
+        ctx.strokeStyle = T.dew; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(ML + 11, yy - 1); ctx.lineTo(ML + 18, yy - 1); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = i === 0 ? col : T.sonde;
+      ctx.fillText(txt, ML + 22, yy);
+    });
+    ctx.restore();
+  }
+  // Hover lines: the sonde values at the hovered level
+  function sondeHoverLines(p) {
+    const sv = miniSonde ? sondeAt(p) : null;
+    if (!sv) return [];
+    const nom = new Date(miniSonde.nominal * 1000);
+    const head = `<span style="color:${miniSkewTTheme().sonde}"><b>${miniSonde.station || 'Sonde'} ${String(nom.getUTCHours()).padStart(2, '0')} UTC</b></span>`;
+    const parts = [];
+    if (sv.t != null) parts.push(`T ${sv.t.toFixed(1)} °C`);
+    if (sv.td != null) {
+      const rh = typeof skewtEs === 'function' && sv.t != null ? 100 * skewtEs(sv.td) / skewtEs(sv.t) : null;
+      parts.push(`Td ${sv.td.toFixed(1)} °C` + (rh != null ? ` (RH ${Math.round(rh)} %)` : ''));
+    }
+    if (sv.ws != null) parts.push(`${String(Math.round(sv.wd)).padStart(3, '0')}° / ${Math.round(sv.ws)} kt`);
+    return [head + ' ' + parts.join(' · ')];
   }
 
   // ── Data-validity badge (top-left): aircraft behind the area profile ─────────
@@ -810,6 +953,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         `${best.na || 0} landings, ${best.nd || 0} departures in this band`];
       if (best.t != null) L.push(`Temp ${best.t.toFixed(1)} °C <span class="mini-tip-dim">(flights 10–90 % ${best.t10.toFixed(1)}…${best.t90.toFixed(1)}, ${best.tn} flights, ${best.tr} replies)</span>`);
       if (best.ws != null) L.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt <span class="mini-tip-dim">(SD ${best.wsd} kt between ${best.wn} flights)</span>`);
+      L.push(...sondeHoverLines(best.p));
       tip.innerHTML = L.join('<br>');
       tip.style.display = 'block';
       const wrapA = canvas.parentElement.getBoundingClientRect();
@@ -829,6 +973,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       lines.push(`<span style="color:${miniSkewTTheme().weak}">Only ${best.ac} aircraft in this layer — single-aircraft value, read with care</span>`);
     if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
         (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
+    lines.push(...sondeHoverLines(best.p));
     tip.innerHTML = lines.filter(Boolean).join('<br>');
     tip.style.display = 'block';
     const wrap = canvas.parentElement.getBoundingClientRect();
@@ -959,6 +1104,9 @@ function createSkewT(canvas, tip, cfg = {}) {
     // ── Ground: station pressure from the METAR QNH, with the surface temperature ─
     topOff = dataQuality() ? 14 : 0;
     drawMiniGround(ctx, T);
+
+    // ── Radiosonde (when switched on) under the Mode S profiles ─────────────
+    drawSondeProfile(ctx, T);
 
     // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
     // Grey background reference; with no aircraft selected it is the profile
@@ -1095,6 +1243,20 @@ function createSkewT(canvas, tip, cfg = {}) {
       }
     }
 
+    // ── Sonde label below the top-left texts (hint, airport legend) ─────────
+    if (miniSonde || sondeNote) {
+      const aptOn = !!(miniLow && miniLow.levels && aptMode !== 'off');
+      const line = zoom ? (aptOn ? 2 : 1) : (aptOn ? 3 : 2);
+      if (miniSonde) drawSondeLabel(ctx, T, MT + topOff + 12 * line);
+      else {
+        ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+        const yy = MT + topOff + 12 * line;
+        ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(sondeNote).width + 6, 12);
+        ctx.fillStyle = T.sonde; ctx.fillText(sondeNote, ML + 12, yy);
+        ctx.restore();
+      }
+    }
+
     // ── Data-validity badge on top of everything ────────────────────────────
     drawDataBadge(ctx, T);
   }
@@ -1122,6 +1284,11 @@ function createSkewT(canvas, tip, cfg = {}) {
     if ('profileTitle' in o) profileTitle = o.profileTitle;
     if ('hint' in o)         hintText = o.hint;
     if ('dq' in o)           dqShow = o.dq !== false;
+    if ('sonde' in o) {
+      miniSonde = o.sonde && o.sonde.levels && o.sonde.levels.length ? o.sonde : null;
+      sondeNote = o.sonde && !miniSonde ? `${(o.sonde.station || 'Sonde').toUpperCase()}: no sounding stored for this time` : null;
+    }
+    if ('sondeRef' in o)     sondeRef = o.sondeRef;
   }
 
   function leave() {
@@ -1129,7 +1296,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     drawMiniSounding();
   }
 
-  return { set, draw: drawMiniSounding, hover: miniHover, leave, resize, geometry: MSK };
+  return { set, draw: drawMiniSounding, hover: miniHover, leave, resize, geometry: MSK, sondeAt };
 }
 
 if (typeof window !== 'undefined') {

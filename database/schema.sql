@@ -332,3 +332,26 @@ CREATE TABLE IF NOT EXISTS departure_profiles (
     prof_json     TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_depprof_ts ON departure_profiles(ts);
+
+-- ── sonde_verification ───────────────────────────────────────────────────────
+-- Mode S area profile vs the radiosonde (collector/sonde_verif.py, written by
+-- the hourly jobs thread): kind 'launch' = area profile of ±1 h around a
+-- sounding's launch minus the sounding; kind 'hour' = each archived hourly
+-- profile minus the newest sounding launched by then (age_h = hour middle −
+-- launch).  Per row the layer counts, temperature bias / RMS (K), wind vector
+-- RMS and speed bias (kt) and the same per altitude band (bands JSON).
+CREATE TABLE IF NOT EXISTS sonde_verification (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind      TEXT    NOT NULL,      -- 'launch' | 'hour'
+    ts        INTEGER NOT NULL,      -- launch time (launch) / hour start (hour)
+    sonde_key TEXT    NOT NULL,      -- YYYYMMDDHH of the sounding
+    age_h     REAL,                  -- profile middle − launch (h)
+    min_p     REAL,                  -- top of the sounding (hPa)
+    aircraft  INTEGER,               -- distinct aircraft behind the area profile
+    obs       INTEGER,               -- observations used
+    n_t       INTEGER, t_bias REAL, t_rms REAL,
+    n_w       INTEGER, w_rms  REAL, ws_bias REAL,
+    bands     TEXT,                  -- {"0-5k": {n_t, t_bias, t_rms, n_w, w_rms, ws_bias}, …}
+    UNIQUE(kind, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_sondever_ts ON sonde_verification(ts);

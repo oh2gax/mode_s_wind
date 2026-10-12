@@ -14,6 +14,7 @@
 
 const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Full'];
 const MODE_NOTES = {
+  verif:  'Sonde check: the Mode-S area profile compared with the radiosonde — at launch (±1 h) and hour by hour as the sounding ages.',
   area:   'Area: all aircraft within the radius over the selected window.',
   hour:   'Hourly archive: stored once per completed UTC hour (from 9 Oct 2026), also after the observations are purged.',
   flight: 'Flight: altitude profile from a single flight — works best for climbing / descending flights.',
@@ -28,6 +29,13 @@ let sndMode    = _lsGet('ms_snd_mode', 'area');
 let anaLevel   = parseInt(_lsGet('ms_skewtAna', '0'), 10);
 let areaSmooth = parseInt(_lsGet('ms_areaSmooth', '0'), 10);
 let aptMode    = _lsGet('ms_aptMode', 'off');
+let sondeShow  = _lsGet('ms_skewtSonde', 'false') === 'true';   // radiosonde layer (default off)
+let sndSonde   = null;   // /api/sonde response for the shown profile
+let sndSondeAt = null;   // Auto: newest launched by this time (Unix s; null = latest)
+let sndSondePick = 'auto';   // 'auto' or the key (YYYYMMDDHH) chosen in the picker
+let sndSondeRef = null;  // time the sonde age is counted to (null = now)
+let sndSondeSeq = 0;     // request counter
+let sndLastTable = null; // [levels, header] of the table (refilled when the sonde arrives)
 let dqShow     = _lsGet('ms_skewtDq', 'true') !== 'false';   // data-validity indicator
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
@@ -47,7 +55,8 @@ const skewt = createSkewT(document.getElementById('skewt-canvas'),
 
 function syncChart() {
   skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, smooth: areaSmooth,
-              sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow });
+              sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
+              sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef });
 }
 function drawChart() { syncChart(); skewt.draw(); }
 
@@ -91,28 +100,59 @@ async function fetchLow(qs) {
 
 // ── Source selection (area now / hourly archive / flight) ─────────────────
 function setMode(mode) {
-  sndMode = ['area', 'hour', 'flight'].includes(mode) ? mode : 'area';
+  sndMode = ['area', 'hour', 'flight', 'verif'].includes(mode) ? mode : 'area';
   _lsSet('ms_snd_mode', sndMode);
-  document.querySelectorAll('.snd-mode-btn').forEach(b =>
+  document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === sndMode));
   document.getElementById('snd-area-ctl').style.display   = sndMode === 'area'   ? '' : 'none';
   document.getElementById('snd-hour-ctl').style.display   = sndMode === 'hour'   ? '' : 'none';
   document.getElementById('snd-flight-ctl').style.display = sndMode === 'flight' ? '' : 'none';
-  document.getElementById('flight-banner').classList.add('hidden');
+  document.getElementById('snd-verif-ctl').style.display  = sndMode === 'verif'  ? '' : 'none';
+  // Sonde check replaces the diagram and the level table
+  document.querySelector('.sounding-layout').style.display = sndMode === 'verif' ? 'none' : '';
+  document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
+  document.getElementById('sounding-meta').textContent = '';
   document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
+  if (sndMode === 'verif') { loadVerification(); return; }
+  document.getElementById('flight-banner').classList.add('hidden');
   if (sndMode === 'hour') loadHourList();
   else loadCurrent();
 }
 
 function loadCurrent() {
+  if (sndMode === 'verif')  return loadVerification();
   if (sndMode === 'area')   return loadAreaSounding();
   if (sndMode === 'hour')   return loadHourSounding();
   return loadFlightSounding();
 }
 
+function refillTable() { if (sndLastTable) fillTable(sndLastTable[0], sndLastTable[1]); }
+
 function fillTable(levels, header) {
+  sndLastTable = [levels, header];
   const tbody = document.getElementById('sounding-tbody');
   tbody.innerHTML = '';
+  // radiosonde columns (Sonde tick box with a sounding found)
+  const withSonde = !!(sondeShow && sndSonde && sndSonde.found);
+  tbody.closest('table').classList.toggle('with-sonde', withSonde);
+  if (withSonde) { syncChart(); }
+  const sondeCells = l => {
+    if (!withSonde) return '';
+    const sv = l.pressure != null ? skewt.sondeAt(l.pressure) : null;
+    let dT = '', dV = '', dTc = 'text-dim', dVc = 'text-dim';
+    if (sv && sv.t != null && l.temp != null) {
+      const d = l.temp - sv.t; dT = (d >= 0 ? '+' : '') + d.toFixed(1); if (Math.abs(d) > 2) dTc = 'snd-dev';
+    }
+    if (sv && sv.u != null && l.wind_spd != null && l.wind_dir != null) {
+      const r = l.wind_dir * Math.PI / 180;
+      const d = Math.hypot(-l.wind_spd * Math.sin(r) - sv.u, -l.wind_spd * Math.cos(r) - sv.v);
+      dV = d.toFixed(0); if (d > 10) dVc = 'snd-dev';
+    }
+    return `<td class="num snd-sonde-col">${sv && sv.t != null ? sv.t.toFixed(1) : '–'}</td>
+      <td class="num snd-sonde-col ${dTc}">${dT || '–'}</td>
+      <td class="num snd-sonde-col">${sv && sv.ws != null ? String(Math.round(sv.wd)).padStart(3, '0') + '° / ' + Math.round(sv.ws) : '–'}</td>
+      <td class="num snd-sonde-col ${dVc}">${dV || '–'}</td>`;
+  };
   for (const l of levels) {
     const hasData = l.temp != null || l.wind_spd != null;
     const tTip = l.temp_p10 != null ? `10–90 %: ${l.temp_p10.toFixed(1)} … ${l.temp_p90.toFixed(1)} °C` : '';
@@ -125,9 +165,51 @@ function fillTable(levels, header) {
       <td class="num">${l.wind_dir != null ? l.wind_dir.toFixed(0) + '°' : '–'}</td>
       <td class="num text-dim">${l.temp_count || 0} / ${l.wind_count || 0}</td>
       <td class="num ${l.ac_count != null && l.ac_count <= 2 ? 'snd-weak' : 'text-dim'}">${l.ac_count != null ? l.ac_count : '–'}</td>
+      ${sondeCells(l)}
     </tr>`);
   }
   document.getElementById('table-header').textContent = header;
+}
+
+// Radiosonde for the shown profile (Area · now: latest; hour / flight: the
+// newest launched by then).  at: Unix s or null; ref: time the age counts to.
+async function fetchSonde(at, ref) {
+  sndSondeAt = at != null ? at : null;
+  sndSondeRef = ref != null ? ref : null;
+  document.getElementById('sonde-pick').style.display = sondeShow ? 'inline-block' : 'none';
+  if (!sondeShow) { sndSonde = null; drawChart(); refillTable(); return; }
+  const qs = sndSondePick !== 'auto' ? `key=${sndSondePick}`
+           : sndSondeAt != null ? `at=${Math.round(sndSondeAt)}` : '';
+  const req = ++sndSondeSeq;
+  try {
+    const r = await fetch('/api/sonde' + (qs ? '?' + qs : ''));
+    const d = await r.json();
+    if (req !== sndSondeSeq) return;           // a newer request is under way
+    sndSonde = d;
+  } catch (_) { sndSonde = null; }
+  drawChart();
+  refillTable();
+}
+
+// Picker: Auto + every stored sounding (newest first)
+async function loadSondeList() {
+  const sel = document.getElementById('sonde-pick');
+  try {
+    const r = await fetch('/api/sondes');
+    const d = await r.json();
+    const keep = sel.value;
+    sel.innerHTML = '<option value="auto">Auto</option>';
+    for (const it of (d.items || [])) {
+      const t = new Date(it.nominal * 1000);
+      const o = document.createElement('option');
+      o.value = it.key;
+      o.textContent = `${t.getUTCDate()}.${t.getUTCMonth() + 1}. ${_pad(t.getUTCHours())} UTC` +
+                      (it.min_p != null && it.min_p > 150 ? ` · to ${Math.round(it.min_p)} hPa` : '');
+      sel.appendChild(o);
+    }
+    sel.value = [...sel.options].some(o => o.value === keep) ? keep : 'auto';
+    sndSondePick = sel.value;
+  } catch (_) { /* silent */ }
 }
 
 // d: /api/sounding… response; title: hover title; hint: text at the top of
@@ -166,6 +248,7 @@ async function loadAreaSounding() {
                 d.generated_at ? `generated ${d.generated_at.substr(11, 5)} UTC · ` : '',
                 `Area, last ${win}`, `Area profile, ${Math.round(d.radius_km)} km, last ${win}`,
                 `minutes=${d.window_min}`, wxSfc);
+    fetchSonde(null, null);
   } catch (e) {
     if (req === sndReq) clearProfile('Error loading area sounding.');
     console.error(e);
@@ -223,6 +306,7 @@ async function loadHourSounding() {
     showProfile(d, `Hourly profile — ${lbl}, ${d.radius_km} km`, '',
                 `Hour ${hh}`, `Hourly profile ${lbl}`,
                 `minutes=60&end=${d.hour_ts + 3600}`, hsfc);
+    fetchSonde(d.hour_ts + 3600, d.hour_ts + 1800);
   } catch (e) {
     if (req === sndReq) clearProfile('Error loading hourly profile.');
     console.error(e);
@@ -282,6 +366,7 @@ async function loadFlightSounding() {
     showProfile(d, `Flight profile — ${d.levels.length} levels`,
                 d.generated_at ? `generated ${d.generated_at.substr(11, 5)} UTC · ` : '',
                 name, `${name} ${f.first_seen ? f.first_seen.substr(0, 10) : ''} ${span}`, lowQs, null);
+    if (t0 != null && t1 != null) fetchSonde(t1, (t0 + t1) / 2); else fetchSonde(null, null);
 
     const banner = document.getElementById('flight-banner');
     const rangeStr = (f.min_altitude != null && f.max_altitude != null)
@@ -329,6 +414,24 @@ dqChk.addEventListener('change', e => {
   drawChart();
 });
 
+const sondeChk = document.getElementById('skewt-sonde');
+sondeChk.checked = sondeShow;
+sondeChk.addEventListener('change', e => {
+  sondeShow = e.target.checked;
+  _lsSet('ms_skewtSonde', String(sondeShow));
+  if (sondeShow) loadSondeList();
+  fetchSonde(sndSondeAt, sndSondeRef);
+});
+const sondePick = document.getElementById('sonde-pick');
+sondePick.style.display = sondeShow ? 'inline-block' : 'none';
+sondePick.addEventListener('change', e => {
+  sndSondePick = e.target.value;
+  fetchSonde(sndSondeAt, sndSondeRef);
+});
+if (sondeShow) loadSondeList();
+document.querySelectorAll('#sv-days-btns .snd-mode-btn').forEach(b =>
+  b.addEventListener('click', () => { svDays = Number(b.dataset.days); _lsSet('ms_sondeVerifDays', String(svDays)); loadVerification(); }));
+
 const aptSel = document.getElementById('apt-mode');
 aptSel.value = aptMode;
 aptSel.addEventListener('change', e => {
@@ -341,10 +444,109 @@ const canvasEl = document.getElementById('skewt-canvas');
 canvasEl.addEventListener('mousemove', ev => { syncChart(); skewt.hover(ev); });
 canvasEl.addEventListener('mouseleave', () => { syncChart(); skewt.leave(); });
 new ResizeObserver(() => resizeChart()).observe(document.getElementById('skewt-box'));
-window.onThemeChange = drawChart;
+window.onThemeChange = () => { drawChart(); if (sndMode === 'verif') renderVerification(); };
+
+// ── Sonde check: automatic verification against the radiosonde ─────────────
+// /api/sonde/verification (collector/sonde_verif.py): launch statistics,
+// per band, difference by sounding age, list of verified launches.
+let svDays = Number(_lsGet('ms_sondeVerifDays', '30')) || 30;
+let svData = null;
+const _f = (v, d = 1, sign = false) => v == null ? '–' : (sign && v >= 0 ? '+' : '') + v.toFixed(d);
+
+async function loadVerification() {
+  document.querySelectorAll('#sv-days-btns .snd-mode-btn').forEach(b =>
+    b.classList.toggle('active', Number(b.dataset.days) === svDays));
+  const meta = document.getElementById('sounding-meta');
+  meta.textContent = 'Loading…';
+  try {
+    const r = await fetch(`/api/sonde/verification?days=${svDays}`);
+    svData = await r.json();
+    meta.textContent = `last ${svDays} days · ${svData.launch_total.rows} launches · ${svData.hour_total.rows} hourly comparisons`;
+    renderVerification();
+  } catch (e) {
+    meta.textContent = 'Error loading the verification.';
+    console.error(e);
+  }
+}
+
+function renderVerification() {
+  const d = svData;
+  if (!d) return;
+  const L = d.launch_total, H = d.age;
+  const late = H.filter(b => b.lo >= 10 && b.lo < 18 && b.n_t > 0);
+  const lateT = late.length ? Math.sqrt(late.reduce((s, b) => s + b.t_rms * b.t_rms * b.n_t, 0) / late.reduce((s, b) => s + b.n_t, 0)) : null;
+  const lateW = late.length && late.some(b => b.w_rms != null)
+    ? Math.sqrt(late.reduce((s, b) => s + (b.w_rms || 0) ** 2 * b.n_w, 0) / Math.max(1, late.reduce((s, b) => s + b.n_w, 0))) : null;
+  const tile = (v, l) => `<div class="sv-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  document.getElementById('sv-tiles').innerHTML = [
+    tile(`${L.rows}`, `launches verified · ${L.n_t} temperature layers`),
+    tile(L.t_bias == null ? '–' : `${_f(L.t_bias, 1, true)} <small>± ${_f(L.t_sd)} K</small>`, `temperature, area − sonde at launch (RMS ${_f(L.t_rms)} K)`),
+    tile(L.w_rms == null ? '–' : `${_f(L.w_rms, 1)} <small>kt</small>`, `wind vector RMS at launch (speed ${_f(L.ws_bias, 1, true)} kt)`),
+    tile(lateT != null ? `${lateT.toFixed(1)} <small>K</small> · ${lateW != null ? lateW.toFixed(0) : '–'} <small>kt</small>` : '–',
+         'RMS when the sounding is 10–18 h old'),
+  ].join('');
+  ageChart('sv-age-t', H, 't_rms', 'K', L.t_rms);
+  ageChart('sv-age-w', H, 'w_rms', 'kt', L.w_rms);
+  // bands
+  const BN = { '0-5k': '0–5 000 ft', '5-10k': '5–10 000 ft', '10-20k': '10–20 000 ft', '20-30k': '20–30 000 ft', '30k+': '> 30 000 ft' };
+  document.getElementById('sv-bands').innerHTML = d.bands.length
+    ? `<thead><tr><th>Band</th><th class="num">Layers T / W</th><th class="num">T bias (K)</th><th class="num">T SD</th><th class="num">T RMS</th><th class="num">Wind RMS (kt)</th><th class="num">Speed bias</th></tr></thead><tbody>` +
+      d.bands.map(b => `<tr><td style="white-space:nowrap">${(BN[b.band] || b.band).replace(/ /g, '\u00a0')}</td><td class="num text-dim">${b.n_t} / ${b.n_w}</td><td class="num">${_f(b.t_bias, 2, true)}</td><td class="num">${_f(b.t_sd, 2)}</td><td class="num">${_f(b.t_rms, 2)}</td><td class="num">${_f(b.w_rms, 1)}</td><td class="num">${_f(b.ws_bias, 1, true)}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">No verified launches in this period yet.</td></tr></tbody>';
+  // launches
+  document.getElementById('sv-launches').innerHTML = d.launches.length
+    ? `<thead><tr><th>Launch (UTC)</th><th class="num" title="Highest level of the sounding">Top (hPa)</th><th class="num" title="Distinct aircraft behind the area profile (±1 h)">Aircraft</th><th class="num">Layers T / W</th><th class="num">T bias (K)</th><th class="num">T RMS</th><th class="num">Wind RMS (kt)</th><th class="num">Speed bias</th></tr></thead><tbody>` +
+      d.launches.map(r => {
+        const t = new Date(r.ts * 1000);
+        const low = r.aircraft != null && r.aircraft < 16;      // < 8 per hour of the 2-h window
+        return `<tr><td>${t.getUTCFullYear()}-${_pad(t.getUTCMonth() + 1)}-${_pad(t.getUTCDate())} ${_pad(t.getUTCHours())}:${_pad(t.getUTCMinutes())}</td>` +
+          `<td class="num">${r.min_p != null ? Math.round(r.min_p) : '–'}</td>` +
+          `<td class="num ${low ? 'snd-weak' : ''}" title="${low ? 'few aircraft (LOW data)' : ''}">${r.aircraft ?? '–'}</td>` +
+          `<td class="num text-dim">${r.n_t} / ${r.n_w}</td><td class="num">${_f(r.t_bias, 1, true)}</td><td class="num ${r.t_rms > 2 ? 'snd-dev' : ''}">${_f(r.t_rms, 1)}</td>` +
+          `<td class="num ${r.w_rms > 15 ? 'snd-dev' : ''}">${_f(r.w_rms, 1)}</td><td class="num">${_f(r.ws_bias, 1, true)}</td></tr>`;
+      }).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">No verified launches in this period yet — a launch is verified once the hour after it is over and the sounding is stored.</td></tr></tbody>';
+}
+
+// RMS by age bin as columns (SVG); dashed line = the RMS at launch (±1 h)
+function ageChart(id, bins, key, unit, ref) {
+  const el = document.getElementById(id);
+  const B = bins.filter(b => b[key] != null);
+  if (!B.length) { el.innerHTML = '<div class="sv-empty">No hourly comparisons in this period yet.</div>'; return; }
+  const light = document.documentElement.dataset.theme === 'light';
+  const C = { bar: light ? '#2a78d6' : '#3987e5', ink: light ? '#1e293b' : '#e2e8f0', ink2: light ? '#475569' : '#94a3b8',
+              grid: light ? '#d8e0e8' : '#1e2a3a', ref: light ? '#c2410c' : '#fb923c' };
+  const W = 560, H = 236, ml = 40, mr = 12, mt = 24, mb = 38;
+  const pw = W - ml - mr, ph = H - mt - mb;
+  const ymax = Math.max(...B.map(b => b[key]), ref || 0) * 1.18;
+  const step = ymax > 20 ? 10 : ymax > 8 ? 2 : ymax > 3 ? 1 : 0.5;
+  const y = v => mt + ph - v / ymax * ph;
+  const bw = pw / B.length;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${unit === 'K' ? 'Temperature' : 'Wind'} RMS difference by sounding age">`;
+  for (let v = 0; v <= ymax + 1e-9; v += step) {
+    svg += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" stroke="${C.grid}" stroke-width="1"/>` +
+           `<text x="${ml - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${C.ink2}">${v % 1 ? v.toFixed(1) : v}</text>`;
+  }
+  B.forEach((b, i) => {
+    const x = ml + i * bw + bw * 0.18, w = bw * 0.64, v = b[key];
+    const h = Math.max(1, mt + ph - y(v));
+    svg += `<g><title>${b.lo}–${b.hi} h old: RMS ${v.toFixed(unit === 'K' ? 2 : 1)} ${unit} (${b.rows} hours, ${unit === 'K' ? b.n_t : b.n_w} layers)</title>` +
+           `<path d="M${x},${mt + ph} v${-(h - 4)} q0,-4 4,-4 h${w - 8} q4,0 4,4 v${h - 4} z" fill="${C.bar}"/>` +
+           `<text x="${x + w / 2}" y="${y(v) - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="${C.ink}">${v.toFixed(unit === 'K' ? 1 : 0)}</text>` +
+           `<text x="${x + w / 2}" y="${mt + ph + 15}" text-anchor="middle" font-size="11" fill="${C.ink2}">${b.lo}–${b.hi}</text></g>`;
+  });
+  if (ref != null) {
+    svg += `<line x1="${ml}" x2="${W - mr}" y1="${y(ref)}" y2="${y(ref)}" stroke="${C.ref}" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+           `<line x1="${W - mr - 150}" x2="${W - mr - 128}" y1="10" y2="10" stroke="${C.ref}" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+           `<text x="${W - mr}" y="14" text-anchor="end" font-size="11" fill="${C.ref}">at launch (±1 h): ${ref.toFixed(unit === 'K' ? 1 : 0)} ${unit}</text>`;
+  }
+  svg += `<text x="${ml + pw / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="${C.ink2}">age of the sounding (h) — hourly area profile vs the newest earlier sounding</text>`;
+  svg += `<text x="12" y="${mt + ph / 2}" text-anchor="middle" font-size="11" fill="${C.ink2}" transform="rotate(-90 12 ${mt + ph / 2})">RMS (${unit})</text></svg>`;
+  el.innerHTML = svg;
+}
 
 // ── Startup ───────────────────────────────────────────────────────────────
-document.querySelectorAll('.snd-mode-btn').forEach(b =>
+document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
   b.addEventListener('click', () => setMode(b.dataset.mode)));
 document.getElementById('snd-minutes').addEventListener('change', loadAreaSounding);
 document.getElementById('snd-date').addEventListener('change', loadHourList);

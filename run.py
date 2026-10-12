@@ -45,6 +45,7 @@ from collector.gps_quality import GpsQualityTracker
 from database import maintenance as maint
 from collector import aircraft_db
 from collector import heading_cal
+from collector import sondes
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -122,6 +123,9 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         purge" is enabled (database/archive.py).
       • Heading calibration (from 2026-10-10): the per-airframe heading
         offsets that changed during the hour are written to heading_cal.
+      • Radiosonde verification (collector/sonde_verif.py): the area profile
+        around each stored sounding's launch and every archived hourly
+        profile are compared with the sounding (table sonde_verification).
     """
     from database.db import get_db as _get_db
     from collector.atmos import store_missing_profile_hours
@@ -140,6 +144,16 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
             if n:
                 hj_log.info("Hourly profile archive: stored %d hour(s)", n)
             first = False
+            _ss = sondes.get()
+            if _ss is not None:
+                try:
+                    from collector.sonde_verif import run_verification
+                    n_sv = run_verification(db, _ss, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                            cfg.SOUNDING_RADIUS_KM)
+                    if n_sv:
+                        hj_log.info("Sonde verification: %d row(s) added", n_sv)
+                except Exception as exc:
+                    hj_log.warning("Sonde verification failed: %s", exc)
             _hc = heading_cal.get()
             if _hc is not None and _hc.enabled:
                 n_hc = _hc.save(db)
@@ -526,6 +540,8 @@ def main() -> None:
     hk_thread.start()
     log.info("Housekeeping thread started (live_state max age %.0f s)", LIVE_STATE_MAX_AGE_SEC)
 
+    sonde_store = sondes.init(cfg)
+
     # ── Hourly jobs (profile archive, approach series retention) ─────────
     hourly_thread = threading.Thread(
         target=_hourly_jobs_thread,
@@ -536,6 +552,15 @@ def main() -> None:
     hourly_thread.start()
     log.info("Hourly jobs thread started (profile archive, approach series %g days)",
              float(getattr(cfg, "APPROACH_SERIES_DAYS", 90)))
+
+    # ── Radiosonde soundings (FMI open data → data/soundings) ─────────────
+    # (store created before the hourly jobs thread, which runs the verification)
+    if sonde_store.enabled:
+        threading.Thread(target=sonde_store.run, name="sondes", daemon=True).start()
+        log.info("Sounding fetcher started (%s, kept %g days, %s)", sonde_store.place,
+                 sonde_store.keep_days, sonde_store.folder)
+    else:
+        log.info("Sounding fetcher off (SONDE_FETCH = False); stored soundings still shown")
 
     # ── Autopurge background thread ───────────────────────────────────────
     autopurge_thread = threading.Thread(

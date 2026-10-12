@@ -12,5 +12,8 @@ data/*.sqb
 # Monthly archive files and snapshots (Maintenance page)
 data/archive/
 
+# Radiosonde soundings fetched from FMI open data
+data/soundings/
+
 # Local scratch folder for screenshots and other working files
 tmp_files/
