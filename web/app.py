@@ -643,6 +643,7 @@ def create_app(
                         "nominal": rec.get("nominal"), "launch": rec.get("launch"),
                         "end": rec.get("end"), "min_p": rec.get("min_p"),
                         "n_raw": rec.get("n_raw"), "lat": rec.get("lat"), "lon": rec.get("lon"),
+                        "qc": (rec.get("qc") or {}).get("reason"),
                         "levels": _sondes.levels_for_chart(rec)})
 
     @app.route("/api/sonde/verification")

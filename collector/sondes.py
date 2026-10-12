@@ -20,6 +20,18 @@ curves).  Many FMI open-data profiles stop early (00 UTC flights usually near
 350 hPa); the stored record keeps the lowest pressure reached (`min_p`), and
 the diagram labels such profiles as partial.
 
+Quality check (quality_cut, applied when a sounding is stored and when a
+stored file is read): FMI open-data profiles sometimes have a data gap after
+which the temperature is wrong — e.g. 12 Oct 2026 00 UTC: no data from 519 to
+422 hPa (1.5 km), the temperature unchanged across the gap (−23.5 → −23.6 °C)
+and the part above about 11 K too warm.  A profile is cut at a gap of at least
+QC_GAP_HPA hPa (QC_GAP_M m) when the air below the gap cools with height (lapse
+rate ≥ QC_MIN_LAPSE K/km over the last ~800 m) so that at least QC_MIN_EXPECT_K
+of cooling is expected across the gap, but the temperature changes by less
+than QC_FLAT_K, and the air above the gap again cools by at least
+QC_MIN_LAPSE_ABOVE K/km (or less than 300 m of data is left above).  Gaps at
+the tropopause (isothermal above or below) are kept.  The record then gets "qc" = {cut_p, gap, dropped, reason}.
+
 Data: Finnish Meteorological Institute open data, CC BY 4.0.
 
 Optional config keys (read with defaults):
@@ -68,6 +80,14 @@ PUBLISH_DELAY_SEC = 80 * 60  # a sounding is looked for from launch + 80 min
 DUE_WINDOW_SEC = 8 * 3600    # … until 8 h after its nominal time
 BACKFILL_HOURS = 48          # on start: fill gaps of the last two days
 LAUNCH_HOURS = (0, 6, 12)    # regular Jokioinen launches (no 18 UTC)
+
+# Quality check (see quality_cut)
+QC_GAP_HPA = 25.0            # a data gap: at least this many hPa …
+QC_GAP_M = 500.0             # … or metres between two stored levels
+QC_MIN_LAPSE = 5.0           # K/km cooling over the ~800 m below the gap
+QC_MIN_EXPECT_K = 5.0        # cooling expected across the gap at that rate
+QC_FLAT_K = 1.5              # … but the temperature changes less than this
+QC_MIN_LAPSE_ABOVE = 4.0     # K/km cooling over ≤ 800 m above the gap (troposphere)
 
 
 class FmiError(Exception):
@@ -184,14 +204,60 @@ def compact(s: dict) -> Optional[dict]:
                        None if wd is None or ws is None else round(wd),
                        None if wd is None or ws is None else round(ws * KT_PER_MS, 1)])
     min_p = min(r[0] for r in lv_out)
-    return {
+    return quality_cut({
         "v": 1, "src": "FMI", "station": s.get("station"), "wmo": s.get("wmo"),
         "nominal": s["nominal"], "launch": s.get("launch") or s["nominal"], "end": s.get("end"),
         "lat": s.get("lat"), "lon": s.get("lon"),
         "n_raw": len(s["levels"]), "min_p": min_p,
         "cols": ["p", "alt_ft", "z_m", "t", "td", "wd", "ws_kt"],
         "lv": lv_out,
-    }
+    })
+
+
+def quality_cut(rec: dict) -> dict:
+    """Cut the profile at the first data gap across which the temperature does
+    not change although the air below cools with height (see module doc).
+    Returns rec (changed in place: lv, min_p, qc).  Idempotent."""
+    lv = rec.get("lv") or []
+
+    def height(l):                                   # m: measured, else ISA
+        return l[2] if l[2] is not None else l[1] * 0.3048
+
+    for i in range(1, len(lv)):
+        a, b = lv[i - 1], lv[i]
+        if a[3] is None or b[3] is None:
+            continue
+        za, zb = height(a), height(b)
+        if a[0] - b[0] < QC_GAP_HPA and zb - za < QC_GAP_M:
+            continue
+        # lapse rate over the ~800 m below the gap
+        lo = None
+        for j in range(i - 1, -1, -1):
+            if lv[j][3] is not None and za - height(lv[j]) >= 800:
+                lo = lv[j]
+                break
+        if lo is None or za - height(lo) > 2500:
+            continue
+        lapse = (lo[3] - a[3]) / ((za - height(lo)) / 1000.0)
+        expect = lapse * (zb - za) / 1000.0
+        if not (lapse >= QC_MIN_LAPSE and expect >= QC_MIN_EXPECT_K and abs(a[3] - b[3]) < QC_FLAT_K):
+            continue
+        # above the gap the air still cools like the troposphere: the flat step
+        # is not an isothermal tropopause / stratosphere reached in the gap
+        hi = None
+        for j in range(i + 1, len(lv)):
+            if lv[j][3] is not None and height(lv[j]) - zb >= 300:
+                hi = lv[j]
+                if height(lv[j]) - zb >= 800:
+                    break
+        if hi is None or (b[3] - hi[3]) / ((height(hi) - zb) / 1000.0) >= QC_MIN_LAPSE_ABOVE:
+            rec["lv"] = lv[:i]
+            rec["min_p"] = a[0]
+            rec["qc"] = {"cut_p": a[0], "gap": [a[0], b[0]], "dropped": len(lv) - i,
+                         "reason": (f"data gap {a[0]:.0f}–{b[0]:.0f} hPa without temperature change "
+                                    f"({a[3]:.1f} → {b[3]:.1f} °C, about {expect:.0f} K cooling expected)")}
+            return rec
+    return rec
 
 
 # ── Store ────────────────────────────────────────────────────────────────
@@ -222,6 +288,7 @@ class SondeStore:
     def _meta(rec: dict) -> dict:
         m = {k: rec.get(k) for k in ("station", "wmo", "nominal", "launch", "end", "min_p", "n_raw", "src")}
         m["n"] = len(rec.get("lv") or [])
+        m["qc"] = (rec.get("qc") or {}).get("reason")
         return m
 
     def scan(self) -> None:
@@ -238,7 +305,7 @@ class SondeStore:
                     continue
                 try:
                     with gzip.open(os.path.join(self.folder, fn), "rt", encoding="utf-8") as f:
-                        self._index[m.group(1)] = self._meta(json.load(f))
+                        self._index[m.group(1)] = self._meta(quality_cut(json.load(f)))
                 except Exception as exc:                    # noqa: BLE001
                     log.warning("Sonde file %s unreadable: %s", fn, exc)
 
@@ -258,7 +325,7 @@ class SondeStore:
             return None
         try:
             with gzip.open(self._path(key), "rt", encoding="utf-8") as f:
-                rec = json.load(f)
+                rec = quality_cut(json.load(f))      # also files stored before the check
             rec["key"] = key
             return rec
         except FileNotFoundError:
@@ -289,8 +356,9 @@ class SondeStore:
                 json.dump(rec, f, separators=(",", ":"))
             os.replace(tmp, self._path(key))
             self._index[key] = self._meta(rec)
-        log.info("Sounding %s %s stored: %d levels to %.0f hPa%s", self.place, key,
-                 len(rec["lv"]), rec["min_p"], " (updated)" if old else "")
+        log.info("Sounding %s %s stored: %d levels to %.0f hPa%s%s", self.place, key,
+                 len(rec["lv"]), rec["min_p"], " (updated)" if old else "",
+                 f" — cut: {rec['qc']['reason']}" if rec.get("qc") else "")
         return True
 
     def prune(self) -> int:

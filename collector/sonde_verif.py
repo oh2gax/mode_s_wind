@@ -187,8 +187,21 @@ def run_verification(db, store, lat: float, lon: float, radius_km: float,
             cache[key] = (rec, SondeProfile(rec)) if rec else (None, None)
         return cache[key]
 
-    have = {(k, t) for k, t in db.execute(
-        "SELECT kind, ts FROM sonde_verification WHERE ts >= ?", (int(since - 3600),))}
+    # Rows made with an earlier version of a sounding — a fuller copy stored
+    # later, or a top cut by the quality check (sondes.quality_cut) — have a
+    # different top (min_p): delete them so they are computed again.
+    top = {it["key"]: it.get("min_p") for it in items}
+    have, redo = set(), []
+    for k, t, key, mp in db.execute(
+            "SELECT kind, ts, sonde_key, min_p FROM sonde_verification WHERE ts >= ?",
+            (int(since - 3600),)):
+        if key in top and top[key] is not None and mp is not None and abs(top[key] - mp) > 0.5:
+            redo.append((k, t))
+        else:
+            have.add((k, t))
+    if redo:
+        db.executemany("DELETE FROM sonde_verification WHERE kind = ? AND ts = ?", redo)
+        log.info("Sonde verification: %d row(s) of changed soundings recomputed", len(redo))
     n = 0
     # launch rows: area profile ±1 h around the launch, once the hour after it is over
     for it in items:
@@ -229,7 +242,7 @@ def run_verification(db, store, lat: float, lon: float, radius_km: float,
             continue
         _insert(db, "hour", ts, key, max(0.0, (mid - t0) / 3600), rec, d.get("a"), d.get("n"), st)
         n += 1
-    if n:
+    if n or redo:
         db.commit()
     return n
 

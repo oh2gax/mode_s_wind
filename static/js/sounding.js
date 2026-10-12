@@ -204,7 +204,9 @@ async function loadSondeList() {
       const o = document.createElement('option');
       o.value = it.key;
       o.textContent = `${t.getUTCDate()}.${t.getUTCMonth() + 1}. ${_pad(t.getUTCHours())} UTC` +
-                      (it.min_p != null && it.min_p > 150 ? ` · to ${Math.round(it.min_p)} hPa` : '');
+                      (it.min_p != null && it.min_p > 150 ? ` · to ${Math.round(it.min_p)} hPa` : '') +
+                      (it.qc ? ' (cut)' : '');
+      if (it.qc) o.title = `Top cut by the quality check: ${it.qc}`;
       sel.appendChild(o);
     }
     sel.value = [...sel.options].some(o => o.value === keep) ? keep : 'auto';

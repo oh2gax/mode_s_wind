@@ -520,7 +520,8 @@ function createSkewT(canvas, tip, cfg = {}) {
     const nom = new Date(miniSonde.nominal * 1000);
     const day = `${nom.getUTCDate()}.${nom.getUTCMonth() + 1}.`;
     const ageTxt = age < 0 ? 'later than the profile' : `${h} h ${String(m).padStart(2, '0')} min old`;
-    const partial = miniSonde.min_p != null && miniSonde.min_p > 150 ? ` · to ${Math.round(miniSonde.min_p)} hPa` : '';
+    const partial = miniSonde.min_p != null && miniSonde.min_p > 150
+      ? ` · to ${Math.round(miniSonde.min_p)} hPa${miniSonde.qc ? ' (bad data above cut)' : ''}` : '';
     const l1 = `${(miniSonde.station || 'SONDE').toUpperCase()} ${day} ${String(nom.getUTCHours()).padStart(2, '0')} UTC · ${ageTxt}${partial}`;
     const dd = sondeDiff();
     const l2 = dd ? `Δ area−sonde: ` + (dd.n ? `T ${dd.bias >= 0 ? '+' : ''}${dd.bias.toFixed(1)} K (RMS ${dd.rms.toFixed(1)})` : '') +
