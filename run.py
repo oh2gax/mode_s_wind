@@ -492,8 +492,12 @@ def main() -> None:
             on_commit=_on_departure_committed,
             # go-around only when the aircraft was established on an approach:
             # the windshear tracker also holds departures seen on the runway
-            approach_state_fn=lambda icao: (ws_tracker._state.get(icao) or {}).get("ga_phase")
-                                           in ("APPROACHING", "GO_AROUND"),
+            approach_state_fn=lambda icao: (
+                (ws_tracker._state.get(icao) or {}).get("ga_phase") in ("APPROACHING", "GO_AROUND")
+                # past the threshold of an approach, landing not yet confirmed
+                # (climb-out of a low go-around / touch-and-go)
+                or bool((ws_tracker._state.get(icao) or {}).get("landing_rwy")
+                        and not (ws_tracker._state.get(icao) or {}).get("landing_committed"))),
             mag_declination=cfg.MAG_DECLINATION,
         )
 

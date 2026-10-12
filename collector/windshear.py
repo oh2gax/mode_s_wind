@@ -158,8 +158,11 @@ POS_FREEZE_MIN_NM      = 0.05         # NM; minimum dist change per BAND_TOL_FT 
 # it leaves the corridor and the phase resets — without this gate the landing
 # would never be recorded.
 LANDING_THR_PASS_NM    = 0.2          # NM; along-track ≤ this (i.e. at/past threshold) = crossed
-LANDING_CONFIRM_SEC    = 20.0         # s without climbing after threshold → commit landing
-LANDING_CANCEL_CLIMB_FT = 200.0       # ft climbed above threshold-crossing alt → missed approach
+LANDING_CONFIRM_SEC    = 60.0         # s without climbing after threshold → commit landing
+                                      # (long enough for the ground roll of a touch-and-go)
+LANDING_CANCEL_CLIMB_FT = 200.0       # ft climbed above threshold-crossing alt → missed
+                                      # approach at / after the threshold (low go-around or
+                                      # touch-and-go), counted as a go-around
 
 # ── QNH correction ───────────────────────────────────────────────────────────
 # Transponders report pressure altitude (1013.25 hPa).  Pressure altitude ≈
@@ -737,31 +740,14 @@ class WindshearTracker:
                         if (ga_climb_polls >= self.ga_min_climb_polls
                                 and alt_gained >= self.ga_min_alt_gain_ft):
                             # ── Go-around confirmed ───────────────────────────
-                            self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
-                            self._ga_last_ts[icao] = now
-                            count              = self._ga_counts[icao]
+                            # past the threshold the parallel runway's corridor may
+                            # match: keep the runway the approach was flown to
+                            self._register_go_around(icao, callsign, landing_rwy or runway,
+                                                     alt, now, alt_gained)
                             ga_phase           = "GO_AROUND"
                             ga_climb_polls     = 0
                             ga_climb_start_alt = None
                             ga_flash_until     = now + self.ga_flash_sec
-                            event = {
-                                "type":     "go_around",
-                                "ts":       now,
-                                "icao":     icao,
-                                "callsign": callsign,
-                                "rwy":      runway or "?",
-                                "alt_ft":   round(alt),
-                                "count":    count,
-                            }
-                            self._ga_events.append(event)
-                            if len(self._ga_events) > GA_EVENTS_MAX:
-                                self._ga_events.pop(0)
-                            log.info(
-                                "GO-AROUND detected: %s (%s) RWY %s at %d ft "
-                                "(gained %d ft, GA #%d)",
-                                callsign, icao, runway, round(alt),
-                                round(alt_gained), count,
-                            )
                     else:
                         # Not climbing or above ceiling — reset both climb counters
                         ga_climb_polls     = 0
@@ -779,12 +765,25 @@ class WindshearTracker:
 
             # Landing candidate housekeeping
             if landing_rwy is not None and not landing_committed:
-                if (ga_phase == "GO_AROUND"
-                        or (landing_exit_alt is not None
-                            and alt > landing_exit_alt + LANDING_CANCEL_CLIMB_FT)):
-                    # Climbed away after crossing the threshold — missed approach
-                    log.info("Threshold crossing cancelled (climb-out): %s RWY %s",
-                             icao, landing_rwy)
+                if ga_phase == "GO_AROUND":
+                    # go-around already counted in the corridor
+                    landing_rwy = landing_ts = landing_exit_alt = None
+                elif (landing_exit_alt is not None
+                        and alt > landing_exit_alt + LANDING_CANCEL_CLIMB_FT):
+                    # Climbed away after crossing the threshold: a missed
+                    # approach begun at / after the threshold — low go-around
+                    # or touch-and-go (training circuits).  The in-corridor
+                    # climb gate never sees these (the corridor ends at the
+                    # threshold), so count the go-around here; the next
+                    # corridor entry starts a new approach as after any GA.
+                    self._register_go_around(icao, callsign, landing_rwy, alt, now,
+                                             alt - landing_exit_alt, low=True)
+                    ga_phase           = "GO_AROUND"
+                    ga_left_corridor   = not in_corridor
+                    ga_descent_polls   = 0
+                    ga_climb_polls     = 0
+                    ga_climb_start_alt = None
+                    ga_flash_until     = now + self.ga_flash_sec
                     landing_rwy = landing_ts = landing_exit_alt = None
             if (landing_rwy is not None and in_corridor
                     and ga_phase == "APPROACHING" and dist_thr is not None and dist_thr > 3.0):
@@ -1047,6 +1046,31 @@ class WindshearTracker:
                 )
                 self._ga_counts.pop(icao, None)
                 self._ga_last_ts.pop(icao, None)
+
+    def _register_go_around(self, icao: str, callsign: str, rwy: str | None,
+                            alt: float, now: float, gained: float, low: bool = False) -> int:
+        """Count one go-around of icao (lock held) and add it to the event list.
+        low = the climb-out began at or past the threshold (low go-around or
+        touch-and-go), found when a threshold-pass landing candidate climbs away."""
+        self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
+        self._ga_last_ts[icao] = now
+        count = self._ga_counts[icao]
+        self._ga_events.append({
+            "type":     "go_around",
+            "ts":       now,
+            "icao":     icao,
+            "callsign": callsign,
+            "rwy":      rwy or "?",
+            "alt_ft":   round(alt),
+            "count":    count,
+            "low":      low,
+        })
+        if len(self._ga_events) > GA_EVENTS_MAX:
+            self._ga_events.pop(0)
+        log.info("GO-AROUND detected: %s (%s) RWY %s at %d ft (gained %d ft, GA #%d)%s",
+                 callsign, icao, rwy, round(alt), round(gained), count,
+                 " — climb-out at/after the threshold (low go-around / touch-and-go)" if low else "")
+        return count
 
     def prune_stale(self) -> None:
         """Remove aircraft not updated within STALE_TIMEOUT_SEC.

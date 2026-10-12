@@ -1987,10 +1987,11 @@ function renderWsLog() {
   el.innerHTML = wsLog.map(e => {
     // ── Go-around entry (compact) ─────────────────────────────────────────
     if (e._type === 'go_around') {
-      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} this session\nAlt: ${e.alt_ft} ft\nAircraft: ${e.callsign || e.icao}`;
+      const lowTxt = e.low ? '\nClimb-out at / after the threshold (low go-around or touch-and-go)' : '';
+      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} this session\nAlt: ${e.alt_ft} ft${lowTxt}\nAircraft: ${e.callsign || e.icao}`;
       return `<div class="ws-log-entry-compact ws-log-ga"
   data-tip="${tip.replace(/"/g,'&quot;')}"
->${e._time} ✈ GA ${e.rwy}  ${e.callsign || e.icao}</div>`;
+>${e._time} ✈ GA ${e.rwy}${e.low ? ' low' : ''}  ${e.callsign || e.icao}</div>`;
     }
 
     // ── Windshear entry (compact) ─────────────────────────────────────────
