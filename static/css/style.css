@@ -58,6 +58,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                  font-size: 11px; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
 .skewt-ana-btn.active { border-color: var(--accent); color: var(--accent); }
 .skewt-hdr-ctl { display: flex; align-items: center; gap: 10px; }
+.ac-title-row { display: flex; align-items: center; justify-content: space-between; }
+.ac-title-row > span:first-child,
 .panel-header > span:first-child {
                 font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 

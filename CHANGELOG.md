@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-12 (Live Map aircraft list sorted by altitude, heading correction in the list; Windshear map follows Light / Dark)
+
+- **Live Map aircraft list**: sorted by altitude, lowest on top, by default; a sort button in the panel title steps Alt ↑ / Alt ↓ / A–Z (remembered in the browser). The meteo line shows the aircraft's heading correction after the temperature (`· HDG CORR +1.6 own`, source own / type / fleet / default, `excluded`)
+- **Windshear page**: the map style follows the page's Light / Dark button (Dark ↔ Grey, Black ↔ ATC; a page opened in Light starts with Grey), and the ILS profile, wind rose and conditions chart are redrawn at once on a theme change (they changed only with their next data refresh, up to 60 s later). Overlay loads of a quickly changed map style no longer stack
+
+---
+
 ## 2026-10-11 (Airport low-level profile from landings and departures; departure climb-out capture; monthly archive before purge and snapshots; layer-aware write throttle; Sounding page with the Live Map Skew-T; METAR dewpoint and surface parcel on the Skew-T; Skew-T user guide v2; data-validity indicator on the Skew-T; fresh radar replies for the approach winds; METAR wind on the ILS profile)
 
 - **Airport low-level profile** on the Live Map Atmosphere Profile — new **Airport** selector (Off / Overlay / Zoom): Mach/TAS temperature and wind per 200 ft band from 200 to 3 000 ft MSL, pooled from every raw reply of the landings and departures of the last 60 min (new `/api/lowlevel`, `web/api/lowlevel.py`), for low-level inversions that the 1 000 ft layers of the area profile smooth out. **Zoom** shows the surface … about 840 hPa with less skew, finer isobars, isotherms and adiabats, the airport temperatures labelled and its winds. With Analysis at Stability or higher, significant airport inversions are shaded and a second, amber-framed stability strip (600 ft slabs) is drawn; hover shows the band, flights, replies and spread

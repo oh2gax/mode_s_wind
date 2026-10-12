@@ -116,8 +116,12 @@ const OVERLAY_LEVEL_LABELS = {
   black: ['Black', 'Black+C', 'Black+CA'],
 };
 
-let currentTheme = 'dark';
-TILES.dark.addTo(map);
+// The map style follows the page's Light / Dark theme (navbar button):
+// Dark ↔ Grey and Black ↔ ATC (see window.onThemeChange at the end).  The
+// four map buttons still choose any style by hand.
+const pageIsLight = () => document.documentElement.dataset.theme === 'light';
+let currentTheme = pageIsLight() ? 'grey' : 'dark';
+TILES[currentTheme].addTo(map);
 
 // Airport marker
 L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
@@ -166,7 +170,9 @@ function aquaStyle(theme) {
   return                      { color: '#1a3a60', weight: 0.5, opacity: 0.5, fillColor: '#0a1e3a', fillOpacity: 0.45 };
 }
 
+let _ovlSeq = 0;   // newest loadOverlays call; an older, slower call adds nothing
 async function loadOverlays(theme, level = 0) {
+  const seq = ++_ovlSeq;
   // Remove all overlay layers
   if (ilsLayer)   { map.removeLayer(ilsLayer);   ilsLayer   = null; }
   if (aptLayer)   { map.removeLayer(aptLayer);   aptLayer   = null; }
@@ -176,6 +182,7 @@ async function loadOverlays(theme, level = 0) {
   try {
     // ILS — always loaded; filtered to EFHK features
     const ilsGeo = await fetch('/overlays/efhk_ils.geojson').then(r => r.json());
+    if (seq !== _ovlSeq) return;
     const efhkIls = {
       type: 'FeatureCollection',
       features: ilsGeo.features.filter(
@@ -189,18 +196,21 @@ async function loadOverlays(theme, level = 0) {
     // Airport layout — only for tile-based themes (dark / grey)
     if (theme === 'dark' || theme === 'grey') {
       const aptGeo = await fetch('/overlays/efhk_apt.geojson').then(r => r.json());
+      if (seq !== _ovlSeq) return;
       aptLayer = L.geoJSON(aptGeo, { style: aptStyle(theme) }).addTo(map);
     }
 
     // Level 1+: coastline
     if (level >= 1) {
       const coastGeo = await fetch('/overlays/efhk_coast.geojson').then(r => r.json());
+      if (seq !== _ovlSeq) return;
       coastLayer = L.geoJSON(coastGeo, { style: coastStyle(theme) }).addTo(map);
     }
 
     // Level 2: water / aqua polygons
     if (level >= 2) {
       const aquaGeo = await fetch('/overlays/efhk_aqua.geojson').then(r => r.json());
+      if (seq !== _ovlSeq) return;
       aquaLayer = L.geoJSON(aquaGeo, { style: aquaStyle(theme) }).addTo(map);
     }
   } catch (e) {
@@ -261,6 +271,7 @@ function applyTheme(theme) {
 document.querySelectorAll('.ws-theme-btn').forEach(btn => {
   btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
 });
+updateThemeButtons();   // initial style may be Grey (light page theme)
 
 // ── Aircraft markers on map ───────────────────────────────────────────────────
 const acMarkers = {};   // icao → { marker, label }
@@ -3804,3 +3815,21 @@ setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer ev
 fetchCondData();
 setInterval(() => { if (windroseEnabled && wrView === 'cond') fetchCondData(); }, 60_000);
 setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 5 min
+
+// ── Page Light / Dark theme (navbar button) ─────────────────────────────────
+// Called by base.html right after the theme switch: the map style follows
+// (Dark ↔ Grey, Black ↔ ATC, overlay level kept), and the ILS profile and the
+// wind rose / conditions chart are redrawn at once instead of on their next
+// data refresh.
+window.onThemeChange = function () {
+  const light = pageIsLight();
+  const want = light ? ({ dark: 'grey', black: 'atc' })[currentTheme]
+                     : ({ grey: 'dark', atc: 'black' })[currentTheme];
+  if (want) {
+    if (want in overlayLevelByTheme && currentTheme in overlayLevelByTheme)
+      overlayLevelByTheme[want] = overlayLevelByTheme[currentTheme];
+    applyTheme(want);
+  }
+  drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
+  drawWindrose();
+};

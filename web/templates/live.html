@@ -7,7 +7,11 @@
   <!-- Left panel: aircraft list -->
   <aside class="panel-left">
     <div class="panel-header">
-      <span>Live Aircraft</span>
+      <div class="ac-title-row">
+        <span>Live Aircraft</span>
+        <button id="ac-sort-btn" class="skewt-ana-btn" type="button"
+                title="Sort the list: altitude low → high (Alt ↑, lowest on top), high → low (Alt ↓) or by callsign (A–Z). Click to step; remembered in the browser.">Alt ↑</button>
+      </div>
       <div class="filter-row">
         <label class="toggle-label">
           <input type="checkbox" id="filter-meteo-only"> Meteo only

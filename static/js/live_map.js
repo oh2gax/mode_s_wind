@@ -57,6 +57,10 @@ let meteoOnly   = localStorage.getItem('ms_meteoOnly')  !== 'false';
 let showLabels  = localStorage.getItem('ms_showLabels') !== 'false';
 let showTrack   = localStorage.getItem('ms_showTrack')  === 'true';   // default OFF
 let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
+// Aircraft list order: 'alt_asc' (lowest on top, default), 'alt_desc', 'name'
+const AC_SORTS  = { alt_asc: 'Alt ↑', alt_desc: 'Alt ↓', name: 'A–Z' };
+let acSort      = localStorage.getItem('ms_acSort') || 'alt_asc';
+if (!(acSort in AC_SORTS)) acSort = 'alt_asc';
 let windDensity = parseInt(localStorage.getItem('ms_windDensity') || '2', 10);
 // Vertical smoothing of the area temperature profile (0 = off, 1 = 3 layers, 2 = 5 layers)
 let areaSmooth  = parseInt(localStorage.getItem('ms_areaSmooth') || '0', 10);
@@ -384,13 +388,39 @@ function removeStale(liveIcaos) {
   }
 }
 
+// ── Heading correction text (collector/heading_cal.py) ─────────────────────
+// "+1.6 own" — offset and its source: own airframe value, aircraft type,
+// fleet median or default; "excluded" for airframes beyond the 5° limit;
+// a lower-case source code means learn mode (not applied to the wind).
+const HDG_SRC = { A: 'own', T: 'type', F: 'fleet', D: 'default', X: 'excluded' };
+function hdgCorrText(ac, unit = '') {
+  const hs = ac.hdg_src;
+  if (!hs) return null;
+  if (hs.toUpperCase() === 'X') return 'excluded';
+  if (ac.hdg_off == null) return null;
+  return (ac.hdg_off >= 0 ? '+' : '') + ac.hdg_off.toFixed(1) + unit + ' ' +
+         (HDG_SRC[hs.toUpperCase()] || hs) + (hs === hs.toLowerCase() ? ' (learn)' : '');
+}
+
 // ── Aircraft list panel ───────────────────────────────────────────────────
 function renderList(data) {
   const list    = document.getElementById('aircraft-list');
   const visible = meteoOnly
     ? data.filter(d => d.meteo_source && d.meteo_source !== 'NONE')
     : data;
-  visible.sort((a, b) => (a.callsign || a.icao).localeCompare(b.callsign || b.icao));
+  const byName = (a, b) => (a.callsign || a.registration || a.icao).localeCompare(b.callsign || b.registration || b.icao);
+  if (acSort === 'name') {
+    visible.sort(byName);
+  } else {
+    // aircraft without an altitude go to the end in both directions
+    const dir = acSort === 'alt_desc' ? -1 : 1;
+    visible.sort((a, b) => {
+      const ha = a.altitude != null, hb = b.altitude != null;
+      if (ha !== hb) return ha ? -1 : 1;
+      if (ha && a.altitude !== b.altitude) return dir * (a.altitude - b.altitude);
+      return byName(a, b);
+    });
+  }
 
   if (visible.length === 0) {
     list.innerHTML = '<div class="ac-placeholder">No aircraft' +
@@ -410,6 +440,8 @@ function renderList(data) {
       meteo.push(`${ac.best_wind_spd.toFixed(0)} kt @ ${ac.best_wind_dir?.toFixed(0)}°`);
     if (ac.best_temp != null)
       meteo.push(`${ac.best_temp.toFixed(1)}°C`);
+    const hc = hdgCorrText(ac);
+    if (meteo.length && hc) meteo.push(`HDG CORR ${hc}`);
     const meteoLine = meteo.length ? meteo.join(' · ') : 'No meteo';
 
     div.innerHTML = `
@@ -473,16 +505,7 @@ function selectAircraft(icao) {
     set('d-hdg', ac.mrar_fom);
   } else {
     document.getElementById('d-hdg-label').textContent = 'Hdg corr';
-    const HSRC = { A: 'own', T: 'type', F: 'fleet', D: 'default', X: 'excluded' };
-    const hs = ac.hdg_src;
-    let ht = null;
-    if (hs === 'X') ht = 'excluded';
-    else if (hs && ac.hdg_off != null) {
-      const lbl = HSRC[hs.toUpperCase()] || hs;
-      ht = (ac.hdg_off >= 0 ? '+' : '') + ac.hdg_off.toFixed(1) + '° ' + lbl +
-           (hs === hs.toLowerCase() ? ' (learn)' : '');
-    }
-    set('d-hdg', ht);
+    set('d-hdg', hdgCorrText(ac, '°'));
   }
   set('d-src',   src);
 
@@ -678,6 +701,19 @@ document.getElementById('filter-meteo-only').checked = meteoOnly;
 document.getElementById('toggle-labels').checked     = showLabels;
 document.getElementById('toggle-track').checked      = showTrack;
 document.getElementById('label-mode').value          = labelMode;
+
+// Aircraft list order button: Alt ↑ → Alt ↓ → A–Z
+const acSortBtn = document.getElementById('ac-sort-btn');
+if (acSortBtn) {
+  acSortBtn.textContent = AC_SORTS[acSort];
+  acSortBtn.addEventListener('click', () => {
+    const keys = Object.keys(AC_SORTS);
+    acSort = keys[(keys.indexOf(acSort) + 1) % keys.length];
+    localStorage.setItem('ms_acSort', acSort);
+    acSortBtn.textContent = AC_SORTS[acSort];
+    renderList(Object.values(aircraftData));
+  });
+}
 
 document.getElementById('filter-meteo-only').addEventListener('change', e => {
   meteoOnly = e.target.checked;
