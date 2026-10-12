@@ -1740,12 +1740,13 @@ function buildStrip(ac, wsSeverity = null) {
   <div class="ws-strip-top">
     <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
     <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
+    ${ac.ap ? `<div class="ws-ap-badge" title="Autopilot engaged${ac.ap_app ? ', approach mode' : ''} (ADS-B target state, version 2 transponders only)">AP</div>` : ''}
     <div class="ws-gs-badge ${gsClass(gs)}">${gs}</div>
     ${sqkBadge}${wsBadge}
   </div>
   ${(sqkFlash || gaFlash) ? `<div class="ws-strip-flash-row">${sqkFlash}${gaFlash}</div>` : ''}
   <div class="ws-strip-id">
-    <span class="ws-strip-callsign">${csDisplay}${ac.ap ? '<span class="ws-ap-mark" title="Autopilot engaged' + (ac.ap_app ? ', approach mode' : '') + ' (ADS-B)">*</span>' : ''}</span>
+    <span class="ws-strip-callsign">${csDisplay}</span>
     ${returnBadge}
     <span class="ws-strip-type${typeNil}">${typeDisplay}</span>
   </div>

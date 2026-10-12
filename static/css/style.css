@@ -2631,4 +2631,19 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .gpe-note { color: #94a3b8; font-style: italic; }
 
 /* Windshear: autopilot-engaged mark after the callsign (flight strip) */
-.ws-ap-mark { margin-left: 1px; font-weight: 700; cursor: help; }
+/* Autopilot engaged (ADS-B TC 29): framed AP box before the glideslope badge */
+.ws-ap-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  color: #e2e8f0;
+  font-family: 'Courier New', monospace;
+  letter-spacing: .05em;
+  line-height: 12px;
+  cursor: help;
+}
+.ws-ap-badge + .ws-gs-badge { margin-left: 0; }
+[data-theme="light"] .ws-ap-badge { border-color: #1e293b; color: #1e293b; }
