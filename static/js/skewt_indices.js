@@ -153,6 +153,14 @@
     const tAt = p => atP(env, p, 't', MAX_GAP_FT);
     const tdAt = p => atP(env, p, 'td', MAX_GAP_FT);
     const inRange = p => env.length && p <= env[0].p && p >= env[env.length - 1].p;
+    // a data gap deeper than MAX_GAP_FT anywhere between the pressures pHi > pLo
+    const gapBetween = (pHi, pLo) => {
+      for (let i = 0; i < env.length - 1; i++) {
+        const a = env[i], b = env[i + 1];
+        if (b.p <= pHi && a.p >= pLo && pToAltFt(b.p) - pToAltFt(a.p) > MAX_GAP_FT) return true;
+      }
+      return false;
+    };
 
     // ── Surface & parcel ─────────────────────────────────────────────────
     if (sfc) set('sfc', sfc.t, `${sfc.t.toFixed(1)} / ${sfc.td != null ? sfc.td.toFixed(1) : '–'}`,
@@ -271,12 +279,13 @@
     lapse('lr85', 850, 500); lapse('lr75', 700, 500);
     if (hasZ) {
       // lowest 3 km above the ground
-      let t3 = null;
+      let t3 = null, gap3 = false;
       for (let i = 1; i < env.length; i++) if (env[i].z >= 3000) {
         const a = env[i - 1], b = env[i], f = (3000 - a.z) / (b.z - a.z);
-        t3 = a.t + f * (b.t - a.t); break;
+        t3 = a.t + f * (b.t - a.t); gap3 = gapBetween(env[0].p, b.p); break;
       }
-      if (t3 != null) { const g = (sfc.t - t3) / 3; set('lr03', g, g.toFixed(1), { cls: g >= 9.0 ? 'alert' : g >= 7.0 ? 'warn' : '', tip: 'surface – 3 km above the ground' }); }
+      if (gap3) na('lr03', 'data gap in the profile');
+      else if (t3 != null) { const g = (sfc.t - t3) / 3; set('lr03', g, g.toFixed(1), { cls: g >= 9.0 ? 'alert' : g >= 7.0 ? 'warn' : '', tip: 'surface – 3 km above the ground' }); }
       else na('lr03', 'profile does not reach 3 km');
     } else na('lr03', NO_SFC);
     // 1000–500 hPa thickness (hypsometric; below-ground part from the surface temperature)
@@ -285,7 +294,8 @@
       let z1000 = null;
       if (env[0].p >= 1000) z1000 = zAt(1000);
       else if (sfc) z1000 = -thick(1000, sfc.p, sfc.t + 0.3);
-      if (z500 != null && z1000 != null) {
+      if (gapBetween(Math.max(1000, env[0].p), 500)) na('thk', 'data gap in the profile');
+      else if (z500 != null && z1000 != null) {
         const dam = (z500 - z1000) / 10;
         set('thk', dam, `${Math.round(dam)}`, { tip: sfc && sfc.p < 1000 ? '1000 hPa below the ground: extended with the surface temperature' : '' });
       } else na('thk', 'no surface / 1000 hPa level');
