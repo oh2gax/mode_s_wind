@@ -418,13 +418,24 @@ function hdgCorrText(ac, unit = '') {
          (HDG_SRC[hs.toUpperCase()] || hs) + (hs === hs.toLowerCase() ? ' (learn)' : '');
 }
 
-// Altitude for the list: feet up to the transition altitude (EFHK 5 000 ft),
-// flight level above it
+// Altitude for the list, as used in the air: below the transition altitude
+// (EFHK 5 000 ft) the altitude on the METAR QNH, above it the flight level.
+// Transponders report pressure altitude (1013.25 hPa); on QNH the aircraft is
+// about 27 ft higher per hPa above 1013.25.  The switch to FL is decided on
+// the QNH altitude.  Without a METAR QNH: pressure altitude, marked "PA".
 const TRANSITION_ALT_FT = 5000;
 function listAlt(alt) {
   if (alt == null) return '–';
-  return alt > TRANSITION_ALT_FT ? 'FL' + String(Math.round(alt / 100)).padStart(3, '0')
-                                 : alt.toLocaleString() + ' ft';
+  const fl = 'FL' + String(Math.round(alt / 100)).padStart(3, '0');
+  const qnh = miniSfc && miniSfc.qnh ? miniSfc.qnh : null;
+  if (qnh == null) {
+    return alt > TRANSITION_ALT_FT ? fl
+      : `<span title="Pressure altitude (1013.25 hPa) — no METAR QNH available">${alt.toLocaleString()} ft PA</span>`;
+  }
+  const amsl = Math.round((alt + (qnh - 1013.25) * 27) / 10) * 10;
+  if (amsl > TRANSITION_ALT_FT)
+    return `<span title="Flight level (pressure altitude ${alt.toLocaleString()} ft)">${fl}</span>`;
+  return `<span title="Altitude on QNH ${Math.round(qnh)} hPa (METAR) · pressure altitude ${alt.toLocaleString()} ft">${amsl.toLocaleString()} ft</span>`;
 }
 // Climbing / descending: arrow when the vertical rate is at least 300 fpm
 const VS_ARROW_FPM = 300;
