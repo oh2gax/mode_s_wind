@@ -466,7 +466,9 @@ function renderList(data) {
     return;
   }
 
-  list.innerHTML = '';
+  // built off-screen and swapped in at once: the list never goes empty in
+  // between, so its height and scroll position stay steady while updating
+  const frag = document.createDocumentFragment();
   for (const ac of visible) {
     const div   = document.createElement('div');
     div.className = 'ac-item' + (ac.icao === selectedIcao ? ' selected' : '');
@@ -499,8 +501,11 @@ function renderList(data) {
       <div class="ac-meteo">${meteoLine}</div>
     `;
     div.onclick = () => selectAircraft(ac.icao);
-    list.appendChild(div);
+    frag.appendChild(div);
   }
+  const keepTop = list.scrollTop;
+  list.replaceChildren(frag);
+  list.scrollTop = keepTop;
 }
 
 // ── Select aircraft ────────────────────────────────────────────────────────

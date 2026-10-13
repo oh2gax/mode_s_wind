@@ -96,7 +96,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
               border-radius: 50%; margin-right: 3px; }
 
 /* Aircraft list */
-.aircraft-list { flex: 1; overflow-y: auto; }
+/* scrolls (wheel / touch / keyboard) without a visible scrollbar — a bar that
+   changes with every update flickers, especially in Firefox */
+.aircraft-list { flex: 1; overflow-y: auto; scrollbar-width: none; }
+.aircraft-list::-webkit-scrollbar { display: none; }
 .ac-item { padding: 8px 10px; border-bottom: 1px solid var(--border);
            cursor: pointer; transition: background .1s; }
 .ac-item:hover, .ac-item.selected { background: var(--bg-3); }
