@@ -415,6 +415,17 @@ function hdgCorrText(ac, unit = '') {
          (HDG_SRC[hs.toUpperCase()] || hs) + (hs === hs.toLowerCase() ? ' (learn)' : '');
 }
 
+// Altitude for the list: feet up to the transition altitude (EFHK 5 000 ft),
+// flight level above it
+const TRANSITION_ALT_FT = 5000;
+function listAlt(alt) {
+  if (alt == null) return '–';
+  return alt > TRANSITION_ALT_FT ? 'FL' + String(Math.round(alt / 100)).padStart(3, '0')
+                                 : alt.toLocaleString() + ' ft';
+}
+// Climbing / descending: arrow when the vertical rate is at least 300 fpm
+const VS_ARROW_FPM = 300;
+
 // ── Aircraft list panel ───────────────────────────────────────────────────
 function renderList(data) {
   const list    = document.getElementById('aircraft-list');
@@ -454,16 +465,22 @@ function renderList(data) {
     if (ac.best_temp != null)
       meteo.push(`${ac.best_temp.toFixed(1)}°C`);
     const hc = hdgCorrText(ac);
-    if (meteo.length && hc) meteo.push(`HDG CORR ${hc}`);
+    if (meteo.length && hc) meteo.push(`HC ${hc}`);
     const meteoLine = meteo.length ? meteo.join(' · ') : 'No meteo';
+
+    const vr = ac.vert_rate;
+    const vsDir = vr != null && Math.abs(vr) >= VS_ARROW_FPM ? (vr > 0 ? 'up' : 'down') : null;
+    const vsArrow = vsDir ? `<span class="ac-vs-arrow" title="${vsDir === 'up' ? 'Climbing' : 'Descending'} ${Math.abs(vr).toLocaleString()} fpm">${vsDir === 'up' ? '▲' : '▼'}</span>` : '';
+    const vsText = vr != null && Math.abs(vr) >= 100 ? ` · ${vr > 0 ? '+' : '−'}${Math.abs(vr).toLocaleString()} fpm` : '';
 
     div.innerHTML = `
       <div>
         <span class="ac-callsign" style="color:${color}">${esc(ac.callsign || ac.registration || ac.icao)}</span>
         ${ac.registration && ac.callsign ? `<span class="ac-reg">${esc(ac.registration)}</span>` : ''}
         <span class="ac-icao">${ac.callsign || ac.registration ? ac.icao : ''}</span>
+        ${vsArrow}
       </div>
-      <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${ac.altitude != null ? ac.altitude.toLocaleString() + ' ft' : '–'}
+      <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${listAlt(ac.altitude)}${vsText}
         ${ac.groundspeed != null ? ' · ' + ac.groundspeed + ' kt' : ''}</div>
       <div class="ac-meteo">${meteoLine}</div>
     `;

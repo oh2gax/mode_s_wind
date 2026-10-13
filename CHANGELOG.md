@@ -5,6 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels)
+
+- **Live Map aircraft list**: altitudes above the 5 000 ft transition altitude are shown as flight levels (`FL350`), feet below it; the vertical rate is shown after the altitude when at least 100 fpm (`+1,850 fpm`); a small one-colour ▲ / ▼ at the right end of the first row marks aircraft climbing / descending at least 300 fpm; the heading correction is shortened to `HC +1.3 own`
+- **Windshear page, Light theme**: the ILS profile dots and callsign labels (ON / HIGH / LOW), the barb HW / XW component labels and the legend, and the Approach History callsigns, runways and wind components use darker shades of the dark-theme pastels (light green, yellow, pink and light blue were hard to read on the pale background). The source / storage mode badges in the top bar are also readable in the Light theme
+- **Windshear ILS profile labels**: the callsign labels are drawn last, on a small background box, so the wind barbs and the glideslope no longer cover them; a label that would overlap another one is moved up
+- **Sounding page level table**: listed from the highest level (lowest pressure) at the top to the lowest at the bottom, in line with the Skew-T diagram
+
+---
+
 ## 2026-10-12 (Live Map aircraft list sorted by altitude, heading correction in the list; Windshear map follows Light / Dark; Jokioinen radiosonde on the Skew-T; sounding selector, sonde table columns and automatic Sonde check on the Sounding page; go-arounds begun over the runway; quality check of the radiosonde profiles; Indices panel on the Sounding page; AP box on the Windshear flight strips)
 
 - **Radiosonde on the Skew-T** (Live Map Atmosphere Profile and Sounding page): new **Sonde** tick box (off by default, shared) adds the Jokioinen sounding — temperature (pink), dewpoint (green dashed: humidity aloft) and winds (pink barbs inside the right edge) — with its age (`JOKIOINEN 12.10. 06 UTC · 4 h 35 min old`, fading after 6 / 12 h), the difference of the area profile from it (`Δ area−sonde: T … K (RMS …) · wind … kt RMS`) and its values in the hover read-out; partial FMI profiles are labelled with their top (`to 350 hPa`). On the Sounding page the sounding launched by the end of the shown hour or flight is used. New `collector/sondes.py`: background fetch from FMI open data about 1.5 h after the 00 / 06 / 12 UTC launches, stored as small gzipped JSON files in `data/soundings/`, kept `SONDE_KEEP_DAYS` (default 365); optional `SONDE_FETCH`, `SONDE_PLACE`, `SONDE_DIR`. New `/api/sondes` and `/api/sonde`. `data/soundings/` is added to `.gitignore`

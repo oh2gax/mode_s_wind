@@ -77,6 +77,13 @@ const GS_COLOR = {
   LOW:  '#fca5a5',
   FAR:  '#6b7280',
 };
+// Light theme: darker shades of the same hues, readable on the pale canvas
+const GS_COLOR_LIGHT = {
+  ON:   '#047857',
+  HIGH: '#b45309',
+  LOW:  '#b91c1c',
+  FAR:  '#64748b',
+};
 
 // ── Map initialisation ────────────────────────────────────────────────────────
 const map = L.map('ws-map', { zoomControl: true })
@@ -403,6 +410,7 @@ function wsCanvasTheme() {
     roseSpeed:  light ? '#94a3b8' : '#475569',
     roseInner:  light ? '#c5d5e5' : '#3b6ea0',
     roseLabel:  light ? '#475569' : '#475569',
+    labelBg:    light ? 'rgba(238,242,247,0.88)' : 'rgba(15,25,35,0.85)',   // behind callsign labels
   };
 }
 
@@ -580,13 +588,17 @@ function drawIlsProfile(aircraft, shearEvents = []) {
   }
 
   const selectedRwy = document.getElementById('ws-ils-rwy').value;
+  // Callsign labels are collected here and drawn last, on a background, so
+  // the wind barbs and the glideslope do not hide them
+  const acLabels = [];
 
   for (const ac of aircraft) {
     if (!matchesRwyFilter(ac.approach_runway, selectedRwy)) continue;
     if (ac.dist_thr_nm == null) continue;
 
     const gs = computeGsStatus(ac);
-    const color = GS_COLOR[gs] || GS_COLOR.FAR;
+    const gsPal = pageIsLight() ? GS_COLOR_LIGHT : GS_COLOR;
+    const color = gsPal[gs] || gsPal.FAR;
 
     // ── History trail ────────────────────────────────────────────────────────
     // A gap of >10 s between consecutive history points indicates a position
@@ -649,11 +661,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       // "*" = autopilot engaged (ADS-B TC 29, version 2 transponders only)
       const label = (ac.callsign || ac.icao) + (ac.ap ? '*' : '');
 
-      ilsCtx.fillStyle = color;
-      ilsCtx.font      = '10px "Courier New", monospace';
-      ilsCtx.textAlign = x > M.left + PW * 0.7 ? 'right' : 'left';
-      const labelX = x > M.left + PW * 0.7 ? x - 9 : x + 9;
-      ilsCtx.fillText(label, labelX, y - 7);
+      acLabels.push({ text: label, x, y, color, right: x > M.left + PW * 0.7 });
     }
   }
 
@@ -669,7 +677,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       // Corner-label colour: the aircraft's current meteo source (grey when it
       // has left the corridor list).  The per-barb colour is defined inside the
       // loop below and is not in scope for the label.
-      const labelColor = selAc ? acColor(selAc.meteo_source) : '#94a3b8';
+      const labelColor = selAc ? acColor(selAc.meteo_source) : (pageIsLight() ? '#64748b' : '#94a3b8');
 
       // Resolve runway heading for HW/TW annotation (once, before the loop).
       // Priority: matched runway of the selected aircraft → runway filter dropdown.
@@ -693,7 +701,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
         // Colour each barb from its own captured quality tag.
         // Falls back to neutral grey when src is absent (old buffer entries).
-        const bColor = (obs.src && obs.src !== 'NONE') ? acColor(obs.src) : '#94a3b8';
+        const bColor = (obs.src && obs.src !== 'NONE') ? acColor(obs.src) : (pageIsLight() ? '#64748b' : '#94a3b8');
         drawWindBarb(ilsCtx, bx, by, obs.wind_spd, obs.wind_dir, bColor);
 
         // Label placement — edge detection for canvas boundaries
@@ -712,9 +720,10 @@ function drawIlsProfile(aircraft, shearEvents = []) {
 
           // HW: green = headwind, red = tailwind, amber = near-zero (±5 kt)
           // XW: magnitude-based red gradient (matches approach history palette)
+          const lt = pageIsLight();
           const compColor = isHwMode
-            ? (compVal > 5 ? '#4ade80' : compVal < -5 ? '#f87171' : '#fbbf24')
-            : (Math.abs(compVal) >= 10 ? '#fca5a5' : Math.abs(compVal) >= 5 ? '#fcd34d' : '#6ee7b7');
+            ? (compVal > 5 ? (lt ? '#15803d' : '#4ade80') : compVal < -5 ? (lt ? '#b91c1c' : '#f87171') : (lt ? '#a16207' : '#fbbf24'))
+            : (Math.abs(compVal) >= 10 ? (lt ? '#b91c1c' : '#fca5a5') : Math.abs(compVal) >= 5 ? (lt ? '#a16207' : '#fcd34d') : (lt ? '#047857' : '#6ee7b7'));
 
           // HW label: "+12" / "-5"   XW label: "+8" (from right) / "-3" (from left) — knots implied
           const compLabel = `${compRound >= 0 ? '+' : ''}${compRound}`;
@@ -858,6 +867,32 @@ function drawIlsProfile(aircraft, shearEvents = []) {
     // anchored just left of the threshold so a barb pointing right stays on the canvas
     drawMetarBarb(aircraft, distX(0) - 10, altY(gsBaseline), CT);
   }
+
+  // ── Callsign labels (on top, with a background) ────────────────────────────
+  // Above-right of the dot (above-left near the threshold); a label that
+  // would overlap one already placed is moved up.
+  ilsCtx.save();
+  ilsCtx.font = 'bold 10px "Courier New", monospace';
+  ilsCtx.textBaseline = 'alphabetic';
+  const placed = [];
+  for (const L of acLabels.sort((a, b) => b.y - a.y)) {
+    const w = ilsCtx.measureText(L.text).width + 6, h = 12;
+    let bx = L.right ? L.x - 9 - w : L.x + 9 - 3;
+    let by = L.y - 7 - 10;                                  // box top
+    for (let k = 0; k < 6; k++) {
+      const hit = placed.find(r => bx < r.x + r.w && bx + w > r.x && by < r.y + r.h && by + h > r.y);
+      if (!hit) break;
+      by = hit.y - h - 1;
+    }
+    by = Math.max(M.top, by);
+    placed.push({ x: bx, y: by, w, h });
+    ilsCtx.fillStyle = CT.labelBg;
+    ilsCtx.fillRect(bx, by, w, h);
+    ilsCtx.fillStyle = L.color;
+    ilsCtx.textAlign = 'left';
+    ilsCtx.fillText(L.text, bx + 3, by + 10);
+  }
+  ilsCtx.restore();
 }
 
 /** METAR surface-wind barb (cyan) with its label, at the threshold point. */

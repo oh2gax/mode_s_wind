@@ -94,6 +94,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ac-reg      { font-size: 11px; color: var(--text-2); margin-left: 6px; font-weight: 600; }
 .ac-detail   { font-size: 11px; color: var(--text-2); margin-top: 2px; }
 .ac-meteo    { font-size: 10px; color: var(--green); margin-top: 1px; }
+/* climbing ▲ / descending ▼ at the right end of the first row (one colour) */
+.ac-vs-arrow { float: right; font-size: 11px; line-height: 16px; color: #7dd3fc; cursor: help; }
+[data-theme="light"] .ac-vs-arrow { color: #0369a1; }
 .ac-placeholder { padding: 1rem; color: var(--text-3); font-style: italic; }
 
 .filter-row { display: flex; gap: 6px; align-items: center; }
@@ -356,6 +359,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* Storage mode colours */
 .badge-storage-all        { color: #94a3b8; border-color: #334155; background: rgba(30,41,59,.25); }
 .badge-storage-meteo_only { color: #fbbf24; border-color: #92400e; background: rgba(69,26,3,.25); }
+[data-theme="light"] .badge-src-ehs            { color: #1e40af; border-color: #93c5fd; background: rgba(147,197,253,.18); }
+[data-theme="light"] .badge-src-json           { color: #5b21b6; border-color: #c4b5fd; background: rgba(196,181,253,.18); }
+[data-theme="light"] .badge-src-hybrid         { color: #047857; border-color: #6ee7b7; background: rgba(110,231,183,.18); }
+[data-theme="light"] .badge-storage-all        { color: #475569; border-color: #94a3b8; background: rgba(148,163,184,.15); }
+[data-theme="light"] .badge-storage-meteo_only { color: #b45309; border-color: #fbbf24; background: rgba(251,191,36,.15); }
 
 /* ── Wind density slider (mini sounding panel) ─────────────────────────── */
 .density-row {
@@ -1319,6 +1327,17 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .ws-aphist-panel {
   background: rgba(228, 235, 242, 0.96);
 }
+/* Light theme: darker shades of the dark-theme pastels (readable on the pale panel) */
+[data-theme="light"] .ws-aphist-cs        { color: #0369a1; }
+[data-theme="light"] .ws-aphist-cs-ga     { color: #b45309; }
+[data-theme="light"] .ws-aphist-rwy       { color: #a16207; }
+[data-theme="light"] .ws-aphist-hw-pos    { color: #047857; }
+[data-theme="light"] .ws-aphist-hw-neg    { color: #b91c1c; }
+[data-theme="light"] .ws-aphist-xw-light  { color: #047857; }
+[data-theme="light"] .ws-aphist-xw-mod    { color: #a16207; }
+[data-theme="light"] .ws-aphist-xw-strong { color: #b91c1c; }
+[data-theme="light"] .ws-aphist-cell      { border-bottom-color: rgba(15, 23, 42, 0.06); }
+[data-theme="light"] .ws-aphist-hwxw-sep  { background: rgba(15, 23, 42, 0.12); }
 [data-theme="light"] .ws-aphist-th {
   background: rgba(228, 235, 242, 0.99);
 }
@@ -1733,6 +1752,12 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-ils-rwy-select:focus { border-color: var(--accent); }
 
+.ws-ils-leg-dot.gs-dot-on   { background: #6ee7b7; }
+.ws-ils-leg-dot.gs-dot-high { background: #fcd34d; }
+.ws-ils-leg-dot.gs-dot-low  { background: #fca5a5; }
+[data-theme="light"] .ws-ils-leg-dot.gs-dot-on   { background: #047857; }
+[data-theme="light"] .ws-ils-leg-dot.gs-dot-high { background: #b45309; }
+[data-theme="light"] .ws-ils-leg-dot.gs-dot-low  { background: #b91c1c; }
 .ws-ils-legend {
   display: flex;
   gap: 12px;

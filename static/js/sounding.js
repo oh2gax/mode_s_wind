@@ -220,7 +220,9 @@ function fillTable(levels, header) {
       <td class="num snd-sonde-col">${sv && sv.ws != null ? String(Math.round(sv.wd)).padStart(3, '0') + '° / ' + Math.round(sv.ws) : '–'}</td>
       <td class="num snd-sonde-col ${dVc}">${dV || '–'}</td>`;
   };
-  for (const l of levels) {
+  // highest level (lowest pressure) on top, as in the Skew-T diagram
+  const rows = levels.slice().sort((a, b) => (a.pressure ?? 0) - (b.pressure ?? 0));
+  for (const l of rows) {
     const hasData = l.temp != null || l.wind_spd != null;
     const tTip = l.temp_p10 != null ? `10–90 %: ${l.temp_p10.toFixed(1)} … ${l.temp_p90.toFixed(1)} °C` : '';
     const wTip = l.wind_sd != null ? `wind vector SD ${l.wind_sd.toFixed(1)} kt` : '';
