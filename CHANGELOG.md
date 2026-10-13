@@ -7,6 +7,7 @@ No version numbers — entries are organised by date.
 
 ## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button; Live Map layout for large screens and tablets)
 
+- **Windshear flight strips**: no visible scrollbar either (still scrolls with the mouse wheel / touch)
 - **Live Map aircraft list**: no visible scrollbar (it flickered in Firefox as the list updated) — still scrolls with the mouse wheel / touch; the list is swapped in at once on each update, so its height and scroll position no longer jump
 - **Live Map aircraft list, QNH altitude**: below the 5 000 ft transition altitude the altitude is shown on the METAR QNH (pressure altitude + 27 ft/hPa above 1013.25; hover shows QNH and pressure altitude), above it the flight level; the switch is decided on the QNH altitude. Without a METAR QNH the pressure altitude is shown as `ft PA`
 - **Live Map aircraft list**: altitudes above the 5 000 ft transition altitude are shown as flight levels (`FL350`), feet below it; the vertical rate is shown after the altitude when at least 100 fpm (`+1,850 fpm`); a small one-colour ▲ / ▼ at the right end of the first row marks aircraft climbing / descending at least 300 fpm; the heading correction is shortened to `HC +1.3 own`

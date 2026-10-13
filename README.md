@@ -850,7 +850,7 @@ Aircraft that are within the outer radius and altitude limits but outside any IL
 
 #### Flight strips
 
-Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left panel, sorted by distance from threshold (closest first). The runway selector above the ILS profile canvas also filters the strips — selecting RWY 04L shows only 04L strips; selecting 04L & 04R shows both parallel approaches simultaneously.
+Each aircraft inside an ILS corridor gets an ATC-style flight strip in the left panel, sorted by distance from threshold (closest first); the strip list scrolls with the mouse wheel or touch without a visible scrollbar. The runway selector above the ILS profile canvas also filters the strips — selecting RWY 04L shows only 04L strips; selecting 04L & 04R shows both parallel approaches simultaneously.
 
 The strip layout is fixed — every row is always rendered so the strip never shifts in height as data arrives:
 

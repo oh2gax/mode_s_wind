@@ -482,9 +482,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   margin-top: 4px;
 }
 
+.ws-strips-scroll::-webkit-scrollbar { display: none; }
 .ws-strips-scroll {
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: none;      /* scrolls without a visible scrollbar (as the Live Map list) */
   padding: 6px;
   display: flex;
   flex-direction: column;
