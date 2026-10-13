@@ -493,6 +493,8 @@ The navbar also shows live aircraft counts: total aircraft visible and how many 
 
 The main dashboard showing all currently tracked aircraft in real time, updated every 3 seconds via Server-Sent Events.
 
+**Layout** — aircraft list (left, 270 px), map (centre) and the Atmosphere Profile (right), with METAR / TAF below. The Atmosphere Profile panel is as wide as about 0.73 × its height — about 540 px on a 1920 × 1080 screen, about 900 px on 2560 × 1600 — so the Skew-T keeps the same shape on large screens (at least 540 px, at most 45 % of the window width). On a tablet in portrait (window narrower than 1 100 px and taller than wide, e.g. a 10" iPad) the map is left out: the aircraft list and the Skew-T share the width, aircraft are selected from the list, and METAR / TAF stay below. Turning the tablet to landscape brings the map back.
+
 #### Aircraft symbols
 
 Aircraft are drawn in an ATC-style display:
@@ -563,7 +565,7 @@ A permanently visible Skew-T Log-P diagram filling the full height of the right 
 
 *Atmosphere Profile with **Analysis: Full** on a low-stratus morning (METAR 05/04, SCT005 BKN006): tropopause, jet, 0 / −10 / −20 °C levels, contrail level, the inversion on top of the stratus (`INV +4.4° FL005–015`), the fog / low-stratus flag, and the LCL from the METAR dewpoint (400 ft) next to the METAR cloud base (SCT005).*
 
-**Scales** — pressure (hPa) on the left, altitude markers (**1–12 km**, pressure altitude) just right of the pressure axis, and the temperature scale (−40 … +30 °C at the bottom of the skewed axis) below the plot. The panel is 540 px wide and the temperature range is centred on the typical profile, so the curve stays clear of the wind barbs. The dashed blue line is the ISA reference.
+**Scales** — pressure (hPa) on the left, altitude markers (**1–12 km**, pressure altitude) just right of the pressure axis, and the temperature scale (−40 … +30 °C at the bottom of the skewed axis) below the plot. The panel is at least 540 px wide (wider on tall screens, see *Layout* above) and the temperature range is centred on the typical profile, so the curve stays clear of the wind barbs. The dashed blue line is the ISA reference.
 
 **Adiabats** — faint **dry adiabats** (solid, brownish) and **moist (saturated) adiabats** (dashed, green), every 10 K, for reading stability: where the temperature line is steeper than a dry adiabat the layer is unstable; between the dry and moist adiabats it is conditionally unstable (stable for clear air, unstable once saturated); where it leans right (temperature rising with height) it is an inversion. They are fixed reference curves and need no humidity data (none is available from Mode S); the moist ones are computed by integrating the saturated pseudo-adiabatic lapse rate from 1000 hPa. Near the ground single-aircraft temperatures scatter ±3–4 K, so judge low-level stability from the area profile rather than one aircraft.
 

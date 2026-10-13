@@ -5,10 +5,12 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button)
+## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button; Live Map layout for large screens and tablets)
 
 - **Live Map aircraft list**: altitudes above the 5 000 ft transition altitude are shown as flight levels (`FL350`), feet below it; the vertical rate is shown after the altitude when at least 100 fpm (`+1,850 fpm`); a small one-colour ▲ / ▼ at the right end of the first row marks aircraft climbing / descending at least 300 fpm; the heading correction is shortened to `HC +1.3 own`
 - **Windshear page, Light theme**: the ILS profile dots and callsign labels (ON / HIGH / LOW), the barb HW / XW component labels and the legend, and the Approach History callsigns, runways and wind components use darker shades of the dark-theme pastels (light green, yellow, pink and light blue were hard to read on the pale background). The source / storage mode badges in the top bar are also readable in the Light theme
+- **Live Map layout**: the Atmosphere Profile panel width follows the available height (0.73 × height, at least 540 px, at most 45 % of the window), so the Skew-T keeps its shape on large screens (about 900 px wide on 2560 × 1600 instead of a fixed 540 px); on a tablet in portrait (narrower than 1 100 px, taller than wide) the map is left out on purpose and the aircraft list and Skew-T share the width, with METAR / TAF below. The map re-measures itself when its size changes (rotation)
+- Skew-T: the top pressure label (200 hPa; 850 hPa in airport zoom) is written just below its line, so it is no longer cut off at the top edge
 - **Windshear page**: the Wind Rose button is labelled `WR / ACI` — the panel also holds the Approach Conditions Index (ACI) view; the README uses the ACI abbreviation
 - **Windshear ILS profile labels**: the callsign labels are drawn last, on a small background box, so the wind barbs and the glideslope no longer cover them; a label that would overlap another one is moved up
 - **Sounding page level table**: listed from the highest level (lowest pressure) at the top to the lowest at the bottom, in line with the Skew-T diagram

@@ -1020,7 +1020,9 @@ function createSkewT(canvas, tip, cfg = {}) {
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
       ctx.fillStyle = T.isotLabel;
-      ctx.fillText(p, ML - 3, y + 3);
+      // the top label (200 hPa, or 850 in zoom) would be cut by the plot
+      // clip at the top edge — write it just below its line instead
+      ctx.fillText(p, ML - 3, y - 6 < MT ? y + 9 : y + 3);
     }
 
     // Isotherms (skewed temperature lines)

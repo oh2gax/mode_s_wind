@@ -17,6 +17,9 @@
 
 // ── Map init ──────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([RECEIVER_LAT, RECEIVER_LON], 8);
+// The map is hidden on a portrait tablet and its size follows the Skew-T
+// panel width: let Leaflet re-measure whenever its container changes size
+new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
 
 // CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
 // appended as a query param so raster tiles are served without the watermark.
