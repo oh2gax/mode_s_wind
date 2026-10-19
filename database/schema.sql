@@ -97,7 +97,14 @@ CREATE TABLE IF NOT EXISTS observations (
     -- wind); lower case = learn mode (not applied).  wind_spd / wind_dir stay
     -- the raw, uncorrected wind.
     hdg_off         REAL,
-    hdg_src         TEXT
+    hdg_src         TEXT,
+    -- GNSS height (from 2026-10-19): the aircraft's GNSS − barometric altitude
+    -- difference (ADS-B TC 19, ft, 25 ft steps; NULL when not fresh ≤ 5 s,
+    -- not sent or saturated) and its NACp (NULL when not fresh ≤ 30 s).
+    -- altitude + gmb_ft ≈ GNSS height of the pressure surface the aircraft
+    -- flies on (for pressure-surface heights / D-values).
+    gmb_ft          INTEGER,
+    nacp            INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_icao_ts   ON observations(icao, ts);

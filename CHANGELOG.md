@@ -5,8 +5,9 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-19 (Sounding page time–height section; Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
+## 2026-10-19 (GNSS − baro difference stored per observation; Sounding page time–height section; Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
 
+- **GNSS − baro altitude difference stored per observation** (new `observations` columns `gmb_ft` and `nacp`, added automatically at start): the aircraft's latest GNSS − barometric altitude difference (ADS-B TC 19, used until now only for the spoofing checks) when at most 5 s old, and its NACp when at most 30 s old — collected for pressure-surface heights (D-values), thickness temperatures and geostrophic winds; no extra writes (`collector/receiver.py`, `collector/writer.py`, `database/schema.sql`, `database/db.py`)
 - **Sounding page — Time–height section** (new fifth view, new `static/js/timeheight.js`, `/api/sounding/timeheight`): the hourly profile archive as a time–height cross-section over 24 h – 14 days (the hour in progress live): colour field temperature anomaly / 3-hour temperature change / wind speed / lapse rate, wind barbs, 0 / −10 / −20 °C isotherms, Jokioinen launch marks and an aircraft-per-hour strip; hover for values, click a column to open that hour on the Skew-T
 - **Wind Map — second round** (`static/js/windmap.js`, new `static/js/windmap_analysis.js`, `windmap.html`, `/api/windmap` returns `alt_query_ft`), in a new second control strip:
   - **Isotachs** (dashed, every 10 / 20 kt, with the strongest analysed wind) and **Streamlines** from a smoothed field of the cells (Barnes-type, drawn only where there are data)

@@ -237,7 +237,7 @@ class BatchWriter:
                     bds50_true_track, bds50_groundspeed, bds50_true_airspeed, bds50_roll,
                     bds60_mag_heading, bds60_ias, bds60_mach,
                     best_wind_spd, best_wind_dir, best_temp, best_pressure,
-                    meteo_source, tm_temp, hdg_off, hdg_src
+                    meteo_source, tm_temp, hdg_off, hdg_src, gmb_ft, nacp
                 ) VALUES (
                     :flight_id, :icao, :ts,
                     :lat, :lon, :altitude,
@@ -250,7 +250,7 @@ class BatchWriter:
                     :bds50_true_track, :bds50_groundspeed, :bds50_true_airspeed, :bds50_roll,
                     :bds60_mag_heading, :bds60_ias, :bds60_mach,
                     :best_wind_spd, :best_wind_dir, :best_temp, :best_pressure,
-                    :meteo_source, :tm_temp, :hdg_off, :hdg_src
+                    :meteo_source, :tm_temp, :hdg_off, :hdg_src, :gmb_ft, :nacp
                 )""",
                 {
                     "flight_id": fid,
@@ -304,6 +304,9 @@ class BatchWriter:
                     # Heading calibration (collector/heading_cal.py)
                     "hdg_off":       obs.get("hdg_off"),
                     "hdg_src":       obs.get("hdg_src"),
+                    # GNSS − baro altitude difference (TC 19) and NACp
+                    "gmb_ft":        obs.get("gmb_ft"),
+                    "nacp":          obs.get("nacp"),
                 },
             )
 

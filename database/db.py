@@ -70,6 +70,9 @@ def init_db(db_path: str) -> None:
         # Heading calibration (2026-10-10)
         "ALTER TABLE observations ADD COLUMN hdg_off REAL",
         "ALTER TABLE observations ADD COLUMN hdg_src TEXT",
+        # GNSS − baro altitude difference and NACp per observation (2026-10-19)
+        "ALTER TABLE observations ADD COLUMN gmb_ft INTEGER",
+        "ALTER TABLE observations ADD COLUMN nacp INTEGER",
     ]
     for sql in _migrations:
         try:

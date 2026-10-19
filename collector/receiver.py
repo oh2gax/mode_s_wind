@@ -50,6 +50,11 @@ _CACHE_LOCK = threading.Lock()
 #   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr, mach)
 _BDS_SAMPLES_MAX = 16
 STATS_LOG_SEC = 600           # the collector's "Stats:" log line every 10 min (was every 5000 messages)
+# Stored with each observation (pressure-surface heights): the aircraft's
+# latest GNSS − baro altitude difference (TC 19, sent about twice a second)
+# when at most GMB_MAX_AGE_SEC old, and its NACp when at most NACP_MAX_AGE_SEC old
+GMB_MAX_AGE_SEC  = 5.0
+NACP_MAX_AGE_SEC = 30.0
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
 
@@ -610,6 +615,20 @@ def run_collector(
                 # every stored observation carries the aircraft's callsign.
                 if not obs.get("callsign") and merged.get("callsign"):
                     obs["callsign"] = merged["callsign"]
+
+                # ── GNSS − baro altitude difference and NACp for the row ──
+                # Stored rows are mostly Comm-B meteo replies (DF20/21); the
+                # TC 19 difference and NACp come from the aircraft's DF17
+                # squitters kept in live_state.  Only fresh values are stored;
+                # GPS-quality filtering is left to the analysis (gps_episodes).
+                _gmb_ts = merged.get("gmb_ts")
+                if (_gmb_ts is not None and merged.get("geo_minus_baro") is not None
+                        and ts - _gmb_ts <= GMB_MAX_AGE_SEC):
+                    obs["gmb_ft"] = merged["geo_minus_baro"]
+                _nacp_ts = merged.get("nac_p_ts")
+                if (_nacp_ts is not None and merged.get("nac_p") is not None
+                        and ts - _nacp_ts <= NACP_MAX_AGE_SEC):
+                    obs["nacp"] = merged["nac_p"]
 
                 # ── Write to DB ───────────────────────────────────────────
                 # A computed wind / Mach-TAS temperature from replies older
