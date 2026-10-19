@@ -6,7 +6,11 @@ A background thread fetches each new sounding of the station once it appears
 in the FMI open data (launches at 00, 06 and 12 UTC, occasionally an extra one;
 first looked for at the nominal hour, about 30 min after launch, and fetched
 again every 15 min until it no longer grows — so a profile published while the
-balloon is still climbing is shown early and completed) and stores it as one small gzipped
+balloon is still climbing is shown early and completed; each look asks FMI
+only for the sounding that is due, from DUE_LOOKBACK_SEC before its nominal
+time, so while it has not appeared the answer is empty instead of the previous
+sounding; every RECHECK_SEC the last BACKFILL_HOURS are fetched again, so a
+fuller copy FMI publishes hours later replaces the stored one) and stores it as one small gzipped
 JSON file in data/soundings/ (`<station>_<YYYYMMDDHH>.json.gz`, 5–20 kB).
 Files older than SONDE_KEEP_DAYS (default 365) are deleted.  Nothing is
 written to the database; a few HTTPS requests and about four file writes a
@@ -81,6 +85,8 @@ CHECK_SEC = 15 * 60          # check interval while a sounding is due
 PUBLISH_DELAY_SEC = 0        # looked for from the nominal hour (launch + about 30 min, the
                              # balloon at about 10 km; the flight to burst takes 1 h 45 min – 2 h) …
 DUE_WINDOW_SEC = 8 * 3600    # … until 8 h after its nominal time
+DUE_LOOKBACK_SEC = 3600      # each look asks for [nominal − this, now]: the due sounding
+                             # (launch ≈ nominal − 30 min) and any extra launch after it
 # A sounding found while the flight is still under way (or published before its
 # data were complete) is fetched again each CHECK_SEC until it is complete: its raw level count
 # unchanged on STABLE_FETCHES fetches in a row and its last data at least
@@ -88,7 +94,10 @@ DUE_WINDOW_SEC = 8 * 3600    # … until 8 h after its nominal time
 STABLE_FETCHES = 2
 STABLE_AGE_SEC = 15 * 60
 FINAL_AFTER_SEC = 5 * 3600
-BACKFILL_HOURS = 48          # on start: fill gaps of the last two days
+BACKFILL_HOURS = 48          # on start: fill gaps of the last two days …
+RECHECK_SEC = 6 * 3600       # … and the same 48-h window again every 6 h: FMI sometimes
+                             # replaces an early, partial copy hours later (18 Oct 2026 12 UTC:
+                             # 100 hPa at first, 52 hPa the next morning); only grown copies are written
 LAUNCH_HOURS = (0, 6, 12)    # regular Jokioinen launches (no 18 UTC)
 
 # Quality check (see quality_cut)
@@ -412,14 +421,19 @@ class SondeStore:
             raise FmiError(f"HTTP {exc.code}") if exc.code < 500 else ConnectionError(f"HTTP {exc.code}")
 
     def fetch(self, start: Optional[float] = None, end: Optional[float] = None,
-              min_hours: float = 3) -> int:
+              min_hours: float = 3, split: bool = True) -> int:
         """Fetch the latest sounding (no times) or those in [start, end) and
-        store new ones; a refused window is split.  Returns the number stored."""
+        store new ones; a refused window is split (split=False: not split and
+        logged at debug level only — the regular look for a due sounding).
+        Returns the number stored."""
         iso = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         params = {} if start is None else {"starttime": iso(start), "endtime": iso(end)}
         try:
             snds = parse_soundings(self._get(params))
         except FmiError as exc:
+            if not split:
+                log.debug("FMI refused the sounding request: %s", exc)
+                return 0
             if start is not None and end - start > min_hours * 3600:
                 mid = start + (end - start) / 2
                 return self.fetch(start, mid, min_hours) + self.fetch(mid, end, min_hours)
@@ -462,19 +476,22 @@ class SondeStore:
         return max(cands) if cands else None
 
     def run(self) -> None:
-        """Background loop: backfill the last two days once, then look for a
-        due sounding every CHECK_SEC; prune once a day."""
+        """Background loop: backfill the last two days at start and again every
+        RECHECK_SEC, look for a due sounding every CHECK_SEC; prune once a day."""
         time.sleep(20)
         last_prune = 0.0
-        try:
-            now = time.time()
-            n = self.fetch(now - BACKFILL_HOURS * 3600, now)
-            self.last_fetch = (time.time(), f"backfill: {n} stored")
-        except Exception as exc:                           # noqa: BLE001
-            log.warning("Sounding backfill failed: %s", exc)
-            self.last_fetch = (time.time(), f"backfill failed: {exc}")
+        last_recheck = 0.0
         while True:
             now = time.time()
+            if now - last_recheck >= RECHECK_SEC:
+                label = "re-check" if last_recheck else "backfill"
+                last_recheck = now
+                try:
+                    n = self.fetch(now - BACKFILL_HOURS * 3600, now)
+                    self.last_fetch = (time.time(), f"{label} {BACKFILL_HOURS} h: {n} stored")
+                except Exception as exc:                   # noqa: BLE001
+                    log.warning("Sounding %s failed: %s", label, exc)
+                    self.last_fetch = (time.time(), f"{label} failed: {exc}")
             if now - last_prune > 86400:
                 try:
                     self.prune()
@@ -486,8 +503,10 @@ class SondeStore:
                     and (self.key_of(due) not in self.keys()
                          or not self.complete(self.key_of(due), due, now))):
                 try:
-                    n = self.fetch()
-                    self.last_fetch = (time.time(), f"latest: {n} stored")
+                    # only the due sounding: an empty answer (about 1 kB) until it
+                    # appears, instead of the whole previous sounding every look
+                    n = self.fetch(due - DUE_LOOKBACK_SEC, now, split=False)
+                    self.last_fetch = (time.time(), f"due {self.key_of(due)}: {n} stored")
                 except Exception as exc:                   # noqa: BLE001
                     log.info("Sounding fetch failed (retry in %d min): %s", CHECK_SEC // 60, exc)
                     self.last_fetch = (time.time(), f"failed: {exc}")

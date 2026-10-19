@@ -390,12 +390,24 @@ def main() -> None:
     # ── Ensure data directory exists ──────────────────────────────────────
     os.makedirs(os.path.dirname(cfg.DB_PATH), exist_ok=True)
 
-    # Optionally log to file as well
+    # Log to file as well — rotated: at LOG_MAX_MB (default 10) the file is
+    # renamed modes_meteo.log.1 (older ones .2, .3 …) and LOG_BACKUPS (default 3)
+    # old files are kept, so the logs never take more than about
+    # (LOG_BACKUPS + 1) × LOG_MAX_MB.  An existing larger file is rotated at the
+    # first line written.
+    from logging.handlers import RotatingFileHandler
     log_dir = os.path.join(ROOT, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    fh = logging.FileHandler(os.path.join(log_dir, "modes_meteo.log"))
+    fh = RotatingFileHandler(os.path.join(log_dir, "modes_meteo.log"),
+                             maxBytes=int(float(getattr(cfg, "LOG_MAX_MB", 10)) * 1024 * 1024),
+                             backupCount=int(getattr(cfg, "LOG_BACKUPS", 3)))
     fh.setFormatter(logging.Formatter(LOG_FORMAT))
     logging.getLogger().addHandler(fh)
+    # The web server's access lines (one per page request — the pages poll
+    # every few seconds, two thirds of the log) are off unless LOG_HTTP_ACCESS
+    # = True; its warnings and errors are still logged.
+    if not getattr(cfg, "LOG_HTTP_ACCESS", False):
+        logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
     log.info("=" * 60)
     log.info("MODE-S Wind System starting")

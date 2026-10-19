@@ -49,6 +49,7 @@ _CACHE_LOCK = threading.Lock()
 #   5,0: (ts, roll, track_rate, true_track, groundspeed, true_airspeed)
 #   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr, mach)
 _BDS_SAMPLES_MAX = 16
+STATS_LOG_SEC = 600           # the collector's "Stats:" log line every 10 min (was every 5000 messages)
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
 
@@ -395,6 +396,8 @@ def run_collector(
                      cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
 
             msg_count = 0
+            stats_next = time.time() + STATS_LOG_SEC
+            stats_count = 0
             for msg_hex, ts in source:
                 msg_count += 1
 
@@ -618,12 +621,15 @@ def run_collector(
                 if _is_worth_storing(obs):
                     writer.add(obs)
 
-                # Periodic stats
-                if msg_count % 5000 == 0:
+                # Periodic stats (every STATS_LOG_SEC)
+                now_s = time.time()
+                if now_s >= stats_next:
                     with live_lock:
                         n_tracked = len(live_state)
-                    log.info("Stats: %d messages processed, %d aircraft tracked",
-                             msg_count, n_tracked)
+                    log.info("Stats: %d messages processed (%d in the last %d min), %d aircraft tracked",
+                             msg_count, msg_count - stats_count, STATS_LOG_SEC // 60, n_tracked)
+                    stats_count = msg_count
+                    stats_next = now_s + STATS_LOG_SEC
 
         except KeyboardInterrupt:
             log.info("Collector stopping (KeyboardInterrupt)")
