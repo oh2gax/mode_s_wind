@@ -14,7 +14,9 @@ sonde_verification (a few small INSERTs an hour):
           24 h before): how far the atmosphere has moved away from an ageing
           sounding (age_h = hour middle − launch, ≥ 0).  Hours are taken once
           they are 3 h old, so the sounding launched before them has been
-          published.
+          published; a row made with an older sounding because the one
+          launched in that hour was stored only later (FMI late, an extra
+          launch found by the start-up back-fill) is computed again.
 
 Per row: layers used, temperature bias (area − sonde) and RMS, wind vector
 RMS difference and speed bias, and the same per altitude band (bands JSON).
@@ -187,21 +189,45 @@ def run_verification(db, store, lat: float, lon: float, radius_km: float,
             cache[key] = (rec, SondeProfile(rec)) if rec else (None, None)
         return cache[key]
 
+    launches = sorted(((it.get("launch") or it.get("nominal")), it["key"]) for it in items)
+
+    def sonde_for_hour(ts):
+        """(launch, key) of the newest sounding launched by the hour middle
+        (a balloon launched up to 15 min after it still counts: launches are
+        at about HH:30, age ≈ 0), at most MAX_SONDE_AGE_SEC old; else None."""
+        mid = ts + 1800
+        prev = [(t, k) for t, k in launches if t <= mid + 900]
+        if not prev or mid - prev[-1][0] > MAX_SONDE_AGE_SEC:
+            return None
+        return prev[-1]
+
     # Rows made with an earlier version of a sounding — a fuller copy stored
     # later, or a top cut by the quality check (sondes.quality_cut) — have a
-    # different top (min_p): delete them so they are computed again.
+    # different top (min_p): delete them so they are computed again.  The same
+    # for an hour row made with an older sounding because the one launched in
+    # that hour was stored only after the row (FMI late, or a restart).
     top = {it["key"]: it.get("min_p") for it in items}
+    launch_of = {k: t for t, k in launches}
     have, redo = set(), []
+    n_newer = 0
     for k, t, key, mp in db.execute(
             "SELECT kind, ts, sonde_key, min_p FROM sonde_verification WHERE ts >= ?",
             (int(since - 3600),)):
         if key in top and top[key] is not None and mp is not None and abs(top[key] - mp) > 0.5:
             redo.append((k, t))
-        else:
-            have.add((k, t))
+            continue
+        if k == "hour":
+            want = sonde_for_hour(t)
+            if (want is not None and want[1] != key and key in launch_of
+                    and want[0] > launch_of[key]):
+                redo.append((k, t))
+                n_newer += 1
+                continue
+        have.add((k, t))
     if redo:
         db.executemany("DELETE FROM sonde_verification WHERE kind = ? AND ts = ?", redo)
-        log.info("Sonde verification: %d row(s) of changed soundings recomputed", len(redo))
+        log.info("Sonde verification: %d row(s) of changed soundings recomputed%s", len(redo),
+                 f" ({n_newer} hour row(s) now with a newer sounding)" if n_newer else "")
     n = 0
     # launch rows: area profile ±1 h around the launch, once the hour after it is over
     for it in items:
@@ -217,19 +243,16 @@ def run_verification(db, store, lat: float, lon: float, radius_km: float,
         _insert(db, "launch", t0, it["key"], 0.0, rec, n_ac, used, compare(levels, sp))
         n += 1
     # hour rows: archived hourly profiles vs the newest sounding launched before the hour middle
-    launches = sorted(((it.get("launch") or it.get("nominal")), it["key"]) for it in items)
     for ts, data in db.execute(
             "SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
             (int(since // 3600 * 3600), int(now - HOUR_DELAY_SEC))):
         if ("hour", int(ts)) in have:
             continue
         mid = ts + 1800
-        # a balloon launched up to 15 min after the hour middle still counts
-        # for that hour (launches are at about HH:30, age ≈ 0)
-        prev = [(t, k) for t, k in launches if t <= mid + 900]
-        if not prev or mid - prev[-1][0] > MAX_SONDE_AGE_SEC:
+        pick = sonde_for_hour(ts)
+        if pick is None:
             continue
-        t0, key = prev[-1]
+        t0, key = pick
         rec, sp = profile(key)
         if sp is None:
             continue

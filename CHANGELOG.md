@@ -5,8 +5,9 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-19 (radiosonde earlier start and completeness check; Live Map Sonde refresh; degree sign in HC)
+## 2026-10-19 (radiosonde earlier start and completeness check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows)
 
+- **Sonde check — hour rows with the right sounding**: an hourly row compared with an older sounding because the sounding launched in that hour was stored only later (FMI late, or an extra launch such as an 08 UTC one found by the start-up back-fill) is now computed again with that sounding (age about 0 h instead of 3–6 h). Rows of the last 14 days are corrected at the next hourly run (`collector/sonde_verif.py`)
 - **Radiosonde fetch — earlier start and completeness check**: a new sounding is looked for from the nominal hour (about 30 min after launch, the balloon at about 10 km) instead of 80 min after it, every 15 min (was 20) until it appears; after that it is fetched again every 15 min until it no longer grows (raw level count unchanged twice and the last data ≥ 15 min old, or 5 h after the nominal hour), and the stored copy is rewritten only when it has more levels. Before, the first copy found was kept for good, so a sounding published before its flight data were complete stayed incomplete
 - **Live Map Sonde layer**: the newest sounding appears within 2 minutes (checked every 2 min instead of 10, and at once when the page becomes visible again — browsers pause timers in background tabs, so it could show an older sounding until Sonde was switched off and on); `/api/sonde?have=KEY:N_RAW` answers `unchanged` while the shown copy is current, so the polling stays light
 - **Live Map aircraft list**: the heading correction has the degree sign (`HC +1.1° own`)
