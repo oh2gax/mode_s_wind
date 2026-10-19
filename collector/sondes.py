@@ -4,7 +4,8 @@ Mode S area profile on the Skew-T diagrams.
 
 A background thread fetches each new sounding of the station once it appears
 in the FMI open data (launches at 00, 06 and 12 UTC, occasionally an extra one;
-published about 1.5–2.5 h after launch) and stores it as one small gzipped
+first looked for about 1 h 50 min after launch, when the flight is normally
+over, and fetched again every 15 min until it no longer grows) and stores it as one small gzipped
 JSON file in data/soundings/ (`<station>_<YYYYMMDDHH>.json.gz`, 5–20 kB).
 Files older than SONDE_KEEP_DAYS (default 365) are deleted.  Nothing is
 written to the database; a few HTTPS requests and about four file writes a
@@ -75,9 +76,17 @@ FIELDS = {"PAP_PT1S_AVG": "p", "WSP_PT1S_AVG": "ws", "WDP_PT1S_AVG": "wd",
           "TAP_PT1S_AVG": "t", "TDP_PT1S_AVG": "td"}
 KT_PER_MS = 1.943844
 
-CHECK_SEC = 20 * 60          # check interval while a sounding is due
-PUBLISH_DELAY_SEC = 80 * 60  # a sounding is looked for from launch + 80 min
+CHECK_SEC = 15 * 60          # check interval while a sounding is due
+PUBLISH_DELAY_SEC = 80 * 60  # looked for from nominal + 80 min (launch + about 1 h 50 min:
+                             # a flight to burst height takes 1 h 45 min – 2 h) …
 DUE_WINDOW_SEC = 8 * 3600    # … until 8 h after its nominal time
+# A sounding found while the flight data are still incomplete is fetched again
+# each CHECK_SEC until it is complete: its raw level count
+# unchanged on STABLE_FETCHES fetches in a row and its last data at least
+# STABLE_AGE_SEC old — or FINAL_AFTER_SEC after the nominal time at the latest.
+STABLE_FETCHES = 2
+STABLE_AGE_SEC = 15 * 60
+FINAL_AFTER_SEC = 5 * 3600
 BACKFILL_HOURS = 48          # on start: fill gaps of the last two days
 LAUNCH_HOURS = (0, 6, 12)    # regular Jokioinen launches (no 18 UTC)
 
@@ -275,6 +284,8 @@ class SondeStore:
         self._index: dict = {}          # key YYYYMMDDHH → meta (without levels)
         self.last_fetch = None          # (time, result text)
         self._scanned = False
+        self._seen: dict = {}           # key → (n_raw, end, fetches unchanged) of the last fetch
+        self._final: set = set()        # keys known complete (no more fetches)
 
     # files
     def _path(self, key: str) -> str:
@@ -416,9 +427,28 @@ class SondeStore:
         n = 0
         for s in snds:
             rec = compact(s)
-            if rec and self.save(rec):
+            if not rec:
+                continue
+            key = self.key_of(rec["nominal"])
+            prev = self._seen.get(key)
+            same = prev is not None and prev[0] == rec.get("n_raw")
+            self._seen[key] = (rec.get("n_raw"), rec.get("end"), (prev[2] + 1) if same else 0)
+            if self.save(rec):
                 n += 1
         return n
+
+    def complete(self, key: str, nominal: float, now: float) -> bool:
+        """True when the sounding key needs no more fetches: stored and not
+        growing any more (see STABLE_*), or FINAL_AFTER_SEC past its nominal time."""
+        if key in self._final:
+            return True
+        seen = self._seen.get(key)
+        done = (now - nominal > FINAL_AFTER_SEC
+                or (key in self.keys() and seen is not None and seen[2] >= STABLE_FETCHES - 1
+                    and seen[1] is not None and now - seen[1] >= STABLE_AGE_SEC))
+        if done:
+            self._final.add(key)
+        return done
 
     # schedule
     @staticmethod
@@ -451,7 +481,9 @@ class SondeStore:
                     log.warning("Sounding prune failed: %s", exc)
                 last_prune = now
             due = self.due_nominal(now)
-            if due is not None and now - due <= DUE_WINDOW_SEC and self.key_of(due) not in self.keys():
+            if (due is not None and now - due <= DUE_WINDOW_SEC
+                    and (self.key_of(due) not in self.keys()
+                         or not self.complete(self.key_of(due), due, now))):
                 try:
                     n = self.fetch()
                     self.last_fetch = (time.time(), f"latest: {n} stored")

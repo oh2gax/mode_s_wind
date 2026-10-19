@@ -5,6 +5,13 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-19 (radiosonde completeness check; degree sign in HC)
+
+- **Radiosonde fetch — completeness check**: the first look at a new sounding stays at about 1 h 50 min after launch (80 min after the nominal hour), now every 15 min (was 20) until it appears; after that it is fetched again every 15 min until it no longer grows (raw level count unchanged twice and the last data ≥ 15 min old, or 5 h after the nominal hour), and the stored copy is rewritten only when it has more levels. Before, the first copy found was kept for good, so a sounding published before its flight data were complete stayed incomplete
+- **Live Map aircraft list**: the heading correction has the degree sign (`HC +1.1° own`)
+
+---
+
 ## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button; Live Map layout for large screens and tablets)
 
 - **Windshear flight strips**: no visible scrollbar either (still scrolls with the mouse wheel / touch)

@@ -480,7 +480,7 @@ function renderList(data) {
       meteo.push(`${ac.best_wind_spd.toFixed(0)} kt @ ${ac.best_wind_dir?.toFixed(0)}°`);
     if (ac.best_temp != null)
       meteo.push(`${ac.best_temp.toFixed(1)}°C`);
-    const hc = hdgCorrText(ac);
+    const hc = hdgCorrText(ac, '°');
     if (meteo.length && hc) meteo.push(`HC ${hc}`);
     const meteoLine = meteo.length ? meteo.join(' · ') : 'No meteo';
 
