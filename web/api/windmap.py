@@ -1,36 +1,127 @@
 """
 web/api/windmap.py
 
-Builds a gridded horizontal wind map from stored observations within a
-chosen flight-level band and time window.
+Builds a gridded horizontal wind (and temperature) map from stored
+observations within a chosen flight-level band and time window.
 
-Wind vectors within each grid cell are averaged using U/V component
-decomposition so that directional accuracy is preserved — e.g. averaging
-350° and 010° correctly produces 000°, not 180°.
+Grid
+----
+Square cells of cell_km × cell_km on a local flat projection centred on the
+receiver (east–west distance scaled with cos(latitude)), so a cell is the same
+size in both directions — a grid in degrees would be twice as tall as wide at
+60° N.
+
+Averaging (per aircraft first)
+------------------------------
+Within a cell, each aircraft's observations are averaged first (wind as U/V
+components, so 350° and 010° give 000°), then the aircraft means are averaged.
+One aircraft with 30 stored replies therefore counts as much as one with 3.
+Each cell reports the aircraft count, the observation count and the spread
+between aircraft (vector RMS difference of the wind, SD of the temperature).
+
+Temperature at the level
+------------------------
+A ± band of up to 3 000 ft spans 6 K or more of normal cooling with height,
+which would swamp the horizontal differences.  Each temperature is therefore
+moved to the band centre with the lapse rate fitted to all temperatures of the
+band and period (least squares, limited to −3.5 … +1.5 K / 1 000 ft — an
+inversion inside the band gives a positive slope).  The map's ΔT is the cell
+temperature minus the mean of all cells (weighted by aircraft): warm and cold
+air masses and frontal zones, independent of the absolute level.
+
+Position checks
+---------------
+Under GNSS interference an aircraft's broadcast position can freeze (the last
+fix is repeated while the aircraft moves on) or jump to a false (spoofed)
+place, e.g. a fixed point east of St Petersburg.  The wind itself (BDS 5,0 /
+6,0) is unaffected, but it would be placed in the wrong cell.  Removed:
+  • frozen positions — the same latitude / longitude as the aircraft's
+    previous stored row ≥ 10 s earlier while moving (> 80 kt);
+  • jumps — each aircraft's rows are split where the step between two
+    positions is impossible (> 3 NM + 800 kt × time); only its largest
+    consistent part is kept;
+  • optionally (gnss_ok) all rows inside a GPS degradation episode of the
+    aircraft (gps_episodes, + 120 s recovery).  Off by default: at cruise
+    levels about two thirds of the observations fall inside an episode while
+    most positions still move normally (inertial / hybrid navigation).
+The number of aircraft with an episode is reported per cell.
 
 QNH altitude correction
 -----------------------
-Transponders always transmit pressure altitude referenced to 1013.25 hPa,
-regardless of the QNH setting on the aircraft's altimeter.  Below the
-transition altitude (FL050 / 5 000 ft) the difference between pressure
-altitude and true MSL altitude can be several hundred feet when QNH departs
-significantly from standard — common in Finnish winter conditions.
+Transponders always transmit pressure altitude referenced to 1013.25 hPa.
+Below the transition altitude (FL050) the band is shifted into pressure-
+altitude space with the QNH of the period: the current METAR QNH when the
+period ends within the last hour, otherwise the METAR QNH stored with the
+hourly profile archive (profile_hours "m") nearest to the middle of the
+period (within 3 h), else the current one.
 
-When a low-altitude layer is requested (fl < TRANSITION_FL) and a QNH value
-is provided, the centre altitude is shifted into pressure-altitude space
-before the DB query so that observations at the correct MSL altitude are
-returned.  The displayed altitude in the response remains the original
-MSL value the user selected.
-
-Correction formula:
     pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
 """
 
+import json
 import math
 import time
 
-TRANSITION_FL = 50        # FL050 — below this apply QNH correction
+TRANSITION_FL = 50             # FL050 — below this apply QNH correction
 ISA_CORRECTION_FACTOR = 27.3   # ft per hPa
+KM_PER_DEG_LAT = 110.57
+FROZEN_MIN_DT = 10.0           # s — same position again after this long …
+FROZEN_MIN_GS = 80.0           # kt — … while moving faster than this = frozen
+JUMP_SLACK_NM = 3.0            # a step longer than this + JUMP_MAX_KT × Δt is impossible
+JUMP_MAX_KT = 800.0
+EPISODE_RECOVERY_SEC = 120.0
+LAPSE_MIN, LAPSE_MAX = -3.5, 1.5   # K per 1 000 ft, limits of the fitted band lapse rate
+
+
+def _hav_nm(la1, lo1, la2, lo2):
+    p1, p2 = math.radians(la1), math.radians(la2)
+    dp, dl = p2 - p1, math.radians(lo2 - lo1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 3440.065 * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def period_qnh(db, start_ts: float, end_ts: float, now: float,
+               current_qnh: float, current_ok: bool):
+    """(qnh_hpa, source text) for the low-level correction of a period."""
+    if end_ts >= now - 3600 and current_ok:
+        return current_qnh, "METAR now"
+    mid = (start_ts + end_ts) / 2
+    try:
+        rows = db.execute(
+            "SELECT ts, data FROM profile_hours WHERE ts BETWEEN ? AND ?",
+            (int(mid - 3 * 3600 - 1800), int(mid + 3 * 3600 - 1800))).fetchall()
+    except Exception:                                    # noqa: BLE001
+        rows = []
+    best = None
+    for ts, data in rows:
+        try:
+            q = (json.loads(data).get("m") or {}).get("q")
+        except (ValueError, TypeError):
+            continue
+        if q is None:
+            continue
+        d = abs(ts + 1800 - mid)
+        if best is None or d < best[0]:
+            best = (d, float(q), ts)
+    if best is not None:
+        return best[1], "METAR " + time.strftime("%d %H UTC", time.gmtime(best[2]))
+    return current_qnh, "METAR now" if current_ok else "standard (no METAR)"
+
+
+def _episodes(db, start_ts, end_ts):
+    """{icao: [(t0, t1), …]} of GPS degradation episodes overlapping the period."""
+    out = {}
+    try:
+        for icao, t0, t1 in db.execute(
+                "SELECT icao, t_start, t_end FROM gps_episodes "
+                "WHERE t_end >= ? AND t_start <= ?",
+                (start_ts - EPISODE_RECOVERY_SEC, end_ts)):
+            if t0 is None:
+                continue
+            out.setdefault(icao, []).append((t0, (t1 or t0) + EPISODE_RECOVERY_SEC))
+    except Exception:                                    # noqa: BLE001  (table missing)
+        pass
+    return out
 
 
 def build_windmap(
@@ -39,108 +130,191 @@ def build_windmap(
     tolerance_ft: int,     # ± ft band around the centre altitude
     start_ts: float,       # period start (Unix timestamp, UTC)
     end_ts: float,         # period end   (Unix timestamp, UTC)
-    grid_deg: float,       # grid-cell size in decimal degrees
-    qnh_hpa: float = 1013.25,  # current airport QNH (hPa); used below FL050
+    cell_km: float,        # grid-cell size (km)
+    qnh_hpa: float = 1013.25,  # QNH (hPa) of the period; used below FL050
+    qnh_source: str = "",
+    center_lat: float = 60.317,
+    center_lon: float = 24.963,
+    gnss_ok: bool = False,  # drop rows inside GPS degradation episodes
 ) -> dict:
     """
-    Query observations in the altitude band and time range, bin them into
-    a regular lat/lon grid, and return averaged wind + temperature per cell.
+    Query observations in the altitude band and time range, remove frozen and
+    impossible positions, bin into square cells and return per-cell wind and
+    temperature averaged per aircraft first.
     """
     alt_centre_msl = fl * 100    # requested MSL altitude (what the user sees)
 
     # Below transition altitude: shift query band into pressure-altitude space
-    # so the DB lookup matches what transponders actually transmitted.
     if fl < TRANSITION_FL:
         qnh_correction_ft = (1013.25 - qnh_hpa) * ISA_CORRECTION_FACTOR
-        alt_centre_query  = alt_centre_msl + qnh_correction_ft
     else:
         qnh_correction_ft = 0.0
-        alt_centre_query  = float(alt_centre_msl)
-
+    alt_centre_query = alt_centre_msl + qnh_correction_ft
     alt_min = alt_centre_query - tolerance_ft
     alt_max = alt_centre_query + tolerance_ft
 
     rows = db.execute(
-        """SELECT lat, lon, best_wind_spd, best_wind_dir, best_temp
+        """SELECT icao, ts, lat, lon, altitude, groundspeed,
+                  best_wind_spd, best_wind_dir, best_temp
            FROM observations
            WHERE altitude    BETWEEN ? AND ?
              AND ts          BETWEEN ? AND ?
              AND best_wind_spd IS NOT NULL
              AND best_wind_dir IS NOT NULL
              AND lat IS NOT NULL
-             AND lon IS NOT NULL""",
+             AND lon IS NOT NULL
+           ORDER BY icao, ts""",
         (alt_min, alt_max, start_ts, end_ts),
     ).fetchall()
+    n_query = len(rows)
 
-    # ── Bin into grid cells and accumulate U/V vectors ────────────────────
+    # ── Position checks per aircraft ──────────────────────────────────────
+    eps = _episodes(db, start_ts, end_ts)
+    kept = []
+    n_frozen = n_jump = n_gnss = 0
+    i = 0
+    while i < len(rows):
+        icao = rows[i][0]
+        j = i
+        while j < len(rows) and rows[j][0] == icao:
+            j += 1
+        track = rows[i:j]
+        i = j
+        # frozen positions
+        good, prev = [], None
+        for r in track:
+            if (prev is not None and r[2] == prev[2] and r[3] == prev[3]
+                    and r[1] - prev[1] >= FROZEN_MIN_DT
+                    and (r[5] is None or r[5] > FROZEN_MIN_GS)):
+                n_frozen += 1
+            else:
+                good.append(r)
+            prev = r
+        # impossible jumps: split into consistent parts, keep the largest
+        if good:
+            parts, cur = [], [good[0]]
+            for r in good[1:]:
+                p = cur[-1]
+                d = _hav_nm(p[2], p[3], r[2], r[3])
+                if d > JUMP_SLACK_NM + JUMP_MAX_KT * max(0.0, r[1] - p[1]) / 3600.0:
+                    parts.append(cur)
+                    cur = [r]
+                else:
+                    cur.append(r)
+            parts.append(cur)
+            best = max(parts, key=len)
+            n_jump += len(good) - len(best)
+            good = best
+        ep = eps.get(icao)
+        for r in good:
+            in_ep = bool(ep) and any(a <= r[1] <= b for a, b in ep)
+            if in_ep and gnss_ok:
+                n_gnss += 1
+                continue
+            kept.append((r, in_ep))
+
+    # ── Lapse rate of the band (temperature to the band centre) ───────────
+    tp = [(r[4] - alt_centre_query, r[8]) for r, _ in kept if r[8] is not None]
+    lapse = None
+    if len(tp) >= 10:
+        mx = sum(a for a, _ in tp) / len(tp)
+        my = sum(t for _, t in tp) / len(tp)
+        sxx = sum((a - mx) ** 2 for a, _ in tp)
+        if sxx > 0 and math.sqrt(sxx / len(tp)) >= 150:     # altitudes spread enough to fit
+            slope = sum((a - mx) * (t - my) for a, t in tp) / sxx * 1000.0
+            lapse = min(LAPSE_MAX, max(LAPSE_MIN, slope))
+    if lapse is None:
+        lapse = -2.0 if fl >= 50 else -1.5                  # ≈ standard, K / 1 000 ft
+
+    # ── Bin: cell → aircraft → sums ───────────────────────────────────────
+    coslat = math.cos(math.radians(center_lat))
+    km_per_deg_lon = KM_PER_DEG_LAT * coslat
     cells: dict = {}
+    for r, in_ep in kept:
+        x = (r[3] - center_lon) * km_per_deg_lon
+        y = (r[2] - center_lat) * KM_PER_DEG_LAT
+        key = (math.floor(x / cell_km), math.floor(y / cell_km))
+        spd = float(r[6])
+        dr = math.radians(float(r[7]))
+        u, v = -spd * math.sin(dr), -spd * math.cos(dr)
+        a = cells.setdefault(key, {}).setdefault(
+            r[0], {"u": 0.0, "v": 0.0, "n": 0, "t": 0.0, "tn": 0, "ep": False})
+        a["u"] += u
+        a["v"] += v
+        a["n"] += 1
+        a["ep"] = a["ep"] or in_ep
+        if r[8] is not None:
+            a["t"] += float(r[8]) - lapse * (r[4] - alt_centre_query) / 1000.0
+            a["tn"] += 1
 
-    for row in rows:
-        # Snap lat/lon to nearest grid node
-        glat = round(round(row["lat"] / grid_deg) * grid_deg, 6)
-        glon = round(round(row["lon"] / grid_deg) * grid_deg, 6)
-        key  = (glat, glon)
-
-        spd     = float(row["best_wind_spd"])
-        dir_rad = math.radians(float(row["best_wind_dir"]))
-
-        # Meteorological convention: wind FROM direction
-        # U = westward component, V = southward component
-        u = -spd * math.sin(dir_rad)
-        v = -spd * math.cos(dir_rad)
-
-        if key not in cells:
-            cells[key] = {
-                "u": 0.0, "v": 0.0,
-                "temp_sum": 0.0, "temp_count": 0,
-                "obs": 0,
-            }
-
-        c = cells[key]
-        c["u"]   += u
-        c["v"]   += v
-        c["obs"] += 1
-
-        if row["best_temp"] is not None:
-            c["temp_sum"]   += float(row["best_temp"])
-            c["temp_count"] += 1
-
-    # ── Compute cell averages and convert back to speed / direction ───────
+    # ── Cell averages over aircraft ───────────────────────────────────────
     result_cells = []
-
-    for (glat, glon), c in cells.items():
-        n   = c["obs"]
-        u_m = c["u"] / n
-        v_m = c["v"] / n
-
-        spd_avg = math.sqrt(u_m ** 2 + v_m ** 2)
+    for (cx, cy), acs in cells.items():
+        means = []
+        for a in acs.values():
+            means.append((a["u"] / a["n"], a["v"] / a["n"],
+                          a["t"] / a["tn"] if a["tn"] else None, a["n"], a["ep"]))
+        k = len(means)
+        u_m = sum(m[0] for m in means) / k
+        v_m = sum(m[1] for m in means) / k
+        spd_avg = math.hypot(u_m, v_m)
         dir_avg = math.degrees(math.atan2(-u_m, -v_m)) % 360
-
-        temp_avg = (c["temp_sum"] / c["temp_count"]) if c["temp_count"] > 0 else None
-
+        w_sd = (math.sqrt(sum((m[0] - u_m) ** 2 + (m[1] - v_m) ** 2 for m in means) / (k - 1))
+                if k >= 2 else None)
+        temps = [m[2] for m in means if m[2] is not None]
+        t_avg = sum(temps) / len(temps) if temps else None
+        t_sd = (math.sqrt(sum((t - t_avg) ** 2 for t in temps) / (len(temps) - 1))
+                if len(temps) >= 2 else None)
+        lat_s = center_lat + cy * cell_km / KM_PER_DEG_LAT
+        lat_n = center_lat + (cy + 1) * cell_km / KM_PER_DEG_LAT
+        lon_w = center_lon + cx * cell_km / km_per_deg_lon
+        lon_e = center_lon + (cx + 1) * cell_km / km_per_deg_lon
         result_cells.append({
-            "lat":      glat,
-            "lon":      glon,
+            "lat":      round((lat_s + lat_n) / 2, 4),
+            "lon":      round((lon_w + lon_e) / 2, 4),
+            "bounds":   [round(lat_s, 4), round(lon_w, 4), round(lat_n, 4), round(lon_e, 4)],
             "wind_spd": round(spd_avg, 1),
             "wind_dir": round(dir_avg, 1),
-            "temp":     round(temp_avg, 1) if temp_avg is not None else None,
-            "obs":      n,
+            "wind_sd":  round(w_sd, 1) if w_sd is not None else None,
+            "temp":     round(t_avg, 1) if t_avg is not None else None,
+            "temp_sd":  round(t_sd, 1) if t_sd is not None else None,
+            "temp_ac":  len(temps),
+            "ac":       k,
+            "obs":      sum(m[3] for m in means),
+            "gnss_deg": sum(1 for m in means if m[4]),
         })
 
-    # Sort ascending by obs count so denser cells render on top in the browser
-    result_cells.sort(key=lambda x: x["obs"])
+    # Layer mean temperature (weighted by aircraft) → ΔT per cell
+    tw = [(c["temp"], c["temp_ac"]) for c in result_cells if c["temp"] is not None]
+    t_layer = (sum(t * w for t, w in tw) / sum(w for _, w in tw)) if tw else None
+    for c in result_cells:
+        c["dtemp"] = (round(c["temp"] - t_layer, 1)
+                      if c["temp"] is not None and t_layer is not None else None)
+
+    # Fewest aircraft first so better-supported cells render on top
+    result_cells.sort(key=lambda c: (c["ac"], c["obs"]))
 
     return {
         "fl":                  fl,
         "altitude_ft":         alt_centre_msl,   # MSL altitude the user requested
+        "alt_query_ft":        round(alt_centre_query),  # pressure altitude of the band centre
         "tolerance_ft":        tolerance_ft,
-        "grid_deg":            grid_deg,
+        "cell_km":             cell_km,
         "cells":               result_cells,
-        "obs_used":            len(rows),
+        "obs_query":           n_query,
+        "obs_used":            len(kept),
+        "removed":             {"frozen": n_frozen, "jump": n_jump, "gnss": n_gnss},
+        "gnss_ok":             bool(gnss_ok),
+        "aircraft":            len({r[0] for r, _ in kept}),
         "cells_count":         len(result_cells),
+        "temp_layer":          round(t_layer, 1) if t_layer is not None else None,
+        "lapse_k_per_1000ft":  round(lapse, 2),
         "qnh_hpa":             round(qnh_hpa, 1),
+        "qnh_source":          qnh_source,
         "qnh_correction_ft":   round(qnh_correction_ft, 0) if fl < TRANSITION_FL else None,
         "period_start":        time.strftime("%Y-%m-%d %H:%M", time.gmtime(start_ts)) + " UTC",
         "period_end":          time.strftime("%Y-%m-%d %H:%M", time.gmtime(end_ts))   + " UTC",
+        "start_ts":            start_ts,
+        "end_ts":              end_ts,
         "generated_at":        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())      + " UTC",
     }

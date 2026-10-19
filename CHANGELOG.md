@@ -5,8 +5,21 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-19 (radiosonde earlier start and completeness check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
+## 2026-10-19 (Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
 
+- **Wind Map — second round** (`static/js/windmap.js`, new `static/js/windmap_analysis.js`, `windmap.html`, `/api/windmap` returns `alt_query_ft`), in a new second control strip:
+  - **Isotachs** (dashed, every 10 / 20 kt, with the strongest analysed wind) and **Streamlines** from a smoothed field of the cells (Barnes-type, drawn only where there are data)
+  - **Sonde**: the Jokioinen radiosonde at the level as a pink barb at its launch site, with the difference from the nearest Mode S cell
+  - **Compare**: *change since the previous period* (vector change of the wind as purple arrows, cells tinted by warming / cooling) or *other level* (thermal wind arrows, cells tinted by veering = warm advection / backing = cold advection, lapse rate between the levels in the popup)
+  - **Time slider and ▶ animation**: the period moved back hour by hour over the last 24 hours
+  - the status line and the ΔT / Compare legends float over the bottom left of the map instead of sitting in the control strip, so the strips no longer change height (and the map no longer jumps) when the text changes
+- **Wind Map — first round of improvements** (`web/api/windmap.py`, `static/js/windmap.js`, `windmap.html`):
+  - each aircraft is averaged first, then the aircraft of a cell — one aircraft with many stored replies no longer outweighs the others; the barb's opacity shows the number of aircraft (1 faint, 2, 3+ full), and the popup gives the aircraft and observation counts, the spread between aircraft (wind and temperature) and how many had degraded GNSS; new **Min** selector (1 / 2 / 3 aircraft)
+  - square grid cells of 25 / 50 / 100 km (default 50) instead of 0.25° / 0.5° / 1.0° (which were twice as tall as wide at 60° N)
+  - temperatures are moved to the level with the lapse rate fitted to the band, and the new **ΔT** tick box colours the cells by their difference from the layer mean (blue colder, red warmer) — air masses and frontal zones
+  - frozen positions and impossible jumps (GNSS jamming / spoofing, e.g. the false point east of St Petersburg) are removed; **GNSS ok only** also leaves out observations inside GPS degradation episodes
+  - low layers use the METAR QNH of the period (hourly profile archive) instead of the current one for historical periods
+  - two-line labels shown only when the cells are wide enough on screen; map style and colours follow the Light / Dark theme; settings remembered; the map loads when the page opens; optional **Auto** reload every 2 min
 - **Radiosonde re-check every 6 h**: the soundings of the last 48 h are fetched again every 6 h (as at start), because FMI sometimes replaces an early, partial copy with a fuller one hours later (18 Oct 12 UTC: 100 hPa at first, 52 hPa the next morning); only a copy with more data is written, and the Sonde check then recomputes its rows (`collector/sondes.py`)
 - **Collector Stats log line every 10 min** (`Stats: N messages processed (M in the last 10 min), K aircraft tracked`) instead of every 5000 messages (about 3 200 lines a day before) (`collector/receiver.py`)
 - **Log file rotated and smaller**: `logs/modes_meteo.log` is rotated at 10 MB with 3 old files kept (`.1`–`.3`, at most about 40 MB; it had grown to 199 MB since June — an existing large file is rotated at the first line written), and the web server's access lines (one per page request, two thirds of the log) are no longer written; warnings and errors still are. Optional `config.py` keys `LOG_MAX_MB`, `LOG_BACKUPS`, `LOG_HTTP_ACCESS` (`run.py`)

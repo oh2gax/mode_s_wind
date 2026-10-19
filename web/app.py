@@ -549,21 +549,30 @@ def create_app(
     def windmap_api():
         """
         Gridded wind map for a chosen flight level, altitude tolerance,
-        time window and grid resolution.
+        time window and grid cell size (web/api/windmap.py).
 
         Query params:
           fl        — flight level (e.g. 350 for FL350), default 350
           tolerance — ±ft band around FL centre altitude, default 1000
-          grid      — grid cell size in degrees, default 0.5
+          cell      — grid cell size in km (5–300), default 50
+                      (old param grid = degrees of latitude, converted)
           window    — minutes back from now (mutually exclusive with start/end)
           start     — period start as Unix timestamp
           end       — period end   as Unix timestamp
+          gnss_ok   — 1: leave out rows inside GPS degradation episodes
         """
-        from web.api.windmap import build_windmap
+        from web.api.windmap import build_windmap, period_qnh, KM_PER_DEG_LAT
 
         fl        = int(request.args.get("fl",        350))
-        tolerance = int(request.args.get("tolerance", 1000))
-        grid      = float(request.args.get("grid",    0.5))
+        tolerance = max(100, min(5000, int(request.args.get("tolerance", 1000))))
+        if "cell" in request.args:
+            cell_km = float(request.args["cell"])
+        elif "grid" in request.args:
+            cell_km = float(request.args["grid"]) * KM_PER_DEG_LAT
+        else:
+            cell_km = 50.0
+        cell_km = max(5.0, min(300.0, cell_km))
+        gnss_ok = request.args.get("gnss_ok", "0") in ("1", "true", "yes")
 
         now = time.time()
         if "start" in request.args and "end" in request.args:
@@ -574,12 +583,16 @@ def create_app(
             end_ts     = now
             start_ts   = now - window_min * 60
 
-        # Pass current QNH for low-altitude pressure-altitude correction.
-        # The cache is populated by /api/wx; falls back to ISA 1013.25 hPa
-        # until the first METAR fetch completes.
-        qnh = _qnh_cache["hpa"]
-        result = build_windmap(get_db(), fl, tolerance, start_ts, end_ts, grid,
-                               qnh_hpa=qnh)
+        # QNH for the low-altitude pressure-altitude correction: the current
+        # METAR (cache filled by the wx thread) for a recent period, else the
+        # METAR stored with the hourly profile archive nearest to its middle
+        db = get_db()
+        qnh, qnh_src = period_qnh(db, start_ts, end_ts, now, _qnh_cache["hpa"],
+                                  _qnh_cache["updated"] > 0)
+        result = build_windmap(db, fl, tolerance, start_ts, end_ts, cell_km,
+                               qnh_hpa=qnh, qnh_source=qnh_src,
+                               center_lat=cfg.RECEIVER_LAT, center_lon=cfg.RECEIVER_LON,
+                               gnss_ok=gnss_ok)
         return jsonify(result)
 
     # ── Sounding API ──────────────────────────────────────────────────────

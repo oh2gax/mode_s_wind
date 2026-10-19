@@ -55,29 +55,103 @@
     </div>
 
     <div class="wm-group">
-      <label class="wm-label">Grid</label>
-      <select id="wm-grid" class="wm-select">
-        <option value="0.25">0.25°</option>
-        <option value="0.5" selected>0.5°</option>
-        <option value="1.0">1.0°</option>
+      <label class="wm-label">Cell</label>
+      <select id="wm-cell" class="wm-select" title="Grid cell size (square cells)">
+        <option value="25">25 km</option>
+        <option value="50" selected>50 km</option>
+        <option value="100">100 km</option>
       </select>
     </div>
 
-    <button id="wm-load" class="btn-primary wm-load-btn">▶ Load</button>
-
-    <div class="wm-legend">
-      <span class="wm-dot" style="background:#6ee7b7"></span> &lt;15 kt
-      <span class="wm-dot" style="background:#3b82f6"></span> 15–30 kt
-      <span class="wm-dot" style="background:#f59e0b"></span> 30–50 kt
-      <span class="wm-dot" style="background:#ef4444"></span> &gt;50 kt
+    <div class="wm-group">
+      <label class="wm-label">Min</label>
+      <select id="wm-minac" class="wm-select" title="Show only cells with at least this many different aircraft">
+        <option value="1" selected>1 a/c</option>
+        <option value="2">2 a/c</option>
+        <option value="3">3 a/c</option>
+      </select>
     </div>
 
-    <div id="wm-status" class="wm-status">Select parameters and click Load</div>
+    <label class="wm-check" title="Colour the cells by their temperature difference from the mean of the whole layer (ΔT, temperatures moved to the level with the layer's lapse rate): warm and cold air masses and frontal zones">
+      <input type="checkbox" id="wm-dt"> ΔT
+    </label>
+
+    <label class="wm-check" title="Leave out the observations of aircraft while their GPS position was degraded (GPS degradation episodes). Off: only frozen and impossible (spoofed) positions are removed — at cruise levels most observations inside an episode still have usable positions">
+      <input type="checkbox" id="wm-gnss"> GNSS ok only
+    </label>
+
+    <label class="wm-check" title="Reload every 2 minutes (Last … periods)">
+      <input type="checkbox" id="wm-auto"> Auto
+    </label>
+
+    <button id="wm-load" class="btn-primary wm-load-btn">▶ Load</button>
+
+    <div class="wm-legend" id="wm-legend-speed">
+      <span class="wm-dot wm-c0"></span> &lt;15 kt
+      <span class="wm-dot wm-c1"></span> 15–30 kt
+      <span class="wm-dot wm-c2"></span> 30–50 kt
+      <span class="wm-dot wm-c3"></span> &gt;50 kt
+      <span class="wm-legend-sep"></span>
+      <span class="wm-ac-key" title="Barb opacity: number of different aircraft in the cell">1 · 2 · 3+ a/c</span>
+    </div>
+
+  </div>
+
+  <!-- ── Second strip: analysis, comparison, time ─────────────────────── -->
+  <div class="windmap-controls windmap-controls2">
+
+    <label class="wm-check" title="Isotachs — lines of equal wind speed (every 10 kt, 20 kt when the range is wide) from a smoothed field of the cells, drawn only where there are data; the strongest analysed wind is marked">
+      <input type="checkbox" id="wm-iso"> Isotachs
+    </label>
+    <label class="wm-check" title="Streamlines through the smoothed wind field (only where there are data)">
+      <input type="checkbox" id="wm-stream"> Streamlines
+    </label>
+    <label class="wm-check" title="The Jokioinen radiosonde at the chosen level (newest sounding launched before the end of the period, at most 24 h old), with the difference from the nearest Mode S cell in its popup">
+      <input type="checkbox" id="wm-sonde"> Sonde
+    </label>
+
+    <div class="wm-group">
+      <label class="wm-label">Compare</label>
+      <select id="wm-cmp" class="wm-select" title="Change since the previous period of the same length, or the difference to another level (thermal wind)">
+        <option value="off" selected>Off</option>
+        <option value="prev">Change since previous period</option>
+        <option value="level">Other level (thermal wind)</option>
+      </select>
+      <select id="wm-fl2" class="wm-select wm-hidden" title="The other level of the thermal wind">
+        <option value="20">2 000 ft</option>
+        <option value="30">3 000 ft</option>
+        <option value="50">FL050</option>
+        <option value="100" selected>FL100</option>
+        <option value="150">FL150</option>
+        <option value="200">FL200</option>
+        <option value="250">FL250</option>
+        <option value="300">FL300</option>
+        <option value="350">FL350</option>
+        <option value="400">FL400</option>
+      </select>
+    </div>
+
+    <div class="wm-group wm-time" title="Step the period back in time (hours before the chosen end); ▶ animates the last 24 hours">
+      <button id="wm-play" class="wm-play-btn" type="button">▶</button>
+      <input type="range" id="wm-tshift" min="-23" max="0" step="1" value="0">
+      <span id="wm-tlabel" class="wm-tlabel">now</span>
+    </div>
 
   </div>
 
   <!-- ── Map ────────────────────────────────────────────────────────── -->
-  <div id="wm-map" class="windmap-map"></div>
+  <div class="windmap-mapwrap">
+    <div id="wm-map" class="windmap-map"></div>
+    <!-- Legends and status float over the bottom of the map, so their changing
+         text never changes the height of the control strips (no page jumps) -->
+    <div class="wm-overlay">
+      <div class="wm-legend wm-hidden" id="wm-legend-dt" title="ΔT: cell temperature minus the mean of all cells of the layer">
+      ΔT <span class="wm-dt-bar"></span> <span class="wm-dt-ticks">−3 · 0 · +3 K</span>
+      </div>
+      <div class="wm-legend wm-hidden" id="wm-legend-cmp"></div>
+      <div id="wm-status" class="wm-status">Select parameters and click Load</div>
+    </div>
+  </div>
 
 </div>
 {% endblock %}
@@ -87,5 +161,6 @@
 const RECEIVER_LAT = {{ receiver_lat }};
 const RECEIVER_LON = {{ receiver_lon }};
 </script>
+<script src="{{ url_for('static', filename='js/windmap_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/windmap.js') }}"></script>
 {% endblock %}

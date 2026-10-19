@@ -31,8 +31,8 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority; active mode shown as a read-only badge in the navbar on every page
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
-- **Gridded historical wind map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and grid resolution; U/V-averaged wind barbs are plotted on a Leaflet map at each populated grid cell, colour-coded by wind speed
-- **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the latest METAR QNH so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
+- **Gridded wind and temperature map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and cell size (25 / 50 / 100 km square cells); per-aircraft-averaged wind barbs at each populated cell, colour-coded by wind speed, faded by the number of aircraft behind them, optional ΔT colouring (temperature difference from the layer mean: air masses and fronts), isotachs and streamlines from a smoothed field, the Jokioinen radiosonde at the level, the change since the previous period or the thermal wind to another level (warm / cold advection per cell), and a time slider / animation over the last 24 hours; frozen and spoofed positions removed
+- **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the METAR QNH of the period so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
 - **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, six selectable windshear detection algorithms, a go-around detector, a wind rose (with an approach-conditions chart view) and a persistent **Approach History** of every landing — wind per 200 ft band, GNSS quality on final, and a provisional **Approach Conditions Index (ACI)** (roughness) from the aircraft's own bank-angle, airspeed and vertical-rate activity; see [Windshear](#windshear--windshear) below
 - **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects self-reported degradation (NACp accuracy and NIC integrity), position freeze, position gap and ADS-B position loss (MLAT covering a GPS dropout); renders a stacked bar chart (NACp / NIC / Freeze / Gap / ADS-B signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, an `Events` / `% aircraft` mode, hover details and click-through to the GPS Episodes page, a FL band distribution doughnut chart with a summary stats panel over the same window, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
 - **GPS Episodes page** — map, list and altitude-vs-distance view of individual GPS degradation episodes (one aircraft's continuous degraded period: where it started, where the aircraft recovered or was lost); see [GPS Episodes](#gps-episodes--gps-episodes) below
@@ -739,23 +739,38 @@ Layers count when they have ≥ 3 replies and lie within the sounding's range (F
 
 ### Wind Map  `/windmap`
 
-A gridded horizontal wind analysis map built from historical observations stored in the database. Wind vectors within each grid cell are averaged using proper U/V component decomposition — the same mathematically correct method used by the sounding aggregation — so directional accuracy is preserved when combining multiple observations.
+A gridded horizontal wind and temperature map built from the observations stored in the database: one wind barb per grid cell, averaged over the aircraft that crossed the cell in the chosen level band and period. It shows the horizontal structure that the area profile (one column within 150 km) averages away — where the jet core lies, how the wind changes across the region, and with **ΔT** the warm and cold air masses and frontal zones.
 
 #### Controls
 
 | Control | Options | Description |
 |---------|---------|-------------|
-| FL | 1 000 ft – 4 000 ft, FL050 – FL450 | Centre altitude for the filter. Low-altitude options (1 000–4 000 ft) are displayed in feet and sit below the transition altitude; FL050 and above use standard flight-level notation |
-| ± | 500 / 1 000 / 2 000 / 3 000 ft | Altitude band around the chosen level; observations within ± tolerance are included. For the 1 000 ft layer a ±500 ft tolerance is recommended to keep the band tight |
-| Period | Last 1 h / 3 h / 6 h / 12 h / 24 h / Custom | Time window for the database query. **Custom** reveals date+time pickers for selecting any historical hour from the database |
-| Grid | 0.25° / 0.5° / 1.0° | Grid cell size in decimal degrees. Finer grids place barbs more precisely along flight routes; coarser grids merge nearby observations and produce a cleaner overview |
-| Load | — | Executes the query and renders the map |
+| FL | 1 000 ft – 4 000 ft, FL050 – FL450 | Centre altitude. Low-altitude options (1 000–4 000 ft) are MSL altitudes (QNH corrected, see below); FL050 and above are flight levels |
+| ± | 500 / 1 000 / 2 000 / 3 000 ft | Altitude band around the chosen level |
+| Period | Last 1 h / 3 h / 6 h / 12 h / 24 h / Custom | Time window. **Custom** shows date+time pickers for any historical period in the database |
+| Cell | 25 / 50 / 100 km | Square grid cells (the east–west size is scaled with latitude, so a cell is as wide as it is tall) |
+| Min | 1 / 2 / 3 a/c | Show only cells with at least this many different aircraft |
+| ΔT | tick box | Colour the cells by their temperature difference from the mean of the whole layer (see below) |
+| GNSS ok only | tick box | Leave out the observations of aircraft while their GPS position was degraded (see *Positions* below) |
+| Auto | tick box | Reload every 2 minutes (Last … periods), and at once when the page becomes visible again |
+| Load | — | Runs the query (also Enter in the control strip). The page loads the map at once when opened |
+| Isotachs | tick box | Lines of equal wind speed and the strongest analysed wind (see *Analysis* below) |
+| Streamlines | tick box | Streamlines through the smoothed wind field |
+| Sonde | tick box | The Jokioinen radiosonde at the chosen level (see below) |
+| Compare | Off / Change since previous period / Other level (thermal wind) + level | Purple arrows and cell tints comparing with the previous period of the same length, or with another level (see below) |
+| ▶ and slider | 0 … −23 h | Moves the period back in whole hours from the chosen end (the label shows the new end); ▶ animates the last 24 hours, ■ stops |
 
-The status bar below the controls shows the number of raw observations used, the resulting cell count, the exact UTC time period, and the active grid resolution. For low-altitude layers (below FL050) the status bar additionally shows the QNH value that was used and the resulting pressure-altitude correction — for example `· QNH 998.0 hPa (alt corr +410 ft)`.
+The settings (including a custom period) are remembered in the browser. The status line (with the ΔT and Compare legends) floats over the bottom left of the map, so the control strips keep their height while it changes. It shows the number of aircraft and observations used, the cells shown, the positions removed, the period, the mean temperature of the layer with the lapse rate used, and for low layers the QNH used with its source.
+
+#### Averaging and reliability
+
+Within a cell, each aircraft's observations are averaged first (wind as U/V components, so 350° and 010° give 000°), then the aircraft means are averaged — one aircraft with 30 stored replies counts as much as one with 3. The barb's **opacity** shows how many different aircraft are behind it: faint = 1, medium = 2, full = 3 or more (a single airframe's error, e.g. a heading or temperature bias, is not averaged out in the faint ones). The popup gives the aircraft and observation counts, the **spread between aircraft** (vector RMS difference of the wind, SD of the temperature) and how many of the aircraft had degraded GNSS.
+
+How many aircraft to expect (50 km cells, ±2 000 ft, October 2026, medians): at FL350 about 50 cells with data in 3 h, of which about 25 with ≥ 3 aircraft (17 at night), about 10 in 1 h; at FL150–250 about 9 such cells in 3 h (3–5 at night), mostly within about 100 km of Helsinki; at FL050 and below only the 3–4 cells around the airport — for the lowest levels the airport low-level profile of the Live Map is the better tool.
 
 #### Wind barbs
 
-Each populated grid cell is represented by a standard meteorological wind barb placed at the cell centre:
+Each cell is represented by a standard meteorological wind barb at the cell centre:
 
 - **Staff** — points FROM the direction the wind is coming from (meteorological convention)
 - **Pennant** — filled triangle = 50 kt
@@ -763,27 +778,46 @@ Each populated grid cell is represented by a standard meteorological wind barb p
 - **Half barb** — short line = 5 kt
 - **Calm** — open circle when averaged speed rounds to 0 kt
 
-**Colour** indicates averaged wind speed: green < 15 kt, blue 15–30 kt, amber 30–50 kt, red > 50 kt.
+**Colour** indicates averaged wind speed: green < 15 kt, blue 15–30 kt, amber 30–50 kt, red > 50 kt (darker shades in the Light theme). When the cells are wide enough on screen, a two-line label next to the barb shows `direction° speed kt` and `temperature° N ac` (number of aircraft); zoom in to see the labels at small cell sizes. Hovering shows a compact tooltip, clicking opens the popup. The map style follows the page's Light / Dark button.
 
-The label below each barb shows direction, speed, temperature (if available), and observation count — for example `248° 45kt −35.1°C (12)`. Clicking a barb opens a popup with full cell details including exact grid coordinates. Hovering shows a compact tooltip.
+#### Temperature and ΔT
+
+A ± band of 2 000 ft spans about 8 K of normal cooling with height, more than the horizontal differences. Each temperature is therefore moved to the band centre with the lapse rate fitted to all temperatures of the band and period (least squares, limited to −3.5 … +1.5 K per 1 000 ft; an inversion inside the band gives a positive value; about −2 K / 1 000 ft when there are too few points). The labels and popups show these level temperatures. **ΔT** is the cell temperature minus the mean of all cells of the layer (weighted by aircraft): blue cells are colder, red cells warmer, full colour at ±3 K, fainter with fewer aircraft. Differences of 1 K or less are within the Mach/TAS temperature noise of single aircraft; look for coherent areas of several cells.
+
+#### Positions
+
+Under GNSS interference an aircraft's broadcast position can freeze (the last fix is repeated while the aircraft moves on) or jump to a false (spoofed) place — e.g. a fixed point about 60 km east-north-east of St Petersburg and its decoding twin over the Sea of Åland. The wind itself (BDS 5,0 / 6,0) is not affected, but it would be drawn in the wrong cell. Always removed: **frozen** positions (the same position as the aircraft's previous stored row ≥ 10 s earlier while moving) and **jumps** (each aircraft's rows are split where a step is impossible — more than 3 NM + 800 kt × time — and only its largest consistent part is kept). With **GNSS ok only** also every observation inside a GPS degradation episode of the aircraft (the GPS Episodes table, + 120 s) is left out. That is off by default: at cruise levels about two thirds of the observations fall inside an episode (the Gulf of Finland traffic), while most of those positions still move normally (inertial / hybrid navigation).
+
+#### Analysis: isotachs and streamlines
+
+For these layers the cell winds are smoothed onto a regular grid of points half a cell apart (a Barnes-type weighted average with a Gaussian weight of one cell length, each cell weighted by its number of aircraft, up to 10). A grid point is analysed only when a cell centre lies within ¾ of a cell, so the field is drawn only where there are data — never extrapolated over empty areas. **Isotachs** are dashed yellow lines every 10 kt (20 kt when the speeds span more than 60 kt) with their values; **▲ max** marks the strongest analysed wind (it may lie at the edge of the data, so it is not necessarily the jet core). **Streamlines** are traced through the smoothed field with a small arrow showing the flow direction. Both follow the **Min** aircraft filter. The isotachs show where the wind strengthens — a jet stream at cruise levels, or the narrow speed maximum of a low-level jet — and the streamlines its curvature (troughs, ridges, confluence).
+
+#### Radiosonde at the level
+
+With **Sonde**, the newest Jokioinen sounding launched before the end of the period (at most 24 h old) is shown at its launch site as a pink barb with a square dot (the Skew-T sonde colour), interpolated in log-pressure to the level's ISA pressure (the band centre in pressure altitude). The label gives the launch hour, the speed and the temperature; the popup the values, the age of the sounding at the end of the period and the difference from the nearest Mode S cell (within one cell size). If the sounding stops below the level, a pink ring says so.
+
+#### Compare: change since previous period, thermal wind
+
+- **Change since previous period** loads the previous period of the same length (e.g. 07–10 UTC for 10–13 UTC) and draws, in every cell with data in both, a purple arrow of the **vector change of the wind** (pointing in the direction of the change, longer for a larger change) with its size and the temperature change; the cells are tinted red where the level has warmed and blue where it has cooled (full at ±3 K) — the passage of a front or a trough shows as a band of cooling with a turn of the wind.
+- **Other level (thermal wind)** loads the second level chosen next to it for the same period and draws in each common cell the **thermal wind** — the difference of the wind vectors from the lower to the upper level. It blows along the isotherms of the layer between the two levels with the cold air on its left. The cells are tinted by how the wind turns with height: **veering** (clockwise) = warm advection, red; **backing** = cold advection, blue (full at 30°, shown when both winds are at least 8 kt) — the same rule as the advection analysis of the Skew-T, now for every cell. The popup adds the turning angle and the lapse rate between the two levels. Mid levels (FL100–250) have cells mostly near Helsinki, so the thermal wind is usually available within about 100 km.
+
+While a comparison is shown, the ΔT colouring is switched off (the tint shows the comparison) and the barb labels of the compared cells are replaced by the arrow labels.
 
 #### Interpreting the map
 
-Observations will be concentrated along the main flight routes visible from your receiver — typically approach/departure corridors and overfly routes. Areas with no aircraft traffic will have no barbs. A longer time window and wider altitude tolerance populate more cells but may mix observations from different weather systems; a shorter window gives a snapshot closer to current conditions.
-
-For best results when studying a specific weather event, use the Custom period selector to load exactly the hour of interest from your historical database.
+Observations are concentrated along the main flight routes visible from your receiver — approach / departure corridors and overfly routes; areas with no traffic have no barbs. A longer period and a wider band populate more cells but may mix different weather; a shorter period gives a snapshot closer to current conditions. For a specific weather event use the Custom period.
 
 #### QNH correction for low-altitude layers
 
 Aircraft transponders always broadcast pressure altitude referenced to the ICAO standard pressure of 1013.25 hPa, regardless of what QNH the pilot has set. Above the transition altitude (FL050 / 5 000 ft) this is correct by convention — pressure altitude IS the reference. Below FL050, however, the difference between pressure altitude and true MSL altitude can reach several hundred feet when QNH departs significantly from standard, which is common in Finnish winter conditions (QNH can be 980–990 hPa, causing 600–900 ft of offset).
 
-When a low-altitude layer (1 000–4 000 ft) is selected, the system automatically shifts the database query window into pressure-altitude space using the correction:
+When a low-altitude layer (1 000–4 000 ft) is selected, the query window is shifted into pressure-altitude space:
 
 ```
 pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
 ```
 
-For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries the database for pressure altitudes between about 1 916 ft and 2 916 ft (correction (1013.25 − 998) × 27.3 ≈ +416 ft, ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is sourced from the cached METAR, fetched by the server's background weather thread every 10 minutes (and served to the pages by `/api/wx`); it falls back to 1013.25 hPa until the first METAR is available. Raw pressure altitudes are never modified in the database.
+For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries pressure altitudes between about 1 916 ft and 2 916 ft (correction (1013.25 − 998) × 27.3 ≈ +416 ft, ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is the **QNH of the period**: for a period ending within the last hour the current METAR (fetched by the server's background weather thread every 10 minutes), for an older period the METAR QNH stored with the hourly profile archive (`profile_hours`) nearest to the middle of the period (within 3 h); 1013.25 hPa when neither is available. The status line shows which (`QNH 1014 hPa (METAR 17 07 UTC)`). Raw pressure altitudes are never modified in the database.
 
 ---
 
@@ -1761,6 +1795,7 @@ mode_s_wind/
 │       ├── skewt_indices.js   # Stability indices and levels for the Sounding page's Indices panel
 │       ├── sounding.js        # Sounding page: sources, data table, diagram controls
 │       ├── windmap.js         # Wind map barb rendering + controls
+│       ├── windmap_analysis.js # Wind map smoothed field, isotachs, streamlines
 │       ├── windshear.js       # Approach strips, ILS profile, windshear detection
 │       ├── gps_quality.js     # GPS quality charts, heatmap, live table
 │       ├── gps_episodes.js    # GPS Episodes page: map, episode list, altitude/distance scatter
@@ -1837,7 +1872,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | POST | `/api/maintenance/archive/list` | Archive folder status (free space, last archive run / error, snapshot state) and the archive / snapshot files (maintenance credentials) |
 | POST | `/api/maintenance/archive/snapshot` | Start a snapshot of the whole database (`VACUUM INTO`) in the background (maintenance credentials) |
 | GET | `/api/heading_cal` | Heading calibration status: mode, airframe counts (calibrated / excluded), fleet and aircraft-type median offsets, and each airframe's offset, flights, samples and status (`?airframes=0` omits the list); RAM-only |
-| GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `grid`, `window` or `start`+`end`) |
+| GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `cell` km (default 50; the old `grid` in degrees is still accepted), `window` or `start`+`end`, `gnss_ok=1`): per cell `lat`, `lon`, `bounds`, `wind_dir`, `wind_spd`, `wind_sd`, `temp` (at the level), `dtemp`, `temp_sd`, `ac`, `obs`, `gnss_deg`; plus `alt_query_ft` (pressure altitude of the band centre), `aircraft`, `obs_used`, `removed` {frozen, jump, gnss}, `temp_layer`, `lapse_k_per_1000ft`, `qnh_hpa`, `qnh_source` |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch), `qnh_hpa`, `elev_ft` (airport elevation for the Live Map ground line) and `metar_wind` (`dir`, `spd`, `gust`, `variable`); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
 | GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches), `gnss` (GNSS quality during the approach, see `gnss_json` under [Database](#database); `null` when not captured), `rough` (approach roughness + METAR wind, see `rough_json`; `null` when not captured), `cond` (provisional approach-conditions index computed from `rough`: `idx` 0–10, `lvl` 0–4, `lbl`, aircraft class `cls`, `raw` before the class factor, per-segment `hi` / `lo` scores and component values, `metar` wind string; `null` when not enough data) |
