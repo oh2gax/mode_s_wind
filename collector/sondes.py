@@ -4,8 +4,9 @@ Mode S area profile on the Skew-T diagrams.
 
 A background thread fetches each new sounding of the station once it appears
 in the FMI open data (launches at 00, 06 and 12 UTC, occasionally an extra one;
-first looked for about 1 h 50 min after launch, when the flight is normally
-over, and fetched again every 15 min until it no longer grows) and stores it as one small gzipped
+first looked for at the nominal hour, about 30 min after launch, and fetched
+again every 15 min until it no longer grows — so a profile published while the
+balloon is still climbing is shown early and completed) and stores it as one small gzipped
 JSON file in data/soundings/ (`<station>_<YYYYMMDDHH>.json.gz`, 5–20 kB).
 Files older than SONDE_KEEP_DAYS (default 365) are deleted.  Nothing is
 written to the database; a few HTTPS requests and about four file writes a
@@ -77,11 +78,11 @@ FIELDS = {"PAP_PT1S_AVG": "p", "WSP_PT1S_AVG": "ws", "WDP_PT1S_AVG": "wd",
 KT_PER_MS = 1.943844
 
 CHECK_SEC = 15 * 60          # check interval while a sounding is due
-PUBLISH_DELAY_SEC = 80 * 60  # looked for from nominal + 80 min (launch + about 1 h 50 min:
-                             # a flight to burst height takes 1 h 45 min – 2 h) …
+PUBLISH_DELAY_SEC = 0        # looked for from the nominal hour (launch + about 30 min, the
+                             # balloon at about 10 km; the flight to burst takes 1 h 45 min – 2 h) …
 DUE_WINDOW_SEC = 8 * 3600    # … until 8 h after its nominal time
-# A sounding found while the flight data are still incomplete is fetched again
-# each CHECK_SEC until it is complete: its raw level count
+# A sounding found while the flight is still under way (or published before its
+# data were complete) is fetched again each CHECK_SEC until it is complete: its raw level count
 # unchanged on STABLE_FETCHES fetches in a row and its last data at least
 # STABLE_AGE_SEC old — or FINAL_AFTER_SEC after the nominal time at the latest.
 STABLE_FETCHES = 2

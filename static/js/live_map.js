@@ -179,12 +179,18 @@ async function fetchMiniArea() {
 // ── Radiosonde (Jokioinen, /api/sonde) — 'Sonde' tick box, default off ─────
 let sondeShow = localStorage.getItem('ms_skewtSonde') === 'true';
 let miniSonde = null;  // /api/sonde response (found: false → "no sounding" note)
+// Polled every 2 min and when the page becomes visible again (browsers pause
+// timers in background tabs); the server answers "unchanged" while the shown
+// copy (key and raw level count) is still the newest, so polling stays light.
 async function fetchMiniSonde() {
   if (!sondeShow) { miniSonde = null; return; }
   try {
-    const r = await fetch('/api/sonde');
+    const have = miniSonde && miniSonde.found && miniSonde.key ? `?have=${miniSonde.key}:${miniSonde.n_raw}` : '';
+    const r = await fetch('/api/sonde' + have, { cache: 'no-store' });
     if (!r.ok) return;
-    miniSonde = await r.json();
+    const d = await r.json();
+    if (d.unchanged) return;
+    miniSonde = d;
     drawMiniSounding();
   } catch (_) { /* silent */ }
 }
@@ -858,7 +864,8 @@ if (sondeChk) {
   });
 }
 fetchMiniSonde();
-setInterval(fetchMiniSonde, 10 * 60 * 1000);
+setInterval(fetchMiniSonde, 2 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) fetchMiniSonde(); });
 setInterval(() => { if (sondeShow && miniSonde) drawMiniSounding(); }, 60 * 1000);   // age label
 
 // ── Airport low-level profile selector (Off / Overlay / Zoom) ─────────────

@@ -626,7 +626,8 @@ def create_app(
     def sonde_api():
         """One radiosonde sounding for the Skew-T: ?key=YYYYMMDDHH, or ?at=<Unix s>
         (newest launched at or before that time, at most ?max_age_h=36 h older),
-        default the latest.  {found: false} when there is none."""
+        default the latest.  {found: false} when there is none.  With
+        ?have=KEY:N_RAW and that copy still current: {found, unchanged, key}."""
         from collector import sondes as _sondes
         st = _sondes.get()
         if st is None:
@@ -635,6 +636,13 @@ def create_app(
         if not key:
             at = request.args.get("at", type=float)
             key = st.find(at, request.args.get("max_age_h", 36.0, type=float))
+        # ?have=KEY:N_RAW — the client already shows this copy: answer briefly
+        # when it is still the one to show (light polling from the Live Map)
+        have = request.args.get("have")
+        if key and have:
+            meta = next((m for m in st.items() if m["key"] == key), None)
+            if meta and have == f"{key}:{meta.get('n_raw')}":
+                return jsonify({"found": True, "unchanged": True, "key": key})
         rec = st.load(key) if key else None
         if rec is None:
             return jsonify({"found": False, "station": st.place})

@@ -5,9 +5,10 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-19 (radiosonde completeness check; degree sign in HC)
+## 2026-10-19 (radiosonde earlier start and completeness check; Live Map Sonde refresh; degree sign in HC)
 
-- **Radiosonde fetch — completeness check**: the first look at a new sounding stays at about 1 h 50 min after launch (80 min after the nominal hour), now every 15 min (was 20) until it appears; after that it is fetched again every 15 min until it no longer grows (raw level count unchanged twice and the last data ≥ 15 min old, or 5 h after the nominal hour), and the stored copy is rewritten only when it has more levels. Before, the first copy found was kept for good, so a sounding published before its flight data were complete stayed incomplete
+- **Radiosonde fetch — earlier start and completeness check**: a new sounding is looked for from the nominal hour (about 30 min after launch, the balloon at about 10 km) instead of 80 min after it, every 15 min (was 20) until it appears; after that it is fetched again every 15 min until it no longer grows (raw level count unchanged twice and the last data ≥ 15 min old, or 5 h after the nominal hour), and the stored copy is rewritten only when it has more levels. Before, the first copy found was kept for good, so a sounding published before its flight data were complete stayed incomplete
+- **Live Map Sonde layer**: the newest sounding appears within 2 minutes (checked every 2 min instead of 10, and at once when the page becomes visible again — browsers pause timers in background tabs, so it could show an older sounding until Sonde was switched off and on); `/api/sonde?have=KEY:N_RAW` answers `unchanged` while the shown copy is current, so the polling stays light
 - **Live Map aircraft list**: the heading correction has the degree sign (`HC +1.1° own`)
 
 ---
