@@ -14,6 +14,7 @@
 
 const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Full'];
 const MODE_NOTES = {
+  th:     'Time–height: the hourly area profiles side by side.',
   verif:  'Sonde check: the Mode-S area profile compared with the radiosonde — at launch (±1 h) and hour by hour as the sounding ages.',
   area:   'Area: all aircraft within the radius over the selected window.',
   hour:   'Hourly archive: stored once per completed UTC hour (from 9 Oct 2026), also after the observations are purged.',
@@ -48,6 +49,7 @@ let sndSfc     = null;   // METAR ground point (Area · now only)
 let sndTitle   = 'Area profile';
 let sndHint    = '';
 let sndReq     = 0;      // request counter: a late answer of an older request is dropped
+let sndHourPick = null;  // hour (Unix s, string) to select in Area · hour (time–height click)
 
 const skewt = createSkewT(document.getElementById('skewt-canvas'),
                           document.getElementById('skewt-tip'),
@@ -167,7 +169,7 @@ async function fetchLow(qs) {
 
 // ── Source selection (area now / hourly archive / flight) ─────────────────
 function setMode(mode) {
-  sndMode = ['area', 'hour', 'flight', 'verif'].includes(mode) ? mode : 'area';
+  sndMode = ['area', 'hour', 'flight', 'th', 'verif'].includes(mode) ? mode : 'area';
   _lsSet('ms_snd_mode', sndMode);
   document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === sndMode));
@@ -175,19 +177,23 @@ function setMode(mode) {
   document.getElementById('snd-hour-ctl').style.display   = sndMode === 'hour'   ? '' : 'none';
   document.getElementById('snd-flight-ctl').style.display = sndMode === 'flight' ? '' : 'none';
   document.getElementById('snd-verif-ctl').style.display  = sndMode === 'verif'  ? '' : 'none';
-  // Sonde check replaces the diagram and the level table
-  document.querySelector('.sounding-layout').style.display = sndMode === 'verif' ? 'none' : '';
+  document.getElementById('snd-th-ctl').style.display     = sndMode === 'th'     ? '' : 'none';
+  // Sonde check and Time–height replace the diagram and the level table
+  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th') ? 'none' : '';
   document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
+  document.getElementById('snd-th').style.display = sndMode === 'th' ? '' : 'none';
   document.getElementById('sounding-meta').textContent = '';
   document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
   if (sndMode === 'verif') { loadVerification(); return; }
   document.getElementById('flight-banner').classList.add('hidden');
+  if (sndMode === 'th') { TimeHeight.load(); return; }
   if (sndMode === 'hour') loadHourList();
   else loadCurrent();
 }
 
 function loadCurrent() {
   if (sndMode === 'verif')  return loadVerification();
+  if (sndMode === 'th')     return TimeHeight.load();
   if (sndMode === 'area')   return loadAreaSounding();
   if (sndMode === 'hour')   return loadHourSounding();
   return loadFlightSounding();
@@ -334,7 +340,8 @@ async function loadHourList() {
     dateEl.value = `${n.getUTCFullYear()}-${_pad(n.getUTCMonth() + 1)}-${_pad(n.getUTCDate())}`;
   }
   const sel = document.getElementById('snd-hour');
-  const prev = sel.value;
+  const prev = sndHourPick || sel.value;     // an hour clicked in the time–height section
+  sndHourPick = null;
   sel.innerHTML = '<option value="">—</option>';
   try {
     const r = await fetch(`/api/sounding/hours?date=${dateEl.value}`);
@@ -519,7 +526,22 @@ const canvasEl = document.getElementById('skewt-canvas');
 canvasEl.addEventListener('mousemove', ev => { syncChart(); skewt.hover(ev); });
 canvasEl.addEventListener('mouseleave', () => { syncChart(); skewt.leave(); });
 new ResizeObserver(() => resizeChart()).observe(document.getElementById('skewt-box'));
-window.onThemeChange = () => { drawChart(); if (sndMode === 'verif') renderVerification(); };
+window.onThemeChange = () => {
+  drawChart();
+  if (sndMode === 'verif') renderVerification();
+  if (sndMode === 'th') TimeHeight.render();
+};
+
+// ── Time–height section (timeheight.js); a click on a column opens that hour
+TimeHeight.init({
+  openHour(ts) {
+    const d = new Date(ts * 1000);
+    document.getElementById('snd-date').value =
+      `${d.getUTCFullYear()}-${_pad(d.getUTCMonth() + 1)}-${_pad(d.getUTCDate())}`;
+    sndHourPick = String(ts);
+    setMode('hour');
+  },
+});
 
 // ── Sonde check: automatic verification against the radiosonde ─────────────
 // /api/sonde/verification (collector/sonde_verif.py): launch statistics,

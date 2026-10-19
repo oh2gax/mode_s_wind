@@ -675,7 +675,7 @@ Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air tempe
 - **Area · hour** — the **hourly profile archive** (`profile_hours`): one stored profile per completed UTC hour, kept indefinitely — also after the observations themselves have been purged. Pick a date and hour; the hour list shows the observations used
 - **Flight** — profile of a single flight: select a flight from the dropdown (flights with meteo data and an altitude range > 5 000 ft, most recent first), then **Load Sounding**. The flight info banner shows callsign, ICAO24, time range, altitude range and observation count. The Flights page's 🌡 Sounding button opens this page with the flight pre-selected
 
-A fourth button, **Sonde check**, replaces the diagram with the automatic verification against the radiosonde (see [Sonde check](#sonde-check) below).
+Two more buttons replace the diagram: **Time–height** shows the hourly profiles side by side as a time–height section (see [Time–height section](#timeheight-section) below), and **Sonde check** the automatic verification against the radiosonde (see [Sonde check](#sonde-check) below).
 
 All three use the same altitude layers — 1 000 ft deep below 10 000 ft, 2 000 ft above (to 46 000 ft) — at the standard-atmosphere pressure of the layer's pressure altitude (Mode S altitude is referenced to 1013.25 hPa, so this is the measured static pressure). Temperature is the 10 % trimmed mean of the replies in the layer, wind the vector mean.
 
@@ -725,6 +725,25 @@ The table on the right shows each altitude layer — the highest (lowest pressur
 | ΔT | Layer temperature − sonde (K); amber when more than 2 K |
 | Sonde wind | Radiosonde wind direction / speed (kt) at the layer |
 | ΔV (kt) | Length of the vector difference layer wind − sonde wind; amber when more than 10 kt |
+
+#### Time–height section
+
+**Time–height** (button next to Flight) draws the hourly profile archive as a time–height cross-section: one column per UTC hour, one row per altitude layer (1 000 ft up to 10 000 ft, 2 000 ft above), time running to the right — the weather passing over the receiver at a glance. The hour in progress is added live from the observations (dashed frame). The height scale is stretched near the ground (square root of the pressure altitude, so the 1 000 ft layers below 5 000 ft stay readable); the left axis gives altitude / flight levels, the right axis the ISA pressure.
+
+| Control | Options | Description |
+|---------|---------|-------------|
+| Length | 24 h / 48 h / 72 h / 7 days / 14 days | Hours shown |
+| ending | date (empty) · **Now** | The section ends at the end of that UTC day; empty or **Now** = up to now |
+| Colour field | Temperature anomaly / Temperature change 3 h / Wind speed / Lapse rate | See below |
+| Barbs | tick box | Wind barbs (every second column / layer as space allows), with a halo so they read on any colour |
+| Isotherms | tick box | The lowest 0 °C (solid), −10 and −20 °C (dashed) crossing of each hour, joined across hours |
+
+- **Temperature anomaly** — each layer's temperature minus the mean of the same layer over the shown period (blue colder, red warmer, full at ±6 K). Warm and cold air masses stand out; a front or trough passes as a sloping boundary (often reaching the ground first and the upper levels later, or the reverse), the night inversion as a cold layer near the ground, a falling tropopause as warming at FL340–FL380.
+- **Temperature change 3 h** — the temperature minus that of the same layer three hours earlier (full at ±4 K): warm and cold advection as it happens.
+- **Wind speed** — 10 kt colour steps: jets, low-level jets and their descent, calm layers.
+- **Lapse rate** — from the temperatures of the layers below and above (smoothed over ±1 h, since a single hour's Mach/TAS layer means scatter by about 1 K): violet inversion (< −1 K/km), blue very stable / stable, grey normal (5–7), orange steep (7–9), red dry-unstable (≥ 9). Night inversions, subsidence inversions and the stable stratosphere above the tropopause show as violet / blue bands.
+
+Faint cells rest on fewer than 3 replies. Pink ▼ at the top mark the Jokioinen radiosonde launches; the strip below the plot shows the aircraft per hour (red: < 8, LOW data — typically around midnight; amber: < 20). Hover a cell for the hour, layer, temperature with its anomaly and 3-hour change, lapse rate, wind and aircraft; **click a column** to open that hour on the Skew-T (**Area · hour**). The settings are remembered in the browser.
 
 #### Sonde check
 
@@ -1794,6 +1813,7 @@ mode_s_wind/
 │       ├── skewt_chart.js     # Skew-T diagram (createSkewT), shared by the Live Map and the Sounding page
 │       ├── skewt_indices.js   # Stability indices and levels for the Sounding page's Indices panel
 │       ├── sounding.js        # Sounding page: sources, data table, diagram controls
+│       ├── timeheight.js      # Sounding page: time–height section of the hourly profiles
 │       ├── windmap.js         # Wind map barb rendering + controls
 │       ├── windmap_analysis.js # Wind map smoothed field, isotachs, streamlines
 │       ├── windshear.js       # Approach strips, ILS profile, windshear detection
@@ -1866,6 +1886,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/sonde/verification` | Sonde check summary of the last `?days=` (1–366, default 30) days from `sonde_verification`: `launch_total`, `hour_total` and per altitude band (`bands`) / age bin (`age`, with `lo` / `hi` hours) pooled `rows`, `n_t`, `n_w`, `t_bias`, `t_sd`, `t_rms`, `w_rms`, `ws_bias`; `launches` (newest first, one per verified launch) |
 | GET | `/api/sonde` | One sounding for the Skew-T: `?key=YYYYMMDDHH`, or `?at=<Unix s>` (newest launched at or before that time, at most `?max_age_h=` 36 h older), default the latest; `levels` with `pressure`, `altitude` (ISA pressure altitude, ft), `z_m`, `temp`, `dewpoint`, `wind_dir`, `wind_spd` (kt); `qc` (reason when the top was cut by the quality check); `{"found": false}` when there is none; with `?have=KEY:N_RAW` and that copy still current only `{"found": true, "unchanged": true, "key"}` |
 | GET | `/api/sounding/hours` | Hours stored in the hourly profile archive for `?date=YYYY-MM-DD` (UTC): `[{ts, n}, …]` |
+| GET | `/api/sounding/timeheight` | Time–height section: `?hours=` (6–336, default 72) `&end=<Unix s>` (default now) → `layers` (layer bottoms, ft), `start_ts`, `end_ts`, `cols` (one per UTC hour from `profile_hours`, the hour in progress live with `partial`: `ts`, `a` aircraft, `n` replies, `q` / `tt` METAR QNH / temperature, `lv` = [[alt_lo, temp, temp_n, wind_dir, wind_spd, wind_n, aircraft], …]) |
 | GET | `/api/sounding/hour` | Hourly archive profile of one completed UTC hour, `?ts=<hour start>`; `sfc` = the METAR stored with the hour (`z`, `q`, `tt`, `td`, `cld`) or null; HTTP 404 when none is stored |
 | GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |
 | GET | `/api/lowlevel` | Airport low-level profile: the 200 ft band profiles (Mach/TAS temperature, wind) of the landings and departures of the last `?minutes=` (10–360, default 60) pooled per band, with spread and counts (`web/api/lowlevel.py`); optional `?end=<Unix s>` ends the window at that time instead of now |

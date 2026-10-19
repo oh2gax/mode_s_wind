@@ -161,3 +161,65 @@ def build_flight_sounding(flight_id: int, db: sqlite3.Connection) -> dict:
         "levels":       levels,
         "mode":         "flight",
     }
+
+
+# ── Time–height cross-section (hourly profile archive) ───────────────────────
+
+def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
+                      lat: float, lon: float, radius_km: float,
+                      now: Optional[float] = None) -> dict:
+    """
+    Time–height cross-section: the hourly area profiles (profile_hours) of the
+    `hours` hours before end_ts, one column per UTC hour.  When the period
+    reaches the present, the hour in progress is added from the observations
+    (flag "partial").
+
+    Returns {"layers": [layer bottoms, ft], "end_ts", "hours",
+             "cols": [{"ts", "a" aircraft, "n" replies, "q" METAR QNH,
+                       "tt" METAR temperature, "partial",
+                       "lv": [[alt_lo, temp, temp_n, wind_dir, wind_spd,
+                               wind_n, aircraft], …]}, …]}
+    """
+    import json
+    from collector.atmos import LAYER_EDGES, pack_levels, PROFILE_KEYS
+    now = time.time() if now is None else now
+    hours = max(6, min(int(hours), 24 * 14))
+    end_hour = int(end_ts // 3600 * 3600)
+    start = end_hour - hours * 3600
+    idx = {k: i for i, k in enumerate(PROFILE_KEYS)}
+    pick = [idx[k] for k in ("alt_lo", "temp", "temp_count", "wind_dir",
+                             "wind_spd", "wind_count", "ac_count")]
+
+    def slim(packed):
+        out = []
+        for row in packed or []:
+            r = [row[i] if i < len(row) else None for i in pick]
+            if r[1] is not None:
+                r[1] = round(r[1], 2)
+            if r[3] is not None:
+                r[3] = round(r[3])
+            if r[4] is not None:
+                r[4] = round(r[4], 1)
+            out.append(r)
+        return out
+
+    cols = []
+    for ts, data in db.execute(
+            "SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
+            (start, end_hour)):
+        try:
+            d = json.loads(data)
+        except (ValueError, TypeError):
+            continue
+        m = d.get("m") or {}
+        cols.append({"ts": ts, "a": d.get("a"), "n": d.get("n"), "q": m.get("q"),
+                     "tt": m.get("tt"), "lv": slim(d.get("lv"))})
+    # the hour in progress, live from the observations
+    cur = int(now // 3600 * 3600)
+    if end_hour >= cur and now - cur >= 300:
+        levels, used, n_ac = area_profile(db, cur, now, lat, lon, radius_km, with_aircraft=True)
+        if used:
+            cols.append({"ts": cur, "a": n_ac, "n": used, "q": None, "tt": None,
+                         "partial": True, "lv": slim(pack_levels(levels))})
+    return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
+            "start_ts": start, "hours": hours, "cols": cols}

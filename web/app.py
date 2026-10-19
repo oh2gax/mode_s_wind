@@ -698,6 +698,19 @@ def create_app(
         result = build_hour_sounding(get_db(), ts)
         return jsonify(result), (404 if "error" in result else 200)
 
+    @app.route("/api/sounding/timeheight")
+    def sounding_timeheight_api():
+        """Time–height cross-section from the hourly profile archive:
+        ?hours=72 (6–336) &end=<Unix s, default now> → one column per UTC hour
+        (web/api/sounding.py build_time_height)."""
+        from web.api.sounding import build_time_height
+        now = time.time()
+        end = request.args.get("end", type=float) or now
+        hours = request.args.get("hours", 72, type=int)
+        return jsonify(build_time_height(get_db(), min(end, now + 3600), hours,
+                                         cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                         cfg.SOUNDING_RADIUS_KM, now=now))
+
     @app.route("/api/flights/<int:flight_id>/sounding")
     def flight_sounding_api(flight_id: int):
         """Skew-T profile for a single flight, binned by altitude."""
