@@ -681,7 +681,7 @@ The 🌡 **Sounding** button (visible on flights with sufficient altitude range)
 
 ### Sounding  `/sounding`
 
-Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air temperature](#air-temperature-bds-50--60)). Three sources, selected with the buttons at the top left (the choice is remembered in the browser):
+Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air temperature](#air-temperature-bds-50--60)). User guide with the physics behind each view and worked examples: [`doc/Sounding_Page_User_Guide.pdf`](doc/Sounding_Page_User_Guide.pdf). Three sources, selected with the buttons at the top left (the choice is remembered in the browser):
 
 - **Area · now** (default) — all aircraft within `SOUNDING_RADIUS_KM` (150 km) of the receiver over the last 30 min, 60 min (default, `SOUNDING_WINDOW_MIN`), 2 h or 3 h
 - **Area · hour** — the **hourly profile archive** (`profile_hours`): one stored profile per completed UTC hour, kept indefinitely — also after the observations themselves have been purged. Pick a date and hour; the hour list shows the observations used
