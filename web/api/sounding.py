@@ -167,18 +167,21 @@ def build_flight_sounding(flight_id: int, db: sqlite3.Connection) -> dict:
 
 def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                       lat: float, lon: float, radius_km: float,
-                      now: Optional[float] = None) -> dict:
+                      now: Optional[float] = None, kin_radius_km: float = 200.0) -> dict:
     """
     Time–height cross-section: the hourly area profiles (profile_hours) of the
     `hours` hours before end_ts, one column per UTC hour.  When the period
     reaches the present, the hour in progress is added from the observations
-    (flag "partial").
+    (flag "partial").  Each column also carries "kz": the vorticity of the
+    hour from kinematics_hours ([[alt_lo, vort, se_vort, aircraft], …],
+    10⁻⁵ s⁻¹; computed live for the hour in progress).
 
     Returns {"layers": [layer bottoms, ft], "end_ts", "hours",
              "cols": [{"ts", "a" aircraft, "n" replies, "q" METAR QNH,
                        "tt" METAR temperature, "partial",
                        "lv": [[alt_lo, temp, temp_n, wind_dir, wind_spd,
-                               wind_n, aircraft], …]}, …]}
+                               wind_n, aircraft], …],
+                       "kz": [[alt_lo, vort, se_vort, aircraft], …]}, …]}
     """
     import json
     from collector.atmos import LAYER_EDGES, pack_levels, PROFILE_KEYS
@@ -214,12 +217,29 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
         m = d.get("m") or {}
         cols.append({"ts": ts, "a": d.get("a"), "n": d.get("n"), "q": m.get("q"),
                      "tt": m.get("tt"), "lv": slim(d.get("lv"))})
+    # vorticity per hour (kinematics_hours): [alt_lo, vort, se_vort, aircraft]
+    kz = {}
+    try:
+        for ts, data in db.execute(
+                "SELECT ts, data FROM kinematics_hours WHERE ts >= ? AND ts < ?", (start, end_hour)):
+            try:
+                kz[ts] = [[r[0], r[1], r[3], r[5]] for r in json.loads(data).get("lv", [])]
+            except (ValueError, TypeError, IndexError):
+                pass
+    except sqlite3.Error:
+        pass
+    for c in cols:
+        if c["ts"] in kz:
+            c["kz"] = kz[c["ts"]]
     # the hour in progress, live from the observations
     cur = int(now // 3600 * 3600)
     if end_hour >= cur and now - cur >= 300:
         levels, used, n_ac = area_profile(db, cur, now, lat, lon, radius_km, with_aircraft=True)
         if used:
+            from collector.kinematics import kinematics_profile
+            kin = kinematics_profile(db, cur, now, lat, lon, kin_radius_km)
             cols.append({"ts": cur, "a": n_ac, "n": used, "q": None, "tt": None,
-                         "partial": True, "lv": slim(pack_levels(levels))})
+                         "partial": True, "lv": slim(pack_levels(levels)),
+                         "kz": [[r[0], r[1], r[3], r[5]] for r in kin]})
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
             "start_ts": start, "hours": hours, "cols": cols}

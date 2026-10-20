@@ -122,6 +122,11 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         each) and height_series rows older than HEIGHT_SERIES_DAYS (default
         30) are deleted once a day — archived first when "Archive before
         purge" is enabled (database/archive.py).
+      • Hourly kinematics (from 2026-10-20, collector/kinematics.py): the
+        vorticity / divergence profile of the hour that ended, from plane
+        fits of the aircraft winds within KINEMATICS_RADIUS_KM (200 km), in
+        kinematics_hours; at the first start back-filled from all
+        observations still in the database (slowly).
       • Heading calibration (from 2026-10-10): the per-airframe heading
         offsets that changed during the hour are written to heading_cal.
       • Radiosonde verification (collector/sonde_verif.py): the area profile
@@ -130,6 +135,8 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
     """
     from database.db import get_db as _get_db
     from collector.atmos import store_missing_profile_hours
+    from collector.kinematics import store_missing_kinematics_hours
+    kin_radius = float(getattr(cfg, "KINEMATICS_RADIUS_KM", 200))
     hj_log = logging.getLogger("modes.hourly")
     series_days = float(getattr(cfg, "APPROACH_SERIES_DAYS", 90))
     dep_days    = float(getattr(cfg, "DEPARTURE_PROFILE_DAYS", 90))
@@ -145,6 +152,16 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 metar_sfc=metar_fn() if metar_fn else None)
             if n:
                 hj_log.info("Hourly profile archive: stored %d hour(s)", n)
+            # Hourly vorticity / divergence profile (kinematics_hours); the
+            # first run back-fills from the observations still in the database
+            try:
+                n_k = store_missing_kinematics_hours(
+                    db, cfg.RECEIVER_LAT, cfg.RECEIVER_LON, kin_radius,
+                    max_hours=31 * 24 if first else 48, pause_sec=0.2 if first else 0.0)
+                if n_k > 1:
+                    hj_log.info("Hourly kinematics (vorticity): stored %d hour(s)", n_k)
+            except Exception as exc:
+                hj_log.warning("Hourly kinematics failed: %s", exc)
             first = False
             _ss = sondes.get()
             if _ss is not None:

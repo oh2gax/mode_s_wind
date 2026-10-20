@@ -276,6 +276,18 @@ CREATE TABLE IF NOT EXISTS profile_hours (
     data  TEXT    NOT NULL
 );
 
+-- ── kinematics_hours ──────────────────────────────────────────────────────────
+-- Hourly vorticity / divergence profile from plane fits of the aircraft winds
+-- within KINEMATICS_RADIUS_KM (from 2026-10-20, collector/kinematics.py):
+-- data = JSON {"r": radius km, "lv": [[alt_lo, vort, div, se_vort, se_div,
+-- aircraft], …]} in 10⁻⁵ s⁻¹ (only layers with enough well-spread aircraft;
+-- an hour without any has "lv": []).  ~0.5 kB per hour, kept indefinitely
+-- (the observations it is computed from are purged after 30 days).
+CREATE TABLE IF NOT EXISTS kinematics_hours (
+    ts    INTEGER PRIMARY KEY,   -- hour start (UTC epoch)
+    data  TEXT    NOT NULL
+);
+
 -- ── approach_series ───────────────────────────────────────────────────────────
 -- Raw Comm-B reply series on final for each landing (research data, from
 -- 2026-10-09): the BDS 5,0 / 6,0 replies used for the approach-conditions

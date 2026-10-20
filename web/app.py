@@ -709,7 +709,8 @@ def create_app(
         hours = request.args.get("hours", 72, type=int)
         return jsonify(build_time_height(get_db(), min(end, now + 3600), hours,
                                          cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
-                                         cfg.SOUNDING_RADIUS_KM, now=now))
+                                         cfg.SOUNDING_RADIUS_KM, now=now,
+                                         kin_radius_km=float(getattr(cfg, "KINEMATICS_RADIUS_KM", 200))))
 
     @app.route("/api/flights/<int:flight_id>/sounding")
     def flight_sounding_api(flight_id: int):

@@ -43,6 +43,7 @@
           <option value="wind">Wind speed</option>
           <option value="lapse">Lapse rate</option>
           <option value="vvel">Vertical motion</option>
+          <option value="vort">Vorticity</option>
         </select>
         <label class="toggle-label"><input type="checkbox" id="th-barbs"> Barbs</label>
         <label class="toggle-label" title="0 °C (solid), −10 and −20 °C (dashed) — the lowest crossing in each hour"><input type="checkbox" id="th-iso"> Isotherms</label>
@@ -100,6 +101,7 @@
       <b>Temperature change 3 h</b>: warming / cooling as it happens (advection). <b>Wind speed</b>: jets and low-level jets.
       <b>Lapse rate</b>: between adjacent layers — inversions violet / blue, steep or dry-unstable orange / red.
       <b>Vertical motion</b> (FL050–FL200): rising (green) or sinking (orange) air in cm/s, from the part of the temperature change that the wind does not bring — sinking air warms, rising air cools (adiabatic method; about ±1 cm/s of noise, cloud heating not included, the newest hours less certain).
+      <b>Vorticity</b> (about FL130–FL390): the spin of the wind field over 200 km from a plane fit of the aircraft winds — cyclonic (purple) in troughs and on the cold side of a jet, anticyclonic (gold) in ridges and highs (about ±2 ×10⁻⁵ s⁻¹ of noise; the long-term mean is probably 2–3 units too anticyclonic).
       Faint cells rest on fewer than 3 replies; night hours often have only a few aircraft (red bars in the aircraft strip).
       Hover for values; click a column to open that hour on the Skew-T.
     </div>
@@ -264,6 +266,7 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 .th-lt { color:var(--text-3); }
 .th-bar { display:inline-block; width:90px; height:10px; border-radius:2px; border:1px solid var(--border);
           background:linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }
+.th-bar-vo { background:linear-gradient(90deg, rgba(202,138,4,.9), rgba(202,138,4,.08) 50%, rgba(147,51,234,.08) 50%, rgba(147,51,234,.9)); }
 .th-bar-vv { background:linear-gradient(90deg, rgba(234,88,12,.9), rgba(234,88,12,.08) 50%, rgba(16,160,110,.08) 50%, rgba(16,160,110,.9)); }
 .th-ctl-lbl { font-size:12px; color:var(--text-2); display:flex; align-items:center; gap:5px; }
 .sv-tiles { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; }

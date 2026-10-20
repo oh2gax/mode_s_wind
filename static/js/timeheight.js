@@ -19,6 +19,9 @@
  *            adv from the thermal wind between the layers two below and two
  *            above, ∂T/∂t over ±3 h, Γ from the layers next to it, all from
  *            ±1 h smoothed values (cm/s, green rising / orange sinking)
+ *   vort     relative vorticity of the hour (kinematics_hours: plane fit of
+ *            the aircraft winds within 200 km), purple cyclonic / gold
+ *            anticyclonic, 10⁻⁵ s⁻¹ — troughs, ridges, jet shear
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, Jokioinen sonde
  * launches (pink ▼ at the top), aircraft per hour (strip below the plot,
  * red where < 8: LOW data).  Hover for values; click a column to open that
@@ -69,6 +72,12 @@
     const k = Math.min(1, Math.abs(v) / 3), c = v < 0 ? VV.neg : VV.pos;
     return `rgba(${c[0]},${c[1]},${c[2]},${(0.08 + 0.82 * k).toFixed(3)})`;
   }
+  // vorticity 10⁻⁵ s⁻¹: purple cyclonic / gold anticyclonic, full at ±15
+  const VO = { neg: [202, 138, 4], pos: [147, 51, 234] };
+  function vortFill(v) {
+    const k = Math.min(1, Math.abs(v) / 15), c = v < 0 ? VO.neg : VO.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.08 + 0.82 * k).toFixed(3)})`;
+  }
   const VV_LO = 5000, VV_HI = 20000;          // layers (bottom..top, ft) with a vertical motion
   const F_COR = 2 * 7.2921e-5 * Math.sin(60.3 * Math.PI / 180), R_D = 287.04, GAMMA_D = 9.8;
 
@@ -84,7 +93,12 @@
         if (i < 0 || i >= nL) continue;
         T[i] = r[1]; TN[i] = r[2] || 0; WD[i] = r[3]; WS[i] = r[4]; WN[i] = r[5] || 0; AC[i] = r[6] || 0;
       }
-      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC };
+      const KZ = new Array(nL).fill(null);              // vorticity {v, se, n}
+      for (const r of c.kz || []) {
+        const i = layers.indexOf(r[0]);
+        if (i >= 0 && i < nL && r[1] != null) KZ[i] = { v: r[1], se: r[2], n: r[3] };
+      }
+      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC, KZ };
     });
     // layer means over the period (cells with ≥ 2 replies), for the anomaly
     const mean = new Array(nL).fill(null);
@@ -140,6 +154,11 @@
       return { v: c.WS[i], weak: c.WN[i] < 3 };
     }
     if (f === 'vvel') return vvelValue(P, c, i);
+    if (f === 'vort') {
+      const z = c.KZ[i];
+      if (!z || z.se > 10) return null;
+      return { v: z.v, weak: z.se > 4 || z.n < 10 };
+    }
     return null;
   }
   // vertical motion (cm/s, + rising) at layer i by the adiabatic method:
@@ -234,7 +253,8 @@
         if (!fv) continue;
         const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
         g.globalAlpha = fv.weak ? 0.5 : 1;
-        g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : st.field === 'vvel' ? vvFill(fv.v) : divFill(fv.v, st.field === 'change' ? 4 : 6);
+        g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : st.field === 'vvel' ? vvFill(fv.v)
+          : st.field === 'vort' ? vortFill(fv.v) : divFill(fv.v, st.field === 'change' ? 4 : 6);
         g.fillRect(x0, y1, cw + 0.5, y0 - y1 + 0.5);
       }
     }
@@ -418,6 +438,8 @@
       const vv = vvelValue(P, c, i);
       if (vv) parts.push(`vertical motion ${vv.v >= 0 ? '+' : ''}${vv.v.toFixed(1)} cm/s <span class="mini-tip-dim">(${vv.v >= 0 ? 'rising' : 'sinking'}; advection ${vv.adv >= 0 ? '+' : ''}${vv.adv.toFixed(2)} K/h, local change ${vv.dTdt >= 0 ? '+' : ''}${vv.dTdt.toFixed(2)} K/h${vv.recent ? '; newest hours: less certain' : ''})</span>`);
       if (c.WS[i] != null) parts.push(`wind ${Math.round(c.WD[i])}° ${Math.round(c.WS[i])} kt <span class="mini-tip-dim">(${c.WN[i]} replies)</span>`);
+      const z = c.KZ[i];
+      if (z) parts.push(`vorticity ${z.v >= 0 ? '+' : ''}${z.v.toFixed(1)} ×10⁻⁵ s⁻¹ <span class="mini-tip-dim">(${z.v >= 0 ? 'cyclonic' : 'anticyclonic'}, ±${z.se.toFixed(1)}, ${(z.v / (2 * 7.2921 * Math.sin(60.3 * Math.PI / 180))).toFixed(2)} f, ${z.n} aircraft within 200 km)</span>`);
       parts.push(`<span class="mini-tip-dim">${c.AC[i] || '–'} aircraft in the layer, ${c.a ?? '–'} in the hour${c.partial ? ' · hour in progress' : ' · click: open on the Skew-T'}</span>`);
       html = parts.join('<br>');
     }
@@ -478,6 +500,9 @@
     } else if (st.field === 'vvel') {
       el.innerHTML = 'Vertical motion (adiabatic, FL050–FL200) <span class="th-bar th-bar-vv"></span> ' +
         '<span class="th-lt">sinking −3 · 0 · +3 cm/s rising</span>';
+    } else if (st.field === 'vort') {
+      el.innerHTML = 'Relative vorticity (wind plane fit, 200 km) <span class="th-bar th-bar-vo"></span> ' +
+        '<span class="th-lt">anticyclonic −15 · 0 · +15 ×10⁻⁵ s⁻¹ cyclonic</span>';
     } else if (st.field === 'lapse') {
       el.innerHTML = 'Lapse rate ' + LAPSE.map(b => `<span class="th-sw" style="background:${b[2]}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
         ' <span class="th-lt">(K/km: &lt; −1, −1–2, 2–5, 5–7, 7–9, ≥ 9)</span>';
