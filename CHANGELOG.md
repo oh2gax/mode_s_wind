@@ -5,8 +5,9 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-20 (dense height series per aircraft visit; vertical motion and vorticity in the time–height section)
+## 2026-10-20 (dense height series per aircraft visit; vertical motion and vorticity in the time–height section; surface inversion join on the Skew-T)
 
+- **Skew-T (Live Map and Sounding page): dashed join from the METAR surface temperature to the lowest aircraft layer** above the ground — surface inversions on calm mornings (and steep heated surface layers) now show without the Airport profile; the ground-line hover gives the difference and its height above the ground (`static/js/skewt_chart.js`)
 - **Sounding page user guide v1.1** (`doc/Sounding_Page_User_Guide.pdf`, 17 pages): new sections on the Time–height *Vertical motion* (adiabatic method, its test and limits) and *Vorticity* (plane fit, cyclonic / anticyclonic flow, positive vorticity advection, the period-mean caveat) with screenshots of the 17–18 October front and trough
 - **Hourly vorticity profile** (new table `kinematics_hours`, new `collector/kinematics.py`): every hour the winds of the aircraft within 200 km are fitted with a plane per altitude layer (each aircraft averaged first, outliers removed) — relative vorticity and divergence with their standard errors, written by the hourly jobs and back-filled at the first start from the observations still in the database (before the 30-day purge removes them), kept indefinitely; listed on the Maintenance page; optional `config.py` key `KINEMATICS_RADIUS_KM` (`run.py`, `database/schema.sql`, `database/maintenance.py`, Maintenance page)
 - **Sounding page Time–height — Vorticity** colour field (about FL130–FL390): purple cyclonic / gold anticyclonic, hover with error, fraction of f and aircraft; `/api/sounding/timeheight` columns carry `kz`, the hour in progress computed live (`web/api/sounding.py`, `web/app.py`, `static/js/timeheight.js`, `web/templates/sounding.html`)

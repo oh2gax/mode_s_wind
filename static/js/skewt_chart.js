@@ -76,7 +76,7 @@ function createSkewT(canvas, tip, cfg = {}) {
   const LAT = cfg.lat != null ? cfg.lat : 60.3;
   // State, set by the page with set()
   let miniArea = null, miniLow = null, aptMode = 'off', anaLevel = 0, areaSmooth = 0,
-      miniSfc = null, miniAcOverlay = null, windDensity = 2,
+      miniSfc = null, miniSfcLink = null, miniAcOverlay = null, windDensity = 2,
       acLabel = 'Aircraft', profileTitle = 'Area, last 60 min', hintText = null,
       dqShow = true,      // data-validity indicator (badge, rings, hover warning)
       miniSonde = null,   // radiosonde (/api/sonde) or null
@@ -386,6 +386,25 @@ function createSkewT(canvas, tip, cfg = {}) {
       });
       ctx.stroke();
     }
+    // Dashed join from the METAR surface temperature to the lowest layer
+    // above the ground (from 2026-10-20): shows a surface inversion (or a
+    // steep daytime surface layer) between the 2 m METAR value and the first
+    // aircraft layer — a join of two separate measurements, not data; the
+    // real depth of an inversion is not known (often much shallower).
+    miniSfcLink = null;
+    if (miniSfc && miniSfc.t != null && miniSfc.p) {
+      const first = tl.find(l => l.pressure < miniSfc.p - 1);
+      if (first) {
+        miniSfcLink = { p: first.pressure, t: first.temp };
+        ctx.save();
+        ctx.strokeStyle = T.area; ctx.lineWidth = strong ? 1.6 : 1.2; ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(mskX(miniSfc.t, miniSfc.p), mskY(miniSfc.p));
+        ctx.lineTo(mskX(first.temp, first.pressure), mskY(first.pressure));
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
     // layers resting on only one or two aircraft: hollow ring (data-validity cue)
     const weak = l => dqShow && l.ac_count != null && l.ac_count <= 2;
     ctx.strokeStyle = T.weak; ctx.lineWidth = 1.2;
@@ -590,6 +609,21 @@ function createSkewT(canvas, tip, cfg = {}) {
   // elevation), shading below it, and the METAR surface temperature.  Aircraft
   // pressure altitudes refer to 1013.25 hPa, so the layers below this line are
   // below ground (e.g. the 0–1000 ft layer when QNH is low).
+  // Hover text for the dashed surface → lowest-layer join: temperature
+  // difference, height above the ground (hypsometric) and what it means
+  function sfcLinkText() {
+    if (!miniSfcLink || !miniSfc || miniSfc.t == null) return '';
+    const dT = miniSfcLink.t - miniSfc.t;
+    const tm = (miniSfcLink.t + miniSfc.t) / 2 + 273.15;
+    const dz = 287.04 * tm / 9.80665 * Math.log(miniSfc.p / miniSfcLink.p);           // m
+    const lapse = -dT / (dz / 1000);
+    const kind = dT >= 1 ? 'inversion' : lapse >= 9.8 ? 'steeper than dry adiabatic (heated ground)'
+               : lapse >= 7 ? 'steep' : lapse < 2 ? 'stable' : `lapse rate ${lapse.toFixed(1)} K/km`;
+    return `Surface → lowest Mode S layer (${Math.round(miniSfcLink.p)} hPa, about ${(Math.round(dz / 0.3048 / 100) * 100).toLocaleString()} ft above the ground): ` +
+           `<b>${dT >= 0 ? '+' : ''}${dT.toFixed(1)} K</b> — ${kind}<br>` +
+           `<span class="mini-tip-dim">dashed line: a join of the METAR (2 m) and the aircraft layer, not a measurement — the real inversion is often much shallower</span>`;
+  }
+
   function drawMiniGround(ctx, T) {
     if (!miniSfc) return;
     const { ML, PW, MT, PH, PB, PT } = MSK;
@@ -940,6 +974,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         miniSfc.td != null && miniSfc.t != null
           ? `<span class="mini-tip-dim">LCL ≈ ${(Math.round((miniSfc.t - miniSfc.td) * 410 / 100) * 100).toLocaleString()} ft AGL (≈ 410 ft per K of spread; exact value with Analysis Full)</span>` : '',
         miniSfc.cld ? `Lowest cloud ${skewtCloudText(miniSfc.cld)}` : '',
+        sfcLinkText(),
         `<span class="mini-tip-dim">Layers below this line are below ground (pressure altitude, 1013.25 hPa)</span>`]
         .filter(Boolean).join('<br>');
       tip.style.display = 'block';
