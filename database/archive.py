@@ -67,6 +67,7 @@ ARCHIVABLE = {
     "observations":       "ts",
     "approach_series":    "ts",
     "departure_profiles": "ts",
+    "height_series":      "ts",
 }
 
 
@@ -313,7 +314,7 @@ def list_archives(conn) -> list[dict]:
                     extra.update(obs_rows=r[0], first=r[1], last=r[2])
                 except sqlite3.Error:
                     pass
-                for t in ("approach_series", "departure_profiles"):
+                for t in ("approach_series", "departure_profiles", "height_series"):
                     try:
                         extra[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                     except sqlite3.Error:

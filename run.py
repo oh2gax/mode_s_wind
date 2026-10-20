@@ -117,9 +117,10 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         2026-10-11, for the Sounding page's ground line and parcel analysis).
         At startup hours missing within the observations still in the
         database are back-filled (slowly, in the background).
-      • Retention: approach_series rows older than APPROACH_SERIES_DAYS and
+      • Retention: approach_series rows older than APPROACH_SERIES_DAYS,
         departure_profiles rows older than DEPARTURE_PROFILE_DAYS (default 90
-        each) are deleted once a day — archived first when "Archive before
+        each) and height_series rows older than HEIGHT_SERIES_DAYS (default
+        30) are deleted once a day — archived first when "Archive before
         purge" is enabled (database/archive.py).
       • Heading calibration (from 2026-10-10): the per-airframe heading
         offsets that changed during the hour are written to heading_cal.
@@ -132,6 +133,7 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
     hj_log = logging.getLogger("modes.hourly")
     series_days = float(getattr(cfg, "APPROACH_SERIES_DAYS", 90))
     dep_days    = float(getattr(cfg, "DEPARTURE_PROFILE_DAYS", 90))
+    hser_days   = float(getattr(cfg, "HEIGHT_SERIES_DAYS", 30))
     last_purge = 0.0
     first = True
     while True:
@@ -166,7 +168,8 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 # first copied to the monthly archive files (skipped on error)
                 from database import archive as _arc
                 for table, days in (("approach_series", series_days),
-                                    ("departure_profiles", dep_days)):
+                                    ("departure_profiles", dep_days),
+                                    ("height_series", hser_days)):
                     if days <= 0:
                         continue
                     cutoff = time.time() - days * 86_400

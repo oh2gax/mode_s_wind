@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-20 (dense height series per aircraft visit; vertical motion in the time–height section)
+
+- **Sounding page Time–height — Vertical motion** colour field (FL050–FL200): rising / sinking air in cm/s by the adiabatic method — the part of the temperature change that the thermal-wind advection does not explain, divided by Γd − Γ; hover shows the advection and local-change terms; the newest hours fainter (`static/js/timeheight.js`, `web/templates/sounding.html`)
+- **Dense height series** (new table `height_series`, new `collector/height_series.py`): every aircraft visit is recorded as a compact series of its ADS-B pressure altitude, GNSS − baro difference, position and NACp — a row whenever the altitude or the difference steps by 25 ft, NACp changes or the difference stops, plus a position keyframe every 20 s (flicker between two neighbouring values in level flight at most every 10 s). As exact as twice-a-second samples, about 2–4 kB per climb or descent, one INSERT per visit; research data for thin-layer thickness temperatures, the speed-dependent altimeter error and level-leg geostrophic winds. Kept `HEIGHT_SERIES_DAYS` (default 30) days, purged daily (archived first when Archive before purge is on); listed on the Maintenance page; optional `config.py` keys `HEIGHT_SERIES`, `HEIGHT_SERIES_DAYS` (`collector/receiver.py`, `run.py`, `database/schema.sql`, `database/archive.py`, `database/maintenance.py`, Maintenance page)
+- README: first results of the GNSS − baro difference (ellipsoidal heights ≈ 18 m above the sonde's, per-airframe offsets, thickness temperature and geostrophic wind checks)
+
+---
+
 ## 2026-10-19 (Sounding page user guide; GNSS − baro difference stored per observation; Sounding page time–height section; Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
 
 - **Sounding page user guide** (`doc/Sounding_Page_User_Guide.pdf`, 14 pages): the five views, the radiosonde comparison, the Indices panel and the time–height section explained with the physics behind them (air masses and fronts, advection, the thermal wind, stability and inversions, subsidence) and worked examples from the 17 October 2026 cold front and the high of 18–19 October; the Sonde check and the limitations

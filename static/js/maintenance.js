@@ -64,6 +64,7 @@ async function loadStats() {
     if (d.approach_series) _fill('stat-apseries', d.approach_series);
     if (d.profile_hours)   _fill('stat-profile',  d.profile_hours);
     if (d.departure_profiles) _fill('stat-depprof', d.departure_profiles);
+    if (d.height_series) _fill('stat-hseries', d.height_series);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {
@@ -104,7 +105,8 @@ async function loadArchives() {
       const row = document.createElement('div');
       row.className = 'maint-stat-row maint-arc-row';
       const extra = [f.approach_series ? `${_fmt(f.approach_series)} appr. series` : '',
-                     f.departure_profiles ? `${_fmt(f.departure_profiles)} dep. profiles` : '']
+                     f.departure_profiles ? `${_fmt(f.departure_profiles)} dep. profiles` : '',
+                     f.height_series ? `${_fmt(f.height_series)} height series` : '']
                     .filter(Boolean).join(', ');
       row.innerHTML = `<span title="${f.kind}">${esc(f.file)}</span><span>${f.size_mb} MB</span>` +
         `<span>${f.obs_rows != null ? _fmt(f.obs_rows) : '—'}${extra ? ' · ' + esc(extra) : ''}</span>` +

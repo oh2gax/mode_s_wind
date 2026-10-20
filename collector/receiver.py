@@ -30,7 +30,9 @@ from collector.wind_calc import try_compute_wind
 from collector.declination import declination as mag_declination_at
 from collector import aircraft_db
 from collector import heading_cal
+from collector.height_series import HeightSeries
 from collector.writer import BatchWriter
+from database.db import get_db
 from config import Config
 
 log = logging.getLogger("modes.receiver")
@@ -393,6 +395,8 @@ def run_collector(
     # Max age (s) of the older BDS 5,0 / 6,0 reply for a computed wind to be
     # stored with the observation (optional config key)
     wind_max_age = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0))
+    # Dense pressure-altitude / GNSS − baro series per visit (height_series)
+    hseries = HeightSeries(enabled=bool(getattr(cfg, "HEIGHT_SERIES", True)))
 
     while True:
         try:
@@ -630,6 +634,22 @@ def run_collector(
                         and ts - _nacp_ts <= NACP_MAX_AGE_SEC):
                     obs["nacp"] = merged["nac_p"]
 
+                # ── Dense height series (collector/height_series.py) ──────
+                # From the aircraft's own ADS-B squitters only: pressure
+                # altitude of airborne positions (TC 9-18, 25 ft), the GNSS −
+                # baro difference (TC 19) and NACp (TC 29 / 31).
+                if df == 17 and tc is not None:
+                    try:
+                        if 9 <= tc <= 18:
+                            hseries.position(icao, ts, result.get("altitude"),
+                                             obs.get("lat"), obs.get("lon"), merged.get("callsign"))
+                        elif tc == 19:
+                            hseries.gmb(icao, ts, result.get("geo_minus_baro"))
+                        elif tc in (29, 31):
+                            hseries.nacp(icao, ts, result.get("nac_p"))
+                    except Exception as exc:
+                        log.debug("Height series error: %s", exc)
+
                 # ── Write to DB ───────────────────────────────────────────
                 # A computed wind / Mach-TAS temperature from replies older
                 # than WIND_MAX_AGE_SEC is not stored: it would be written at
@@ -642,6 +662,7 @@ def run_collector(
 
                 # Periodic stats (every STATS_LOG_SEC)
                 now_s = time.time()
+                hseries.tick(now_s, get_db)
                 if now_s >= stats_next:
                     with live_lock:
                         n_tracked = len(live_state)
@@ -653,6 +674,7 @@ def run_collector(
         except KeyboardInterrupt:
             log.info("Collector stopping (KeyboardInterrupt)")
             writer.flush()
+            hseries.flush_all(get_db)
             break
         except Exception as exc:
             log.error("Collector error: %s — reconnecting in 10 s", exc)

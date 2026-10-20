@@ -293,6 +293,29 @@ CREATE TABLE IF NOT EXISTS approach_series (
 );
 CREATE INDEX IF NOT EXISTS idx_apser_ts ON approach_series(ts);
 
+-- ── height_series ─────────────────────────────────────────────────────────────
+-- Dense pressure-altitude / GNSS − baro series per aircraft visit (research
+-- data, from 2026-10-20; collector/height_series.py): a row whenever the
+-- ADS-B pressure altitude (TC 9–18) or the GNSS − baro difference (TC 19)
+-- steps by 25 ft, NACp changes or the difference stops, plus a position
+-- keyframe every 20 s.  data = zlib-compressed JSON (columns t, alt, gmb,
+-- lat, lon, nacp; see height_series.decode).  ~2–4 kB per climb or descent;
+-- kept HEIGHT_SERIES_DAYS (default 30) days, purged daily (archived first
+-- when "Archive before purge" is on).
+CREATE TABLE IF NOT EXISTS height_series (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        REAL    NOT NULL,   -- first row
+    t_end     REAL    NOT NULL,   -- last row
+    icao      TEXT    NOT NULL,
+    callsign  TEXT,
+    n         INTEGER NOT NULL,   -- rows
+    n_gmb     INTEGER NOT NULL,   -- rows with a GNSS − baro value
+    alt_min   INTEGER,            -- ft pressure altitude
+    alt_max   INTEGER,
+    data      BLOB    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hser_ts ON height_series(ts);
+
 -- ── heading_cal ───────────────────────────────────────────────────────────────
 -- Per-airframe heading offset learnt from the data (from 2026-10-10, see
 -- collector/heading_cal.py).  s / w / n are the faded least-squares sums

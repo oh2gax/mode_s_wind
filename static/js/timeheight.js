@@ -12,6 +12,13 @@
  *   wind     wind speed — jets, low-level jets, a jet descending
  *   lapse    lapse rate between adjacent layers — inversions (violet / blue)
  *            to steep / unstable (orange / red)
+ *   vvel     vertical motion by the adiabatic method, FL050–FL200: the part
+ *            of the local temperature change that advection does not explain
+ *            is ascent (cooling) or descent (warming) at the rate (Γd − Γ):
+ *              w = (adv − ∂T/∂t) / (Γd − Γ)
+ *            adv from the thermal wind between the layers two below and two
+ *            above, ∂T/∂t over ±3 h, Γ from the layers next to it, all from
+ *            ±1 h smoothed values (cm/s, green rising / orange sinking)
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, Jokioinen sonde
  * launches (pink ▼ at the top), aircraft per hour (strip below the plot,
  * red where < 8: LOW data).  Hover for values; click a column to open that
@@ -56,6 +63,14 @@
                  [2, 5, '#60a5fa', 'stable'], [5, 7, '#64748b', 'normal'],
                  [7, 9, '#f59e0b', 'steep'], [9, 1e9, '#ef4444', 'dry-unstable']];
   const lapseFill = v => (LAPSE.find(b => v >= b[0] && v < b[1]) || LAPSE[3])[2];
+  // vertical motion cm/s: green rising / orange sinking, full at ±3 cm/s
+  const VV = { neg: [234, 88, 12], pos: [16, 160, 110] };
+  function vvFill(v) {
+    const k = Math.min(1, Math.abs(v) / 3), c = v < 0 ? VV.neg : VV.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.08 + 0.82 * k).toFixed(3)})`;
+  }
+  const VV_LO = 5000, VV_HI = 20000;          // layers (bottom..top, ft) with a vertical motion
+  const F_COR = 2 * 7.2921e-5 * Math.sin(60.3 * Math.PI / 180), R_D = 287.04, GAMMA_D = 9.8;
 
   // ── data preparation ────────────────────────────────────────────────────
   function prep(d) {
@@ -92,6 +107,18 @@
         }
         if (w) { c.TS[i] = s / w; c.TSN[i] = w; }
       }
+      // winds smoothed the same way (u, v in m/s; for the thermal-wind advection)
+      c.US = new Array(nL).fill(null); c.VS = new Array(nL).fill(null); c.WSN = new Array(nL).fill(0);
+      for (let i = 0; i < nL; i++) {
+        let su = 0, sv = 0, w = 0;
+        for (const dt of [-3600, 0, 3600]) {
+          const o = byTs.get(c.ts + dt);
+          if (!o || o.WS[i] == null || o.WD[i] == null || o.WN[i] < 1) continue;
+          const ww = o.WN[i] * (dt ? 0.5 : 1), r = o.WD[i] * Math.PI / 180, s = o.WS[i] * 0.5144;
+          su += -s * Math.sin(r) * ww; sv += -s * Math.cos(r) * ww; w += ww;
+        }
+        if (w) { c.US[i] = su / w; c.VS[i] = sv / w; c.WSN[i] = w; }
+      }
     }
     return { layers, nL, cols, mean, byTs, start: d.start_ts, end: d.end_ts };
   }
@@ -112,7 +139,31 @@
       if (c.WS[i] == null) return null;
       return { v: c.WS[i], weak: c.WN[i] < 3 };
     }
+    if (f === 'vvel') return vvelValue(P, c, i);
     return null;
+  }
+  // vertical motion (cm/s, + rising) at layer i by the adiabatic method:
+  // w = (adv − ∂T/∂t) / (Γd − Γ).  ∂T/∂t from the ±1 h smoothed temperature
+  // 3 h before and after (up to 2 h less after for the newest hours: those
+  // are marked weak, and the newest hour has none); adv = −V·∇T from the
+  // thermal wind between the layers two below and two above:
+  // −f / (R ln(p1/p2)) · (u1 v2 − v1 u2).  Only FL050–FL200: below, the daily
+  // heating cycle dominates; above, Γd − Γ is small and the shear large.
+  function vvelValue(P, c, i) {
+    if (P.layers[i] < VV_LO || P.layers[i + 1] > VV_HI || i < 2 || i + 2 >= P.nL) return null;
+    const before = P.byTs.get(c.ts - 3 * 3600);
+    let after = null, ah = 0;
+    for (const h of [3, 2, 1]) { const o = P.byTs.get(c.ts + h * 3600); if (o && o.TS[i] != null) { after = o; ah = h; break; } }
+    if (!before || !after || before.TS[i] == null || c.TS[i] == null) return null;
+    const dTdt = (after.TS[i] - before.TS[i]) / (ah + 3);                       // K/h
+    const lv = lapseValue(P, c, i);
+    if (!lv || GAMMA_D - lv.v < 1.5) return null;
+    const a = i - 2, b = i + 2;
+    if (c.US[a] == null || c.US[b] == null) return null;
+    const L = Math.log(isaP(zc(P, a)) / isaP(zc(P, b)));
+    const adv = -(F_COR / (R_D * L)) * (c.US[a] * c.VS[b] - c.VS[a] * c.US[b]) * 3600;   // K/h
+    const w = (adv - dTdt) / (GAMMA_D - lv.v) * 1e5 / 3600;                     // km/h → cm/s
+    return { v: w, adv, dTdt, weak: lv.weak || ah < 3 || c.TSN[i] < 3 || c.WSN[a] < 3 || c.WSN[b] < 3, recent: ah < 3 };
   }
   // lapse rate (K/km) at layer i: between the layers below and above it
   // (one-sided at the ends), from the ±1 h smoothed temperatures
@@ -183,7 +234,7 @@
         if (!fv) continue;
         const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
         g.globalAlpha = fv.weak ? 0.5 : 1;
-        g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : divFill(fv.v, st.field === 'change' ? 4 : 6);
+        g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : st.field === 'vvel' ? vvFill(fv.v) : divFill(fv.v, st.field === 'change' ? 4 : 6);
         g.fillRect(x0, y1, cw + 0.5, y0 - y1 + 0.5);
       }
     }
@@ -364,6 +415,8 @@
       }
       const lv = lapseValue(P, c, i);
       if (lv) parts.push(`lapse rate ${lv.v.toFixed(1)} K/km <span class="mini-tip-dim">(${(LAPSE.find(b => lv.v >= b[0] && lv.v < b[1]) || LAPSE[3])[3]})</span>`);
+      const vv = vvelValue(P, c, i);
+      if (vv) parts.push(`vertical motion ${vv.v >= 0 ? '+' : ''}${vv.v.toFixed(1)} cm/s <span class="mini-tip-dim">(${vv.v >= 0 ? 'rising' : 'sinking'}; advection ${vv.adv >= 0 ? '+' : ''}${vv.adv.toFixed(2)} K/h, local change ${vv.dTdt >= 0 ? '+' : ''}${vv.dTdt.toFixed(2)} K/h${vv.recent ? '; newest hours: less certain' : ''})</span>`);
       if (c.WS[i] != null) parts.push(`wind ${Math.round(c.WD[i])}° ${Math.round(c.WS[i])} kt <span class="mini-tip-dim">(${c.WN[i]} replies)</span>`);
       parts.push(`<span class="mini-tip-dim">${c.AC[i] || '–'} aircraft in the layer, ${c.a ?? '–'} in the hour${c.partial ? ' · hour in progress' : ' · click: open on the Skew-T'}</span>`);
       html = parts.join('<br>');
@@ -422,6 +475,9 @@
     if (st.field === 'wind') {
       el.innerHTML = 'Wind speed ' + SPD.map((c, i) => `<span class="th-sw" style="background:${c}" title="${i * 10}–${i * 10 + 10} kt"></span>`).join('') +
         ' <span class="th-lt">0 · 50 · 100 · 130+ kt</span>';
+    } else if (st.field === 'vvel') {
+      el.innerHTML = 'Vertical motion (adiabatic, FL050–FL200) <span class="th-bar th-bar-vv"></span> ' +
+        '<span class="th-lt">sinking −3 · 0 · +3 cm/s rising</span>';
     } else if (st.field === 'lapse') {
       el.innerHTML = 'Lapse rate ' + LAPSE.map(b => `<span class="th-sw" style="background:${b[2]}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
         ' <span class="th-lt">(K/km: &lt; −1, −1–2, 2–5, 5–7, 7–9, ≥ 9)</span>';
