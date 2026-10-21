@@ -23,8 +23,11 @@ surface (sonde GPS height, mean sea level):
 
     residual = gmb − (z_sonde − pressure altitude)
 
-The residuals are kept per sounding (gnss_cal, key "sonde:YYYYMMDDHH", one
-cell per airframe and 5 000 ft band), and after each new sounding the
+The balloon's drift is followed from the sounding's winds and, from FL200 up,
+each aircraft value is moved to the balloon's position with the slope of the
+pressure surface (sonde_cells).  The residuals are kept per sounding (gnss_cal,
+key "sonde:YYYYMMDDHH", one cell per airframe and 5 000 ft band; cells of an
+older method are computed again), and after each new sounding the
 correction is fitted again from the last CAL_DAYS days:
 
     curve(alt)  fleet correction per 5 000 ft band (interpolated linearly
@@ -82,6 +85,10 @@ PRIOR = [24.8, 22.1, 18.1, 11.9, 11.8, 2.1, -4.8, -7.5, -7.5]
 PRIOR_WEIGHT = 5.0              # cells
 SHRINK = 3.0                    # soundings
 CELL_W_MAX = 10                 # a cell with many replies counts at most this much
+GRAD_MIN_FT = 20000             # sonde pairing: slope correction from this band up …
+GRAD_MIN_PAIRS = 30             # … with at least this many pairs …
+GRAD_MIN_SPREAD_KM = 15.0       # … spread at least this much across the area
+CELLS_VERSION = 2               # sonde cells older than this are computed again
 THK_LAYERS = [(0, 5000), (5000, 10000), (10000, 15000), (15000, 20000), (20000, 25000),
               (25000, 30000), (30000, 35000), (35000, 40000), (10000, 30000)]
 THK_EDGE_FT = 300               # rows within ± this of a layer edge give its height
@@ -182,41 +189,111 @@ def current(db, max_age: float = CACHE_SEC) -> dict:
     return _cache["cal"]
 
 
-def sonde_cells(db, rec: dict) -> dict:
+def _min_spread_km(pts) -> float:
+    """Spread (km, SD along the narrowest direction) of [(…, x, y)]."""
+    n = len(pts)
+    mx = sum(p[-2] for p in pts) / n
+    my = sum(p[-1] for p in pts) / n
+    sxx = sum((p[-2] - mx) ** 2 for p in pts) / n
+    syy = sum((p[-1] - my) ** 2 for p in pts) / n
+    sxy = sum((p[-2] - mx) * (p[-1] - my) for p in pts) / n
+    return math.sqrt(max(0.0, (sxx + syy) / 2 - math.sqrt(((sxx - syy) / 2) ** 2 + sxy ** 2)))
+
+
+def sonde_cells(db, rec: dict, slope: bool = False) -> dict:
     """Aircraft − sonde residuals of one sounding:
-    {"n": pairs, "c": [[icao, band, mean residual m, replies], …]}."""
+    {"v": 2, "m": "drift" | "slope", "n": pairs, "c": [[icao, band, mean residual m, replies], …]}.
+
+    The balloon drifts with the wind (tens of km by FL300): its position at
+    each level is followed from the sounding's own winds at the assumed
+    ascent rate, and aircraft are paired within SONDE_RADIUS_KM of that
+    position.  With slope=True (config GNSS_CAL_SLOPE, default off), from
+    GRAD_MIN_FT up, where the aircraft are spread over the area, the slope of
+    the pressure surface seen by the aircraft of the band (plane fit,
+    ≥ GRAD_MIN_PAIRS pairs spread ≥ GRAD_MIN_SPREAD_KM) moves each aircraft's
+    value to the balloon's position.  Test on 6 soundings 20–21 Oct 2026:
+    the slope correction cut the leave-one-out RMS at FL250–FL350 from 12–13
+    to 4–7 m, but it removed most of the drop of the correction with altitude
+    (FL250–FL300 +7 → +18 m), and the independent thickness-temperature check
+    then got worse (FL100–FL300 −0.6 → −0.9 K against Mach/TAS), so it stays
+    off until more soundings decide.  The drift alone changed little."""
+    import bisect
     lv = sorted([l for l in rec.get("lv") or [] if l[1] is not None and l[2] is not None],
-                key=lambda l: l[1])
+                key=lambda l: l[2])
     if len(lv) < 10:
-        return {"n": 0, "c": []}
+        return {"v": 2, "m": "slope" if slope else "drift", "n": 0, "c": []}
     launch = rec.get("launch") or rec.get("nominal")
     end = rec.get("end") or (launch + 7200)
     slat, slon = rec.get("lat") or 60.814, rec.get("lon") or 23.498
-    alts = [l[1] for l in lv]
-    z0 = lv[0][2]
+    kx = 111.2 * math.cos(math.radians(slat))
+    # balloon track: time and position (km east / north of the site) per level
+    x = y = 0.0
+    tt, px, py = [], [], []
+    t = launch
+    prev = lv[0]
+    for l in lv:
+        dt = max(0.0, (l[2] - prev[2]) / SONDE_ASCENT_MS)
+        if len(prev) > 6 and prev[5] is not None and prev[6] is not None:
+            r = math.radians(prev[5])
+            sp = prev[6] * 0.514444 / 1000.0
+            x += -sp * math.sin(r) * dt
+            y += -sp * math.cos(r) * dt
+        t += dt
+        tt.append(t); px.append(x); py.append(y)
+        prev = l
+    order = sorted(range(len(lv)), key=lambda i: lv[i][1])       # by pressure altitude
+    alts = [lv[i][1] for i in order]
     eps = _episodes(db, launch - SONDE_WINDOW_SEC, end + SONDE_WINDOW_SEC)
-    acc: dict = {}
-    n_pairs = 0
-    import bisect
+    pairs = []
     for icao, ts, alt, lat, lon, g, nacp in db.execute(
             """SELECT icao, ts, altitude, lat, lon, gmb_ft, nacp FROM observations
                WHERE ts >= ? AND ts <= ? AND gmb_ft IS NOT NULL AND altitude IS NOT NULL
                  AND lat IS NOT NULL AND lon IS NOT NULL AND nacp >= ?""",
             (launch - SONDE_WINDOW_SEC, end + SONDE_WINDOW_SEC, MIN_NACP)):
-        if alt < alts[0] or alt > alts[-1] or _km(lat, lon, slat, slon) > SONDE_RADIUS_KM:
+        if alt < alts[0] or alt > alts[-1]:
             continue
-        i = max(1, bisect.bisect_left(alts, alt))
-        a, b = lv[i - 1], lv[i]
+        j = max(1, bisect.bisect_left(alts, alt))
+        ia, ib = order[j - 1], order[j]
+        a, b = lv[ia], lv[ib]
         f = (alt - a[1]) / (b[1] - a[1]) if b[1] != a[1] else 0.0
         z = a[2] + f * (b[2] - a[2])
-        if abs(ts - (launch + (z - z0) / SONDE_ASCENT_MS)) > SONDE_WINDOW_SEC or _in_ep(eps, icao, ts):
+        tl = tt[ia] + f * (tt[ib] - tt[ia])
+        bx = px[ia] + f * (px[ib] - px[ia])
+        by = py[ia] + f * (py[ib] - py[ia])
+        dx, dy = (lon - slon) * kx - bx, (lat - slat) * 111.2 - by
+        if math.hypot(dx, dy) > SONDE_RADIUS_KM or abs(ts - tl) > SONDE_WINDOW_SEC or _in_ep(eps, icao, ts):
             continue
-        d_sonde = z - alt * FT
-        s = acc.setdefault((icao, band_of(alt)), [0.0, 0])
-        s[0] += g * FT - d_sonde
-        s[1] += 1
-        n_pairs += 1
-    return {"n": n_pairs, "c": [[k[0], k[1], round(v[0] / v[1], 1), v[1]] for k, v in sorted(acc.items())]}
+        pairs.append((icao, band_of(alt), g * FT - (z - alt * FT), alt, dx, dy))
+    # upper bands: move each value to the balloon with the band's plane slope
+    by_band: dict = {}
+    for p_ in pairs:
+        by_band.setdefault(p_[1], []).append(p_)
+    out = []
+    for bd, P in by_band.items():
+        if (slope and bd * BAND_FT >= GRAD_MIN_FT and len(P) >= GRAD_MIN_PAIRS
+                and _min_spread_km(P) >= GRAD_MIN_SPREAD_KM):
+            n = len(P)
+            mx = sum(q[4] for q in P) / n
+            my = sum(q[5] for q in P) / n
+            mv = sum(q[2] for q in P) / n
+            sxx = sum((q[4] - mx) ** 2 for q in P)
+            syy = sum((q[5] - my) ** 2 for q in P)
+            sxy = sum((q[4] - mx) * (q[5] - my) for q in P)
+            sx = sum((q[4] - mx) * (q[2] - mv) for q in P)
+            sy = sum((q[5] - my) * (q[2] - mv) for q in P)
+            D = sxx * syy - sxy * sxy
+            if D > 0:
+                gx = (sx * syy - sy * sxy) / D
+                gy = (sy * sxx - sx * sxy) / D
+                P = [(q[0], q[1], q[2] - gx * q[4] - gy * q[5]) + q[3:] for q in P]
+        out.extend(P)
+    acc: dict = {}
+    for icao, bd, v, *_ in out:
+        s_ = acc.setdefault((icao, bd), [0.0, 0])
+        s_[0] += v
+        s_[1] += 1
+    return {"v": 2, "m": "slope" if slope else "drift", "n": len(pairs),
+            "c": [[k[0], k[1], round(v[0] / v[1], 1), v[1]] for k, v in sorted(acc.items())]}
 
 
 def fit_calibration(rows: list) -> dict:
@@ -243,17 +320,20 @@ def fit_calibration(rows: list) -> dict:
         per: dict = {}
         for key, ic, bd, v, w in cells:
             per.setdefault(ic, {}).setdefault(key, []).append(v - curve[bd])
-        b = {}
+        b, bn = {}, {}
         for ic, by_key in per.items():
             means = [sum(x) / len(x) for x in by_key.values()]
             b[ic] = sum(means) / (len(means) + SHRINK)
+            bn[ic] = [len(means), round(sum(means) / len(means), 1)]
     return {"v": int(_time.time()), "curve": [round(c, 2) for c in curve], "nb": used,
             "b": {k: round(v, 1) for k, v in sorted(b.items()) if abs(v) >= 0.5},
+            "bn": {k: v for k, v in sorted(bn.items())},     # airframe → [soundings, raw mean m]
             "pairs": sum(d.get("n", 0) for _, d in rows), "soundings": len(rows),
             "t": int(_time.time())}
 
 
-def update_calibration(db, store, now: float | None = None, cal_days: float = CAL_DAYS) -> int:
+def update_calibration(db, store, now: float | None = None, cal_days: float = CAL_DAYS,
+                       slope: bool = False) -> int:
     """Residuals of every finished sounding of the last cal_days not yet in
     gnss_cal, then (when any was added, or none is stored) a new fit.
     Returns the number of soundings added."""
@@ -263,7 +343,14 @@ def update_calibration(db, store, now: float | None = None, cal_days: float = CA
     first_obs = db.execute("SELECT MIN(ts) FROM observations WHERE gmb_ft IS NOT NULL").fetchone()[0]
     if first_obs is None:
         return 0
-    have = {r[0] for r in db.execute("SELECT key FROM gnss_cal WHERE key LIKE 'sonde:%'")}
+    have = set()                     # soundings with cells of the current method
+    for k, d in db.execute("SELECT key, data FROM gnss_cal WHERE key LIKE 'sonde:%'"):
+        try:
+            j = json.loads(d)
+            if j.get("v", 1) >= CELLS_VERSION and j.get("m", "drift") == ("slope" if slope else "drift"):
+                have.add(k)
+        except (ValueError, TypeError):
+            pass
     added = 0
     import calendar
     for key in store.keys():
@@ -284,7 +371,7 @@ def update_calibration(db, store, now: float | None = None, cal_days: float = CA
             continue
         if end + SONDE_WINDOW_SEC + 600 > now:
             continue                                     # aircraft after the balloon not in yet
-        cells = sonde_cells(db, rec)
+        cells = sonde_cells(db, rec, slope)
         db.execute("INSERT OR REPLACE INTO gnss_cal (key, ts, data) VALUES (?, ?, ?)",
                    ("sonde:" + key, launch, json.dumps(cells, separators=(",", ":"))))
         added += 1
@@ -492,15 +579,34 @@ def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float):
     return dv, tk
 
 
-def summary(cal: dict) -> dict:
-    """Calibration for display (API): curve per band, airframe offsets."""
+def summary(cal: dict, info=None) -> dict:
+    """Calibration for display (API): correction per band, and per airframe
+    the offset used (shrunk), the soundings it was seen at and its raw mean
+    residual after the band correction; per type the mean of the airframes.
+    info(icao) → (registration, type) or None."""
     b = cal.get("b") or {}
+    bn = cal.get("bn") or {}
     vals = sorted(b.values())
+    rows = []
+    for ic in sorted(set(b) | set(bn)):
+        m, raw = (bn.get(ic) or [None, None])
+        reg, typ = (info(ic) if info else None) or (None, None)
+        rows.append({"icao": ic, "reg": reg, "type": typ, "offset_m": b.get(ic, 0.0),
+                     "soundings": m, "raw_m": raw})
+    rows.sort(key=lambda r: (-(r["soundings"] or 0), -abs(r["raw_m"] or 0)))
+    types: dict = {}
+    for r in rows:
+        if r["type"] and r["raw_m"] is not None:
+            types.setdefault(r["type"], []).append(r["raw_m"])
+    by_type = [{"type": t, "airframes": len(v), "mean_m": round(sum(v) / len(v), 1),
+                "sd_m": round(math.sqrt(sum((x - sum(v) / len(v)) ** 2 for x in v) / (len(v) - 1)), 1) if len(v) > 1 else None}
+               for t, v in types.items() if len(v) >= 2]
+    by_type.sort(key=lambda r: -r["airframes"])
     return {"version": cal.get("v"), "computed": cal.get("t"), "soundings": cal.get("soundings"),
             "pairs": cal.get("pairs"),
             "bands": [{"ft": [k * BAND_FT, (k + 1) * BAND_FT], "corr_m": c, "cells": n, "prior_m": p}
                       for k, (c, n, p) in enumerate(zip(cal.get("curve") or PRIOR,
                                                         cal.get("nb") or [0] * len(PRIOR), PRIOR))],
-            "airframes": len(b),
+            "airframes": len(rows),
             "offset_sd_m": round(math.sqrt(sum(x * x for x in vals) / len(vals)), 1) if vals else None,
-            "offsets": b}
+            "offsets": b, "airframe_list": rows, "by_type": by_type}

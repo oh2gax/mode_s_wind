@@ -30,9 +30,13 @@
  *   thk      thickness temperature check: mean virtual temperature of the
  *            5 000 ft layers from the height gained by climbing / descending
  *            aircraft minus the Mach / TAS temperature of the same layers
- * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, Jokioinen sonde
- * launches (pink ▼ at the top), aircraft per hour (strip below the plot,
- * red where < 8: LOW data).  Hover for values; click a column to open that
+ * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, the tropopause (WMO
+ * lapse-rate definition, magenta dashed) and the height of the strongest wind
+ * (≥ 50 kt, yellow), Jokioinen sonde launches (pink ▼ at the top) and — with
+ * "Sonde" — each sounding drawn as its own narrow column in the same colour
+ * field (temperature anomaly, wind speed, lapse rate, height), aircraft per
+ * hour (strip below the plot, red where < 8: LOW data).  "PNG" saves the
+ * picture.  Hover for values; click a column to open that
  * hour on the Skew-T (Area · hour).
  *
  * window.TimeHeight = { init(opts), load(), render(), setOpenHour(fn) }
@@ -54,6 +58,9 @@
     field: lsGet('ms_th_field', 'anomaly'),
     barbs: lsGet('ms_th_barbs', 'true') !== 'false',
     iso: lsGet('ms_th_iso', 'true') !== 'false',
+    tp: lsGet('ms_th_tp', 'false') === 'true',
+    vmax: lsGet('ms_th_vmax', 'false') === 'true',
+    sondeCol: lsGet('ms_th_sondecol', 'false') === 'true',
     endDate: '',                       // '' = now, else YYYY-MM-DD (period ends at 24 UTC of it)
   };
   let geo = null;                       // last drawn geometry, for hover / click
@@ -159,7 +166,18 @@
         if (w) { c.US[i] = su / w; c.VS[i] = sv / w; c.WSN[i] = w; }
       }
     }
-    return { layers, nL, cols, mean, byTs, start: d.start_ts, end: d.end_ts };
+    const sn = (d.sondes || []).map(s => {
+      const T = new Array(nL).fill(null), WD = new Array(nL).fill(null), WS = new Array(nL).fill(null), D = new Array(nL).fill(null);
+      for (const r of s.lv || []) {
+        const i = layers.indexOf(r[0]);
+        if (i < 0 || i >= nL) continue;
+        T[i] = r[1]; WD[i] = r[2]; WS[i] = r[3]; D[i] = r[4];
+      }
+      return { key: s.key, launch: s.launch, min_p: s.min_p, T, WD, WS, D };
+    });
+    const P = { layers, nL, cols, mean, byTs, start: d.start_ts, end: d.end_ts, sondes: sn };
+    for (const c of cols) { c.tp = tropopause(P, c); c.vm = maxWind(P, c); }
+    return P;
   }
 
   // value of the colour field for column c, layer i (null = none); weak = few replies
@@ -234,6 +252,63 @@
     return { v: -(c.TS[b] - c.TS[a]) / dz, weak: c.TSN[a] < 3 || c.TSN[b] < 3 };
   }
 
+  // WMO tropopause from the ±1 h smoothed layer temperatures: the lowest
+  // layer centre above 5 km (16 400 ft) where the lapse rate to the next
+  // layer is ≤ 2 K/km and the mean lapse rate to every layer within the next
+  // 2 km stays ≤ 2 K/km (with at least the next layer available) → ft or null
+  function tropopause(P, c) {
+    for (let i = 0; i < P.nL - 1; i++) {
+      const z = zc(P, i);
+      if (z < 16400 || c.TS[i] == null || c.TSN[i] < 2) continue;
+      if (c.TS[i + 1] == null || c.TSN[i + 1] < 2) continue;
+      const lap = (a, b) => -(c.TS[b] - c.TS[a]) / ((zc(P, b) - zc(P, a)) * 0.3048 / 1000);
+      if (lap(i, i + 1) > 2) continue;
+      let ok = true;
+      for (let j = i + 1; j < P.nL && zc(P, j) - z <= 6562; j++) {
+        if (c.TS[j] == null) break;
+        if (lap(i, j) > 2) { ok = false; break; }
+      }
+      if (ok) return z;
+    }
+    return null;
+  }
+  // strongest wind of the column above 10 000 ft (≥ 2 replies), when ≥ 50 kt → {ft, kt, dir} or null
+  function maxWind(P, c) {
+    let best = null;
+    for (let i = 0; i < P.nL; i++) {
+      if (P.layers[i] < 10000 || c.WS[i] == null || c.WN[i] < 2) continue;
+      if (!best || c.WS[i] > best.kt) best = { ft: zc(P, i), kt: c.WS[i], dir: c.WD[i], i };
+    }
+    return best && best.kt >= 50 ? best : null;
+  }
+  // value of the colour field for a sounding column (sonde layer values), or null
+  function sondeValue(P, s, i) {
+    const f = st.field;
+    if (f === 'anomaly') return s.T[i] != null && P.mean[i] != null ? s.T[i] - P.mean[i] : null;
+    if (f === 'wind') return s.WS[i];
+    if (f === 'dval') return s.D[i];
+    if (f === 'lapse') {
+      let a = i - 1, b = i + 1;
+      if (a < 0 || s.T[a] == null) a = i;
+      if (b >= P.nL || s.T[b] == null) b = i;
+      if (a === b || s.T[a] == null || s.T[b] == null) return null;
+      return -(s.T[b] - s.T[a]) / ((zc(P, b) - zc(P, a)) * 0.3048 / 1000);
+    }
+    return null;
+  }
+  function fillOf(v) {
+    if (st.field === 'wind') return spdFill(v);
+    if (st.field === 'vvel') return vvFill(v);
+    if (st.field === 'vort') return vortFill(v);
+    if (st.field === 'lapse') return lapseFill(v);
+    return divFill(v, FULL[st.field] || 6);
+  }
+  const SONDE_FIELDS = ['anomaly', 'wind', 'lapse', 'dval'];
+  const sondeStrip = (P, s) => {                       // [x0, x1] of a sounding's own column
+    const xx = geo.x(s.launch), w = Math.max(6, Math.min(16, geo.cw * 0.7));
+    return [xx - w / 2, xx + w / 2];
+  };
+
   // ── drawing ─────────────────────────────────────────────────────────────
   function render() {
     const canvas = $('th-canvas'), box = $('th-box');
@@ -250,6 +325,7 @@
       ink: L ? '#0f172a' : '#e2e8f0', ink2: L ? '#475569' : '#94a3b8', barb: L ? '#0f172a' : '#e2e8f0',
       iso0: L ? '#0369a1' : '#38bdf8', iso: L ? '#0e7490' : '#67e8f9', sonde: L ? '#be185d' : '#f472b6',
       day: L ? '#94a3b8' : '#3b4b5f', now: L ? '#64748b' : '#94a3b8',
+      tp: L ? '#a21caf' : '#e879f9', vmax: L ? '#a16207' : '#fde047',
     };
     g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
     if (!data) { g.fillStyle = C.ink2; g.font = '13px system-ui'; g.fillText('Loading…', 20, 30); return; }
@@ -291,13 +367,28 @@
         if (!fv) continue;
         const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
         g.globalAlpha = fv.weak ? 0.5 : 1;
-        g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : st.field === 'vvel' ? vvFill(fv.v)
-          : st.field === 'vort' ? vortFill(fv.v)
-          : divFill(fv.v, FULL[st.field] || 6);
+        g.fillStyle = fillOf(fv.v);
         g.fillRect(x0, y1, cw + 0.5, y0 - y1 + 0.5);
       }
     }
     g.globalAlpha = 1;
+    // the soundings as their own narrow columns (same colour field), pink frame
+    if (st.sondeCol && SONDE_FIELDS.includes(st.field)) {
+      for (const s of P.sondes) {
+        if (s.launch < P.start || s.launch > P.end) continue;
+        const [sx0, sx1] = sondeStrip(P, s);
+        let top = null, bot = null;
+        for (let i = 0; i <= topL; i++) {
+          const v = sondeValue(P, s, i);
+          if (v == null) continue;
+          const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
+          g.fillStyle = C.bg; g.fillRect(sx0 - 1, y1, sx1 - sx0 + 2, y0 - y1 + 0.5);
+          g.fillStyle = fillOf(v); g.fillRect(sx0, y1, sx1 - sx0, y0 - y1 + 0.5);
+          top = top == null ? y1 : Math.min(top, y1); bot = bot == null ? y0 : Math.max(bot, y0);
+        }
+        if (top != null) { g.strokeStyle = C.sonde; g.lineWidth = 1.5; g.strokeRect(sx0 - 0.5, top, sx1 - sx0 + 1, bot - top); }
+      }
+    }
     // day separators and time ticks
     const tickH = nH <= 36 ? 3 : nH <= 96 ? 6 : nH <= 200 ? 12 : 24;
     g.font = '11px system-ui'; g.textAlign = 'center';
@@ -358,6 +449,24 @@
         }
       }
     }
+    // tropopause and height of the strongest wind, joined across hours (gaps ≤ 3 h)
+    const runLine = (key, col, w, dash, label) => {
+      let prev = null, last = null;
+      g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash);
+      for (const c of P.cols) {
+        const v = c[key];
+        if (v == null) continue;
+        const pt = [x(c.ts) + cw / 2, y(key === 'vm' ? v.ft : v)];
+        if (prev && c.ts - prev.ts <= 3 * 3600) { g.beginPath(); g.moveTo(prev.pt[0], prev.pt[1]); g.lineTo(pt[0], pt[1]); g.stroke(); }
+        else { g.beginPath(); g.arc(pt[0], pt[1], w, 0, 2 * Math.PI); g.fillStyle = col; g.fill(); }
+        prev = { ts: c.ts, pt }; last = pt;
+      }
+      g.setLineDash([]);
+      if (last) { g.fillStyle = col; g.textAlign = 'left'; g.font = 'bold 10px system-ui';
+        g.fillText(label, Math.min(last[0] + 4, ml + pw - 30), last[1] - 4); g.font = '11px system-ui'; }
+    };
+    if (st.tp) runLine('tp', C.tp, 2.2, [7, 4], 'TP');
+    if (st.vmax) runLine('vm', C.vmax, 2.2, [], 'Vmax');
     // wind barbs
     if (st.barbs) {
       const stepC = Math.max(1, Math.ceil(36 / cw));
@@ -449,7 +558,10 @@
     if (my > mt + ph) return { mx, my, ts, c, strip: true };
     let li = null;
     for (let i = 0; i <= topL; i++) if (my <= y(P.layers[i]) && my >= y(P.layers[i + 1])) { li = i; break; }
-    return { mx, my, ts, c, li };
+    let sonde = null;
+    if (st.sondeCol && SONDE_FIELDS.includes(st.field))
+      for (const s of P.sondes) { const [a, b] = sondeStrip(P, s); if (mx >= a - 1 && mx <= b + 1) { sonde = s; break; } }
+    return { mx, my, ts, c, li, sonde };
   }
   function hover(ev) {
     const tip = $('th-tip');
@@ -458,7 +570,17 @@
     const d = new Date(h.ts * 1000);
     const when = `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad(d.getUTCHours())}–${pad((d.getUTCHours() + 1) % 24)} UTC`;
     let html;
-    if (!h.c) html = `${when}<br><span class="mini-tip-dim">no hourly profile stored</span>`;
+    if (h.sonde && h.li != null) {
+      const { P } = geo, s = h.sonde, i = h.li, c = h.c;
+      const lt = new Date(s.launch * 1000);
+      const parts = [`<b style="color:var(--th-sonde)">Jokioinen sonde ${lt.getUTCDate()}.${lt.getUTCMonth() + 1}. ${pad(lt.getUTCHours())}:${pad(lt.getUTCMinutes())} UTC</b> · ${fmtFt(P.layers[i])}–${fmtFt(P.layers[i + 1])}`];
+      const dd = (a, b, u, dg = 1) => a != null && b != null ? ` <span class="mini-tip-dim">(aircraft ${b.toFixed(dg)}${u}, sonde − aircraft ${a - b >= 0 ? '+' : ''}${(a - b).toFixed(dg)}${u})</span>` : '';
+      if (s.T[i] != null) parts.push(`T ${s.T[i].toFixed(1)} °C` + dd(s.T[i], c ? c.T[i] : null, ' °C'));
+      if (s.WS[i] != null) parts.push(`wind ${Math.round(s.WD[i])}° ${Math.round(s.WS[i])} kt` + (c && c.WS[i] != null ? ` <span class="mini-tip-dim">(aircraft ${Math.round(c.WD[i])}° ${Math.round(c.WS[i])} kt)</span>` : ''));
+      if (s.D[i] != null) parts.push(`D ${s.D[i] >= 0 ? '+' : ''}${Math.round(s.D[i])} m` + (c && c.DV[i] ? ` <span class="mini-tip-dim">(aircraft ${c.DV[i].v >= 0 ? '+' : ''}${Math.round(c.DV[i].v)} m, sonde − aircraft ${s.D[i] - c.DV[i].v >= 0 ? '+' : ''}${Math.round(s.D[i] - c.DV[i].v)} m)</span>` : ''));
+      if (s.min_p) parts.push(`<span class="mini-tip-dim">sounding to ${Math.round(s.min_p)} hPa · values: mean of the sounding's levels in the layer</span>`);
+      html = parts.join('<br>');
+    } else if (!h.c) html = `${when}<br><span class="mini-tip-dim">no hourly profile stored</span>`;
     else if (h.strip || h.li == null) html = `${when}<br>${h.c.a ?? '–'} aircraft · ${h.c.n ?? '–'} replies` +
       (h.c.a != null && h.c.a < 8 ? ' <span style="color:#ef4444">LOW</span>' : '') + (h.c.partial ? '<br><span class="mini-tip-dim">hour in progress</span>' : '');
     else {
@@ -494,6 +616,8 @@
         const b = c.bulk;
         parts.push(`<span class="mini-tip-dim">FL100–FL300: ${b.tv.toFixed(1)} °C` + (b.tref != null ? ` vs ${b.tref.toFixed(1)} °C (${b.tv - b.tref >= 0 ? '+' : ''}${(b.tv - b.tref).toFixed(1)} K)` : '') + `, ${b.n} flight${b.n === 1 ? '' : 's'}</span>`);
       }
+      if (c.tp != null || c.vm) parts.push(`<span class="mini-tip-dim">` + [c.tp != null ? `tropopause ≈ ${fmtFt(c.tp)}` : null,
+        c.vm ? `strongest wind ${Math.round(c.vm.dir)}° ${Math.round(c.vm.kt)} kt at ${fmtFt(c.vm.ft)}` : null].filter(Boolean).join(' · ') + '</span>');
       parts.push(`<span class="mini-tip-dim">${c.AC[i] || '–'} aircraft in the layer, ${c.a ?? '–'} in the hour${c.partial ? ' · hour in progress' : ' · click: open on the Skew-T'}</span>`);
       html = parts.join('<br>');
     }
@@ -543,6 +667,9 @@
     $('th-field').value = st.field;
     $('th-barbs').checked = st.barbs;
     $('th-iso').checked = st.iso;
+    $('th-tp').checked = st.tp;
+    $('th-vmax').checked = st.vmax;
+    $('th-sondecol').checked = st.sondeCol;
     $('th-end').value = st.endDate;
     renderLegend();
   }
@@ -585,6 +712,31 @@
                        : ' <span class="th-lt">(default calibration — no soundings yet)</span>';
   }
 
+  // save the picture (with a title line and the legend text) as a PNG file
+  function savePng() {
+    const cv = $('th-canvas');
+    if (!cv || !data) return;
+    const dpr = window.devicePixelRatio || 1, head = Math.round(26 * dpr);
+    const out = document.createElement('canvas');
+    out.width = cv.width; out.height = cv.height + head;
+    const g = out.getContext('2d');
+    const L = light();
+    g.fillStyle = L ? '#f8fafc' : '#0f1923'; g.fillRect(0, 0, out.width, out.height);
+    g.drawImage(cv, 0, head);
+    g.fillStyle = L ? '#0f172a' : '#e2e8f0'; g.font = `${Math.round(12 * dpr)}px system-ui`; g.textBaseline = 'middle';
+    const end = new Date(data.end_ts * 1000).toISOString().slice(0, 13).replace('T', ' ');
+    const fs = $('th-field'), leg = fs && fs.selectedOptions[0] ? fs.selectedOptions[0].textContent : st.field;
+    g.fillText(`MODE-S Wind · Time–height section · ${leg} · ${data.hours} h to ${end} UTC`, 10 * dpr, head / 2);
+    out.toBlob(b => {
+      if (!b) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = `timeheight_${st.field}_${end.replace(/[- :]/g, '')}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }, 'image/png');
+  }
+
   function init(opts = {}) {
     openHour = opts.openHour || null;
     syncControls();
@@ -592,6 +744,10 @@
     $('th-field').addEventListener('change', e => { st.field = e.target.value; lsSet('ms_th_field', st.field); renderLegend(); render(); });
     $('th-barbs').addEventListener('change', e => { st.barbs = e.target.checked; lsSet('ms_th_barbs', st.barbs); render(); });
     $('th-iso').addEventListener('change', e => { st.iso = e.target.checked; lsSet('ms_th_iso', st.iso); render(); });
+    $('th-tp').addEventListener('change', e => { st.tp = e.target.checked; lsSet('ms_th_tp', st.tp); render(); });
+    $('th-vmax').addEventListener('change', e => { st.vmax = e.target.checked; lsSet('ms_th_vmax', st.vmax); render(); });
+    $('th-sondecol').addEventListener('change', e => { st.sondeCol = e.target.checked; lsSet('ms_th_sondecol', st.sondeCol); render(); });
+    $('th-png').addEventListener('click', savePng);
     $('th-end').addEventListener('change', e => { st.endDate = e.target.value; load(); });
     $('th-now').addEventListener('click', () => { st.endDate = ''; $('th-end').value = ''; load(); });
     const cv = $('th-canvas');

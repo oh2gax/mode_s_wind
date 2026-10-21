@@ -265,4 +265,63 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
     except Exception:                                    # noqa: BLE001  (never break the section)
         pass
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
-            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal}
+            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal,
+            "sondes": sonde_columns(start, end_hour + 3600)}
+
+
+def sonde_columns(t0: float, t1: float) -> list:
+    """The Jokioinen soundings launched in [t0, t1) averaged into the
+    time–height layers, for drawing them as their own columns:
+    [{"key", "launch", "min_p", "lv": [[alt_lo, T °C, wind dir, wind kt,
+    D-value m], …]}, …] — T and wind the mean of the sounding's levels in the
+    layer (wind as a vector), D = sonde height of the layer-centre pressure
+    surface − its standard-atmosphere height (mean sea level)."""
+    import math as _m
+    from collector import sondes as _sondes
+    from collector.atmos import LAYER_EDGES
+    st = _sondes.get()
+    if st is None:
+        return []
+    out = []
+    for meta in st.items():
+        launch = meta.get("launch") or meta.get("nominal")
+        if launch is None or not (t0 <= launch < t1):
+            continue
+        rec = st.load(meta["key"])
+        if not rec:
+            continue
+        lv = sorted([l for l in rec.get("lv") or [] if l[1] is not None], key=lambda l: l[1])
+        rows = []
+        for k in range(len(LAYER_EDGES) - 1):
+            lo, hi = LAYER_EDGES[k], LAYER_EDGES[k + 1]
+            inl = [l for l in lv if lo <= l[1] < hi]
+            if not inl:
+                continue
+            ts_ = [l[3] for l in inl if l[3] is not None]
+            u = v = 0.0
+            nw = 0
+            for l in inl:
+                if l[5] is not None and l[6] is not None:
+                    r = _m.radians(l[5])
+                    u += -l[6] * _m.sin(r)
+                    v += -l[6] * _m.cos(r)
+                    nw += 1
+            wd = ws = None
+            if nw:
+                u /= nw
+                v /= nw
+                ws = round(_m.hypot(u, v), 1)
+                wd = round(_m.degrees(_m.atan2(-u, -v)) % 360)
+            # height of the layer-centre surface, interpolated in pressure altitude
+            zc = (lo + hi) / 2
+            d = None
+            zl = [l for l in lv if l[2] is not None]
+            for a, b in zip(zl, zl[1:]):
+                if a[1] <= zc <= b[1] and b[1] > a[1]:
+                    z = a[2] + (zc - a[1]) / (b[1] - a[1]) * (b[2] - a[2])
+                    d = round(z - zc * 0.3048, 1)
+                    break
+            rows.append([lo, round(sum(ts_) / len(ts_), 2) if ts_ else None, wd, ws, d])
+        out.append({"key": meta["key"], "launch": launch, "min_p": meta.get("min_p"), "lv": rows})
+    out.sort(key=lambda s: s["launch"])
+    return out

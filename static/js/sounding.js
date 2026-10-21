@@ -548,6 +548,7 @@ TimeHeight.init({
 // per band, difference by sounding age, list of verified launches.
 let svDays = Number(_lsGet('ms_sondeVerifDays', '30')) || 30;
 let svData = null;
+let svGcal = null;           // /api/gnss/calibration
 const _f = (v, d = 1, sign = false) => v == null ? '–' : (sign && v >= 0 ? '+' : '') + v.toFixed(d);
 
 async function loadVerification() {
@@ -556,8 +557,10 @@ async function loadVerification() {
   const meta = document.getElementById('sounding-meta');
   meta.textContent = 'Loading…';
   try {
-    const r = await fetch(`/api/sonde/verification?days=${svDays}`);
+    const [r, g] = await Promise.all([fetch(`/api/sonde/verification?days=${svDays}`),
+                                      fetch('/api/gnss/calibration').catch(() => null)]);
     svData = await r.json();
+    try { svGcal = g && g.ok ? await g.json() : null; } catch (_) { svGcal = null; }
     meta.textContent = `last ${svDays} days · ${svData.launch_total.rows} launches · ${svData.hour_total.rows} hourly comparisons`;
     renderVerification();
   } catch (e) {
@@ -603,6 +606,33 @@ function renderVerification() {
           `<td class="num ${r.w_rms > 15 ? 'snd-dev' : ''}">${_f(r.w_rms, 1)}</td><td class="num">${_f(r.ws_bias, 1, true)}</td></tr>`;
       }).join('') + '</tbody>'
     : '<tbody><tr><td class="sv-empty">No verified launches in this period yet — a launch is verified once the hour after it is over and the sounding is stored.</td></tr></tbody>';
+  renderGnssCal();
+}
+
+// GNSS height calibration (collector/gnss_heights.py): band correction,
+// per-type and per-airframe offsets
+function renderGnssCal() {
+  const g = svGcal;
+  const elB = document.getElementById('sv-gcal-bands'), elT = document.getElementById('sv-gcal-types'),
+        elA = document.getElementById('sv-gcal-af');
+  if (!elB) return;
+  if (!g) { elB.innerHTML = elT.innerHTML = elA.innerHTML = '<tbody><tr><td class="sv-empty">No calibration available.</td></tr></tbody>'; return; }
+  const ft = v => v >= 40000 ? '40 000+' : `${(v / 1000).toFixed(0)}–${((v + 5000) / 1000).toFixed(0)} 000`;
+  elB.innerHTML = `<thead><tr><th>Band (ft)</th><th class="num" title="Subtracted from pressure altitude + GNSS − baro">Correction (m)</th><th class="num" title="Airframe cells (airframe × sounding) behind the value">Cells</th><th class="num" title="Built-in starting value (October 2026)">Default</th></tr></thead><tbody>` +
+    g.bands.map(b => `<tr><td style="white-space:nowrap">${ft(b.ft[0]).replace(/ /g, '\u00a0')}</td><td class="num">${_f(b.corr_m, 1, true)}</td>` +
+      `<td class="num ${b.cells < 5 ? 'snd-weak' : 'text-dim'}">${b.cells}</td><td class="num text-dim">${_f(b.prior_m, 1, true)}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td colspan="4" class="text-dim" style="padding:4px 6px">${g.soundings || 0} soundings · ${g.pairs || 0} pairs` +
+    (g.computed ? ` · fitted ${new Date(g.computed * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '') + '</td></tr></tfoot>';
+  elT.innerHTML = g.by_type && g.by_type.length
+    ? `<thead><tr><th>Type</th><th class="num">Airframes</th><th class="num">Mean (m)</th><th class="num">SD</th></tr></thead><tbody>` +
+      g.by_type.map(t => `<tr><td>${t.type}</td><td class="num text-dim">${t.airframes}</td><td class="num">${_f(t.mean_m, 1, true)}</td><td class="num text-dim">${_f(t.sd_m, 1)}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">Types appear with 2 or more calibrated airframes.</td></tr></tbody>';
+  const A = g.airframe_list || [];
+  elA.innerHTML = A.length
+    ? `<thead><tr><th>ICAO</th><th>Reg.</th><th>Type</th><th class="num" title="Soundings the airframe was compared with">Soundings</th><th class="num" title="Mean residual of its soundings after the band correction">Raw (m)</th><th class="num" title="Offset applied (shrunk towards 0: n / (n + 3) of the raw mean)">Used (m)</th></tr></thead><tbody>` +
+      A.map(r => `<tr><td class="mono">${r.icao}</td><td>${r.reg || '–'}</td><td>${r.type || '–'}</td><td class="num text-dim">${r.soundings ?? '–'}</td>` +
+        `<td class="num ${Math.abs(r.raw_m || 0) > 15 ? 'snd-dev' : ''}">${_f(r.raw_m, 1, true)}</td><td class="num">${_f(r.offset_m, 1, true)}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">No airframes calibrated yet — they appear after the first soundings.</td></tr></tbody>';
 }
 
 // RMS by age bin as columns (SVG); dashed line = the RMS at launch (±1 h)

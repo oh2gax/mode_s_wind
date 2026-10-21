@@ -18,6 +18,8 @@
  * height contours of the pressure surface from the aircraft GNSS − baro
  * difference with the geostrophic wind of the area (experimental, see
  * collector/gnss_heights.py);
+ * isotherms (lines of equal temperature at the level); a vertical
+ * cross-section along a drawn line (windmap_xsection.js);
  * the jet-stream symbol of aviation SIGWX charts (axis line with arrowhead,
  * barb flags at the maximum, change bars, optional vertical depth);
  * the Jokioinen radiosonde at the level; Compare = change since the previous
@@ -82,6 +84,7 @@ const sondeColor = () => pageIsLight() ? '#be185d' : '#f472b6';   // as on the S
 const lineColor  = () => pageIsLight() ? '#334155' : '#cbd5e1';   // streamlines
 const isoColor   = () => pageIsLight() ? '#a16207' : '#facc15';   // isotachs
 const haloColor  = () => pageIsLight() ? '#f1f5f9' : '#0f1923';
+const isotColor  = () => pageIsLight() ? '#be123c' : '#fb7185';   // isotherms
 const jetColor   = () => pageIsLight() ? '#111827' : '#f8fafc';   // jet-stream symbol
 const hgtColor   = () => pageIsLight() ? '#0f766e' : '#5eead4';   // height contours, geostrophic wind
 
@@ -213,7 +216,7 @@ function isaP(ft) {
 // ── Settings (remembered in the browser) ──────────────────────────────────
 const SETTINGS_KEY = 'ms_windmap';
 const CTRL_IDS = ['wm-fl', 'wm-tol', 'wm-period', 'wm-cell', 'wm-minac', 'wm-cmp', 'wm-fl2', 'wm-jetkt'];
-const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-hgt', 'wm-jet', 'wm-jetdepth', 'wm-sonde'];
+const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-isot', 'wm-hgt', 'wm-jet', 'wm-jetdepth', 'wm-sonde'];
 const DATE_IDS = ['wm-start', 'wm-end'];           // the custom period
 const $ = id => document.getElementById(id);
 function saveSettings() {
@@ -380,9 +383,9 @@ function renderCompare(d, cells, showLabel) {
 // ── Analysis: isotachs, strongest wind, streamlines, heights ──────────────
 function renderAnalysis(d, cells) {
   const iso = $('wm-iso').checked, stream = $('wm-stream').checked, hgt = $('wm-hgt').checked;
-  const jet = $('wm-jet').checked;
+  const jet = $('wm-jet').checked, isot = $('wm-isot').checked;
   if (hgt) renderGeostrophic(d);
-  if (!(iso || stream || hgt || jet) || cells.length < 4) return;
+  if (!(iso || stream || hgt || jet || isot) || cells.length < 4) return;
   const g = wmAnalyse(cells, { lat0: RECEIVER_LAT, lon0: RECEIVER_LON, cellKm: d.cell_km });
   if (!g) return;
   if (stream) {
@@ -426,7 +429,31 @@ function renderAnalysis(d, cells) {
     }
   }
   if (hgt) renderHeights(d, g);
+  if (isot) renderIsotherms(g);
   if (jet) renderJetAxis(d, g);
+}
+
+// Isotherms at the level from the smoothed cell temperatures (every 1 K, or
+// 2 K when the range exceeds 8 K), only where there are data
+function renderIsotherms(g) {
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < g.t.length; k++) if (g.ok[k] && !Number.isNaN(g.t[k])) { lo = Math.min(lo, g.t[k]); hi = Math.max(hi, g.t[k]); }
+  if (!(hi > lo)) return;
+  const step = hi - lo > 8 ? 2 : 1;
+  const levels = [];
+  for (let lv = Math.ceil(lo / step) * step; lv <= hi; lv += step) levels.push(lv);
+  const C = wmContours(g, 't', levels);
+  const col = isotColor();
+  for (const [lv, segs] of Object.entries(C)) {
+    L.polyline(segs, { color: col, weight: 1.4, opacity: 0.85, dashArray: '2 4', interactive: false }).addTo(anaLayer);
+    const picks = segs.length > 6 ? [Math.floor(segs.length / 3), Math.floor(2 * segs.length / 3)] : [Math.floor(segs.length / 2)];
+    for (const n of picks) {
+      const [a, b] = segs[n];
+      L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], { interactive: false, icon: L.divIcon({
+        className: 'wm-iso-label', html: `<span style="color:${col}">${fmtT(+lv).replace('.0', '')}°</span>`, iconSize: [34, 12], iconAnchor: [17, 6] }),
+      }).addTo(anaLayer);
+    }
+  }
 }
 
 // ── Jet stream (aviation SIGWX symbol) ────────────────────────────────────
@@ -683,8 +710,8 @@ function statusText(d, shown) {
 
 // ── Period and time slider ────────────────────────────────────────────────
 // The slider moves the period back by whole hours (0 = the chosen end).
-function periodRange() {
-  const shift = parseInt($('wm-tshift').value, 10) * 3600;
+function periodRange(shiftH) {
+  const shift = (shiftH != null ? shiftH : parseInt($('wm-tshift').value, 10)) * 3600;
   const period = $('wm-period').value;
   if (period === 'custom') {
     const sv = $('wm-start').value, ev = $('wm-end').value;
@@ -693,7 +720,8 @@ function periodRange() {
     if (e <= s) return { error: 'End time must be after start time.' };
     return { start: s + shift, end: e + shift };
   }
-  const end = Math.floor(Date.now() / 1000) + shift;
+  // whole minutes, so the frames of an animation have the same addresses (cache)
+  const end = Math.floor(Date.now() / 60000) * 60 + shift;
   return { start: end - parseInt(period, 10) * 60, end };
 }
 function updateTimeLabel() {
@@ -705,6 +733,35 @@ function updateTimeLabel() {
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 let loading = false;
+// While the animation plays, the answers are cached by address and the next
+// frames are loaded ahead, so each frame appears without waiting
+const frameCache = new Map();
+function getJSON(url) {
+  if (!playing) return fetch(url).then(x => x.json());
+  let p = frameCache.get(url);
+  if (!p) {
+    if (frameCache.size > 120) frameCache.clear();
+    p = fetch(url).then(x => x.json());
+    p.catch(() => frameCache.delete(url));
+    frameCache.set(url, p);
+  }
+  return p;
+}
+// the addresses one frame needs (map, comparison, jet depth)
+function frameUrls(shiftH) {
+  const r = periodRange(shiftH);
+  if (r.error) return [];
+  const fl = parseInt($('wm-fl').value, 10), tol = parseInt($('wm-tol').value, 10);
+  const cell = parseFloat($('wm-cell').value), gnss = $('wm-gnss').checked;
+  const cmpMode = $('wm-cmp').value, fl2 = parseInt($('wm-fl2').value, 10);
+  const u = [apiUrl(fl, tol, cell, gnss, r.start, r.end)];
+  if (cmpMode === 'prev') u.push(apiUrl(fl, tol, cell, gnss, 2 * r.start - r.end, r.start));
+  else if (cmpMode === 'level' && fl2 !== fl) u.push(apiUrl(fl2, tol, cell, gnss, r.start, r.end));
+  if ($('wm-jet').checked && $('wm-jetdepth').checked)
+    for (const f of DEPTH_FLS.filter(f => f !== fl)) u.push(apiUrl(f, 2000, cell, gnss, r.start, r.end));
+  return u;
+}
+function prefetch(shiftH) { if (playing) for (const u of frameUrls(shiftH)) getJSON(u); }
 function apiUrl(fl, tol, cell, gnss, start, end) {
   return `/api/windmap?fl=${fl}&tolerance=${tol}&cell=${cell}${gnss ? '&gnss_ok=1' : ''}` +
          `&start=${start}&end=${end}`;
@@ -730,12 +787,12 @@ async function loadWindMap() {
   status.classList.add('wm-loading');
   saveSettings();
   try {
-    const jobs = [fetch(apiUrl(fl, tol, cell, gnss, r.start, r.end)).then(x => x.json())];
+    const jobs = [getJSON(apiUrl(fl, tol, cell, gnss, r.start, r.end))];
     if (cmpMode === 'prev') {
       const len = r.end - r.start;
-      jobs.push(fetch(apiUrl(fl, tol, cell, gnss, r.start - len, r.start)).then(x => x.json()));
+      jobs.push(getJSON(apiUrl(fl, tol, cell, gnss, r.start - len, r.start)));
     } else if (cmpMode === 'level' && fl2 !== fl) {
-      jobs.push(fetch(apiUrl(fl2, tol, cell, gnss, r.start, r.end)).then(x => x.json()));
+      jobs.push(getJSON(apiUrl(fl2, tol, cell, gnss, r.start, r.end)));
     } else {
       jobs.push(Promise.resolve(null));
     }
@@ -744,8 +801,8 @@ async function loadWindMap() {
       : Promise.resolve(null));
     const depthOn = $('wm-jet').checked && $('wm-jetdepth').checked;
     jobs.push(depthOn
-      ? Promise.all(DEPTH_FLS.filter(f => f !== fl).map(f => fetch(apiUrl(f, 2000, cell, gnss, r.start, r.end))
-          .then(x => x.json()).then(data => ({ fl: f, data })).catch(() => ({ fl: f, data: null }))))
+      ? Promise.all(DEPTH_FLS.filter(f => f !== fl).map(f => getJSON(apiUrl(f, 2000, cell, gnss, r.start, r.end))
+          .then(data => ({ fl: f, data })).catch(() => ({ fl: f, data: null }))))
       : Promise.resolve(null));
     const [d, c, s, dep] = await Promise.all(jobs);
     lastDepth = dep;
@@ -765,6 +822,8 @@ async function loadWindMap() {
     console.error(e);
   }
   status.classList.remove('wm-loading');
+  // the cross-section follows the period (not while animating)
+  if (!playing && window.WmXsection && WmXsection.active()) WmXsection.reload(r);
   btn.disabled = false;
   loading = false;
 }
@@ -774,14 +833,17 @@ let playing = false;
 async function play() {
   playing = !playing;
   $('wm-play').textContent = playing ? '■' : '▶';
+  const lo = parseInt($('wm-tshift').min, 10);
+  const next = v => (v + 1 > 0 ? lo : v + 1);
   while (playing) {
     const el = $('wm-tshift');
-    let v = parseInt(el.value, 10) + 1;
-    if (v > 0) v = parseInt(el.min, 10);
+    const v = next(parseInt(el.value, 10));
     el.value = v;
+    prefetch(next(v)); prefetch(next(next(v)));          // load the next two frames ahead
     await loadWindMap();
-    await new Promise(res => setTimeout(res, 1200));
+    await new Promise(res => setTimeout(res, 900));
   }
+  frameCache.clear();
 }
 
 // ── Auto reload (Last … periods, slider at "now") ─────────────────────────
@@ -811,6 +873,7 @@ window.onThemeChange = function () {
     tileTheme = want;
   }
   if (lastData) render();
+  if (window.WmXsection && WmXsection.active()) WmXsection.render();
 };
 
 // Labels appear / disappear with the zoom
@@ -830,7 +893,7 @@ $('wm-play').addEventListener('click', play);
 $('wm-tshift').addEventListener('input', updateTimeLabel);
 $('wm-tshift').addEventListener('change', () => { if (!playing) loadWindMap(); });
 // Display-only options redraw the last answer without a new query
-['wm-minac', 'wm-dt', 'wm-iso', 'wm-stream', 'wm-hgt', 'wm-jetkt'].forEach(id => $(id).addEventListener('change', () => {
+['wm-minac', 'wm-dt', 'wm-iso', 'wm-stream', 'wm-isot', 'wm-hgt', 'wm-jetkt'].forEach(id => $(id).addEventListener('change', () => {
   saveSettings();
   if (lastData && lastData.cells && lastData.cells.length) {
     const shown = render();
@@ -860,5 +923,12 @@ document.querySelectorAll('.windmap-controls').forEach(el => el.addEventListener
 
 restoreSettings();
 syncVisibility();
+if (window.WmXsection) {
+  WmXsection.init({
+    map, range: () => periodRange(), cellKm: () => parseFloat($('wm-cell').value),
+    gnss: () => $('wm-gnss').checked, status: t => { if (t) $('wm-status').textContent = t; },
+    restore: () => { if (lastData && lastData.cells) $('wm-status').textContent = statusText(lastData); },
+  });
+}
 // The map loads at once when the page opens (with the remembered settings)
 loadWindMap();

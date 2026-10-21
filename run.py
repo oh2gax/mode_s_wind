@@ -172,7 +172,8 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
             # cells (D-values, thickness temperatures), back-filled at start
             try:
                 from collector import gnss_heights as _gh
-                n_c = _gh.update_calibration(db, sondes.get())
+                n_c = _gh.update_calibration(db, sondes.get(),
+                                             slope=bool(getattr(cfg, "GNSS_CAL_SLOPE", False)))
                 if n_c:
                     hj_log.info("GNSS heights: calibration refitted with %d new sounding(s)", n_c)
                 n_g = _gh.store_missing_gnss_hours(

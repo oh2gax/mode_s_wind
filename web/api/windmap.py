@@ -195,6 +195,56 @@ def _episodes(db, start_ts, end_ts):
     return out
 
 
+def position_checked(rows, eps, gnss_ok):
+    """Rows (icao, ts, lat, lon, altitude, groundspeed, …) ordered by icao, ts
+    → ([(row, in_episode)], frozen, jumped, gnss-removed): frozen positions
+    and impossible jumps removed (largest consistent part per aircraft kept),
+    rows inside GPS episodes dropped when gnss_ok."""
+    kept = []
+    n_frozen = n_jump = n_gnss = 0
+    i = 0
+    while i < len(rows):
+        icao = rows[i][0]
+        j = i
+        while j < len(rows) and rows[j][0] == icao:
+            j += 1
+        track = rows[i:j]
+        i = j
+        # frozen positions
+        good, prev = [], None
+        for r in track:
+            if (prev is not None and r[2] == prev[2] and r[3] == prev[3]
+                    and r[1] - prev[1] >= FROZEN_MIN_DT
+                    and (r[5] is None or r[5] > FROZEN_MIN_GS)):
+                n_frozen += 1
+            else:
+                good.append(r)
+            prev = r
+        # impossible jumps: split into consistent parts, keep the largest
+        if good:
+            parts, cur = [], [good[0]]
+            for r in good[1:]:
+                p = cur[-1]
+                d = _hav_nm(p[2], p[3], r[2], r[3])
+                if d > JUMP_SLACK_NM + JUMP_MAX_KT * max(0.0, r[1] - p[1]) / 3600.0:
+                    parts.append(cur)
+                    cur = [r]
+                else:
+                    cur.append(r)
+            parts.append(cur)
+            best = max(parts, key=len)
+            n_jump += len(good) - len(best)
+            good = best
+        ep = eps.get(icao)
+        for r in good:
+            in_ep = bool(ep) and any(a <= r[1] <= b for a, b in ep)
+            if in_ep and gnss_ok:
+                n_gnss += 1
+                continue
+            kept.append((r, in_ep))
+    return kept, n_frozen, n_jump, n_gnss
+
+
 def build_windmap(
     db,
     fl: int,               # flight level (e.g. 350 for FL350 = 35 000 ft)
@@ -241,48 +291,7 @@ def build_windmap(
 
     # ── Position checks per aircraft ──────────────────────────────────────
     eps = _episodes(db, start_ts, end_ts)
-    kept = []
-    n_frozen = n_jump = n_gnss = 0
-    i = 0
-    while i < len(rows):
-        icao = rows[i][0]
-        j = i
-        while j < len(rows) and rows[j][0] == icao:
-            j += 1
-        track = rows[i:j]
-        i = j
-        # frozen positions
-        good, prev = [], None
-        for r in track:
-            if (prev is not None and r[2] == prev[2] and r[3] == prev[3]
-                    and r[1] - prev[1] >= FROZEN_MIN_DT
-                    and (r[5] is None or r[5] > FROZEN_MIN_GS)):
-                n_frozen += 1
-            else:
-                good.append(r)
-            prev = r
-        # impossible jumps: split into consistent parts, keep the largest
-        if good:
-            parts, cur = [], [good[0]]
-            for r in good[1:]:
-                p = cur[-1]
-                d = _hav_nm(p[2], p[3], r[2], r[3])
-                if d > JUMP_SLACK_NM + JUMP_MAX_KT * max(0.0, r[1] - p[1]) / 3600.0:
-                    parts.append(cur)
-                    cur = [r]
-                else:
-                    cur.append(r)
-            parts.append(cur)
-            best = max(parts, key=len)
-            n_jump += len(good) - len(best)
-            good = best
-        ep = eps.get(icao)
-        for r in good:
-            in_ep = bool(ep) and any(a <= r[1] <= b for a, b in ep)
-            if in_ep and gnss_ok:
-                n_gnss += 1
-                continue
-            kept.append((r, in_ep))
+    kept, n_frozen, n_jump, n_gnss = position_checked(rows, eps, gnss_ok)
 
     # ── Lapse rate of the band (temperature to the band centre) ───────────
     tp = [(r[4] - alt_centre_query, r[8]) for r, _ in kept if r[8] is not None]
@@ -424,4 +433,96 @@ def build_windmap(
         "start_ts":            start_ts,
         "end_ts":              end_ts,
         "generated_at":        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())      + " UTC",
+    }
+
+
+# ── Vertical cross-section along a line ───────────────────────────────────────
+
+def build_xsection(db, lat1: float, lon1: float, lat2: float, lon2: float,
+                   start_ts: float, end_ts: float, width_km: float = 50.0,
+                   step_km: float = 25.0, gnss_ok: bool = False,
+                   center_lat: float = 60.317) -> dict:
+    """Vertical cross-section along the line A (lat1, lon1) → B (lat2, lon2):
+    all observations of the period within width_km of the line (all levels;
+    frozen / impossible positions removed as for the map), binned by the
+    distance along the line (step_km) and the time–height altitude layers
+    (atmos.LAYER_EDGES, pressure altitude).  Per bin and layer each aircraft
+    is averaged first, then the aircraft: temperature, wind (vector), the
+    D-value of the pressure surface from GNSS − baro (calibrated, NACp ≥ 8,
+    outside episodes) and the aircraft count.
+
+    {"a", "b", "length_km", "step_km", "width_km", "bins", "layers",
+     "cells": [[bin, alt_lo, temp, wind_dir, wind_spd, aircraft, dval], …],
+     "aircraft", "obs_used", "removed", "period_start", "period_end"}"""
+    from collector.atmos import LAYER_EDGES, layer_of
+    from collector import gnss_heights as gh
+    kx = KM_PER_DEG_LAT * math.cos(math.radians(center_lat))
+    ax, ay = lon1 * kx, lat1 * KM_PER_DEG_LAT
+    bx, by = lon2 * kx, lat2 * KM_PER_DEG_LAT
+    L = math.hypot(bx - ax, by - ay)
+    if L < 1.0:
+        return {"error": "line too short"}
+    ex, ey = (bx - ax) / L, (by - ay) / L
+    pad_lat = width_km / KM_PER_DEG_LAT
+    pad_lon = width_km / kx
+    rows = db.execute(
+        """SELECT icao, ts, lat, lon, altitude, groundspeed,
+                  best_wind_spd, best_wind_dir, best_temp, gmb_ft, nacp
+           FROM observations
+           WHERE ts BETWEEN ? AND ?
+             AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+             AND altitude IS NOT NULL
+             AND (best_temp IS NOT NULL OR best_wind_spd IS NOT NULL)
+           ORDER BY icao, ts""",
+        (start_ts, end_ts, min(lat1, lat2) - pad_lat, max(lat1, lat2) + pad_lat,
+         min(lon1, lon2) - pad_lon, max(lon1, lon2) + pad_lon)).fetchall()
+    eps = _episodes(db, start_ts, end_ts)
+    kept, n_frozen, n_jump, n_gnss = position_checked(rows, eps, gnss_ok)
+    cal = gh.current(db)
+    nb = max(1, int(math.ceil(L / step_km)))
+    acc: dict = {}
+    used = 0
+    for r, in_ep in kept:
+        px, py = r[3] * kx - ax, r[2] * KM_PER_DEG_LAT - ay
+        s_ = px * ex + py * ey
+        d_ = -px * ey + py * ex
+        if s_ < 0 or s_ > L or abs(d_) > width_km:
+            continue
+        k = layer_of(r[4])
+        if k is None:
+            continue
+        b = min(nb - 1, int(s_ // step_km))
+        a = acc.setdefault((b, LAYER_EDGES[k]), {}).setdefault(
+            r[0], [0.0, 0, 0.0, 0.0, 0, 0.0, 0])
+        if r[8] is not None:
+            a[0] += float(r[8]); a[1] += 1
+        if r[6] is not None and r[7] is not None:
+            rr = math.radians(float(r[7]))
+            a[2] += -float(r[6]) * math.sin(rr); a[3] += -float(r[6]) * math.cos(rr); a[4] += 1
+        if r[9] is not None and (r[10] or 0) >= gh.MIN_NACP and not in_ep:
+            centre = (LAYER_EDGES[k] + LAYER_EDGES[k + 1]) / 2
+            a[5] += r[9] * gh.FT - gh.correction(cal, centre, r[0]); a[6] += 1
+        used += 1
+    cells = []
+    for (b, lo), acs in sorted(acc.items()):
+        ts_ = [a[0] / a[1] for a in acs.values() if a[1]]
+        us = [(a[2] / a[4], a[3] / a[4]) for a in acs.values() if a[4]]
+        ds = sorted(a[5] / a[6] for a in acs.values() if a[6])
+        t = round(sum(ts_) / len(ts_), 2) if ts_ else None
+        wd = ws = None
+        if us:
+            u = sum(x for x, _ in us) / len(us)
+            v = sum(y for _, y in us) / len(us)
+            ws = round(math.hypot(u, v), 1)
+            wd = round(math.degrees(math.atan2(-u, -v)) % 360)
+        dv = round(ds[len(ds) // 2], 1) if ds else None
+        cells.append([b, lo, t, wd, ws, len(acs), dv])
+    return {
+        "a": [lat1, lon1], "b": [lat2, lon2], "length_km": round(L, 1),
+        "step_km": step_km, "width_km": width_km, "bins": nb, "layers": LAYER_EDGES,
+        "dir_deg": round(math.degrees(math.atan2(ex, ey)) % 360, 1),
+        "cells": cells, "aircraft": len({r[0] for r, _ in kept}), "obs_used": used,
+        "removed": {"frozen": n_frozen, "jump": n_jump, "gnss": n_gnss},
+        "period_start": time.strftime("%Y-%m-%d %H:%M", time.gmtime(start_ts)) + " UTC",
+        "period_end": time.strftime("%Y-%m-%d %H:%M", time.gmtime(end_ts)) + " UTC",
     }

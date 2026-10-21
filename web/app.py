@@ -684,13 +684,43 @@ def create_app(
                         "qc": (rec.get("qc") or {}).get("reason"),
                         "levels": _sondes.levels_for_chart(rec)})
 
+    @app.route("/api/windmap/xsection")
+    def windmap_xsection_api():
+        """Vertical cross-section along a line (web/api/windmap.py
+        build_xsection): ?lat1&lon1&lat2&lon2&start&end, optional width (km,
+        default 50), step (km, default 25), gnss_ok=1."""
+        from web.api.windmap import build_xsection
+        a = request.args
+        try:
+            lat1, lon1, lat2, lon2 = (float(a[k]) for k in ("lat1", "lon1", "lat2", "lon2"))
+            start, end = float(a["start"]), float(a["end"])
+        except (KeyError, ValueError):
+            return jsonify({"error": "lat1, lon1, lat2, lon2, start and end are required"}), 400
+        if end <= start or end - start > 7 * 86400:
+            return jsonify({"error": "bad period"}), 400
+        width = max(10.0, min(150.0, a.get("width", 50.0, type=float)))
+        step = max(10.0, min(100.0, a.get("step", 25.0, type=float)))
+        return jsonify(build_xsection(get_db(), lat1, lon1, lat2, lon2, start, end, width, step,
+                                      a.get("gnss_ok", "0") in ("1", "true"), cfg.RECEIVER_LAT))
+
     @app.route("/api/gnss/calibration")
     def gnss_calibration_api():
         """Current calibration of the GNSS heights of the pressure surfaces
         (collector/gnss_heights.py): fleet correction per 5 000 ft band,
-        soundings / pairs used, per-airframe offsets."""
+        soundings / pairs used, per-airframe offsets (airframe_list with
+        registration / type, by_type)."""
         from collector import gnss_heights as _gh
-        return jsonify(_gh.summary(_gh.current(get_db(), max_age=0)))
+        from collector import aircraft_db as _adb
+        db = get_db()
+        try:
+            typ = {r[0]: r[1] for r in db.execute("SELECT icao, typ FROM heading_cal")}
+        except Exception:                                # noqa: BLE001
+            typ = {}
+
+        def info(icao):
+            reg, t = _adb.lookup(icao)
+            return reg, t or typ.get(icao)
+        return jsonify(_gh.summary(_gh.current(db, max_age=0), info))
 
     @app.route("/api/sonde/verification")
     def sonde_verification_api():

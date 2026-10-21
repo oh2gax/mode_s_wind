@@ -5,7 +5,15 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol on the Wind Map; user guide v2.0 with the Wind Map; web server logging improvements)
+## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol, isotherms and cross-section on the Wind Map; tropopause, max-wind line, sonde columns and PNG in the time–height section; airframe altimeter offsets; user guide v2.0; web server logging improvements)
+
+### Time–height section, Wind Map and calibration extras
+
+- **Time–height section**: **Tropopause** line (WMO lapse-rate definition from the smoothed layer temperatures), **Max wind** line (height of the strongest wind ≥ 50 kt above 10 000 ft), **Sonde** — each Jokioinen sounding as its own narrow column in the same colour field (temperature anomaly, wind speed, lapse rate, height of the pressure surfaces) with a sonde-vs-aircraft hover, and **PNG** to save the picture; the column hover gives the tropopause and the strongest wind
+- **Wind Map**: **Isotherms** (temperature contours at the level); **✎ Section** — a vertical cross-section along a line drawn with two clicks (temperature anomaly, wind speed, wind across the section, height of the pressure surface; barbs and isotherms; new `/api/windmap/xsection`, `static/js/windmap_xsection.js`); the animation loads the next two frames ahead (cached while playing) for smoother playback
+- **GNSS height calibration**: aircraft are now paired with the radiosonde's drifted position (followed from the sounding's winds) instead of the launch site; the cells of the stored soundings are recomputed once. Optional `GNSS_CAL_SLOPE` (default off) also moves the values from FL200 up to the balloon with the slope of the pressure surface — tested, but kept off for now
+- **Sonde check** shows the GNSS height calibration: correction per band, mean offset per aircraft type and a **per-airframe altimeter offset** table (registration, type, soundings, raw and used offset); `/api/gnss/calibration` gained `airframe_list` and `by_type`
+- README: footnote on the A220 vertical-rate finding
 
 ### User guide v2.0
 

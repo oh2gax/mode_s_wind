@@ -106,6 +106,9 @@
     <label class="wm-check" title="Streamlines through the smoothed wind field (only where there are data)">
       <input type="checkbox" id="wm-stream"> Streamlines
     </label>
+    <label class="wm-check" title="Isotherms — lines of equal temperature at the level (every 1 K, 2 K when the range is wide) from the smoothed field of the cells (temperatures moved to the band centre), only where there are data">
+      <input type="checkbox" id="wm-isot"> Isotherms
+    </label>
     <label class="wm-check" title="Experimental: height contours of the pressure surface (metres above mean sea level, from the aircraft's GNSS − baro altitude difference, calibrated against the radiosonde) and the geostrophic wind of the area from their slope (dashed arrow, Vg) next to the mean measured wind of the same aircraft (V). Needs at least 6 aircraft spread over the area; in a high the real wind is stronger than the geostrophic, in a low weaker">
       <input type="checkbox" id="wm-hgt"> Heights
     </label>
@@ -144,6 +147,8 @@
       </select>
     </div>
 
+    <button id="wm-xs-btn" class="wm-xs-btn" type="button" title="Vertical cross-section: click two points A and B on the map; the panel below shows temperature, wind and heights of all levels along the line for the period (within one cell size of it)">✎ Section</button>
+
     <div class="wm-group wm-time" title="Step the period back in time (hours before the chosen end); ▶ animates the last 24 hours">
       <button id="wm-play" class="wm-play-btn" type="button">▶</button>
       <input type="range" id="wm-tshift" min="-23" max="0" step="1" value="0">
@@ -157,6 +162,25 @@
     <div id="wm-map" class="windmap-map"></div>
     <!-- Legends and status float over the bottom of the map, so their changing
          text never changes the height of the control strips (no page jumps) -->
+    <!-- Vertical cross-section along a drawn line (windmap_xsection.js) -->
+    <div id="wm-xs" class="wm-xs wm-hidden">
+      <div class="wm-xs-head">
+        <b>Section A → B</b>
+        <select id="wm-xs-field" class="wm-select" title="Colour field of the section">
+          <option value="anomaly">Temperature anomaly</option>
+          <option value="wind">Wind speed</option>
+          <option value="normal">Wind across the section</option>
+          <option value="dval">Height of the pressure surface</option>
+        </select>
+        <span id="wm-xs-legend" class="wm-xs-legend"></span>
+        <span id="wm-xs-meta" class="wm-xs-meta"></span>
+        <button id="wm-xs-close" class="wm-xs-close" type="button" title="Close the section">×</button>
+      </div>
+      <div id="wm-xs-box" class="wm-xs-box">
+        <canvas id="wm-xs-canvas"></canvas>
+        <div id="wm-xs-tip" class="mini-skewt-tip wm-xs-tip" style="display:none"></div>
+      </div>
+    </div>
     <div class="wm-overlay">
       <div class="wm-legend wm-hidden" id="wm-legend-dt" title="ΔT: cell temperature minus the mean of all cells of the layer">
       ΔT <span class="wm-dt-bar"></span> <span class="wm-dt-ticks">−3 · 0 · +3 K</span>
@@ -175,5 +199,26 @@ const RECEIVER_LAT = {{ receiver_lat }};
 const RECEIVER_LON = {{ receiver_lon }};
 </script>
 <script src="{{ url_for('static', filename='js/windmap_analysis.js') }}"></script>
+<script src="{{ url_for('static', filename='js/windmap_xsection.js') }}"></script>
 <script src="{{ url_for('static', filename='js/windmap.js') }}"></script>
+<style>
+.wm-xs { position:absolute; left:8px; right:8px; bottom:44px; height:42%; min-height:220px; z-index:900;
+         background:var(--bg-1); border:1px solid var(--border); border-radius:6px; display:flex; flex-direction:column;
+         box-shadow:0 4px 18px rgba(0,0,0,.35); }
+.wm-xs.wm-hidden { display:none; }
+.wm-xs-head { display:flex; align-items:center; gap:10px; padding:4px 8px; font-size:12px; color:var(--text-1); flex-wrap:wrap; }
+.wm-xs-legend { font-size:11px; color:var(--text-2); display:flex; align-items:center; gap:4px; }
+.wm-xs-meta { font-size:11px; color:var(--text-3); margin-left:auto; }
+.wm-xs-close { background:none; border:none; color:var(--text-2); font-size:18px; cursor:pointer; line-height:1; }
+.wm-xs-box { position:relative; flex:1; min-height:0; margin:0 4px 4px; }
+.wm-xs-box canvas { position:absolute; left:0; top:0; display:block; cursor:crosshair; }
+.wm-xs-tip { position:absolute; pointer-events:none; z-index:2; }
+.wm-xs-btn { white-space:nowrap; background:var(--bg-2); color:var(--text-1); border:1px solid var(--border); border-radius:4px;
+             padding:3px 9px; font-size:12px; cursor:pointer; }
+.wm-xs-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.wm-xs .th-sw { display:inline-block; width:12px; height:10px; border-radius:2px; }
+.wm-xs .th-lt { color:var(--text-3); }
+.wm-xs .th-bar { display:inline-block; width:90px; height:10px; border-radius:2px; border:1px solid var(--border);
+          background:linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }
+</style>
 {% endblock %}

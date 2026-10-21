@@ -50,6 +50,10 @@
         </select>
         <label class="toggle-label"><input type="checkbox" id="th-barbs"> Barbs</label>
         <label class="toggle-label" title="0 °C (solid), −10 and −20 °C (dashed) — the lowest crossing in each hour"><input type="checkbox" id="th-iso"> Isotherms</label>
+        <label class="toggle-label" title="Tropopause (magenta dashed): the lowest level above 5 km where the lapse rate falls to 2 K/km or less and stays so for 2 km (WMO), from the ±1 h smoothed layer temperatures — only where the aircraft data reach above it"><input type="checkbox" id="th-tp"> Tropopause</label>
+        <label class="toggle-label" title="Height of the strongest wind above 10 000 ft in each hour (yellow), when it is at least 50 kt — the jet core"><input type="checkbox" id="th-vmax"> Max wind</label>
+        <label class="toggle-label" title="Each Jokioinen sounding as its own narrow column at its launch time (pink frame), in the same colour field — temperature anomaly, wind speed, lapse rate or height of the pressure surfaces; hover for the sonde values against the aircraft"><input type="checkbox" id="th-sondecol"> Sonde</label>
+        <button id="th-png" class="snd-mode-btn" type="button" title="Save the picture as a PNG file">PNG</button>
       </span>
 
       <span class="snd-ctl" id="snd-area-ctl">
@@ -135,6 +139,18 @@
         <div class="sv-scroll"><table class="data-table compact" id="sv-launches"></table></div>
       </div>
     </div>
+    <div class="sv-row">
+      <div class="sv-panel sv-narrow">
+        <div class="panel-header" title="Correction subtracted from the aircraft GNSS height of a pressure surface (pressure altitude + GNSS − baro): geoid (≈ 18 m) + the fleet's speed-dependent pressure error, fitted against the Jokioinen soundings of the last 30 days">GNSS height calibration, by band</div>
+        <table class="data-table compact" id="sv-gcal-bands"></table>
+        <div class="panel-header" style="margin-top:6px" title="Mean raw offset of the airframes of each type (after the band correction): airframe and type altimeter differences">By aircraft type</div>
+        <div class="sv-scroll" style="max-height:220px"><table class="data-table compact" id="sv-gcal-types"></table></div>
+      </div>
+      <div class="sv-panel">
+        <div class="panel-header" title="Each airframe's own altimeter offset against the radiosonde, after the band correction: raw = mean of its soundings, used = shrunk towards 0 until it has been seen at several soundings (n / (n + 3)). Only about 40 % of an airframe's offset repeated from one day to the next in October 2026">Per-airframe altimeter offsets</div>
+        <div class="sv-scroll"><table class="data-table compact" id="sv-gcal-af"></table></div>
+      </div>
+    </div>
     <div class="sounding-note" id="sv-note">
       Each stored Jokioinen sounding is compared with the Mode S area profile of ±1 h around its launch (all aircraft
       within the sounding radius; layers with ≥ 3 replies within the sounding's height range; sonde values interpolated
@@ -142,6 +158,10 @@
       difference grows as the sounding ages and the air mass changes — the reason for a live profile.
       Jokioinen is about 100 km north-west and inland (cooler nights near the ground). Winds before 10 Oct 2026 are
       without the per-airframe heading correction.
+      <b>GNSS height calibration</b>: the aircraft's GNSS height of the pressure surfaces (used by the Time–height height
+      and thickness fields and the Wind Map heights) compared with the soundings: aircraft within 150 km of the drifting
+      balloon and ±1 h of it passing the level. The band correction includes the geoid (≈ 18 m) and the fleet's
+      speed-dependent pressure error; positive offset = the airframe's GNSS − baro is larger than the fleet's.
     </div>
   </div>
 
