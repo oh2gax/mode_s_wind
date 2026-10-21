@@ -5,7 +5,11 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol on the Wind Map; web server logging improvements)
+## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol on the Wind Map; user guide v2.0 with the Wind Map; web server logging improvements)
+
+### User guide v2.0
+
+- `doc/Sounding_Page_User_Guide.pdf` version 2.0 (30 pages): now covers the Sounding **and** Wind Map pages — new section on the heights of the pressure surfaces, height change and thickness-temperature check in the time–height section, and a new Wind Map section (controls, how the cells are made, ΔT, isotachs and streamlines, jet stream, heights and geostrophic wind, sonde, compare modes, time slider) with screenshots
 
 ### Wind Map — jet stream symbol
 
