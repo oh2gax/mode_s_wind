@@ -245,122 +245,114 @@ def position_checked(rows, eps, gnss_ok):
     return kept, n_frozen, n_jump, n_gnss
 
 
-def build_windmap(
-    db,
-    fl: int,               # flight level (e.g. 350 for FL350 = 35 000 ft)
-    tolerance_ft: int,     # ± ft band around the centre altitude
-    start_ts: float,       # period start (Unix timestamp, UTC)
-    end_ts: float,         # period end   (Unix timestamp, UTC)
-    cell_km: float,        # grid-cell size (km)
-    qnh_hpa: float = 1013.25,  # QNH (hPa) of the period; used below FL050
-    qnh_source: str = "",
-    center_lat: float = 60.317,
-    center_lon: float = 24.963,
-    gnss_ok: bool = False,  # drop rows inside GPS degradation episodes
-) -> dict:
-    """
-    Query observations in the altitude band and time range, remove frozen and
-    impossible positions, bin into square cells and return per-cell wind and
-    temperature averaged per aircraft first.
-    """
-    alt_centre_msl = fl * 100    # requested MSL altitude (what the user sees)
+# ── Shared steps of one map (also used by the multi-frame builder) ────────────
 
-    # Below transition altitude: shift query band into pressure-altitude space
-    if fl < TRANSITION_FL:
-        qnh_correction_ft = (1013.25 - qnh_hpa) * ISA_CORRECTION_FACTOR
-    else:
-        qnh_correction_ft = 0.0
-    alt_centre_query = alt_centre_msl + qnh_correction_ft
-    alt_min = alt_centre_query - tolerance_ft
-    alt_max = alt_centre_query + tolerance_ft
-
-    rows = db.execute(
-        """SELECT icao, ts, lat, lon, altitude, groundspeed,
+_OBS_SQL = """SELECT icao, ts, lat, lon, altitude, groundspeed,
                   best_wind_spd, best_wind_dir, best_temp, gmb_ft, nacp
            FROM observations
-           WHERE altitude    BETWEEN ? AND ?
+           WHERE {alt}altitude BETWEEN ? AND ?
              AND ts          BETWEEN ? AND ?
              AND best_wind_spd IS NOT NULL
              AND best_wind_dir IS NOT NULL
              AND lat IS NOT NULL
              AND lon IS NOT NULL
-           ORDER BY icao, ts""",
-        (alt_min, alt_max, start_ts, end_ts),
-    ).fetchall()
-    n_query = len(rows)
+           ORDER BY icao, ts"""
+TS_INDEX_MAX_S = 72 * 3600      # periods up to this long are read through the time index
 
-    # ── Position checks per aircraft ──────────────────────────────────────
-    eps = _episodes(db, start_ts, end_ts)
-    kept, n_frozen, n_jump, n_gnss = position_checked(rows, eps, gnss_ok)
 
-    # ── Lapse rate of the band (temperature to the band centre) ───────────
-    tp = [(r[4] - alt_centre_query, r[8]) for r, _ in kept if r[8] is not None]
-    lapse = None
-    if len(tp) >= 10:
-        mx = sum(a for a, _ in tp) / len(tp)
-        my = sum(t for _, t in tp) / len(tp)
-        sxx = sum((a - mx) ** 2 for a, _ in tp)
-        if sxx > 0 and math.sqrt(sxx / len(tp)) >= 150:     # altitudes spread enough to fit
-            slope = sum((a - mx) * (t - my) for a, t in tp) / sxx * 1000.0
-            lapse = min(LAPSE_MAX, max(LAPSE_MIN, slope))
-    if lapse is None:
-        lapse = -2.0 if fl >= 50 else -1.5                  # ≈ standard, K / 1 000 ft
+def _obs_rows(db, alt_lo, alt_hi, start_ts, end_ts):
+    """Observations of an altitude band and period, ordered by icao, ts.
+    SQLite would pick the altitude index, which reads the band over the whole
+    database (a month); for periods up to a few days the time index is
+    10–50 × faster, so the altitude index is switched off there ("+altitude")."""
+    sql = _OBS_SQL.format(alt="+" if end_ts - start_ts <= TS_INDEX_MAX_S else "")
+    return db.execute(sql, (alt_lo, alt_hi, start_ts, end_ts)).fetchall()
 
-    # ── Height of the pressure surface (D-value) per row ─────────────────
-    # GNSS − baro difference with the current calibration (collector/
-    # gnss_heights.py), moved to the band centre: dD/dz_p = T / T_isa − 1
-    from collector import gnss_heights as gh
-    cal = gh.current(db)
-    t_band = (sum(t for _, t in tp) / len(tp)) if tp else None
-    tisa_c = gh.isa_temp_k(alt_centre_query)
-    k_d = ((t_band + 273.15) / tisa_c - 1) if t_band is not None else 0.0
 
-    def d_value(r, in_ep):
-        if r[9] is None or (r[10] or 0) < gh.MIN_NACP or in_ep:
-            return None
-        return (r[9] * gh.FT - gh.correction(cal, r[4], r[0])
-                + k_d * (alt_centre_query - r[4]) * gh.FT)
+def _new_ac():
+    # Sums of one aircraft in one cell.  Temperature and D-value are kept as
+    # raw sums plus the summed height offset from the band centre, so the
+    # lapse-rate and D-value corrections (which depend on the whole band and
+    # period) are applied afterwards: t = t0 − lapse·ta/1000, d = d0 + k_d·da.
+    return {"u": 0.0, "v": 0.0, "n": 0, "t0": 0.0, "ta": 0.0, "tn": 0, "ep": False,
+            "d0": 0.0, "da": 0.0, "dn": 0, "x": 0.0, "y": 0.0}
 
-    # ── Bin: cell → aircraft → sums ───────────────────────────────────────
-    coslat = math.cos(math.radians(center_lat))
-    km_per_deg_lon = KM_PER_DEG_LAT * coslat
-    cells: dict = {}
-    for r, in_ep in kept:
-        x = (r[3] - center_lon) * km_per_deg_lon
-        y = (r[2] - center_lat) * KM_PER_DEG_LAT
-        key = (math.floor(x / cell_km), math.floor(y / cell_km))
+
+class _Binner:
+    """Rows → cell → aircraft sums, plus the lapse-fit sums of the band."""
+
+    def __init__(self, cell_km, center_lat, center_lon, cal):
+        self.cell_km = cell_km
+        self.lat0, self.lon0 = center_lat, center_lon
+        self.kx = KM_PER_DEG_LAT * math.cos(math.radians(center_lat))
+        self.cal = cal
+        self.cells: dict = {}
+        self.lap = [0, 0.0, 0.0, 0.0, 0.0]     # n, Σa, Σt, Σa², Σa·t  (a = alt − centre)
+
+    def add(self, r, in_ep, centre):
+        from collector import gnss_heights as gh
+        x = (r[3] - self.lon0) * self.kx
+        y = (r[2] - self.lat0) * KM_PER_DEG_LAT
+        key = (math.floor(x / self.cell_km), math.floor(y / self.cell_km))
         spd = float(r[6])
         dr = math.radians(float(r[7]))
-        u, v = -spd * math.sin(dr), -spd * math.cos(dr)
-        a = cells.setdefault(key, {}).setdefault(
-            r[0], {"u": 0.0, "v": 0.0, "n": 0, "t": 0.0, "tn": 0, "ep": False,
-                   "d": 0.0, "dn": 0, "x": 0.0, "y": 0.0})
-        a["u"] += u
-        a["v"] += v
+        a = self.cells.setdefault(key, {}).get(r[0])
+        if a is None:
+            a = self.cells[key][r[0]] = _new_ac()
+        a["u"] += -spd * math.sin(dr)
+        a["v"] += -spd * math.cos(dr)
         a["n"] += 1
         a["x"] += x
         a["y"] += y
         a["ep"] = a["ep"] or in_ep
-        dv = d_value(r, in_ep)
-        if dv is not None:
-            a["d"] += dv
+        off = r[4] - centre
+        if r[9] is not None and (r[10] or 0) >= gh.MIN_NACP and not in_ep:
+            a["d0"] += r[9] * gh.FT - gh.correction(self.cal, r[4], r[0])
+            a["da"] += -off
             a["dn"] += 1
         if r[8] is not None:
-            a["t"] += float(r[8]) - lapse * (r[4] - alt_centre_query) / 1000.0
+            t = float(r[8])
+            a["t0"] += t
+            a["ta"] += off
             a["tn"] += 1
+            lp = self.lap
+            lp[0] += 1; lp[1] += off; lp[2] += t; lp[3] += off * off; lp[4] += off * t
 
-    # ── Cell averages over aircraft ───────────────────────────────────────
+
+def _lapse(lap, fl):
+    """Fitted band lapse rate (K / 1 000 ft) from the sums, or the standard."""
+    n, sa, st, saa, sat = lap
+    if n >= 10:
+        mx, my = sa / n, st / n
+        sxx = saa - n * mx * mx
+        if sxx > 0 and math.sqrt(sxx / n) >= 150:          # altitudes spread enough to fit
+            slope = (sat - n * mx * my) / sxx * 1000.0
+            return min(LAPSE_MAX, max(LAPSE_MIN, slope))
+    return -2.0 if fl >= 50 else -1.5                       # ≈ standard, K / 1 000 ft
+
+
+def _cells_out(cells, lap, fl, alt_centre_query, cell_km, center_lat, center_lon):
+    """Cell → aircraft sums → (result cells, layer temperature, geostrophic, lapse)."""
+    from collector import gnss_heights as gh
+    lapse = _lapse(lap, fl)
+    # D-value moved to the band centre: dD/dz_p = T / T_isa − 1
+    t_band = lap[2] / lap[0] if lap[0] else None
+    tisa_c = gh.isa_temp_k(alt_centre_query)
+    k_d = ((t_band + 273.15) / tisa_c - 1) if t_band is not None else 0.0
+    km_per_deg_lon = KM_PER_DEG_LAT * math.cos(math.radians(center_lat))
+
     result_cells = []
     geo_pts = []                    # (x km, y km, D m, u kt, v kt) per aircraft and cell
     for (cx, cy), acs in cells.items():
         means = []
         dvals = []
         for a in acs.values():
-            means.append((a["u"] / a["n"], a["v"] / a["n"],
-                          a["t"] / a["tn"] if a["tn"] else None, a["n"], a["ep"]))
+            t = ((a["t0"] - lapse * a["ta"] / 1000.0) / a["tn"]) if a["tn"] else None
+            means.append((a["u"] / a["n"], a["v"] / a["n"], t, a["n"], a["ep"]))
             if a["dn"]:
-                dvals.append(a["d"] / a["dn"])
-                geo_pts.append((a["x"] / a["n"], a["y"] / a["n"], a["d"] / a["dn"],
+                dv = (a["d0"] + k_d * a["da"] * gh.FT) / a["dn"]
+                dvals.append(dv)
+                geo_pts.append((a["x"] / a["n"], a["y"] / a["n"], dv,
                                 a["u"] / a["n"], a["v"] / a["n"]))
         k = len(means)
         u_m = sum(m[0] for m in means) / k
@@ -401,28 +393,31 @@ def build_windmap(
         c["dtemp"] = (round(c["temp"] - t_layer, 1)
                       if c["temp"] is not None and t_layer is not None else None)
 
-    geo = geostrophic(geo_pts, center_lat)
-    z_isa = _isa_height_m(alt_centre_query)
-
     # Fewest aircraft first so better-supported cells render on top
     result_cells.sort(key=lambda c: (c["ac"], c["obs"]))
+    return result_cells, t_layer, geostrophic(geo_pts, center_lat), lapse
 
+
+def _result(fl, tolerance_ft, cell_km, alt_centre_query, cells_out, n_query, n_used,
+            removed, gnss_ok, n_aircraft, cal, qnh_hpa, qnh_source, qnh_correction_ft,
+            start_ts, end_ts):
+    result_cells, t_layer, geo, lapse = cells_out
     return {
         "fl":                  fl,
-        "altitude_ft":         alt_centre_msl,   # MSL altitude the user requested
+        "altitude_ft":         fl * 100,         # MSL altitude the user requested
         "alt_query_ft":        round(alt_centre_query),  # pressure altitude of the band centre
         "tolerance_ft":        tolerance_ft,
         "cell_km":             cell_km,
         "cells":               result_cells,
         "obs_query":           n_query,
-        "obs_used":            len(kept),
-        "removed":             {"frozen": n_frozen, "jump": n_jump, "gnss": n_gnss},
+        "obs_used":            n_used,
+        "removed":             {"frozen": removed[0], "jump": removed[1], "gnss": removed[2]},
         "gnss_ok":             bool(gnss_ok),
-        "aircraft":            len({r[0] for r, _ in kept}),
+        "aircraft":            n_aircraft,
         "cells_count":         len(result_cells),
         "temp_layer":          round(t_layer, 1) if t_layer is not None else None,
         "geo":                 geo,
-        "z_isa_m":             round(z_isa, 1),
+        "z_isa_m":             round(_isa_height_m(alt_centre_query), 1),
         "gcal":                {"soundings": cal.get("soundings"), "pairs": cal.get("pairs")},
         "lapse_k_per_1000ft":  round(lapse, 2),
         "qnh_hpa":             round(qnh_hpa, 1),
@@ -434,6 +429,104 @@ def build_windmap(
         "end_ts":              end_ts,
         "generated_at":        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())      + " UTC",
     }
+
+
+def _qnh_shift_ft(fl, qnh_hpa):
+    """Pressure-altitude shift of the band below the transition altitude."""
+    return (1013.25 - qnh_hpa) * ISA_CORRECTION_FACTOR if fl < TRANSITION_FL else 0.0
+
+
+def build_windmap(
+    db,
+    fl: int,               # flight level (e.g. 350 for FL350 = 35 000 ft)
+    tolerance_ft: int,     # ± ft band around the centre altitude
+    start_ts: float,       # period start (Unix timestamp, UTC)
+    end_ts: float,         # period end   (Unix timestamp, UTC)
+    cell_km: float,        # grid-cell size (km)
+    qnh_hpa: float = 1013.25,  # QNH (hPa) of the period; used below FL050
+    qnh_source: str = "",
+    center_lat: float = 60.317,
+    center_lon: float = 24.963,
+    gnss_ok: bool = False,  # drop rows inside GPS degradation episodes
+) -> dict:
+    """
+    Query observations in the altitude band and time range, remove frozen and
+    impossible positions, bin into square cells and return per-cell wind and
+    temperature averaged per aircraft first.
+    """
+    # Below transition altitude: shift query band into pressure-altitude space
+    alt_centre_query = fl * 100 + _qnh_shift_ft(fl, qnh_hpa)
+    rows = _obs_rows(db, alt_centre_query - tolerance_ft, alt_centre_query + tolerance_ft,
+                     start_ts, end_ts)
+    return _map_from_rows(db, rows, _episodes(db, start_ts, end_ts), fl, tolerance_ft,
+                          start_ts, end_ts, cell_km, qnh_hpa, qnh_source,
+                          center_lat, center_lon, gnss_ok)
+
+
+def _map_from_rows(db, rows, eps, fl, tolerance_ft, start_ts, end_ts, cell_km,
+                   qnh_hpa, qnh_source, center_lat, center_lon, gnss_ok):
+    """The map of one period from its queried rows (ordered by icao, ts)."""
+    from collector import gnss_heights as gh
+    qnh_correction_ft = _qnh_shift_ft(fl, qnh_hpa)
+    alt_centre_query = fl * 100 + qnh_correction_ft
+
+    # Position checks per aircraft
+    kept, n_frozen, n_jump, n_gnss = position_checked(rows, eps, gnss_ok)
+
+    # Bin: cell → aircraft → sums (D-value with the current GNSS calibration,
+    # collector/gnss_heights.py); lapse rate and D-value moved to the band centre
+    cal = gh.current(db)
+    b = _Binner(cell_km, center_lat, center_lon, cal)
+    for r, in_ep in kept:
+        b.add(r, in_ep, alt_centre_query)
+    out = _cells_out(b.cells, b.lap, fl, alt_centre_query, cell_km, center_lat, center_lon)
+    return _result(fl, tolerance_ft, cell_km, alt_centre_query, out, len(rows), len(kept),
+                   (n_frozen, n_jump, n_gnss), gnss_ok, len({r[0] for r, _ in kept}), cal,
+                   qnh_hpa, qnh_source, qnh_correction_ft, start_ts, end_ts)
+
+
+# ── All frames of the time slider in one go ───────────────────────────────────
+
+FRAMES_MAX = 48                 # frames per request
+FRAMES_MAX_PERIOD_S = 24 * 3600  # period length per frame
+
+
+def build_windmap_frames(db, fl: int, tolerance_ft: int, end_ts: float, period_s: float,
+                         n_frames: int, cell_km: float, qnh_of=None,
+                         center_lat: float = 60.317, center_lon: float = 24.963,
+                         gnss_ok: bool = False) -> dict:
+    """
+    n_frames maps of period_s seconds each, the newest ending at end_ts and
+    each one an hour earlier than the next (the Wind Map time slider), from a
+    single query.
+
+    Reading the observations is nearly all of the time a map takes, so the
+    whole span (n_frames − 1 h + period) is read once; each frame then takes
+    its own rows from memory and goes through the same position checks,
+    binning and averaging as a single map (build_windmap), with its own QNH
+    (qnh_of(start, end) → (hPa, source); used below FL050).  The frames are
+    therefore identical to single maps of the same periods.
+    """
+    H = 3600
+    t0 = end_ts - (n_frames - 1) * H - period_s
+    per = []
+    for k in range(n_frames):                       # k = 0: the newest frame
+        e = end_ts - k * H
+        s = e - period_s
+        q, src = qnh_of(s, e) if qnh_of is not None else (1013.25, "")
+        per.append((s, e, q, src, fl * 100 + _qnh_shift_ft(fl, q)))
+    lo = min(p[4] for p in per) - tolerance_ft
+    hi = max(p[4] for p in per) + tolerance_ft
+    rows = _obs_rows(db, lo, hi, t0, end_ts)
+    eps = _episodes(db, t0, end_ts)
+    frames = []
+    for s, e, q, src, c in per:
+        sub = [r for r in rows
+               if s <= r[1] <= e and c - tolerance_ft <= r[4] <= c + tolerance_ft]
+        frames.append(_map_from_rows(db, sub, eps, fl, tolerance_ft, s, e, cell_km,
+                                     q, src, center_lat, center_lon, gnss_ok))
+    return {"fl": fl, "tolerance_ft": tolerance_ft, "cell_km": cell_km,
+            "period_s": period_s, "end_ts": end_ts, "frames": frames}
 
 
 # ── Vertical cross-section along a line ───────────────────────────────────────

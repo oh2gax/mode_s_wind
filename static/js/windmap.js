@@ -25,7 +25,8 @@
  * the Jokioinen radiosonde at the level; Compare = change since the previous
  * period or the thermal wind to another level (purple arrows, cells tinted by
  * warming / cooling or by veering / backing).  A time slider steps the period
- * back hour by hour (▶ animates the last 24 h).
+ * back hour by hour (▶ animates the last 24 h); its frames are loaded all at
+ * once (/api/windmap/frames) and kept in the browser while the settings stay.
  * The map style follows the page's Light / Dark theme.
  */
 
@@ -709,20 +710,33 @@ function statusText(d, shown) {
 }
 
 // ── Period and time slider ────────────────────────────────────────────────
-// The slider moves the period back by whole hours (0 = the chosen end).
+// The slider moves the period back by whole hours.  "Last …" periods: 0 =
+// now, and the earlier positions end on whole hours (−1 = the last full
+// hour), so the loaded frames stay valid while the clock runs.  Custom
+// period: 0 = the chosen end.
+const HOUR = 3600;
+const floorHour = t => Math.floor(t / HOUR) * HOUR;
+function customRange() {
+  const sv = $('wm-start').value, ev = $('wm-end').value;
+  if (!sv || !ev) return { error: 'Please select start and end date/time.' };
+  const s = Math.floor(new Date(sv).getTime() / 1000), e = Math.floor(new Date(ev).getTime() / 1000);
+  if (e <= s) return { error: 'End time must be after start time.' };
+  return { start: s, end: e };
+}
 function periodRange(shiftH) {
-  const shift = (shiftH != null ? shiftH : parseInt($('wm-tshift').value, 10)) * 3600;
-  const period = $('wm-period').value;
-  if (period === 'custom') {
-    const sv = $('wm-start').value, ev = $('wm-end').value;
-    if (!sv || !ev) return { error: 'Please select start and end date/time.' };
-    const s = Math.floor(new Date(sv).getTime() / 1000), e = Math.floor(new Date(ev).getTime() / 1000);
-    if (e <= s) return { error: 'End time must be after start time.' };
-    return { start: s + shift, end: e + shift };
+  const sh = shiftH != null ? shiftH : parseInt($('wm-tshift').value, 10);
+  if ($('wm-period').value === 'custom') {
+    const c = customRange();
+    return c.error ? c : { start: c.start + sh * HOUR, end: c.end + sh * HOUR };
   }
-  // whole minutes, so the frames of an animation have the same addresses (cache)
-  const end = Math.floor(Date.now() / 60000) * 60 + shift;
-  return { start: end - parseInt(period, 10) * 60, end };
+  const len = parseInt($('wm-period').value, 10) * 60;
+  if (sh === 0) {
+    const end = Math.floor(Date.now() / 60000) * 60;
+    return { start: end - len, end };
+  }
+  const anchor = fs && !fs.custom ? fs.anchor : floorHour(Date.now() / 1000);
+  const end = anchor + (sh + 1) * HOUR;
+  return { start: end - len, end };
 }
 function updateTimeLabel() {
   const r = periodRange();
@@ -731,51 +745,226 @@ function updateTimeLabel() {
     (shift === 0 && $('wm-period').value !== 'custom' ? 'now' : `to ${utcStr(r.end)}`) + (shift ? ` (${shift} h)` : '');
 }
 
-// ── Fetch ─────────────────────────────────────────────────────────────────
-let loading = false;
-// While the animation plays, the answers are cached by address and the next
-// frames are loaded ahead, so each frame appears without waiting
-const frameCache = new Map();
-function getJSON(url) {
-  if (!playing) return fetch(url).then(x => x.json());
-  let p = frameCache.get(url);
-  if (!p) {
-    if (frameCache.size > 120) frameCache.clear();
-    p = fetch(url).then(x => x.json());
-    p.catch(() => frameCache.delete(url));
-    frameCache.set(url, p);
+// ── Loaded frames of the slider ───────────────────────────────────────────
+// On ▶ or the first slider move all frames of the slider are read with a few
+// /api/windmap/frames requests (one database query per request; each frame
+// is the same as a single /api/windmap answer) and kept here, so the slider
+// and the animation show them at once.  The strip under the slider marks the
+// frames already loaded.  A changed setting or Load starts again.
+const FRAME_CHUNK = 6;            // frames per request (the nearest ones first)
+const FRAME_MS = 900;             // animation: time per frame
+let fs = null;                    // the frame store
+let liveSnap = null;              // {key, frame} the last "now" answer (Last … periods)
+
+function frameSettings() {
+  const custom = $('wm-period').value === 'custom';
+  let len, c = null;
+  if (custom) {
+    c = customRange();
+    if (c.error) return { error: c.error };
+    len = c.end - c.start;
+  } else {
+    len = parseInt($('wm-period').value, 10) * 60;
   }
-  return p;
+  const st = {
+    custom, len, fl: parseInt($('wm-fl').value, 10), tol: parseInt($('wm-tol').value, 10),
+    cell: parseFloat($('wm-cell').value), gnss: $('wm-gnss').checked,
+    cmpMode: $('wm-cmp').value, fl2: parseInt($('wm-fl2').value, 10),
+    sonde: $('wm-sonde').checked, depth: $('wm-jet').checked && $('wm-jetdepth').checked,
+  };
+  if (st.cmpMode === 'level' && st.fl2 === st.fl) st.cmpMode = 'off';
+  st.key = [st.fl, st.tol, st.cell, st.gnss ? 1 : 0, $('wm-period').value,
+            c ? `${c.start}-${c.end}` : '', st.cmpMode, st.cmpMode === 'level' ? st.fl2 : '',
+            st.sonde ? 1 : 0, st.depth ? 1 : 0].join('|');
+  return st;
 }
-// the addresses one frame needs (map, comparison, jet depth)
-function frameUrls(shiftH) {
-  const r = periodRange(shiftH);
-  if (r.error) return [];
-  const fl = parseInt($('wm-fl').value, 10), tol = parseInt($('wm-tol').value, 10);
-  const cell = parseFloat($('wm-cell').value), gnss = $('wm-gnss').checked;
-  const cmpMode = $('wm-cmp').value, fl2 = parseInt($('wm-fl2').value, 10);
-  const u = [apiUrl(fl, tol, cell, gnss, r.start, r.end)];
-  if (cmpMode === 'prev') u.push(apiUrl(fl, tol, cell, gnss, 2 * r.start - r.end, r.start));
-  else if (cmpMode === 'level' && fl2 !== fl) u.push(apiUrl(fl2, tol, cell, gnss, r.start, r.end));
-  if ($('wm-jet').checked && $('wm-jetdepth').checked)
-    for (const f of DEPTH_FLS.filter(f => f !== fl)) u.push(apiUrl(f, 2000, cell, gnss, r.start, r.end));
-  return u;
+// the levels a frame needs: the map, the comparison, the jet depth
+function frameLevels(st) {
+  const lv = [{ id: 'main', fl: st.fl, tol: st.tol, off: 0 }];
+  if (st.cmpMode === 'prev') lv.push({ id: 'prev', fl: st.fl, tol: st.tol, off: -st.len });
+  else if (st.cmpMode === 'level') lv.push({ id: 'cmp', fl: st.fl2, tol: st.tol, off: 0 });
+  if (st.depth) for (const f of DEPTH_FLS.filter(f => f !== st.fl)) lv.push({ id: 'd' + f, fl: f, tol: 2000, off: 0 });
+  return lv;
 }
-function prefetch(shiftH) { if (playing) for (const u of frameUrls(shiftH)) getJSON(u); }
+// the store for the current settings (a new one when they or the hour changed)
+function ensureFrames(allowRefresh = true) {
+  const st = frameSettings();
+  if (st.error || st.len < 60 || st.len > 24 * HOUR) { dropFrames(); drawLoadStrip(); return null; }
+  const anchor = floorHour(Date.now() / 1000);
+  if (fs && fs.key === st.key && (st.custom || fs.anchor === anchor || !allowRefresh)) return fs;
+  const lo = parseInt($('wm-tshift').min, 10);
+  const shifts = [];
+  for (let s = st.custom ? 0 : -1; s >= lo; s--) shifts.push(s);        // newest first
+  const store = {
+    key: st.key, st, custom: st.custom, anchor, shifts, levels: frameLevels(st),
+    data: new Map(), sonde: new Map(), done: 0, total: 0, failed: false, waiters: [],
+  };
+  store.levels.forEach(l => store.data.set(l.id, new Map()));
+  dropFrames();
+  fs = store;
+  runFrames(store);
+  return store;
+}
+// forget the loaded frames (whoever waits for one goes on without it)
+function dropFrames() {
+  if (fs) wakeWaiters(fs, true);
+  fs = null;
+}
+function frameReady(store, sh) {
+  return store.levels.every(l => store.data.get(l.id).has(sh)) &&
+         (!store.st.sonde || store.sonde.has(sh));
+}
+function storeCovers(sh) { return !!fs && !fs.failed && fs.shifts.includes(sh); }
+function storedFrame(store, sh) {
+  if (!store || !frameReady(store, sh)) return null;
+  const st = store.st, g = id => store.data.get(id).get(sh);
+  return {
+    d: g('main'),
+    c: st.cmpMode === 'prev' ? g('prev') : st.cmpMode === 'level' ? g('cmp') : null,
+    cmpMode: st.cmpMode,
+    s: st.sonde ? store.sonde.get(sh) : null,
+    dep: st.depth ? DEPTH_FLS.filter(f => f !== st.fl).map(f => ({ fl: f, data: g('d' + f) })) : null,
+  };
+}
+function waitFrame(store, sh) {
+  if (frameReady(store, sh) || store.failed) return Promise.resolve();
+  return new Promise(res => store.waiters.push({ sh, res }));
+}
+function wakeWaiters(store, all = false) {
+  store.waiters = store.waiters.filter(w => {
+    if (all || frameReady(store, w.sh)) { w.res(); return false; }
+    return true;
+  });
+}
+// newest sounding launched at or before `at` (as /api/sonde?at=)
+function sondeKeyAt(items, at, maxH) {
+  for (const m of items) {
+    const t0 = m.launch != null ? m.launch : m.nominal;
+    if (t0 != null && t0 <= at + 600) return at - t0 <= maxH * 3600 ? m.key : null;
+  }
+  return null;
+}
+async function runFrames(store) {
+  const st = store.st;
+  const endOf = sh => periodRange(sh).end;
+  // chunks of neighbouring frames, the ones needed next first
+  const cur = parseInt($('wm-tshift').value, 10);
+  const dist = s => playing ? ((s - cur - 1) % 24 + 24) % 24 : Math.abs(s - cur);
+  const chunks = [];
+  for (let i = 0; i < store.shifts.length; i += FRAME_CHUNK) chunks.push(store.shifts.slice(i, i + FRAME_CHUNK));
+  chunks.sort((a, b) => Math.min(...a.map(dist)) - Math.min(...b.map(dist)));
+  const jobs = [];
+  if (st.sonde) jobs.push({ sonde: true });
+  for (const ch of chunks) for (const l of store.levels) jobs.push({ ch, l });
+  store.total = jobs.length;
+  drawLoadStrip();
+  for (const job of jobs) {
+    if (fs !== store) return;                        // settings changed: stop
+    try {
+      if (job.sonde) {
+        const items = ((await (await fetch('/api/sondes')).json()).items) || [];
+        const keys = new Map(store.shifts.map(s => [s, sondeKeyAt(items, endOf(s), 24)]));
+        const recs = new Map();
+        for (const k of new Set(keys.values())) {
+          if (k) recs.set(k, await (await fetch(`/api/sonde?key=${k}`)).json());
+        }
+        for (const [s, k] of keys) store.sonde.set(s, k ? recs.get(k) : { found: false });
+      } else {
+        const { ch, l } = job;
+        const url = `/api/windmap/frames?fl=${l.fl}&tolerance=${l.tol}&cell=${st.cell}` +
+                    `${st.gnss ? '&gnss_ok=1' : ''}&end=${endOf(ch[0]) + l.off}&period=${st.len}&n=${ch.length}`;
+        const res = await (await fetch(url)).json();
+        if (!res.frames || res.frames.length !== ch.length) throw new Error('frames');
+        ch.forEach((s, i) => store.data.get(l.id).set(s, res.frames[i]));
+      }
+    } catch (e) {
+      console.error('Wind Map frames:', e);
+      store.failed = true;                           // the slider loads single frames instead
+      wakeWaiters(store, true);
+      drawLoadStrip();
+      return;
+    }
+    store.done++;
+    wakeWaiters(store);
+    drawLoadStrip();
+  }
+}
+function drawLoadStrip() {
+  const el = $('wm-tload');
+  if (!el) return;
+  if (!fs || fs.failed) { el.classList.add('wm-hidden'); return; }
+  el.classList.remove('wm-hidden');
+  const lo = parseInt($('wm-tshift').min, 10), n = 1 - lo;
+  if (el.children.length !== n) el.innerHTML = '<i></i>'.repeat(n);
+  for (let i = 0; i < n; i++) {
+    const sh = lo + i;
+    const ok = fs.shifts.includes(sh) ? frameReady(fs, sh) : (liveSnap && liveSnap.key === fs.key);
+    el.children[i].className = ok ? 'ok' : '';
+  }
+  el.title = fs.done >= fs.total ? 'All frames of the slider loaded'
+                                 : `Loading the frames of the slider… ${fs.done} / ${fs.total}`;
+}
+
+// ── Fetch ─────────────────────────────────────────────────────────────────
 function apiUrl(fl, tol, cell, gnss, start, end) {
   return `/api/windmap?fl=${fl}&tolerance=${tol}&cell=${cell}${gnss ? '&gnss_ok=1' : ''}` +
          `&start=${start}&end=${end}`;
 }
-async function loadWindMap() {
-  if (loading) return;
-  const fl   = parseInt($('wm-fl').value, 10);
-  const tol  = parseInt($('wm-tol').value, 10);
-  const cell = parseFloat($('wm-cell').value);
-  const gnss = $('wm-gnss').checked;
-  const cmpMode = $('wm-cmp').value;
-  const fl2  = parseInt($('wm-fl2').value, 10);
-  const btn = $('wm-load'), status = $('wm-status');
+const getJSON = url => fetch(url).then(x => x.json());
+// one frame with single requests (no loaded frame for it)
+function fetchFrame(st, r) {
+  const { fl, tol, cell, gnss } = st;
+  const jobs = [getJSON(apiUrl(fl, tol, cell, gnss, r.start, r.end))];
+  if (st.cmpMode === 'prev') jobs.push(getJSON(apiUrl(fl, tol, cell, gnss, 2 * r.start - r.end, r.start)));
+  else if (st.cmpMode === 'level') jobs.push(getJSON(apiUrl(st.fl2, tol, cell, gnss, r.start, r.end)));
+  else jobs.push(Promise.resolve(null));
+  jobs.push(st.sonde
+    ? fetch(`/api/sonde?at=${r.end}&max_age_h=24`).then(x => x.json()).catch(() => null)
+    : Promise.resolve(null));
+  jobs.push(st.depth
+    ? Promise.all(DEPTH_FLS.filter(f => f !== fl).map(f => getJSON(apiUrl(f, 2000, cell, gnss, r.start, r.end))
+        .then(data => ({ fl: f, data })).catch(() => ({ fl: f, data: null }))))
+    : Promise.resolve(null));
+  return Promise.all(jobs).then(([d, c, s, dep]) => ({ d, c, cmpMode: st.cmpMode, s, dep }));
+}
+// show a frame: map, status line
+function applyFrame(f, st) {
+  const status = $('wm-status');
+  lastDepth = f.dep;
+  lastData = f.d;
+  lastCmp = f.c ? { mode: f.cmpMode, data: f.c } : null;
+  lastSonde = f.s;
+  const shown = render();
+  if (!f.d.cells || f.d.cells.length === 0) {
+    status.textContent =
+      `No data for ${flLabel(st.fl)} ±${st.tol} ft in the selected period. ` +
+      `Try a longer time window or wider altitude tolerance.`;
+  } else {
+    status.textContent = statusText(f.d, shown);
+  }
+}
+// slider dragged: a loaded frame is shown at once (the full load follows on release)
+function showLoaded() {
+  updateTimeLabel();
+  if (loading || playing) return;
+  const sh = parseInt($('wm-tshift').value, 10);
+  const st = frameSettings();
+  if (st.error || !fs || fs.key !== st.key) return;
+  const f = storedFrame(fs, sh);
+  if (f) applyFrame(f, st);
+}
 
+let loading = false, loadAgain = false;
+async function loadWindMap() {
+  if (loading) { loadAgain = true; return; }
+  const btn = $('wm-load'), status = $('wm-status');
+  const st = frameSettings();
+  if (st.error) { status.textContent = st.error; return; }
+  const sh = parseInt($('wm-tshift').value, 10);
+  // the loaded frames belong to other settings: start again when the slider is in use
+  if (fs && fs.key !== st.key) dropFrames();
+  if (!fs && (sh !== 0 || playing)) ensureFrames();
+  drawLoadStrip();
   const r = periodRange();
   if (r.error) { status.textContent = r.error; return; }
   updateTimeLabel();
@@ -787,63 +976,53 @@ async function loadWindMap() {
   status.classList.add('wm-loading');
   saveSettings();
   try {
-    const jobs = [getJSON(apiUrl(fl, tol, cell, gnss, r.start, r.end))];
-    if (cmpMode === 'prev') {
-      const len = r.end - r.start;
-      jobs.push(getJSON(apiUrl(fl, tol, cell, gnss, r.start - len, r.start)));
-    } else if (cmpMode === 'level' && fl2 !== fl) {
-      jobs.push(getJSON(apiUrl(fl2, tol, cell, gnss, r.start, r.end)));
-    } else {
-      jobs.push(Promise.resolve(null));
+    let f = null;
+    if (storeCovers(sh)) {
+      const store = fs;
+      if (!frameReady(store, sh)) await waitFrame(store, sh);
+      f = storedFrame(store, sh);
+    } else if (sh === 0 && playing && liveSnap && liveSnap.key === st.key) {
+      f = liveSnap.frame;
     }
-    jobs.push($('wm-sonde').checked
-      ? fetch(`/api/sonde?at=${r.end}&max_age_h=24`).then(x => x.json()).catch(() => null)
-      : Promise.resolve(null));
-    const depthOn = $('wm-jet').checked && $('wm-jetdepth').checked;
-    jobs.push(depthOn
-      ? Promise.all(DEPTH_FLS.filter(f => f !== fl).map(f => getJSON(apiUrl(f, 2000, cell, gnss, r.start, r.end))
-          .then(data => ({ fl: f, data })).catch(() => ({ fl: f, data: null }))))
-      : Promise.resolve(null));
-    const [d, c, s, dep] = await Promise.all(jobs);
-    lastDepth = dep;
-    lastData = d;
-    lastCmp = c ? { mode: cmpMode, data: c } : null;
-    lastSonde = s;
-    const shown = render();
-    if (!d.cells || d.cells.length === 0) {
-      status.textContent =
-        `No data for ${flLabel(fl)} ±${tol} ft in the selected period. ` +
-        `Try a longer time window or wider altitude tolerance.`;
-    } else {
-      status.textContent = statusText(d, shown);
+    if (!f) {
+      f = await fetchFrame(st, r);
+      if (sh === 0 && !st.custom) { liveSnap = { key: st.key, frame: f }; drawLoadStrip(); }
     }
+    // the slider moved on meanwhile: show its frame instead
+    if (!playing && parseInt($('wm-tshift').value, 10) !== sh) loadAgain = true;
+    else applyFrame(f, st);
   } catch (e) {
     status.textContent = 'Error loading wind map data.';
     console.error(e);
   }
   status.classList.remove('wm-loading');
   // the cross-section follows the period (not while animating)
-  if (!playing && window.WmXsection && WmXsection.active()) WmXsection.reload(r);
+  if (!playing && !loadAgain && window.WmXsection && WmXsection.active()) WmXsection.reload(r);
   btn.disabled = false;
   loading = false;
+  if (loadAgain && !playing) { loadAgain = false; loadWindMap(); }
+  loadAgain = false;
 }
 
 // ── Animation over the last 24 h ──────────────────────────────────────────
-let playing = false;
+let playing = false, playRun = 0;
 async function play() {
   playing = !playing;
   $('wm-play').textContent = playing ? '■' : '▶';
+  if (!playing) return;
+  const run = ++playRun;
+  ensureFrames();
   const lo = parseInt($('wm-tshift').min, 10);
   const next = v => (v + 1 > 0 ? lo : v + 1);
-  while (playing) {
+  while (playing && run === playRun) {
     const el = $('wm-tshift');
     const v = next(parseInt(el.value, 10));
+    if (v === lo) ensureFrames();                   // a new round: a new hour may have begun
     el.value = v;
-    prefetch(next(v)); prefetch(next(next(v)));          // load the next two frames ahead
+    const t0 = performance.now();
     await loadWindMap();
-    await new Promise(res => setTimeout(res, 900));
+    await new Promise(res => setTimeout(res, Math.max(150, FRAME_MS - (performance.now() - t0))));
   }
-  frameCache.clear();
 }
 
 // ── Auto reload (Last … periods, slider at "now") ─────────────────────────
@@ -888,9 +1067,9 @@ function syncVisibility() {
   updateTimeLabel();
 }
 $('wm-period').addEventListener('change', syncVisibility);
-$('wm-load').addEventListener('click', loadWindMap);
+$('wm-load').addEventListener('click', () => { dropFrames(); liveSnap = null; loadWindMap(); });
 $('wm-play').addEventListener('click', play);
-$('wm-tshift').addEventListener('input', updateTimeLabel);
+$('wm-tshift').addEventListener('input', () => { if (!playing) ensureFrames(); showLoaded(); });
 $('wm-tshift').addEventListener('change', () => { if (!playing) loadWindMap(); });
 // Display-only options redraw the last answer without a new query
 ['wm-minac', 'wm-dt', 'wm-iso', 'wm-stream', 'wm-isot', 'wm-hgt', 'wm-jetkt'].forEach(id => $(id).addEventListener('change', () => {

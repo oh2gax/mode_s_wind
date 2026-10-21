@@ -149,9 +149,9 @@
 
     <button id="wm-xs-btn" class="wm-xs-btn" type="button" title="Vertical cross-section: click two points A and B on the map; the panel below shows temperature, wind and heights of all levels along the line for the period (within one cell size of it)">✎ Section</button>
 
-    <div class="wm-group wm-time" title="Step the period back in time (hours before the chosen end); ▶ animates the last 24 hours">
+    <div class="wm-group wm-time" title="Step the period back in time (hours before the chosen end); ▶ animates the last 24 hours. All frames are loaded on the first move or ▶ (the strip under the slider)">
       <button id="wm-play" class="wm-play-btn" type="button">▶</button>
-      <input type="range" id="wm-tshift" min="-23" max="0" step="1" value="0">
+      <span class="wm-tslide"><input type="range" id="wm-tshift" min="-23" max="0" step="1" value="0"><span id="wm-tload" class="wm-tload wm-hidden"></span></span>
       <span id="wm-tlabel" class="wm-tlabel">now</span>
     </div>
 
@@ -202,6 +202,10 @@ const RECEIVER_LON = {{ receiver_lon }};
 <script src="{{ url_for('static', filename='js/windmap_xsection.js') }}"></script>
 <script src="{{ url_for('static', filename='js/windmap.js') }}"></script>
 <style>
+.wm-tslide { position:relative; display:inline-flex; align-items:center; }
+.wm-tload { position:absolute; left:6px; right:6px; bottom:-4px; height:3px; display:flex; gap:1px; pointer-events:none; }
+.wm-tload i { flex:1; background:var(--border); border-radius:1px; transition:background .2s; }
+.wm-tload i.ok { background:var(--accent); opacity:.75; }
 .wm-xs { position:absolute; left:8px; right:8px; bottom:44px; height:42%; min-height:220px; z-index:900;
          background:var(--bg-1); border:1px solid var(--border); border-radius:6px; display:flex; flex-direction:column;
          box-shadow:0 4px 18px rgba(0,0,0,.35); }

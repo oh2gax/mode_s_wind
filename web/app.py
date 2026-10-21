@@ -515,13 +515,15 @@ def create_app(
             f"SELECT COUNT(*) FROM flights WHERE {where_sql}", params
         ).fetchone()[0]
 
+        # ORDER BY flights.last_seen: a bare last_seen would mean the text
+        # alias below, which cannot use the index (every flight sorted)
         rows = db.execute(
             f"""SELECT id, icao, callsign,
                        datetime(first_seen, 'unixepoch') AS first_seen,
                        datetime(last_seen,  'unixepoch') AS last_seen,
                        max_altitude, min_altitude, obs_count, meteo_count
                 FROM flights WHERE {where_sql}
-                ORDER BY last_seen DESC
+                ORDER BY flights.last_seen DESC
                 LIMIT ? OFFSET ?""",
             params + [per, offset],
         ).fetchall()
@@ -611,6 +613,46 @@ def create_app(
                                center_lat=cfg.RECEIVER_LAT, center_lon=cfg.RECEIVER_LON,
                                gnss_ok=gnss_ok)
         return jsonify(result)
+
+    @app.route("/api/windmap/frames")
+    def windmap_frames_api():
+        """
+        All frames of the Wind Map time slider in one request: n maps of the
+        same period length, the newest ending at `end`, each an hour earlier
+        than the next (web/api/windmap.py build_windmap_frames — one query;
+        each frame is identical to /api/windmap for its period).
+
+        Query params: fl, tolerance, cell, gnss_ok as /api/windmap;
+          end     — end of the newest frame (Unix timestamp)
+          period  — period length in seconds (60 … 86 400)
+          n       — number of frames (1 … 48)
+        The answer is gzip-compressed when the browser accepts it.
+        """
+        import gzip as _gzip
+        from web.api.windmap import (build_windmap_frames, period_qnh,
+                                     FRAMES_MAX, FRAMES_MAX_PERIOD_S)
+
+        fl        = int(request.args.get("fl", 350))
+        tolerance = max(100, min(5000, int(request.args.get("tolerance", 1000))))
+        cell_km   = max(5.0, min(300.0, float(request.args.get("cell", 50.0))))
+        gnss_ok   = request.args.get("gnss_ok", "0") in ("1", "true", "yes")
+        now       = time.time()
+        end_ts    = float(request.args.get("end", now))
+        period_s  = max(60.0, min(float(FRAMES_MAX_PERIOD_S),
+                                  float(request.args.get("period", 3 * 3600))))
+        n         = max(1, min(FRAMES_MAX, int(request.args.get("n", 24))))
+        db = get_db()
+        qcur, qok = _qnh_cache["hpa"], _qnh_cache["updated"] > 0
+        result = build_windmap_frames(
+            db, fl, tolerance, end_ts, period_s, n, cell_km,
+            qnh_of=lambda s, e: period_qnh(db, s, e, now, qcur, qok),
+            center_lat=cfg.RECEIVER_LAT, center_lon=cfg.RECEIVER_LON, gnss_ok=gnss_ok)
+        resp = jsonify(result)
+        if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+            resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
+            resp.headers["Content-Encoding"] = "gzip"
+            resp.headers["Vary"] = "Accept-Encoding"
+        return resp
 
     # ── Sounding API ──────────────────────────────────────────────────────
 
@@ -797,7 +839,7 @@ def create_app(
                  AND max_altitude IS NOT NULL
                  AND min_altitude IS NOT NULL
                  AND (max_altitude - min_altitude) > 5000
-               ORDER BY last_seen DESC
+               ORDER BY flights.last_seen DESC
                LIMIT 200"""
         ).fetchall()
         return jsonify([dict(r) for r in rows])
