@@ -31,6 +31,7 @@ let anaLevel   = parseInt(_lsGet('ms_skewtAna', '0'), 10);
 let areaSmooth = parseInt(_lsGet('ms_areaSmooth', '0'), 10);
 let aptMode    = _lsGet('ms_aptMode', 'off');
 let sondeShow  = _lsGet('ms_skewtSonde', 'false') === 'true';   // radiosonde layer (default off)
+let rhShow     = _lsGet('ms_skewtRH', 'false') === 'true';      // RH strip: trial moisture indicator (default off)
 let sndSonde   = null;   // /api/sonde response for the shown profile
 let sndSondeAt = null;   // Auto: newest launched by this time (Unix s; null = latest)
 let sndSondePick = 'auto';   // 'auto' or the key (YYYYMMDDHH) chosen in the picker
@@ -58,7 +59,8 @@ const skewt = createSkewT(document.getElementById('skewt-canvas'),
 function syncChart() {
   skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, smooth: areaSmooth,
               sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
-              sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef });
+              sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef,
+              rh: rhShow, moist: rhShow && sndProfile && sndMode !== 'flight' ? sndProfile.moisture || null : null });
 }
 function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
 
@@ -317,7 +319,7 @@ async function loadAreaSounding() {
   const minutes = document.getElementById('snd-minutes').value;
   const req = ++sndReq;
   try {
-    const r = await fetch(`/api/sounding?minutes=${minutes}`);
+    const r = await fetch(`/api/sounding?minutes=${minutes}${rhShow ? '&moist=1' : ''}`);
     const d = await r.json();
     if (req !== sndReq) return;
     const win = d.window_min >= 120 ? `${d.window_min / 60} h` : `${d.window_min} min`;
@@ -369,7 +371,7 @@ async function loadHourSounding() {
   meta.textContent = 'Loading…';
   const req = ++sndReq;
   try {
-    const r = await fetch(`/api/sounding/hour?ts=${ts}`);
+    const r = await fetch(`/api/sounding/hour?ts=${ts}${rhShow ? '&moist=1' : ''}`);
     const d = await r.json();
     if (req !== sndReq) return;
     if (d.error) { clearProfile(d.error); return; }
@@ -500,6 +502,17 @@ sondeChk.addEventListener('change', e => {
   if (sondeShow) loadSondeList();
   fetchSonde(sndSondeAt, sndSondeRef);
 });
+// RH strip (trial moisture indicator): the profile is loaded again with it
+const rhChk = document.getElementById('skewt-rh');
+if (rhChk) {
+  rhChk.checked = rhShow;
+  rhChk.addEventListener('change', e => {
+    rhShow = e.target.checked;
+    _lsSet('ms_skewtRH', String(rhShow));
+    if (rhShow && sndProfile && sndMode !== 'flight' && !('moisture' in sndProfile)) loadCurrent();
+    else drawChart();
+  });
+}
 const sondePick = document.getElementById('sonde-pick');
 sondePick.style.display = sondeShow ? 'inline-block' : 'none';
 sondePick.addEventListener('change', e => {

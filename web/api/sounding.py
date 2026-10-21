@@ -22,7 +22,7 @@ from collector.atmos import (TEMP_SQL, aggregate_layers, area_profile,
 log = logging.getLogger("modes.sounding")
 
 def build_sounding(cfg: Config, db: sqlite3.Connection,
-                   minutes: Optional[int] = None) -> dict:
+                   minutes: Optional[int] = None, moist: bool = False) -> dict:
     """
     Area sounding: all aircraft within SOUNDING_RADIUS_KM of the receiver over
     the last `minutes` (default SOUNDING_WINDOW_MIN), in altitude layers
@@ -36,7 +36,9 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
 
     Returns {"mode": "area", "window_min", "radius_km", "obs_used", "aircraft",
              "generated_at", "levels"} — levels surface first; each level
-    also has ac_count (distinct aircraft in the layer).
+    also has ac_count (distinct aircraft in the layer).  With moist: also
+    "moisture" — the trial moisture indicator of the hour in progress
+    (collector/moisture.py, flights of the last 1–2 hours).
     """
     import datetime
     now = time.time()
@@ -45,7 +47,7 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
     levels, used, n_ac = area_profile(db, now - minutes * 60, now,
                                       cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
                                       cfg.SOUNDING_RADIUS_KM, with_aircraft=True)
-    return {
+    out = {
         "mode":         "area",
         "window_min":   minutes,
         "radius_km":    cfg.SOUNDING_RADIUS_KM,
@@ -54,11 +56,26 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       levels,
     }
+    if moist:
+        out["moisture"] = _moisture(db, now, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                    cfg.SOUNDING_RADIUS_KM, live_levels=levels, now=now)
+    return out
 
 
-def build_hour_sounding(db: sqlite3.Connection, hour_ts: int) -> dict:
+def _moisture(db, h, lat, lon, radius_km, live_levels=None, now=None):
+    """Trial moisture indicator of the hour h (None on any error)."""
+    try:
+        from collector import moisture as mo
+        return mo.for_hour(db, h, lat, lon, radius_km, live_levels=live_levels, now=now)
+    except Exception:                                    # noqa: BLE001  (never break the profile)
+        log.debug("moisture indicator failed", exc_info=True)
+        return None
+
+
+def build_hour_sounding(db: sqlite3.Connection, hour_ts: int, moist_at: Optional[tuple] = None) -> dict:
     """Area sounding of one completed UTC hour from the profile_hours archive
-    (kept after the observations are purged)."""
+    (kept after the observations are purged).  moist_at = (lat, lon, radius
+    km): also "moisture", the trial moisture indicator of the hour."""
     import datetime, json
     row = db.execute("SELECT ts, data FROM profile_hours WHERE ts = ?",
                      (int(hour_ts),)).fetchone()
@@ -76,6 +93,7 @@ def build_hour_sounding(db: sqlite3.Connection, hour_ts: int) -> dict:
         # METAR surface values of the hour (from 2026-10-11): z DDHHMM, q QNH,
         # tt / td temperature / dewpoint °C, cld lowest cloud group
         "sfc":          d.get("m"),
+        **({"moisture": _moisture(db, row["ts"], *moist_at)} if moist_at else {}),
     }
 
 

@@ -20,6 +20,11 @@
  *            layers, hover warning); default on
  *   sonde    radiosonde from /api/sonde ({levels, launch, min_p, station…})
  *            or null;  sondeRef: time its age is counted to (null = now)
+ *   rh       RH strip on/off: a narrow strip between the plot and the wind
+ *            barbs with the trial moisture indicator (moist = the "moisture"
+ *            of /api/sounding?moist=1 or /api/sounding/hour, collector/
+ *            moisture.py: index ≈ RH of 1 000–5 000, 5 000–10 000 and
+ *            10 000–15 000 ft) and the sonde's relative humidity as a line
  *
  * Needs skewt_analysis.js (analyzeSkewT, skewtMoistLapse,
  * skewtContrailThresholds) loaded first.
@@ -81,7 +86,11 @@ function createSkewT(canvas, tip, cfg = {}) {
       dqShow = true,      // data-validity indicator (badge, rings, hover warning)
       miniSonde = null,   // radiosonde (/api/sonde) or null
       sondeRef = null,    // time (Unix s) the sonde age is counted to; null = now
-      sondeNote = null;   // "no sounding" text when switched on but none found
+      sondeNote = null,   // "no sounding" text when switched on but none found
+      rhOn = false,       // RH strip (trial moisture indicator + sonde RH)
+      miniMoist = null;   // {rows: [[lo, hi, index, ±, flights, Tv−T corr, raw]], window_h, offsets_n}
+  const RH_W = 46;        // strip width (px) when on
+  let stripW = 0;
   let miniHoverPts = [];   // [{y, src, alt_ft, p, t, ws, wd, n…}] rebuilt on every draw
   let topOff = 0;          // extra offset of the top-left texts when the data badge is shown
 
@@ -312,7 +321,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         if (l.wind_spd == null) continue;
         const y = mskY(l.pressure);
         if (lastW != null && Math.abs(y - lastW) < 11) continue;
-        drawMiniBarb(ctx, ML + PW + 22, y, l.wind_spd, l.wind_dir, T.apt);
+        drawMiniBarb(ctx, ML + PW + stripW + 22, y, l.wind_spd, l.wind_dir, T.apt);
         ctx.fillStyle = T.apt; ctx.textAlign = 'right';
         ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, y + 3);
         lastW = y;
@@ -426,7 +435,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         if (l.wind_spd == null) continue;
         const y = mskY(l.pressure);
         if (lastW != null && Math.abs(y - lastW) < 9) continue;   // keep the barbs readable
-        drawMiniBarb(ctx, ML + PW + 22, y, l.wind_spd, l.wind_dir, T.area);
+        drawMiniBarb(ctx, ML + PW + stripW + 22, y, l.wind_spd, l.wind_dir, T.area);
         ctx.fillStyle = T.area; ctx.textAlign = 'right';
         ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, y + 3);
         lastW = y;
@@ -929,6 +938,17 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (!canvas || !tip) return;
     const r  = canvas.getBoundingClientRect();
     const my = (ev.clientY - r.top) * (canvas.height / r.height);
+    if (rhOn) {                                      // over the RH strip
+      const mx = (ev.clientX - r.left) * (canvas.width / r.width), g = rhGeom();
+      if (mx >= g.x0 - 3 && mx <= g.x1 + 3 && my >= MSK.MT && my <= MSK.MT + MSK.PH) {
+        tip.innerHTML = rhHover(my);
+        tip.style.display = 'block';
+        const wr = canvas.parentElement.getBoundingClientRect();
+        tip.style.top  = Math.max(4, Math.min(ev.clientY - wr.top - tip.offsetHeight - 8, r.height - tip.offsetHeight)) + 'px';
+        tip.style.left = '8px';
+        return;
+      }
+    }
     // aircraft points first when selected; then the airport profile (when shown)
     // and the area profile together, nearest wins
     const groups = miniAcOverlay ? [['ac'], ['apt', 'area']] : [['apt', 'area']];
@@ -1029,9 +1049,11 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     applyMskRange();
+    stripW = rhOn ? RH_W : 0;    // the RH strip takes its width from the plot
+    MSK.PW = MSK.W - MSK.ML - MSK.MR - stripW;
     const zoom = aptMode === 'zoom';
     const { W, H, ML, MR, MT, MB, PW, PH, TL, TR, PT, PB } = MSK;
-    const barbX = ML + PW + 20;  // X of the wind barbs (staff up to 14 px each way)
+    const barbX = ML + PW + stripW + 20;  // X of the wind barbs (staff up to 14 px each way)
     const T = miniSkewTTheme();
 
     ctx.clearRect(0, 0, W, H);
@@ -1295,8 +1317,125 @@ function createSkewT(canvas, tip, cfg = {}) {
       }
     }
 
+    // ── RH strip: trial moisture indicator and the sonde's relative humidity ─
+    if (rhOn) drawRhStrip(ctx, T);
+
     // ── Data-validity badge on top of everything ────────────────────────────
     drawDataBadge(ctx, T);
+  }
+
+  // ── RH strip (between the plot and the wind barbs) ─────────────────────────
+  // Aircraft: the trial moisture indicator as bars for its three layers (index
+  // ≈ relative humidity, brown dry < 40 / green moist / blue humid ≥ 70 %,
+  // with its ± range; faint when uncertain).  Sonde: its relative humidity
+  // from temperature and dewpoint as a line, at full vertical detail.
+  const MOIST_CLS = [[40, 'dry', [180, 116, 52]], [70, 'moist', [132, 170, 90]], [1e9, 'humid', [14, 140, 200]]];
+  const moistCls = v => MOIST_CLS.find(c => v < c[0]);
+  function rhGeom() {
+    const { ML, PW } = MSK;
+    const x0 = ML + PW + 5, x1 = ML + PW + stripW - 3;
+    return { x0, x1, x: v => x0 + (x1 - x0) * Math.max(0, Math.min(100, v)) / 100 };
+  }
+  function sondeRh(l) {
+    if (l.temp == null || l.dewpoint == null) return null;
+    const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
+    return 100 * es(l.dewpoint) / es(l.temp);
+  }
+  // sonde mean RH (ln-p weighted) of the layer [lo, hi] ft, or null
+  function sondeLayerRh(lo, hi) {
+    if (!miniSonde) return null;
+    const p0 = altToPressHPa(lo), p1 = altToPressHPa(hi);
+    const L = miniSonde.levels.filter(l => l.pressure <= p0 && l.pressure >= p1 && sondeRh(l) != null);
+    if (L.length < 3) return null;
+    let s = 0, w = 0;
+    for (let i = 1; i < L.length; i++) {
+      const dw = Math.log(L[i - 1].pressure / L[i].pressure);
+      s += dw * (sondeRh(L[i - 1]) + sondeRh(L[i])) / 2; w += dw;
+    }
+    return w > 0 ? s / w : null;
+  }
+  function drawRhStrip(ctx, T) {
+    const { MT, PH, PT, PB } = MSK;
+    const { x0, x1, x } = rhGeom();
+    ctx.save();
+    ctx.fillStyle = T.bg; ctx.fillRect(x0 - 3, MT, x1 - x0 + 6, PH);     // over the isotherm lines
+    ctx.beginPath(); ctx.rect(x0 - 3, MT, x1 - x0 + 6, PH); ctx.clip();
+    ctx.strokeStyle = T.axisLine; ctx.lineWidth = 1;
+    ctx.strokeRect(x0 + 0.5, MT + 0.5, x1 - x0 - 1, PH - 1);
+    ctx.globalAlpha = 0.6; ctx.setLineDash([2, 3]);
+    for (const v of [40, 70]) { ctx.beginPath(); ctx.moveTo(x(v) + 0.5, MT); ctx.lineTo(x(v) + 0.5, MT + PH); ctx.stroke(); }
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    // aircraft bars
+    for (const r of (miniMoist && miniMoist.rows) || []) {
+      const [lo, hi, idx, se] = r;
+      if (idx == null) continue;
+      const yb = mskY(altToPressHPa(lo)), yt = mskY(altToPressHPa(hi));
+      if (yb < MT || yt > MT + PH) continue;
+      const weak = se == null || se > 25, c = moistCls(idx)[2];
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.3 : 0.65})`;
+      ctx.fillRect(x0 + 1, yt + 1, Math.max(2, x(idx) - x0 - 1), yb - yt - 2);
+      ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x(idx), yt + 1); ctx.lineTo(x(idx), yb - 1); ctx.stroke();
+      if (se != null) {                                // ± range at the middle of the layer
+        const ym = (yt + yb) / 2;
+        ctx.strokeStyle = T.tempLbl; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x(idx - se), ym); ctx.lineTo(x(idx + se), ym);
+        ctx.moveTo(x(idx - se), ym - 3); ctx.lineTo(x(idx - se), ym + 3);
+        ctx.moveTo(x(idx + se), ym - 3); ctx.lineTo(x(idx + se), ym + 3); ctx.stroke();
+      }
+      if (idx > 100) {                                 // beyond the scale: a small arrow at the edge
+        const ym = (yt + yb) / 2 - 8;
+        ctx.fillStyle = T.tempLbl; ctx.beginPath(); ctx.moveTo(x1 - 1, ym); ctx.lineTo(x1 - 6, ym - 3); ctx.lineTo(x1 - 6, ym + 3); ctx.fill();
+      }
+    }
+    // sonde RH line
+    if (miniSonde) {
+      const L = miniSonde.levels.filter(l => l.pressure >= PT * 0.97 && l.pressure <= PB * 1.02 && sondeRh(l) != null);
+      if (L.length >= 2) {
+        ctx.globalAlpha = sondeAlpha();
+        ctx.strokeStyle = T.sonde; ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        L.forEach((l, i) => { const xx = x(sondeRh(l)), yy = mskY(l.pressure); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
+        ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
+    // labels: title above, scale below
+    ctx.save(); ctx.font = '9px monospace'; ctx.fillStyle = T.area; ctx.textAlign = 'center';
+    ctx.fillText('RH %', (x0 + x1) / 2, MT - 3);
+    ctx.textAlign = 'left'; ctx.fillText('0', x0, MT + PH + 14);
+    ctx.textAlign = 'right'; ctx.fillText('100', x1 + 2, MT + PH + 14);
+    if (!miniMoist || !(miniMoist.rows || []).length) {
+      ctx.textAlign = 'center'; ctx.fillStyle = T.area;
+      ctx.save(); ctx.translate((x0 + x1) / 2, mskY(altToPressHPa(8000))); ctx.rotate(-Math.PI / 2);
+      ctx.fillText(miniMoist ? 'too few flights' : 'no aircraft value', 0, 3); ctx.restore();
+    }
+    ctx.restore();
+  }
+  // hover text of the RH strip at canvas y, or null
+  function rhHover(my) {
+    const parts = [];
+    const p = Math.exp(Math.log(MSK.PT) + (my - MSK.MT) / MSK.PH * (Math.log(MSK.PB) - Math.log(MSK.PT)));
+    const ft = (1 - Math.pow(p / 1013.25, 1 / 5.2559)) / 6.8756e-6;
+    const fmt = f => f >= 6000 ? `FL${String(Math.round(f / 100)).padStart(3, '0')}` : `${Math.round(f).toLocaleString()} ft`;
+    const r = ((miniMoist && miniMoist.rows) || []).find(r => ft >= r[0] && ft < r[1]);
+    parts.push(`<b>Moisture (trial)</b> · ${fmt(ft)} · ${Math.round(p)} hPa`);
+    if (r) {
+      const [lo, hi, idx, se, n, corr, raw] = r;
+      const w = miniMoist.window_h ? miniMoist.window_h[String(lo)] : null;
+      parts.push(`Aircraft ${fmt(lo)}–${fmt(hi)}: <b>${moistCls(idx)[1]}</b>, index ${idx} %${se != null ? ` ±${se} %` : ''}` +
+        ` <span class="mini-tip-dim">(${n} climbs / descents${w ? ` of ±${w} h` : ''}; Tv − T ${corr >= 0 ? '+' : ''}${corr.toFixed(2)} K after the sonde offsets, ${raw >= 0 ? '+' : ''}${raw.toFixed(2)} K raw)</span>`);
+      const sl = sondeLayerRh(lo, hi);
+      if (sl != null) parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde mean RH of the layer ${Math.round(sl)} %</span>`);
+    } else if (miniMoist) parts.push('<span class="mini-tip-dim">no aircraft value here (1 000–15 000 ft only, enough climbs / descents needed)</span>');
+    const sv = miniSonde ? sondeAt(p) : null;
+    if (sv && sv.t != null && sv.td != null) {
+      const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
+      parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde RH ${Math.round(100 * es(sv.td) / es(sv.t))} % at this level</span>`);
+    }
+    parts.push(`<span class="mini-tip-dim">Index ≈ RH from the thickness of climbs / descents (virtual temperature) minus the Mach/TAS temperature — a first trial` +
+      (miniMoist ? `, offsets from ${miniMoist.offsets_n || 0} sounding${miniMoist.offsets_n === 1 ? '' : 's'}` : '') + `</span>`);
+    return parts.join('<br>');
   }
 
 
@@ -1327,6 +1466,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       sondeNote = o.sonde && !miniSonde ? `${(o.sonde.station || 'Sonde').toUpperCase()}: no sounding stored for this time` : null;
     }
     if ('sondeRef' in o)     sondeRef = o.sondeRef;
+    if ('rh' in o)           rhOn = !!o.rh;
+    if ('moist' in o)        miniMoist = o.moist || null;
   }
 
   function leave() {

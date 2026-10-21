@@ -661,11 +661,13 @@ def create_app(
         """
         Aggregate meteo observations within SOUNDING_RADIUS_KM of receiver
         over the last SOUNDING_WINDOW_MIN minutes (or ?minutes=, 10–360),
-        in altitude layers with the Mach/TAS temperature.
+        in altitude layers with the Mach/TAS temperature; ?moist=1 adds the
+        trial moisture indicator ("moisture").
         """
         from web.api.sounding import build_sounding
         minutes = request.args.get("minutes", type=int)
-        result = build_sounding(cfg, get_db(), minutes)
+        result = build_sounding(cfg, get_db(), minutes,
+                                moist=request.args.get("moist") == "1")
         return jsonify(result)
 
     @app.route("/api/lowlevel")
@@ -787,12 +789,16 @@ def create_app(
     @app.route("/api/sounding/hour")
     def sounding_hour_api():
         """Area sounding of one completed UTC hour from profile_hours:
-        ?ts=<hour start, Unix epoch>."""
+        ?ts=<hour start, Unix epoch>; ?moist=1 adds the trial moisture
+        indicator of the hour ("moisture")."""
         from web.api.sounding import build_hour_sounding
         ts = request.args.get("ts", type=int)
         if ts is None:
             return jsonify({"error": "ts required"}), 400
-        result = build_hour_sounding(get_db(), ts)
+        result = build_hour_sounding(
+            get_db(), ts,
+            moist_at=((cfg.RECEIVER_LAT, cfg.RECEIVER_LON, cfg.SOUNDING_RADIUS_KM)
+                      if request.args.get("moist") == "1" else None))
         return jsonify(result), (404 if "error" in result else 200)
 
     @app.route("/api/sounding/timeheight")

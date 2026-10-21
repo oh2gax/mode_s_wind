@@ -165,10 +165,11 @@ let miniSfc        = null; // METAR ground point {p, qnh, t, td, elev, station, 
 
 // ── Area profile for the mini Skew-T (from /api/sounding, every 5 min) ──────
 let miniArea     = null;   // last /api/sounding response
+let rhShow       = localStorage.getItem('ms_skewtRH') === 'true';   // RH strip (trial moisture indicator)
 
 async function fetchMiniArea() {
   try {
-    const r = await fetch('/api/sounding?minutes=60');
+    const r = await fetch('/api/sounding?minutes=60' + (rhShow ? '&moist=1' : ''));
     if (!r.ok) return;
     miniArea = await r.json();
     drawMiniSounding();
@@ -220,6 +221,7 @@ function syncSkewT() {
     acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
     profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
     hint: null, dq: dqShow, sonde: sondeShow ? miniSonde : null, sondeRef: null,
+    rh: rhShow, moist: rhShow && miniArea ? miniArea.moisture || null : null,
   });
 }
 function drawMiniSounding() { syncSkewT(); skewt.draw(); }
@@ -861,6 +863,17 @@ if (sondeChk) {
     localStorage.setItem('ms_skewtSonde', String(sondeShow));
     drawMiniSounding();
     fetchMiniSonde();
+  });
+}
+// ── RH strip tick box (trial moisture indicator); the area profile is loaded again with it
+const rhChk = document.getElementById('skewt-rh');
+if (rhChk) {
+  rhChk.checked = rhShow;
+  rhChk.addEventListener('change', e => {
+    rhShow = e.target.checked;
+    localStorage.setItem('ms_skewtRH', String(rhShow));
+    if (rhShow && miniArea && !('moisture' in miniArea)) fetchMiniArea();
+    else drawMiniSounding();
   });
 }
 fetchMiniSonde();

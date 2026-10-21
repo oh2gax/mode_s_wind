@@ -10,6 +10,7 @@ No version numbers — entries are organised by date.
 ### Moisture indicator (trial)
 
 - **Sounding page, Time–height section — Moisture (trial)**: a humidity indicator for 1 000–5 000, 5 000–10 000 and 10 000–15 000 ft from the aircraft themselves. Moist air is lighter, so the thickness temperature from the GNSS heights of climbing and descending aircraft minus the Mach/TAS temperature measures the moisture of a layer (the principle of the ADS-B humidity study at Amsterdam Schiphol). The flights of a few hours are averaged, offsets learnt against the Jokioinen soundings (separately for climbs and descents) are subtracted, and the result is divided by the value of saturated air: an index of about the relative humidity, shown as dry / moist / humid; with **Sonde** on, the soundings show the same index from their own humidity. New `collector/moisture.py`
+- **Skew-T — RH (trial)**, Live Map *Atmosphere Profile* and Sounding page: a new **RH** tick box (shared, off by default) adds a narrow RH strip between the diagram and the wind barbs — the moisture indicator as bars for its three layers (dry / moist / humid, with the ± range) and, with **Sonde** on, the radiosonde's relative humidity as a pink line for comparison; hover for the values. Area · now uses the flights of the last 1–2 hours, Area · hour the same values as the Time–height field; not for a single flight. `/api/sounding` and `/api/sounding/hour` take `moist=1`
 - GNSS hourly cells (`gnss_hours`) now also give the 1 000–5 000 ft layer (crossed whatever the QNH) and whether each flight climbed or descended; hours stored by the previous version are computed again once at start while their height series exist
 
 ### Wind Map — time slider frames loaded at once; faster queries
@@ -29,7 +30,7 @@ No version numbers — entries are organised by date.
 ### User guide v2.0 – v2.2
 
 - `doc/Sounding_Page_User_Guide.pdf` version 2.0 (30 pages): now covers the Sounding **and** Wind Map pages — new section on the heights of the pressure surfaces, height change and thickness-temperature check in the time–height section, and a new Wind Map section (controls, how the cells are made, ΔT, isotachs and streamlines, jet stream, heights and geostrophic wind, sonde, compare modes, time slider) with screenshots
-- Version 2.2 (35 pages): a new section on the trial **Moisture** field — why it works (virtual temperature), the size of the signal in the soundings, how the data are gathered and the index calculated, the 20–21 Oct example with the sonde columns, and how to read it for now; version 2.1 covered the extras of the day (time–height lines and sonde columns, Wind Map isotherms, cross-section and time slider, airframe offsets)
+- Version 2.2 (36 pages): a new section on the trial **Moisture** field and the Skew-T RH strip — why it works (virtual temperature), the size of the signal in the soundings, how the data are gathered and the index calculated, the 20–21 Oct example with the sonde columns, and how to read it for now; version 2.1 covered the extras of the day (time–height lines and sonde columns, Wind Map isotherms, cross-section and time slider, airframe offsets)
 
 ### Wind Map — jet stream symbol
 

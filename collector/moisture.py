@@ -284,3 +284,32 @@ def sonde_index(rec: dict) -> list:
         hi = dict(MOIST_LAYERS)[lo]
         out.append([lo, hi, round(100 * dtv / sat) if sat > 0.05 else None, round(rh)])
     return out
+
+
+def for_hour(db, h: int, lat: float, lon: float, radius_km: float,
+             live_levels: list | None = None, now: float | None = None) -> dict:
+    """The indicator of one hour for the Skew-T (Area · hour, or Area · now
+    with h = the hour in progress and live_levels its area profile):
+    {"hour", "rows": [[lo, hi, index %, ± %, flights, Tv − T corrected K, raw K], …],
+     "window_h": {layer bottom: ± hours}, "offsets_n": soundings}."""
+    import json
+    from collector import gnss_heights as gh
+    now = _time.time() if now is None else now
+    h = int(h // 3600 * 3600)
+    k = max(WINDOW_H.values())
+    cal = gh.current(db)
+    raw = gh.cells_for_hours(db, h - k * 3600, h + (k + 1) * 3600, lat, lon, radius_km, now=now)
+    prof = {}
+    for ts, data in db.execute("SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ?",
+                               (h - k * 3600, h + (k + 1) * 3600)):
+        try:
+            prof[ts] = {r[0]: r[1] for r in json.loads(data).get("lv") or [] if r[1] is not None}
+        except (ValueError, TypeError, IndexError):
+            pass
+    if live_levels:
+        prof.setdefault(h, {lv["alt_lo"]: lv["temp"] for lv in live_levels
+                            if lv.get("temp") is not None and lv.get("alt_lo") is not None})
+    offs = offsets(db, cal, lat, lon, radius_km, now=now)
+    rows = columns(raw, prof, cal, offs, lat, [h]).get(h, [])
+    return {"hour": h, "rows": rows, "window_h": {str(lo): w for lo, w in WINDOW_H.items()},
+            "offsets_n": max((o.get("n", 0) for o in offs.values()), default=0)}
