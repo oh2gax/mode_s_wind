@@ -30,11 +30,16 @@
  *   thk      thickness temperature check: mean virtual temperature of the
  *            5 000 ft layers from the height gained by climbing / descending
  *            aircraft minus the Mach / TAS temperature of the same layers
+ *   moist    moisture indicator (trial, collector/moisture.py): that
+ *            difference (Tv − T) for 1 000–5 000, 5 000–10 000 and
+ *            10 000–15 000 ft from the flights of ±1–2 h, minus offsets learnt
+ *            against the soundings, over the value of saturated air — about
+ *            the relative humidity: dry < 40, moist 40–70, humid ≥ 70 %
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, the tropopause (WMO
  * lapse-rate definition, magenta dashed) and the height of the strongest wind
  * (≥ 50 kt, yellow), Jokioinen sonde launches (pink ▼ at the top) and — with
  * "Sonde" — each sounding drawn as its own narrow column in the same colour
- * field (temperature anomaly, wind speed, lapse rate, height), aircraft per
+ * field (temperature anomaly, wind speed, lapse rate, height, moisture), aircraft per
  * hour (strip below the plot, red where < 8: LOW data).  "PNG" saves the
  * picture.  Hover for values; click a column to open that
  * hour on the Skew-T (Area · hour).
@@ -94,6 +99,10 @@
     return `rgba(${c[0]},${c[1]},${c[2]},${(0.08 + 0.82 * k).toFixed(3)})`;
   }
   const FULL = { change: 4, anomaly: 6, dval: 300, dchg: 60, thk: 2 };   // colour full at ±
+  // moisture index (≈ RH %): dry / moist / humid
+  const MOIST = [[-1e9, 40, [180, 116, 52], 'dry'], [40, 70, [132, 170, 90], 'moist'], [70, 1e9, [14, 140, 200], 'humid']];
+  const moistClass = v => MOIST.find(b => v >= b[0] && v < b[1]) || MOIST[1];
+  const moistFill = v => { const c = moistClass(v)[2]; return `rgb(${c[0]},${c[1]},${c[2]})`; };
   const VV_LO = 5000, VV_HI = 20000;          // layers (bottom..top, ft) with a vertical motion
   const F_COR = 2 * 7.2921e-5 * Math.sin(60.3 * Math.PI / 180), R_D = 287.04, GAMMA_D = 9.8;
 
@@ -130,7 +139,16 @@
           if (zc >= r[0] && zc < r[1]) TK[i] = o;
         }
       }
-      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC, KZ, DV, TK, bulk };
+      // moisture indicator: each layer gets the block (1 000–5 000 / 5 000–10 000 / 10 000–15 000 ft) around its centre
+      const MO = new Array(nL).fill(null);
+      for (const r of c.mo || []) {
+        const o = { lo: r[0], hi: r[1], idx: r[2], se: r[3], n: r[4], corr: r[5], raw: r[6] };
+        for (let i = 0; i < nL; i++) {
+          const zc = (layers[i] + layers[i + 1]) / 2;
+          if (zc >= r[0] && zc < r[1]) MO[i] = o;
+        }
+      }
+      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC, KZ, DV, TK, bulk, MO };
     });
     // layer means over the period (cells with ≥ 2 replies), for the anomaly
     const mean = new Array(nL).fill(null);
@@ -173,7 +191,14 @@
         if (i < 0 || i >= nL) continue;
         T[i] = r[1]; WD[i] = r[2]; WS[i] = r[3]; D[i] = r[4];
       }
-      return { key: s.key, launch: s.launch, min_p: s.min_p, T, WD, WS, D };
+      const MO = new Array(nL).fill(null);
+      for (const r of s.mo || []) {
+        for (let i = 0; i < nL; i++) {
+          const z = (layers[i] + layers[i + 1]) / 2;
+          if (z >= r[0] && z < r[1] && r[2] != null) MO[i] = { lo: r[0], hi: r[1], idx: r[2], rh: r[3] };
+        }
+      }
+      return { key: s.key, launch: s.launch, min_p: s.min_p, T, WD, WS, D, MO };
     });
     const P = { layers, nL, cols, mean, byTs, start: d.start_ts, end: d.end_ts, sondes: sn };
     for (const c of cols) { c.tp = tropopause(P, c); c.vm = maxWind(P, c); }
@@ -214,6 +239,10 @@
     if (f === 'thk') {
       const z = c.TK[i];
       return z && z.tref != null ? { v: z.tv - z.tref, weak: z.n < 2 } : null;
+    }
+    if (f === 'moist') {
+      const z = c.MO[i];
+      return z && z.idx != null ? { v: z.idx, weak: z.se == null || z.se > 25 } : null;
     }
     return null;
   }
@@ -287,6 +316,7 @@
     if (f === 'anomaly') return s.T[i] != null && P.mean[i] != null ? s.T[i] - P.mean[i] : null;
     if (f === 'wind') return s.WS[i];
     if (f === 'dval') return s.D[i];
+    if (f === 'moist') return s.MO[i] ? s.MO[i].idx : null;
     if (f === 'lapse') {
       let a = i - 1, b = i + 1;
       if (a < 0 || s.T[a] == null) a = i;
@@ -301,9 +331,10 @@
     if (st.field === 'vvel') return vvFill(v);
     if (st.field === 'vort') return vortFill(v);
     if (st.field === 'lapse') return lapseFill(v);
+    if (st.field === 'moist') return moistFill(v);
     return divFill(v, FULL[st.field] || 6);
   }
-  const SONDE_FIELDS = ['anomaly', 'wind', 'lapse', 'dval'];
+  const SONDE_FIELDS = ['anomaly', 'wind', 'lapse', 'dval', 'moist'];
   const sondeStrip = (P, s) => {                       // [x0, x1] of a sounding's own column
     const xx = geo.x(s.launch), w = Math.max(6, Math.min(16, geo.cw * 0.7));
     return [xx - w / 2, xx + w / 2];
@@ -366,7 +397,7 @@
         const fv = fieldValue(P, c, i);
         if (!fv) continue;
         const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
-        g.globalAlpha = fv.weak ? 0.5 : 1;
+        g.globalAlpha = st.field === 'moist' ? (fv.weak ? 0.35 : 0.8) : fv.weak ? 0.5 : 1;
         g.fillStyle = fillOf(fv.v);
         g.fillRect(x0, y1, cw + 0.5, y0 - y1 + 0.5);
       }
@@ -577,6 +608,11 @@
       const dd = (a, b, u, dg = 1) => a != null && b != null ? ` <span class="mini-tip-dim">(aircraft ${b.toFixed(dg)}${u}, sonde − aircraft ${a - b >= 0 ? '+' : ''}${(a - b).toFixed(dg)}${u})</span>` : '';
       if (s.T[i] != null) parts.push(`T ${s.T[i].toFixed(1)} °C` + dd(s.T[i], c ? c.T[i] : null, ' °C'));
       if (s.WS[i] != null) parts.push(`wind ${Math.round(s.WD[i])}° ${Math.round(s.WS[i])} kt` + (c && c.WS[i] != null ? ` <span class="mini-tip-dim">(aircraft ${Math.round(c.WD[i])}° ${Math.round(c.WS[i])} kt)</span>` : ''));
+      if (s.MO[i]) {
+        const m = s.MO[i], a = c && c.MO[i];
+        parts.push(`moisture ${fmtFt(m.lo)}–${fmtFt(m.hi)}: ${moistClass(m.idx)[3]}, index ${m.idx} % <span class="mini-tip-dim">(mean RH ${m.rh} %` +
+          (a && a.idx != null ? `; aircraft ${a.idx} % ±${a.se ?? '–'} — ${moistClass(a.idx)[3]}` : '') + ')</span>');
+      }
       if (s.D[i] != null) parts.push(`D ${s.D[i] >= 0 ? '+' : ''}${Math.round(s.D[i])} m` + (c && c.DV[i] ? ` <span class="mini-tip-dim">(aircraft ${c.DV[i].v >= 0 ? '+' : ''}${Math.round(c.DV[i].v)} m, sonde − aircraft ${s.D[i] - c.DV[i].v >= 0 ? '+' : ''}${Math.round(s.D[i] - c.DV[i].v)} m)</span>` : ''));
       if (s.min_p) parts.push(`<span class="mini-tip-dim">sounding to ${Math.round(s.min_p)} hPa · values: mean of the sounding's levels in the layer</span>`);
       html = parts.join('<br>');
@@ -612,6 +648,9 @@
       if (tk) parts.push(`thickness temperature ${fmtFt(tk.lo)}–${fmtFt(tk.hi)} ${tk.tv.toFixed(1)} °C` +
         (tk.tref != null ? ` vs Mach/TAS ${tk.tref.toFixed(1)} °C → ${tk.tv - tk.tref >= 0 ? '+' : ''}${(tk.tv - tk.tref).toFixed(1)} K` : '') +
         ` <span class="mini-tip-dim">(${tk.n} climb${tk.n === 1 ? '' : 's'} / descents${tk.sd != null ? `, ±${tk.sd.toFixed(1)} K` : ''})</span>`);
+      const mo = c.MO[i];
+      if (mo && mo.idx != null) parts.push(`moisture (trial) ${fmtFt(mo.lo)}–${fmtFt(mo.hi)}: <b>${moistClass(mo.idx)[3]}</b>, index ${mo.idx} %` +
+        ` <span class="mini-tip-dim">(±${mo.se ?? '–'} %, ${mo.n} climbs / descents of ±${mo.lo < 5000 ? 2 : 1} h; Tv − T ${mo.corr >= 0 ? '+' : ''}${mo.corr.toFixed(2)} K after the sonde offsets, ${mo.raw >= 0 ? '+' : ''}${mo.raw.toFixed(2)} K raw)</span>`);
       if (c.bulk && (st.field === 'thk' || tk)) {
         const b = c.bulk;
         parts.push(`<span class="mini-tip-dim">FL100–FL300: ${b.tv.toFixed(1)} °C` + (b.tref != null ? ` vs ${b.tref.toFixed(1)} °C (${b.tv - b.tref >= 0 ? '+' : ''}${(b.tv - b.tref).toFixed(1)} K)` : '') + `, ${b.n} flight${b.n === 1 ? '' : 's'}</span>`);
@@ -694,6 +733,9 @@
     } else if (st.field === 'thk') {
       el.innerHTML = 'Thickness temperature − Mach/TAS temperature (5 000 ft layers, climbs / descents) <span class="th-bar"></span> ' +
         '<span class="th-lt">−2 · 0 · +2 K</span>' + calNote();
+    } else if (st.field === 'moist') {
+      el.innerHTML = 'Moisture (trial, 1 000–15 000 ft): ' + MOIST.map(b => `<span class="th-sw" style="background:${moistFill((b[0] + b[1]) / 2 || (b[0] < 0 ? 0 : 100))}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
+        ' <span class="th-lt">(index ≈ RH: &lt; 40, 40–70, ≥ 70 % — thickness Tv − Mach/TAS T over the saturated value; faint: uncertain)</span>' + moistNote();
     } else if (st.field === 'lapse') {
       el.innerHTML = 'Lapse rate ' + LAPSE.map(b => `<span class="th-sw" style="background:${b[2]}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
         ' <span class="th-lt">(K/km: &lt; −1, −1–2, 2–5, 5–7, 7–9, ≥ 9)</span>';
@@ -705,6 +747,13 @@
     el.innerHTML += ` <span class="th-lt">· faint: &lt; 3 replies · <span style="color:var(--th-sonde)">▼</span> Jokioinen launch · dashed frame: hour in progress</span>`;
   }
 
+  function moistNote() {
+    const m = data && data.mcal;
+    if (!m) return '';
+    const n = Math.max(...Object.values(m).map(o => o.n || 0), 0);
+    return n ? ` <span class="th-lt">(offsets from ${n} sounding${n === 1 ? '' : 's'} — still learning)</span>`
+             : ' <span class="th-lt">(no sonde offsets yet)</span>';
+  }
   function calNote() {
     const g = data && data.gcal;
     if (!g) return '';

@@ -49,7 +49,9 @@ Stored raw (uncorrected) so that a new calibration applies to the past too:
         episodes, within the profile radius; read side: D-value of the layer
         (median over airframes, moved to the layer centre)
   "tk"  per climb / descent (height_series) and layer of THK_LAYERS: the
-        geometric heights of the two pressure surfaces at the layer edges;
+        geometric heights of the two pressure surfaces at the layer edges
+        (and whether it climbed or descended; hours stored before that are
+        computed again once at start while their height_series rows exist);
         read side: thickness (virtual) temperature
             Tv = g0 · ΔH / (R · ln(p1 / p2))
         with H the geopotential height — independent of the Mach / TAS
@@ -90,7 +92,9 @@ GRAD_MIN_PAIRS = 30             # … with at least this many pairs …
 GRAD_MIN_SPREAD_KM = 15.0       # … spread at least this much across the area
 CELLS_VERSION = 2               # sonde cells older than this are computed again
 THK_LAYERS = [(0, 5000), (5000, 10000), (10000, 15000), (15000, 20000), (20000, 25000),
-              (25000, 30000), (30000, 35000), (35000, 40000), (10000, 30000)]
+              (25000, 30000), (30000, 35000), (35000, 40000), (10000, 30000),
+              (1000, 5000)]             # 1 000 ft: crossed whatever the QNH (moisture indicator)
+CELLS_V = 2                     # gnss_hours cells: 2 = with 1 000–5 000 ft and the climb / descent flag
 THK_EDGE_FT = 300               # rows within ± this of a layer edge give its height
 THK_MAX_SEC = 1500              # both edges within 25 min
 STORE_DELAY_H = 4               # gnss_hours rows written this long after the hour
@@ -407,7 +411,8 @@ def _edge(D: dict, ft: float):
 def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
     """Raw cells of the hour [h, h + 3600): see the module docstring.
     {"d": [[layer bottom, icao, mean gmb ft, mean alt ft, replies], …],
-     "tk": [[lo, hi, icao, z_lo m, z_hi m, mid time], …]}"""
+     "tk": [[lo, hi, icao, z_lo m, z_hi m, mid time, +1 climb / −1 descent], …],
+     "v": CELLS_V}"""
     from collector.height_series import decode
     eps = _episodes(db, h - 4 * 3600, h + 3600 + 4 * 3600)
     acc: dict = {}
@@ -450,8 +455,9 @@ def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
             la, lo = D["lat"][j], D["lon"][j]
             if la is None or lo is None or _km(la, lo, lat, lon) > radius_km:
                 continue
-            tk.append([lo_ft, hi_ft, icao, round(a[0], 1), round(b[0], 1), round(mid)])
-    return {"d": d, "tk": tk}
+            tk.append([lo_ft, hi_ft, icao, round(a[0], 1), round(b[0], 1), round(mid),
+                       1 if b[1] > a[1] else -1])
+    return {"d": d, "tk": tk, "v": CELLS_V}
 
 
 def store_missing_gnss_hours(db, lat: float, lon: float, radius_km: float,
@@ -476,6 +482,40 @@ def store_missing_gnss_hours(db, lat: float, lon: float, radius_km: float,
             _time.sleep(pause_sec)
     if rows:
         db.executemany("INSERT OR IGNORE INTO gnss_hours (ts, data) VALUES (?, ?)", rows)
+        db.commit()
+    return len(rows) + _upgrade_cells(db, lat, lon, radius_km)
+
+
+_upgraded = False
+
+
+def _upgrade_cells(db, lat: float, lon: float, radius_km: float) -> int:
+    """Once per start: hours stored by an older version (before CELLS_V) are
+    computed again while their height_series rows still exist (adds the
+    1 000–5 000 ft layer to them).  One commit."""
+    global _upgraded
+    if _upgraded:
+        return 0
+    _upgraded = True
+    try:
+        first = db.execute("SELECT MIN(ts) FROM height_series").fetchone()[0]
+    except Exception:                                    # noqa: BLE001  (table missing)
+        return 0
+    if first is None:
+        return 0
+    old = []
+    for ts, data in db.execute("SELECT ts, data FROM gnss_hours WHERE ts >= ?", (int(first // 3600 * 3600) + 3600,)):
+        try:
+            if unpack(data).get("v", 1) < CELLS_V:
+                old.append(ts)
+        except Exception:                                # noqa: BLE001
+            old.append(ts)
+    rows = []
+    for h in old:
+        rows.append((pack(hour_cells(db, h, lat, lon, radius_km)), h))
+        _time.sleep(0.2)
+    if rows:
+        db.executemany("UPDATE gnss_hours SET data = ? WHERE ts = ?", rows)
         db.commit()
     return len(rows)
 
@@ -564,7 +604,7 @@ def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float):
         dv.append([lo_ft, round(med, 1), round(sd, 1), len(v)])
     tk = []
     by_thk: dict = {}
-    for lo_ft, hi_ft, icao, z1, z2, _ in cells.get("tk") or []:
+    for lo_ft, hi_ft, icao, z1, z2, *_ in cells.get("tk") or []:
         z1c = z1 - correction(cal, lo_ft, icao)
         z2c = z2 - correction(cal, hi_ft, icao)
         dH = geopotential(z2c, lat) - geopotential(z1c, lat)

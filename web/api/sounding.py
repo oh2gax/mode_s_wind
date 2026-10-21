@@ -183,8 +183,12 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                                wind_n, aircraft], …],
                        "kz": [[alt_lo, vort, se_vort, aircraft], …],
                        "dv": [[alt_lo, D m, SD m, airframes], …],
-                       "tk": [[lo ft, hi ft, Tv °C, SD K, flights, T Mach/TAS °C], …]}, …],
-             "gcal": {"soundings", "pairs", "computed"} of the height calibration}
+                       "tk": [[lo ft, hi ft, Tv °C, SD K, flights, T Mach/TAS °C], …],
+                       "mo": [[lo ft, hi ft, moisture index %, ± %, flights,
+                               Tv − T corrected K, raw K], …]}, …],
+             "gcal": {"soundings", "pairs", "computed"} of the height calibration,
+             "mcal": {layer bottom: {"climb", "descent" K, "n_climb", "n_descent",
+                      "n" soundings}} of the moisture offsets}
     D-values and thickness temperatures: collector/gnss_heights.py.
     """
     import json
@@ -251,7 +255,7 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
     try:
         from collector import gnss_heights as gh
         cal = gh.current(db)
-        raw = gh.cells_for_hours(db, start, end_hour + 3600, lat, lon, radius_km, now=now)
+        raw = gh.cells_for_hours(db, start - 2 * 3600, end_hour + 3600, lat, lon, radius_km, now=now)
         for c in cols:
             cells = raw.get(c["ts"])
             if not cells:
@@ -263,9 +267,31 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                 c["tk"] = tk
         gcal = {"soundings": cal.get("soundings"), "pairs": cal.get("pairs"), "computed": cal.get("t")}
     except Exception:                                    # noqa: BLE001  (never break the section)
-        pass
+        raw = None
+    # moisture indicator (trial, collector/moisture.py): Tv − T of 1 000–15 000 ft
+    # from the flights of a few hours around each hour, offsets from the soundings
+    mcal = None
+    if raw is not None and gcal is not None:
+        try:
+            from collector import moisture as mo
+            prof = {c["ts"]: {r[0]: r[1] for r in c["lv"] if r[1] is not None} for c in cols}
+            for ts, data in db.execute("SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ?",
+                                       (start - 2 * 3600, start)):
+                try:
+                    prof[ts] = {r[0]: r[1] for r in json.loads(data).get("lv") or [] if r[1] is not None}
+                except (ValueError, TypeError, IndexError):
+                    pass
+            offs = mo.offsets(db, cal, lat, lon, radius_km, now=now)
+            mcols = mo.columns(raw, prof, cal, offs, lat, [c["ts"] for c in cols])
+            for c in cols:
+                if c["ts"] in mcols:
+                    c["mo"] = mcols[c["ts"]]
+            mcal = {str(lo): {k: o[k] for k in ("climb", "descent", "n_climb", "n_descent", "n")}
+                    for lo, o in offs.items()}
+        except Exception:                                # noqa: BLE001
+            pass
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
-            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal,
+            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal, "mcal": mcal,
             "sondes": sonde_columns(start, end_hour + 3600)}
 
 
@@ -322,6 +348,12 @@ def sonde_columns(t0: float, t1: float) -> list:
                     d = round(z - zc * 0.3048, 1)
                     break
             rows.append([lo, round(sum(ts_) / len(ts_), 2) if ts_ else None, wd, ws, d])
-        out.append({"key": meta["key"], "launch": launch, "min_p": meta.get("min_p"), "lv": rows})
+        try:
+            from collector.moisture import sonde_index
+            mo_rows = sonde_index(rec)
+        except Exception:                                # noqa: BLE001
+            mo_rows = []
+        out.append({"key": meta["key"], "launch": launch, "min_p": meta.get("min_p"), "lv": rows,
+                    "mo": mo_rows})
     out.sort(key=lambda s: s["launch"])
     return out
