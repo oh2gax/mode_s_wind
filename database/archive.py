@@ -68,6 +68,7 @@ ARCHIVABLE = {
     "approach_series":    "ts",
     "departure_profiles": "ts",
     "height_series":      "ts",
+    "gnss_hours":         "ts",
 }
 
 

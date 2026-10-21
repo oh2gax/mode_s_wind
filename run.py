@@ -129,6 +129,10 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         observations still in the database (slowly).
       • Heading calibration (from 2026-10-10): the per-airframe heading
         offsets that changed during the hour are written to heading_cal.
+      • GNSS heights (from 2026-10-21, collector/gnss_heights.py): the
+        height calibration is refitted after each new sounding, and the
+        raw hourly D-value / thickness cells are stored 4 h after the hour
+        (gnss_hours; back-filled at the first start).
       • Radiosonde verification (collector/sonde_verif.py): the area profile
         around each stored sounding's launch and every archived hourly
         profile are compared with the sounding (table sonde_verification).
@@ -141,6 +145,7 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
     series_days = float(getattr(cfg, "APPROACH_SERIES_DAYS", 90))
     dep_days    = float(getattr(cfg, "DEPARTURE_PROFILE_DAYS", 90))
     hser_days   = float(getattr(cfg, "HEIGHT_SERIES_DAYS", 30))
+    gnss_days   = float(getattr(cfg, "GNSS_HOURS_DAYS", 0))      # 0 = keep
     last_purge = 0.0
     first = True
     while True:
@@ -162,6 +167,21 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                     hj_log.info("Hourly kinematics (vorticity): stored %d hour(s)", n_k)
             except Exception as exc:
                 hj_log.warning("Hourly kinematics failed: %s", exc)
+            # Heights of the pressure surfaces (collector/gnss_heights.py):
+            # calibration against each new sounding, then the raw hourly
+            # cells (D-values, thickness temperatures), back-filled at start
+            try:
+                from collector import gnss_heights as _gh
+                n_c = _gh.update_calibration(db, sondes.get())
+                if n_c:
+                    hj_log.info("GNSS heights: calibration refitted with %d new sounding(s)", n_c)
+                n_g = _gh.store_missing_gnss_hours(
+                    db, cfg.RECEIVER_LAT, cfg.RECEIVER_LON, cfg.SOUNDING_RADIUS_KM,
+                    max_hours=31 * 24 if first else 48, pause_sec=0.2 if first else 0.0)
+                if n_g > 1:
+                    hj_log.info("GNSS heights: stored %d hour(s)", n_g)
+            except Exception as exc:
+                hj_log.warning("GNSS heights failed: %s", exc)
             first = False
             _ss = sondes.get()
             if _ss is not None:
@@ -186,7 +206,8 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 from database import archive as _arc
                 for table, days in (("approach_series", series_days),
                                     ("departure_profiles", dep_days),
-                                    ("height_series", hser_days)):
+                                    ("height_series", hser_days),
+                                    ("gnss_hours", gnss_days)):
                     if days <= 0:
                         continue
                     cutoff = time.time() - days * 86_400

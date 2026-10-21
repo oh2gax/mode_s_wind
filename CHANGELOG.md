@@ -5,7 +5,23 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-21 (web server logging improvements)
+## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol on the Wind Map; web server logging improvements)
+
+### Wind Map — jet stream symbol
+
+- **Jet** tick box: the jet stream as on aviation SIGWX charts — thick line along the axis of strongest wind where the smoothed wind is ≥ 80 kt (or ≥ 60 kt), arrowhead downstream, barb flags with level and speed at the maximum, double change bars every 20 kt of decrease; dashed (and `↑ stronger beyond?`) where the strongest wind lies at the edge of the data
+- **Depth**: also loads FL250–FL410 and labels the levels with ≥ the chosen speed at the maximum (e.g. `330/410`)
+- `windmap_analysis.js`: new `wmJetAxis()` (axis from across-flow sections of the analysed field)
+
+### Heights of the pressure surfaces from the GNSS − baro difference
+
+- **Self-tuning calibration** (`collector/gnss_heights.py`, table `gnss_cal`): after each Jokioinen sounding the aircraft heights of the pressure surfaces within 150 km and ±1 h of the balloon are compared with the sounding; the fleet correction per 5 000 ft band (geoid + speed-dependent altimeter error, starting from a built-in default) and small per-airframe offsets are refitted from the last 30 days. `/api/gnss/calibration` shows it
+- **Hourly cells** (table `gnss_hours`, raw so that a new calibration also corrects the past; written 4 h after the hour, back-filled at the first start): airframe mean GNSS − baro per layer, and the GNSS heights of the pressure surfaces at the 5 000 ft layer edges from the climbs and descents of `height_series`
+- **Sounding page, Time–height section** — three new colour fields: **Height of the pressure surfaces** (D-value, ±300 m), **Height change 6 h** (±60 m) and **Thickness temperature check** (mean virtual temperature of 5 000 ft layers from the height gained by climbing / descending aircraft minus the Mach/TAS temperature, ±2 K); hover adds the surface height, D-value, 6 h change and the thickness temperatures (also FL100–FL300)
+- **Wind Map — Heights** (experimental): teal height contours of the pressure surface, and the geostrophic wind of the area from a plane fit of the aircraft heights (dashed arrow Vg) next to the mean measured wind (V), with the ageostrophic difference in the hover and status line; cell popups give the surface height and D-value
+- Maintenance page: `gnss_hours` statistics row; optional `config.py` key `GNSS_HOURS_DAYS` (default 0 = keep)
+
+### Web server
 
 - Improved web server access logging and login handling; see the README (Installation → Running in the background) for the access log
 

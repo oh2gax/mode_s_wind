@@ -684,6 +684,14 @@ def create_app(
                         "qc": (rec.get("qc") or {}).get("reason"),
                         "levels": _sondes.levels_for_chart(rec)})
 
+    @app.route("/api/gnss/calibration")
+    def gnss_calibration_api():
+        """Current calibration of the GNSS heights of the pressure surfaces
+        (collector/gnss_heights.py): fleet correction per 5 000 ft band,
+        soundings / pairs used, per-airframe offsets."""
+        from collector import gnss_heights as _gh
+        return jsonify(_gh.summary(_gh.current(get_db(), max_age=0)))
+
     @app.route("/api/sonde/verification")
     def sonde_verification_api():
         """Mode S area profile vs radiosonde (collector/sonde_verif.py) over the

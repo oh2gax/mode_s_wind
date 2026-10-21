@@ -22,6 +22,14 @@
  *   vort     relative vorticity of the hour (kinematics_hours: plane fit of
  *            the aircraft winds within 200 km), purple cyclonic / gold
  *            anticyclonic, 10⁻⁵ s⁻¹ — troughs, ridges, jet shear
+ *   dval     height of the pressure surfaces: D-value (m) = GNSS height of
+ *            the surface − its standard-atmosphere height, median of the
+ *            airframes of the hour (collector/gnss_heights.py, calibrated
+ *            against the soundings); red higher / blue lower than standard
+ *   dchg     change of the D-value over 6 hours (falling ahead of troughs)
+ *   thk      thickness temperature check: mean virtual temperature of the
+ *            5 000 ft layers from the height gained by climbing / descending
+ *            aircraft minus the Mach / TAS temperature of the same layers
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, Jokioinen sonde
  * launches (pink ▼ at the top), aircraft per hour (strip below the plot,
  * red where < 8: LOW data).  Hover for values; click a column to open that
@@ -78,6 +86,7 @@
     const k = Math.min(1, Math.abs(v) / 15), c = v < 0 ? VO.neg : VO.pos;
     return `rgba(${c[0]},${c[1]},${c[2]},${(0.08 + 0.82 * k).toFixed(3)})`;
   }
+  const FULL = { change: 4, anomaly: 6, dval: 300, dchg: 60, thk: 2 };   // colour full at ±
   const VV_LO = 5000, VV_HI = 20000;          // layers (bottom..top, ft) with a vertical motion
   const F_COR = 2 * 7.2921e-5 * Math.sin(60.3 * Math.PI / 180), R_D = 287.04, GAMMA_D = 9.8;
 
@@ -98,7 +107,23 @@
         const i = layers.indexOf(r[0]);
         if (i >= 0 && i < nL && r[1] != null) KZ[i] = { v: r[1], se: r[2], n: r[3] };
       }
-      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC, KZ };
+      const DV = new Array(nL).fill(null);              // D-value {v m, sd, n airframes}
+      for (const r of c.dv || []) {
+        const i = layers.indexOf(r[0]);
+        if (i >= 0 && i < nL && r[1] != null) DV[i] = { v: r[1], sd: r[2], n: r[3] };
+      }
+      // thickness temperatures: each layer gets the 5 000 ft layer around its centre
+      const TK = new Array(nL).fill(null);
+      let bulk = null;
+      for (const r of c.tk || []) {
+        const o = { lo: r[0], hi: r[1], tv: r[2], sd: r[3], n: r[4], tref: r[5] };
+        if (r[1] - r[0] > 5000) { bulk = o; continue; }
+        for (let i = 0; i < nL; i++) {
+          const zc = (layers[i] + layers[i + 1]) / 2;
+          if (zc >= r[0] && zc < r[1]) TK[i] = o;
+        }
+      }
+      return { ts: c.ts, a: c.a, n: c.n, partial: !!c.partial, T, TN, WD, WS, WN, AC, KZ, DV, TK, bulk };
     });
     // layer means over the period (cells with ≥ 2 replies), for the anomaly
     const mean = new Array(nL).fill(null);
@@ -158,6 +183,19 @@
       const z = c.KZ[i];
       if (!z || z.se > 10) return null;
       return { v: z.v, weak: z.se > 4 || z.n < 10 };
+    }
+    if (f === 'dval') {
+      const z = c.DV[i];
+      return z ? { v: z.v, weak: z.n < 3 } : null;
+    }
+    if (f === 'dchg') {
+      const p = P.byTs.get(c.ts - 6 * 3600);
+      const a = c.DV[i], b = p && p.DV[i];
+      return a && b ? { v: a.v - b.v, weak: a.n < 3 || b.n < 3 } : null;
+    }
+    if (f === 'thk') {
+      const z = c.TK[i];
+      return z && z.tref != null ? { v: z.tv - z.tref, weak: z.n < 2 } : null;
     }
     return null;
   }
@@ -254,7 +292,8 @@
         const y0 = y(P.layers[i]), y1 = y(P.layers[i + 1]);
         g.globalAlpha = fv.weak ? 0.5 : 1;
         g.fillStyle = st.field === 'wind' ? spdFill(fv.v) : st.field === 'vvel' ? vvFill(fv.v)
-          : st.field === 'vort' ? vortFill(fv.v) : divFill(fv.v, st.field === 'change' ? 4 : 6);
+          : st.field === 'vort' ? vortFill(fv.v)
+          : divFill(fv.v, FULL[st.field] || 6);
         g.fillRect(x0, y1, cw + 0.5, y0 - y1 + 0.5);
       }
     }
@@ -440,6 +479,21 @@
       if (c.WS[i] != null) parts.push(`wind ${Math.round(c.WD[i])}° ${Math.round(c.WS[i])} kt <span class="mini-tip-dim">(${c.WN[i]} replies)</span>`);
       const z = c.KZ[i];
       if (z) parts.push(`vorticity ${z.v >= 0 ? '+' : ''}${z.v.toFixed(1)} ×10⁻⁵ s⁻¹ <span class="mini-tip-dim">(${z.v >= 0 ? 'cyclonic' : 'anticyclonic'}, ±${z.se.toFixed(1)}, ${(z.v / (2 * 7.2921 * Math.sin(60.3 * Math.PI / 180))).toFixed(2)} f, ${z.n} aircraft within 200 km)</span>`);
+      const dz = c.DV[i];
+      if (dz) {
+        const p6 = P.byTs.get(c.ts - 6 * 3600), d6 = p6 && p6.DV[i];
+        const zc_m = ((lo + hi) / 2) * 0.3048 + dz.v;
+        parts.push(`pressure surface at ${Math.round(zc_m).toLocaleString('en').replace(/,/g, ' ')} m <span class="mini-tip-dim">(D ${dz.v >= 0 ? '+' : ''}${Math.round(dz.v)} m` +
+          (d6 ? `, 6 h change ${dz.v - d6.v >= 0 ? '+' : ''}${Math.round(dz.v - d6.v)} m` : '') + `, ±${Math.round(dz.sd)} m between ${dz.n} airframes)</span>`);
+      }
+      const tk = c.TK[i];
+      if (tk) parts.push(`thickness temperature ${fmtFt(tk.lo)}–${fmtFt(tk.hi)} ${tk.tv.toFixed(1)} °C` +
+        (tk.tref != null ? ` vs Mach/TAS ${tk.tref.toFixed(1)} °C → ${tk.tv - tk.tref >= 0 ? '+' : ''}${(tk.tv - tk.tref).toFixed(1)} K` : '') +
+        ` <span class="mini-tip-dim">(${tk.n} climb${tk.n === 1 ? '' : 's'} / descents${tk.sd != null ? `, ±${tk.sd.toFixed(1)} K` : ''})</span>`);
+      if (c.bulk && (st.field === 'thk' || tk)) {
+        const b = c.bulk;
+        parts.push(`<span class="mini-tip-dim">FL100–FL300: ${b.tv.toFixed(1)} °C` + (b.tref != null ? ` vs ${b.tref.toFixed(1)} °C (${b.tv - b.tref >= 0 ? '+' : ''}${(b.tv - b.tref).toFixed(1)} K)` : '') + `, ${b.n} flight${b.n === 1 ? '' : 's'}</span>`);
+      }
       parts.push(`<span class="mini-tip-dim">${c.AC[i] || '–'} aircraft in the layer, ${c.a ?? '–'} in the hour${c.partial ? ' · hour in progress' : ' · click: open on the Skew-T'}</span>`);
       html = parts.join('<br>');
     }
@@ -473,6 +527,7 @@
       if (req !== seq) return;
       data = d;
       if (s && s.items) sondes = s.items;
+      renderLegend();
       const n = d.cols.length, low = d.cols.filter(c => c.a != null && c.a < 8).length;
       if (meta) meta.textContent = `${n} hourly profiles · ${low} with < 8 aircraft` +
         (d.cols.length && d.cols[d.cols.length - 1].partial ? ' · last column: hour in progress' : '');
@@ -503,6 +558,15 @@
     } else if (st.field === 'vort') {
       el.innerHTML = 'Relative vorticity (wind plane fit, 200 km) <span class="th-bar th-bar-vo"></span> ' +
         '<span class="th-lt">anticyclonic −15 · 0 · +15 ×10⁻⁵ s⁻¹ cyclonic</span>';
+    } else if (st.field === 'dval') {
+      el.innerHTML = 'Height of the pressure surfaces vs the standard atmosphere (D-value, GNSS) <span class="th-bar th-bar-dv"></span> ' +
+        '<span class="th-lt">lower −300 · 0 · +300 m higher</span>' + calNote();
+    } else if (st.field === 'dchg') {
+      el.innerHTML = 'Height change over 6 h (GNSS) <span class="th-bar th-bar-dv"></span> ' +
+        '<span class="th-lt">falling −60 · 0 · +60 m rising</span>' + calNote();
+    } else if (st.field === 'thk') {
+      el.innerHTML = 'Thickness temperature − Mach/TAS temperature (5 000 ft layers, climbs / descents) <span class="th-bar"></span> ' +
+        '<span class="th-lt">−2 · 0 · +2 K</span>' + calNote();
     } else if (st.field === 'lapse') {
       el.innerHTML = 'Lapse rate ' + LAPSE.map(b => `<span class="th-sw" style="background:${b[2]}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
         ' <span class="th-lt">(K/km: &lt; −1, −1–2, 2–5, 5–7, 7–9, ≥ 9)</span>';
@@ -512,6 +576,13 @@
         `<span class="th-bar"></span> <span class="th-lt">−${full} · 0 · +${full} K</span>`;
     }
     el.innerHTML += ` <span class="th-lt">· faint: &lt; 3 replies · <span style="color:var(--th-sonde)">▼</span> Jokioinen launch · dashed frame: hour in progress</span>`;
+  }
+
+  function calNote() {
+    const g = data && data.gcal;
+    if (!g) return '';
+    return g.soundings ? ` <span class="th-lt">(calibrated with ${g.soundings} soundings)</span>`
+                       : ' <span class="th-lt">(default calibration — no soundings yet)</span>';
   }
 
   function init(opts = {}) {

@@ -106,6 +106,19 @@
     <label class="wm-check" title="Streamlines through the smoothed wind field (only where there are data)">
       <input type="checkbox" id="wm-stream"> Streamlines
     </label>
+    <label class="wm-check" title="Experimental: height contours of the pressure surface (metres above mean sea level, from the aircraft's GNSS − baro altitude difference, calibrated against the radiosonde) and the geostrophic wind of the area from their slope (dashed arrow, Vg) next to the mean measured wind of the same aircraft (V). Needs at least 6 aircraft spread over the area; in a high the real wind is stronger than the geostrophic, in a low weaker">
+      <input type="checkbox" id="wm-hgt"> Heights
+    </label>
+    <label class="wm-check" title="Jet stream as on aviation significant-weather charts: a thick line along the axis of strongest wind where the smoothed wind is at least the chosen speed, an arrowhead downstream, barb flags and the speed at the maximum, double change bars where the speed has dropped by 20 kt. Dashed where the strongest wind lies at the edge of the data — the real axis is then probably beyond what the receiver sees">
+      <input type="checkbox" id="wm-jet"> Jet
+    </label>
+    <select id="wm-jetkt" class="wm-select" title="Jet stream: the smallest wind speed drawn as jet (80 kt as on aviation charts; 60 kt for weaker jets)">
+      <option value="80" selected>≥ 80 kt</option>
+      <option value="60">≥ 60 kt</option>
+    </select>
+    <label class="wm-check" title="Jet depth: also load FL250, FL290, FL330, FL370 and FL410 (±2 000 ft) and label the levels where the wind at the jet maximum is at least the chosen speed (e.g. 290/370 = FL290–FL370). Slower to load">
+      <input type="checkbox" id="wm-jetdepth"> Depth
+    </label>
     <label class="wm-check" title="The Jokioinen radiosonde at the chosen level (newest sounding launched before the end of the period, at most 24 h old), with the difference from the nearest Mode S cell in its popup">
       <input type="checkbox" id="wm-sonde"> Sonde
     </label>

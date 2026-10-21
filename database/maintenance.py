@@ -103,6 +103,10 @@ def get_stats(conn, db_path: str) -> dict:
         kinh = _table_stats("kinematics_hours", "ts", "date(ts, 'unixepoch')")
     except Exception:
         kinh = dict(empty)
+    try:
+        gnsh = _table_stats("gnss_hours", "ts", "date(ts, 'unixepoch')")
+    except Exception:
+        gnsh = dict(empty)
 
     try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
@@ -121,6 +125,7 @@ def get_stats(conn, db_path: str) -> dict:
         "departure_profiles":    depp,
         "height_series":         hser,
         "kinematics_hours":      kinh,
+        "gnss_hours":            gnsh,
         "db_size_mb":            db_size_mb,
     }
 

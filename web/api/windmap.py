@@ -108,6 +108,77 @@ def period_qnh(db, start_ts: float, end_ts: float, now: float,
     return current_qnh, "METAR now" if current_ok else "standard (no METAR)"
 
 
+G0 = 9.80665
+OMEGA = 7.2921e-5
+KT_PER_MS = 1.943844
+GEO_MIN_AC = 6                 # plane fit of the heights: at least this many aircraft …
+GEO_MIN_SPREAD_KM = 30.0       # … spread at least this much in both directions
+
+
+def _isa_height_m(ft: float) -> float:
+    """Geopotential height of the pressure altitude in the standard atmosphere (m)."""
+    return ft * 0.3048
+
+
+def geostrophic(pts, lat0: float):
+    """Plane fit D = a + b·x + c·y of the aircraft heights of the pressure
+    surface (one point per aircraft and cell; outliers > 3 × RMS, at least
+    20 m, removed and refitted) → geostrophic wind of the area
+    (Vg = g / f · k × ∇z), the mean measured wind of the same points and the
+    ageostrophic difference.  None when too few or too clustered aircraft."""
+    if len(pts) < GEO_MIN_AC:
+        return None
+
+    def fit(P):
+        n = len(P)
+        mx = sum(p[0] for p in P) / n
+        my = sum(p[1] for p in P) / n
+        sxx = sum((p[0] - mx) ** 2 for p in P) / n
+        syy = sum((p[1] - my) ** 2 for p in P) / n
+        sxy = sum((p[0] - mx) * (p[1] - my) for p in P) / n
+        lmin = (sxx + syy) / 2 - math.sqrt(((sxx - syy) / 2) ** 2 + sxy ** 2)
+        if lmin < GEO_MIN_SPREAD_KM ** 2:
+            return None
+        md = sum(p[2] for p in P) / n
+        sx = sum((p[0] - mx) * (p[2] - md) for p in P) / n
+        sy = sum((p[1] - my) * (p[2] - md) for p in P) / n
+        D = sxx * syy - sxy * sxy
+        gx = (sx * syy - sy * sxy) / D
+        gy = (sy * sxx - sx * sxy) / D
+        res = [p[2] - (md + gx * (p[0] - mx) + gy * (p[1] - my)) for p in P]
+        return gx, gy, res, (sxx, syy, sxy, D, n), md, (mx, my)
+
+    f0 = fit(pts)
+    if f0 is None:
+        return None
+    rms = math.sqrt(sum(r * r for r in f0[2]) / len(f0[2]))
+    keep = [p for p, r in zip(pts, f0[2]) if abs(r) <= max(3 * rms, 20.0)]
+    f1 = fit(keep) if len(keep) >= GEO_MIN_AC else None
+    if f1 is None:
+        return None
+    gx, gy, res, (sxx, syy, sxy, D, n), md, (mx, my) = f1
+    f = 2 * OMEGA * math.sin(math.radians(lat0))
+    k = G0 / f / 1000.0 * KT_PER_MS                 # (m per km) → kt
+    ug, vg = -k * gy, k * gx
+    s2 = sum(r * r for r in res) / max(1, n - 3)
+    se_gx = math.sqrt(s2 / (n * D / syy)) if D > 0 else None
+    se_gy = math.sqrt(s2 / (n * D / sxx)) if D > 0 else None
+    se = k * math.hypot(se_gx or 0, se_gy or 0)
+    um = sum(p[3] for p in keep) / n
+    vm = sum(p[4] for p in keep) / n
+    to_dir = lambda u, v: (math.degrees(math.atan2(-u, -v)) % 360, math.hypot(u, v))
+    gd, gs = to_dir(ug, vg)
+    mdir, ms = to_dir(um, vm)
+    ad, as_ = to_dir(um - ug, vm - vg)
+    return {"dir": round(gd), "spd": round(gs, 1), "se_kt": round(se, 1),
+            "meas_dir": round(mdir), "meas_spd": round(ms, 1),
+            "ageo_dir": round(ad), "ageo_spd": round(as_, 1),
+            "grad_m_per_100km": round(math.hypot(gx, gy) * 100, 1),
+            "d_mean_m": round(md, 1), "rms_m": round(math.sqrt(s2), 1), "aircraft": n,
+            "removed": len(pts) - n,
+            "centre_km": [round(mx, 1), round(my, 1)]}
+
+
 def _episodes(db, start_ts, end_ts):
     """{icao: [(t0, t1), …]} of GPS degradation episodes overlapping the period."""
     out = {}
@@ -155,7 +226,7 @@ def build_windmap(
 
     rows = db.execute(
         """SELECT icao, ts, lat, lon, altitude, groundspeed,
-                  best_wind_spd, best_wind_dir, best_temp
+                  best_wind_spd, best_wind_dir, best_temp, gmb_ft, nacp
            FROM observations
            WHERE altitude    BETWEEN ? AND ?
              AND ts          BETWEEN ? AND ?
@@ -226,6 +297,21 @@ def build_windmap(
     if lapse is None:
         lapse = -2.0 if fl >= 50 else -1.5                  # ≈ standard, K / 1 000 ft
 
+    # ── Height of the pressure surface (D-value) per row ─────────────────
+    # GNSS − baro difference with the current calibration (collector/
+    # gnss_heights.py), moved to the band centre: dD/dz_p = T / T_isa − 1
+    from collector import gnss_heights as gh
+    cal = gh.current(db)
+    t_band = (sum(t for _, t in tp) / len(tp)) if tp else None
+    tisa_c = gh.isa_temp_k(alt_centre_query)
+    k_d = ((t_band + 273.15) / tisa_c - 1) if t_band is not None else 0.0
+
+    def d_value(r, in_ep):
+        if r[9] is None or (r[10] or 0) < gh.MIN_NACP or in_ep:
+            return None
+        return (r[9] * gh.FT - gh.correction(cal, r[4], r[0])
+                + k_d * (alt_centre_query - r[4]) * gh.FT)
+
     # ── Bin: cell → aircraft → sums ───────────────────────────────────────
     coslat = math.cos(math.radians(center_lat))
     km_per_deg_lon = KM_PER_DEG_LAT * coslat
@@ -238,22 +324,35 @@ def build_windmap(
         dr = math.radians(float(r[7]))
         u, v = -spd * math.sin(dr), -spd * math.cos(dr)
         a = cells.setdefault(key, {}).setdefault(
-            r[0], {"u": 0.0, "v": 0.0, "n": 0, "t": 0.0, "tn": 0, "ep": False})
+            r[0], {"u": 0.0, "v": 0.0, "n": 0, "t": 0.0, "tn": 0, "ep": False,
+                   "d": 0.0, "dn": 0, "x": 0.0, "y": 0.0})
         a["u"] += u
         a["v"] += v
         a["n"] += 1
+        a["x"] += x
+        a["y"] += y
         a["ep"] = a["ep"] or in_ep
+        dv = d_value(r, in_ep)
+        if dv is not None:
+            a["d"] += dv
+            a["dn"] += 1
         if r[8] is not None:
             a["t"] += float(r[8]) - lapse * (r[4] - alt_centre_query) / 1000.0
             a["tn"] += 1
 
     # ── Cell averages over aircraft ───────────────────────────────────────
     result_cells = []
+    geo_pts = []                    # (x km, y km, D m, u kt, v kt) per aircraft and cell
     for (cx, cy), acs in cells.items():
         means = []
+        dvals = []
         for a in acs.values():
             means.append((a["u"] / a["n"], a["v"] / a["n"],
                           a["t"] / a["tn"] if a["tn"] else None, a["n"], a["ep"]))
+            if a["dn"]:
+                dvals.append(a["d"] / a["dn"])
+                geo_pts.append((a["x"] / a["n"], a["y"] / a["n"], a["d"] / a["dn"],
+                                a["u"] / a["n"], a["v"] / a["n"]))
         k = len(means)
         u_m = sum(m[0] for m in means) / k
         v_m = sum(m[1] for m in means) / k
@@ -282,6 +381,8 @@ def build_windmap(
             "ac":       k,
             "obs":      sum(m[3] for m in means),
             "gnss_deg": sum(1 for m in means if m[4]),
+            "dval":     round(sorted(dvals)[len(dvals) // 2], 1) if dvals else None,
+            "dval_ac":  len(dvals),
         })
 
     # Layer mean temperature (weighted by aircraft) → ΔT per cell
@@ -290,6 +391,9 @@ def build_windmap(
     for c in result_cells:
         c["dtemp"] = (round(c["temp"] - t_layer, 1)
                       if c["temp"] is not None and t_layer is not None else None)
+
+    geo = geostrophic(geo_pts, center_lat)
+    z_isa = _isa_height_m(alt_centre_query)
 
     # Fewest aircraft first so better-supported cells render on top
     result_cells.sort(key=lambda c: (c["ac"], c["obs"]))
@@ -308,6 +412,9 @@ def build_windmap(
         "aircraft":            len({r[0] for r, _ in kept}),
         "cells_count":         len(result_cells),
         "temp_layer":          round(t_layer, 1) if t_layer is not None else None,
+        "geo":                 geo,
+        "z_isa_m":             round(z_isa, 1),
+        "gcal":                {"soundings": cal.get("soundings"), "pairs": cal.get("pairs")},
         "lapse_k_per_1000ft":  round(lapse, 2),
         "qnh_hpa":             round(qnh_hpa, 1),
         "qnh_source":          qnh_source,

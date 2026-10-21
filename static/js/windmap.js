@@ -15,6 +15,11 @@
  * opacity = number of different aircraft in the cell (1 faint, 2, 3+ full).
  * Layers: ΔT (cells by temperature minus the layer mean); isotachs and
  * streamlines from a smoothed field (windmap_analysis.js, only near data);
+ * height contours of the pressure surface from the aircraft GNSS − baro
+ * difference with the geostrophic wind of the area (experimental, see
+ * collector/gnss_heights.py);
+ * the jet-stream symbol of aviation SIGWX charts (axis line with arrowhead,
+ * barb flags at the maximum, change bars, optional vertical depth);
  * the Jokioinen radiosonde at the level; Compare = change since the previous
  * period or the thermal wind to another level (purple arrows, cells tinted by
  * warming / cooling or by veering / backing).  A time slider steps the period
@@ -53,6 +58,8 @@ const sondeLayer = L.layerGroup().addTo(map);
 let lastData  = null;         // last API answer, redrawn on theme / filter changes
 let lastCmp   = null;         // {mode, data} of the comparison
 let lastSonde = null;         // /api/sonde answer
+let lastDepth = null;         // [{fl, data}] other levels for the jet depth
+const DEPTH_FLS = [250, 290, 330, 370, 410];
 
 // Jokioinen (used when a sounding has no position)
 const SONDE_SITE = [60.814, 23.498];
@@ -75,6 +82,8 @@ const sondeColor = () => pageIsLight() ? '#be185d' : '#f472b6';   // as on the S
 const lineColor  = () => pageIsLight() ? '#334155' : '#cbd5e1';   // streamlines
 const isoColor   = () => pageIsLight() ? '#a16207' : '#facc15';   // isotachs
 const haloColor  = () => pageIsLight() ? '#f1f5f9' : '#0f1923';
+const jetColor   = () => pageIsLight() ? '#111827' : '#f8fafc';   // jet-stream symbol
+const hgtColor   = () => pageIsLight() ? '#0f766e' : '#5eead4';   // height contours, geostrophic wind
 
 // Barb opacity by the number of different aircraft behind the cell
 const acOpacity = ac => ac >= 3 ? 1.0 : ac === 2 ? 0.7 : 0.42;
@@ -164,13 +173,12 @@ function makeBarbIcon(cell, showLabel, opts = {}) {
 }
 
 // Arrow pointing TOWARDS the direction of a vector (bearing °), length by size (kt)
-function makeArrowIcon(bearing, kt, label, showLabel) {
-  const color = cmpColor();
+function makeArrowIcon(bearing, kt, label, showLabel, color = cmpColor(), dash = '', shiftPx = 0) {
   const len = Math.max(10, Math.min(40, 8 + 0.8 * kt));
   const W = 96, H = 96, cx = 48, cy = 48;
   const tipY = cy - len;
   const arrow = `<g transform="rotate(${bearing},${cx},${cy})">
-      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${tipY + 2}" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${tipY + 2}" stroke="${color}" stroke-width="2.2" stroke-linecap="round"${dash ? ` stroke-dasharray="${dash}"` : ''}/>
       <polygon points="${cx},${tipY - 3} ${cx - 4.5},${tipY + 6} ${cx + 4.5},${tipY + 6}" fill="${color}"/>
     </g>`;
   let lab = '';
@@ -184,7 +192,7 @@ function makeArrowIcon(bearing, kt, label, showLabel) {
   }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
       style="overflow:visible">${arrow}${lab}</svg>`;
-  return L.divIcon({ html: svg, className: '', iconSize: [W, H], iconAnchor: [cx, cy] });
+  return L.divIcon({ html: svg, className: '', iconSize: [W, H], iconAnchor: [cx - shiftPx, cy] });
 }
 
 const fmtT = t => (t < 0 ? '−' : '') + Math.abs(t).toFixed(1);
@@ -204,8 +212,8 @@ function isaP(ft) {
 
 // ── Settings (remembered in the browser) ──────────────────────────────────
 const SETTINGS_KEY = 'ms_windmap';
-const CTRL_IDS = ['wm-fl', 'wm-tol', 'wm-period', 'wm-cell', 'wm-minac', 'wm-cmp', 'wm-fl2'];
-const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-sonde'];
+const CTRL_IDS = ['wm-fl', 'wm-tol', 'wm-period', 'wm-cell', 'wm-minac', 'wm-cmp', 'wm-fl2', 'wm-jetkt'];
+const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-hgt', 'wm-jet', 'wm-jetdepth', 'wm-sonde'];
 const DATE_IDS = ['wm-start', 'wm-end'];           // the custom period
 const $ = id => document.getElementById(id);
 function saveSettings() {
@@ -264,6 +272,10 @@ function render() {
       `Wind: <b>${cell.wind_dir.toFixed(0)}° @ ${cell.wind_spd.toFixed(1)} kt</b>` +
         (cell.wind_sd != null ? ` <span style="color:#64748b">(spread between aircraft ${cell.wind_sd.toFixed(1)} kt)</span>` : ''),
     ];
+    if (cell.dval != null && d.z_isa_m != null) {
+      lines.push(`Height of the pressure surface: <b>${Math.round(d.z_isa_m + cell.dval).toLocaleString('en').replace(/,/g, ' ')} m</b> ` +
+        `<span style="color:#64748b">(D ${fmtSigned(cell.dval, 0)} m vs the standard atmosphere, ${cell.dval_ac} a/c with GNSS − baro)</span>`);
+    }
     if (cell.temp != null) {
       lines.push(`Temp at the level: <b>${fmtT(cell.temp)} °C</b>` +
         (cell.dtemp != null ? ` · ΔT ${fmtSigned(cell.dtemp)} K` : '') +
@@ -365,10 +377,12 @@ function renderCompare(d, cells, showLabel) {
   return out;
 }
 
-// ── Analysis: isotachs, strongest wind, streamlines ───────────────────────
+// ── Analysis: isotachs, strongest wind, streamlines, heights ──────────────
 function renderAnalysis(d, cells) {
-  const iso = $('wm-iso').checked, stream = $('wm-stream').checked;
-  if (!(iso || stream) || cells.length < 4) return;
+  const iso = $('wm-iso').checked, stream = $('wm-stream').checked, hgt = $('wm-hgt').checked;
+  const jet = $('wm-jet').checked;
+  if (hgt) renderGeostrophic(d);
+  if (!(iso || stream || hgt || jet) || cells.length < 4) return;
   const g = wmAnalyse(cells, { lat0: RECEIVER_LAT, lon0: RECEIVER_LON, cellKm: d.cell_km });
   if (!g) return;
   if (stream) {
@@ -408,16 +422,168 @@ function renderAnalysis(d, cells) {
         }
       }
       const jc = wmJetCore(g, 30);
-      if (jc) {
-        L.marker([jc.lat, jc.lon], { icon: L.divIcon({ className: 'wm-iso-label wm-jet-label',
-            html: `<span style="color:${isoColor()}">▲ max ${Math.round(jc.spd)} kt</span>`,
-            iconSize: [80, 14], iconAnchor: [40, -6] }) })
-          .bindTooltip(`Strongest analysed wind ${Math.round(jc.dir)}° ${Math.round(jc.spd)} kt (smoothed field; may lie at the edge of the data)`)
-          .addTo(anaLayer);
+      if (jc) renderJet(jc);
+    }
+  }
+  if (hgt) renderHeights(d, g);
+  if (jet) renderJetAxis(d, g);
+}
+
+// ── Jet stream (aviation SIGWX symbol) ────────────────────────────────────
+// Thick line along the axis of strongest wind where it is ≥ the chosen speed
+// (wmJetAxis), arrowhead downstream, barb flags and "FLxxx nnn kt" at the
+// maximum, change bars where the speed has changed by 20 kt from the maximum,
+// optionally the depth (levels with ≥ the speed at the maximum).  Dashed where
+// the strongest wind lies at the edge of the data — the real axis may be beyond.
+function jetFlagsIcon(bearing, spd) {
+  const W = 120, cx = 60, cy = 60, FLEN = 13;
+  const flags = (col, sw) => {                    // on the left of the axis, upstream of the maximum
+    let g = '', y = cy + 2, rem = Math.round(spd / 5) * 5;
+    while (rem >= 50) { g += `<polygon points="${cx},${y} ${cx - FLEN},${y - 4} ${cx},${y + 6}" fill="${col}" stroke="${col}" stroke-width="${sw - 2.2}"/>`; y += 8; rem -= 50; }
+    while (rem >= 10) { g += `<line x1="${cx}" y1="${y}" x2="${cx - FLEN}" y2="${y - 5}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`; y += 5; rem -= 10; }
+    if (rem >= 5) g += `<line x1="${cx}" y1="${y}" x2="${cx - FLEN / 2}" y2="${y - 2.5}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    return g;
+  };
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${W}" viewBox="0 0 ${W} ${W}" style="overflow:visible">
+      <g transform="rotate(${bearing},${cx},${cy})"><g opacity="0.6">${flags(haloColor(), 5)}</g>${flags(jetColor(), 2.2)}</g></svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [W, W], iconAnchor: [cx, cy] });
+}
+function jetDepth(d, pt, minKt) {
+  // levels (of the current one and DEPTH_FLS) with ≥ minKt at the maximum, contiguous around the current level
+  if (!lastDepth) return null;
+  const lv = lastDepth.filter(x => x.data && x.data.cells && x.data.cells.length >= 4 && x.fl !== d.fl)
+    .map(x => ({ fl: x.fl, data: x.data }));
+  lv.push({ fl: d.fl, here: true });
+  lv.sort((a, b) => a.fl - b.fl);
+  for (const x of lv) {
+    if (x.here) { x.spd = pt.spd; continue; }
+    const g2 = wmAnalyse(x.data.cells, { lat0: RECEIVER_LAT, lon0: RECEIVER_LON, cellKm: x.data.cell_km });
+    x.spd = null;
+    if (!g2) continue;
+    const [px, py] = g2.proj.toXY(pt.lat, pt.lon);
+    let best = Infinity;
+    for (let k = 0; k < g2.spd.length; k++) {
+      if (!g2.ok[k]) continue;
+      const i = k % g2.nx, j = Math.floor(k / g2.nx);
+      const r = Math.hypot(g2.x0 + i * g2.dx - px, g2.y0 + j * g2.dx - py);
+      if (r < best && r <= x.data.cell_km) { best = r; x.spd = g2.spd[k]; }
+    }
+  }
+  const h = lv.findIndex(x => x.here);
+  let a = h, b = h;
+  while (a > 0 && lv[a - 1].spd != null && lv[a - 1].spd >= minKt) a--;
+  while (b < lv.length - 1 && lv[b + 1].spd != null && lv[b + 1].spd >= minKt) b++;
+  return { lo: lv[a].fl, hi: lv[b].fl, levels: lv.map(x => `${flLabel(x.fl)} ${x.spd != null ? Math.round(x.spd) + ' kt' : '–'}`) };
+}
+function renderJetAxis(d, g) {
+  const minKt = parseInt($('wm-jetkt').value, 10) || 80;
+  const J = wmJetAxis(g, { minKt });
+  if (!J) return;
+  const P = J.pts, col = jetColor(), halo = haloColor();
+  const mx = P[J.iMax];
+  const dep = $('wm-jetdepth').checked ? jetDepth(d, mx, minKt) : null;
+  const flS = flLabel(d.fl);
+  const depS = dep && (dep.lo !== d.fl || dep.hi !== d.fl) ? ` ${flLabel(dep.lo).replace('FL', '')}/${flLabel(dep.hi).replace('FL', '')}` : '';
+  const edgeMax = mx.edge;
+  const tip = `Jet stream ${flS}: maximum ${Math.round(mx.spd)} kt from ${Math.round(mx.dir)}°` +
+    ` · axis drawn where the smoothed wind is ≥ ${minKt} kt (${P.length} section${P.length === 1 ? '' : 's'} of ${Math.round(2 * g.dx)} km)` +
+    (edgeMax ? ' · the strongest wind lies at the edge of the data: the real axis is probably beyond it (dashed)' : '') +
+    (dep ? ` · ≥ ${minKt} kt at the maximum: ${flLabel(dep.lo)}–${flLabel(dep.hi)} (${dep.levels.join(', ')})` : '');
+  // the line: solid where the axis is inside the data, dashed at the edge
+  const ext = P.length === 1
+    ? [{ ...P[0], lat: g.proj.toLL(P[0].x - J.ex * g.dx, P[0].y - J.ey * g.dx)[0], lon: g.proj.toLL(P[0].x - J.ex * g.dx, P[0].y - J.ey * g.dx)[1] },
+       { ...P[0], lat: g.proj.toLL(P[0].x + J.ex * g.dx, P[0].y + J.ey * g.dx)[0], lon: g.proj.toLL(P[0].x + J.ex * g.dx, P[0].y + J.ey * g.dx)[1] }]
+    : P;
+  L.polyline(ext.map(p => [p.lat, p.lon]), { color: halo, weight: 8, opacity: 0.55, interactive: false }).addTo(anaLayer);
+  for (let i = 0; i < ext.length - 1; i++) {
+    const a = ext[i], b = ext[i + 1], dashed = a.edge || b.edge;
+    L.polyline([[a.lat, a.lon], [b.lat, b.lon]], { color: col, weight: 4, opacity: 0.95, dashArray: dashed ? '10 7' : null,
+                                                  lineCap: dashed ? 'butt' : 'round' }).bindTooltip(tip).addTo(anaLayer);
+  }
+  // arrowhead at the downstream end
+  const e1 = ext[ext.length - 1], e0 = ext[ext.length - 2];
+  const brgEnd = bearingOf((e1.lon - e0.lon) * Math.cos(e1.lat * Math.PI / 180), e1.lat - e0.lat);
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26" style="overflow:visible">
+      <polygon points="13,0 22,20 13,15 4,20" fill="${col}" stroke="${halo}" stroke-width="1.5" transform="rotate(${brgEnd},13,13)"/></svg>`;
+  L.marker([e1.lat, e1.lon], { icon: L.divIcon({ html: head, className: '', iconSize: [26, 26], iconAnchor: [13, 13] }),
+                               interactive: false }).addTo(anaLayer);
+  // barb flags and label at the maximum (bearing of the axis there)
+  // (the flags lie on the axis upstream of the maximum: bearing of the segment leading into it)
+  const im = P.length === 1 ? 1 : Math.max(1, J.iMax);
+  const m0 = ext[im - 1], m1 = ext[im];
+  const brgMax = bearingOf((m1.lon - m0.lon) * Math.cos(m1.lat * Math.PI / 180), m1.lat - m0.lat);
+  L.marker([mx.lat, mx.lon], { icon: jetFlagsIcon(brgMax, mx.spd), zIndexOffset: 6500 }).bindTooltip(tip).addTo(anaLayer);
+  const lab = `${flS} ${Math.round(mx.spd)} kt${depS}${edgeMax ? ' ↑ stronger beyond?' : ''}`;
+  L.marker([mx.lat, mx.lon], { interactive: false, zIndexOffset: 6501, icon: L.divIcon({ className: 'wm-iso-label wm-jet-label',
+      html: `<span style="color:${col}">${lab}</span>`, iconSize: [170, 14], iconAnchor: [-14, 22] }) }).addTo(anaLayer);
+  // change bars: where the speed along the axis has dropped by 20, 40 … kt from the maximum
+  const kx = 110.57 * Math.cos(RECEIVER_LAT * Math.PI / 180);
+  for (const dirn of [-1, 1]) {
+    let next = Math.round(mx.spd) - 20;
+    for (let i = J.iMax; i + dirn >= 0 && i + dirn < P.length; i += dirn) {
+      const a = P[i], b = P[i + dirn];
+      while (next >= minKt - 20 && a.spd >= next && b.spd < next) {
+        const f = (a.spd - next) / (a.spd - b.spd);
+        const x = a.x + f * (b.x - a.x), y = a.y + f * (b.y - a.y);
+        for (const off of [-3, 3]) {                     // double bar across the axis
+          const cx = x + off * J.ex, cy = y + off * J.ey;
+          const p1 = g.proj.toLL(cx + 14 * J.lx, cy + 14 * J.ly), p2 = g.proj.toLL(cx - 14 * J.lx, cy - 14 * J.ly);
+          L.polyline([p1, p2], { color: col, weight: 2.5, opacity: 0.95, interactive: false }).addTo(anaLayer);
+        }
+        next -= 20;
       }
     }
   }
 }
+
+function renderJet(jc) {
+  L.marker([jc.lat, jc.lon], { icon: L.divIcon({ className: 'wm-iso-label wm-jet-label',
+      html: `<span style="color:${isoColor()}">▲ max ${Math.round(jc.spd)} kt</span>`,
+      iconSize: [80, 14], iconAnchor: [40, -6] }) })
+    .bindTooltip(`Strongest analysed wind ${Math.round(jc.dir)}° ${Math.round(jc.spd)} kt (smoothed field; may lie at the edge of the data)`)
+    .addTo(anaLayer);
+}
+
+// Height contours of the pressure surface (m above mean sea level) from the
+// cells' D-values, only where cells with a GNSS − baro difference are near
+function renderHeights(d, g) {
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < g.h.length; k++) if (g.hok[k]) { lo = Math.min(lo, g.h[k]); hi = Math.max(hi, g.h[k]); }
+  if (!(hi > lo)) return;
+  const step = hi - lo > 120 ? 20 : hi - lo > 40 ? 10 : 5;
+  const z0 = d.z_isa_m || 0;
+  const levels = [];
+  for (let lv = Math.ceil((z0 + lo) / step) * step; lv <= z0 + hi; lv += step) levels.push(lv - z0);
+  const C = wmContours(g, 'h', levels, 'hok');
+  const col = hgtColor();
+  for (const [lv, segs] of Object.entries(C)) {
+    L.polyline(segs, { color: col, weight: 1.5, opacity: 0.85, interactive: false }).addTo(anaLayer);
+    const picks = segs.length > 6 ? [Math.floor(segs.length / 3), Math.floor(2 * segs.length / 3)] : [Math.floor(segs.length / 2)];
+    const z = Math.round(z0 + parseFloat(lv));
+    for (const n of picks) {
+      const [a, b] = segs[n];
+      L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], { interactive: false, icon: L.divIcon({
+        className: 'wm-iso-label', html: `<span style="color:${col}">${z}</span>`, iconSize: [34, 12], iconAnchor: [17, 6] }),
+      }).addTo(anaLayer);
+    }
+  }
+}
+
+// Geostrophic wind of the area (plane fit of the heights, server side) and
+// the mean measured wind of the same aircraft, at the centre of the fit
+function renderGeostrophic(d) {
+  const g = d.geo;
+  if (!g) return;
+  const [la, lo] = wmProj(RECEIVER_LAT, RECEIVER_LON).toLL(g.centre_km[0], g.centre_km[1]);
+  const tip = `Geostrophic wind of the area ${g.dir}° ${Math.round(g.spd)} kt (±${Math.round(g.se_kt)}) from the height gradient ` +
+    `${g.grad_m_per_100km} m / 100 km · measured mean ${g.meas_dir}° ${Math.round(g.meas_spd)} kt · ageostrophic ${Math.round(g.ageo_spd)} kt ` +
+    `(${g.aircraft} aircraft positions${g.removed ? `, ${g.removed} outliers left out` : ''}, residual ${g.rms_m} m)`;
+  L.marker([la, lo], { icon: makeArrowIcon(meas(g.meas_dir), g.meas_spd, `V ${Math.round(g.meas_spd)}`, true, lineColor(), '', 18),
+                       zIndexOffset: 6000 }).bindTooltip(tip).addTo(sondeLayer);
+  L.marker([la, lo], { icon: makeArrowIcon(meas(g.dir), g.spd, `Vg ${Math.round(g.spd)}`, true, hgtColor(), '4 2', -18),
+                       zIndexOffset: 6001 }).bindTooltip(tip).addTo(sondeLayer);
+}
+const meas = from => (from + 180) % 360;              // wind FROM → arrow towards
 
 // ── Radiosonde at the level ───────────────────────────────────────────────
 function sondeAtLevel(s, pHpa) {
@@ -495,6 +661,13 @@ function statusText(d, shown) {
     qnhNote = ` · QNH ${d.qnh_hpa} hPa${d.qnh_source ? ' (' + d.qnh_source + ')' : ''}, alt corr ${corr >= 0 ? '+' : '−'}${Math.abs(corr)} ft`;
   }
   const tl = d.temp_layer != null ? ` · layer ${fmtT(d.temp_layer)} °C (lapse ${fmtSigned(d.lapse_k_per_1000ft)} K/1000 ft)` : '';
+  let hg = '';
+  if ($('wm-hgt').checked) {
+    const g = d.geo;
+    hg = g ? ` · geostrophic ${g.dir}°/${Math.round(g.spd)} kt vs measured ${g.meas_dir}°/${Math.round(g.meas_spd)} kt (${g.aircraft} aircraft positions)`
+           : ' · heights: too few or too clustered aircraft for the geostrophic wind';
+    if (d.gcal && !d.gcal.soundings) hg += ' · height calibration: default (no soundings yet)';
+  }
   const shownTxt = shown != null && shown !== d.cells_count ? `${shown} of ${d.cells_count}` : `${d.cells_count}`;
   let cmp = '';
   if (lastCmp && lastCmp.data) {
@@ -505,7 +678,7 @@ function statusText(d, shown) {
   }
   return `${flStr} ±${d.tolerance_ft} ft · ${d.aircraft} a/c, ${d.obs_used} obs → ${shownTxt} cells (${d.cell_km} km)` +
     (rmParts.length ? ` · removed ${rmParts.join(', ')}` : '') +
-    ` · ${d.period_start} – ${d.period_end}${tl}${qnhNote}${cmp}`;
+    ` · ${d.period_start} – ${d.period_end}${tl}${qnhNote}${cmp}${hg}`;
 }
 
 // ── Period and time slider ────────────────────────────────────────────────
@@ -569,7 +742,13 @@ async function loadWindMap() {
     jobs.push($('wm-sonde').checked
       ? fetch(`/api/sonde?at=${r.end}&max_age_h=24`).then(x => x.json()).catch(() => null)
       : Promise.resolve(null));
-    const [d, c, s] = await Promise.all(jobs);
+    const depthOn = $('wm-jet').checked && $('wm-jetdepth').checked;
+    jobs.push(depthOn
+      ? Promise.all(DEPTH_FLS.filter(f => f !== fl).map(f => fetch(apiUrl(f, 2000, cell, gnss, r.start, r.end))
+          .then(x => x.json()).then(data => ({ fl: f, data })).catch(() => ({ fl: f, data: null }))))
+      : Promise.resolve(null));
+    const [d, c, s, dep] = await Promise.all(jobs);
+    lastDepth = dep;
     lastData = d;
     lastCmp = c ? { mode: cmpMode, data: c } : null;
     lastSonde = s;
@@ -642,6 +821,7 @@ function syncVisibility() {
   $('wm-custom-range').classList.toggle('wm-hidden', $('wm-period').value !== 'custom');
   $('wm-fl2').classList.toggle('wm-hidden', $('wm-cmp').value !== 'level');
   $('wm-dt').disabled = $('wm-cmp').value !== 'off';
+  $('wm-jetkt').disabled = $('wm-jetdepth').disabled = !$('wm-jet').checked;
   updateTimeLabel();
 }
 $('wm-period').addEventListener('change', syncVisibility);
@@ -650,7 +830,7 @@ $('wm-play').addEventListener('click', play);
 $('wm-tshift').addEventListener('input', updateTimeLabel);
 $('wm-tshift').addEventListener('change', () => { if (!playing) loadWindMap(); });
 // Display-only options redraw the last answer without a new query
-['wm-minac', 'wm-dt', 'wm-iso', 'wm-stream'].forEach(id => $(id).addEventListener('change', () => {
+['wm-minac', 'wm-dt', 'wm-iso', 'wm-stream', 'wm-hgt', 'wm-jetkt'].forEach(id => $(id).addEventListener('change', () => {
   saveSettings();
   if (lastData && lastData.cells && lastData.cells.length) {
     const shown = render();
@@ -658,7 +838,7 @@ $('wm-tshift').addEventListener('change', () => { if (!playing) loadWindMap(); }
   }
 }));
 // Options that need another query
-['wm-cmp', 'wm-fl2', 'wm-sonde'].forEach(id => $(id).addEventListener('change', () => {
+['wm-cmp', 'wm-fl2', 'wm-sonde', 'wm-jet', 'wm-jetdepth'].forEach(id => $(id).addEventListener('change', () => {
   syncVisibility(); loadWindMap();
 }));
 ['wm-auto'].forEach(id => $(id).addEventListener('change', saveSettings));

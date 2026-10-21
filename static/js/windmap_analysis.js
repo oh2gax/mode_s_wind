@@ -5,9 +5,14 @@
  *                                 winds / temperatures onto a regular node grid,
  *                                 only near data (nodes farther than 0.75 cell
  *                                 from any cell centre are left empty)
- *   wmContours(grid, field, lvls) marching-squares contour segments (isotachs)
+ *                                 (and the heights of the pressure surface, "h",
+ *                                 from the cells' D-values where they have one)
+ *   wmContours(grid, field, lvls) marching-squares contour segments (isotachs,
+ *                                 height contours)
  *   wmStreamlines(grid, opts)     streamlines traced through the analysed wind
  *   wmJetCore(grid, minKt)        strongest analysed wind (jet core marker)
+ *   wmJetAxis(grid, opts)         jet-stream axis: the line of strongest wind
+ *                                 along the flow where it is at least minKt
  *
  * Coordinates: a flat local projection centred on (lat0, lon0) in km —
  * x = Δlon · 110.57 · cos(lat0), y = Δlat · 110.57 — the same as the grid
@@ -46,7 +51,8 @@
     const pts = cells.map(c => {
       const [x, y] = P.toXY(c.lat, c.lon);
       const [u, v] = toUV(c.wind_dir, c.wind_spd);
-      return { x, y, u, v, t: c.temp, w: Math.min(10, Math.max(1, c.ac || 1)) };
+      return { x, y, u, v, t: c.temp, w: Math.min(10, Math.max(1, c.ac || 1)),
+               h: c.dval != null && c.dval_ac ? c.dval : null, hw: Math.min(10, c.dval_ac || 0) };
     });
     if (!pts.length) return null;
     let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
@@ -59,17 +65,20 @@
     const N = nx * ny;
     const u = new Float64Array(N), v = new Float64Array(N), t = new Float64Array(N).fill(NaN);
     const spd = new Float64Array(N).fill(NaN), ok = new Uint8Array(N);
+    const h = new Float64Array(N).fill(NaN), hok = new Uint8Array(N);
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + i * dx, y = y0 + j * dx;
-        let near = Infinity, sw = 0, su = 0, sv = 0, stw = 0, st = 0;
+        let near = Infinity, nearH = Infinity, sw = 0, su = 0, sv = 0, stw = 0, st = 0, shw = 0, sh = 0;
         for (const p of pts) {
           const r = Math.hypot(p.x - x, p.y - y);
           if (r < near) near = r;
           if (r > cut) continue;
-          const w = p.w * Math.exp(-(r * r) / (L * L));
+          const e = Math.exp(-(r * r) / (L * L));
+          const w = p.w * e;
           sw += w; su += w * p.u; sv += w * p.v;
           if (p.t != null) { stw += w; st += w * p.t; }
+          if (p.h != null) { if (r < nearH) nearH = r; shw += p.hw * e; sh += p.hw * e * p.h; }
         }
         const k = j * nx + i;
         if (near <= reach && sw > 0) {
@@ -78,18 +87,19 @@
           spd[k] = Math.hypot(u[k], v[k]);
           if (stw > 0) t[k] = st / stw;
         }
+        if (nearH <= reach && shw > 0) { hok[k] = 1; h[k] = sh / shw; }
       }
     }
-    return { nx, ny, x0, y0, dx, u, v, spd, t, ok, proj: P };
+    return { nx, ny, x0, y0, dx, u, v, spd, t, ok, h, hok, proj: P };
   }
 
   /** Marching squares: segments [[lat, lon], [lat, lon]] of field = level,
    *  only in squares whose four corners are analysed. → {level: [seg, …]} */
-  function wmContours(g, field, levels) {
+  function wmContours(g, field, levels, okKey = 'ok') {
     const out = {};
-    const F = g[field];
+    const F = g[field], OK = g[okKey];
     const at = (i, j) => F[j * g.nx + i];
-    const okAt = (i, j) => g.ok[j * g.nx + i];
+    const okAt = (i, j) => OK[j * g.nx + i];
     const ll = (i, j) => g.proj.toLL(g.x0 + i * g.dx, g.y0 + j * g.dx);
     for (const lv of levels) {
       const segs = [];
@@ -189,7 +199,75 @@
     return { lat, lon, spd: best, dir };
   }
 
-  const api = { wmAnalyse, wmContours, wmStreamlines, wmJetCore, wmToUV: toUV, wmFromUV: fromUV, wmProj: proj };
+  /**
+   * Jet-stream axis (the line of the aviation SIGWX jet symbol).
+   * The mean flow direction of the analysed points with ≥ minKt defines an
+   * along-flow (s) / across-flow (c) frame; the analysed grid is cut into
+   * across-flow sections stepKm wide, and in each section the strongest
+   * point is the axis.  The run of sections with ≥ minKt that contains the
+   * overall maximum (gaps of one section bridged) is the jet; the across-flow
+   * position is smoothed over three sections.  A point is "edge" when the
+   * strongest wind of its section lies at the edge of the data across the
+   * flow (the real axis may be beyond); otherwise the speed falls off on both
+   * sides and the axis is inside the data.
+   * → {pts: [{lat, lon, x, y, spd, dir, edge}], iMax, ex, ey (unit flow
+   *    vector), nx, ny (unit vector to the left)} or null
+   */
+  function wmJetAxis(g, opts = {}) {
+    const minKt = opts.minKt || 80;
+    const step = opts.stepKm || 2 * g.dx;
+    const N = g.nx * g.ny;
+    let su = 0, sv = 0, n = 0;
+    for (let k = 0; k < N; k++) {
+      if (!g.ok[k] || !(g.spd[k] >= minKt)) continue;
+      const w = g.spd[k] - minKt + 1;
+      su += w * g.u[k]; sv += w * g.v[k]; n++;
+    }
+    if (!n) return null;
+    const m = Math.hypot(su, sv);
+    if (m < 1e-6) return null;
+    const ex = su / m, ey = sv / m, lx = -ey, ly = ex;
+    // sections across the flow
+    const sec = new Map();
+    for (let j = 0; j < g.ny; j++) {
+      for (let i = 0; i < g.nx; i++) {
+        const k = j * g.nx + i;
+        if (!g.ok[k]) continue;
+        const x = g.x0 + i * g.dx, y = g.y0 + j * g.dx;
+        const s = x * ex + y * ey, c = x * lx + y * ly;
+        const b = Math.round(s / step);
+        let o = sec.get(b);
+        if (!o) sec.set(b, o = { cmin: Infinity, cmax: -Infinity, best: -1, k: -1, c: 0 });
+        o.cmin = Math.min(o.cmin, c); o.cmax = Math.max(o.cmax, c);
+        if (g.spd[k] > o.best) { o.best = g.spd[k]; o.k = k; o.c = c; }
+      }
+    }
+    const bins = [...sec.keys()].sort((a, b) => a - b);
+    let bMax = null;
+    for (const b of bins) if (bMax == null || sec.get(b).best > sec.get(bMax).best) bMax = b;
+    if (bMax == null || sec.get(bMax).best < minKt) return null;
+    const strong = b => sec.has(b) && sec.get(b).best >= minKt;
+    let lo = bMax, hi = bMax;
+    while (strong(lo - 1) || (!sec.has(lo - 1) && strong(lo - 2))) lo -= strong(lo - 1) ? 1 : 2;
+    while (strong(hi + 1) || (!sec.has(hi + 1) && strong(hi + 2))) hi += strong(hi + 1) ? 1 : 2;
+    const run = bins.filter(b => b >= lo && b <= hi && strong(b));
+    const cs = run.map(b => sec.get(b).c);
+    const pts = run.map((b, idx) => {
+      const o = sec.get(b);
+      const near = cs.slice(Math.max(0, idx - 1), idx + 2);
+      const c = near.reduce((a, v) => a + v, 0) / near.length;
+      const s = b * step;
+      const x = s * ex + c * lx, y = s * ey + c * ly;
+      const [lat, lon] = g.proj.toLL(x, y);
+      const [dir] = fromUV(g.u[o.k], g.v[o.k]);
+      const tol = 0.75 * g.dx;
+      return { lat, lon, x, y, spd: o.best, dir, edge: !(o.c > o.cmin + tol && o.c < o.cmax - tol) };
+    });
+    const iMax = run.indexOf(bMax);
+    return { pts, iMax, ex, ey, lx, ly };
+  }
+
+  const api = { wmAnalyse, wmContours, wmStreamlines, wmJetCore, wmJetAxis, wmToUV: toUV, wmFromUV: fromUV, wmProj: proj };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else Object.assign(root, api);
 })(typeof window !== 'undefined' ? window : globalThis);

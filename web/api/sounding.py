@@ -181,7 +181,11 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                        "tt" METAR temperature, "partial",
                        "lv": [[alt_lo, temp, temp_n, wind_dir, wind_spd,
                                wind_n, aircraft], …],
-                       "kz": [[alt_lo, vort, se_vort, aircraft], …]}, …]}
+                       "kz": [[alt_lo, vort, se_vort, aircraft], …],
+                       "dv": [[alt_lo, D m, SD m, airframes], …],
+                       "tk": [[lo ft, hi ft, Tv °C, SD K, flights, T Mach/TAS °C], …]}, …],
+             "gcal": {"soundings", "pairs", "computed"} of the height calibration}
+    D-values and thickness temperatures: collector/gnss_heights.py.
     """
     import json
     from collector.atmos import LAYER_EDGES, pack_levels, PROFILE_KEYS
@@ -241,5 +245,24 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
             cols.append({"ts": cur, "a": n_ac, "n": used, "q": None, "tt": None,
                          "partial": True, "lv": slim(pack_levels(levels)),
                          "kz": [[r[0], r[1], r[3], r[5]] for r in kin]})
+    # heights of the pressure surfaces (D-value) and thickness temperatures
+    # from the GNSS − baro difference, with the current calibration
+    gcal = None
+    try:
+        from collector import gnss_heights as gh
+        cal = gh.current(db)
+        raw = gh.cells_for_hours(db, start, end_hour + 3600, lat, lon, radius_km, now=now)
+        for c in cols:
+            cells = raw.get(c["ts"])
+            if not cells:
+                continue
+            dv, tk = gh.column_products(cells, cal, {r[0]: r[1] for r in c["lv"]}, lat)
+            if dv:
+                c["dv"] = dv
+            if tk:
+                c["tk"] = tk
+        gcal = {"soundings": cal.get("soundings"), "pairs": cal.get("pairs"), "computed": cal.get("t")}
+    except Exception:                                    # noqa: BLE001  (never break the section)
+        pass
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
-            "start_ts": start, "hours": hours, "cols": cols}
+            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal}

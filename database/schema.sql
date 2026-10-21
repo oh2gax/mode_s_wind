@@ -288,6 +288,28 @@ CREATE TABLE IF NOT EXISTS kinematics_hours (
     data  TEXT    NOT NULL
 );
 
+-- ── gnss_cal / gnss_hours ─────────────────────────────────────────────────────
+-- Heights of the pressure surfaces from the GNSS − baro difference (from
+-- 2026-10-21, collector/gnss_heights.py).
+-- gnss_cal: key "sonde:YYYYMMDDHH" = aircraft − sonde residuals of one
+-- Jokioinen sounding (JSON {"n": pairs, "c": [[icao, band, residual m,
+-- replies], …]}, ~2–5 kB), key "current" = the fitted correction (fleet curve
+-- per 5 000 ft band + per-airframe offsets).  Refitted after each sounding.
+CREATE TABLE IF NOT EXISTS gnss_cal (
+    key   TEXT PRIMARY KEY,
+    ts    REAL,                  -- sounding launch / fit time
+    data  TEXT NOT NULL
+);
+-- gnss_hours: raw hourly cells, zlib-compressed JSON (uncorrected, so a new
+-- calibration applies to the past): {"d": [[layer bottom, icao, mean gmb ft, mean alt ft, replies]],
+-- "tk": [[lo ft, hi ft, icao, z_lo m, z_hi m, mid time]]} — D-values per
+-- layer and thickness temperatures of climbs / descents.  Written 4 h after
+-- the hour; ~1–2 kB per hour; kept GNSS_HOURS_DAYS (default 0 = always).
+CREATE TABLE IF NOT EXISTS gnss_hours (
+    ts    INTEGER PRIMARY KEY,   -- hour start (UTC epoch)
+    data  BLOB    NOT NULL
+);
+
 -- ── approach_series ───────────────────────────────────────────────────────────
 -- Raw Comm-B reply series on final for each landing (research data, from
 -- 2026-10-09): the BDS 5,0 / 6,0 replies used for the approach-conditions
