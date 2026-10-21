@@ -325,7 +325,7 @@ class Config:
     MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
 ```
 
-> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `HEIGHT_SERIES*`, `KINEMATICS_RADIUS_KM`, `WIND_MAX_AGE_SEC`, `SONDE_*` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
+> **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `HEIGHT_SERIES*`, `KINEMATICS_RADIUS_KM`, `WIND_MAX_AGE_SEC`, `SONDE_*`, `ACCESS_*` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
 
 Key values to change for your installation:
 
@@ -390,6 +390,26 @@ echo $! > run.pid          # save PID to stop later
 `run.py` already writes its own log to `logs/modes_meteo.log`, so the redirected file contains the same lines (plus any uncaught error output); redirect to `/dev/null` instead if you do not want the duplicate.
 
 The log `logs/modes_meteo.log` is rotated: at 10 MB it is renamed `modes_meteo.log.1` (older ones `.2`, `.3`) and 3 old files are kept, so the logs take at most about 40 MB. The web server's access lines (one per page request — the open pages poll every few seconds) are not logged; its warnings and errors are. Optional `config.py` keys: `LOG_MAX_MB` (default `10`), `LOG_BACKUPS` (default `3`), `LOG_HTTP_ACCESS` (default `False`; `True` logs every request again). The redirected `nohup` file above is not rotated.
+
+**Access log.** Who uses the web interface and any misuse are written to a separate compact log, `logs/access.log` — one line per event rather than per request (the open pages poll every few seconds), typically a few kilobytes a day:
+
+| Line | Meaning |
+|---|---|
+| `LOGIN` | A successful login from an address (first request of a session), with the user name, the first page and the browser; `new address` when this address has never logged in before (also a warning in the main log), `LAN` for the local network |
+| `SESSION` | End of that session (no requests for 30 min): time span, number of requests, pages opened |
+| `DENIED` | A request without credentials — internet scanners, link checkers. The browser's own first request before the login dialog is not listed when the same address logs in within 30 s |
+| `BADPASS` | A wrong user name or password (the user name tried is shown, never the password) |
+| `BLOCKED` | 10 wrong passwords within 10 min from one address: it gets HTTP 429 for 15 min (not applied to local-network addresses); also a warning in the main log |
+| `PROBE` | A connection that is not HTTP at all, classified: TLS handshake (`https://` to the plain-HTTP port), SOCKS4 / SOCKS5 open-proxy test, Remote Desktop (RDP) probe, SSH, other malformed request |
+| `ACTION` | A successful changing request — maintenance purge / delete / settings, Approach History clear |
+| `MAINT-PW` | A wrong maintenance password |
+| `ERROR` | A server error (HTTP 5xx) |
+| `DAILY` | Summary of the day at local midnight: logins and their addresses, denied requests, wrong passwords, blocks, probes, actions |
+| `START` | The web server started |
+
+At most 20 lines per address and kind are written per clock hour; the rest are counted in one summary line (`… 190 more in the last hour not listed (e.g. /.env, /phpinfo.php …)`), so a path scanner costs a few lines. The log rotates at 1 MB with 5 old files. The addresses that have logged in are kept in `logs/access_known.json` (written only when a session starts). The startup log no longer prints the web password, and warns while `WEB_PASS` is still a default value. Optional `config.py` keys: `ACCESS_LOG` (default `True`), `ACCESS_SESSION_IDLE_MIN` (`30`), `ACCESS_LOG_PER_IP_HOUR` (`20`), `ACCESS_LOCKOUT_FAILS` (`10`; `0` = no blocking), `ACCESS_LOCKOUT_MIN` (`15`), `ACCESS_LOG_MAX_MB` (`1`), `ACCESS_LOG_BACKUPS` (`5`).
+
+> **Exposing the web interface to the internet.** The interface uses HTTP Basic authentication over plain HTTP, so the password is sent readable with every request — anyone on the network path (public Wi-Fi, a company proxy) could see it. Use a password that is not used anywhere else, and preferably put an HTTPS reverse proxy (e.g. Caddy with a Let's Encrypt certificate) or a VPN (WireGuard, Tailscale) in front instead of forwarding the port directly.
 
 To stop:
 
@@ -1816,6 +1836,7 @@ mode_s_wind/
 │   └── filter.py              # Observation quality filters
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
+│   ├── access_log.py          # Compact access / misuse log (logs/access.log), login lockout
 │   ├── api/
 │   │   ├── sounding.py        # Sounding aggregation logic (area, hourly archive, single flight)
 │   │   ├── lowlevel.py        # Airport low-level profile (landings + departures, 200 ft bands)

@@ -17,3 +17,6 @@ data/soundings/
 
 # Local scratch folder for screenshots and other working files
 tmp_files/
+
+# Runtime logs (access log and known login addresses contain IP addresses)
+logs/

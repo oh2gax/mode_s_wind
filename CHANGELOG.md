@@ -5,6 +5,16 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-21 (compact web access and misuse log)
+
+- **Access log back, in compact form**: a separate `logs/access.log` records one line per event instead of one per request — `LOGIN` / `SESSION` (start and end of each session with duration, request count and pages), `DENIED` (requests without credentials; the browser's own login challenge is not listed), `BADPASS` (wrong user name or password, user name shown, password never), `PROBE` (non-HTTP connections classified as TLS handshake, SOCKS4 / SOCKS5 proxy test, RDP, SSH or malformed), `ACTION` (successful maintenance purges / deletes / settings and Approach History clear), `MAINT-PW`, `ERROR` (HTTP 5xx) and a `DAILY` summary at midnight. At most 20 lines per address and kind per hour, the rest summarised in one line. Rotates at 1 MB, 5 old files
+- **Login lockout**: 10 wrong passwords within 10 min from one internet address → HTTP 429 for 15 min (local-network addresses are never blocked); logins from an address never seen before and blocks are also warnings in the main log (`logs/access_known.json` keeps the known addresses)
+- Malformed requests (TLS / SOCKS / RDP probes) no longer write ERROR lines to the main log; the "Error on request" traceback of a client that went away (mobile network change) is now one line
+- The startup log no longer prints the web password and warns while `WEB_PASS` is still a default value; the password check is now constant-time
+- Optional `config.py` keys: `ACCESS_LOG`, `ACCESS_SESSION_IDLE_MIN`, `ACCESS_LOG_PER_IP_HOUR`, `ACCESS_LOCKOUT_FAILS`, `ACCESS_LOCKOUT_MIN`, `ACCESS_LOG_MAX_MB`, `ACCESS_LOG_BACKUPS`
+
+---
+
 ## 2026-10-20 (dense height series per aircraft visit; vertical motion and vorticity in the time–height section; surface inversion join on the Skew-T)
 
 - **Skew-T (Live Map and Sounding page): dashed join from the METAR surface temperature to the lowest aircraft layer** above the ground — surface inversions on calm mornings (and steep heated surface layers) now show without the Airport profile; the ground-line hover gives the difference and its height above the ground (`static/js/skewt_chart.js`)

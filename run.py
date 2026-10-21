@@ -423,11 +423,14 @@ def main() -> None:
                              backupCount=int(getattr(cfg, "LOG_BACKUPS", 3)))
     fh.setFormatter(logging.Formatter(LOG_FORMAT))
     logging.getLogger().addHandler(fh)
-    # The web server's access lines (one per page request — the pages poll
+    # The web server's own access lines (one per page request — the pages poll
     # every few seconds, two thirds of the log) are off unless LOG_HTTP_ACCESS
     # = True; its warnings and errors are still logged.
-    if not getattr(cfg, "LOG_HTTP_ACCESS", False):
-        logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    # The compact access / misuse log goes to logs/access.log instead (logins,
+    # sessions, refused requests, wrong passwords, probes — web/access_log.py).
+    from web import access_log
+    access_log.setup(cfg, log_dir)
+    access_log.quiet_werkzeug(bool(getattr(cfg, "LOG_HTTP_ACCESS", False)))
 
     log.info("=" * 60)
     log.info("MODE-S Wind System starting")
@@ -622,7 +625,11 @@ def main() -> None:
 
     log.info("Web interface starting on http://0.0.0.0:%d", cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)
-    log.info("Username: %s  Password: %s", cfg.WEB_USER, cfg.WEB_PASS)
+    log.info("Username: %s  Password: %s (set in config.py)", cfg.WEB_USER, "*" * 8)
+    if cfg.WEB_PASS in ("admin123", "admin", "password", "") or cfg.WEB_PASS == cfg.WEB_USER:
+        log.warning("WEB_PASS is still a default / trivial password — change WEB_USER and "
+                    "WEB_PASS in config.py, the web interface is reachable from the internet")
+    log.info("Access log  : %s", os.path.join(ROOT, "logs", "access.log"))
 
 
     # systemd / kill send SIGTERM: turn it into a normal exit so the final
@@ -642,6 +649,7 @@ def main() -> None:
             debug=False,
             use_reloader=False,
             threaded=True,
+            request_handler=access_log.RequestHandler,
         )
     except KeyboardInterrupt:
         log.info("Shutting down…")

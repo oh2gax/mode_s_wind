@@ -2,7 +2,8 @@
 Flask application factory and SSE live-stream endpoint.
 
 Basic HTTP authentication is enforced on every request via a before_request
-hook.  Credentials come from Config.WEB_USER / WEB_PASS.
+hook.  Credentials come from Config.WEB_USER / WEB_PASS.  Logins, refused
+requests and misuse are written to logs/access.log (web/access_log.py).
 """
 
 import json
@@ -25,6 +26,7 @@ from config import Config
 from database.db import get_db
 from database import maintenance as maint
 from collector.approach_cond import approach_index
+from web import access_log
 
 log = logging.getLogger("modes.web")
 
@@ -211,7 +213,9 @@ def _parse_metar_wind(metar_text: str) -> dict | None:
 
 
 def _check_auth(username: str, password: str, cfg: Config) -> bool:
-    return username == cfg.WEB_USER and password == cfg.WEB_PASS
+    # constant-time comparison (no timing hint of how much of the password matched)
+    return (hmac.compare_digest((username or "").encode(), str(cfg.WEB_USER).encode())
+            & hmac.compare_digest((password or "").encode(), str(cfg.WEB_PASS).encode()))
 
 
 def _require_auth():
@@ -258,9 +262,22 @@ def create_app(
 
     @app.before_request
     def require_login():
+        tr = access_log.tracker
+        if tr is not None and tr.is_blocked(request.remote_addr or ""):
+            g.auth_state = "blocked"
+            return Response("Too many failed logins — try again later.", 429,
+                            {"Retry-After": str(int(tr.lock_sec))})
         auth = request.authorization
-        if not auth or not _check_auth(auth.username, auth.password, cfg):
+        if not auth:
+            g.auth_state = "none"
             return _require_auth()
+        if not _check_auth(auth.username, auth.password, cfg):
+            g.auth_state, g.auth_user = "bad", auth.username
+            return _require_auth()
+        g.auth_state, g.auth_user = "ok", auth.username
+
+    # Compact access / misuse log (logs/access.log, see web/access_log.py)
+    access_log.init_app(app)
 
     # ── Page routes ───────────────────────────────────────────────────────
 
