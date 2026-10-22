@@ -18,7 +18,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Live Map layout: taller Skew-T, compact aircraft box
 
-- The **Atmosphere Profile** panel now uses the full height of the page: the bottom strip (aircraft details, METAR / TAF) lies only under the aircraft list and the map. Same width as before, so the diagram is about 25 % taller on a 1920 × 1080 screen and 45 % on 1366 × 768. METAR and TAF side by side (one third / two thirds); slightly smaller text below 1 600 px window width
+- The **Atmosphere Profile** panel now uses the full height of the page: the bottom strip (aircraft details, METAR / TAF) lies only under the aircraft list and the map. The diagram is about 25 % taller on a 1920 × 1080 screen and 45 % on 1366 × 768, and the panel about 8 % wider (590 instead of 548 px on 1920 × 1080; at least 560 px), so the RH strip has room. METAR and TAF side by side (40 / 60 %; one third / two thirds and slightly smaller text below 1 600 px window width)
 - **Aircraft detail box** compact (330 px instead of 520 px, three columns): altitude, vertical rate, temperature, ground speed, track, wind (`252° / 45 kt`), heading correction; pressure, humidity and turbulence only when an aircraft sends them; the meteo source stays as the badge in the header
 - Tablet portrait mode (no map) unchanged: the strip spans the full width
 
