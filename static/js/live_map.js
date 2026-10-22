@@ -958,6 +958,37 @@ async function fetchWx() {
     const metarEl = document.getElementById('wx-metar');
     if (metarEl) metarEl.textContent = '[fetch error]';
   }
+  fitWxText();
+}
+
+// A long METAR / TAF first tightens its line spacing (1.5 → 1.3), then shrinks
+// its text in 0.5 px steps down to WX_MIN_FONT (line spacing 1.2) to fit its
+// box; only beyond that it scrolls.  Refitted when the text changes and when a
+// box changes size (aircraft selected / closed, window).
+const WX_MIN_FONT = 12;
+function fitWxText() {
+  for (const el of document.querySelectorAll('.wx-text')) {
+    el.style.fontSize = el.style.lineHeight = '';   // back to the style sheet
+    if (!el.clientHeight) continue;
+    const over = () => el.scrollHeight > el.clientHeight + 1;
+    if (!over()) continue;
+    el.style.lineHeight = '1.3';
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while (over() && size > WX_MIN_FONT) {
+      size = Math.max(WX_MIN_FONT, size - 0.5);
+      el.style.fontSize = size + 'px';
+      el.style.lineHeight = size <= 13 ? '1.2' : '1.3';
+    }
+  }
+}
+if (typeof ResizeObserver !== 'undefined') {
+  let wxFitPending = false;
+  const wxRo = new ResizeObserver(() => {
+    if (wxFitPending) return;
+    wxFitPending = true;
+    requestAnimationFrame(() => { wxFitPending = false; fitWxText(); });
+  });
+  document.querySelectorAll('.wx-section').forEach(el => wxRo.observe(el));
 }
 
 fetchWx();
