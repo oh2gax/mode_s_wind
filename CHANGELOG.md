@@ -1,19 +1,22 @@
 # Changelog
 
 All notable changes to MODE-S Wind are recorded here, newest first.
-No version numbers — entries are organised by date.
+One version per day of development, named after the date: v.DDMMYYYY (e.g. v.22102026).
+The newest heading gives the version shown in the web pages' top bar; short user-oriented
+notes of the latest versions are in `doc/whats_new.md` (the **What's new** window).
 
 ---
 
-## 2026-10-22 (geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+## v.22102026 — 2026-10-22 (version numbering by date and the What's new window; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
 
+- **Version number by date** (v.DDMMYYYY, one per development day, taken from the newest CHANGELOG heading — all headings now carry it) shown in the top bar of every page, next to the theme button, with a **What's new** link: a scrollable window over the current page with short user-oriented notes of the last 10 versions (new `doc/whats_new.md`, `web/whats_new.py`, `/api/whatsnew`). A small dot on the link marks a version this browser has not opened yet
 - **EGM96 geoid** removed from the aircraft GNSS heights at each position (new `collector/geoid.py`, a built-in 5′ grid of southern Finland): the geoid falls from about 19 m at Jokioinen to 15 m east of Kotka, which the calibration had absorbed as a constant. Applies to the D-values, the Wind Map heights and geostrophic wind, the layer thicknesses (moisture trial) and the sonde comparison; the calibration curve now holds only the aircraft's pressure error (about 18 m lower). Effect on 20–22 Oct data: geostrophic wind about 1 kt, thicknesses 0.03–0.1 K. Stored hours and sonde comparisons are computed again once at start while their observations exist
 - **Moisture (trial)**: its ± now includes a systematic part (0.3 K of Tv − T) besides the scatter of the flights, after the first comparison with four soundings showed sounding-to-sounding differences of 0.2–0.45 K (index RMS about 37 %); the index is drawn faint above ±40 % and described as a tendency. The hovers show both parts
 - User guide v2.3
 
 ---
 
-## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol, isotherms and cross-section on the Wind Map; all slider frames loaded at once and faster map queries; a trial moisture indicator; tropopause, max-wind line, sonde columns and PNG in the time–height section; airframe altimeter offsets; user guide v2.2; web server logging improvements)
+## v.21102026 — 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol, isotherms and cross-section on the Wind Map; all slider frames loaded at once and faster map queries; a trial moisture indicator; tropopause, max-wind line, sonde columns and PNG in the time–height section; airframe altimeter offsets; user guide v2.2; web server logging improvements)
 
 ### Moisture indicator (trial)
 
@@ -60,7 +63,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-20 (dense height series per aircraft visit; vertical motion and vorticity in the time–height section; surface inversion join on the Skew-T)
+## v.20102026 — 2026-10-20 (dense height series per aircraft visit; vertical motion and vorticity in the time–height section; surface inversion join on the Skew-T)
 
 - **Skew-T (Live Map and Sounding page): dashed join from the METAR surface temperature to the lowest aircraft layer** above the ground — surface inversions on calm mornings (and steep heated surface layers) now show without the Airport profile; the ground-line hover gives the difference and its height above the ground (`static/js/skewt_chart.js`)
 - **Sounding page user guide v1.1** (`doc/Sounding_Page_User_Guide.pdf`, 17 pages): new sections on the Time–height *Vertical motion* (adiabatic method, its test and limits) and *Vorticity* (plane fit, cyclonic / anticyclonic flow, positive vorticity advection, the period-mean caveat) with screenshots of the 17–18 October front and trough
@@ -72,7 +75,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-19 (Sounding page user guide; GNSS − baro difference stored per observation; Sounding page time–height section; Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
+## v.19102026 — 2026-10-19 (Sounding page user guide; GNSS − baro difference stored per observation; Sounding page time–height section; Wind Map: per-aircraft averaging, square cells, ΔT layer, position checks, isotachs, streamlines, sonde, change / thermal wind, time slider; radiosonde earlier start, completeness check and re-check; Live Map Sonde refresh; degree sign in HC; Sonde check hour rows; log rotation)
 
 - **Sounding page user guide** (`doc/Sounding_Page_User_Guide.pdf`, 14 pages): the five views, the radiosonde comparison, the Indices panel and the time–height section explained with the physics behind them (air masses and fronts, advection, the thermal wind, stability and inversions, subsidence) and worked examples from the 17 October 2026 cold front and the high of 18–19 October; the Sonde check and the limitations
 - **GNSS − baro altitude difference stored per observation** (new `observations` columns `gmb_ft` and `nacp`, added automatically at start): the aircraft's latest GNSS − barometric altitude difference (ADS-B TC 19, used until now only for the spoofing checks) when at most 5 s old, and its NACp when at most 30 s old — collected for pressure-surface heights (D-values), thickness temperatures and geostrophic winds; no extra writes (`collector/receiver.py`, `collector/writer.py`, `database/schema.sql`, `database/db.py`)
@@ -101,7 +104,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button; Live Map layout for large screens and tablets)
+## v.13102026 — 2026-10-13 (Live Map aircraft list: flight levels, vertical rate, climb / descent arrows; Sounding page table top-down; Windshear page Light theme colours and readable ILS profile labels; WR / ACI button; Live Map layout for large screens and tablets)
 
 - **Windshear flight strips**: no visible scrollbar either (still scrolls with the mouse wheel / touch)
 - **Live Map aircraft list**: no visible scrollbar (it flickered in Firefox as the list updated) — still scrolls with the mouse wheel / touch; the list is swapped in at once on each update, so its height and scroll position no longer jump
@@ -117,7 +120,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-12 (Live Map aircraft list sorted by altitude, heading correction in the list; Windshear map follows Light / Dark; Jokioinen radiosonde on the Skew-T; sounding selector, sonde table columns and automatic Sonde check on the Sounding page; go-arounds begun over the runway; quality check of the radiosonde profiles; Indices panel on the Sounding page; AP box on the Windshear flight strips)
+## v.12102026 — 2026-10-12 (Live Map aircraft list sorted by altitude, heading correction in the list; Windshear map follows Light / Dark; Jokioinen radiosonde on the Skew-T; sounding selector, sonde table columns and automatic Sonde check on the Sounding page; go-arounds begun over the runway; quality check of the radiosonde profiles; Indices panel on the Sounding page; AP box on the Windshear flight strips)
 
 - **Radiosonde on the Skew-T** (Live Map Atmosphere Profile and Sounding page): new **Sonde** tick box (off by default, shared) adds the Jokioinen sounding — temperature (pink), dewpoint (green dashed: humidity aloft) and winds (pink barbs inside the right edge) — with its age (`JOKIOINEN 12.10. 06 UTC · 4 h 35 min old`, fading after 6 / 12 h), the difference of the area profile from it (`Δ area−sonde: T … K (RMS …) · wind … kt RMS`) and its values in the hover read-out; partial FMI profiles are labelled with their top (`to 350 hPa`). On the Sounding page the sounding launched by the end of the shown hour or flight is used. New `collector/sondes.py`: background fetch from FMI open data about 1.5 h after the 00 / 06 / 12 UTC launches, stored as small gzipped JSON files in `data/soundings/`, kept `SONDE_KEEP_DAYS` (default 365); optional `SONDE_FETCH`, `SONDE_PLACE`, `SONDE_DIR`. New `/api/sondes` and `/api/sonde`. `data/soundings/` is added to `.gitignore`
 - **Sounding page — sounding selector and sonde columns**: with **Sonde** on, a selector lists all stored soundings (Auto = the rule above, or any sounding to compare with the shown profile), and the level table adds Sonde T, ΔT (amber > 2 K), Sonde wind and ΔV (vector difference, amber > 10 kt)
@@ -132,7 +135,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-11 (Airport low-level profile from landings and departures; departure climb-out capture; monthly archive before purge and snapshots; layer-aware write throttle; Sounding page with the Live Map Skew-T; METAR dewpoint and surface parcel on the Skew-T; Skew-T user guide v2; data-validity indicator on the Skew-T; fresh radar replies for the approach winds; METAR wind on the ILS profile)
+## v.11102026 — 2026-10-11 (Airport low-level profile from landings and departures; departure climb-out capture; monthly archive before purge and snapshots; layer-aware write throttle; Sounding page with the Live Map Skew-T; METAR dewpoint and surface parcel on the Skew-T; Skew-T user guide v2; data-validity indicator on the Skew-T; fresh radar replies for the approach winds; METAR wind on the ILS profile)
 
 - **Airport low-level profile** on the Live Map Atmosphere Profile — new **Airport** selector (Off / Overlay / Zoom): Mach/TAS temperature and wind per 200 ft band from 200 to 3 000 ft MSL, pooled from every raw reply of the landings and departures of the last 60 min (new `/api/lowlevel`, `web/api/lowlevel.py`), for low-level inversions that the 1 000 ft layers of the area profile smooth out. **Zoom** shows the surface … about 840 hPa with less skew, finer isobars, isotherms and adiabats, the airport temperatures labelled and its winds. With Analysis at Stability or higher, significant airport inversions are shaded and a second, amber-framed stability strip (600 ft slabs) is drawn; hover shows the band, flights, replies and spread
 - **Departure climb-out capture** (new `collector/departures.py`, table `departure_profiles`): each departure is followed from below 1 500 ft MSL near the airport to 3 300 ft, and every raw BDS 5,0 / 6,0 reply is turned into Mach/TAS temperature and (bank ≤ 5°, heading-calibrated) wind per 200 ft band, with the altitude interpolated between sweeps; one row per departure. Kept `DEPARTURE_PROFILE_DAYS` (default 90) days; `DEPARTURE_PROFILES = False` turns it off
@@ -158,7 +161,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-10 (GPS spoofing indicators: 2+ independent checks marked; dry and moist adiabats, smoothing, ground line and automatic analysis on the Skew-T diagrams; BDS 4,5 temperatures no longer used; per-airframe heading calibration; registrations on the Live Map)
+## v.10102026 — 2026-10-10 (GPS spoofing indicators: 2+ independent checks marked; dry and moist adiabats, smoothing, ground line and automatic analysis on the Skew-T diagrams; BDS 4,5 temperatures no longer used; per-airframe heading calibration; registrations on the Live Map)
 
 - **Live Map — registrations**: the aircraft list shows the registration next to the callsign and the aircraft type before the altitude; the aircraft detail panel header shows the callsign with registration · type · ICAO24 (it showed only the ICAO24 code before); the map popup shows the same identity line; new **Registration** option in the map label selector. Registration and type come from the Radarcape JSON feed or BaseStation.sqb (now included in the live stream)
 - **Per-airframe heading calibration** (new `collector/heading_cal.py`): the system learns each airframe's heading offset (reported BDS 6,0 magnetic heading vs the true heading, mostly from outdated magnetic-variation tables in the avionics; +1.5° on average, 1° ≈ 8 kt wind error at cruise) by comparing its wind with the other aircraft in the same altitude layer over the last 60 min, and corrects the wind. Own value after 2 flights, otherwise aircraft-type median, fleet median or 1.5°; airframes over 5° are excluded; the learnt sums fade with a 30-day half-life and an airframe restarts when three flights in a row disagree. The corrected wind goes to `best_wind_*` (used by all pages, area profiles, Windshear and the approach profile winds); the raw wind stays in `wind_spd / wind_dir`, and the offset and its source are stored per observation (`hdg_off`, `hdg_src`). Learnt values are kept in the new `heading_cal` table, written once an hour; on the first start the offsets are learnt from the last 30 days of stored observations. In the replayed data the area-mean wind difference to the Jokioinen soundings fell from 11.1 to 8.9 kt RMS. Optional `HEADING_CAL_*` config keys (`HEADING_CAL_MODE` = apply / learn / off), new `/api/heading_cal`, and a **Hdg corr** cell in the Live Map aircraft detail panel
@@ -173,7 +176,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-09 (Air temperature from Mach / TAS and new Skew-T soundings; approach wind / temperature profile, autopilot and raw series; hourly profile archive; GPS Quality: 10-minute resolution, severity split and spoofing indicators)
+## v.09102026 — 2026-10-09 (Air temperature from Mach / TAS and new Skew-T soundings; approach wind / temperature profile, autopilot and raw series; hourly profile archive; GPS Quality: 10-minute resolution, severity split and spoofing indicators)
 
 - **GPS Quality — finer data for later analysis**, all stored in the existing hourly rows, checkpoint and episode rows (no extra database writes):
   - **10-minute resolution**: each hourly row now also holds six 10-minute slots with the aircraft seen, degraded, severely degraded and with a spoofing indicator (all altitudes and FL050–250), per zone
@@ -203,7 +206,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-08 (Approach-conditions index class factors; Approach History registration filter; one browser tab per page)
+## v.08102026 — 2026-10-08 (Approach-conditions index class factors; Approach History registration filter; one browser tab per page)
 
 - **Navigation — one browser tab per page**: the navbar links now open each page in its own tab. A page that is already open is brought to the front without reloading (e.g. going from Windshear to GPS Quality and back keeps the Windshear selections); a page that is not open yet opens in a new tab
 - **Approach History — registration filter**: a small `Reg: OH-A` box left of the date field shows only the landings whose registration starts with the typed text (e.g. `OH-ATR` or `OH-A`; case and hyphen ignored, `Esc` clears). It applies at once, survives the automatic refresh and window / date changes, and the title shows e.g. `3 of 24 landings` while a filter is active
@@ -211,7 +214,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-07 (Optional BaseStation.sqb registration source; wider Approach Conditions chart; approach-conditions index re-tuned)
+## v.07102026 — 2026-10-07 (Optional BaseStation.sqb registration source; wider Approach Conditions chart; approach-conditions index re-tuned)
 
 - **Approach-conditions index re-tuned** on 236 landings (METAR 6–20 kt): IAS fluctuation 45 % (0.6 → 3.0 kt), vertical-rate fluctuation 30 % (30 → 160 ft/min), bank-angle fluctuation 25 % (0.4 → 2.5°); the crab-angle variation showed no relation to the wind and is now shown for information only. The previous scale was compressed (median 2.4 at 13–16 kt); now about 1 when calm, 3 at 9–12 kt and 4.3 at 13–16 kt. Past landings are re-scored automatically (the index is not stored)
 - **Registrations from an optional BaseStation.sqb**: when the Radarcape JSON feed has no registration / type for an aircraft, it is looked up by ICAO24 in `data/BaseStation.sqb` (optional; path configurable with `BASESTATION_DB_PATH`), e.g. as kept up to date by [modes_logger](https://github.com/oh2gax/modes_logger). The registration blocklist therefore now also catches aircraft the JSON feed has no registration for. Read-only, cached per aircraft, re-read when the file changes, ignored when the file is missing. New module `collector/aircraft_db.py`; `data/*.sqb` added to `.gitignore`
@@ -219,7 +222,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-06 (GNSS logging: per-band GPS detail, degradation episode log, GNSS quality in Approach History; approach roughness logging and approach-conditions index; GPS Episodes page; GPS Quality heatmap % aircraft mode; memory audit; GPS episodes survive restarts)
+## v.06102026 — 2026-10-06 (GNSS logging: per-band GPS detail, degradation episode log, GNSS quality in Approach History; approach roughness logging and approach-conditions index; GPS Episodes page; GPS Quality heatmap % aircraft mode; memory audit; GPS episodes survive restarts)
 
 - **GPS episodes survive restarts**: the open episodes are saved with the 60-s checkpoint and once more when the server is stopped (SIGTERM from systemd / `kill`, or Ctrl+C — both now write a final checkpoint, which also saves the hour in progress). After a restart within 10 minutes they continue; before, every restart cut the episodes in progress in two (the first part was lost and a new episode started after the restart — about 30 such splits on 6 Oct). After a longer stop they are saved with the new end reason `shutdown`, shown as *Server stopped* on the GPS Episodes page
 - **Memory audit** (long uptime on the Pi): the database writer now forgets flight sessions and write-throttle timestamps of inactive aircraft every 10 minutes (they kept one entry for every aircraft ever received); closed GPS episodes waiting for a failed DB write are capped at 20 000; `/api/windshear/approach-history?window=` is capped at 31 days; the Live Map page drops callsigns of aircraft that are no longer live (it kept every callsign while the page stayed open)
@@ -239,13 +242,13 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-10-05 (Approach History landing count)
+## v.05102026 — 2026-10-05 (Approach History landing count)
 
 - **Approach History panel now shows the number of landings** for the selected time window (1h–1d) or date directly after its title, e.g. `Approach History – 24 landings`, in the same small font. The count follows the time buttons, date picker and Live button and updates with each refresh
 
 ---
 
-## 2026-10-03 (Windshear page bug fixes)
+## v.03102026 — 2026-10-03 (Windshear page bug fixes)
 
 - **Fix: ILS profile with Barbs on stopped the page from updating.** The corner label (`🌬 callsign (N obs) · AUTO …`) used a colour variable that only exists inside the per-barb loop (left over from the 2026-05-26 per-barb colouring change), so drawing the profile threw an error whenever Barbs was on and the selected aircraft had at least one barb. The error aborted the rest of each 3-second poll: no corner label, no Turn / GPS / Pre-ILS circles while barbs existed, and the alert banner, emergency squawk alarm, windshear / go-around log, windrose and approach-count summary were not refreshed. The label now takes the selected aircraft's current meteo-source colour
 - **Fix: Gradient, Energy, Rate and Baseline detection crashed on their first event.** They referred to an undefined `WS_SEVERE_KT` constant and used `severe` / `moderate` severities that the alert-level filter, strip badges and log colours do not know. All six algorithms now use the same Monitor ≥ 10 kt / Warning ≥ 15 kt / Alarm ≥ 25 kt classification, as documented. (Pair and Kinematic were not affected)
@@ -255,13 +258,13 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-30 (ILS profile label)
+## v.30092026 — 2026-09-30 (ILS profile label)
 
 - ILS glideslope profile: aircraft labels show only the callsign (ICAO24 when no callsign is known); the `(+85ft)` glideslope deviation was removed — the dot colour already shows ON / HIGH / LOW
 
 ---
 
-## 2026-09-28 (Collector merge fix, GPS chart bars scaled to events)
+## v.28092026 — 2026-09-28 (Collector merge fix, GPS chart bars scaled to events)
 
 - Fix: the live_state merge let `None` values in a new observation overwrite stored values before filtering, although it was meant to overwrite only with non-None values; e.g. the callsign was erased by the next message without a callsign (hidden by the JSON poller and page caches). Now merged as intended
 - Analysis of the first v4 days: the same bug had erased NACp with the aircraft's next message in methods 1–3, so NACp was heavily under-counted before v4 (2–10 vs 40–140 events per aircraft-hour now) — v4 had already moved NACp to its own field; jammed aircraft broadcast NACp 0 together with losing their positions, so NACp now largely coincides with ADS-B loss
@@ -269,7 +272,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index, method v4 with NIC)
+## v.26092026 — 2026-09-26 (GPS Quality — per-visit ADS-B loss, restart-safe hours, normalised index, method v4 with NIC)
 
 - **ADS-B loss counted per visit**: an aircraft is flagged when it is transmitting extended squitters now (any DF17 within 30 s) and MLAT knows its position, but it has sent no own ADS-B position for ≥ 45 s during this visit; new `live_state` fields `first_seen` and `last_es_ts`. Also catches aircraft already jammed when they come into range; no longer flags aircraft that stop all extended squitters, and nothing is inherited from earlier visits
 - Analysis of the old data showed the previous definition was inflated by never-pruned state: ADS-B loss events per aircraft-hour grew from ~50 after a restart to ~100 after weeks of uptime (fixed by the 2026-09-25 pruning)
@@ -285,7 +288,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-25 (Audit fixes, WMM declination and TAS fallbacks for computed wind)
+## v.25092026 — 2026-09-25 (Audit fixes, WMM declination and TAS fallbacks for computed wind)
 
 - **Position-freeze gate fixed**: compared consecutive 3-s sweeps against a 100 ft threshold, which a 3° descent (~40 ft/sweep) never reaches, so it never fired; now uses an anchor that only moves with the position — freezes are flagged after ~8–10 s of descent on a stuck position, excluding those sweeps from bands, windrose and trail as intended
 - **live_state pruning**: new housekeeping thread in `run.py` removes aircraft unseen for 10 min and prunes the BDS 5,0/6,0 pairing caches every 60 s (previously every aircraft ever received stayed in RAM)
@@ -306,7 +309,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-24 (ILS profile — Val toggle, compact HW/XW labels)
+## v.24092026 — 2026-09-24 (ILS profile — Val toggle, compact HW/XW labels)
 
 - **`Val` segment** added to the `Barbs · Hi · Auto` group: hides or shows the `dir/spd` label next to each barb; with Val off, plain barbs are drawn, or only the HW/XW component value when a component mode is active; Dcl greys out while Val is off; corner label shows `· NOVAL`; setting persisted in `localStorage` (`ms_ws_barb_val`)
 - HW/XW component labels on the ILS profile drop the `kt` suffix (`+25` instead of `+25kt`) — knots are implied
@@ -314,7 +317,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-09-07 (CARTO API key, GPS Quality range selectors + FL band split)
+## v.07092026 — 2026-09-07 (CARTO API key, GPS Quality range selectors + FL band split)
 
 - **CARTO Basemaps API key**: CARTO now requires a key to remove the tile watermark; added to all three map pages (Live Map, Wind Map, Windshear) as a `?key=...` query param, sourced from a new gitignored `api_keys.py` (`api_keys.py.example` is the committed template) and injected into every page via the existing `inject_config_modes` context processor
 - **GPS Quality — `3m`/`6m` time-series range selectors** added alongside the existing `1d`–`1m` buttons; required raising `MAX_BUCKETS` (in-RAM buffer + DB reload cap) from 31 days to 6 months; the heatmap payload is capped independently at 31 days (`HEATMAP_MAX_BUCKETS`) since it never needed more
@@ -323,7 +326,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-17 (ILS profile zoom, HW/XW barb annotation, label declutter)
+## v.17062026 — 2026-06-17 (ILS profile zoom, HW/XW barb annotation, label declutter)
 
 - **Zoom button** added to the ILS glideslope profile toolbar (purple when active); toggles the horizontal range between 15 NM (full view) and 7.5 NM (zoomed), roughly doubling the horizontal pixel density available for wind barbs; distance grid steps at 2.5 NM intervals in zoomed mode; full 15 NM history always buffered so switching back is instant
 - **HW/XW component annotation**: the `HW` button now cycles through three states — off → HW (headwind/tailwind) → XW (crosswind) → off; button label updates to match (`HW` or `XW`); HW mode: amber button, `+12kt` / `-5kt`, green/red/amber colour coding; XW mode: orange button, `+8kt` (from right) / `-3kt` (from left), teal/amber/red magnitude palette matching the Approach History XW column; `xwKt()` function added (`spd × sin(windDir − rwyHdg)`)
@@ -334,7 +337,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-14 (Wind detection — minimum corridor samples gate)
+## v.14062026 — 2026-06-14 (Wind detection — minimum corridor samples gate)
 
 - **WS_MIN_CORRIDOR_SAMPLES = 6 gate** added to all six windshear detection algorithms; no algorithm can fire until an aircraft has accumulated at least 6 valid observations in the ILS corridor (≈15–20 s at the 3-second poll rate)
 - Root cause addressed: the first wind observation for a newly-established aircraft is frequently tagged `meteo_source = MHR` (BDS 4,5 decoded in the same message sweep) and is computed from a BDS 5,0/6,0 pair captured during the ILS intercept roll-out; at that moment roll angle and track rate are near their quality-gate limits, producing a geometrically noisy result; algorithms that compare oldest vs. newest window samples (kinematic, rate) used this noisy first point as the reference, generating spurious detections immediately after the flight strip appeared
@@ -343,7 +346,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-13 (wind detection: F-factor window, declination fix, shear direction signing, median filter)
+## v.13062026 — 2026-06-13 (wind detection: F-factor window, declination fix, shear direction signing, median filter)
 
 ### Wind detection — F-factor window fix
 
@@ -358,7 +361,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-12 (Maintenance: Approach History purge and delete by day or date range; Approach History duplicate-commit cooldown; Windrose observation timestamps fix)
+## v.12062026 — 2026-06-12 (Maintenance: Approach History purge and delete by day or date range; Approach History duplicate-commit cooldown; Windrose observation timestamps fix)
 
 ### Maintenance — Approach History manual purge controls
 
@@ -394,7 +397,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-11 (METAR / TAF background polling; go-around count in the statistics panel; GPS-jammed aircraft in Approach History; false "2nd APP" badge fix)
+## v.11062026 — 2026-06-11 (METAR / TAF background polling; go-around count in the statistics panel; GPS-jammed aircraft in Approach History; false "2nd APP" badge fix)
 
 ### Weather — METAR/TAF background polling with retry and cache
 
@@ -429,7 +432,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-06 (Windrose historical trend (Hist); go-around second-approach badge and history fix)
+## v.06062026 — 2026-06-06 (Windrose historical trend (Hist); go-around second-approach badge and history fix)
 
 ### Windrose — historical wind trend Hist button
 
@@ -447,7 +450,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-04 (Windshear statistics date picker, Trk trail button, ILS trail gap detection, no barb stacking during GPS freeze; GPS Quality donut follows the time range)
+## v.04062026 — 2026-06-04 (Windshear statistics date picker, Trk trail button, ILS trail gap detection, no barb stacking during GPS freeze; GPS Quality donut follows the time range)
 
 ### Windshear — statistics panel date picker
 
@@ -485,7 +488,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-03 (Windshear pre-corridor NONE circle improvements and persistence fix)
+## v.03062026 — 2026-06-03 (Windshear pre-corridor NONE circle improvements and persistence fix)
 
 ### Windshear — pre-corridor NONE circle improvements
 
@@ -501,7 +504,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-06-01 (Maintenance page; Windshear statistics panel, compact alert log, pre-corridor NONE circles, remembered algorithm; GPS Quality chart and purge fixes)
+## v.01062026 — 2026-06-01 (Maintenance page; Windshear statistics panel, compact alert log, pre-corridor NONE circles, remembered algorithm; GPS Quality chart and purge fixes)
 
 ### Windshear — statistics panel extended to full page height
 
@@ -559,7 +562,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-29 (GPS Quality ADS-B position-loss detection, distance zones, range selectors, 14-day heatmap and statistics; Windshear NONE marker colours)
+## v.29052026 — 2026-05-29 (GPS Quality ADS-B position-loss detection, distance zones, range selectors, 14-day heatmap and statistics; Windshear NONE marker colours)
 
 ### GPS Quality — ADS-B position loss detection + stats percentage fix
 
@@ -609,7 +612,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-28 (Windshear METAR staleness indicator, Windrose fixes, Approach History crosswind, GPS position-freeze gate)
+## v.28052026 — 2026-05-28 (Windshear METAR staleness indicator, Windrose fixes, Approach History crosswind, GPS position-freeze gate)
 
 ### Windshear — METAR staleness indicator + Windrose timestamps
 
@@ -645,7 +648,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-27 (Windshear — Approach History dynamic panel height + date query)
+## v.27052026 — 2026-05-27 (Windshear — Approach History dynamic panel height + date query)
 
 - **Dynamic Approach History panel height** — the Approach History overlay now stretches automatically with the map container instead of being clipped to a fixed 264 px maximum; the panel is anchored top (`90px`) and bottom (`8px`) inside the positioned `.ws-map-wrap` container and uses a flex-column layout so the scrollable table fills all remaining space; on a 1080p display the visible table area roughly doubles, and on higher resolutions it grows proportionally; no layout or backend changes were required — only `static/css/style.css` was modified
 - **Approach History custom date query** — a date picker control is added to the right of the `1d` time-filter button; it consists of a `dd.mm.yyyy` text field, a calendar (📅) icon button, and a `Live` button; entering a date or picking one from the calendar switches the panel into **date mode**: the panel loads all approaches for that full UTC day from the DB (`GET /api/windshear/approach-history?date=YYYY-MM-DD`), the five time-window buttons are dimmed, and the `Live` button becomes highlighted; clicking `Live` or any time-window button exits date mode and resumes live rolling-window queries; the `Live` button is highlighted (blue) in live mode and muted in date mode, so the active mode is always unambiguous
@@ -654,7 +657,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-26 (Windshear Approach History in the database at 200 ft resolution, server-side Windrose buffer, RWY 33 filters, NONE markers, wind quality gates)
+## v.26052026 — 2026-05-26 (Windshear Approach History in the database at 200 ft resolution, server-side Windrose buffer, RWY 33 filters, NONE markers, wind quality gates)
 
 ### Windshear — Approach History DB persistence + time filter
 
@@ -702,7 +705,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-25 (Windshear Approach History panel; RWY 33 RNP approach support)
+## v.25052026 — 2026-05-25 (Windshear Approach History panel; RWY 33 RNP approach support)
 
 ### Windshear — Approach History panel
 
@@ -726,7 +729,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-24 (system-wide registration blocklist and WAM ground-station filter; go-around detector gates; UTC clock; ILS profile label and barb modes)
+## v.24052026 — 2026-05-24 (system-wide registration blocklist and WAM ground-station filter; go-around detector gates; UTC clock; ILS profile label and barb modes)
 
 ### System-wide registration blocklist — helicopter filter
 
@@ -785,7 +788,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-22 (Windshear label rename and HW/TW barb annotation; GPS Quality flush fix and chart range selector)
+## v.22052026 — 2026-05-22 (Windshear label rename and HW/TW barb annotation; GPS Quality flush fix and chart range selector)
 
 ### Windshear panel — label rename
 
@@ -816,7 +819,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-21 (GPS Quality per-signal event breakdown)
+## v.21052026 — 2026-05-21 (GPS Quality per-signal event breakdown)
 
 - **Per-signal breakdown** added to hourly GPS quality buckets — each completed hour now records `nacp_events`, `freeze_events`, and `gap_events` separately in addition to the total `events` count
 - **Stacked bar chart** — the 24-hour time-series chart now shows three stacked bars per hour: NACp (amber), Freeze (sky blue), Gap (violet); the total bar height still represents all events but the split immediately shows which signal type dominates
@@ -825,7 +828,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-20 (GPS Quality page with database persistence, FL bands, altitude gate and gap fix; Windshear Kinematic algorithm, severity levels and confidence gating)
+## v.20052026 — 2026-05-20 (GPS Quality page with database persistence, FL bands, altitude gate and gap fix; Windshear Kinematic algorithm, severity levels and confidence gating)
 
 ### GPS Quality Gap detection fix
 
@@ -890,7 +893,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-19 (global Light theme; Windshear ATC map theme with coastline overlays; faster Radarcape JSON poll; Windshear label fixes)
+## v.19052026 — 2026-05-19 (global Light theme; Windshear ATC map theme with coastline overlays; faster Radarcape JSON poll; Windshear label fixes)
 
 - Added **global Light theme** — a blue-grey paper-toned palette (`#dde4ec` background) selectable on any page via a **Dark / Light** toggle button in the navbar; preference is stored in `localStorage` and applied before first paint so there is no flash on page load
 - Light theme overrides all 9 CSS colour variables (covering ~200 references automatically) plus targeted overrides for the handful of hardcoded values: Leaflet map backgrounds, semi-transparent overlay panels (map-legend, map-controls, Wind Rose panel), Skew-T canvas background, and map aircraft callsign label text/shadow
@@ -906,7 +909,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-18 (Windshear layout and Wind Rose fonts; detection toggle and algorithm selector in the log header; five windshear detection algorithms; Wind Rose, Auto barb mode, IAS on flight strips, departure gate)
+## v.18052026 — 2026-05-18 (Windshear layout and Wind Rose fonts; detection toggle and algorithm selector in the log header; five windshear detection algorithms; Wind Rose, Auto barb mode, IAS on flight strips, departure gate)
 
 - Restructured Windshear page layout — flight strips now extend to the full bottom of the screen; METAR/TAF strip moved inside the right column so it aligns only under the map and ILS profile, not under the strips
 - Fixed spurious empty gap between navbar and page content — ws-page had a redundant `margin-top: var(--navbar-h)` that doubled the offset already applied by the `main` container; replaced with `height: 100%`
@@ -930,7 +933,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-17
+## v.17052026 — 2026-05-17
 
 - Fixed go-around detector false triggers when aircraft join ILS glideslope from below — increased `WINDSHEAR_GA_MIN_DESCENT_POLLS` default from 5 to 8 (24 s confirmed descent required)
 - Fixed Clear button in windshear log — cleared go-around entries no longer bounce back on the next poll cycle
@@ -941,7 +944,7 @@ No version numbers — entries are organised by date.
 
 ---
 
-## 2026-05-16
+## v.16052026 — 2026-05-16
 
 - Added squawk code badge on Windshear flight strips — grey pill for normal codes, red pill for emergency codes
 - Added emergency squawk alarm banner for codes 7500 (HIJACK), 7600 (NORDO), 7700 (MAYDAY) with blinking strip label

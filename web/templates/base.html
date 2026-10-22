@@ -36,6 +36,8 @@
           title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
   </div>
   <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
+  <button id="nav-whatsnew-btn" class="nav-whatsnew-btn" type="button" data-version="{{ app_version }}"
+          title="Version {{ app_version }} — What's new: changes of the last versions">{{ app_version }}<span class="wn-lbl"> · What's new</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
   <span id="nav-utc-clock" class="nav-utc-clock"></span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
@@ -49,6 +51,17 @@
 <main>
   {% block content %}{% endblock %}
 </main>
+
+<!-- What's new: notes of the last versions (doc/whats_new.md via /api/whatsnew) -->
+<div id="wn-overlay" class="wn-overlay" hidden>
+  <div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title">
+    <div class="wn-head">
+      <span id="wn-title" class="wn-title">What's new</span>
+      <button id="wn-close" class="wn-close" type="button" title="Close (Esc)">×</button>
+    </div>
+    <div id="wn-body" class="wn-body">Loading…</div>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -136,15 +149,88 @@ async function refreshStats() {
 refreshStats();
 setInterval(refreshStats, 15000);
 
+// ── What's new window ───────────────────────────────────────────────────────
+// The link shows the version (v.DDMMYYYY, newest CHANGELOG entry); a dot marks
+// a version this browser has not opened yet.  The window lists the notes of
+// the last versions (doc/whats_new.md) and scrolls; × / Esc / outside closes.
+(function () {
+  var btn = document.getElementById('nav-whatsnew-btn');
+  if (!btn) return;
+  var ver = btn.dataset.version || '';
+  var dot = document.getElementById('nav-whatsnew-dot');
+  var ov = document.getElementById('wn-overlay'), body = document.getElementById('wn-body');
+  var seen = null;
+  try { seen = localStorage.getItem('ms_seen_version'); } catch (e) { seen = null; }
+  if (ver && seen !== ver) dot.hidden = false;
+  if (!ver) { btn.firstChild.textContent = ''; btn.classList.add('no-ver'); }
+
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function inline(t) {
+    return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>')
+                 .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+                 .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>');
+  }
+  // the small Markdown subset of the notes: bullets (two levels) and paragraphs
+  function render(lines) {
+    var html = '', depth = 0, para = [];
+    function flush() { if (para.length) { html += '<p>' + inline(para.join(' ')) + '</p>'; para = []; } }
+    function close(to) { while (depth > to) { html += '</ul>'; depth--; } }
+    lines.forEach(function (l) {
+      var m = l.match(/^(\s*)[-*]\s+(.*)$/);
+      if (m) {
+        flush();
+        var d = m[1].length >= 2 ? 2 : 1;
+        while (depth < d) { html += '<ul>'; depth++; }
+        close(d);
+        html += '<li>' + inline(m[2]) + '</li>';
+      } else if (!l.trim()) { flush(); close(0); }
+      else { close(0); para.push(l.trim()); }
+    });
+    flush(); close(0);
+    return html;
+  }
+  function fmtDate(v) { var d = v.slice(2); return d.slice(0, 2) + '.' + d.slice(2, 4) + '.' + d.slice(4); }
+  var loaded = false;
+  async function open() {
+    ov.hidden = false;
+    document.addEventListener('keydown', onKey);
+    try { localStorage.setItem('ms_seen_version', ver); } catch (e) { /* private mode */ }
+    dot.hidden = true;
+    if (loaded) return;
+    try {
+      var d = await (await fetch('/api/whatsnew')).json();
+      var es = d.entries || [];
+      body.innerHTML = es.length ? es.map(function (e) {
+        return '<section class="wn-entry"><h3><span class="wn-ver">' + esc(e.version) + '</span>' +
+               '<span class="wn-date">' + fmtDate(e.version) + '</span>' +
+               (e.version === ver ? '<span class="wn-current">current</span>' : '') + '</h3>' +
+               (e.title ? '<div class="wn-etitle">' + inline(e.title) + '</div>' : '') +
+               render(e.lines) + '</section>';
+      }).join('') + '<p class="wn-foot">Earlier changes: CHANGELOG.md in the project.</p>'
+        : '<p>No notes found.</p>';
+      loaded = true;
+    } catch (err) {
+      body.textContent = 'Could not load the notes.';
+    }
+  }
+  function close() { ov.hidden = true; document.removeEventListener('keydown', onKey); }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  btn.addEventListener('click', open);
+  document.getElementById('wn-close').addEventListener('click', close);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+})();
+
 // ── UTC clock ────────────────────────────────────────────────────────────────
 (function () {
   const el = document.getElementById('nav-utc-clock');
   function tick() {
     const n = new Date();
     const pad = v => String(v).padStart(2, '0');
-    el.textContent =
-      `${n.getUTCFullYear()}-${pad(n.getUTCMonth()+1)}-${pad(n.getUTCDate())}`
-      + ` ${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())} UTC`;
+    // the date part is hidden on narrow screens (CSS); then it is in the tooltip
+    const d = `${n.getUTCFullYear()}-${pad(n.getUTCMonth()+1)}-${pad(n.getUTCDate())}`;
+    el.innerHTML = `<span class="clk-date">${d} </span>`
+      + `${pad(n.getUTCHours())}:${pad(n.getUTCMinutes())}:${pad(n.getUTCSeconds())} UTC`;
+    if (el.title !== d + ' UTC') el.title = d + ' UTC';
   }
   tick();
   setInterval(tick, 1000);

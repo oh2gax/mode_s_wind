@@ -2050,6 +2050,60 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .nav-theme-btn:hover { background: var(--bg-2); color: var(--text-1); }
 
+/* Navbar "What's new" link and its window (base.html) */
+.nav-whatsnew-btn {
+  position: relative; font-size: 11px; padding: 3px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-2);
+  cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit;
+}
+.nav-whatsnew-btn:hover { background: var(--bg-3); color: var(--text-1); }
+#nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.9rem; }   /* a pair with the theme button */
+@media (max-width: 1600px) { .nav-whatsnew-btn .wn-lbl { display: none; } }   /* version only; tooltip says What's new */
+.nav-whatsnew-btn.no-ver .wn-lbl { display: inline !important; }
+@media (max-width: 1500px) { .navbar { gap: 1rem; } .nav-status { margin-left: 10px; } }
+@media (max-width: 1400px) { .nav-utc-clock .clk-date { display: none; } }  /* date in the tooltip */
+@media (max-width: 1300px) { .navbar { gap: 0.6rem; } }
+.nav-whatsnew-dot {
+  position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg-1);
+}
+.nav-whatsnew-dot[hidden] { display: none; }
+.wn-overlay {
+  position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: flex-start; justify-content: center; padding: 60px 16px 16px;
+}
+.wn-overlay[hidden] { display: none; }
+.wn-box {
+  width: 640px; max-width: 100%; max-height: calc(100vh - 90px); display: flex; flex-direction: column;
+  background: var(--bg-1); color: var(--text-1); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+.wn-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px;
+           border-bottom: 1px solid var(--border); }
+.wn-title { font-weight: 700; font-size: 15px; }
+.wn-close { background: none; border: none; color: var(--text-2); font-size: 22px; line-height: 1;
+            cursor: pointer; padding: 0 4px; }
+.wn-close:hover { color: var(--text-1); }
+.wn-body { overflow-y: auto; padding: 4px 16px 14px; font-size: 13px; line-height: 1.5; }
+.wn-entry { padding: 10px 0 6px; border-bottom: 1px solid var(--border); }
+.wn-entry:last-of-type { border-bottom: none; }
+.wn-entry h3 { margin: 0 0 2px; font-size: 14px; display: flex; align-items: baseline; gap: 10px; }
+.wn-ver { font-family: "Courier New", monospace; color: var(--accent); }
+.wn-date { font-weight: 400; font-size: 12px; color: var(--text-2); }
+.wn-current { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px;
+              background: var(--accent); color: #fff; }
+.wn-etitle { font-weight: 600; margin-bottom: 4px; color: var(--text-1); }
+.wn-body ul { margin: 2px 0 6px; padding-left: 18px; }
+.wn-body li { margin: 2px 0; }
+.wn-body p { margin: 4px 0; }
+.wn-body code { font-family: "Courier New", monospace; font-size: 12px; background: var(--bg-3);
+                padding: 0 3px; border-radius: 3px; }
+.wn-foot { color: var(--text-2); font-size: 12px; margin-top: 10px !important; }
+@media (max-width: 700px) {
+  .wn-overlay { padding: 50px 6px 6px; }
+  .wn-box { max-height: calc(100vh - 60px); }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    GPS Quality page
    ═══════════════════════════════════════════════════════════════════════════ */

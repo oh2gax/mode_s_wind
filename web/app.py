@@ -252,10 +252,12 @@ def create_app(
 
     @app.context_processor
     def inject_config_modes():
+        from web import whats_new
         return {
             "meteo_source_mode": cfg.METEO_SOURCE_MODE,
             "storage_mode":      cfg.STORAGE_MODE,
             "carto_api_key":     cfg.CARTO_API_KEY,
+            "app_version":       whats_new.version(),    # v.DDMMYYYY from CHANGELOG.md
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -653,6 +655,16 @@ def create_app(
             resp.headers["Content-Encoding"] = "gzip"
             resp.headers["Vary"] = "Accept-Encoding"
         return resp
+
+    # ── What's new (top bar window) ───────────────────────────────────────
+
+    @app.route("/api/whatsnew")
+    def whatsnew_api():
+        """Version (v.DDMMYYYY, newest CHANGELOG entry) and the user notes of
+        the newest versions from doc/whats_new.md (web/whats_new.py):
+        {"version", "entries": [{"version", "date", "title", "lines"}]}."""
+        from web import whats_new
+        return jsonify({"version": whats_new.version(), "entries": whats_new.entries()})
 
     # ── Sounding API ──────────────────────────────────────────────────────
 
