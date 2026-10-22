@@ -623,7 +623,7 @@ Click the **✕** button to deselect and close the aircraft detail panel. The ME
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible Skew-T Log-P diagram filling the full height of the right panel. A user guide with screenshots — how to read the diagram, the upper-air parameters, where the data come from, all controls and analysis levels, the airport low-level profile, the METAR dewpoint and surface parcel (LCL, CAPE, Lifted Index), the data-quality indicator, the Sounding page and the limitations — is in [`doc/SkewT_User_Guide.pdf`](doc/SkewT_User_Guide.pdf). The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
+A permanently visible Skew-T Log-P diagram filling the full height of the right panel. A user guide with screenshots — how to read the diagram, the upper-air parameters, where the data come from, all controls and analysis levels, the airport low-level profile, the METAR dewpoint and surface parcel (LCL, CAPE, Lifted Index), the data-quality indicator, the comparison profiles (Sonde, MEPS — including why the model has only 10 levels — and the RH strip), the Sounding page and the limitations — is in [`doc/SkewT_User_Guide.pdf`](doc/SkewT_User_Guide.pdf). The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
 <p align="center"><img src="doc/Mode_S_Wind_SkewT_1.png" alt="MODE-S Wind Atmosphere Profile (Skew-T) with Analysis Full" width="540"></p>
 
@@ -848,7 +848,7 @@ How it works: every 3 h a new MEPS control run appears in MET Norway's open arch
 
 ### Wind Map  `/windmap`
 
-User guide with screenshots and examples (Section 7 of the Sounding page guide): [`doc/Sounding_Page_User_Guide.pdf`](doc/Sounding_Page_User_Guide.pdf).
+User guide with screenshots and examples (Section 8 of the Sounding page guide): [`doc/Sounding_Page_User_Guide.pdf`](doc/Sounding_Page_User_Guide.pdf).
 
 A gridded horizontal wind and temperature map built from the observations stored in the database: one wind barb per grid cell, averaged over the aircraft that crossed the cell in the chosen level band and period. It shows the horizontal structure that the area profile (one column within 150 km) averages away — where the jet core lies, how the wind changes across the region, and with **ΔT** the warm and cold air masses and frontal zones.
 
