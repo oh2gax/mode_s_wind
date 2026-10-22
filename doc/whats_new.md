@@ -3,9 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.22102026 — What's new window, geoid correction, honest moisture uncertainty
+## v.22102026 — What's new and user guides in the web pages, geoid correction, honest moisture uncertainty
 
 - **What's new**: this window. The version of the system is shown in the top bar; a small dot on the link means there are changes you have not opened yet.
+- **User guides**: the second tab of this window lists the PDF user guides with a short description; **Open PDF** opens a guide in a new browser tab. A small **?** next to the Live Map *Atmosphere Profile*, the Sounding page Skew-T and controls and the Wind Map controls opens the matching guide directly (the Wind Map one at its own section).
 - **More accurate heights of the pressure surfaces**: the aircraft GNSS heights are now corrected with the geoid (the sea level is about 19 m above the GPS reference surface at Jokioinen but only 15 m east of Kotka). The Wind Map heights, the geostrophic wind and the time–height height fields are affected only slightly.
 - **Moisture (trial) is more honest about its uncertainty**: a first comparison with the radiosondes showed that the indicator is a tendency, uncertain by about ±30–50 %. Uncertain cells are now drawn faint, and the hover shows how much of the uncertainty comes from the flights and how much is systematic.
 - User guide (Sounding and Wind Map pages, PDF) updated to version 2.3.

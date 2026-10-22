@@ -82,6 +82,7 @@
 
     <div class="sounding-actions">
       <button id="btn-refresh" onclick="loadCurrent()" class="btn-secondary">↻ Refresh</button>
+      {% if guide_links.sounding %}<a class="guide-q" href="{{ guide_links.sounding }}" target="_blank" rel="noopener" title="User guide of the Sounding and Wind Map pages — PDF in a new tab">?</a>{% endif %}
       <span id="sounding-meta" class="sounding-meta"></span>
     </div>
   </div>
@@ -172,7 +173,7 @@
     <!-- Skew-T: the same diagram as the Live Map Atmosphere Profile (skewt_chart.js) -->
     <div class="skewt-wrap snd-skewt-wrap">
       <div class="panel-header panel-header-row">
-        <div>Skew-T</div>
+        <div class="panel-title-q">Skew-T {% if guide_links.skewt %}<a class="guide-q" href="{{ guide_links.skewt }}" target="_blank" rel="noopener" title="User guide: Reading the Atmosphere Profile (Skew-T) — PDF in a new tab">?</a>{% endif %}</div>
         <span class="skewt-hdr-ctl">
         <label class="toggle-label" title="Data-validity indicator: a badge at the top left with the number of distinct aircraft and replies behind the area profile (GOOD ≥ 20 aircraft per hour, FAIR 8–19, LOW &lt; 8 — typically LOW around midnight), a red ring on layers measured by only 1–2 aircraft, and a warning in the hover read-out of such layers. Area profiles only (Area · hour from 11 Oct 2026). The setting is shared with the Live Map."><input type="checkbox" id="skewt-dq"> Data quality</label>
         <label class="toggle-label" title="Radiosonde from Jokioinen (about 100 km north-west; FMI open data, launches at 00, 06 and 12 UTC, stored on the server): temperature (pink line), dewpoint (green dashed — humidity aloft, which the aircraft do not report) and winds (pink barbs along the right edge of the plot). The label gives its age and the difference of the area profile from it; the lines fade as the sounding ages. Many FMI profiles stop early (00 UTC often near 350 hPa): the label then says how high it reaches. Jokioinen is inland: at night it is often colder near the ground than the airport area. Area · now: the latest sounding; Area · hour and Flight: the newest sounding launched by then (at most 36 h older). The setting is shared with the Live Map."><input type="checkbox" id="skewt-sonde"> Sonde</label>

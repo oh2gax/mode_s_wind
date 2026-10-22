@@ -542,7 +542,9 @@ The top navigation bar always shows the connection status:
 
 The navbar also shows live aircraft counts: total aircraft visible and how many are currently providing meteo data, two read-only configuration badges (meteo source mode and storage mode), a **live UTC clock** displaying the current date and time in `YYYY-MM-DD HH:MM:SS UTC` format (updated every second), and the **Dark / Light** theme toggle button which applies to all pages.
 
-**Version and What's new:** next to the theme button the navbar shows the version of the system, **v.DDMMYYYY** — one version per day of development, named after the date and taken automatically from the newest heading of `CHANGELOG.md`. Clicking it (**v.… · What's new**) opens a window over the current page with short notes for users of the last 10 versions (from `doc/whats_new.md`, updated with each delivery; `/api/whatsnew`); the window scrolls and closes with ×, Esc or a click outside it. A small dot on the link means the system has a newer version than the one this browser last opened in the window; it disappears once the window has been opened (remembered per browser in `localStorage`).
+**Version and What's new:** next to the theme button the navbar shows the version of the system, **v.DDMMYYYY** — one version per day of development, named after the date and taken automatically from the newest version heading in `doc/whats_new.md` or `CHANGELOG.md`, whichever is newer (so `CHANGELOG.md` need not be copied to the device). Clicking it (**v.… · What's new · Guides**; on screens narrower than 1 700 px only the version) opens a window over the current page with two tabs: **What's new** — short notes for users of the last 10 versions (from `doc/whats_new.md`, updated with each delivery) — and **User guides** — the PDF user guides with a short description each, **Open PDF** (new browser tab) and **Download** (listed in `doc/guides.md`: title, file, version, date, pages and description). The window scrolls and closes with ×, Esc or a click outside it (`/api/whatsnew`). Only the PDFs listed in `doc/guides.md` are served (`/doc/<file>`, behind the same login).
+
+**Guide shortcuts:** a small **?** opens the matching user guide in a new tab — next to *Atmosphere Profile* on the Live Map and *Skew-T* on the Sounding page (Skew-T guide), after **Refresh** on the Sounding page (Sounding and Wind Map guide) and at the end of the Wind Map controls (the same guide, opened at the Wind Map section; `open: windmap@23` in `doc/guides.md`). A small dot on the link means the system has a newer version than the one this browser last opened in the window; it disappears once the window has been opened (remembered per browser in `localStorage`).
 
 **One browser tab per page:** the navigation links open each page in its own browser tab. If the page is already open in another tab, clicking its link switches to that tab without reloading it, so selections made there (runway, time window, filters, display modes) are kept; a page that is not open yet opens in a new tab. Clicking the link of the page shown in the current tab reloads it in place, as before. Ctrl-, Shift- or middle-click keep the browser's normal behaviour.
 
@@ -1902,7 +1904,7 @@ mode_s_wind/
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
 │   ├── access_log.py          # Compact access / misuse log (logs/access.log), login lockout
-│   ├── whats_new.py           # Version v.DDMMYYYY from CHANGELOG.md, notes of the What's new window
+│   ├── whats_new.py           # Version v.DDMMYYYY (newest of doc/whats_new.md, CHANGELOG.md), What's new notes, user guides
 │   ├── api/
 │   │   ├── sounding.py        # Sounding aggregation logic (area, hourly archive, single flight)
 │   │   ├── lowlevel.py        # Airport low-level profile (landings + departures, 200 ft bands)
@@ -1941,7 +1943,8 @@ mode_s_wind/
 │   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
 │                              # Present but not currently loaded by any page (reserved for future overlays)
 ├── doc/                       # README screenshots, Skew-T user guide (SkewT_User_Guide.pdf), Approach Conditions Index article,
-│                              # whats_new.md (user notes of the latest versions, shown in the What's new window)
+│                              # Sounding page / Wind Map guide (Sounding_Page_User_Guide.pdf), whats_new.md (user notes of the
+│                              # latest versions) and guides.md (the guides of the User guides tab) for the What's new window
 ├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb; soundings/ (radiosondes)
 ├── logs/                      # Log files (created at runtime)
 └── tmp_files/                 # Local scratch folder (gitignored)
@@ -2004,7 +2007,8 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/gnss/calibration` | Current calibration of the GNSS heights: `bands` (per 5 000 ft: `corr_m`, `cells`, `prior_m`), `soundings`, `pairs`, `airframes`, `offset_sd_m`, `offsets` (per ICAO, m), `airframe_list` (`icao`, `reg`, `type`, `soundings`, `raw_m`, `offset_m`), `by_type` (`type`, `airframes`, `mean_m`, `sd_m`) |
 | GET | `/api/sounding/hour` | Hourly archive profile of one completed UTC hour, `?ts=<hour start>`; `sfc` = the METAR stored with the hour (`z`, `q`, `tt`, `td`, `cld`) or null; `?moist=1` adds `moisture` (as `/api/sounding`); HTTP 404 when none is stored |
 | GET | `/api/stats` | Live aircraft counters for the navbar (`live_aircraft`, `live_with_meteo`); RAM-only, no database queries |
-| GET | `/api/whatsnew` | Version (`version`, v.DDMMYYYY from the newest CHANGELOG heading) and the notes of the What's new window (`entries`: newest 10 of `doc/whats_new.md`, each `version`, `date`, `title`, `lines` in Markdown) |
+| GET | `/api/whatsnew` | Version (`version`, v.DDMMYYYY, newest heading of `doc/whats_new.md` / `CHANGELOG.md`) and the notes of the What's new window (`entries`: newest 10 of `doc/whats_new.md`, each `version`, `date`, `title`, `lines` in Markdown) and the user guides (`guides`: from `doc/guides.md`, each `title`, `file`, `url`, `version`, `date`, `pages`, `size` in bytes, `lines`, `open`) |
+| GET | `/doc/<file>` | A user guide PDF — only the files listed in `doc/guides.md` (404 for anything else); supports range requests for the browser's PDF viewer |
 | GET | `/api/lowlevel` | Airport low-level profile: the 200 ft band profiles (Mach/TAS temperature, wind) of the landings and departures of the last `?minutes=` (10–360, default 60) pooled per band, with spread and counts (`web/api/lowlevel.py`); optional `?end=<Unix s>` ends the window at that time instead of now |
 | POST | `/api/maintenance/archive/list` | Archive folder status (free space, last archive run / error, snapshot state) and the archive / snapshot files (maintenance credentials) |
 | POST | `/api/maintenance/archive/snapshot` | Start a snapshot of the whole database (`VACUUM INTO`) in the background (maintenance credentials) |

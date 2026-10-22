@@ -2058,7 +2058,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .nav-whatsnew-btn:hover { background: var(--bg-3); color: var(--text-1); }
 #nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.9rem; }   /* a pair with the theme button */
-@media (max-width: 1600px) { .nav-whatsnew-btn .wn-lbl { display: none; } }   /* version only; tooltip says What's new */
+@media (max-width: 1700px) { .nav-whatsnew-btn .wn-lbl { display: none; } }   /* version only; tooltip says What's new */
 .nav-whatsnew-btn.no-ver .wn-lbl { display: inline !important; }
 @media (max-width: 1500px) { .navbar { gap: 1rem; } .nav-status { margin-left: 10px; } }
 @media (max-width: 1400px) { .nav-utc-clock .clk-date { display: none; } }  /* date in the tooltip */
@@ -2080,7 +2080,26 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .wn-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px;
            border-bottom: 1px solid var(--border); }
-.wn-title { font-weight: 700; font-size: 15px; }
+.wn-tabs { display: flex; gap: 4px; }
+.wn-tab { background: none; border: 1px solid transparent; border-radius: 4px; padding: 4px 12px;
+          font-size: 14px; font-weight: 600; color: var(--text-2); cursor: pointer; font-family: inherit; }
+.wn-tab:hover { color: var(--text-1); background: var(--bg-3); }
+.wn-tab.active { color: var(--text-1); border-color: var(--border); background: var(--bg-2); }
+.wn-body[hidden] { display: none; }
+.wn-intro { color: var(--text-2); font-size: 12px; margin-top: 10px !important; }
+.wn-gmeta { color: var(--text-2); font-size: 12px; margin-bottom: 4px; }
+.wn-gbtns { display: flex; gap: 8px; margin: 8px 0 4px; }
+.wn-gbtn { font-size: 12px; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border);
+           color: var(--text-1); background: var(--bg-3); text-decoration: none; }
+.wn-gbtn:hover { border-color: var(--accent); }
+.wn-gbtn.wn-gopen { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wn-gbtn.wn-gopen:hover { filter: brightness(1.1); }
+/* "?" next to a page's controls: opens the page's user guide (PDF, new tab) */
+.guide-q { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+           border-radius: 50%; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-2);
+           font-size: 11px; font-weight: 700; text-decoration: none; flex-shrink: 0; line-height: 1; }
+.panel-title-q { display: inline-flex; align-items: center; gap: 6px; }
+.guide-q:hover { color: #fff; background: var(--accent); border-color: var(--accent); }
 .wn-close { background: none; border: none; color: var(--text-2); font-size: 22px; line-height: 1;
             cursor: pointer; padding: 0 4px; }
 .wn-close:hover { color: var(--text-1); }

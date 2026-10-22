@@ -37,7 +37,7 @@
   </div>
   <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
   <button id="nav-whatsnew-btn" class="nav-whatsnew-btn" type="button" data-version="{{ app_version }}"
-          title="Version {{ app_version }} — What's new: changes of the last versions">{{ app_version }}<span class="wn-lbl"> · What's new</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
+          title="Version {{ app_version }} — What's new (changes of the last versions) and the user guides">{{ app_version }}<span class="wn-lbl"> · What's new · Guides</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
   <span id="nav-utc-clock" class="nav-utc-clock"></span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
@@ -52,14 +52,18 @@
   {% block content %}{% endblock %}
 </main>
 
-<!-- What's new: notes of the last versions (doc/whats_new.md via /api/whatsnew) -->
+<!-- What's new / User guides window (doc/whats_new.md and doc/guides.md via /api/whatsnew) -->
 <div id="wn-overlay" class="wn-overlay" hidden>
-  <div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title">
+  <div class="wn-box" role="dialog" aria-modal="true" aria-label="What's new and user guides">
     <div class="wn-head">
-      <span id="wn-title" class="wn-title">What's new</span>
+      <div class="wn-tabs" role="tablist">
+        <button class="wn-tab active" type="button" role="tab" data-tab="news">What's new</button>
+        <button class="wn-tab" type="button" role="tab" data-tab="guides">User guides</button>
+      </div>
       <button id="wn-close" class="wn-close" type="button" title="Close (Esc)">×</button>
     </div>
-    <div id="wn-body" class="wn-body">Loading…</div>
+    <div id="wn-body-news" class="wn-body">Loading…</div>
+    <div id="wn-body-guides" class="wn-body" hidden>Loading…</div>
   </div>
 </div>
 
@@ -150,21 +154,24 @@ refreshStats();
 setInterval(refreshStats, 15000);
 
 // ── What's new window ───────────────────────────────────────────────────────
-// The link shows the version (v.DDMMYYYY, newest CHANGELOG entry); a dot marks
-// a version this browser has not opened yet.  The window lists the notes of
-// the last versions (doc/whats_new.md) and scrolls; × / Esc / outside closes.
+// The link shows the version (v.DDMMYYYY); a dot marks a version this browser
+// has not opened yet.  The window has two tabs: What's new (notes of the last
+// versions, doc/whats_new.md) and User guides (the PDF guides, doc/guides.md);
+// it scrolls; × / Esc / outside closes.
 (function () {
   var btn = document.getElementById('nav-whatsnew-btn');
   if (!btn) return;
   var ver = btn.dataset.version || '';
   var dot = document.getElementById('nav-whatsnew-dot');
-  var ov = document.getElementById('wn-overlay'), body = document.getElementById('wn-body');
+  var ov = document.getElementById('wn-overlay');
+  var bodies = { news: document.getElementById('wn-body-news'), guides: document.getElementById('wn-body-guides') };
+  var tabs = document.querySelectorAll('.wn-tab');
   var seen = null;
   try { seen = localStorage.getItem('ms_seen_version'); } catch (e) { seen = null; }
   if (ver && seen !== ver) dot.hidden = false;
   if (!ver) { btn.firstChild.textContent = ''; btn.classList.add('no-ver'); }
 
-  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function inline(t) {
     return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>')
                  .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
@@ -189,33 +196,56 @@ setInterval(refreshStats, 15000);
     flush(); close(0);
     return html;
   }
-  function fmtDate(v) { var d = v.slice(2); return d.slice(0, 2) + '.' + d.slice(2, 4) + '.' + d.slice(4); }
+  function fmtVer(v) { var d = v.slice(2); return d.slice(0, 2) + '.' + d.slice(2, 4) + '.' + d.slice(4); }
+  function fmtIso(d) { var p = (d || '').split('-'); return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : (d || ''); }
+  function news(es) {
+    return es.length ? es.map(function (e) {
+      return '<section class="wn-entry"><h3><span class="wn-ver">' + esc(e.version) + '</span>' +
+             '<span class="wn-date">' + fmtVer(e.version) + '</span>' +
+             (e.version === ver ? '<span class="wn-current">current</span>' : '') + '</h3>' +
+             (e.title ? '<div class="wn-etitle">' + inline(e.title) + '</div>' : '') +
+             render(e.lines) + '</section>';
+    }).join('') + '<p class="wn-foot">Earlier changes: CHANGELOG.md in the project.</p>'
+      : '<p>No notes found.</p>';
+  }
+  function guides(gs) {
+    if (!gs.length) return '<p>No user guides on this system.</p>';
+    return '<p class="wn-intro">The guides open as PDF in a new browser tab (large files: '
+         + 'the first opening can take a while on a slow connection).</p>' + gs.map(function (g) {
+      var meta = [g.version ? 'Version ' + esc(g.version) : '', g.date ? fmtIso(g.date) : '',
+                  g.pages ? esc(g.pages) + ' pages' : '', (g.size / 1e6).toFixed(1) + ' MB']
+                 .filter(Boolean).join(' · ');
+      return '<section class="wn-entry wn-guide"><h3>' + esc(g.title) + '</h3>' +
+             '<div class="wn-gmeta">' + meta + '</div>' + render(g.lines) +
+             '<div class="wn-gbtns"><a class="wn-gbtn wn-gopen" href="' + esc(g.url) + '" target="_blank" rel="noopener">Open PDF</a>' +
+             '<a class="wn-gbtn" href="' + esc(g.url) + '" download>Download</a></div></section>';
+    }).join('');
+  }
+  function show(tab) {
+    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); t.setAttribute('aria-selected', t.dataset.tab === tab); });
+    Object.keys(bodies).forEach(function (k) { bodies[k].hidden = k !== tab; });
+  }
   var loaded = false;
-  async function open() {
+  async function open(tab) {
     ov.hidden = false;
+    show(tab || 'news');
     document.addEventListener('keydown', onKey);
     try { localStorage.setItem('ms_seen_version', ver); } catch (e) { /* private mode */ }
     dot.hidden = true;
     if (loaded) return;
     try {
       var d = await (await fetch('/api/whatsnew')).json();
-      var es = d.entries || [];
-      body.innerHTML = es.length ? es.map(function (e) {
-        return '<section class="wn-entry"><h3><span class="wn-ver">' + esc(e.version) + '</span>' +
-               '<span class="wn-date">' + fmtDate(e.version) + '</span>' +
-               (e.version === ver ? '<span class="wn-current">current</span>' : '') + '</h3>' +
-               (e.title ? '<div class="wn-etitle">' + inline(e.title) + '</div>' : '') +
-               render(e.lines) + '</section>';
-      }).join('') + '<p class="wn-foot">Earlier changes: CHANGELOG.md in the project.</p>'
-        : '<p>No notes found.</p>';
+      bodies.news.innerHTML = news(d.entries || []);
+      bodies.guides.innerHTML = guides(d.guides || []);
       loaded = true;
     } catch (err) {
-      body.textContent = 'Could not load the notes.';
+      bodies.news.textContent = bodies.guides.textContent = 'Could not load the notes.';
     }
   }
   function close() { ov.hidden = true; document.removeEventListener('keydown', onKey); }
   function onKey(e) { if (e.key === 'Escape') close(); }
-  btn.addEventListener('click', open);
+  btn.addEventListener('click', function () { open('news'); });
+  tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); }); });
   document.getElementById('wn-close').addEventListener('click', close);
   ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
 })();

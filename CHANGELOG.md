@@ -2,14 +2,15 @@
 
 All notable changes to MODE-S Wind are recorded here, newest first.
 One version per day of development, named after the date: v.DDMMYYYY (e.g. v.22102026).
-The newest heading gives the version shown in the web pages' top bar; short user-oriented
+The newest heading (here or in `doc/whats_new.md`) gives the version in the web pages' top bar; short user-oriented
 notes of the latest versions are in `doc/whats_new.md` (the **What's new** window).
 
 ---
 
-## v.22102026 — 2026-10-22 (version numbering by date and the What's new window; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+## v.22102026 — 2026-10-22 (version numbering by date and the What's new window with the user guides; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
 
-- **Version number by date** (v.DDMMYYYY, one per development day, taken from the newest CHANGELOG heading — all headings now carry it) shown in the top bar of every page, next to the theme button, with a **What's new** link: a scrollable window over the current page with short user-oriented notes of the last 10 versions (new `doc/whats_new.md`, `web/whats_new.py`, `/api/whatsnew`). A small dot on the link marks a version this browser has not opened yet
+- **Version number by date** (v.DDMMYYYY, one per development day, taken from the newest version heading of `doc/whats_new.md` or of this CHANGELOG, whichever is newer — all headings here now carry it) shown in the top bar of every page, next to the theme button, with a **What's new** link: a scrollable window over the current page with short user-oriented notes of the last 10 versions (new `doc/whats_new.md`, `web/whats_new.py`, `/api/whatsnew`). A small dot on the link marks a version this browser has not opened yet
+- **User guides in the web pages**: a second tab of the window lists the PDF guides (Skew-T; Sounding and Wind Map pages) with descriptions, **Open PDF** and **Download** (new `doc/guides.md`; `/doc/<file>` serves only the listed PDFs, behind the login). Small **?** buttons open the matching guide directly from the Live Map *Atmosphere Profile*, the Sounding page and the Wind Map (at its own section)
 - **EGM96 geoid** removed from the aircraft GNSS heights at each position (new `collector/geoid.py`, a built-in 5′ grid of southern Finland): the geoid falls from about 19 m at Jokioinen to 15 m east of Kotka, which the calibration had absorbed as a constant. Applies to the D-values, the Wind Map heights and geostrophic wind, the layer thicknesses (moisture trial) and the sonde comparison; the calibration curve now holds only the aircraft's pressure error (about 18 m lower). Effect on 20–22 Oct data: geostrophic wind about 1 kt, thicknesses 0.03–0.1 K. Stored hours and sonde comparisons are computed again once at start while their observations exist
 - **Moisture (trial)**: its ± now includes a systematic part (0.3 K of Tv − T) besides the scatter of the flights, after the first comparison with four soundings showed sounding-to-sounding differences of 0.2–0.45 K (index RMS about 37 %); the index is drawn faint above ±40 % and described as a tendency. The hovers show both parts
 - User guide v2.3

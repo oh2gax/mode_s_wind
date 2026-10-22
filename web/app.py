@@ -17,7 +17,7 @@ from functools import wraps
 
 from flask import (
     Flask, Response, g, render_template, request,
-    jsonify, stream_with_context, send_from_directory,
+    jsonify, stream_with_context, send_from_directory, abort,
 )
 
 import hmac
@@ -257,7 +257,8 @@ def create_app(
             "meteo_source_mode": cfg.METEO_SOURCE_MODE,
             "storage_mode":      cfg.STORAGE_MODE,
             "carto_api_key":     cfg.CARTO_API_KEY,
-            "app_version":       whats_new.version(),    # v.DDMMYYYY from CHANGELOG.md
+            "app_version":       whats_new.version(),    # v.DDMMYYYY (doc/whats_new.md, CHANGELOG.md)
+            "guide_links":       whats_new.guide_links(), # ? buttons -> user guide PDFs
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -660,11 +661,23 @@ def create_app(
 
     @app.route("/api/whatsnew")
     def whatsnew_api():
-        """Version (v.DDMMYYYY, newest CHANGELOG entry) and the user notes of
-        the newest versions from doc/whats_new.md (web/whats_new.py):
-        {"version", "entries": [{"version", "date", "title", "lines"}]}."""
+        """Version (v.DDMMYYYY), the user notes of the newest versions from
+        doc/whats_new.md and the user guides of doc/guides.md (web/whats_new.py):
+        {"version", "entries": [{"version", "date", "title", "lines"}],
+         "guides": [{"title", "file", "url", "version", "date", "pages", "size", "lines", "open"}]}."""
         from web import whats_new
-        return jsonify({"version": whats_new.version(), "entries": whats_new.entries()})
+        return jsonify({"version": whats_new.version(), "entries": whats_new.entries(),
+                        "guides": whats_new.guides()})
+
+    @app.route("/doc/<name>")
+    def guide_pdf(name):
+        """A user guide PDF — only the files listed in doc/guides.md."""
+        from web import whats_new
+        path = whats_new.guide_file(name)
+        if not path:
+            abort(404)
+        return send_from_directory(os.path.dirname(path), os.path.basename(path),
+                                   mimetype="application/pdf")
 
     # ── Sounding API ──────────────────────────────────────────────────────
 
