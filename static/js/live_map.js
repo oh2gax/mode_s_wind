@@ -564,13 +564,18 @@ function selectAircraft(icao) {
   set('d-gs',    ac.groundspeed, ' kt');
   set('d-track', ac.track       != null ? ac.track.toFixed(0)             : null, '°');
   set('d-vr',    ac.vert_rate,   ' fpm');
-  set('d-wsp',   ac.best_wind_spd  != null ? ac.best_wind_spd.toFixed(1)  : null, ' kt');
-  set('d-wdir',  ac.best_wind_dir  != null ? ac.best_wind_dir.toFixed(0)  : null, '°');
-  set('d-temp',  ac.best_temp      != null ? ac.best_temp.toFixed(1)      : null, '°C');
-  set('d-pres',  ac.best_pressure  != null ? ac.best_pressure.toFixed(0)  : null, ' hPa');
-  set('d-hum',   ac.mrar_humidity  != null ? ac.mrar_humidity.toFixed(0)  : null, '%');
+  set('d-wind',  ac.best_wind_spd != null && ac.best_wind_dir != null
+                   ? `${String(Math.round(ac.best_wind_dir)).padStart(3, '0')}° / ${Math.round(ac.best_wind_spd)}` : null, ' kt');
+  set('d-temp',  ac.best_temp      != null ? ac.best_temp.toFixed(1)      : null, ' °C');
+  // MRAR / MHR values (practically never sent): their cells only when present
+  const opt = (id, val, unit) => {
+    set(id, val, unit);
+    document.getElementById(id).closest('.detail-cell').classList.toggle('hidden', val == null);
+  };
+  opt('d-pres',  ac.best_pressure  != null ? ac.best_pressure.toFixed(0)  : null, ' hPa');
+  opt('d-hum',   ac.mrar_humidity  != null ? ac.mrar_humidity.toFixed(0)  : null, ' %');
   const turbMap = ['NIL', 'Light', 'Moderate', 'Severe'];
-  set('d-turb',  ac.mrar_turbulence != null ? turbMap[ac.mrar_turbulence] : null);
+  opt('d-turb',  ac.mrar_turbulence != null ? turbMap[ac.mrar_turbulence] : null, '');
   // Heading calibration (collector/heading_cal.py); the rarely received MRAR
   // figure of merit takes the cell when present
   if (ac.mrar_fom != null) {
@@ -580,7 +585,6 @@ function selectAircraft(icao) {
     document.getElementById('d-hdg-label').textContent = 'Hdg corr';
     set('d-hdg', hdgCorrText(ac, '°'));
   }
-  set('d-src',   src);
 
   // Update mini sounding overlay — includes full wind history for the profile
   miniAcOverlay = {

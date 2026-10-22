@@ -600,7 +600,7 @@ The selected label mode persists across browser sessions.
 
 #### Bottom strip — METAR / TAF
 
-The bottom of the live map always shows the current METAR and TAF for the configured airport (`AIRPORT_ICAO` in `config.py`, default EFHK). The data is fetched server-side from NOAA and refreshed automatically every 10 minutes. METAR and TAF are displayed side-by-side in a fixed-position panel anchored to the right; selecting an aircraft does not shift or disturb this panel.
+The bottom strip under the aircraft list and the map always shows the current METAR and TAF for the configured airport (`AIRPORT_ICAO` in `config.py`, default EFHK). The data is fetched server-side from NOAA and refreshed automatically every 10 minutes. METAR (one third of the width) and TAF (two thirds) are side by side; with an aircraft selected its detail box takes the first 330 px of the strip and METAR / TAF share the rest. In windows narrower than 1 600 px their text is slightly smaller (14 px); a long TAF scrolls. The strip does not extend under the Atmosphere Profile panel, which uses the full height of the page (in tablet portrait mode, without the map, the strip spans the full width).
 
 **Wind vectors:** every aircraft with a wind reading also gets a short light-blue line pointing downwind (the direction the air moves; longer for stronger wind), so the wind field over the map is visible at a glance.
 
@@ -609,21 +609,19 @@ The bottom of the live map always shows the current METAR and TAF for the config
 Clicking an aircraft symbol or list entry:
 
 1. **Enlarges the symbol** on the map for easy tracking
-2. **Opens the aircraft detail panel** on the left side of the bottom strip showing all decoded values:
-   - Header: callsign, then registration · aircraft type · ICAO24 code (e.g. `FIN7KM  OH-LKH · E190 · 461E1B`) and the meteo source badge. The map popup of the aircraft shows the same identity line
-   - Altitude, ground speed, track, vertical rate (shown in **fpm**)
-   - Wind speed and direction
-   - Temperature, pressure, humidity
-   - Turbulence level if from MRAR
+2. **Opens the aircraft detail box** (330 px, three columns) on the left of the bottom strip:
+   - Header: callsign, then registration · aircraft type · ICAO24 code (e.g. `FIN7KM  OH-LKH · E190 · 461E1B`) and the meteo source badge (MRAR / COMPUTED / MHR / JSON). The map popup of the aircraft shows the same identity line
+   - Altitude, vertical rate (**fpm**), temperature
+   - Ground speed, track, wind (direction / speed, e.g. `252° / 45 kt`)
    - **Hdg corr** — the heading correction used for this aircraft's wind (e.g. `+1.6° own`, `+2.1° type`, `+1.5° default`, `excluded`; see [Heading calibration](#heading-calibration-per-airframe)); the MRAR Figure of Merit (FOM) is shown in this cell instead when an MRAR reply is received
-   - Meteo source badge
+   - Pressure, humidity and turbulence (MRAR / MHR values, which practically no aircraft send) get their own cells only when present
 3. **Overlays the aircraft's full wind profile** on the Atmosphere Profile panel (right side) — see below
 
-Click the **✕** button to deselect and close the aircraft detail panel. The METAR/TAF panel remains visible at all times.
+Click the **✕** button to deselect and close the aircraft detail box. The METAR/TAF panel remains visible at all times.
 
 #### Right panel — Atmosphere Profile
 
-A permanently visible Skew-T Log-P diagram filling the full height of the right panel. A user guide with screenshots — how to read the diagram, the upper-air parameters, where the data come from, all controls and analysis levels, the airport low-level profile, the METAR dewpoint and surface parcel (LCL, CAPE, Lifted Index), the data-quality indicator, the comparison profiles (Sonde, MEPS — including why the model has only 10 levels — and the RH strip), the Sounding page and the limitations — is in [`doc/SkewT_User_Guide.pdf`](doc/SkewT_User_Guide.pdf). The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
+A permanently visible Skew-T Log-P diagram filling the full height of the right panel, which runs from the navigation bar to the bottom of the page (from 22 Oct 2026; before, the METAR/TAF strip ran under it). Its width follows the height the panel had before (at least 540 px, at most 45 % of the window), so the diagram became taller, not wider. A user guide with screenshots — how to read the diagram, the upper-air parameters, where the data come from, all controls and analysis levels, the airport low-level profile, the METAR dewpoint and surface parcel (LCL, CAPE, Lifted Index), the data-quality indicator, the comparison profiles (Sonde, MEPS — including why the model has only 10 levels — and the RH strip), the Sounding page and the limitations — is in [`doc/SkewT_User_Guide.pdf`](doc/SkewT_User_Guide.pdf). The canvas automatically sizes itself to the available space when the page loads and reflows whenever the browser window is resized, giving maximum vertical resolution for the profile. The diagram uses a log-pressure Y axis and a skewed temperature X axis, with the ISA (International Standard Atmosphere) reference temperature shown as a dashed blue line.
 
 <p align="center"><img src="doc/Mode_S_Wind_SkewT_1.png" alt="MODE-S Wind Atmosphere Profile (Skew-T) with Analysis Full" width="540"></p>
 

@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.22102026 — 2026-10-22 (MEPS model data and the MEPS check; version numbering by date and the What's new window with the user guides; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+## v.22102026 — 2026-10-22 (MEPS model data and the MEPS check; taller Skew-T on the Live Map; version numbering by date and the What's new window with the user guides; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
 
 ### MEPS model data: MEPS check and the Skew-T MEPS profile
 
@@ -15,6 +15,12 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Sounding page — MEPS check** (new view): the Mode S area profile minus the model every hour by pressure level — temperature, wind and the heights of the pressure surfaces from the GNSS heights — also at night and between the soundings (3 d / 7 d / 14 d / 30 d, ≥ 8 aircraft), and at each sounding how much of the aircraft − sonde difference is the 100 km distance to Jokioinen (`/api/meps/check`). First study (24 Sep – 22 Oct, hours with ≥ 8 aircraft): temperature 0.6–0.9 K RMS up to 400 hPa and 1.0–1.4 K above, wind 3–5 kt up to 500 hPa and 6–9 kt above; the distance explains about 40 % of the temperature and 60 % of the wind difference to the sonde
 - **Skew-T — MEPS** tick box (Live Map and Sounding page, shared, off by default): the model's temperature, dewpoint and winds over the same area, with the run, the lead time and the area − model difference in the label and the values in the hover (`/api/meps/profile`)
 - **User guides**: Sounding and Wind Map pages v2.4 (39 pages; new sections *The MEPS model beside the aircraft* and *MEPS check*, the Wind Map is now Section 8) and Skew-T v4 (16 pages; new section on the comparison profiles Sonde, MEPS and RH), both explaining why the model has only 10 pressure levels
+
+### Live Map layout: taller Skew-T, compact aircraft box
+
+- The **Atmosphere Profile** panel now uses the full height of the page: the bottom strip (aircraft details, METAR / TAF) lies only under the aircraft list and the map. Same width as before, so the diagram is about 25 % taller on a 1920 × 1080 screen and 45 % on 1366 × 768. METAR and TAF side by side (one third / two thirds); slightly smaller text below 1 600 px window width
+- **Aircraft detail box** compact (330 px instead of 520 px, three columns): altitude, vertical rate, temperature, ground speed, track, wind (`252° / 45 kt`), heading correction; pressure, humidity and turbulence only when an aircraft sends them; the meteo source stays as the badge in the header
+- Tablet portrait mode (no map) unchanged: the strip spans the full width
 
 ### Version number, What's new and user guides
 

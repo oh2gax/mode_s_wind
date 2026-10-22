@@ -64,24 +64,36 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
                 font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 
 /* ── Live layout ──────────────────────────────────────────────────────── */
-.live-layout { display: flex; height: calc(100% - 165px); overflow: hidden; }
+/* Grid (from 2026-10-22): the Skew-T panel on the right uses the full height;
+   the bottom strip (aircraft detail, METAR / TAF) lies under the list and the map */
+.live-layout { display: grid; flex: 1; min-height: 0; overflow: hidden;
+               grid-template-columns: var(--panel-w) minmax(0, 1fr) var(--skewt-w);
+               grid-template-rows: minmax(0, 1fr) 165px;
+               grid-template-areas: "left map right" "strip strip right";
+               /* Skew-T panel width: as before the full-height layout (the same
+                  shape as 540 px on a 1920 × 1080 screen when the panel was 165 px
+                  shorter), at least 540 px, at most 45 % of the window — so the
+                  diagram is now only taller */
+               --skewt-w: clamp(540px, calc((100vh - var(--navbar-h) - 165px) * 0.73), 45vw); }
+.live-layout > .panel-left    { grid-area: left; min-height: 0; }
+.live-layout > .map-container { grid-area: map; min-width: 0; }
+.live-layout > .panel-right   { grid-area: right; min-height: 0; }
+.live-layout > .detail-strip  { grid-area: strip; min-width: 0; }
 
 .panel-left  { width: var(--panel-w); background: var(--bg-1);
                border-right: 1px solid var(--border); display: flex;
                flex-direction: column; flex-shrink: 0; }
 .panel-right { background: var(--bg-1);
                border-left: 1px solid var(--border); display: flex;
-               flex-direction: column; flex-shrink: 0; overflow: hidden;
-               /* Skew-T panel: width follows the available height (same shape as
-                  540 px on a 1920 × 1080 screen), at least 540 px, at most 45 % of
-                  the window width */
-               width: clamp(540px, calc((100vh - var(--navbar-h) - 165px) * 0.73), 45vw); }
+               flex-direction: column; flex-shrink: 0; overflow: hidden; }
 
 /* Tablet in portrait (e.g. 10" iPad) and other narrow, tall windows: no room
    for the map — aircraft list and Skew-T share the width, METAR / TAF below */
 @media (max-width: 1100px) and (orientation: portrait) {
+  .live-layout { grid-template-columns: var(--panel-w) minmax(0, 1fr);
+                 grid-template-areas: "left right" "strip strip"; }
   .live-layout .map-container { display: none; }
-  .live-layout .panel-right { flex: 1 1 auto; width: auto; min-width: 0; }
+  .live-layout .panel-right { min-width: 0; }
 }
 
 .map-container { flex: 1; position: relative; }
@@ -124,7 +136,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .detail-strip.hidden { display: none; }
 
 /* Aircraft detail panel — absolute left, only when aircraft selected */
-.detail-ac-panel { position: absolute; left: 0; top: 0; bottom: 0; width: 520px;
+.detail-ac-panel { position: absolute; left: 0; top: 0; bottom: 0; width: 330px;
                    display: flex; flex-direction: column; z-index: 1; overflow: hidden;
                    background: var(--bg-1); border-right: 1px solid var(--border); }
 .detail-ac-panel.hidden { display: none; }
@@ -136,22 +148,24 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .detail-callsign { font-weight: 700; font-size: 14px; }
 .detail-icao     { font-size: 11px; color: var(--text-2); white-space: nowrap;
                    overflow: hidden; text-overflow: ellipsis; }
-.detail-grid { display: grid; grid-template-columns: repeat(6, 1fr);
+.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr);
                align-content: start; overflow: hidden; }
-.detail-cell { padding: 4px 10px; border-right: 1px solid var(--border);
+.detail-cell { padding: 4px 9px; border-right: 1px solid var(--border);
                border-bottom: 1px solid var(--border); line-height: 1.2; }
 .dlabel { display: block; font-size: 10px; color: var(--text-3); text-transform: uppercase; }
-.detail-cell span:last-child { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.detail-cell span:last-child { font-size: 14px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+.detail-cell.hidden { display: none; }
 
 /* METAR / TAF panel — absolute, anchored to right, always visible */
 .wx-panel { position: absolute; left: 0; right: 0; top: 0; bottom: 0;
             display: flex; overflow: hidden; }
 /* When aircraft panel is visible, shift wx-panel past it */
-.detail-ac-panel:not(.hidden) ~ .wx-panel { left: 520px;
+.detail-ac-panel:not(.hidden) ~ .wx-panel { left: 330px;
                                              border-left: 1px solid var(--border); }
 .wx-section { flex: 1; min-width: 0; padding: 5px 10px; overflow: hidden;
               display: flex; flex-direction: column; }
 .wx-section + .wx-section { border-left: 1px solid var(--border); }
+.wx-section.wx-taf { flex: 2; }          /* the TAF is longer: two thirds of the width */
 .wx-label { font-size: 9px; font-weight: 700; color: var(--text-3);
             text-transform: uppercase; letter-spacing: .5px;
             margin-bottom: 3px; flex-shrink: 0; }
@@ -159,6 +173,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .wx-text { font-family: system-ui, -apple-system, sans-serif; font-size: 15.5px; color: var(--text-2);
            margin: 0; white-space: pre-wrap; word-break: break-word;
            overflow-y: auto; flex: 1; line-height: 1.5; }
+@media (max-width: 1599px) { .wx-text { font-size: 14px; } }
 
 /* ── Source badges ──────────────────────────────────────────────────────── */
 .badge-source, .badge-mrar, .badge-comp, .badge-mhr {
