@@ -62,6 +62,14 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
     return out
 
 
+def _moist_faint_pct():
+    try:
+        from collector.moisture import UNCERTAIN_PCT
+        return UNCERTAIN_PCT
+    except Exception:                                    # noqa: BLE001
+        return 40
+
+
 def _moisture(db, h, lat, lon, radius_km, live_levels=None, now=None):
     """Trial moisture indicator of the hour h (None on any error)."""
     try:
@@ -202,8 +210,8 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                        "kz": [[alt_lo, vort, se_vort, aircraft], …],
                        "dv": [[alt_lo, D m, SD m, airframes], …],
                        "tk": [[lo ft, hi ft, Tv °C, SD K, flights, T Mach/TAS °C], …],
-                       "mo": [[lo ft, hi ft, moisture index %, ± %, flights,
-                               Tv − T corrected K, raw K], …]}, …],
+                       "mo": [[lo ft, hi ft, moisture index %, ± % (total), flights,
+                               Tv − T corrected K, raw K, ± % from the flights], …]}, …],
              "gcal": {"soundings", "pairs", "computed"} of the height calibration,
              "mcal": {layer bottom: {"climb", "descent" K, "n_climb", "n_descent",
                       "n" soundings}} of the moisture offsets}
@@ -278,7 +286,7 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
             cells = raw.get(c["ts"])
             if not cells:
                 continue
-            dv, tk = gh.column_products(cells, cal, {r[0]: r[1] for r in c["lv"]}, lat)
+            dv, tk = gh.column_products(cells, cal, {r[0]: r[1] for r in c["lv"]}, lat, lon)
             if dv:
                 c["dv"] = dv
             if tk:
@@ -310,6 +318,7 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
             pass
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
             "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal, "mcal": mcal,
+            "moist_faint_pct": _moist_faint_pct(),
             "sondes": sonde_columns(start, end_hour + 3600)}
 
 

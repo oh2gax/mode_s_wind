@@ -112,7 +112,7 @@
       <b>Vorticity</b> (about FL130–FL390): the spin of the wind field over 200 km from a plane fit of the aircraft winds — cyclonic (purple) in troughs and on the cold side of a jet, anticyclonic (gold) in ridges and highs (about ±2 ×10⁻⁵ s⁻¹ of noise; the long-term mean is probably 2–3 units too anticyclonic).
       <b>Height of the pressure surfaces</b>: how far each pressure surface lies above (red) or below (blue) its height in the standard atmosphere (D-value, m) — from the aircraft's GNSS height minus their pressure altitude, calibrated against the Jokioinen soundings; warm columns and highs lift the surfaces, cold air and lows lower them. <b>Height change 6 h</b>: falling surfaces (blue) ahead of a trough or front, rising (red) behind it.
       <b>Thickness temperature check</b>: the mean (virtual) temperature of 5 000 ft layers from the height gained by climbing and descending aircraft (GNSS) minus the Mach / TAS temperature of the same layers — an independent check of the measured temperatures (near 0; humid air adds a few tenths of a kelvin).
-      <b>Moisture (trial)</b>, 1 000–15 000 ft: moist air is lighter, so the thickness temperature minus the Mach / TAS temperature measures the moisture of a layer; averaged over the flights of a few hours, corrected with offsets learnt against the soundings and divided by the value of saturated air, it is about the relative humidity — dry (brown, &lt; 40 %), moist (green) or humid (blue, ≥ 70 %). Experimental: only where aircraft climb and descend, faint where uncertain.
+      <b>Moisture (trial)</b>, 1 000–15 000 ft: moist air is lighter, so the thickness temperature minus the Mach / TAS temperature measures the moisture of a layer; averaged over the flights of a few hours, corrected with offsets learnt against the soundings and divided by the value of saturated air, it is about the relative humidity — dry (brown, &lt; 40 %), moist (green) or humid (blue, ≥ 70 %). Experimental — a tendency, uncertain by about ±30–50 %: only where aircraft climb and descend, faint where the ± exceeds 40 %.
       Faint cells rest on fewer than 3 replies; night hours often have only a few aircraft (red bars in the aircraft strip).
       Hover for values; click a column to open that hour on the Skew-T.
     </div>
@@ -143,7 +143,7 @@
     </div>
     <div class="sv-row">
       <div class="sv-panel sv-narrow">
-        <div class="panel-header" title="Correction subtracted from the aircraft GNSS height of a pressure surface (pressure altitude + GNSS − baro): geoid (≈ 18 m) + the fleet's speed-dependent pressure error, fitted against the Jokioinen soundings of the last 30 days">GNSS height calibration, by band</div>
+        <div class="panel-header" title="Correction subtracted from the aircraft GNSS height of a pressure surface (pressure altitude + GNSS − baro): the fleet's speed-dependent pressure error (the EGM96 geoid, about 15–19 m here, is removed separately at each aircraft position), fitted against the Jokioinen soundings of the last 30 days">GNSS height calibration, by band</div>
         <table class="data-table compact" id="sv-gcal-bands"></table>
         <div class="panel-header" style="margin-top:6px" title="Mean raw offset of the airframes of each type (after the band correction): airframe and type altimeter differences">By aircraft type</div>
         <div class="sv-scroll" style="max-height:220px"><table class="data-table compact" id="sv-gcal-types"></table></div>
@@ -162,8 +162,8 @@
       without the per-airframe heading correction.
       <b>GNSS height calibration</b>: the aircraft's GNSS height of the pressure surfaces (used by the Time–height height
       and thickness fields and the Wind Map heights) compared with the soundings: aircraft within 150 km of the drifting
-      balloon and ±1 h of it passing the level. The band correction includes the geoid (≈ 18 m) and the fleet's
-      speed-dependent pressure error; positive offset = the airframe's GNSS − baro is larger than the fleet's.
+      balloon and ±1 h of it passing the level. The band correction is the fleet's speed-dependent pressure error (the EGM96 geoid
+      is removed separately at each aircraft position); positive offset = the airframe's GNSS − baro is larger than the fleet's.
     </div>
   </div>
 

@@ -1371,7 +1371,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       if (idx == null) continue;
       const yb = mskY(altToPressHPa(lo)), yt = mskY(altToPressHPa(hi));
       if (yb < MT || yt > MT + PH) continue;
-      const weak = se == null || se > 25, c = moistCls(idx)[2];
+      const weak = se == null || se > (miniMoist.uncertain_pct || 40), c = moistCls(idx)[2];
       ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.3 : 0.65})`;
       ctx.fillRect(x0 + 1, yt + 1, Math.max(2, x(idx) - x0 - 1), yb - yt - 2);
       ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.lineWidth = 2;
@@ -1421,9 +1421,10 @@ function createSkewT(canvas, tip, cfg = {}) {
     const r = ((miniMoist && miniMoist.rows) || []).find(r => ft >= r[0] && ft < r[1]);
     parts.push(`<b>Moisture (trial)</b> · ${fmt(ft)} · ${Math.round(p)} hPa`);
     if (r) {
-      const [lo, hi, idx, se, n, corr, raw] = r;
+      const [lo, hi, idx, se, n, corr, raw, ser] = r;
       const w = miniMoist.window_h ? miniMoist.window_h[String(lo)] : null;
       parts.push(`Aircraft ${fmt(lo)}–${fmt(hi)}: <b>${moistCls(idx)[1]}</b>, index ${idx} %${se != null ? ` ±${se} %` : ''}` +
+        (ser != null ? ` <span class="mini-tip-dim">(±${ser} % from the flights, the rest systematic)</span>` : '') +
         ` <span class="mini-tip-dim">(${n} climbs / descents${w ? ` of ±${w} h` : ''}; Tv − T ${corr >= 0 ? '+' : ''}${corr.toFixed(2)} K after the sonde offsets, ${raw >= 0 ? '+' : ''}${raw.toFixed(2)} K raw)</span>`);
       const sl = sondeLayerRh(lo, hi);
       if (sl != null) parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde mean RH of the layer ${Math.round(sl)} %</span>`);
@@ -1433,7 +1434,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
       parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde RH ${Math.round(100 * es(sv.td) / es(sv.t))} % at this level</span>`);
     }
-    parts.push(`<span class="mini-tip-dim">Index ≈ RH from the thickness of climbs / descents (virtual temperature) minus the Mach/TAS temperature — a first trial` +
+    parts.push(`<span class="mini-tip-dim">Index ≈ RH from the thickness of climbs / descents (virtual temperature) minus the Mach/TAS temperature — a first trial, a tendency rather than a measurement` +
       (miniMoist ? `, offsets from ${miniMoist.offsets_n || 0} sounding${miniMoist.offsets_n === 1 ? '' : 's'}` : '') + `</span>`);
     return parts.join('<br>');
   }

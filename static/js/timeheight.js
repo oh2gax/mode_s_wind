@@ -142,7 +142,7 @@
       // moisture indicator: each layer gets the block (1 000–5 000 / 5 000–10 000 / 10 000–15 000 ft) around its centre
       const MO = new Array(nL).fill(null);
       for (const r of c.mo || []) {
-        const o = { lo: r[0], hi: r[1], idx: r[2], se: r[3], n: r[4], corr: r[5], raw: r[6] };
+        const o = { lo: r[0], hi: r[1], idx: r[2], se: r[3], n: r[4], corr: r[5], raw: r[6], ser: r[7] };
         for (let i = 0; i < nL; i++) {
           const zc = (layers[i] + layers[i + 1]) / 2;
           if (zc >= r[0] && zc < r[1]) MO[i] = o;
@@ -242,7 +242,7 @@
     }
     if (f === 'moist') {
       const z = c.MO[i];
-      return z && z.idx != null ? { v: z.idx, weak: z.se == null || z.se > 25 } : null;
+      return z && z.idx != null ? { v: z.idx, weak: z.se == null || z.se > ((data && data.moist_faint_pct) || 40) } : null;
     }
     return null;
   }
@@ -650,7 +650,7 @@
         ` <span class="mini-tip-dim">(${tk.n} climb${tk.n === 1 ? '' : 's'} / descents${tk.sd != null ? `, ±${tk.sd.toFixed(1)} K` : ''})</span>`);
       const mo = c.MO[i];
       if (mo && mo.idx != null) parts.push(`moisture (trial) ${fmtFt(mo.lo)}–${fmtFt(mo.hi)}: <b>${moistClass(mo.idx)[3]}</b>, index ${mo.idx} %` +
-        ` <span class="mini-tip-dim">(±${mo.se ?? '–'} %, ${mo.n} climbs / descents of ±${mo.lo < 5000 ? 2 : 1} h; Tv − T ${mo.corr >= 0 ? '+' : ''}${mo.corr.toFixed(2)} K after the sonde offsets, ${mo.raw >= 0 ? '+' : ''}${mo.raw.toFixed(2)} K raw)</span>`);
+        ` <span class="mini-tip-dim">(±${mo.se ?? '–'} %${mo.ser != null ? ` — ±${mo.ser} % from the flights, the rest systematic` : ''}; ${mo.n} climbs / descents of ±${mo.lo < 5000 ? 2 : 1} h; Tv − T ${mo.corr >= 0 ? '+' : ''}${mo.corr.toFixed(2)} K after the sonde offsets, ${mo.raw >= 0 ? '+' : ''}${mo.raw.toFixed(2)} K raw)</span>`);
       if (c.bulk && (st.field === 'thk' || tk)) {
         const b = c.bulk;
         parts.push(`<span class="mini-tip-dim">FL100–FL300: ${b.tv.toFixed(1)} °C` + (b.tref != null ? ` vs ${b.tref.toFixed(1)} °C (${b.tv - b.tref >= 0 ? '+' : ''}${(b.tv - b.tref).toFixed(1)} K)` : '') + `, ${b.n} flight${b.n === 1 ? '' : 's'}</span>`);
@@ -735,7 +735,7 @@
         '<span class="th-lt">−2 · 0 · +2 K</span>' + calNote();
     } else if (st.field === 'moist') {
       el.innerHTML = 'Moisture (trial, 1 000–15 000 ft): ' + MOIST.map(b => `<span class="th-sw" style="background:${moistFill((b[0] + b[1]) / 2 || (b[0] < 0 ? 0 : 100))}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
-        ' <span class="th-lt">(index ≈ RH: &lt; 40, 40–70, ≥ 70 % — thickness Tv − Mach/TAS T over the saturated value; faint: uncertain)</span>' + moistNote();
+        ` <span class="th-lt">(index ≈ RH: &lt; 40, 40–70, ≥ 70 % — thickness Tv − Mach/TAS T over the saturated value; a tendency, uncertain by ±30–50 %; faint: ± over ${(data && data.moist_faint_pct) || 40} %)</span>` + moistNote();
     } else if (st.field === 'lapse') {
       el.innerHTML = 'Lapse rate ' + LAPSE.map(b => `<span class="th-sw" style="background:${b[2]}"></span><span class="th-lt">${b[3]}</span>`).join(' ') +
         ' <span class="th-lt">(K/km: &lt; −1, −1–2, 2–5, 5–7, 7–9, ≥ 9)</span>';

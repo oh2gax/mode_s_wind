@@ -29,9 +29,16 @@ same temperature would give:
 
     index = (Tv − T − offset) / (0.608 · q_sat(T, p) · T) × 100
 
-— roughly the relative humidity of the layer (%), uncertain by about ±20 %
-at 5 000–15 000 ft in daytime traffic.  Shown as dry (< 40), moist (40–70)
-and humid (≥ 70).
+— roughly the relative humidity of the layer (%).  Its ± combines the
+scatter of the flights (± their SD / √n) with a systematic part SYS_K that
+does not average out: the first comparison with four soundings (22 Oct 2026)
+gave aircraft − sonde differences of Tv − T that changed by 0.2–0.45 K from
+one sounding to the next (part of it the 95 km between Helsinki and
+Jokioinen), an RMS of about 37 % in the index and no gain from the learnt
+offsets yet.  With it the index is uncertain by about ±30–35 % at
+1 000–10 000 ft and ±50 % at 10 000–15 000 ft in daytime traffic — a
+tendency, not a measurement.  Shown as dry (< 40), moist (40–70) and humid
+(≥ 70), faint where the ± exceeds UNCERTAIN_PCT.
 
 Offsets
 -------
@@ -60,6 +67,8 @@ CAL_DAYS = 30
 PRIOR_N = 3.0                                # offset shrunk towards 0 with this many soundings
 CACHE_SEC = 3600
 DRY_BELOW, HUMID_FROM = 40.0, 70.0
+SYS_K = 0.3                     # systematic uncertainty of Tv − T (K), added in quadrature
+UNCERTAIN_PCT = 40              # index ± above this: drawn faint
 
 
 def _isa_p(ft: float) -> float:
@@ -242,7 +251,8 @@ def offsets(db, cal: dict, lat: float, lon: float, radius_km: float,
 # ── the indicator per hour ──────────────────────────────────────────────────
 
 def columns(raw: dict, prof: dict, cal: dict, offs: dict, lat: float, hours: list) -> dict:
-    """{hour: [[lo, hi, index %, ± %, flights, Tv − T corrected K, raw K], …]} for
+    """{hour: [[lo, hi, index %, ± % (total), flights, Tv − T corrected K, raw K,
+    ± % from the flights' scatter alone], …]} for
     the given hours.  raw: {hour: gnss_hours cells}, prof: {hour: {layer bottom:
     °C}} — both should reach WINDOW_H hours beyond the shown hours."""
     per_hour: dict = {}
@@ -268,9 +278,11 @@ def columns(raw: dict, prof: dict, cal: dict, offs: dict, lat: float, hours: lis
             sat = sat_dtv(lv, lo, hi)
             if tm is None or tm[2] < MIN_FLIGHTS[lo] or not sat or sat < 0.05:
                 continue
-            se = (tm[1] / math.sqrt(tm[2])) if tm[1] is not None else None
-            rows.append([lo, hi, round(100 * tm[0] / sat), round(100 * se / sat) if se is not None else None,
-                         tm[2], round(tm[0], 2), round(raw_m[0], 2)])
+            se_r = (tm[1] / math.sqrt(tm[2])) if tm[1] is not None else None
+            se = math.hypot(se_r if se_r is not None else 0.0, SYS_K)
+            rows.append([lo, hi, round(100 * tm[0] / sat), round(100 * se / sat),
+                         tm[2], round(tm[0], 2), round(raw_m[0], 2),
+                         round(100 * se_r / sat) if se_r is not None else None])
         if rows:
             out[h] = rows
     return out
@@ -290,8 +302,9 @@ def for_hour(db, h: int, lat: float, lon: float, radius_km: float,
              live_levels: list | None = None, now: float | None = None) -> dict:
     """The indicator of one hour for the Skew-T (Area · hour, or Area · now
     with h = the hour in progress and live_levels its area profile):
-    {"hour", "rows": [[lo, hi, index %, ± %, flights, Tv − T corrected K, raw K], …],
-     "window_h": {layer bottom: ± hours}, "offsets_n": soundings}."""
+    {"hour", "rows": [[lo, hi, index %, ± % (total), flights, Tv − T corrected K, raw K,
+     ± % from the flights], …], "window_h": {layer bottom: ± hours}, "offsets_n": soundings,
+     "uncertain_pct": the ± above which it is drawn faint}."""
     import json
     from collector import gnss_heights as gh
     now = _time.time() if now is None else now
@@ -312,4 +325,5 @@ def for_hour(db, h: int, lat: float, lon: float, radius_km: float,
     offs = offsets(db, cal, lat, lon, radius_km, now=now)
     rows = columns(raw, prof, cal, offs, lat, [h]).get(h, [])
     return {"hour": h, "rows": rows, "window_h": {str(lo): w for lo, w in WINDOW_H.items()},
-            "offsets_n": max((o.get("n", 0) for o in offs.values()), default=0)}
+            "offsets_n": max((o.get("n", 0) for o in offs.values()), default=0),
+            "uncertain_pct": UNCERTAIN_PCT}

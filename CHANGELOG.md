@@ -5,6 +5,14 @@ No version numbers — entries are organised by date.
 
 ---
 
+## 2026-10-22 (geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+
+- **EGM96 geoid** removed from the aircraft GNSS heights at each position (new `collector/geoid.py`, a built-in 5′ grid of southern Finland): the geoid falls from about 19 m at Jokioinen to 15 m east of Kotka, which the calibration had absorbed as a constant. Applies to the D-values, the Wind Map heights and geostrophic wind, the layer thicknesses (moisture trial) and the sonde comparison; the calibration curve now holds only the aircraft's pressure error (about 18 m lower). Effect on 20–22 Oct data: geostrophic wind about 1 kt, thicknesses 0.03–0.1 K. Stored hours and sonde comparisons are computed again once at start while their observations exist
+- **Moisture (trial)**: its ± now includes a systematic part (0.3 K of Tv − T) besides the scatter of the flights, after the first comparison with four soundings showed sounding-to-sounding differences of 0.2–0.45 K (index RMS about 37 %); the index is drawn faint above ±40 % and described as a tendency. The hovers show both parts
+- User guide v2.3
+
+---
+
 ## 2026-10-21 (heights of the pressure surfaces from GNSS: self-tuning calibration, D-value and thickness temperature in the time–height section, height contours and geostrophic wind on the Wind Map; jet-stream symbol, isotherms and cross-section on the Wind Map; all slider frames loaded at once and faster map queries; a trial moisture indicator; tropopause, max-wind line, sonde columns and PNG in the time–height section; airframe altimeter offsets; user guide v2.2; web server logging improvements)
 
 ### Moisture indicator (trial)

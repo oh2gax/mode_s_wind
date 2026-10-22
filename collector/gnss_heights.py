@@ -12,16 +12,20 @@ highs lift the surfaces, cold air and lows lower them.
 Calibration (self-tuning)
 -------------------------
 The raw difference contains (a) the geoid (aircraft GNSS heights are
-ellipsoidal, about 18 m above mean sea level here), (b) the aircraft's static
-pressure error, which depends on speed and so on altitude (fleet mean about
-+25 m near the ground falling to about −7 m at FL350 against the radiosonde,
-checked 20–21 Oct 2026), and (c) a smaller per-airframe offset (SD ≈ 9 m,
-only partly repeatable from day to day).  At each Jokioinen sounding the
+ellipsoidal: about 18 m above mean sea level here, falling by about 3 m per
+100 km towards the east), (b) the aircraft's static pressure error, which
+depends on speed and so on altitude, and (c) a smaller per-airframe offset
+(SD ≈ 9 m, only partly repeatable from day to day).  (a) is removed at each
+position with the EGM96 geoid (collector/geoid.py, from 2026-10-22 — before
+that the calibration absorbed it as a constant, and its east–west slope
+showed as a false slope of the pressure surfaces); (b) and (c) are learnt:
+fleet mean about +6 m near the ground falling to about −25 m at FL350
+against the radiosonde.  At each Jokioinen sounding the
 aircraft within SONDE_RADIUS_KM that pass a level within ±SONDE_WINDOW_SEC of
 the balloon are compared with the sounding's measured height of that pressure
 surface (sonde GPS height, mean sea level):
 
-    residual = gmb − (z_sonde − pressure altitude)
+    residual = gmb − N(aircraft position) − (z_sonde − pressure altitude)
 
 The balloon's drift is followed from the sounding's winds and, from FL200 up,
 each aircraft value is moved to the balloon's position with the slope of the
@@ -39,11 +43,13 @@ correction is fitted again from the last CAL_DAYS days:
 
 Corrected height of the pressure surface (MSL, comparable with the sonde):
 
-    z = pressure altitude · 0.3048 + gmb · 0.3048 − curve(alt) − b[icao]
+    z = pressure altitude · 0.3048 + gmb · 0.3048 − N(lat, lon) − curve(alt) − b[icao]
 
 Hourly products (gnss_hours)
 ----------------------------
-Stored raw (uncorrected) so that a new calibration applies to the past too:
+Stored raw (uncorrected) so that a new calibration applies to the past too
+(only the geoid is removed per row, "g": 1; older rows without it get the
+geoid at the receiver subtracted when read):
   "d"   per layer (atmos.LAYER_EDGES) and airframe: mean gmb, mean altitude,
         replies — rows with NACp ≥ 8, outside the airframe's GPS degradation
         episodes, within the profile radius; read side: D-value of the layer
@@ -70,6 +76,7 @@ import time as _time
 import zlib
 
 from collector.atmos import LAYER_EDGES, layer_of
+from collector.geoid import undulation
 
 FT = 0.3048
 G0, R_D = 9.80665, 287.04
@@ -82,19 +89,23 @@ SONDE_ASCENT_MS = 5.0           # balloon time at a level ≈ launch + height ga
 CAL_DAYS = 30
 BAND_FT = 5000
 # Prior fleet correction (m) per 5 000 ft band (centres 2 500 … 42 500 ft):
-# aircraft − sonde, 20–21 Oct 2026 (geoid + static pressure error)
-PRIOR = [24.8, 22.1, 18.1, 11.9, 11.8, 2.1, -4.8, -7.5, -7.5]
+# aircraft − sonde, 20–21 Oct 2026, after the EGM96 geoid (the static
+# pressure error; until 22 Oct 2026 the geoid, about 18.6 m around the sonde
+# pairs, was part of this correction)
+PRIOR = [6.2, 3.5, -0.5, -6.7, -6.8, -16.5, -23.4, -26.1, -26.1]
+GEOID_OLD_M = 18.6              # sonde cells of version < 3 (geoid not removed): subtract this
 PRIOR_WEIGHT = 5.0              # cells
 SHRINK = 3.0                    # soundings
 CELL_W_MAX = 10                 # a cell with many replies counts at most this much
 GRAD_MIN_FT = 20000             # sonde pairing: slope correction from this band up …
 GRAD_MIN_PAIRS = 30             # … with at least this many pairs …
 GRAD_MIN_SPREAD_KM = 15.0       # … spread at least this much across the area
-CELLS_VERSION = 2               # sonde cells older than this are computed again
+CELLS_VERSION = 3               # sonde cells older than this are computed again (3: EGM96 geoid removed)
 THK_LAYERS = [(0, 5000), (5000, 10000), (10000, 15000), (15000, 20000), (20000, 25000),
               (25000, 30000), (30000, 35000), (35000, 40000), (10000, 30000),
               (1000, 5000)]             # 1 000 ft: crossed whatever the QNH (moisture indicator)
-CELLS_V = 2                     # gnss_hours cells: 2 = with 1 000–5 000 ft and the climb / descent flag
+CELLS_V = 3                     # gnss_hours cells: 2 = with 1 000–5 000 ft and the climb / descent flag,
+                                # 3 = heights above mean sea level (EGM96 geoid removed, "g": 1)
 THK_EDGE_FT = 300               # rows within ± this of a layer edge give its height
 THK_MAX_SEC = 1500              # both edges within 25 min
 STORE_DELAY_H = 4               # gnss_hours rows written this long after the hour
@@ -206,7 +217,9 @@ def _min_spread_km(pts) -> float:
 
 def sonde_cells(db, rec: dict, slope: bool = False) -> dict:
     """Aircraft − sonde residuals of one sounding:
-    {"v": 2, "m": "drift" | "slope", "n": pairs, "c": [[icao, band, mean residual m, replies], …]}.
+    {"v": 3, "m": "drift" | "slope", "n": pairs, "c": [[icao, band, mean residual m, replies], …]};
+    residual = aircraft GNSS height above mean sea level (EGM96 geoid
+    removed at the aircraft's position) − the sonde's height of that surface.
 
     The balloon drifts with the wind (tens of km by FL300): its position at
     each level is followed from the sounding's own winds at the assumed
@@ -225,7 +238,7 @@ def sonde_cells(db, rec: dict, slope: bool = False) -> dict:
     lv = sorted([l for l in rec.get("lv") or [] if l[1] is not None and l[2] is not None],
                 key=lambda l: l[2])
     if len(lv) < 10:
-        return {"v": 2, "m": "slope" if slope else "drift", "n": 0, "c": []}
+        return {"v": CELLS_VERSION, "m": "slope" if slope else "drift", "n": 0, "c": []}
     launch = rec.get("launch") or rec.get("nominal")
     end = rec.get("end") or (launch + 7200)
     slat, slon = rec.get("lat") or 60.814, rec.get("lon") or 23.498
@@ -267,7 +280,8 @@ def sonde_cells(db, rec: dict, slope: bool = False) -> dict:
         dx, dy = (lon - slon) * kx - bx, (lat - slat) * 111.2 - by
         if math.hypot(dx, dy) > SONDE_RADIUS_KM or abs(ts - tl) > SONDE_WINDOW_SEC or _in_ep(eps, icao, ts):
             continue
-        pairs.append((icao, band_of(alt), g * FT - (z - alt * FT), alt, dx, dy))
+        # aircraft GNSS height is above the ellipsoid, the sonde's above mean sea level
+        pairs.append((icao, band_of(alt), g * FT - undulation(lat, lon) - (z - alt * FT), alt, dx, dy))
     # upper bands: move each value to the balloon with the band's plane slope
     by_band: dict = {}
     for p_ in pairs:
@@ -296,7 +310,7 @@ def sonde_cells(db, rec: dict, slope: bool = False) -> dict:
         s_ = acc.setdefault((icao, bd), [0.0, 0])
         s_[0] += v
         s_[1] += 1
-    return {"v": 2, "m": "slope" if slope else "drift", "n": len(pairs),
+    return {"v": CELLS_VERSION, "m": "slope" if slope else "drift", "n": len(pairs),
             "c": [[k[0], k[1], round(v[0] / v[1], 1), v[1]] for k, v in sorted(acc.items())]}
 
 
@@ -381,7 +395,7 @@ def update_calibration(db, store, now: float | None = None, cal_days: float = CA
         added += 1
     has_current = db.execute("SELECT 1 FROM gnss_cal WHERE key = 'current'").fetchone() is not None
     if added or not has_current:
-        rows = [(k[6:], json.loads(d)) for k, d in db.execute(
+        rows = [(k[6:], _geoid_cells(json.loads(d))) for k, d in db.execute(
             "SELECT key, data FROM gnss_cal WHERE key LIKE 'sonde:%' AND ts >= ?",
             (now - cal_days * 86400,))]
         cal = fit_calibration(rows)
@@ -392,11 +406,20 @@ def update_calibration(db, store, now: float | None = None, cal_days: float = CA
     return added
 
 
+def _geoid_cells(d: dict) -> dict:
+    """Sonde cells of an older version (geoid not removed; kept only when the
+    observations to compute them again are gone): GEOID_OLD_M subtracted."""
+    if d.get("v", 1) >= 3:
+        return d
+    return dict(d, c=[[c[0], c[1], c[2] - GEOID_OLD_M] + list(c[3:]) for c in d.get("c", [])])
+
+
 # ── hourly raw cells ────────────────────────────────────────────────────────
 
 def _edge(D: dict, ft: float):
-    """(geometric height m of pressure altitude ft, time) at a single crossing,
-    from the rows within ±THK_EDGE_FT with a difference and NACp ≥ 8."""
+    """(height m above mean sea level of pressure altitude ft, time) at a
+    single crossing, from the rows within ±THK_EDGE_FT with a difference and
+    NACp ≥ 8; the EGM96 geoid at the crossing is removed."""
     idx = [i for i, a in enumerate(D["alt"])
            if a is not None and abs(a - ft) <= THK_EDGE_FT and D["gmb"][i] is not None
            and (D["nacp"][i] or 0) >= MIN_NACP]
@@ -405,14 +428,24 @@ def _edge(D: dict, ft: float):
     ts = [D["t"][i] for i in idx]
     if max(ts) - min(ts) > 240:                          # not one crossing (levelled off near it)
         return None
-    return (ft + sum(D["gmb"][i] for i in idx) / len(idx)) * FT, sum(ts) / len(ts)
+    pos = [(D["lat"][i], D["lon"][i]) for i in idx if D["lat"][i] is not None and D["lon"][i] is not None]
+    if not pos:                                          # nearest row with a position
+        tm = sum(ts) / len(ts)
+        near = [i for i in range(len(D["t"])) if D["lat"][i] is not None and D["lon"][i] is not None]
+        if not near:
+            return None
+        j = min(near, key=lambda i: abs(D["t"][i] - tm))
+        pos = [(D["lat"][j], D["lon"][j])]
+    n_ = undulation(sum(p[0] for p in pos) / len(pos), sum(p[1] for p in pos) / len(pos))
+    return (ft + sum(D["gmb"][i] for i in idx) / len(idx)) * FT - n_, sum(ts) / len(ts)
 
 
 def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
     """Raw cells of the hour [h, h + 3600): see the module docstring.
     {"d": [[layer bottom, icao, mean gmb ft, mean alt ft, replies], …],
      "tk": [[lo, hi, icao, z_lo m, z_hi m, mid time, +1 climb / −1 descent], …],
-     "v": CELLS_V}"""
+     "v": CELLS_V, "g": 1} — gmb and the heights above mean sea level (the
+    EGM96 geoid at each position removed); cells without "g" still contain it."""
     from collector.height_series import decode
     eps = _episodes(db, h - 4 * 3600, h + 3600 + 4 * 3600)
     acc: dict = {}
@@ -427,7 +460,7 @@ def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
         if k is None:
             continue
         s = acc.setdefault((LAYER_EDGES[k], icao), [0.0, 0.0, 0])
-        s[0] += g
+        s[0] += g - undulation(la, lo) / FT              # above mean sea level
         s[1] += alt
         s[2] += 1
     d = [[k[0], k[1], round(v[0] / v[2], 1), round(v[1] / v[2]), v[2]] for k, v in sorted(acc.items())]
@@ -457,7 +490,7 @@ def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
                 continue
             tk.append([lo_ft, hi_ft, icao, round(a[0], 1), round(b[0], 1), round(mid),
                        1 if b[1] > a[1] else -1])
-    return {"d": d, "tk": tk, "v": CELLS_V}
+    return {"d": d, "tk": tk, "v": CELLS_V, "g": 1}
 
 
 def store_missing_gnss_hours(db, lat: float, lon: float, radius_km: float,
@@ -491,25 +524,35 @@ _upgraded = False
 
 def _upgrade_cells(db, lat: float, lon: float, radius_km: float) -> int:
     """Once per start: hours stored by an older version (before CELLS_V) are
-    computed again while their height_series rows still exist (adds the
-    1 000–5 000 ft layer to them).  One commit."""
+    computed again while their data still exist — the observations (D-value
+    cells) and, for hours that had thickness rows, the height_series (v2:
+    the 1 000–5 000 ft layer and the climb / descent flag; v3: the geoid
+    removed).  Older hours keep their cells; the read side allows for them.
+    One commit."""
     global _upgraded
     if _upgraded:
         return 0
     _upgraded = True
     try:
-        first = db.execute("SELECT MIN(ts) FROM height_series").fetchone()[0]
+        first_obs = db.execute("SELECT MIN(ts) FROM observations WHERE gmb_ft IS NOT NULL").fetchone()[0]
+        first_hs = db.execute("SELECT MIN(ts) FROM height_series").fetchone()[0]
     except Exception:                                    # noqa: BLE001  (table missing)
         return 0
-    if first is None:
+    if first_obs is None:
         return 0
+    h_obs = int(first_obs // 3600 * 3600) + 3600
+    h_hs = int(first_hs // 3600 * 3600) + 3600 if first_hs is not None else None
     old = []
-    for ts, data in db.execute("SELECT ts, data FROM gnss_hours WHERE ts >= ?", (int(first // 3600 * 3600) + 3600,)):
+    for ts, data in db.execute("SELECT ts, data FROM gnss_hours WHERE ts >= ?", (h_obs,)):
         try:
-            if unpack(data).get("v", 1) < CELLS_V:
-                old.append(ts)
+            c = unpack(data)
+            if c.get("v", 1) >= CELLS_V:
+                continue
+            if c.get("tk") and (h_hs is None or ts < h_hs):
+                continue                                 # its height series are gone: keep it
         except Exception:                                # noqa: BLE001
-            old.append(ts)
+            pass
+        old.append(ts)
     rows = []
     for h in old:
         rows.append((pack(hour_cells(db, h, lat, lon, radius_km)), h))
@@ -580,13 +623,16 @@ def _layer_temp_k(lv_temps: dict, lo_ft: float, hi_ft: float):
     return num / den if den >= 0.8 * full else None
 
 
-def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float):
-    """(dv, tk) of one hour from its raw cells:
+def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float, lon: float | None = None):
+    """(dv, tk) of one hour from its raw cells (cells stored before the geoid
+    was removed: the geoid at (lat, lon) subtracted from their D-values):
     dv = [[layer bottom, D m, SD m, airframes], …]   (layers with ≥ 2 airframes)
     tk = [[lo, hi, Tv °C, SD K, flights, T Mach/TAS °C or None], …]"""
     dv = []
     by_layer: dict = {}
+    g_old = 0.0 if cells.get("g") else undulation(lat, lon if lon is not None else 24.963) / FT
     for lo_ft, icao, g, alt, n in cells.get("d") or []:
+        g -= g_old
         k = LAYER_EDGES.index(lo_ft) if lo_ft in LAYER_EDGES else None
         if k is None or k + 1 >= len(LAYER_EDGES):
             continue

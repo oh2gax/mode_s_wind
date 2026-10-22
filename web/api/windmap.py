@@ -62,6 +62,8 @@ import json
 import math
 import time
 
+from collector.geoid import undulation   # GNSS heights are ellipsoidal: EGM96 geoid removed
+
 TRANSITION_FL = 50             # FL050 — below this apply QNH correction
 ISA_CORRECTION_FACTOR = 27.3   # ft per hPa
 KM_PER_DEG_LAT = 110.57
@@ -307,7 +309,7 @@ class _Binner:
         a["ep"] = a["ep"] or in_ep
         off = r[4] - centre
         if r[9] is not None and (r[10] or 0) >= gh.MIN_NACP and not in_ep:
-            a["d0"] += r[9] * gh.FT - gh.correction(self.cal, r[4], r[0])
+            a["d0"] += r[9] * gh.FT - undulation(r[2], r[3]) - gh.correction(self.cal, r[4], r[0])
             a["da"] += -off
             a["dn"] += 1
         if r[8] is not None:
@@ -594,7 +596,7 @@ def build_xsection(db, lat1: float, lon1: float, lat2: float, lon2: float,
             a[2] += -float(r[6]) * math.sin(rr); a[3] += -float(r[6]) * math.cos(rr); a[4] += 1
         if r[9] is not None and (r[10] or 0) >= gh.MIN_NACP and not in_ep:
             centre = (LAYER_EDGES[k] + LAYER_EDGES[k + 1]) / 2
-            a[5] += r[9] * gh.FT - gh.correction(cal, centre, r[0]); a[6] += 1
+            a[5] += r[9] * gh.FT - undulation(r[2], r[3]) - gh.correction(cal, centre, r[0]); a[6] += 1
         used += 1
     cells = []
     for (b, lo), acs in sorted(acc.items()):
