@@ -791,6 +791,30 @@ def create_app(
             return reg, t or typ.get(icao)
         return jsonify(_gh.summary(_gh.current(db, max_age=0), info))
 
+    # ── MEPS model profiles (collector/meps.py, MET Norway open data) ─────────
+
+    @app.route("/api/meps/profile")
+    def meps_profile_api():
+        """MEPS area-mean profile for the Skew-T at ?at=<Unix s> (default now),
+        linear in time between the stored hours: {found, run, lead, provisional,
+        levels: [{pressure, temp, dewpoint, wind_dir, wind_spd, z_m, rh}], …}."""
+        from collector import meps as _meps
+        import time as _t
+        at = request.args.get("at", type=float) or _t.time()
+        return jsonify(_meps.profile(get_db(), at))
+
+    @app.route("/api/meps/check")
+    def meps_check_api():
+        """Mode S minus MEPS over the last ?days= (1–90, default 7), every hour
+        by pressure level, and the distance check at the soundings; ?busy=N
+        only hours with at least N aircraft (default 0)."""
+        from collector import meps as _meps
+        from collector import sondes as _sondes
+        days = max(1.0, min(90.0, request.args.get("days", 7, type=float)))
+        busy = max(0, min(100, request.args.get("busy", 0, type=int)))
+        return jsonify(_meps.check(get_db(), days, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                   cfg.SOUNDING_RADIUS_KM, busy=busy, store=_sondes.get()))
+
     @app.route("/api/sonde/verification")
     def sonde_verification_api():
         """Mode S area profile vs radiosonde (collector/sonde_verif.py) over the

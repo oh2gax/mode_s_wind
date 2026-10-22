@@ -16,6 +16,7 @@ const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Ful
 const MODE_NOTES = {
   th:     'Time–height: the hourly area profiles side by side.',
   verif:  'Sonde check: the Mode-S area profile compared with the radiosonde — at launch (±1 h) and hour by hour as the sounding ages.',
+  meps:   'MEPS check: the Mode-S area profile compared with the MEPS weather model every hour, by pressure level, and the distance effect at the soundings.',
   area:   'Area: all aircraft within the radius over the selected window.',
   hour:   'Hourly archive: stored once per completed UTC hour (from 9 Oct 2026), also after the observations are purged.',
   flight: 'Flight: altitude profile from a single flight — works best for climbing / descending flights.',
@@ -39,6 +40,10 @@ let sndSondeRef = null;  // time the sonde age is counted to (null = now)
 let sndSondeSeq = 0;     // request counter
 let sndLastTable = null; // [levels, header] of the table (refilled when the sonde arrives)
 let dqShow     = _lsGet('ms_skewtDq', 'true') !== 'false';   // data-validity indicator
+let mepsShow   = _lsGet('ms_skewtMeps', 'false') === 'true';   // MEPS model profile (default off)
+let sndMeps    = null;   // /api/meps/profile response for the shown profile
+let sndMepsAt  = null;   // time the model profile is taken at (Unix s; null = now)
+let sndMepsSeq = 0;
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
 if (!['off', 'overlay', 'zoom'].includes(aptMode)) aptMode = 'off';
@@ -60,6 +65,7 @@ function syncChart() {
   skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, smooth: areaSmooth,
               sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
               sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef,
+              meps: mepsShow ? sndMeps : null,
               rh: rhShow, moist: rhShow && sndProfile && sndMode !== 'flight' ? sndProfile.moisture || null : null });
 }
 function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
@@ -171,7 +177,7 @@ async function fetchLow(qs) {
 
 // ── Source selection (area now / hourly archive / flight) ─────────────────
 function setMode(mode) {
-  sndMode = ['area', 'hour', 'flight', 'th', 'verif'].includes(mode) ? mode : 'area';
+  sndMode = ['area', 'hour', 'flight', 'th', 'verif', 'meps'].includes(mode) ? mode : 'area';
   _lsSet('ms_snd_mode', sndMode);
   document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === sndMode));
@@ -179,14 +185,17 @@ function setMode(mode) {
   document.getElementById('snd-hour-ctl').style.display   = sndMode === 'hour'   ? '' : 'none';
   document.getElementById('snd-flight-ctl').style.display = sndMode === 'flight' ? '' : 'none';
   document.getElementById('snd-verif-ctl').style.display  = sndMode === 'verif'  ? '' : 'none';
+  document.getElementById('snd-meps-ctl').style.display   = sndMode === 'meps'   ? '' : 'none';
   document.getElementById('snd-th-ctl').style.display     = sndMode === 'th'     ? '' : 'none';
   // Sonde check and Time–height replace the diagram and the level table
-  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th') ? 'none' : '';
+  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th' || sndMode === 'meps') ? 'none' : '';
   document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
+  document.getElementById('snd-meps').style.display = sndMode === 'meps' ? '' : 'none';
   document.getElementById('snd-th').style.display = sndMode === 'th' ? '' : 'none';
   document.getElementById('sounding-meta').textContent = '';
   document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
   if (sndMode === 'verif') { loadVerification(); return; }
+  if (sndMode === 'meps') { loadMepsCheck(); return; }
   document.getElementById('flight-banner').classList.add('hidden');
   if (sndMode === 'th') { TimeHeight.load(); return; }
   if (sndMode === 'hour') loadHourList();
@@ -195,6 +204,7 @@ function setMode(mode) {
 
 function loadCurrent() {
   if (sndMode === 'verif')  return loadVerification();
+  if (sndMode === 'meps')   return loadMepsCheck();
   if (sndMode === 'th')     return TimeHeight.load();
   if (sndMode === 'area')   return loadAreaSounding();
   if (sndMode === 'hour')   return loadHourSounding();
@@ -268,6 +278,21 @@ async function fetchSonde(at, ref) {
   refillTable();
 }
 
+// MEPS model profile (/api/meps/profile) at the time of the shown profile
+// (null = now: the newest model hours, a forecast of up to +5 h)
+async function fetchMeps(at) {
+  sndMepsAt = at != null ? at : null;
+  if (!mepsShow) { sndMeps = null; drawChart(); return; }
+  const req = ++sndMepsSeq;
+  try {
+    const r = await fetch('/api/meps/profile' + (sndMepsAt != null ? `?at=${Math.round(sndMepsAt)}` : ''));
+    const d = await r.json();
+    if (req !== sndMepsSeq) return;
+    sndMeps = d;
+  } catch (_) { sndMeps = null; }
+  drawChart();
+}
+
 // Picker: Auto + every stored sounding (newest first)
 async function loadSondeList() {
   const sel = document.getElementById('sonde-pick');
@@ -328,6 +353,7 @@ async function loadAreaSounding() {
                 `Area, last ${win}`, `Area profile, ${Math.round(d.radius_km)} km, last ${win}`,
                 `minutes=${d.window_min}`, wxSfc);
     fetchSonde(null, null);
+    fetchMeps(null);
   } catch (e) {
     if (req === sndReq) clearProfile('Error loading area sounding.');
     console.error(e);
@@ -387,6 +413,7 @@ async function loadHourSounding() {
                 `Hour ${hh}`, `Hourly profile ${lbl}`,
                 `minutes=60&end=${d.hour_ts + 3600}`, hsfc);
     fetchSonde(d.hour_ts + 3600, d.hour_ts + 1800);
+    fetchMeps(d.hour_ts + 1800);
   } catch (e) {
     if (req === sndReq) clearProfile('Error loading hourly profile.');
     console.error(e);
@@ -447,6 +474,7 @@ async function loadFlightSounding() {
                 d.generated_at ? `generated ${d.generated_at.substr(11, 5)} UTC · ` : '',
                 name, `${name} ${f.first_seen ? f.first_seen.substr(0, 10) : ''} ${span}`, lowQs, null);
     if (t0 != null && t1 != null) fetchSonde(t1, (t0 + t1) / 2); else fetchSonde(null, null);
+    fetchMeps(t0 != null && t1 != null ? (t0 + t1) / 2 : null);
 
     const banner = document.getElementById('flight-banner');
     const rangeStr = (f.min_altitude != null && f.max_altitude != null)
@@ -513,6 +541,15 @@ if (rhChk) {
     else drawChart();
   });
 }
+const mepsChk = document.getElementById('skewt-meps');
+if (mepsChk) {
+  mepsChk.checked = mepsShow;
+  mepsChk.addEventListener('change', e => {
+    mepsShow = e.target.checked;
+    _lsSet('ms_skewtMeps', String(mepsShow));
+    fetchMeps(sndMepsAt);
+  });
+}
 const sondePick = document.getElementById('sonde-pick');
 sondePick.style.display = sondeShow ? 'inline-block' : 'none';
 sondePick.addEventListener('change', e => {
@@ -542,6 +579,7 @@ new ResizeObserver(() => resizeChart()).observe(document.getElementById('skewt-b
 window.onThemeChange = () => {
   drawChart();
   if (sndMode === 'verif') renderVerification();
+  if (sndMode === 'meps') renderMepsCheck();
   if (sndMode === 'th') TimeHeight.render();
 };
 
@@ -684,6 +722,137 @@ function ageChart(id, bins, key, unit, ref) {
   svg += `<text x="12" y="${mt + ph / 2}" text-anchor="middle" font-size="11" fill="${C.ink2}" transform="rotate(-90 12 ${mt + ph / 2})">RMS (${unit})</text></svg>`;
   el.innerHTML = svg;
 }
+
+// ── MEPS check: Mode S minus the MEPS model every hour (/api/meps/check) ────
+let mcDays = Number(_lsGet('ms_mepsCheckDays', '7')) || 7;
+let mcBusy = _lsGet('ms_mepsCheckBusy', 'false') === 'true';
+let mcData = null;
+
+async function loadMepsCheck() {
+  document.querySelectorAll('#mc-days-btns .snd-mode-btn').forEach(b =>
+    b.classList.toggle('active', Number(b.dataset.days) === mcDays));
+  document.getElementById('mc-busy').checked = mcBusy;
+  const meta = document.getElementById('sounding-meta');
+  meta.textContent = 'Loading…';
+  try {
+    const r = await fetch(`/api/meps/check?days=${mcDays}&busy=${mcBusy ? 8 : 0}`);
+    mcData = await r.json();
+    meta.textContent = `last ${mcDays} days · ${mcData.hours || 0} hours compared` +
+      (mcData.newest_run ? ` · newest model run ${_utc(mcData.newest_run)}` : '');
+    renderMepsCheck();
+  } catch (e) {
+    meta.textContent = 'Error loading the MEPS check.';
+    console.error(e);
+  }
+}
+
+function _utc(ts) {
+  const t = new Date(ts * 1000);
+  return `${t.getUTCDate()}.${t.getUTCMonth() + 1}. ${_pad(t.getUTCHours())} UTC`;
+}
+
+function renderMepsCheck() {
+  const d = mcData;
+  if (!d) return;
+  const tile = (v, l) => `<div class="sv-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  const T = d.totals || {}, A = T.all || {}, Dy = T.day || {}, Nt = T.night || {};
+  const L = (d.levels || []).slice().sort((a, b) => b.p - a.p);
+  const hd = L.filter(l => l.n_d >= 3);
+  const dPool = hd.length ? {
+    bias: hd.reduce((s, l) => s + l.d_bias * l.n_d, 0) / hd.reduce((s, l) => s + l.n_d, 0),
+    sd: Math.sqrt(hd.reduce((s, l) => s + (l.d_sd || 0) ** 2 * l.n_d, 0) / hd.reduce((s, l) => s + l.n_d, 0)),
+    n: Math.max(...hd.map(l => l.n_d)) } : null;
+  const st = document.getElementById('mc-status');
+  const s = d.status;
+  st.textContent = s && s.last ? ` Last fetch ${new Date(s.last.ts * 1000).toISOString().slice(11, 16)} UTC: ${s.last.result}.` :
+                   (s && !s.enabled ? ' Fetching is off (MEPS_FETCH = False).' : '');
+  if (!d.hours_meps) {
+    document.getElementById('mc-tiles').innerHTML = tile('–', 'no model data stored yet — the first runs are fetched a few minutes after the start, about 2–3 h after each run time (00, 03, 06 … UTC)');
+    ['mc-chart-t', 'mc-chart-w'].forEach(id => document.getElementById(id).innerHTML = '<div class="sv-empty">No model data in this period yet.</div>');
+    document.getElementById('mc-levels').innerHTML = document.getElementById('mc-sondes').innerHTML = '';
+    document.getElementById('mc-dist').innerHTML = '';
+    return;
+  }
+  document.getElementById('mc-tiles').innerHTML = [
+    tile(`${d.hours || 0}`, `hours compared · ${d.hours_meps} model hours stored`),
+    tile(A.t_bias == null ? '–' : `${_f(A.t_bias, 2, true)} <small>K · RMS ${_f(A.t_rms, 2)}</small>`,
+         `temperature, Mode S − MEPS, 925–200 hPa (day ${_f(Dy.t_rms, 2)} / night ${_f(Nt.t_rms, 2)} K RMS)`),
+    tile(A.w_rms == null ? '–' : `${_f(A.w_rms, 1)} <small>kt</small>`,
+         `wind vector RMS (day ${_f(Dy.w_rms, 1)} / night ${_f(Nt.w_rms, 1)} kt)`),
+    tile(dPool ? `${_f(dPool.bias, 1, true)} <small>m · SD ${_f(dPool.sd, 1)}</small>` : '–',
+         dPool ? `heights of the pressure surfaces (GNSS) − MEPS, 850–250 hPa` : 'heights: no GNSS height hours in this period'),
+  ].join('');
+  levelChart('mc-chart-t', L, 't_rms', 't_bias', 'K', 'n_t');
+  levelChart('mc-chart-w', L, 'w_rms', 'ws_bias', 'kt', 'n_w');
+  document.getElementById('mc-levels').innerHTML = L.length
+    ? `<thead><tr><th>Level</th><th class="num" title="Pressure altitude (standard atmosphere)">≈ ft</th><th class="num">Hours</th><th class="num">T mean (K)</th><th class="num">T SD</th><th class="num">T RMS</th>` +
+      `<th class="num">Wind RMS (kt)</th><th class="num">Speed diff.</th><th class="num" title="Height of the pressure surface from the aircraft GNSS heights minus MEPS (m), and the correlation of the hourly values">Height diff. (m)</th><th class="num">SD</th><th class="num">r</th></tr></thead><tbody>` +
+      L.map(l => `<tr><td>${l.p} hPa</td><td class="num text-dim">${l.ft.toLocaleString()}</td><td class="num text-dim">${l.n_t}</td>` +
+        `<td class="num">${_f(l.t_bias, 2, true)}</td><td class="num">${_f(l.t_sd, 2)}</td><td class="num ${l.t_rms > 1.5 ? 'snd-dev' : ''}">${_f(l.t_rms, 2)}</td>` +
+        `<td class="num ${l.w_rms > 12 ? 'snd-dev' : ''}">${_f(l.w_rms, 1)}</td><td class="num">${_f(l.ws_bias, 1, true)}</td>` +
+        `<td class="num">${l.n_d ? _f(l.d_bias, 1, true) : '–'}</td><td class="num text-dim">${l.n_d ? _f(l.d_sd, 1) : '–'}</td><td class="num text-dim">${l.d_r != null ? l.d_r.toFixed(3) : '–'}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">No hours with both a Mode S profile and the model in this period.</td></tr></tbody>';
+  const D = d.distance;
+  document.getElementById('mc-dist').innerHTML = D
+    ? `Temperature (${D.n} level values): Mode S − sonde <b>${_f(D.t_as, 2)} K</b> RMS, Mode S − MEPS <b>${_f(D.t_am, 2)} K</b>; ` +
+      `the model's own difference between the Helsinki area and Jokioinen explains <b>${Math.round(D.t_explained * 100)} %</b> of the Mode S − sonde difference.` +
+      (D.w_as != null ? `<br>Wind: Mode S − sonde <b>${_f(D.w_as, 1)} kt</b>, Mode S − MEPS <b>${_f(D.w_am, 1)} kt</b>; distance explains <b>${Math.round(D.w_explained * 100)} %</b>.` : '')
+    : 'The distance check needs a few soundings with both the model and a Mode S profile in this period.';
+  const S = d.soundings || [];
+  document.getElementById('mc-sondes').innerHTML = S.length
+    ? `<thead><tr><th>Launch (UTC)</th><th class="num">Aircraft</th>` +
+      `<th class="num" title="Mode S area profile − radiosonde, mean over 925–200 hPa">T: Mode S − sonde</th><th class="num" title="Mode S − MEPS over the same area">− MEPS</th>` +
+      `<th class="num" title="MEPS at Jokioinen − radiosonde (the model takes the sounding in, so this is small by construction)">MEPS − sonde</th><th class="num" title="MEPS mean over the Helsinki area − MEPS at Jokioinen: the difference the distance makes">MEPS area − Jok.</th>` +
+      `<th class="num" title="Wind vector RMS, Mode S − sonde">Wind: − sonde</th><th class="num" title="Wind vector RMS, Mode S − MEPS">− MEPS</th></tr></thead><tbody>` +
+      S.map(r => {
+        const t = new Date(r.ts * 1000);
+        const big = v => v != null && Math.abs(v) >= 1 ? 'snd-dev' : '';
+        return `<tr><td>${t.getUTCFullYear()}-${_pad(t.getUTCMonth() + 1)}-${_pad(t.getUTCDate())} ${_pad(t.getUTCHours())}:${_pad(t.getUTCMinutes())}</td>` +
+          `<td class="num ${r.aircraft != null && r.aircraft < 8 ? 'snd-weak' : 'text-dim'}">${r.aircraft ?? '–'}</td>` +
+          `<td class="num ${big(r.t_as)}">${_f(r.t_as, 2, true)}</td><td class="num">${_f(r.t_am, 2, true)}</td>` +
+          `<td class="num text-dim">${_f(r.t_js, 2, true)}</td><td class="num ${big(r.t_aj)}">${_f(r.t_aj, 2, true)}</td>` +
+          `<td class="num">${_f(r.w_as, 1)}</td><td class="num">${_f(r.w_am, 1)}</td></tr>`;
+      }).join('') + '</tbody>'
+    : '<tbody><tr><td class="sv-empty">No soundings with model data in this period.</td></tr></tbody>';
+}
+
+// Horizontal bars by pressure level (SVG): bar = RMS, dot = mean difference
+function levelChart(id, levels, keyR, keyB, unit, keyN) {
+  const el = document.getElementById(id);
+  const L = levels.filter(l => l[keyR] != null && l.p >= 200 && l.p <= 925);
+  if (!L.length) { el.innerHTML = '<div class="sv-empty">No comparisons in this period yet.</div>'; return; }
+  const light = document.documentElement.dataset.theme === 'light';
+  const C = { bar: light ? '#2a78d6' : '#3987e5', dot: light ? '#c2410c' : '#fb923c', ink: light ? '#1e293b' : '#e2e8f0',
+              ink2: light ? '#475569' : '#94a3b8', grid: light ? '#d8e0e8' : '#1e2a3a', zero: light ? '#94a3b8' : '#475569' };
+  const W = 560, rowH = 22, mt = 10, mb = 30, ml = 66, mr = 54;
+  const H = mt + mb + rowH * L.length;
+  const lo = Math.min(0, ...L.map(l => l[keyB] ?? 0)), hi = Math.max(...L.map(l => l[keyR]), ...L.map(l => l[keyB] ?? 0));
+  const span = (hi - lo) * 1.12 || 1;
+  const x = v => ml + (v - lo) / span * (W - ml - mr);
+  const step = span > 20 ? 5 : span > 8 ? 2 : span > 3 ? 1 : span > 1.5 ? 0.5 : 0.25;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Mode S minus MEPS by pressure level">`;
+  for (let v = Math.ceil(lo / step) * step; v <= lo + span + 1e-9; v += step) {
+    svg += `<line x1="${x(v)}" x2="${x(v)}" y1="${mt}" y2="${H - mb}" stroke="${Math.abs(v) < 1e-9 ? C.zero : C.grid}" stroke-width="1"/>` +
+           `<text x="${x(v)}" y="${H - mb + 14}" text-anchor="middle" font-size="11" fill="${C.ink2}">${+v.toFixed(2)}</text>`;
+  }
+  L.forEach((l, i) => {
+    const y = mt + i * rowH + 4, h = rowH - 8, v = l[keyR], b = l[keyB];
+    svg += `<g><title>${l.p} hPa (≈ ${l.ft.toLocaleString()} ft): RMS ${v.toFixed(unit === 'K' ? 2 : 1)} ${unit}` +
+           (b != null ? `, mean ${b >= 0 ? '+' : ''}${b.toFixed(unit === 'K' ? 2 : 1)} ${unit}` : '') + ` (${l[keyN]} hours)</title>` +
+           `<text x="${ml - 8}" y="${y + h - 3}" text-anchor="end" font-size="11" fill="${C.ink2}">${l.p} hPa</text>` +
+           `<rect x="${x(0)}" y="${y}" width="${Math.max(1, x(v) - x(0))}" height="${h}" rx="3" fill="${C.bar}" opacity="0.85"/>` +
+           `<text x="${x(v) + 5}" y="${y + h - 3}" font-size="11" font-weight="600" fill="${C.ink}">${v.toFixed(unit === 'K' ? 2 : 1)}</text>` +
+           (b != null ? `<circle cx="${x(b)}" cy="${y + h / 2}" r="4.5" fill="${C.dot}" stroke="${light ? '#fff' : '#0b1220'}" stroke-width="1.5"/>` : '') + '</g>';
+  });
+  svg += `<text x="${ml + (W - ml - mr) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="${C.ink2}">${unit} — bar: RMS difference, dot: mean (${unit === 'K' ? 'Mode S warmer when positive' : 'Mode S faster when positive'})</text></svg>`;
+  el.innerHTML = svg;
+}
+
+document.querySelectorAll('#mc-days-btns .snd-mode-btn').forEach(b =>
+  b.addEventListener('click', () => { mcDays = Number(b.dataset.days); _lsSet('ms_mepsCheckDays', String(mcDays)); loadMepsCheck(); }));
+document.getElementById('mc-busy').addEventListener('change', e => {
+  mcBusy = e.target.checked; _lsSet('ms_mepsCheckBusy', String(mcBusy)); loadMepsCheck();
+});
 
 // ── Startup ───────────────────────────────────────────────────────────────
 document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>

@@ -3,8 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.22102026 — What's new and user guides in the web pages, geoid correction, honest moisture uncertainty
+## v.22102026 — MEPS check, What's new and user guides, geoid correction, honest moisture uncertainty
 
+- **MEPS check** (Sounding page, new view): our aircraft profile compared every hour with the MEPS weather model (the model FMI uses; data from MET Norway) — temperature, wind and the heights of the pressure surfaces, level by level, also at night and between the soundings. It also shows how much of the difference to the Jokioinen radiosonde comes simply from the 100 km between Helsinki and Jokioinen.
+- **MEPS** tick box on the Skew-T (Live Map and Sounding page): the model profile — temperature, dewpoint and winds in teal — next to the aircraft profile, with the difference in the label. On the Live Map it is the newest model forecast for the present hour.
 - **What's new**: this window. The version of the system is shown in the top bar; a small dot on the link means there are changes you have not opened yet.
 - **User guides**: the second tab of this window lists the PDF user guides with a short description; **Open PDF** opens a guide in a new browser tab. A small **?** next to the Live Map *Atmosphere Profile*, the Sounding page Skew-T and controls and the Wind Map controls opens the matching guide directly (the Wind Map one at its own section).
 - **More accurate heights of the pressure surfaces**: the aircraft GNSS heights are now corrected with the geoid (the sea level is about 19 m above the GPS reference surface at Jokioinen but only 15 m east of Kotka). The Wind Map heights, the geostrophic wind and the time–height height fields are affected only slightly.

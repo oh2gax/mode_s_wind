@@ -7,10 +7,20 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.22102026 — 2026-10-22 (version numbering by date and the What's new window with the user guides; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+## v.22102026 — 2026-10-22 (MEPS model data and the MEPS check; version numbering by date and the What's new window with the user guides; geoid correction of the GNSS heights; honest uncertainty of the moisture trial)
+
+### MEPS model data: MEPS check and the Skew-T MEPS profile
+
+- **MEPS model profiles** (new `collector/meps.py`, background thread `meps`): every 3 h the newest control run of the MEPS weather model (2.5 km, the model FMI uses) is fetched from MET Norway's open archive (thredds.met.no, CC BY 4.0) — forecast hours +0 … +5 of temperature, wind, geopotential and humidity on 10 pressure levels in a 300 × 300 km box around the receiver every 10 km, one OPeNDAP request of about 1.4 MB read with plain Python (no new libraries). The mean over the sounding radius and the column at Jokioinen are stored per hour in the new table `meps_hours` (about 0.9 kB per hour); +0 … +2 are the verification values, the newest run's +3 … +5 are kept as a provisional forecast. Back-fills 3 days at the first start; optional `MEPS_FETCH`, `MEPS_BACKFILL_DAYS`, `MEPS_URL`. Nothing else depends on it
+- **Sounding page — MEPS check** (new view): the Mode S area profile minus the model every hour by pressure level — temperature, wind and the heights of the pressure surfaces from the GNSS heights — also at night and between the soundings (3 d / 7 d / 14 d / 30 d, ≥ 8 aircraft), and at each sounding how much of the aircraft − sonde difference is the 100 km distance to Jokioinen (`/api/meps/check`). First study (24 Sep – 22 Oct, hours with ≥ 8 aircraft): temperature 0.6–0.9 K RMS up to 400 hPa and 1.0–1.4 K above, wind 3–5 kt up to 500 hPa and 6–9 kt above; the distance explains about 40 % of the temperature and 60 % of the wind difference to the sonde
+- **Skew-T — MEPS** tick box (Live Map and Sounding page, shared, off by default): the model's temperature, dewpoint and winds over the same area, with the run, the lead time and the area − model difference in the label and the values in the hover (`/api/meps/profile`)
+
+### Version number, What's new and user guides
 
 - **Version number by date** (v.DDMMYYYY, one per development day, taken from the newest version heading of `doc/whats_new.md` or of this CHANGELOG, whichever is newer — all headings here now carry it) shown in the top bar of every page, next to the theme button, with a **What's new** link: a scrollable window over the current page with short user-oriented notes of the last 10 versions (new `doc/whats_new.md`, `web/whats_new.py`, `/api/whatsnew`). A small dot on the link marks a version this browser has not opened yet
 - **User guides in the web pages**: a second tab of the window lists the PDF guides (Skew-T; Sounding and Wind Map pages) with descriptions, **Open PDF** and **Download** (new `doc/guides.md`; `/doc/<file>` serves only the listed PDFs, behind the login). Small **?** buttons open the matching guide directly from the Live Map *Atmosphere Profile*, the Sounding page and the Wind Map (at its own section)
+### Geoid correction and moisture uncertainty
+
 - **EGM96 geoid** removed from the aircraft GNSS heights at each position (new `collector/geoid.py`, a built-in 5′ grid of southern Finland): the geoid falls from about 19 m at Jokioinen to 15 m east of Kotka, which the calibration had absorbed as a constant. Applies to the D-values, the Wind Map heights and geostrophic wind, the layer thicknesses (moisture trial) and the sonde comparison; the calibration curve now holds only the aircraft's pressure error (about 18 m lower). Effect on 20–22 Oct data: geostrophic wind about 1 kt, thicknesses 0.03–0.1 K. Stored hours and sonde comparisons are computed again once at start while their observations exist
 - **Moisture (trial)**: its ± now includes a systematic part (0.3 K of Tv − T) besides the scatter of the flights, after the first comparison with four soundings showed sounding-to-sounding differences of 0.2–0.45 K (index RMS about 37 %); the index is drawn faint above ±40 % and described as a tendency. The hovers show both parts
 - User guide v2.3

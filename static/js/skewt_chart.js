@@ -20,6 +20,8 @@
  *            layers, hover warning); default on
  *   sonde    radiosonde from /api/sonde ({levels, launch, min_p, station…})
  *            or null;  sondeRef: time its age is counted to (null = now)
+ *   meps     MEPS model profile from /api/meps/profile ({found, levels, run,
+ *            lead, provisional…}) or null — teal lines and barbs
  *   rh       RH strip on/off: a narrow strip between the plot and the wind
  *            barbs with the trial moisture indicator (moist = the "moisture"
  *            of /api/sounding?moist=1 or /api/sounding/hour, collector/
@@ -87,6 +89,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       miniSonde = null,   // radiosonde (/api/sonde) or null
       sondeRef = null,    // time (Unix s) the sonde age is counted to; null = now
       sondeNote = null,   // "no sounding" text when switched on but none found
+      miniMeps = null,    // MEPS model profile (/api/meps/profile) or null
+      mepsNote = null,    // "no model data" text when switched on but none found
       rhOn = false,       // RH strip (trial moisture indicator + sonde RH)
       miniMoist = null;   // {rows: [[lo, hi, index, ±, flights, Tv−T corr, raw]], window_h, offsets_n}
   const RH_W = 46;        // strip width (px) when on
@@ -233,6 +237,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       cape:      light ? 'rgba(220,38,38,0.13)' : 'rgba(248,113,113,0.16)',
       sonde:     light ? '#be185d' : '#f472b6',      // radiosonde (Jokioinen)
       sondeOld:  light ? '#b45309' : '#fbbf24',      // its label when older than 12 h
+      meps:      light ? '#0e7490' : '#22d3ee',      // MEPS model profile
     };
   }
 
@@ -464,9 +469,10 @@ function createSkewT(canvas, tip, cfg = {}) {
   }
   // Values at pressure p, interpolated in log p (null outside the profile)
   function sondeAt(p) {
-    if (!miniSonde) return null;
+    return miniSonde ? levelsAt(miniSonde.levels, p) : null;
+  }
+  function levelsAt(L, p) {                         // L: pressure descending
     const out = {};
-    const L = miniSonde.levels;                     // pressure descending
     const interp = (key) => {
       let a = null;
       for (const l of L) {
@@ -541,8 +547,99 @@ function createSkewT(canvas, tip, cfg = {}) {
     }
     ctx.restore();
   }
+  // ── MEPS model profile (MET Norway open data; area mean) ─────────────────
+  // Temperature (teal line), dewpoint (teal dashed) and winds (teal barbs a
+  // little inside the sonde's), 10 pressure levels.
+  function mepsAt(p) { return miniMeps ? levelsAt(miniMeps.levels, p) : null; }
+  function mepsDiff() {
+    if (!miniMeps || !miniArea || !miniArea.levels) return null;
+    let n = 0, s = 0, s2 = 0, nw = 0, w2 = 0;
+    for (const l of miniArea.levels) {
+      const mv = mepsAt(l.pressure);
+      if (!mv) continue;
+      if (l.temp != null && (l.temp_count || 0) >= 3 && mv.t != null) { const d = l.temp - mv.t; n++; s += d; s2 += d * d; }
+      if (l.wind_spd != null && (l.wind_count || 0) >= 3 && mv.u != null) {
+        const r = l.wind_dir * Math.PI / 180;
+        const du = -l.wind_spd * Math.sin(r) - mv.u, dv = -l.wind_spd * Math.cos(r) - mv.v;
+        nw++; w2 += du * du + dv * dv;
+      }
+    }
+    if (!n && !nw) return null;
+    return { n, bias: n ? s / n : null, rms: n ? Math.sqrt(s2 / n) : null, nw, wrms: nw ? Math.sqrt(w2 / nw) : null };
+  }
+  function drawMepsProfile(ctx, T) {
+    if (!miniMeps) return;
+    const { ML, PW, MT, PH, PT, PB } = MSK;
+    const L = miniMeps.levels.filter(l => l.pressure >= PT * 0.97 && l.pressure <= PB * 1.02);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+    const line = (key, width, dash, alpha) => {
+      const pts = L.filter(l => l[key] != null);
+      if (pts.length < 2) return;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = T.meps; ctx.lineWidth = width; ctx.setLineDash(dash);
+      ctx.beginPath();
+      pts.forEach((l, i) => { const x = mskX(l[key], l.pressure), y = mskY(l.pressure); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    };
+    line('dewpoint', 1.2, [5, 3], 0.8);
+    line('temp', 1.6, [], 1);
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    let lastY = null;
+    for (const l of L) {
+      if (l.wind_spd == null || l.wind_dir == null) continue;
+      const y = mskY(l.pressure);
+      if (y < MT + 4 || y > MT + PH - 2 || (lastY != null && Math.abs(y - lastY) < 17)) continue;
+      drawMiniBarb(ctx, ML + PW - 34, y, l.wind_spd, l.wind_dir, T.meps);
+      lastY = y;
+    }
+    ctx.restore();
+  }
+  function mepsLabelText() {
+    if (!miniMeps) return null;
+    const r = new Date(miniMeps.run * 1000);
+    const l1 = `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${String(r.getUTCHours()).padStart(2, '0')} UTC run +${miniMeps.lead} h` +
+               (miniMeps.provisional ? ' (forecast)' : '');
+    const dd = mepsDiff();
+    const l2 = dd ? `Δ area−MEPS: ` + (dd.n ? `T ${dd.bias >= 0 ? '+' : ''}${dd.bias.toFixed(1)} K (RMS ${dd.rms.toFixed(1)})` : '') +
+                    (dd.nw ? `${dd.n ? ' · ' : ''}wind ${Math.round(dd.wrms)} kt RMS` : '') : '';
+    return [l1, l2].filter(Boolean);
+  }
+  function drawMepsLabel(ctx, T, y) {
+    const lines = miniMeps ? mepsLabelText() : (mepsNote ? [mepsNote] : []);
+    const { ML } = MSK;
+    ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    lines.forEach((txt, i) => {
+      const yy = y + i * 12, w = ctx.measureText(txt).width + 16;
+      ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, w, 12);
+      if (i === 0 && miniMeps) {
+        ctx.strokeStyle = T.meps; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ML + 11, yy - 5); ctx.lineTo(ML + 18, yy - 5); ctx.stroke();
+        ctx.lineWidth = 1.2; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(ML + 11, yy - 1); ctx.lineTo(ML + 18, yy - 1); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = T.meps;
+      ctx.fillText(txt, ML + 22, yy);
+    });
+    ctx.restore();
+    return lines.length;
+  }
+  function mepsHoverLines(p) {
+    const mv = miniMeps ? mepsAt(p) : null;
+    if (!mv) return [];
+    const r = new Date(miniMeps.run * 1000);
+    const head = `<span style="color:${miniSkewTTheme().meps}"><b>MEPS ${String(r.getUTCHours()).padStart(2, '0')} UTC +${miniMeps.lead} h</b></span>`;
+    const parts = [];
+    if (mv.t != null) parts.push(`T ${mv.t.toFixed(1)} °C`);
+    if (mv.td != null) {
+      const rh = typeof skewtEs === 'function' && mv.t != null ? 100 * skewtEs(mv.td) / skewtEs(mv.t) : null;
+      parts.push(`Td ${mv.td.toFixed(1)} °C` + (rh != null ? ` (RH ${Math.round(rh)} %)` : ''));
+    }
+    if (mv.ws != null) parts.push(`${String(Math.round(mv.wd)).padStart(3, '0')}° / ${Math.round(mv.ws)} kt`);
+    return [head + ' ' + parts.join(' · ')];
+  }
+
   function drawSondeLabel(ctx, T, y) {
-    if (!miniSonde) return;
+    if (!miniSonde) return 0;
     const age = sondeAgeS();
     const h = Math.floor(Math.max(0, age) / 3600), m = Math.floor(Math.max(0, age) % 3600 / 60);
     const nom = new Date(miniSonde.nominal * 1000);
@@ -569,6 +666,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       ctx.fillText(txt, ML + 22, yy);
     });
     ctx.restore();
+    return [l1, l2].filter(Boolean).length;
   }
   // Hover lines: the sonde values at the hovered level
   function sondeHoverLines(p) {
@@ -1009,7 +1107,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         `${best.na || 0} landings, ${best.nd || 0} departures in this band`];
       if (best.t != null) L.push(`Temp ${best.t.toFixed(1)} °C <span class="mini-tip-dim">(flights 10–90 % ${best.t10.toFixed(1)}…${best.t90.toFixed(1)}, ${best.tn} flights, ${best.tr} replies)</span>`);
       if (best.ws != null) L.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt <span class="mini-tip-dim">(SD ${best.wsd} kt between ${best.wn} flights)</span>`);
-      L.push(...sondeHoverLines(best.p));
+      L.push(...sondeHoverLines(best.p), ...mepsHoverLines(best.p));
       tip.innerHTML = L.join('<br>');
       tip.style.display = 'block';
       const wrapA = canvas.parentElement.getBoundingClientRect();
@@ -1029,7 +1127,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       lines.push(`<span style="color:${miniSkewTTheme().weak}">Only ${best.ac} aircraft in this layer — single-aircraft value, read with care</span>`);
     if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
         (best.wsd != null ? ` <span class="mini-tip-dim">(SD ${best.wsd.toFixed(0)} kt, n ${best.wn})</span>` : ''));
-    lines.push(...sondeHoverLines(best.p));
+    lines.push(...sondeHoverLines(best.p), ...mepsHoverLines(best.p));
     tip.innerHTML = lines.filter(Boolean).join('<br>');
     tip.style.display = 'block';
     const wrap = canvas.parentElement.getBoundingClientRect();
@@ -1167,6 +1265,7 @@ function createSkewT(canvas, tip, cfg = {}) {
 
     // ── Radiosonde (when switched on) under the Mode S profiles ─────────────
     drawSondeProfile(ctx, T);
+    drawMepsProfile(ctx, T);
 
     // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
     // Grey background reference; with no aircraft selected it is the profile
@@ -1304,17 +1403,20 @@ function createSkewT(canvas, tip, cfg = {}) {
     }
 
     // ── Sonde label below the top-left texts (hint, airport legend) ─────────
-    if (miniSonde || sondeNote) {
+    {
       const aptOn = !!(miniLow && miniLow.levels && aptMode !== 'off');
-      const line = zoom ? (aptOn ? 2 : 1) : (aptOn ? 3 : 2);
-      if (miniSonde) drawSondeLabel(ctx, T, MT + topOff + 12 * line);
-      else {
+      let line = zoom ? (aptOn ? 2 : 1) : (aptOn ? 3 : 2);
+      if (miniSonde) line += drawSondeLabel(ctx, T, MT + topOff + 12 * line);
+      else if (sondeNote) {
         ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
         const yy = MT + topOff + 12 * line;
         ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(sondeNote).width + 6, 12);
         ctx.fillStyle = T.sonde; ctx.fillText(sondeNote, ML + 12, yy);
         ctx.restore();
+        line += 1;
       }
+      // ── MEPS label below the sonde label ──────────────────────────────────
+      if (miniMeps || mepsNote) drawMepsLabel(ctx, T, MT + topOff + 12 * line);
     }
 
     // ── RH strip: trial moisture indicator and the sonde's relative humidity ─
@@ -1467,6 +1569,10 @@ function createSkewT(canvas, tip, cfg = {}) {
       sondeNote = o.sonde && !miniSonde ? `${(o.sonde.station || 'Sonde').toUpperCase()}: no sounding stored for this time` : null;
     }
     if ('sondeRef' in o)     sondeRef = o.sondeRef;
+    if ('meps' in o) {
+      miniMeps = o.meps && o.meps.found && o.meps.levels && o.meps.levels.length ? o.meps : null;
+      mepsNote = o.meps && !miniMeps ? 'MEPS: no model data for this time' : null;
+    }
     if ('rh' in o)           rhOn = !!o.rh;
     if ('moist' in o)        miniMoist = o.moist || null;
   }

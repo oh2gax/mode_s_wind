@@ -196,6 +196,21 @@ async function fetchMiniSonde() {
   } catch (_) { /* silent */ }
 }
 
+// ── MEPS model profile (/api/meps/profile, now) — 'MEPS' tick box, default off
+// The newest model hours are a forecast of up to +5 h; the time moves on, so
+// it is fetched again every 10 min (one small request).
+let mepsShow = localStorage.getItem('ms_skewtMeps') === 'true';
+let miniMeps = null;
+async function fetchMiniMeps() {
+  if (!mepsShow) { miniMeps = null; return; }
+  try {
+    const r = await fetch('/api/meps/profile', { cache: 'no-store' });
+    if (!r.ok) return;
+    miniMeps = await r.json();
+    drawMiniSounding();
+  } catch (_) { /* silent */ }
+}
+
 // ── Airport low-level profile (landings + departures, /api/lowlevel) ──────
 // aptMode: 'off' | 'overlay' (amber profile 200–3 000 ft MSL on the diagram)
 // | 'zoom' (diagram range surface … 850 hPa, airport profile with its winds)
@@ -221,6 +236,7 @@ function syncSkewT() {
     acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
     profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
     hint: null, dq: dqShow, sonde: sondeShow ? miniSonde : null, sondeRef: null,
+    meps: mepsShow ? miniMeps : null,
     rh: rhShow, moist: rhShow && miniArea ? miniArea.moisture || null : null,
   });
 }
@@ -865,6 +881,19 @@ if (sondeChk) {
     fetchMiniSonde();
   });
 }
+// ── MEPS tick box (panel title)
+const mepsChk = document.getElementById('skewt-meps');
+if (mepsChk) {
+  mepsChk.checked = mepsShow;
+  mepsChk.addEventListener('change', e => {
+    mepsShow = e.target.checked;
+    localStorage.setItem('ms_skewtMeps', String(mepsShow));
+    drawMiniSounding();
+    fetchMiniMeps();
+  });
+}
+fetchMiniMeps();
+setInterval(fetchMiniMeps, 10 * 60 * 1000);
 // ── RH strip tick box (trial moisture indicator); the area profile is loaded again with it
 const rhChk = document.getElementById('skewt-rh');
 if (rhChk) {

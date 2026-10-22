@@ -46,6 +46,7 @@ from database import maintenance as maint
 from collector import aircraft_db
 from collector import heading_cal
 from collector import sondes
+from collector import meps
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -622,6 +623,15 @@ def main() -> None:
                  sonde_store.keep_days, sonde_store.folder)
     else:
         log.info("Sounding fetcher off (SONDE_FETCH = False); stored soundings still shown")
+
+    # ── MEPS model profiles (MET Norway open data → meps_hours) ──────────
+    meps_fetcher = meps.init(cfg)
+    if meps_fetcher.enabled:
+        threading.Thread(target=meps_fetcher.run, name="meps", daemon=True).start()
+        log.info("MEPS fetcher started (back-fill %g days, area %g km)",
+                 meps_fetcher.backfill_days, meps_fetcher.radius)
+    else:
+        log.info("MEPS fetcher off (MEPS_FETCH = False)")
 
     # ── Autopurge background thread ───────────────────────────────────────
     autopurge_thread = threading.Thread(
