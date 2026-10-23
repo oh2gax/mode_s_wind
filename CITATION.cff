@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use MODE-S Wind or build on it, please credit it as below."
+title: "MODE-S Wind"
+abstract: "Real-time meteorological data (wind, temperature) from aircraft MODE-S EHS / ADS-B messages, with a web dashboard."
+type: software
+authors:
+  - family-names: Laakso
+    given-names: Otso
+    alias: OH2GAX
+repository-code: "https://github.com/oh2gax/mode_s_wind"
+keywords:
+  - MODE-S
+  - ADS-B
+  - meteorology
+  - aircraft observations
+  - wind

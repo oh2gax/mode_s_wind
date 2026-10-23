@@ -1934,6 +1934,7 @@ mode_s_wind/
 ├── README.md                  # This document
 ├── CHANGELOG.md               # Dated record of all changes
 ├── LICENSE                    # GNU GPL v3
+├── CITATION.cff               # How to cite / credit the project (GitHub "Cite this repository")
 ├── config.py                  # All configuration settings
 ├── api_keys.py                # Local API keys (gitignored — not committed)
 ├── api_keys.py.example        # Template for api_keys.py (safe to commit)
@@ -2165,8 +2166,26 @@ This is a personal research tool built around a specific hardware setup at EFHK.
 
 ## License
 
+Copyright © 2026 Otso Laakso (OH2GAX)
+
 This project is licensed under the **GNU General Public License v3.0**. You are free to use, study, modify and distribute this software under the terms of the GPLv3. Any derivative work must also be distributed under the same license.
 
 See the [LICENSE](LICENSE) file for the full license text, or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
 
 The project uses several open-source libraries (pyModeS, Leaflet, Chart.js, pygeomag) which retain their own respective licenses — see the Acknowledgements section.
+
+### Credit and commercial use
+
+MODE-S Wind is free software: you may use it — also commercially — under the terms of the GPLv3. If you build on it, for example as the base of a product, a service, a publication or a research project, a mention of the original project and its author is much appreciated, for example in the documentation, the "About" page or the credits:
+
+> Based on MODE-S Wind by Otso Laakso (OH2GAX) — https://github.com/oh2gax/mode_s_wind
+
+A short note to the author (a GitHub issue is fine) is also welcome — it is always nice to hear where the work is being used. For publications and research, GitHub's **Cite this repository** button (from [CITATION.cff](CITATION.cff)) gives a ready-made citation.
+
+When you distribute the software or a work based on it, the GPLv3 itself requires, in short (the [LICENSE](LICENSE) text is what counts):
+
+- keeping the copyright notice above and the license notices intact;
+- marking your changes, with a date;
+- releasing the whole work under the GPLv3 and giving its recipients the source code — so a closed-source (proprietary) product cannot include this code.
+
+If you are interested in other licensing terms, please contact the author via GitHub.

@@ -34,6 +34,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - Weather page: **−1h** / **+1h** buttons beside the time slider step one hour back or forward with the mouse (greyed at the ends; a step stops the animation)
 - Navigation bar: the page links keep to one line on narrower screens (smaller padding below 1 700 / 1 450 px)
 
+### Documentation
+
+- README: copyright notice and a new section *Credit and commercial use* (how to credit the project when building on it, and the GPLv3 obligations in short); new `CITATION.cff` (GitHub "Cite this repository")
+
 ### User management
 
 - User management added
