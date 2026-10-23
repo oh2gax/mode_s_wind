@@ -153,6 +153,7 @@ function drawLoadStrip() {
 // ── Drawing ───────────────────────────────────────────────────────────────
 let current = null;        // the frame shown
 function showFrame() {
+  stepButtons();
   const k = parseInt($('wx-t').value, 10);
   const h = view[k];
   updateLabel(h);
@@ -221,6 +222,22 @@ async function play() {
 $('wx-play').addEventListener('click', play);
 $('wx-now').addEventListener('click', () => { $('wx-t').value = presentIndex(); showFrame(); });
 $('wx-t').addEventListener('input', showFrame);
+// ±1 h buttons (for a mouse; the slider itself takes the arrow keys): stop an
+// animation and move one model hour, not past the ends
+function stepHour(d) {
+  if (playing) play();
+  const el = $('wx-t'), v = parseInt(el.value, 10) + d;
+  if (v < 0 || v > parseInt(el.max, 10)) return;
+  el.value = v;
+  showFrame();
+}
+function stepButtons() {
+  const el = $('wx-t'), v = parseInt(el.value, 10), max = parseInt(el.max, 10);
+  $('wx-prev').disabled = !view.length || v <= 0;
+  $('wx-next').disabled = !view.length || v >= max;
+}
+$('wx-prev').addEventListener('click', () => stepHour(-1));
+$('wx-next').addEventListener('click', () => stepHour(1));
 ['wx-pres', 'wx-rain'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); renderLegend(); }));
 $('wx-cloud').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); renderLegend(); loadFrames(); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));

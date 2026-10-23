@@ -30,6 +30,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Cloud layers**: the weather maps now also hold medium and high cloud, fog and the cloud base (clouds in 5 % and the base in 50 m steps, about 180 kB per hour); the Weather page's **Clouds** selector shows Total / Low / Medium / High / Fog and the hover read-out adds the cloud base in ft. `/api/weather/frames` takes `fields=`
 - **Live Map — weather overlay** (☂ button at the top right of the map, new `static/js/live_wx.js`): source Off / **MEPS model** (rain and snow, low cloud, fog, isobars of the present model hour) / **FMI radar** (observed rain rate every 5 min, Finland only), an opacity slider, under the aircraft; refreshed automatically; remembered in the browser. The drawing is shared with the Weather page (new `static/js/wx_layer.js`)
 - **FMI radar** (new `web/api/radar.py`, `/api/radar/latest`): the newest national composite of the download service (`fmi::radar::composite::rr`) at about 2 km, fetched on demand at most every 5 minutes and shared by all viewers, read with plain Python (uncompressed 16-bit GeoTIFF, ETRS-TM35FIN); nothing written to disk
+- Weather page: **−1h** / **+1h** buttons beside the time slider step one hour back or forward with the mouse (greyed at the ends; a step stops the animation)
 - Navigation bar: the page links keep to one line on narrower screens (smaller padding below 1 700 / 1 450 px)
 
 ### User management

@@ -992,7 +992,7 @@ A weather map of the **MEPS** model (MET Norway open data, CC BY 4.0) over the w
 | Past | 24 h / 3 days / 7 days | How far back the slider reaches |
 | Forecast | none / 24 h / 48 h | How far ahead (the newest main model run) |
 | Grid | 20 km / 10 km | Resolution sent to the browser: 20 km about 30 kB per hour, 10 km (the stored resolution) about 4 × more |
-| ▶, slider, ⟲ | — | ▶ animates hour by hour (about 0.4 s per hour), the slider moves through the hours (the strip under it shows what is loaded, forecast hours in purple), ⟲ returns to the present hour; the label gives the time (UTC) and *forecast +N h* |
+| ▶, −1h, slider, +1h, ⟲ | — | ▶ animates hour by hour (about 0.4 s per hour), the slider moves through the hours (the strip under it shows what is loaded, forecast hours in purple), **−1h** / **+1h** step one hour back or forward (also the arrow keys on the slider; a step stops the animation), ⟲ returns to the present hour; the label gives the time (UTC) and *forecast +N h* |
 
 Hovering the map shows the pressure, rain or snow, the chosen cloud layer and the cloud base (in ft, rounded to 100 ft, where the model has one) at the point; the status line names the model run and lead time of the shown hour. Frames load in chunks of 12, the ones nearest the slider first, and stay in the browser while the grid is the same; the settings are remembered. The index of stored hours is reloaded every 10 minutes, so new model runs appear by themselves.
 

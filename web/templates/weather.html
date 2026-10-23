@@ -50,7 +50,9 @@
 
     <div class="wm-group wm-time">
       <button id="wx-play" class="wm-play-btn" type="button" title="Animate the period (one hour about every 0.4 s); click again to stop">▶</button>
+      <button id="wx-prev" class="wm-play-btn wx-step-btn" type="button" title="One hour back (also the ← key on the slider)">−1h</button>
       <span class="wm-tslide"><input type="range" id="wx-t" min="0" max="0" step="1" value="0"><span id="wx-tload" class="wm-tload wm-hidden"></span></span>
+      <button id="wx-next" class="wm-play-btn wx-step-btn" type="button" title="One hour forward (also the → key on the slider)">+1h</button>
       <button id="wx-now" class="wm-play-btn" type="button" title="Back to the present hour">⟲</button>
       <span id="wx-tlabel" class="wm-tlabel">—</span>
     </div>
@@ -83,6 +85,8 @@ const RECEIVER_LON = {{ receiver_lon }};
 .weather-page .wm-tload i.ok { background:var(--accent); opacity:.75; }
 .weather-page .wm-tload i.fc.ok { background:#a855f7; }
 .weather-page .wm-tlabel { min-width: 330px; }
+.weather-page .wx-step-btn { padding:0 6px; font-size:.78rem; min-width:0; }
+.weather-page .wx-step-btn:disabled { opacity:.35; cursor:default; }
 .wx-canvas { position:absolute; left:0; top:0; pointer-events:none; }
 .wx-fc { color:#c084fc; font-weight:bold; }
 [data-theme="light"] .wx-fc { color:#7c3aed; }
