@@ -20,6 +20,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### User management
 
 - User management added
+- Login protection improved
 
 ### Dark theme
 

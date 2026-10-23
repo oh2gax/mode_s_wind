@@ -420,7 +420,7 @@ The log `logs/modes_meteo.log` is rotated: at 10 MB it is renamed `modes_meteo.l
 | `SESSION` | End of that session (no requests for 30 min): time span, number of requests, pages opened |
 | `DENIED` | A request without credentials — internet scanners, link checkers. The browser's own first request before the login dialog is not listed when the same address logs in within 30 s |
 | `BADPASS` | A wrong user name or password (the user name tried is shown, never the password) |
-| `BLOCKED` | 10 wrong passwords within 10 min from one address: it gets HTTP 429 for 15 min (not applied to local-network addresses); also a warning in the main log |
+| `BLOCKED` | 10 *different* wrong logins (user name / password combinations, or wrong maintenance passwords) within 10 min from one address: it gets HTTP 429 for 15 min (not applied to local-network addresses); also a warning in the main log. The same wrong combination sent again — e.g. an open page still polling with an old or mistyped password — counts only once, so one stale browser tab cannot lock out everybody behind a shared company or mobile-operator address; guessing different passwords still triggers it. Only a salted digest of each attempt is kept, in memory. The block is held in memory: restarting the service lifts it |
 | `PROBE` | A connection that is not HTTP at all, classified: TLS handshake (`https://` to the plain-HTTP port), SOCKS4 / SOCKS5 open-proxy test, Remote Desktop (RDP) probe, SSH, other malformed request |
 | `ACTION` | A successful changing request — maintenance purge / delete / settings, Approach History clear |
 | `MAINT-PW` | A wrong maintenance password |

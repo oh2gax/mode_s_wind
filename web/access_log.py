@@ -15,9 +15,14 @@ writes instead:
            when the same address logs in within CHALLENGE_GRACE_SEC.
   BADPASS  a wrong user name or password (the user name tried is shown, the
            password never)
-  BLOCKED  ACCESS_LOCKOUT_FAILS wrong passwords within LOCKOUT_WINDOW_SEC:
-           the address gets HTTP 429 for ACCESS_LOCKOUT_MIN minutes (not for
-           addresses of the local network); also written to the main log
+  BLOCKED  ACCESS_LOCKOUT_FAILS different wrong logins within
+           LOCKOUT_WINDOW_SEC: the address gets HTTP 429 for ACCESS_LOCKOUT_MIN
+           minutes (not for addresses of the local network); also written to
+           the main log.  The same wrong user name / password sent again — an
+           open page still polling with old or mistyped credentials — counts
+           only once, so one stale tab cannot lock out everybody behind the
+           same address (a company network); guessing different passwords
+           still does.  (Only a salted digest of the attempt is kept in memory.)
   PROBE    a request that is not HTTP at all, classified: TLS handshake
            (https:// to the plain-HTTP port), SOCKS4 / SOCKS5 open-proxy test,
            Remote Desktop (RDP) probe, SSH, other malformed request
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import atexit
 import ipaddress
+import hashlib
 import json
 import logging
 import os
@@ -115,7 +121,8 @@ class AccessTracker:
         self._sessions: dict = {}     # (ip, user) → dict
         self._pending: dict = {}      # ip → [(ts, line)] no-credential denials held back
         self._caps: dict = {}         # (ip, kind) → [logged, suppressed, samples]
-        self._fails: dict = {}        # ip → [ts …] wrong passwords
+        self._fails: dict = {}        # ip → [(ts, fingerprint or None) …] wrong logins
+        self._fp_salt = os.urandom(16)
         self._blocked: dict = {}      # ip → until ts
         self._hour = int(time.time() // 3600)
         self._day = time.strftime("%Y-%m-%d")
@@ -164,9 +171,15 @@ class AccessTracker:
                 return False
             return True
 
+    def fingerprint(self, user, password) -> str:
+        """Salted digest of a login attempt (to recognise the same wrong attempt again)."""
+        return hashlib.sha256(self._fp_salt + str(user or "").encode() + b"\0"
+                              + str(password or "").encode()).hexdigest()[:20]
+
     def record(self, ip: str, method: str, path: str, status: int,
-               auth: str, user, ua: str) -> None:
-        """One finished request.  auth: ok / none / bad / blocked."""
+               auth: str, user, ua: str, fp: str | None = None) -> None:
+        """One finished request.  auth: ok / none / bad / blocked; fp: fingerprint
+        of a wrong login (the same one counts once towards the lockout)."""
         if not self.enabled:
             return
         now = time.time()
@@ -192,7 +205,7 @@ class AccessTracker:
             if auth == "bad":
                 st["badpass"] += 1
                 self._emit(ip, "BADPASS", f'{req}  user "{_clean(user, 32)}"  ua "{ua}"', _clean(path, 40))
-                self._fail(ip, now)
+                self._fail(ip, now, fp)
                 return
             # authenticated
             self._pending.pop(ip, None)      # the browser's login challenge — not listed
@@ -235,8 +248,15 @@ class AccessTracker:
             self._emit(ip, "PROBE", f"{what}  → {code}", what.split(" (")[0])
 
     # ── internals ───────────────────────────────────────────────────────────
-    def _fail(self, ip: str, now: float) -> None:
-        f = [t for t in self._fails.get(ip, []) if now - t < LOCKOUT_WINDOW_SEC] + [now]
+    def _fail(self, ip: str, now: float, fp: str | None = None) -> None:
+        f = [e for e in self._fails.get(ip, []) if now - e[0] < LOCKOUT_WINDOW_SEC]
+        if fp is not None:
+            same = [e for e in f if e[1] == fp]
+            if same:                                 # the same wrong attempt again: counted once
+                f = [e for e in f if e[1] != fp] + [(now, fp)]
+                self._fails[ip] = f
+                return
+        f.append((now, fp))
         self._fails[ip] = f
         if self.lock_fails > 0 and len(f) >= self.lock_fails and not _is_local(ip) \
                 and ip not in self._blocked:
@@ -244,9 +264,9 @@ class AccessTracker:
             self._fails[ip] = []
             self._stats["blocked"] += 1
             mins = round(self.lock_sec / 60)
-            log.info("%-8s %-15s %d wrong passwords in %d min — blocked for %d min",
+            log.info("%-8s %-15s %d different wrong logins in %d min — blocked for %d min",
                      "BLOCKED", ip, len(f), round(LOCKOUT_WINDOW_SEC / 60), mins)
-            main_log.warning("Web: %s blocked for %d min after %d wrong passwords (see logs/access.log)",
+            main_log.warning("Web: %s blocked for %d min after %d different wrong logins (see logs/access.log)",
                              ip, mins, len(f))
 
     def _remember(self, ip: str, now: float) -> None:
@@ -290,7 +310,7 @@ class AccessTracker:
                 self._flush_caps()
                 self._hour = hour
                 self._fails = {ip: f for ip, f in self._fails.items()
-                               if f and now - f[-1] < LOCKOUT_WINDOW_SEC}
+                               if f and now - max(e[0] for e in f) < LOCKOUT_WINDOW_SEC}
             day = time.strftime("%Y-%m-%d", time.localtime(now))
             if day != self._day:
                 self._daily(self._day)
@@ -322,7 +342,7 @@ class AccessTracker:
         atexit.register(lambda: self.sweep(final=True))
         log.info("%-8s %-15s access logging on (sessions end after %d min idle, %d lines per address "
                  "and kind per hour, lockout %s)", "START", "-", round(self.idle / 60), self.per_hour,
-                 f"after {self.lock_fails} wrong passwords for {round(self.lock_sec / 60)} min"
+                 f"after {self.lock_fails} different wrong logins for {round(self.lock_sec / 60)} min"
                  if self.lock_fails > 0 else "off")
 
 
@@ -399,9 +419,13 @@ def init_app(app) -> None:
     def _access_after(resp):
         if tracker is not None and tracker.enabled:
             try:
+                state, fp = g.get("auth_state", "ok"), None
+                if state == "bad" and request.authorization:
+                    a = request.authorization
+                    fp = tracker.fingerprint(a.username, a.password)
                 tracker.record(request.remote_addr or "?", request.method, request.full_path.rstrip("?"),
-                               resp.status_code, g.get("auth_state", "ok"), g.get("auth_user"),
-                               _clean(request.headers.get("User-Agent", ""), 120))
+                               resp.status_code, state, g.get("auth_user"),
+                               _clean(request.headers.get("User-Agent", ""), 120), fp)
             except Exception as exc:
                 main_log.debug("access log record failed: %s", exc)
         return resp
