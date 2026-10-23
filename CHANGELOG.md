@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; web user management)
+## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; user management)
 
 ### MEPS model levels
 
@@ -17,9 +17,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **More robust fetching**: an empty, cut or timed-out OPeNDAP answer is tried three times (after 15 and 30 s); a failure of one request no longer stops the other runs of the cycle and is retried later (after 30 min for recent runs)
 - **User guides**: Sounding and Wind Map pages v2.6 (40 pages; the model's levels with a table, how the data are made, the MEPS line in the RH strip; the Wind Map section now starts at page 27) and Skew-T v4.2 (the model's levels and humidity), with new screenshots
 
-### Web users
+### User management
 
-- **Web Users** on the Maintenance page: separate logins for the web pages can be added, given a new password and removed (new `web/users.py`); the maintenance login stays the only one for the Maintenance page. The built-in `config.py` login is unchanged. Optional `WEB_USERS_FILE`
+- User management added
 
 ---
 
