@@ -73,6 +73,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Optional
 
 log = logging.getLogger("modes.meps")
@@ -94,7 +95,12 @@ ML_LEADS = 7                 # model levels +0 … +6 h: they appear about 1 h a
 ML_LEV = (9, 64)             # model (hybrid) levels: about 190 hPa … 12 m above the ground
 ML_VARS = (("air_temperature_ml", "t"), ("specific_humidity_ml", "q"),
            ("x_wind_ml", "xw"), ("y_wind_ml", "yw"))
-TIMEOUT = {"pl": 120.0, "ml": 240.0}
+MAP_LEV = (2, 12)            # Wind Map fields: 150, 200, 250, 300, 400, 500, 700, 800, 850, 925, 1000 hPa
+MAP_VARS = (("air_temperature_pl", "t"), ("x_wind_pl", "xw"), ("y_wind_pl", "yw"), ("geopotential_pl", "z"))
+MAP_HALF = 120               # grid cells (× 2.5 km) each side: ± 300 km
+MAP_STRIDE = 8               # every 8th cell: 20 km (31 × 31 points)
+MAP_FILL = -32768            # missing value in the stored int16 arrays
+TIMEOUT = {"pl": 120.0, "ml": 240.0, "map": 120.0}
 TRIES = 3                    # attempts per request (an empty or cut response is tried again)
 JOKIOINEN = (60.81397, 23.49825)
 KT = 1 / 0.514444
@@ -201,10 +207,16 @@ def ensure_table(db) -> None:
                       run  INTEGER NOT NULL,
                       lead INTEGER NOT NULL,
                       data TEXT    NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS meps_map_hours (
+                      ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour)
+                      run  INTEGER NOT NULL,
+                      lead INTEGER NOT NULL,
+                      meta TEXT    NOT NULL,      -- {"p": [hPa], "x": [x0, dx, nx], "y": [y0, dy, ny]} (LCC m)
+                      data BLOB    NOT NULL)""")   # zlib(int16 [var t,u,v,z][level][point])
     db.commit()
 
 
-_TABLE = {"pl": "meps_hours", "ml": "meps_ml_hours"}
+_TABLE = {"pl": "meps_hours", "ml": "meps_ml_hours", "map": "meps_map_hours"}
 _UPSERT = """INSERT INTO {t} (ts, run, lead, data) VALUES (?, ?, ?, ?)
              ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead, data = excluded.data
              WHERE excluded.lead < {t}.lead
@@ -217,9 +229,12 @@ class MepsFetcher:
     """Background fetcher (thread target: run)."""
 
     def __init__(self, lat: float, lon: float, radius_km: float, base: str = BASE_URL,
-                 backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True):
+                 backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True,
+                 map_fields: bool = True, map_days: float = 7.0):
         self.lat, self.lon, self.radius = lat, lon, radius_km
         self.model_levels = model_levels
+        self.map_fields = map_fields
+        self.map_days = map_days
         self.base = base.rstrip("/")
         self.backfill_days = backfill_days
         self.enabled = enabled
@@ -253,6 +268,13 @@ class MepsFetcher:
             box = f"[0:{LEADS - 1}][{LEV[0]}:{LEV[1]}]{sy}{sx}"
             return ",".join([f"time[0:{LEADS - 1}]", f"pressure[{LEV[0]}:{LEV[1]}]", f"x{sx}", f"y{sy}"]
                             + [f"{v}.{v}{box}" for v, _ in VARS])
+        if kind == "map":
+            cx, cy = ix0 + HALF, iy0 + HALF
+            mx = f"[{cx - MAP_HALF}:{MAP_STRIDE}:{cx + MAP_HALF}]"
+            my = f"[{cy - MAP_HALF}:{MAP_STRIDE}:{cy + MAP_HALF}]"
+            box = f"[0:{LEADS - 1}][{MAP_LEV[0]}:{MAP_LEV[1]}]{my}{mx}"
+            return ",".join([f"time[0:{LEADS - 1}]", f"pressure[{MAP_LEV[0]}:{MAP_LEV[1]}]", f"x{mx}", f"y{my}"]
+                            + [f"{v}.{v}{box}" for v, _ in MAP_VARS])
         k0, k1 = ML_LEV
         nt = ML_LEADS - 1
         box = f"[0:{nt}][{k0}:{k1}]{sy}{sx}"
@@ -261,11 +283,64 @@ class MepsFetcher:
                         + [f"{v}.{v}{box}" for v, _ in ML_VARS])
 
     def fetch_run(self, db, run: int, kind: str = "pl") -> int:
-        """Fetch one run (pressure levels "pl" or model levels "ml"), store its hours;
-        returns the rows written."""
-        url = self._url(run, kind)
+        """Fetch one run (pressure levels "pl", model levels "ml" or the Wind Map
+        fields "map"), store its hours; returns the rows written."""
+        url = self._url(run, "ml" if kind == "ml" else "pl")
         d = _fetch(url, self._cons(url, kind), TIMEOUT[kind])
+        if kind == "map":
+            return self._store_map(db, run, d)
         return self._store(db, run, d) if kind == "pl" else self._store_ml(db, run, d)
+
+    def _store_map(self, db, run: int, d: dict) -> int:
+        """Wind Map fields: every point of the ± 300 km box on the pressure
+        levels, winds turned to true north, as compressed int16 arrays
+        (t °C × 100, u / v kt × 10, z gpm); rows older than map_days removed."""
+        P = [round(p, 1) for p in d["pressure"]]
+        xs, ys = list(d["x"]), list(d["y"])
+        nl, nx, ny = len(P), len(xs), len(ys)
+        np_ = nx * ny
+        rot = []
+        for j in range(ny):
+            for i in range(nx):
+                _, lo = lcc_latlon(xs[i], ys[j])
+                al = math.radians(_N * (lo - LCC_LON0))
+                rot.append((math.cos(al), math.sin(al)))
+        meta = json.dumps({"p": P, "x": [xs[0], xs[1] - xs[0], nx], "y": [ys[0], ys[1] - ys[0], ny]},
+                          separators=(",", ":"))
+        T, XW, YW, Z = (d[v] for v, _ in MAP_VARS)
+        q = lambda v, k: MAP_FILL if v is None or v != v or abs(v) > 32000 else int(round(v * k))
+        written = 0
+        ensure_table(db)
+        for k in range(len(d["time"])):
+            valid = int(round(d["time"][k]))
+            lead = int(round((valid - run) / 3600))
+            a_t, a_u, a_v, a_z = (array.array("h") for _ in range(4))
+            for lv in range(nl):
+                off = (k * nl + lv) * np_
+                for idx in range(np_):
+                    t, xw, yw, z = T[off + idx], XW[off + idx], YW[off + idx], Z[off + idx]
+                    if t > 1e30 or xw > 1e30 or yw > 1e30:
+                        a_t.append(MAP_FILL); a_u.append(MAP_FILL); a_v.append(MAP_FILL)
+                    else:
+                        ca, sa = rot[idx]
+                        a_t.append(q(t - 273.15, 100))
+                        a_u.append(q((xw * ca + yw * sa) * KT, 10))
+                        a_v.append(q((-xw * sa + yw * ca) * KT, 10))
+                    a_z.append(MAP_FILL if z > 1e30 else q(z / G0, 1))
+            raw = a_t + a_u + a_v + a_z
+            if sys.byteorder != "little":
+                raw.byteswap()
+            cur = db.execute(
+                """INSERT INTO meps_map_hours (ts, run, lead, meta, data) VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead,
+                                                 meta = excluded.meta, data = excluded.data
+                   WHERE excluded.lead < meps_map_hours.lead
+                      OR (excluded.lead = meps_map_hours.lead AND excluded.run >= meps_map_hours.run)""",
+                (valid, run, lead, meta, zlib.compress(raw.tobytes(), 6)))
+            written += cur.rowcount
+        db.execute("DELETE FROM meps_map_hours WHERE ts < ?", (int(time.time() - self.map_days * 86400),))
+        db.commit()
+        return written
 
     def _geom(self, xs: list, ys: list):
         """Points of the area with their wind rotation (grid → true north), and
@@ -414,13 +489,16 @@ class MepsFetcher:
         newest = int(now // (RUN_STEP_H * 3600)) * RUN_STEP_H * 3600
         runs = [newest - k * RUN_STEP_H * 3600 for k in range(int(span_h // RUN_STEP_H) + 1)]
         ensure_table(db)
-        kinds = ("pl", "ml") if self.model_levels else ("pl",)
+        kinds = ("pl",) + (("ml",) if self.model_levels else ()) + (("map",) if self.map_fields else ())
         have = {kd: dict(db.execute(f"SELECT ts, lead FROM {_TABLE[kd]} WHERE ts >= ?", (runs[-1],)).fetchall())
                 for kd in kinds}
+        map_from = now - self.map_days * 86400 + RUN_STEP_H * 3600     # not older than the map retention
         out = []
         for r in runs:
             need = []
             for kd in kinds:
+                if kd == "map" and r < map_from:
+                    continue
                 if all(have[kd].get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
                     continue
                 seen = self.missing.get((kd, r))
@@ -437,7 +515,7 @@ class MepsFetcher:
         now = time.time()
         span = max(self.backfill_days * 24, 30) if first else 30
         n_runs = 0
-        rows = {"pl": 0, "ml": 0}
+        rows = {"pl": 0, "ml": 0, "map": 0}
         errors = []
         for r, kinds in self.due_runs(db, now, span)[:MAX_PER_CYCLE]:
             done = False
@@ -458,7 +536,8 @@ class MepsFetcher:
             n_runs += done
             time.sleep(1.0)
         txt = f"{n_runs} run(s), {rows['pl']} hour(s) stored" + \
-              (f", {rows['ml']} model-level hour(s)" if self.model_levels else "")
+              (f", {rows['ml']} model-level hour(s)" if self.model_levels else "") + \
+              (f", {rows['map']} map hour(s)" if self.map_fields else "")
         if errors:
             txt += f"; failed: {errors[-1]}"
             log.warning("MEPS fetch: %d request(s) failed, last: %s", len(errors), errors[-1])
@@ -491,7 +570,9 @@ def init(cfg) -> MepsFetcher:
                             base=getattr(cfg, "MEPS_URL", BASE_URL),
                             backfill_days=float(getattr(cfg, "MEPS_BACKFILL_DAYS", 3)),
                             enabled=bool(getattr(cfg, "MEPS_FETCH", True)),
-                            model_levels=bool(getattr(cfg, "MEPS_MODEL_LEVELS", True)))
+                            model_levels=bool(getattr(cfg, "MEPS_MODEL_LEVELS", True)),
+                            map_fields=bool(getattr(cfg, "MEPS_MAP", True)),
+                            map_days=float(getattr(cfg, "MEPS_MAP_DAYS", 7)))
     return _instance
 
 
@@ -621,6 +702,157 @@ def profile(db, at: float) -> dict:
     return {"found": True, "at": at, "run": info["run"], "lead": info["lead"],
             "provisional": info["lead"] > VERIF_MAX_LEAD, "points": info["n"], "radius_km": info["rad"],
             "levels_kind": kind, "levels": levels, "source": "MEPS (MET Norway, CC BY 4.0)"}
+
+
+# ── Wind Map: the model at a flight level, averaged into the map cells ──────
+
+_map_cache: dict = {}         # ts → (run, lead, meta, arrays)
+_pts_cache: dict = {}         # meta x / y → [(lat, lon)]
+_lev_cache: dict = {}         # (ts, run, lead, p) → [(u, v, t) or None] (the time slider asks the same hours)
+_KM_PER_DEG_LAT = 110.57      # the same as web/api/windmap.py KM_PER_DEG_LAT (cells must match)
+
+
+def _map_hour(db, ts: int, run: int, lead: int):
+    c = _map_cache.get(ts)
+    if c and c[0] == run and c[1] == lead:
+        return c
+    r = db.execute("SELECT meta, data FROM meps_map_hours WHERE ts = ?", (ts,)).fetchone()
+    if not r:
+        return None
+    meta = json.loads(r[0])
+    a = array.array("h")
+    a.frombytes(zlib.decompress(r[1]))
+    if sys.byteorder != "little":
+        a.byteswap()
+    n = len(meta["p"]) * meta["x"][2] * meta["y"][2]
+    if len(a) != 4 * n:
+        return None
+    c = (run, lead, meta, a)
+    if len(_map_cache) > 72:
+        _map_cache.pop(min(_map_cache))
+    _map_cache[ts] = c
+    return c
+
+
+def _map_points(meta):
+    key = (tuple(meta["x"]), tuple(meta["y"]))
+    pts = _pts_cache.get(key)
+    if pts is None:
+        x0, dx, nx = meta["x"]
+        y0, dy, ny = meta["y"]
+        pts = [lcc_latlon(x0 + i * dx, y0 + j * dy) for j in range(ny) for i in range(nx)]
+        _pts_cache.clear()
+        _pts_cache[key] = pts
+    return pts
+
+
+def _at_pressure(entry, p_hpa: float):
+    """[(u kt, v kt, t °C) or None per point] of one stored hour at p_hpa (ln p between levels)."""
+    _, _, meta, a = entry
+    P = meta["p"]
+    npt = meta["x"][2] * meta["y"][2]
+    n = len(P) * npt
+    lp = math.log(p_hpa)
+    k = None
+    for i in range(len(P) - 1):
+        if P[i] <= p_hpa <= P[i + 1]:
+            k = i
+            break
+    if k is None:
+        if abs(p_hpa - P[-1]) <= 15:          # just below the lowest level (1000 hPa)
+            k, w = len(P) - 2, 1.0
+        else:
+            return None
+    else:
+        w = (lp - math.log(P[k])) / (math.log(P[k + 1]) - math.log(P[k]))
+    out = []
+    o0, o1 = k * npt, (k + 1) * npt
+    for idx in range(npt):
+        vals = []
+        for var in range(3):                  # t, u, v
+            b = var * n
+            x0, x1 = a[b + o0 + idx], a[b + o1 + idx]
+            if x0 == MAP_FILL or x1 == MAP_FILL:
+                vals = None
+                break
+            vals.append(x0 + (x1 - x0) * w)
+        out.append(None if vals is None else (vals[1] / 10, vals[2] / 10, vals[0] / 100))
+    return out
+
+
+def map_cells(db, alt_ft: float, start_ts: float, end_ts: float, cell_km: float,
+              lat0: float, lon0: float) -> Optional[dict]:
+    """The model at pressure altitude alt_ft over the period, averaged in time
+    (each hour weighted by how much of [hour − 30 min, hour + 30 min] lies in
+    the period) and over the model points (20 km apart) in each Wind Map cell
+    (same cells and centres as web/api/windmap.py):
+    {"cells": [{lat, lon, bounds, wind_spd, wind_dir, temp, n}], "runs", "lead_max",
+     "provisional", "hours", "p_hpa", "source"}; {"cells": [], "outside": True} above
+    150 hPa (about FL445); None when nothing is stored for the period."""
+    p_hpa = _isa_p(alt_ft)
+    try:
+        rows = db.execute("SELECT ts, run, lead FROM meps_map_hours WHERE ts >= ? AND ts <= ? ORDER BY ts",
+                          (int(start_ts - 1800), int(end_ts + 1800))).fetchall()
+    except Exception:                                    # noqa: BLE001  (table missing)
+        return None
+    acc = None
+    wsum = 0.0
+    used, runs, leads = 0, [], []
+    pts = None
+    for ts, run, lead in rows:
+        w = (min(end_ts, ts + 1800) - max(start_ts, ts - 1800)) / 3600.0
+        if w <= 0:
+            continue
+        e = _map_hour(db, ts, run, lead)
+        if e is None:
+            continue
+        ck = (ts, run, lead, round(p_hpa, 2))
+        vals = _lev_cache.get(ck)
+        if vals is None:
+            vals = _at_pressure(e, p_hpa)
+            if len(_lev_cache) > 96:
+                _lev_cache.clear()
+            _lev_cache[ck] = vals
+        if vals is None:
+            return {"cells": [], "p_hpa": round(p_hpa, 1), "outside": True, "hours": 0}
+        if pts is None:
+            pts = _map_points(e[2])
+            acc = [[0.0, 0.0, 0.0, 0.0] for _ in pts]
+        for i, v in enumerate(vals):
+            if v is not None:
+                a = acc[i]
+                a[0] += w * v[0]; a[1] += w * v[1]; a[2] += w * v[2]; a[3] += w
+        wsum += w
+        used += 1
+        runs.append(run); leads.append(lead)
+    if not used:
+        return None
+    kx = _KM_PER_DEG_LAT * math.cos(math.radians(lat0))
+    cells: dict = {}
+    for (la, lo), a in zip(pts, acc):
+        if a[3] <= 0:
+            continue
+        key = (math.floor((lo - lon0) * kx / cell_km), math.floor((la - lat0) * _KM_PER_DEG_LAT / cell_km))
+        c = cells.setdefault(key, [0.0, 0.0, 0.0, 0])
+        c[0] += a[0] / a[3]; c[1] += a[1] / a[3]; c[2] += a[2] / a[3]; c[3] += 1
+    need = max(1, int(0.5 * (cell_km / 20.0) ** 2))      # leave out cells cut by the box edge
+    out = []
+    for (cx, cy), (su, sv, st, n) in cells.items():
+        if n < need:
+            continue
+        u, v = su / n, sv / n
+        lat_s = lat0 + cy * cell_km / _KM_PER_DEG_LAT
+        lat_n = lat0 + (cy + 1) * cell_km / _KM_PER_DEG_LAT
+        lon_w = lon0 + cx * cell_km / kx
+        lon_e = lon0 + (cx + 1) * cell_km / kx
+        out.append({"lat": round((lat_s + lat_n) / 2, 4), "lon": round((lon_w + lon_e) / 2, 4),
+                    "bounds": [round(lat_s, 4), round(lon_w, 4), round(lat_n, 4), round(lon_e, 4)],
+                    "wind_spd": round(math.hypot(u, v), 1),
+                    "wind_dir": round(math.degrees(math.atan2(-u, -v)) % 360, 1),
+                    "temp": round(st / n, 1), "n": n})
+    return {"cells": out, "runs": sorted(set(runs)), "lead_max": max(leads),
+            "provisional": max(leads) > VERIF_MAX_LEAD, "hours": used, "p_hpa": round(p_hpa, 1),
+            "source": "MEPS (MET Norway, CC BY 4.0)"}
 
 
 # ── MEPS check (Mode S minus MEPS) ──────────────────────────────────────────

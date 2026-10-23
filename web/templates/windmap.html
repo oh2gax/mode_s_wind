@@ -125,13 +125,17 @@
     <label class="wm-check" title="The Jokioinen radiosonde at the chosen level (newest sounding launched before the end of the period, at most 24 h old), with the difference from the nearest Mode S cell in its popup">
       <input type="checkbox" id="wm-sonde"> Sonde
     </label>
+    <label class="wm-check" title="The MEPS weather model (MET Norway open data, CC BY 4.0) at the level, averaged over the period and into the same cells: teal barbs in the cells without aircraft, and a thin teal barb under the aircraft barb where there are aircraft (the model wind and temperature in the popup). Model hours of the last 7 days">
+      <input type="checkbox" id="wm-meps"> MEPS
+    </label>
 
     <div class="wm-group">
       <label class="wm-label">Compare</label>
-      <select id="wm-cmp" class="wm-select" title="Change since the previous period of the same length, or the difference to another level (thermal wind)">
+      <select id="wm-cmp" class="wm-select" title="Change since the previous period of the same length, the difference to another level (thermal wind), or the difference to the MEPS weather model at the same level and time">
         <option value="off" selected>Off</option>
         <option value="prev">Change since previous period</option>
         <option value="level">Other level (thermal wind)</option>
+        <option value="meps">Mode S − MEPS model</option>
       </select>
       <select id="wm-fl2" class="wm-select wm-hidden" title="The other level of the thermal wind">
         <option value="20">2 000 ft</option>

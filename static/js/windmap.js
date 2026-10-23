@@ -88,6 +88,7 @@ const haloColor  = () => pageIsLight() ? '#f1f5f9' : '#0f1923';
 const isotColor  = () => pageIsLight() ? '#be123c' : '#fb7185';   // isotherms
 const jetColor   = () => pageIsLight() ? '#111827' : '#f8fafc';   // jet-stream symbol
 const hgtColor   = () => pageIsLight() ? '#0f766e' : '#5eead4';   // height contours, geostrophic wind
+const mepsColor  = () => pageIsLight() ? '#0e7490' : '#22d3ee';   // MEPS model (as on the Skew-T)
 
 // Barb opacity by the number of different aircraft behind the cell
 const acOpacity = ac => ac >= 3 ? 1.0 : ac === 2 ? 0.7 : 0.42;
@@ -217,7 +218,7 @@ function isaP(ft) {
 // ── Settings (remembered in the browser) ──────────────────────────────────
 const SETTINGS_KEY = 'ms_windmap';
 const CTRL_IDS = ['wm-fl', 'wm-tol', 'wm-period', 'wm-cell', 'wm-minac', 'wm-cmp', 'wm-fl2', 'wm-jetkt'];
-const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-isot', 'wm-hgt', 'wm-jet', 'wm-jetdepth', 'wm-sonde'];
+const CHECK_IDS = ['wm-dt', 'wm-gnss', 'wm-auto', 'wm-iso', 'wm-stream', 'wm-isot', 'wm-hgt', 'wm-jet', 'wm-jetdepth', 'wm-sonde', 'wm-meps'];
 const DATE_IDS = ['wm-start', 'wm-end'];           // the custom period
 const $ = id => document.getElementById(id);
 function saveSettings() {
@@ -265,6 +266,8 @@ function render() {
 
   // compare: matched cells → tint + arrow
   const cmpInfo = renderCompare(d, cells, showLabel);
+  const mepsByKey = {};
+  for (const m of (d.meps && d.meps.cells) || []) mepsByKey[keyOf(m)] = m;
 
   for (const cell of cells) {
     if (showDt) {
@@ -290,6 +293,8 @@ function render() {
     if (cell.ac < 3) lines.push(`<span style="color:#d97706">Few aircraft — a single airframe's error is not averaged out</span>`);
     const cm = cmpInfo.byKey[keyOf(cell)];
     if (cm) lines.push(cm.popup);
+    const mc = mepsByKey[keyOf(cell)];
+    if (mc && !(cm && lastCmp.mode === 'meps')) lines.push(mepsPopup(cell, mc));
 
     const tip = `${cell.wind_dir.toFixed(0)}° ${cell.wind_spd.toFixed(0)} kt` +
       (cell.temp != null ? ` · ${fmtT(cell.temp)}°C` : '') +
@@ -303,9 +308,42 @@ function render() {
       .addTo(barbLayer);
   }
 
+  if ($('wm-meps').checked) renderMeps(d, cells, mepsByKey, showLabel);
   renderAnalysis(d, cells);
   renderSonde(d, cells, showLabel);
   return cells.length;
+}
+
+// ── MEPS model barbs (the model at the level, averaged into the same cells) ─
+function mepsPopup(cell, m) {
+  const [u1, v1] = wmToUV(cell.wind_dir, cell.wind_spd), [u0, v0] = wmToUV(m.wind_dir, m.wind_spd);
+  const dT = cell.temp != null && m.temp != null ? cell.temp - m.temp : null;
+  return `<span style="color:${mepsColor()}">MEPS: ${m.wind_dir.toFixed(0)}° @ ${m.wind_spd.toFixed(0)} kt, ${fmtT(m.temp)} °C` +
+    ` · Mode S − MEPS: wind ${Math.hypot(u1 - u0, v1 - v0).toFixed(0)} kt (vector), speed ${fmtSigned(cell.wind_spd - m.wind_spd, 0)} kt` +
+    (dT != null ? `, ${fmtSigned(dT)} K` : '') + '</span>';
+}
+function renderMeps(d, cells, byKey, showLabel) {
+  const shown = new Set(cells.map(keyOf));
+  for (const m of (d.meps && d.meps.cells) || []) {
+    const has = shown.has(keyOf(m));
+    const icon = makeBarbIcon(m, showLabel && !has, {
+      color: mepsColor(), opacity: has ? 0.75 : 0.9, strokeWidth: has ? 1.1 : 1.5, square: !has,
+      lines: [`${Math.round(m.wind_dir)}° ${Math.round(m.wind_spd)}kt`, `${fmtT(m.temp)}° MEPS`] });
+    const mk = L.marker([m.lat, m.lon], { icon, interactive: !has, zIndexOffset: has ? -500 : -200 });
+    if (!has) {
+      mk.bindTooltip(`MEPS ${m.wind_dir.toFixed(0)}° ${m.wind_spd.toFixed(0)} kt · ${fmtT(m.temp)} °C · no aircraft in the cell`,
+                     { direction: 'top', offset: [0, -48] })
+        .bindPopup(`<b>${flLabel(d.fl)}</b> &nbsp;<span style="color:#64748b">${m.lat.toFixed(2)}°N ${m.lon.toFixed(2)}°E · cell ${d.cell_km} km</span><br>` +
+                   `<span style="color:${mepsColor()}">MEPS model: <b>${m.wind_dir.toFixed(0)}° @ ${m.wind_spd.toFixed(1)} kt</b>, <b>${fmtT(m.temp)} °C</b></span><br>` +
+                   `<span style="color:#64748b">mean of ${m.n} model point${m.n === 1 ? '' : 's'} (20 km apart) and ${d.meps.hours} model hour${d.meps.hours === 1 ? '' : 's'} · no aircraft in the cell · MET Norway, CC BY 4.0</span>`);
+    }
+    mk.addTo(barbLayer);
+  }
+}
+// the model cells as the comparison data of "Mode S − MEPS"
+function mepsAsCmp(d) {
+  if (!d || !d.meps || !d.meps.cells) return null;
+  return { cells: d.meps.cells.map(c => Object.assign({ ac: 3 }, c)), meps: d.meps };
 }
 
 function addCellRect(cell, f) {
@@ -326,7 +364,10 @@ function renderCompare(d, cells, showLabel) {
   const mode = lastCmp.mode;
   const o = lastCmp.data;
   legend.classList.remove('wm-hidden');
-  if (mode === 'prev') {
+  if (mode === 'meps') {
+    legend.innerHTML = `<span class="wm-arrow-key">→</span> Mode S − MEPS wind (vector)` +
+      ` · <span class="wm-dt-bar"></span> aircraft colder · warmer than the model (±3 K)`;
+  } else if (mode === 'prev') {
     legend.innerHTML = `<span class="wm-arrow-key">→</span> wind change since ${utcStr(o.start_ts).replace(' UTC', '')}–${utcStr(o.end_ts)}` +
       ` · <span class="wm-dt-bar"></span> cooled · warmed (±3 K)`;
   } else {
@@ -341,7 +382,15 @@ function renderCompare(d, cells, showLabel) {
     const [u0, v0] = wmToUV(p.wind_dir, p.wind_spd);
     const ac = Math.min(c.ac, p.ac);
     let du, dv, f, label, popup, tip;
-    if (mode === 'prev') {
+    if (mode === 'meps') {
+      du = u1 - u0; dv = v1 - v0;
+      const mag = Math.hypot(du, dv);
+      const dT = c.temp != null && p.temp != null ? c.temp - p.temp : null;
+      f = tint(dT, 3, c.ac);
+      label = `${Math.round(mag)}kt` + (dT != null ? ` ${fmtSigned(dT)}K` : '');
+      popup = mepsPopup(c, p);
+      tip = `−MEPS ${mag.toFixed(0)} kt` + (dT != null ? ` ${fmtSigned(dT)} K` : '');
+    } else if (mode === 'prev') {
       du = u1 - u0; dv = v1 - v0;
       const mag = Math.hypot(du, dv);
       const dT = c.temp != null && p.temp != null ? c.temp - p.temp : null;
@@ -698,11 +747,20 @@ function statusText(d, shown) {
   }
   const shownTxt = shown != null && shown !== d.cells_count ? `${shown} of ${d.cells_count}` : `${d.cells_count}`;
   let cmp = '';
-  if (lastCmp && lastCmp.data) {
+  if (lastCmp && lastCmp.data && lastCmp.mode !== 'meps') {
     const o = lastCmp.data;
     cmp = lastCmp.mode === 'prev'
       ? ` · previous period ${o.aircraft} a/c, ${o.cells_count} cells`
       : ` · ${flLabel(o.fl)} ${o.aircraft} a/c, ${o.cells_count} cells`;
+  }
+  if ($('wm-meps').checked || $('wm-cmp').value === 'meps') {
+    const m = d.meps;
+    if (!m) cmp += ' · MEPS: no model data for this period (kept 7 days)';
+    else if (m.outside) cmp += ' · MEPS: the model maps reach only up to about FL445 (150 hPa)';
+    else {
+      const runs = (m.runs || []).map(r => pad2(new Date(r * 1000).getUTCHours())).join('/');
+      cmp += ` · MEPS ${runs} UTC run${(m.runs || []).length > 1 ? 's' : ''} (${m.hours} h${m.provisional ? ', partly forecast' : ''}) at ${Math.round(m.p_hpa)} hPa · MET Norway, CC BY 4.0`;
+    }
   }
   return `${flStr} ±${d.tolerance_ft} ft · ${d.aircraft} a/c, ${d.obs_used} obs → ${shownTxt} cells (${d.cell_km} km)` +
     (rmParts.length ? ` · removed ${rmParts.join(', ')}` : '') +
@@ -772,10 +830,11 @@ function frameSettings() {
     cmpMode: $('wm-cmp').value, fl2: parseInt($('wm-fl2').value, 10),
     sonde: $('wm-sonde').checked, depth: $('wm-jet').checked && $('wm-jetdepth').checked,
   };
+  st.meps = $('wm-meps').checked || st.cmpMode === 'meps';
   if (st.cmpMode === 'level' && st.fl2 === st.fl) st.cmpMode = 'off';
   st.key = [st.fl, st.tol, st.cell, st.gnss ? 1 : 0, $('wm-period').value,
             c ? `${c.start}-${c.end}` : '', st.cmpMode, st.cmpMode === 'level' ? st.fl2 : '',
-            st.sonde ? 1 : 0, st.depth ? 1 : 0].join('|');
+            st.sonde ? 1 : 0, st.depth ? 1 : 0, st.meps ? 1 : 0].join('|');
   return st;
 }
 // the levels a frame needs: the map, the comparison, the jet depth
@@ -872,7 +931,8 @@ async function runFrames(store) {
       } else {
         const { ch, l } = job;
         const url = `/api/windmap/frames?fl=${l.fl}&tolerance=${l.tol}&cell=${st.cell}` +
-                    `${st.gnss ? '&gnss_ok=1' : ''}&end=${endOf(ch[0]) + l.off}&period=${st.len}&n=${ch.length}`;
+                    `${st.gnss ? '&gnss_ok=1' : ''}&end=${endOf(ch[0]) + l.off}&period=${st.len}&n=${ch.length}` +
+                    (st.meps && l.id === 'main' ? '&meps=1' : '');
         const res = await (await fetch(url)).json();
         if (!res.frames || res.frames.length !== ch.length) throw new Error('frames');
         ch.forEach((s, i) => store.data.get(l.id).set(s, res.frames[i]));
@@ -914,7 +974,7 @@ const getJSON = url => fetch(url).then(x => x.json());
 // one frame with single requests (no loaded frame for it)
 function fetchFrame(st, r) {
   const { fl, tol, cell, gnss } = st;
-  const jobs = [getJSON(apiUrl(fl, tol, cell, gnss, r.start, r.end))];
+  const jobs = [getJSON(apiUrl(fl, tol, cell, gnss, r.start, r.end) + (st.meps ? '&meps=1' : ''))];
   if (st.cmpMode === 'prev') jobs.push(getJSON(apiUrl(fl, tol, cell, gnss, 2 * r.start - r.end, r.start)));
   else if (st.cmpMode === 'level') jobs.push(getJSON(apiUrl(st.fl2, tol, cell, gnss, r.start, r.end)));
   else jobs.push(Promise.resolve(null));
@@ -932,7 +992,8 @@ function applyFrame(f, st) {
   const status = $('wm-status');
   lastDepth = f.dep;
   lastData = f.d;
-  lastCmp = f.c ? { mode: f.cmpMode, data: f.c } : null;
+  lastCmp = f.cmpMode === 'meps' ? (mepsAsCmp(f.d) ? { mode: 'meps', data: mepsAsCmp(f.d) } : null)
+          : f.c ? { mode: f.cmpMode, data: f.c } : null;
   lastSonde = f.s;
   const shown = render();
   if (!f.d.cells || f.d.cells.length === 0) {
@@ -1080,7 +1141,7 @@ $('wm-tshift').addEventListener('change', () => { if (!playing) loadWindMap(); }
   }
 }));
 // Options that need another query
-['wm-cmp', 'wm-fl2', 'wm-sonde', 'wm-jet', 'wm-jetdepth'].forEach(id => $(id).addEventListener('change', () => {
+['wm-cmp', 'wm-fl2', 'wm-sonde', 'wm-jet', 'wm-jetdepth', 'wm-meps'].forEach(id => $(id).addEventListener('change', () => {
   syncVisibility(); loadWindMap();
 }));
 ['wm-auto'].forEach(id => $(id).addEventListener('change', saveSettings));

@@ -586,6 +586,8 @@ def create_app(
           start     — period start as Unix timestamp
           end       — period end   as Unix timestamp
           gnss_ok   — 1: leave out rows inside GPS degradation episodes
+          meps      — 1: add the MEPS model at the level, averaged into the
+                      same cells ("meps", collector/meps.py map_cells)
         """
         from web.api.windmap import build_windmap, period_qnh, KM_PER_DEG_LAT
 
@@ -619,7 +621,20 @@ def create_app(
                                qnh_hpa=qnh, qnh_source=qnh_src,
                                center_lat=cfg.RECEIVER_LAT, center_lon=cfg.RECEIVER_LON,
                                gnss_ok=gnss_ok)
+        if request.args.get("meps", "0") in ("1", "true", "yes"):
+            _add_meps(db, [result], cell_km)
         return jsonify(result)
+
+    def _add_meps(db, maps, cell_km):
+        """MEPS model cells for each Wind Map (frame) answer."""
+        from collector import meps as _meps
+        for m in maps:
+            try:
+                m["meps"] = _meps.map_cells(db, m["alt_query_ft"], m["start_ts"], m["end_ts"], cell_km,
+                                            cfg.RECEIVER_LAT, cfg.RECEIVER_LON)
+            except Exception as exc:                 # noqa: BLE001
+                log.warning("MEPS map cells failed: %s", exc)
+                m["meps"] = None
 
     @app.route("/api/windmap/frames")
     def windmap_frames_api():
@@ -633,6 +648,7 @@ def create_app(
           end     — end of the newest frame (Unix timestamp)
           period  — period length in seconds (60 … 86 400)
           n       — number of frames (1 … 48)
+          meps    — 1: each frame with the MEPS model cells (as /api/windmap)
         The answer is gzip-compressed when the browser accepts it.
         """
         import gzip as _gzip
@@ -654,6 +670,8 @@ def create_app(
             db, fl, tolerance, end_ts, period_s, n, cell_km,
             qnh_of=lambda s, e: period_qnh(db, s, e, now, qcur, qok),
             center_lat=cfg.RECEIVER_LAT, center_lon=cfg.RECEIVER_LON, gnss_ok=gnss_ok)
+        if request.args.get("meps", "0") in ("1", "true", "yes"):
+            _add_meps(db, result["frames"], cell_km)
         resp = jsonify(result)
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))

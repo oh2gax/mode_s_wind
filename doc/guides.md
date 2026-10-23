@@ -23,9 +23,9 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 2.6
+version: 2.7
 date: 2026-10-23
-pages: 40
+pages: 41
 open: sounding, windmap@27
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
@@ -34,4 +34,4 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 - The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines — and the **Moisture (trial)** indicator
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
 - **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels
-- The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, cross-section, compare modes and the time slider
+- The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider

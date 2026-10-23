@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; user management; unified dark-theme diagram background)
+## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; user management; unified dark-theme diagram background)
 
 ### MEPS model levels
 
@@ -16,6 +16,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **RH strip — MEPS humidity**: with the MEPS tick box on, the model's relative humidity over the same area is drawn in the RH strip as a teal line (model levels), next to the aircraft moisture indicator and the sonde's pink line; the hover adds the model's mean RH of each indicator layer and its RH at the level. A live check of the moisture trial every hour, also between the soundings
 - **More robust fetching**: an empty, cut or timed-out OPeNDAP answer is tried three times (after 15 and 30 s); a failure of one request no longer stops the other runs of the cycle and is retried later (after 30 min for recent runs)
 - **User guides**: Sounding and Wind Map pages v2.6 (40 pages; the model's levels with a table, how the data are made, the MEPS line in the RH strip; the Wind Map section now starts at page 27) and Skew-T v4.2 (the model's levels and humidity), with new screenshots
+
+### Wind Map: MEPS model
+
+- **MEPS** tick box (off by default): the MEPS weather model at the level, averaged into the same cells as the aircraft — teal barbs in the cells without aircraft, a thin teal barb under the aircraft barb in the others, the model wind and temperature and the difference in the popups. New compare mode **Mode S − MEPS model**: vector difference arrows and a warmer / colder tint per cell. Works with the time slider. `collector/meps.py` now also fetches the model's pressure levels 1000 … 150 hPa in a ± 300 km box every 20 km (about 1 MB per run) into the new table `meps_map_hours` (about 50 kB per hour, kept 7 days); `/api/windmap` and `/api/windmap/frames` take `meps=1`. Optional `MEPS_MAP`, `MEPS_MAP_DAYS`
+- User guide Sounding and Wind Map pages v2.7 (41 pages; new section *The MEPS model at the level* and *Mode S − MEPS model*)
 
 ### User management
 
