@@ -26,7 +26,8 @@
  *            barbs with the trial moisture indicator (moist = the "moisture"
  *            of /api/sounding?moist=1 or /api/sounding/hour, collector/
  *            moisture.py: index ≈ RH of 1 000–5 000, 5 000–10 000 and
- *            10 000–15 000 ft) and the sonde's relative humidity as a line
+ *            10 000–15 000 ft), the sonde's relative humidity as a line and
+ *            (with meps) the model's relative humidity as a teal line
  *
  * Needs skewt_analysis.js (analyzeSkewT, skewtMoistLapse,
  * skewtContrailThresholds) loaded first.
@@ -1432,7 +1433,9 @@ function createSkewT(canvas, tip, cfg = {}) {
   // Aircraft: the trial moisture indicator as bars for its three layers (index
   // ≈ relative humidity, brown dry < 40 / green moist / blue humid ≥ 70 %,
   // with its ± range; faint when uncertain).  Sonde: its relative humidity
-  // from temperature and dewpoint as a line, at full vertical detail.
+  // from temperature and dewpoint as a pink line, at full vertical detail.
+  // MEPS (with the MEPS tick box): the model's relative humidity over the
+  // same area as a teal line (model levels).
   const MOIST_CLS = [[40, 'dry', [180, 116, 52]], [70, 'moist', [132, 170, 90]], [1e9, 'humid', [14, 140, 200]]];
   const moistCls = v => MOIST_CLS.find(c => v < c[0]);
   function rhGeom() {
@@ -1445,18 +1448,33 @@ function createSkewT(canvas, tip, cfg = {}) {
     const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
     return 100 * es(l.dewpoint) / es(l.temp);
   }
-  // sonde mean RH (ln-p weighted) of the layer [lo, hi] ft, or null
-  function sondeLayerRh(lo, hi) {
-    if (!miniSonde) return null;
+  function mepsRh(l) { return l.rh != null ? l.rh : sondeRh(l); }
+  // mean RH (ln-p weighted) of the layer [lo, hi] ft from levels (pressure
+  // descending) with the RH function f, or null (≥ 3 levels in the layer)
+  function layerRh(levels, f, lo, hi) {
     const p0 = altToPressHPa(lo), p1 = altToPressHPa(hi);
-    const L = miniSonde.levels.filter(l => l.pressure <= p0 && l.pressure >= p1 && sondeRh(l) != null);
+    const L = levels.filter(l => l.pressure <= p0 && l.pressure >= p1 && f(l) != null);
     if (L.length < 3) return null;
     let s = 0, w = 0;
     for (let i = 1; i < L.length; i++) {
       const dw = Math.log(L[i - 1].pressure / L[i].pressure);
-      s += dw * (sondeRh(L[i - 1]) + sondeRh(L[i])) / 2; w += dw;
+      s += dw * (f(L[i - 1]) + f(L[i])) / 2; w += dw;
     }
     return w > 0 ? s / w : null;
+  }
+  const sondeLayerRh = (lo, hi) => miniSonde ? layerRh(miniSonde.levels, sondeRh, lo, hi) : null;
+  const mepsLayerRh  = (lo, hi) => miniMeps  ? layerRh(miniMeps.levels, mepsRh, lo, hi) : null;
+  // RH at pressure p from levels (pressure descending), linear in ln p
+  function rhAt(levels, f, p) {
+    let a = null;
+    for (const l of levels) {
+      if (f(l) == null) continue;
+      if (l.pressure >= p) { a = l; continue; }
+      if (!a) return null;
+      const w = Math.log(a.pressure / p) / Math.log(a.pressure / l.pressure);
+      return f(a) + (f(l) - f(a)) * w;
+    }
+    return null;
   }
   function drawRhStrip(ctx, T) {
     const { MT, PH, PT, PB } = MSK;
@@ -1503,6 +1521,16 @@ function createSkewT(canvas, tip, cfg = {}) {
         ctx.stroke(); ctx.globalAlpha = 1;
       }
     }
+    // MEPS RH line (model over the same area)
+    if (miniMeps) {
+      const L = miniMeps.levels.filter(l => l.pressure >= PT * 0.97 && l.pressure <= PB * 1.02 && mepsRh(l) != null);
+      if (L.length >= 2) {
+        ctx.strokeStyle = T.meps; ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        L.forEach((l, i) => { const xx = x(mepsRh(l)), yy = mskY(l.pressure); i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); });
+        ctx.stroke();
+      }
+    }
     ctx.restore();
     // labels: title above, scale below
     ctx.save(); ctx.font = '9px monospace'; ctx.fillStyle = T.area; ctx.textAlign = 'center';
@@ -1532,12 +1560,16 @@ function createSkewT(canvas, tip, cfg = {}) {
         ` <span class="mini-tip-dim">(${n} climbs / descents${w ? ` of ±${w} h` : ''}; Tv − T ${corr >= 0 ? '+' : ''}${corr.toFixed(2)} K after the sonde offsets, ${raw >= 0 ? '+' : ''}${raw.toFixed(2)} K raw)</span>`);
       const sl = sondeLayerRh(lo, hi);
       if (sl != null) parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde mean RH of the layer ${Math.round(sl)} %</span>`);
+      const ml = mepsLayerRh(lo, hi);
+      if (ml != null) parts.push(`<span style="color:${miniSkewTTheme().meps}">MEPS mean RH of the layer ${Math.round(ml)} %</span>`);
     } else if (miniMoist) parts.push('<span class="mini-tip-dim">no aircraft value here (1 000–15 000 ft only, enough climbs / descents needed)</span>');
     const sv = miniSonde ? sondeAt(p) : null;
     if (sv && sv.t != null && sv.td != null) {
       const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));
       parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde RH ${Math.round(100 * es(sv.td) / es(sv.t))} % at this level</span>`);
     }
+    const mr = miniMeps ? rhAt(miniMeps.levels, mepsRh, p) : null;
+    if (mr != null) parts.push(`<span style="color:${miniSkewTTheme().meps}">MEPS RH ${Math.round(mr)} % at this level</span>`);
     parts.push(`<span class="mini-tip-dim">Index ≈ RH from the thickness of climbs / descents (virtual temperature) minus the Mach/TAS temperature — a first trial, a tendency rather than a measurement` +
       (miniMoist ? `, offsets from ${miniMoist.offsets_n || 0} sounding${miniMoist.offsets_n === 1 ? '' : 's'}` : '') + `</span>`);
     return parts.join('<br>');

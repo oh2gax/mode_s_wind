@@ -7,12 +7,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T)
+## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip)
 
 - **MEPS model levels** (`collector/meps.py`): besides the 10 standard pressure levels, every run now also brings temperature, specific humidity and wind on the model's own (hybrid) levels — the 56 lowest of 65, from about 12 m above the ground to about 190 hPa (25 m apart near the ground, 100 m at 1 km, 230 m at 3 km, 350 m at 5.5 km, 600–700 m near 200 hPa) — with the surface pressure, forecast hours +0 … +6 (they appear about 1 h after the pressure levels), in the same box and area. Each level is averaged on the level, its pressure is ap + b · the mean surface pressure. Second OPeNDAP request of about 6 MB per run (about 50 MB a day), new table `meps_ml_hours` (about 3.3 kB per hour); the pressure levels stay for the heights and the MEPS check (at the shared levels the two agree within 0.05 K and 0.2 kt). Optional `MEPS_MODEL_LEVELS` (default on); after the update the first start back-fills the model levels of the last `MEPS_BACKFILL_DAYS` (3) days
 - **Skew-T MEPS profile** (`/api/meps/profile`, `levels_kind`): drawn on the model levels — a smooth curve with the model's surface inversions and tropopause, also in the Airport zoom, barbs thinned as before; falls back to the 10 standard levels for hours without model levels (label *10 std levels*)
+- **RH strip — MEPS humidity**: with the MEPS tick box on, the model's relative humidity over the same area is drawn in the RH strip as a teal line (model levels), next to the aircraft moisture indicator and the sonde's pink line; the hover adds the model's mean RH of each indicator layer and its RH at the level. A live check of the moisture trial every hour, also between the soundings
 - **More robust fetching**: an empty, cut or timed-out OPeNDAP answer is tried three times (after 15 and 30 s); a failure of one request no longer stops the other runs of the cycle and is retried later (after 30 min for recent runs)
-- **User guides**: Sounding and Wind Map pages v2.5 (40 pages; the model's levels with a table, how the data are made; the Wind Map section now starts at page 27) and Skew-T v4.1 (the model's levels), with new screenshots
+- **User guides**: Sounding and Wind Map pages v2.6 (40 pages; the model's levels with a table, how the data are made, the MEPS line in the RH strip; the Wind Map section now starts at page 27) and Skew-T v4.2 (the model's levels and humidity), with new screenshots
 
 ---
 

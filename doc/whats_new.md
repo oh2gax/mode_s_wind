@@ -6,7 +6,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 ## v.23102026 — MEPS on the model's own levels
 
 - **MEPS on the Skew-T in much more detail**: the model profile (the **MEPS** tick box on the Live Map and the Sounding page) is now drawn on the model's own levels — 56 levels from just above the ground up to about 190 hPa instead of the 10 standard pressure levels. Near the ground they are only 25 m apart, so the model line is a smooth curve that shows its surface inversions and the shape of the tropopause, also in the Airport zoom. If the detailed levels of an hour are missing, the old 10 levels are used and the label says *10 std levels*.
-- **User guides updated**: the Skew-T guide (version 4.1) and the Sounding and Wind Map guide (version 2.5) explain the model's levels.
+- **Model humidity in the RH strip**: with both **RH** and **MEPS** ticked, the strip beside the Skew-T also shows the model's relative humidity as a teal line, next to the aircraft moisture bars and the sonde's pink line — so you can follow every hour, also between the soundings, whether the aircraft moisture indicator sees the moist layers of a front arriving. Hover the strip for the layer averages.
+- **User guides updated**: the Skew-T guide (version 4.2) and the Sounding and Wind Map guide (version 2.6) explain the model's levels and the new humidity line.
 
 ## v.22102026 — MEPS check, What's new and user guides, geoid correction, honest moisture uncertainty
 
