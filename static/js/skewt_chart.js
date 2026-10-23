@@ -549,7 +549,8 @@ function createSkewT(canvas, tip, cfg = {}) {
   }
   // ── MEPS model profile (MET Norway open data; area mean) ─────────────────
   // Temperature (teal line), dewpoint (teal dashed) and winds (teal barbs a
-  // little inside the sonde's), 10 pressure levels.
+  // little inside the sonde's, ≥ 17 px apart): the model's own levels (about
+  // 56 up to 190 hPa) or, when those are missing, the 10 pressure levels.
   function mepsAt(p) { return miniMeps ? levelsAt(miniMeps.levels, p) : null; }
   function mepsDiff() {
     if (!miniMeps || !miniArea || !miniArea.levels) return null;
@@ -599,7 +600,8 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (!miniMeps) return null;
     const r = new Date(miniMeps.run * 1000);
     const l1 = `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${String(r.getUTCHours()).padStart(2, '0')} UTC run +${miniMeps.lead} h` +
-               (miniMeps.provisional ? ' (forecast)' : '');
+               (miniMeps.provisional ? ' (forecast)' : '') +
+               (miniMeps.levels_kind === 'standard' ? ' · 10 std levels' : '');
     const dd = mepsDiff();
     const l2 = dd ? `Δ area−MEPS: ` + (dd.n ? `T ${dd.bias >= 0 ? '+' : ''}${dd.bias.toFixed(1)} K (RMS ${dd.rms.toFixed(1)})` : '') +
                     (dd.nw ? `${dd.n ? ' · ' : ''}wind ${Math.round(dd.wrms)} kt RMS` : '') : '';

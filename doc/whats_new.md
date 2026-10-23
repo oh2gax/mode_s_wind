@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.23102026 — MEPS on the model's own levels
+
+- **MEPS on the Skew-T in much more detail**: the model profile (the **MEPS** tick box on the Live Map and the Sounding page) is now drawn on the model's own levels — 56 levels from just above the ground up to about 190 hPa instead of the 10 standard pressure levels. Near the ground they are only 25 m apart, so the model line is a smooth curve that shows its surface inversions and the shape of the tropopause, also in the Airport zoom. If the detailed levels of an hour are missing, the old 10 levels are used and the label says *10 std levels*.
+- **User guides updated**: the Skew-T guide (version 4.1) and the Sounding and Wind Map guide (version 2.5) explain the model's levels.
+
 ## v.22102026 — MEPS check, What's new and user guides, geoid correction, honest moisture uncertainty
 
 - **MEPS check** (Sounding page, new view): our aircraft profile compared every hour with the MEPS weather model (the model FMI uses; data from MET Norway) — temperature, wind and the heights of the pressure surfaces, level by level, also at night and between the soundings. It also shows how much of the difference to the Jokioinen radiosonde comes simply from the 100 km between Helsinki and Jokioinen.

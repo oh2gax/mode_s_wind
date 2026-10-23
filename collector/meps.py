@@ -1,37 +1,58 @@
 """
-collector/meps.py — MEPS model profiles for verification (from 2026-10-22).
+collector/meps.py — MEPS model profiles for verification (from 2026-10-22;
+model levels from 2026-10-23).
 
 MEPS (MetCoOp Ensemble Prediction System, 2.5 km; run by MET Norway, SMHI,
 FMI and others) is the weather model FMI uses.  FMI's own open data has it
-only as a surface grid, so the pressure levels come from MET Norway's open
-archive (thredds.met.no, CC BY 4.0).  Every 3 h a new control run
-(meps_mbr000_pl_YYYYMMDDTHHZ) appears about 2–3 h after its start time.
+only as a surface grid, so the profiles come from MET Norway's open archive
+(thredds.met.no, CC BY 4.0).  Every 3 h a new control run (meps_mbr000_…)
+appears about 2–3 h after its start time.
 
 What is fetched (plain Python: urllib + the OPeNDAP binary format, no
-netCDF / numpy needed): for each run the forecast hours +0 … +5 of
-temperature, wind, geopotential, relative and specific humidity on the 10
-pressure levels 1000 … 200 hPa, in a 300 × 300 km box around the receiver
-sampled every 10 km (31 × 31 points, about 1.4 MB per run, about 11 MB a day).
+netCDF / numpy needed), for each run the forecast hours +0 … +5 (model
+levels +0 … +6) in a 300 × 300 km box around the receiver sampled every
+10 km (31 × 31 points):
+  pl  temperature, wind, geopotential, relative and specific humidity on the
+      10 standard pressure levels 1000 … 200 hPa (about 1.4 MB per run) —
+      the heights of the pressure surfaces and the MEPS check use these;
+  ml  temperature, specific humidity and wind on the model's own levels
+      (hybrid levels 9 … 64 of 65: 56 levels from about 12 m above the
+      ground to about 190 hPa, 25 m apart near the ground, 100 m at 1 km,
+      230 m at 3 km, 350 m at 5.5 km and 600–700 m near 200 hPa) and the
+      surface pressure (about 6 MB per run, MEPS_MODEL_LEVELS) — the dense
+      model profile on the Skew-T.  They appear about 1 h after the
+      pressure levels (about 2 h 40 min after the run start).
+Together about 60 MB a day; each request is tried three times.
 
-What is stored (table meps_hours, one row per valid hour, about 2 kB):
-  ts    valid time (UTC hour)          run   run start   lead  hours after it
-  data  {"p": [200 … 1000 hPa], "n": points, "rad": km,
-         "a": {"t": °C, "u": kt, "v": kt, "z": gpm, "rh": %, "q": g/kg}   area mean
-         "j": {…}                                                          at Jokioinen}
+What is stored, one row per valid hour:
+  meps_hours     (about 2 kB)
+    ts    valid time (UTC hour)          run   run start   lead  hours after it
+    data  {"p": [200 … 1000 hPa], "n": points, "rad": km,
+           "a": {"t": °C, "u": kt, "v": kt, "z": gpm, "rh": %, "q": g/kg}   area mean
+           "j": {…}                                                          at Jokioinen}
+  meps_ml_hours  (about 3 kB)
+    ts, run, lead as above
+    data  {"n": points, "rad": km, "ps": [area, Jokioinen] hPa,
+           "a": {"p": hPa, "t": °C, "u": kt, "v": kt, "q": g/kg}  per model level, top down
+           "j": {…}}
 The area is the sounding radius around the receiver (the same area as the
 hourly Mode S profile), "j" the model column at the Jokioinen sounding
-station (for the distance check).  Each hour keeps the shortest lead: +0 … +2
-from its own run (the verification values); the newest run's +3 … +5 are
-stored provisionally (shown on the Skew-T as a forecast, not used in the
-verification) and replaced when the next run arrives.
+station (for the distance check).  A model level follows the ground, so its
+area mean is taken on the level and its pressure is the mean pressure of the
+level (ap + b · mean surface pressure).  Each hour keeps the shortest lead:
++0 … +2 from its own run (the verification values); the newest run's
++3 … +5 are stored provisionally (shown on the Skew-T as a forecast, not
+used in the verification) and replaced when the next run arrives.
 
 Read side: profile() — the model profile at a time for the Skew-T (MEPS tick
-box); check() — Mode S minus MEPS every hour by pressure level (temperature,
-wind, heights of the pressure surfaces) and, at each sounding, how much of
-the aircraft − sonde difference is the distance to Jokioinen (MEPS check view).
+box; the model levels when stored, else the 10 pressure levels); check() —
+Mode S minus MEPS every hour by pressure level (temperature, wind, heights
+of the pressure surfaces) and, at each sounding, how much of the aircraft −
+sonde difference is the distance to Jokioinen (MEPS check view).
 
 Optional config keys (read with defaults):
   MEPS_FETCH = True             fetch the model data
+  MEPS_MODEL_LEVELS = True      also fetch the model levels (dense Skew-T profile)
   MEPS_BACKFILL_DAYS = 3        days fetched at the first start
   MEPS_URL = "https://thredds.met.no/thredds/dodsC/meps25epsarchive"
 
@@ -42,6 +63,7 @@ the data is missing and the rest of the system works as before.
 from __future__ import annotations
 
 import array
+import http.client
 import json
 import logging
 import math
@@ -67,6 +89,13 @@ STRIDE = 4                   # every 4th cell: 10 km
 CHECK_SEC = 20 * 60          # look for new runs this often
 MAX_PER_CYCLE = 8            # runs fetched per look (backfill continues at the next)
 RETRY_RECENT_SEC = 30 * 60   # a run not yet published: try again after this
+ML_LEADS = 7                 # model levels +0 … +6 h: they appear about 1 h after the pressure
+                             # levels, so the extra hour keeps the present hour covered
+ML_LEV = (9, 64)             # model (hybrid) levels: about 190 hPa … 12 m above the ground
+ML_VARS = (("air_temperature_ml", "t"), ("specific_humidity_ml", "q"),
+           ("x_wind_ml", "xw"), ("y_wind_ml", "yw"))
+TIMEOUT = {"pl": 120.0, "ml": 240.0}
+TRIES = 3                    # attempts per request (an empty or cut response is tried again)
 JOKIOINEN = (60.81397, 23.49825)
 KT = 1 / 0.514444
 G0 = 9.80665
@@ -127,6 +156,8 @@ def parse_dods(body: bytes) -> dict:
         a = array.array(_TYPES[typ])
         size = a.itemsize
         a.frombytes(body[pos:pos + n * size])
+        if len(a) != n:
+            raise ValueError(f"{name}: response cut short")
         if sys.byteorder == "little":
             a.byteswap()
         pos += n * size
@@ -140,6 +171,23 @@ def _get(url: str, timeout: float = 90.0) -> bytes:
         return r.read()
 
 
+def _fetch(url: str, cons: str, timeout: float = 120.0, tries: int = TRIES) -> dict:
+    """One OPeNDAP data request, parsed; an empty, cut or timed-out response is
+    tried again (after 15 s, 30 s).  "Not found" (HTTP 400 / 404) is raised at once."""
+    full = url + ".dods?" + urllib.parse.quote(cons, safe=",:.")
+    for k in range(tries):
+        try:
+            return parse_dods(_get(full, timeout))
+        except urllib.error.HTTPError as exc:
+            if exc.code in (400, 404) or k == tries - 1:
+                raise
+        except (ValueError, OSError, http.client.HTTPException):
+            if k == tries - 1:
+                raise
+        time.sleep(15 * (k + 1))
+    raise RuntimeError("unreachable")
+
+
 # ── Table ───────────────────────────────────────────────────────────────────
 
 def ensure_table(db) -> None:
@@ -148,7 +196,19 @@ def ensure_table(db) -> None:
                       run  INTEGER NOT NULL,      -- run start (UTC)
                       lead INTEGER NOT NULL,      -- hours after the run start
                       data TEXT    NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS meps_ml_hours (
+                      ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour)
+                      run  INTEGER NOT NULL,
+                      lead INTEGER NOT NULL,
+                      data TEXT    NOT NULL)""")
     db.commit()
+
+
+_TABLE = {"pl": "meps_hours", "ml": "meps_ml_hours"}
+_UPSERT = """INSERT INTO {t} (ts, run, lead, data) VALUES (?, ?, ?, ?)
+             ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead, data = excluded.data
+             WHERE excluded.lead < {t}.lead
+                OR (excluded.lead = {t}.lead AND excluded.run >= {t}.run)"""
 
 
 # ── Fetching ────────────────────────────────────────────────────────────────
@@ -157,24 +217,25 @@ class MepsFetcher:
     """Background fetcher (thread target: run)."""
 
     def __init__(self, lat: float, lon: float, radius_km: float, base: str = BASE_URL,
-                 backfill_days: float = 3.0, enabled: bool = True):
+                 backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True):
         self.lat, self.lon, self.radius = lat, lon, radius_km
+        self.model_levels = model_levels
         self.base = base.rstrip("/")
         self.backfill_days = backfill_days
         self.enabled = enabled
         self.grid = None             # (ix0, iy0, nx, ny) of the box in the model grid
-        self.missing: dict = {}      # run → time it was last found missing
+        self.missing: dict = {}      # (kind, run) → time it was last found missing or failed
         self.last = None             # (time, text) of the last look
         self.newest_run = None
 
-    def _url(self, run: int) -> str:
+    def _url(self, run: int, kind: str = "pl") -> str:
         tag = time.strftime("%Y%m%dT%HZ", time.gmtime(run))
-        return f"{self.base}/{time.strftime('%Y/%m/%d/%H', time.gmtime(run))}/meps_mbr000_pl_{tag}.ncml"
+        return f"{self.base}/{time.strftime('%Y/%m/%d/%H', time.gmtime(run))}/meps_mbr000_{kind}_{tag}.ncml"
 
     def _box(self, url: str):
         """Grid indices of the box around the receiver (from the run's own x / y axes)."""
         if self.grid is None:
-            d = parse_dods(_get(url + ".dods?" + urllib.parse.quote("x,y", safe=",")))
+            d = _fetch(url, "x,y", TIMEOUT["pl"])
             x, y = d["x"], d["y"]
             ex, ey = lcc_xy(self.lat, self.lon)
             ix = int(round((ex - x[0]) / (x[1] - x[0])))
@@ -185,24 +246,31 @@ class MepsFetcher:
             self.grid = (ix - HALF, iy - HALF, len(x), len(y))
         return self.grid
 
-    def fetch_run(self, db, run: int) -> int:
-        """Fetch one run, store its hours; returns the rows written."""
-        url = self._url(run)
+    def _cons(self, url: str, kind: str) -> str:
         ix0, iy0, _, _ = self._box(url)
-        sl = lambda a, n: f"[{a}:{STRIDE}:{a + 2 * HALF}]"
-        box = f"[0:{LEADS - 1}][{LEV[0]}:{LEV[1]}]{sl(iy0, 0)}{sl(ix0, 0)}"
-        cons = ",".join([f"time[0:{LEADS - 1}]", f"pressure[{LEV[0]}:{LEV[1]}]",
-                         f"x{sl(ix0, 0)}", f"y{sl(iy0, 0)}"]
-                        + [f"{v}.{v}{box}" for v, _ in VARS])
-        d = parse_dods(_get(url + ".dods?" + urllib.parse.quote(cons, safe=",:.")))
-        return self._store(db, run, d)
+        sx, sy = f"[{ix0}:{STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{STRIDE}:{iy0 + 2 * HALF}]"
+        if kind == "pl":
+            box = f"[0:{LEADS - 1}][{LEV[0]}:{LEV[1]}]{sy}{sx}"
+            return ",".join([f"time[0:{LEADS - 1}]", f"pressure[{LEV[0]}:{LEV[1]}]", f"x{sx}", f"y{sy}"]
+                            + [f"{v}.{v}{box}" for v, _ in VARS])
+        k0, k1 = ML_LEV
+        nt = ML_LEADS - 1
+        box = f"[0:{nt}][{k0}:{k1}]{sy}{sx}"
+        return ",".join([f"time[0:{nt}]", f"ap[{k0}:{k1}]", f"b[{k0}:{k1}]", f"x{sx}", f"y{sy}",
+                         f"surface_air_pressure.surface_air_pressure[0:{nt}][0:0]{sy}{sx}"]
+                        + [f"{v}.{v}{box}" for v, _ in ML_VARS])
 
-    def _store(self, db, run: int, d: dict) -> int:
-        P = list(d["pressure"])
-        xs, ys = list(d["x"]), list(d["y"])
-        nl, ny, nx = len(P), len(ys), len(xs)
-        nt = len(d["time"])
-        # points of the area and their wind rotation (grid → true north)
+    def fetch_run(self, db, run: int, kind: str = "pl") -> int:
+        """Fetch one run (pressure levels "pl" or model levels "ml"), store its hours;
+        returns the rows written."""
+        url = self._url(run, kind)
+        d = _fetch(url, self._cons(url, kind), TIMEOUT[kind])
+        return self._store(db, run, d) if kind == "pl" else self._store_ml(db, run, d)
+
+    def _geom(self, xs: list, ys: list):
+        """Points of the area with their wind rotation (grid → true north), and
+        the bilinear weights and rotation angle at Jokioinen."""
+        nx, ny = len(xs), len(ys)
         pts = []
         for j in range(ny):
             for i in range(nx):
@@ -210,18 +278,24 @@ class MepsFetcher:
                 if _km(self.lat, self.lon, la, lo) <= self.radius:
                     al = math.radians(_N * (lo - LCC_LON0))
                     pts.append((j * nx + i, math.cos(al), math.sin(al)))
-        # Jokioinen: bilinear weights in the 10 km box
+        if not pts:
+            raise ValueError("no model points in the area")
         jx, jy = lcc_xy(*JOKIOINEN)
         fx, fy = (jx - xs[0]) / (xs[1] - xs[0]), (jy - ys[0]) / (ys[1] - ys[0])
         jw = []
         if 0 <= fx < nx - 1 and 0 <= fy < ny - 1:
             i0, j0 = int(fx), int(fy)
             ax, ay = fx - i0, fy - j0
-            alj = math.radians(_N * (JOKIOINEN[1] - LCC_LON0))
             jw = [(j0 * nx + i0, (1 - ax) * (1 - ay)), (j0 * nx + i0 + 1, ax * (1 - ay)),
                   ((j0 + 1) * nx + i0, (1 - ax) * ay), ((j0 + 1) * nx + i0 + 1, ax * ay)]
-        if not pts:
-            raise ValueError("no model points in the area")
+        return pts, jw, math.radians(_N * (JOKIOINEN[1] - LCC_LON0))
+
+    def _store(self, db, run: int, d: dict) -> int:
+        P = list(d["pressure"])
+        xs, ys = list(d["x"]), list(d["y"])
+        nl, ny, nx = len(P), len(ys), len(xs)
+        nt = len(d["time"])
+        pts, jw, alj = self._geom(xs, ys)
         np_ = nx * ny
         written = 0
         ensure_table(db)
@@ -264,51 +338,131 @@ class MepsFetcher:
             row = {"p": [round(p, 1) for p in P], "n": len(pts), "rad": self.radius, "a": area}
             if jw:
                 row["j"] = jok
-            cur = db.execute(
-                """INSERT INTO meps_hours (ts, run, lead, data) VALUES (?, ?, ?, ?)
-                   ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead, data = excluded.data
-                   WHERE excluded.lead < meps_hours.lead
-                      OR (excluded.lead = meps_hours.lead AND excluded.run >= meps_hours.run)""",
-                (valid, run, lead, json.dumps(row, separators=(",", ":"))))
+            cur = db.execute(_UPSERT.format(t="meps_hours"),
+                             (valid, run, lead, json.dumps(row, separators=(",", ":"))))
+            written += cur.rowcount
+        db.commit()
+        return written
+
+    def _store_ml(self, db, run: int, d: dict) -> int:
+        """Model levels: area mean on each level (top down) and the Jokioinen column."""
+        ap, bk = list(d["ap"]), list(d["b"])
+        xs, ys = list(d["x"]), list(d["y"])
+        nl, ny, nx = len(ap), len(ys), len(xs)
+        nt = len(d["time"])
+        pts, jw, alj = self._geom(xs, ys)
+        np_ = nx * ny
+        T, Q, XW, YW, PS = d["air_temperature_ml"], d["specific_humidity_ml"], d["x_wind_ml"], d["y_wind_ml"], \
+            d["surface_air_pressure"]
+        ca_j, sa_j = math.cos(alj), math.sin(alj)
+        written = 0
+        ensure_table(db)
+        for k in range(nt):
+            valid = int(round(d["time"][k]))
+            lead = int(round((valid - run) / 3600))
+            ps_off = k * np_
+            good = [(idx, ca, sa) for idx, ca, sa in pts if PS[ps_off + idx] < 1e30]
+            if not good:
+                continue
+            ps_a = sum(PS[ps_off + idx] for idx, _, _ in good) / len(good)
+            area = {n: [] for n in ("p", "t", "u", "v", "q")}
+            jok = {n: [] for n in ("p", "t", "u", "v", "q")}
+            ps_j = sum(w * PS[ps_off + i] for i, w in jw) if jw else None
+            if ps_j is not None and ps_j > 1e30:
+                ps_j = None
+            for lv in range(nl):
+                off = (k * nl + lv) * np_
+                st = sq = su = sv = 0.0
+                cnt = 0
+                for idx, ca, sa in good:
+                    t, xw, yw = T[off + idx], XW[off + idx], YW[off + idx]
+                    if t > 1e30 or xw > 1e30:
+                        continue
+                    cnt += 1
+                    st += t; sq += Q[off + idx]
+                    su += xw * ca + yw * sa
+                    sv += -xw * sa + yw * ca
+                area["p"].append(round((ap[lv] + bk[lv] * ps_a) / 100, 1))
+                if cnt:
+                    area["t"].append(round(st / cnt - 273.15, 2))
+                    area["q"].append(round(sq / cnt * 1000, 3))
+                    area["u"].append(round(su / cnt * KT, 1))
+                    area["v"].append(round(sv / cnt * KT, 1))
+                else:
+                    for n in ("t", "q", "u", "v"):
+                        area[n].append(None)
+                if ps_j is not None:
+                    v = {n: sum(w * A[off + i] for i, w in jw) for n, A in (("t", T), ("q", Q), ("xw", XW), ("yw", YW))}
+                    jok["p"].append(round((ap[lv] + bk[lv] * ps_j) / 100, 1))
+                    jok["t"].append(round(v["t"] - 273.15, 2))
+                    jok["q"].append(round(v["q"] * 1000, 3))
+                    jok["u"].append(round((v["xw"] * ca_j + v["yw"] * sa_j) * KT, 1))
+                    jok["v"].append(round((-v["xw"] * sa_j + v["yw"] * ca_j) * KT, 1))
+            row = {"n": len(good), "rad": self.radius,
+                   "ps": [round(ps_a / 100, 1), round(ps_j / 100, 1) if ps_j is not None else None], "a": area}
+            if ps_j is not None:
+                row["j"] = jok
+            cur = db.execute(_UPSERT.format(t="meps_ml_hours"),
+                             (valid, run, lead, json.dumps(row, separators=(",", ":"))))
             written += cur.rowcount
         db.commit()
         return written
 
     def due_runs(self, db, now: float, span_h: float) -> list:
-        """Runs (newest first) whose hours +0 … +2 are not all stored with their own lead."""
+        """[(run, kinds)] newest first: the runs whose hours +0 … +2 are not all
+        stored with their own lead, per kind ("pl", and "ml" when model levels are on)."""
         newest = int(now // (RUN_STEP_H * 3600)) * RUN_STEP_H * 3600
         runs = [newest - k * RUN_STEP_H * 3600 for k in range(int(span_h // RUN_STEP_H) + 1)]
         ensure_table(db)
-        have = dict(db.execute("SELECT ts, lead FROM meps_hours WHERE ts >= ?", (runs[-1],)).fetchall())
+        kinds = ("pl", "ml") if self.model_levels else ("pl",)
+        have = {kd: dict(db.execute(f"SELECT ts, lead FROM {_TABLE[kd]} WHERE ts >= ?", (runs[-1],)).fetchall())
+                for kd in kinds}
         out = []
         for r in runs:
-            if all(have.get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
-                continue
-            seen = self.missing.get(r)
-            if seen is not None:
-                wait = RETRY_RECENT_SEC if r > now - 12 * 3600 else 24 * 3600
-                if now - seen < wait:
+            need = []
+            for kd in kinds:
+                if all(have[kd].get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
                     continue
-            out.append(r)
+                seen = self.missing.get((kd, r))
+                if seen is not None:
+                    wait = RETRY_RECENT_SEC if r > now - 12 * 3600 else 24 * 3600
+                    if now - seen < wait:
+                        continue
+                need.append(kd)
+            if need:
+                out.append((r, need))
         return out
 
     def cycle(self, db, first: bool = False) -> int:
         now = time.time()
         span = max(self.backfill_days * 24, 30) if first else 30
-        n_runs = n_rows = 0
-        for r in self.due_runs(db, now, span)[:MAX_PER_CYCLE]:
-            try:
-                n_rows += self.fetch_run(db, r)
-                n_runs += 1
-                self.missing.pop(r, None)
-                self.newest_run = max(self.newest_run or 0, r)
-            except urllib.error.HTTPError as exc:
-                if exc.code in (400, 404):               # not (yet) published
-                    self.missing[r] = now
-                    continue
-                raise
+        n_runs = 0
+        rows = {"pl": 0, "ml": 0}
+        errors = []
+        for r, kinds in self.due_runs(db, now, span)[:MAX_PER_CYCLE]:
+            done = False
+            for kd in kinds:
+                try:
+                    rows[kd] += self.fetch_run(db, r, kd)
+                    self.missing.pop((kd, r), None)
+                    done = True
+                    if kd == "pl":
+                        self.newest_run = max(self.newest_run or 0, r)
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in (400, 404):           # 400 / 404: not (yet) published
+                        errors.append(f"{kd} {exc}")
+                    self.missing[(kd, r)] = now
+                except Exception as exc:                     # noqa: BLE001  (after the retries)
+                    errors.append(f"{kd} {exc}")
+                    self.missing[(kd, r)] = now
+            n_runs += done
             time.sleep(1.0)
-        self.last = (time.time(), f"{n_runs} run(s), {n_rows} hour(s) stored")
+        txt = f"{n_runs} run(s), {rows['pl']} hour(s) stored" + \
+              (f", {rows['ml']} model-level hour(s)" if self.model_levels else "")
+        if errors:
+            txt += f"; failed: {errors[-1]}"
+            log.warning("MEPS fetch: %d request(s) failed, last: %s", len(errors), errors[-1])
+        self.last = (time.time(), txt)
         return n_runs
 
     def run(self) -> None:
@@ -336,7 +490,8 @@ def init(cfg) -> MepsFetcher:
                             float(getattr(cfg, "SOUNDING_RADIUS_KM", 150.0)),
                             base=getattr(cfg, "MEPS_URL", BASE_URL),
                             backfill_days=float(getattr(cfg, "MEPS_BACKFILL_DAYS", 3)),
-                            enabled=bool(getattr(cfg, "MEPS_FETCH", True)))
+                            enabled=bool(getattr(cfg, "MEPS_FETCH", True)),
+                            model_levels=bool(getattr(cfg, "MEPS_MODEL_LEVELS", True)))
     return _instance
 
 
@@ -346,12 +501,13 @@ def get() -> Optional[MepsFetcher]:
 
 # ── Read side ───────────────────────────────────────────────────────────────
 
-def hours(db, t0: float, t1: float, max_lead: int = 99) -> dict:
-    """{valid ts: row dict + "run", "lead"} for t0 ≤ ts < t1."""
+def hours(db, t0: float, t1: float, max_lead: int = 99, kind: str = "pl") -> dict:
+    """{valid ts: row dict + "run", "lead"} for t0 ≤ ts < t1 (pressure levels
+    "pl" from meps_hours, model levels "ml" from meps_ml_hours)."""
     out = {}
     try:
         for ts, run, lead, data in db.execute(
-                "SELECT ts, run, lead, data FROM meps_hours WHERE ts >= ? AND ts < ? AND lead <= ?",
+                f"SELECT ts, run, lead, data FROM {_TABLE[kind]} WHERE ts >= ? AND ts < ? AND lead <= ?",
                 (int(t0), int(t1), max_lead)):
             try:
                 d = json.loads(data)
@@ -379,17 +535,18 @@ def _dewpoint(q_gkg: float, p: float, t: float):
 
 def _mix(a: dict, b: dict, w: float, key: str) -> dict:
     out = {}
-    for n in ("t", "u", "v", "z", "rh", "q"):
+    for n in a[key]:
         va, vb = a[key].get(n) or [], b[key].get(n) or []
         out[n] = [None if x is None or y is None else x * (1 - w) + y * w for x, y in zip(va, vb)]
     return out
 
 
-def column_at(db, at: float, key: str = "a", max_lead: int = 99):
+def column_at(db, at: float, key: str = "a", max_lead: int = 99, kind: str = "pl"):
     """The model column (area "a" or Jokioinen "j") at time `at`, linear in
-    time between the hours around it: (column dict, info) or (None, None)."""
+    time between the hours around it: (column dict, info) or (None, None).
+    Model levels ("ml"): the column carries its own pressures ("p")."""
     h = int(at // 3600 * 3600)
-    rows = hours(db, h - 3600, h + 7200, max_lead)
+    rows = hours(db, h - 3600, h + 7200, max_lead, kind)
     a, b = rows.get(h), rows.get(h + 3600)
     w = (at - h) / 3600.0
     if a and b and key in a and key in b:
@@ -401,16 +558,24 @@ def column_at(db, at: float, key: str = "a", max_lead: int = 99):
             return None, None
         col = near[key]
         info = {"run": near["run"], "lead": near["lead"]}
-    info["p"] = (a or b)["p"]
+    info["p"] = col.get("p") or (a or b).get("p")
     info["n"] = (a or b).get("n")
     info["rad"] = (a or b).get("rad")
     return col, info
 
 
+def _wind(lv: dict, u, v) -> None:
+    if u is not None and v is not None:
+        lv["wind_spd"] = round(math.hypot(u, v), 1)
+        lv["wind_dir"] = round(math.degrees(math.atan2(-u, -v)) % 360, 0)
+
+
 def profile(db, at: float) -> dict:
-    """Model profile for the Skew-T (area mean) at time `at`."""
+    """Model profile for the Skew-T (area mean) at time `at`: the model levels
+    when stored (levels_kind "model"), else the 10 pressure levels ("standard")."""
     col, info = column_at(db, at)
-    if col is None:
+    mcol, minfo = column_at(db, at, kind="ml")
+    if col is None and mcol is None:
         newest = None
         try:
             newest = db.execute("SELECT MAX(ts) FROM meps_hours").fetchone()[0]
@@ -418,22 +583,44 @@ def profile(db, at: float) -> dict:
             pass
         return {"found": False, "at": at, "newest": newest}
     levels = []
-    for i, p in enumerate(info["p"]):
-        t, u, v, z, rh, q = (col[n][i] for n in ("t", "u", "v", "z", "rh", "q"))
-        if t is None:
-            continue
-        lv = {"pressure": p, "temp": round(t, 2), "z_m": round(z, 1) if z is not None else None,
-              "rh": round(rh, 1) if rh is not None else None}
-        td = _dewpoint(q, p, t) if q is not None else None
-        lv["dewpoint"] = round(td, 2) if td is not None else None
-        if u is not None and v is not None:
-            lv["wind_spd"] = round(math.hypot(u, v), 1)
-            lv["wind_dir"] = round(math.degrees(math.atan2(-u, -v)) % 360, 0)
-        levels.append(lv)
+    if mcol is not None:
+        # heights of the model levels from the pressure-level geopotential (ln p)
+        zp = []
+        if col is not None:
+            zp = sorted((math.log(p), z) for p, z in zip(info["p"], col["z"]) if z is not None)
+        for i, p in enumerate(minfo["p"]):
+            t, u, v, q = (mcol[n][i] for n in ("t", "u", "v", "q"))
+            if t is None or p is None:
+                continue
+            lv = {"pressure": round(p, 1), "temp": round(t, 2)}
+            td = _dewpoint(q, p, t) if q is not None else None
+            lv["dewpoint"] = round(td, 2) if td is not None else None
+            lv["rh"] = round(min(100.0, 100 * _es(td) / _es(t)), 1) if td is not None else None
+            x = math.log(p)
+            for (x0, z0), (x1, z1) in zip(zp, zp[1:]):
+                if x0 <= x <= x1:
+                    lv["z_m"] = round(z0 + (z1 - z0) * (x - x0) / (x1 - x0), 1)
+                    break
+            _wind(lv, u, v)
+            levels.append(lv)
+        info = minfo
+        kind = "model"
+    else:
+        for i, p in enumerate(info["p"]):
+            t, u, v, z, rh, q = (col[n][i] for n in ("t", "u", "v", "z", "rh", "q"))
+            if t is None:
+                continue
+            lv = {"pressure": p, "temp": round(t, 2), "z_m": round(z, 1) if z is not None else None,
+                  "rh": round(rh, 1) if rh is not None else None}
+            td = _dewpoint(q, p, t) if q is not None else None
+            lv["dewpoint"] = round(td, 2) if td is not None else None
+            _wind(lv, u, v)
+            levels.append(lv)
+        kind = "standard"
     levels.sort(key=lambda l: -l["pressure"])
     return {"found": True, "at": at, "run": info["run"], "lead": info["lead"],
             "provisional": info["lead"] > VERIF_MAX_LEAD, "points": info["n"], "radius_km": info["rad"],
-            "levels": levels, "source": "MEPS (MET Norway, CC BY 4.0)"}
+            "levels_kind": kind, "levels": levels, "source": "MEPS (MET Norway, CC BY 4.0)"}
 
 
 # ── MEPS check (Mode S minus MEPS) ──────────────────────────────────────────
