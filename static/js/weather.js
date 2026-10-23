@@ -202,7 +202,7 @@ function showFrame() {
   if (!h) {
     current = null; draw();
     $('wx-status').textContent = hours.length ? 'No model hours in the chosen period.' :
-      'No weather maps stored yet — they arrive with the next MEPS runs (fetched every 3 h, about 2–3 h after each run).';
+      'No weather maps stored yet — after a start the first ones arrive within minutes (back-fill), later with each MEPS run (every 3 h, about 2–3 h after it). The page looks again every minute.';
     return;
   }
   const f = frames.get(h[0]);
@@ -468,8 +468,13 @@ window.onThemeChange = function () {
   draw();
 };
 
-// new model runs: look again every 10 min
-setInterval(() => { if (!document.hidden && !playing) loadIndex().catch(() => {}); }, 10 * 60 * 1000);
+// new model runs: look again every 10 min — every minute while nothing (or only a little) is stored
+let lastIndex = Date.now();
+setInterval(() => {
+  if (document.hidden || playing) return;
+  const sparse = hours.length < 12;
+  if (sparse || Date.now() - lastIndex >= 10 * 60 * 1000) { lastIndex = Date.now(); loadIndex().catch(() => {}); }
+}, 60 * 1000);
 
 placeCanvas();
 renderLegend();

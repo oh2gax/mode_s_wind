@@ -104,6 +104,7 @@ WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r")
            ("snowfall_amount_acc", "s"), ("cloud_area_fraction", "c"), ("low_type_cloud_area_fraction", "l"))
 WX_STRIDE = 4                # every 4th cell: 10 km
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
+WX_CHUNK = 12                # forecast hours per request (the main runs come in 4 pieces, each stored at once)
 TIMEOUT = {"pl": 120.0, "ml": 240.0, "map": 120.0, "wx": 600.0}
 TRIES = 3                    # attempts per request (an empty or cut response is tried again)
 JOKIOINEN = (60.81397, 23.49825)
@@ -284,7 +285,7 @@ class MepsFetcher:
             self.grid = (ix - HALF, iy - HALF, len(x), len(y))
         return self.grid
 
-    def _cons(self, url: str, kind: str, run: Optional[int] = None) -> str:
+    def _cons(self, url: str, kind: str, run: Optional[int] = None, leads: Optional[tuple] = None) -> str:
         ix0, iy0, _, _ = self._box(url)
         sx, sy = f"[{ix0}:{STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{STRIDE}:{iy0 + 2 * HALF}]"
         if kind == "pl":
@@ -298,9 +299,9 @@ class MepsFetcher:
             ky0, ky1 = min(self.wx_half, gy // WX_STRIDE), min(self.wx_half, (nyg - 1 - gy) // WX_STRIDE)
             wxs = f"[{gx - kx0 * WX_STRIDE}:{WX_STRIDE}:{gx + kx1 * WX_STRIDE}]"
             wys = f"[{gy - ky0 * WX_STRIDE}:{WX_STRIDE}:{gy + ky1 * WX_STRIDE}]"
-            nt = self._wx_leads(run)
-            box = f"[0:{nt}][0:0]{wys}{wxs}"
-            return ",".join([f"time[0:{nt}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
+            t0, t1 = leads if leads else (0, self._wx_leads(run))
+            box = f"[{t0}:{t1}][0:0]{wys}{wxs}"
+            return ",".join([f"time[{t0}:{t1}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
         if kind == "map":
             cx, cy = ix0 + HALF, iy0 + HALF
             mx = f"[{cx - MAP_HALF}:{MAP_STRIDE}:{cx + MAP_HALF}]"
@@ -320,13 +321,30 @@ class MepsFetcher:
         fields "map"), store its hours; returns the rows written."""
         url = self._url(run, {"ml": "ml", "wx": "sfc"}.get(kind, "pl"))
         if kind == "wx":
-            self._box(self._url(run, "pl"))          # the grid from a pressure-level file
+            return self._fetch_wx(db, run, url)
         d = _fetch(url, self._cons(url, kind, run), TIMEOUT[kind])
-        if kind == "wx":
-            return self._store_wx(db, run, d)
         if kind == "map":
             return self._store_map(db, run, d)
         return self._store(db, run, d) if kind == "pl" else self._store_ml(db, run, d)
+
+    def _fetch_wx(self, db, run: int, url: str) -> int:
+        """Weather maps of one run in pieces of WX_CHUNK hours (each request
+        also brings the hour before, for the rain of the first hour), each
+        piece stored and logged at once."""
+        self._box(self._url(run, "pl"))              # the grid from a pressure-level file
+        n = self._wx_leads(run)
+        tag = time.strftime("%d.%m. %H UTC", time.gmtime(run))
+        written = 0
+        for a in range(1, n + 1, WX_CHUNK):
+            b = min(n, a + WX_CHUNK - 1)
+            t = time.time()
+            d = _fetch(url, self._cons(url, "wx", run, (a - 1, b)), TIMEOUT["wx"])
+            t1 = time.time()
+            w = self._store_wx(db, run, d)
+            written += w
+            log.info("MEPS weather maps: run %s +%d…+%d h, %d hour(s) stored (download %.0f s, store %.1f s)",
+                     tag, a, b, w, t1 - t, time.time() - t1)
+        return written
 
     def _store_wx(self, db, run: int, d: dict) -> int:
         """Weather maps: per valid hour (leads 1 … n) the sea-level pressure
@@ -340,10 +358,6 @@ class MepsFetcher:
                            "f": ["p", "r", "s", "c", "l"]}, separators=(",", ":"))
         P, R, S, C, Lc = (d[v] for v, _ in WX_VARS)
         F = MAP_FILL
-        def plane(src, off, fn):
-            a = array.array("h", [F if v > 1e30 else fn(v) for v in src[off:off + np_]])
-            return a
-        clip = lambda v: max(-32000, min(32000, int(round(v))))
         written = 0
         ensure_table(db)
         times = list(d["time"])
@@ -351,13 +365,13 @@ class MepsFetcher:
             valid = int(round(times[k]))
             lead = int(round((valid - run) / 3600))
             o1, o0 = k * np_, (k - 1) * np_
-            a = plane(P, o1, lambda v: clip((v / 100 - 1000) * 10))
+            # plain comprehensions (no function call per value: about 5 × faster on the Pi)
+            a = array.array("h", [F if v > 1e30 else int(round(v * 0.1 - 10000.0)) for v in P[o1:o1 + np_]])
             for acc in (R, S):
-                cur, prev = acc[o1:o1 + np_], acc[o0:o0 + np_]
-                a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else clip(max(0.0, x - y) * 100)
-                                           for x, y in zip(cur, prev)]))
-            a.extend(plane(C, o1, lambda v: clip(v * 100)))
-            a.extend(plane(Lc, o1, lambda v: clip(v * 100)))
+                a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else (int(min(x - y, 320.0) * 100.0 + 0.5) if x > y else 0)
+                                           for x, y in zip(acc[o1:o1 + np_], acc[o0:o0 + np_])]))
+            for cl in (C, Lc):
+                a.extend(array.array("h", [F if v > 1e30 else int(v * 100.0 + 0.5) for v in cl[o1:o1 + np_]]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(
