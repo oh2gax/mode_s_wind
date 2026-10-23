@@ -13,6 +13,11 @@
  *   rain     — radar-like colours by intensity, snow (≥ half of it) violet
  *   pressure — isobars every 4 hPa with labels, highs H and lows L
  * The overall opacity is the canvas opacity (setOpacity).
+ *
+ * setOverlay(radar, grid) adds the FMI radar (sparse rain rs + coverage runs
+ * cov on its own grid, the Live Map): its rain is drawn over the model's, the
+ * model's rain is cut away inside the radar coverage, and a thin line marks
+ * the edge of the coverage (outside it the model's rain, if any, is shown).
  */
 'use strict';
 
@@ -64,9 +69,9 @@ const WxLayer = (() => {
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const theme = () => isLight()
     ? { iso: 'rgba(30,41,59,0.85)', isoLbl: '#1e293b', halo: 'rgba(241,245,249,0.9)', hi: '#1d4ed8', lo: '#b91c1c',
-        cloud: [71, 85, 105], fog: [180, 120, 0] }
+        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)' }
     : { iso: 'rgba(226,232,240,0.8)', isoLbl: '#e2e8f0', halo: 'rgba(15,25,35,0.85)', hi: '#60a5fa', lo: '#f87171',
-        cloud: [226, 232, 240], fog: [250, 204, 21] };
+        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)' };
   const CLOUD_NAME = { c: 'cloud cover', l: 'low cloud', m: 'medium cloud', h: 'high cloud', f: 'fog' };
 
   function smooth(v, nx, ny, r) {
@@ -94,6 +99,43 @@ const WxLayer = (() => {
     };
   }
 
+  // radar frame: sparse rain → full list; coverage runs → mask and outline
+  // segments [i0, j0, i1, j1] in corner indices (merged along rows / columns)
+  function prepRadar(f, g) {
+    const nx = g.x[2], ny = g.y[2];
+    if (f.rs && !f.r) {
+      const r = new Array(nx * ny).fill(null);
+      for (let q = 0; q < f.rs.length; q += 2) r[f.rs[q]] = f.rs[q + 1];
+      f.r = r;
+    }
+    if (f.cov && !f.edges) {
+      const m = new Uint8Array(nx * ny);
+      for (let q = 0; q < f.cov.length; q += 3) m.fill(1, f.cov[q] * nx + f.cov[q + 1], f.cov[q] * nx + f.cov[q + 2] + 1);
+      const at = (i, j) => (i >= 0 && j >= 0 && i < nx && j < ny) ? m[j * nx + i] : 0;
+      const e = [];
+      for (let j = 0; j <= ny; j++) {           // horizontal edges (between rows j-1 and j)
+        let s0 = -1;
+        for (let i = 0; i <= nx; i++) {
+          const d = i < nx && at(i, j - 1) !== at(i, j);
+          if (d && s0 < 0) s0 = i;
+          if (!d && s0 >= 0) { e.push([s0, j, i, j]); s0 = -1; }
+        }
+      }
+      for (let i = 0; i <= nx; i++) {           // vertical edges (between columns i-1 and i)
+        let s0 = -1;
+        for (let j = 0; j <= ny; j++) {
+          const d = j < ny && at(i - 1, j) !== at(i, j);
+          if (d && s0 < 0) s0 = j;
+          if (!d && s0 >= 0) { e.push([i, s0, i, j]); s0 = -1; }
+        }
+      }
+      f.edges = e;
+    }
+    return f;
+  }
+  // a long straight run of a projected grid is not straight on the map: split it
+  const SPLIT = 24;
+
   // ── The layer ──────────────────────────────────────────────────────────
   // opts: pane (name, created with zIndex), zIndex, cloudMax (alpha at 100 %),
   //       rainAlpha, isoWidth (isobar line scale)
@@ -110,6 +152,7 @@ const WxLayer = (() => {
     map.getPane(paneName).appendChild(canvas);
     const off = document.createElement('canvas');
     let frame = null, grid = null, geo = null, gridKey = '';
+    let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
     let o = { rain: true, clouds: [], pres: true };
 
     function place() {
@@ -133,19 +176,27 @@ const WxLayer = (() => {
       const dpr = window.devicePixelRatio || 1;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!frame || !geo) return;
+      const hasF = frame && geo, hasO = ov && ovGeo;
+      if (!hasF && !hasO) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const T = theme(), { nx, ny } = geo;
+      const T = theme();
       const P = ll => map.latLngToContainerPoint(ll);
-      const corP = new Array((nx + 1) * (ny + 1));          // corners projected when a cell needs them
-      const C = k => corP[k] || (corP[k] = P(geo.cor(k)));
       const g2 = off.getContext('2d');
-      const quad = (i, j, col) => {
-        const a = C(j * (nx + 1) + i), b = C(j * (nx + 1) + i + 1), c = C((j + 1) * (nx + 1) + i + 1), d = C((j + 1) * (nx + 1) + i);
-        g2.fillStyle = g2.strokeStyle = col;
-        g2.beginPath(); g2.moveTo(a.x, a.y); g2.lineTo(b.x, b.y); g2.lineTo(c.x, c.y); g2.lineTo(d.x, d.y); g2.closePath();
-        g2.fill(); g2.stroke();
+      // cell quads of a grid, corners projected when a cell needs them
+      const quads = gg => {
+        const nx = gg.nx, corP = new Array((gg.nx + 1) * (gg.ny + 1));
+        const C = k => corP[k] || (corP[k] = P(gg.cor(k)));
+        const fn = (i, j, col, i1 = i) => {          // cells i … i1 of row j as one quad
+          const a = C(j * (nx + 1) + i), b = C(j * (nx + 1) + i1 + 1), c = C((j + 1) * (nx + 1) + i1 + 1), d = C((j + 1) * (nx + 1) + i);
+          if (col) g2.fillStyle = g2.strokeStyle = col;
+          g2.beginPath(); g2.moveTo(a.x, a.y); g2.lineTo(b.x, b.y); g2.lineTo(c.x, c.y); g2.lineTo(d.x, d.y); g2.closePath();
+          g2.fill(); g2.stroke();
+        };
+        fn.C = C;
+        return fn;
       };
+      const quad = hasF ? quads(geo) : null;
+      const nx = hasF ? geo.nx : 0, ny = hasF ? geo.ny : 0;
       const layer = alpha => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = alpha; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
@@ -155,9 +206,9 @@ const WxLayer = (() => {
         g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, off.width, off.height);
         g2.setTransform(dpr, 0, 0, dpr, 0, 0); g2.lineWidth = 0.8;
       };
-      const f = frame;
+      const f = hasF ? frame : {};
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
-      for (const key of o.clouds) {
+      for (const key of (hasF ? o.clouds : [])) {
         const v = f[key];
         if (!v) continue;
         begin();
@@ -179,20 +230,52 @@ const WxLayer = (() => {
         g2.putImageData(img, 0, 0);
         layer(1);
       }
-      // rain / snow
-      if (o.rain && f.r) {
+      // rain / snow: the model's, cut away inside the radar coverage, then the radar's
+      const oq = hasO ? quads(ovGeo) : null;
+      if (o.rain && (f.r || (hasO && ov.r))) {
         begin();
-        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-          const k = j * nx + i, r = f.r[k];
-          if (r == null || r < 10) continue;
-          const cl = rainClass(r / 100);
-          if (cl < 0) continue;
-          const snow = f.s && f.s[k] != null && f.s[k] >= 0.5 * r;
-          quad(i, j, (snow ? SNOW_C : RAIN_C)[cl]);
+        let any = false;
+        if (f.r) {
+          for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+            const k = j * nx + i, r = f.r[k];
+            if (r == null || r < 10) continue;
+            const cl = rainClass(r / 100);
+            if (cl < 0) continue;
+            const snow = f.s && f.s[k] != null && f.s[k] >= 0.5 * r;
+            quad(i, j, (snow ? SNOW_C : RAIN_C)[cl]); any = true;
+          }
+          if (any && hasO && ov.cov) {
+            g2.globalCompositeOperation = 'destination-out';
+            g2.fillStyle = g2.strokeStyle = '#000';
+            for (let q = 0; q < ov.cov.length; q += 3)
+              for (let i = ov.cov[q + 1]; i <= ov.cov[q + 2]; i += SPLIT) oq(i, ov.cov[q], null, Math.min(i + SPLIT - 1, ov.cov[q + 2]));
+            g2.globalCompositeOperation = 'source-over';
+          }
         }
-        layer(opts.rainAlpha || 0.72);
+        if (hasO && ov.r) {
+          const onx = ovGeo.nx;
+          for (let q = 0; q < (ov.rs || []).length; q += 2) {
+            const k = ov.rs[q], cl = rainClass(ov.rs[q + 1] / 100);
+            if (cl >= 0) { oq(k % onx, Math.floor(k / onx), RAIN_C[cl]); any = true; }
+          }
+        }
+        if (any) layer(opts.rainAlpha || 0.72);
       }
-      if (o.pres && f.p) drawPressure(ctx, f, T, P);
+      // the edge of the radar coverage
+      if (hasO && ov.edges && o.outline !== false) {
+        ctx.beginPath();
+        for (const [i0, j0, i1, j1] of ov.edges) {
+          const n = Math.max(1, Math.ceil(Math.max(i1 - i0, j1 - j0) / SPLIT));
+          for (let s = 0; s <= n; s++) {
+            const i = Math.round(i0 + (i1 - i0) * s / n), j = Math.round(j0 + (j1 - j0) * s / n);
+            const p = oq.C(j * (ovGeo.nx + 1) + i);
+            if (s) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y);
+          }
+        }
+        ctx.strokeStyle = T.radarEdge; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (hasF && o.pres && f.p) drawPressure(ctx, f, T, P);
     }
 
     function drawPressure(ctx, f, T, P) {
@@ -323,12 +406,16 @@ const WxLayer = (() => {
     return {
       setFrame(f, g) {
         if (g) setGrid(g);
-        if (f && f.rs && !f.r && grid) {          // sparse rain (the radar): [index, value, …] → a full list
-          const r = new Array(grid.x[2] * grid.y[2]).fill(null);
-          for (let q = 0; q < f.rs.length; q += 2) r[f.rs[q]] = f.rs[q + 1];
-          f.r = r;
-        }
+        if (f && f.rs && !f.r && grid) prepRadar(f, grid);
         frame = f; draw();
+      },
+      // the FMI radar over the frame (or alone: setFrame(null))
+      setOverlay(f, g) {
+        if (g) {
+          const k = JSON.stringify(g);
+          if (k !== ovKey) { ovKey = k; ovGrid = g; ovGeo = buildGeo(g); }
+        }
+        ov = f && ovGrid ? prepRadar(f, ovGrid) : null; draw();
       },
       setOptions(x) { Object.assign(o, x); draw(); },
       setOpacity(a) { canvas.style.opacity = String(a); },
@@ -341,6 +428,7 @@ const WxLayer = (() => {
 
   function legendHtml(o) {
     const parts = [];
+    if (o.edge) parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${theme().radarEdge};vertical-align:middle"></span> edge of the radar coverage`);
     const key = c => `<span class="wx-key" style="background:${c}"></span>`;
     if (o.rain) {
       parts.push('rain ' + RAIN_C.map((c, i) => `${key(c)} ${RAIN_T[i]}`).join(' ') + ' mm/h');

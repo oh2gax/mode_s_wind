@@ -14,7 +14,9 @@ uncompressed 16-bit image of 0.8 MB: value × 0.01 = mm/h, 0 = no rain,
 Only on demand: the newest composite is fetched when a browser asks and at
 most every 5 minutes (shared by all viewers, kept in memory, nothing written
 to disk).  latest() returns the rainy cells only (sparse), the grid and the
-time; the page draws them itself (static/js/wx_layer.js).
+time, and the radar coverage as runs of cells per row (so the page can tell
+"dry" from "not seen" and, with Both on the Live Map, draw the model's rain
+only outside the radar area); the page draws them itself (static/js/wx_layer.js).
 """
 
 from __future__ import annotations
@@ -112,23 +114,33 @@ def _fetch(now: float) -> dict:
     w, h, a = _read_tiff16(body)
     x0, y0, x1, y1 = (float(v) for v in qs["bbox"].split(","))
     dx, dy = (x1 - x0) / w, (y1 - y0) / h
-    # rows from the south (as the MEPS frames); rainy cells only: [index, value, …]
+    # rows from the south (as the MEPS frames); rainy cells only: [index, value, …];
+    # the radar coverage as runs of covered cells per row: [row, first, last, …]
     sparse = []
+    cov = []
     covered = 0
     for j in range(h):
         row = a[(h - 1 - j) * w:(h - j) * w]
         base = j * w
+        start = -1
         for i, v in enumerate(row):
             if v == 65535:
+                if start >= 0:
+                    cov += (j, start, i - 1)
+                    start = -1
                 continue
+            if start < 0:
+                start = i
             covered += 1
             if v >= MIN_RAIN:
                 sparse.append(base + i)
                 sparse.append(v)
+        if start >= 0:
+            cov += (j, start, w - 1)
     ts = calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
     return {"time": t, "ts": ts,
             "grid": {"proj": "tm35fin", "x": [x0 + dx / 2, dx, w], "y": [y0 + dy / 2, dy, h]},
-            "rs": sparse, "covered": covered, "km": round(dx / 1000, 2),
+            "rs": sparse, "cov": cov, "covered": covered, "km": round(dx / 1000, 2),
             "source": "FMI radar composite (FMI open data, CC BY 4.0)"}
 
 

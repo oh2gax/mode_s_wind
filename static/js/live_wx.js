@@ -2,8 +2,10 @@
  * live_wx.js — weather overlay on the Live Map (from 2026-10-23).
  *
  * A ☂ button at the top right of the map opens a small panel: the source
- * (Off / MEPS model / FMI radar), what to show (MEPS: rain and snow, low
- * cloud, fog, isobars; radar: the observed rain rate) and an opacity slider.
+ * (Off / MEPS model / FMI radar / Both), what to show (MEPS: rain and snow,
+ * low cloud, fog, isobars; radar: the observed rain rate) and an opacity
+ * slider.  Both: the radar's rain inside its coverage (dashed edge), the
+ * model's rain outside it, and the model's clouds, fog and isobars.
  * The radar (/api/radar/latest, web/api/radar.py) covers Finland and the
  * nearby seas only, the model the whole MEPS area — so MEPS is the default.  The overlay lies in its own pane under the
  * aircraft (wx_layer.js, the same drawing as the Weather page) and shows the
@@ -40,9 +42,10 @@
             <label><input type="radio" name="lwx-src" value="off"> Off</label>
             <label title="The MEPS weather model (MET Norway open data, CC BY 4.0): the present hour, from the newest stored run"><input type="radio" name="lwx-src" value="meps"> MEPS model</label>
             <label title="FMI radar composite (FMI open data, CC BY 4.0): the observed rain rate every 5 minutes, about 2 km — Finland and the nearby seas only (not the Baltic states)"><input type="radio" name="lwx-src" value="radar"> FMI radar</label>
+            <label title="The FMI radar's rain inside the radar coverage (dashed edge), the MEPS model's rain outside it, and the model's low cloud, fog and isobars as chosen"><input type="radio" name="lwx-src" value="both"> Both</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Show</span>
-            <label title="Rain and snow of the hour (mm of water per hour), radar-like colours; snow in violet"><input type="checkbox" data-k="rain"> Rain / snow</label>
+            <label title="Rain and snow of the hour (mm of water per hour), radar-like colours; snow in violet. With the radar: the observed rain rate (mm/h)"><input type="checkbox" data-k="rain"> Rain / snow</label>
             <label title="Low cloud cover (grey, denser with more cloud)"><input type="checkbox" data-k="low"> Low cloud</label>
             <label title="Fog (yellow)"><input type="checkbox" data-k="fog"> Fog</label>
             <label title="Sea-level pressure: isobars every 4 hPa, highs H and lows L"><input type="checkbox" data-k="pres"> Isobars</label>
@@ -73,12 +76,15 @@
   q('.lwx-op').addEventListener('input', e => { st.op = parseInt(e.target.value, 10); save(); sync(); });
 
   // ── State → page ─────────────────────────────────────────────────────────
+  const useMeps = () => st.src === 'meps' || st.src === 'both';
+  const useRadar = () => st.src === 'radar' || st.src === 'both';
   function options() {
-    if (st.src === 'radar') return { rain: true, pres: false, clouds: [] };
+    const edge = useRadar() && !!radarShown;
+    if (st.src === 'radar') return { rain: true, pres: false, clouds: [], edge };
     const clouds = [];
     if (st.low) clouds.push('l');
     if (st.fog) clouds.push('f');
-    return { rain: st.rain, pres: st.pres, clouds };
+    return { rain: st.rain, pres: st.pres, clouds, edge };
   }
   function fields() {
     const f = ['p'];
@@ -105,13 +111,12 @@
     layer.setOpacity(st.op / 100);
     layer.show(st.src !== 'off');
     const chip = q('.lwx-chip');
+    const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
+    const rTxt = () => radarShown ? `Radar ${fmtUtc(radarShown.ts)}` : 'Radar …';
     if (st.src === 'off') chip.textContent = 'Weather';
-    else if (st.src === 'radar') {
-      chip.textContent = radarShown ? `Radar ${fmtUtc(radarShown.ts)} UTC` : 'Radar …';
-    } else if (shown) {
-      const hh = new Date(shown.ts * 1000).getUTCHours();
-      chip.textContent = `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)} UTC`;
-    } else chip.textContent = 'MEPS …';
+    else if (st.src === 'radar') chip.textContent = `${rTxt()} UTC`;
+    else if (st.src === 'meps') chip.textContent = `${mTxt()} UTC`;
+    else chip.textContent = `${rTxt()} + ${mTxt()} UTC`;
     el.classList.toggle('on', st.src !== 'off');
     applyOptions();
   }
@@ -119,68 +124,73 @@
   // ── Data ─────────────────────────────────────────────────────────────────
   let index = null, indexAt = 0, busy = false, fetchedKey = '';
   let radarAt = 0, radarTs = null;
-  async function refreshRadar(force) {
+  let mepsStatus = '', radarStatus = '';
+  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus].filter(Boolean).join('<br>'); };
+
+  async function loadRadar(force) {
     const nowMs = Date.now();
     if (!force && radarShown && nowMs - radarAt < 4 * 60 * 1000) return;
     radarAt = nowMs;
-    const d = await (await fetch('/api/radar/latest', { cache: 'no-store' })).json();
+    let d;
+    try { d = await (await fetch('/api/radar/latest', { cache: 'no-store' })).json(); }
+    catch (e) { d = { error: 'loading failed' }; }
     if (d.ts && d.grid) {
-      if (d.ts !== radarTs || force) { layer.setFrame({ ts: d.ts, rs: d.rs }, d.grid); radarTs = d.ts; }
+      if (d.ts !== radarTs || force) { layer.setOverlay({ ts: d.ts, rs: d.rs, cov: d.cov }, d.grid); radarTs = d.ts; }
       radarShown = { ts: d.ts };
       const age = Math.round((nowMs / 1000 - d.ts) / 60);
-      q('.lwx-status').innerHTML = `FMI radar ${fmtUtc(d.ts)} UTC (${age} min old) · rain rate, about ${d.km} km` +
+      radarStatus = `FMI radar ${fmtUtc(d.ts)} UTC (${age} min old) · rain rate, about ${d.km} km` +
         (age > 20 ? ' · <span style="color:#f59e0b">no newer composite</span>' : '') +
         ' · Finland and the nearby seas only · FMI open data, CC BY 4.0';
     } else {
-      radarShown = null; layer.setFrame(null);
-      q('.lwx-status').textContent = 'FMI radar not reachable' + (d.error ? ` (${d.error})` : '') + ' — trying again in a few minutes.';
+      radarShown = null; radarTs = null; layer.setOverlay(null);
+      radarStatus = 'FMI radar not reachable' + (d.error ? ` (${d.error})` : '') + ' — trying again in a few minutes.' +
+        (st.src === 'both' ? ' The model’s rain is shown everywhere meanwhile.' : '');
     }
   }
-  async function refresh(force = false) {
-    if (st.src === 'off') { shown = null; radarShown = null; layer.setFrame(null); q('.lwx-status').textContent = ''; sync(); return; }
-    if (busy) return;
-    if (st.src === 'radar') {
-      busy = true;
-      try { if (force) { fetchedKey = ''; radarTs = null; } await refreshRadar(force); sync(); }
-      catch (e) { console.warn('Radar overlay:', e); q('.lwx-status').textContent = 'FMI radar: loading failed, trying again in a few minutes.'; }
-      finally { busy = false; }
+
+  async function loadMeps(force) {
+    const nowMs = Date.now();
+    if (force || !index || nowMs - indexAt > 5 * 60 * 1000) {
+      index = (await (await fetch('/api/weather/index', { cache: 'no-store' })).json()).hours || [];
+      indexAt = nowMs;
+    }
+    if (!index.length) {
+      shown = null; fetchedKey = ''; layer.setFrame(null);
+      mepsStatus = 'No MEPS weather maps stored yet (see the Weather page).';
       return;
     }
-    radarTs = null;
+    const now = nowMs / 1000;
+    const h = index.find(x => x[0] >= now) || index[index.length - 1];   // the hour containing now
+    const key = `${h[0]}|${h[1]}|${h[2]}|${fields()}`;
+    if (force || key !== fetchedKey) {
+      const d = await (await fetch(`/api/weather/frames?ts=${h[0]}&step=1&fields=${fields()}`)).json();
+      const f = (d.frames || [])[0];
+      if (f) { layer.setFrame(f, d.grid); fetchedKey = key; shown = { ts: f.ts, run: f.run, lead: f.lead }; }
+    }
+    if (shown) {
+      const r = new Date(shown.run * 1000), t = new Date(shown.ts * 1000);
+      const stale = shown.ts < now - 3600;
+      mepsStatus =
+        `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${shown.lead} h · ` +
+        `hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
+        (stale ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
+        (st.src === 'both' && radarShown ? ' · rain outside the radar area' : '') +
+        ' · model, not radar · MET Norway, CC BY 4.0';
+    }
+  }
+
+  async function refresh(force = false) {
+    if (busy) return;
     busy = true;
     try {
-      const nowMs = Date.now();
-      if (force || !index || nowMs - indexAt > 5 * 60 * 1000) {
-        index = (await (await fetch('/api/weather/index', { cache: 'no-store' })).json()).hours || [];
-        indexAt = nowMs;
+      if (!useMeps()) { shown = null; fetchedKey = ''; mepsStatus = ''; layer.setFrame(null); }
+      if (!useRadar()) { radarShown = null; radarTs = null; radarStatus = ''; layer.setOverlay(null); }
+      if (useRadar()) await loadRadar(force);
+      if (useMeps()) {
+        try { await loadMeps(force); }
+        catch (e) { console.warn('Weather overlay:', e); mepsStatus = 'MEPS: loading failed, trying again in a minute.'; }
       }
-      if (!index.length) {
-        shown = null; layer.setFrame(null);
-        q('.lwx-status').textContent = 'No MEPS weather maps stored yet (see the Weather page).';
-        sync(); return;
-      }
-      const now = nowMs / 1000;
-      let h = index.find(x => x[0] >= now) || index[index.length - 1];   // the hour containing now
-      const key = `${h[0]}|${h[1]}|${h[2]}|${fields()}`;
-      radarShown = null;
-      if (force || key !== fetchedKey) {
-        const d = await (await fetch(`/api/weather/frames?ts=${h[0]}&step=1&fields=${fields()}`)).json();
-        const f = (d.frames || [])[0];
-        if (f) { layer.setFrame(f, d.grid); fetchedKey = key; shown = { ts: f.ts, run: f.run, lead: f.lead }; }
-      }
-      if (shown) {
-        const r = new Date(shown.run * 1000), t = new Date(shown.ts * 1000);
-        const stale = shown.ts < now - 3600;
-        q('.lwx-status').innerHTML =
-          `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${shown.lead} h · ` +
-          `hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
-          (stale ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
-          ' · model, not radar · MET Norway, CC BY 4.0';
-      }
-      sync();
-    } catch (e) {
-      console.warn('Weather overlay:', e);
-      q('.lwx-status').textContent = 'Weather overlay: loading failed, trying again in a minute.';
+      showStatus(); sync();
     } finally {
       busy = false;
     }
