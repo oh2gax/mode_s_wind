@@ -3,15 +3,17 @@ web/api/weather.py — the Weather page: MEPS surface maps (from 2026-10-23).
 
 The `meps` thread (collector/meps.py, kind "wx") stores per valid hour the
 model's sea-level pressure, the rain and the snow of the hour ending then,
-and the total and low cloud cover on a 10 km grid of ±800 km around the
-receiver (table meps_wx_hours; compressed int16 planes, about 50 kB per hour,
-7 days of history plus the newest forecast up to +48 h).
+total, low, medium and high cloud, fog and the cloud base on a 10 km grid
+over the MEPS area (table meps_wx_hours; compressed int16 planes, 7 days of
+history plus the newest forecast up to +48 h).
 
 index()  — the stored hours (ts, run, lead) and the grid, for the time slider.
 frames() — the fields of chosen hours for the browser, on the 10 km grid or
            averaged to 20 / 40 km (step 2 / 4) to keep the download small:
            p = (hPa − 1000) × 10, r / s = mm × 100 (rain / snow of the hour),
-           c = total cloud %, as plain integer lists (null = missing).
+           c / l / m / h = total / low / medium / high cloud %, f = fog %,
+           b = cloud base m, as plain integer lists (null = missing); only the
+           fields asked for (default p, r, s, c).
 The page draws them itself (static/js/weather.js), so the Pi only reads,
 decompresses and averages.
 """
@@ -24,8 +26,9 @@ import sys
 import zlib
 
 FILL = -32768
-FIELDS = ("p", "r", "s", "c", "l")
-SEND = ("p", "r", "s", "c")          # the fields the page uses
+FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
+ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b")
+SEND = ("p", "r", "s", "c")          # default
 
 
 def index(db) -> dict:
@@ -51,46 +54,42 @@ def _decode(meta: dict, blob: bytes):
     return {f: a[i * n:(i + 1) * n] for i, f in enumerate(fields)}
 
 
+def _mean(t):
+    v = [x for x in t if x != FILL]
+    return round(sum(v) / len(v)) if v else None
+
+
 def _block(plane, nx: int, ny: int, step: int):
     """Mean of step × step blocks (missing values left out); None where all missing."""
     if step == 1:
         return [None if v == FILL else int(v) for v in plane]
     mx, my = nx // step, ny // step
+    k = step * step
+    full = FILL not in plane
     out = []
-    if FILL not in plane:                      # fast path (the usual case): row slices, no checks
-        k = step * step
-        w = mx * step
-        for J in range(my):
-            rows = [plane[(J * step + j) * nx:(J * step + j) * nx + w] for j in range(step)]
-            col = [sum(v) for v in zip(*rows)]
-            out.extend(round(sum(col[i:i + step]) / k) for i in range(0, w, step))
-        return out
     for J in range(my):
-        for I in range(mx):
-            s = n = 0
-            for j in range(J * step, J * step + step):
-                row = j * nx
-                for i in range(I * step, I * step + step):
-                    v = plane[row + i]
-                    if v != FILL:
-                        s += v
-                        n += 1
-            out.append(round(s / n) if n else None)
+        rows = [plane[(J * step + j) * nx:(J * step + j + 1) * nx] for j in range(step)]
+        cols = [row[i::step][:mx] for row in rows for i in range(step)]
+        if full:                               # the usual case: plain sums
+            out.extend(round(sum(t) / k) for t in zip(*cols))
+        else:
+            out.extend(_mean(t) for t in zip(*cols))
     return out
 
 
 _cache: dict = {}             # (ts, run, lead, step) → (grid, frame): repeated views cost nothing
 
 
-def frames(db, ts_list, step: int = 2) -> dict:
+def frames(db, ts_list, step: int = 2, fields=None) -> dict:
     """The fields of the given hours, averaged to step × 10 km."""
     step = 1 if step <= 1 else (2 if step <= 2 else 4)
+    send = tuple(f for f in ALL if f in (fields or SEND))
     out, grid = [], None
     for ts in ts_list[:96]:
         r = db.execute("SELECT run, lead FROM meps_wx_hours WHERE ts = ?", (int(ts),)).fetchone()
         if not r:
             continue
-        key = (int(ts), r[0], r[1], step)
+        key = (int(ts), r[0], r[1], step, send)
         hit = _cache.get(key)
         if hit:
             if grid is None:
@@ -114,7 +113,7 @@ def frames(db, ts_list, step: int = 2) -> dict:
         elif g != grid:                     # the grid changed (configuration): skip this hour
             continue
         f = {"ts": int(ts), "run": r[0], "lead": r[1]}
-        for k in SEND:
+        for k in send:
             if k in planes:
                 f[k] = _block(planes[k], nx, ny, step)
         if len(_cache) > 400:

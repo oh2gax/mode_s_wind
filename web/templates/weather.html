@@ -12,9 +12,17 @@
     <label class="wm-check" title="Rain and snow of the hour ending at the shown time (mm of water per hour): rain light blue → blue → green → yellow → red → pink, snow in violet shades">
       <input type="checkbox" id="wx-rain" checked> Rain / snow
     </label>
-    <label class="wm-check" title="Total cloud cover: the more cloud, the denser the grey">
-      <input type="checkbox" id="wx-cloud"> Clouds
-    </label>
+    <div class="wm-group">
+      <label class="wm-label">Clouds</label>
+      <select id="wx-cloud" class="wm-select" title="Cloud layer drawn as grey shading, denser with more cover (fog in yellow); the hover read-out adds the cloud base">
+        <option value="off" selected>Off</option>
+        <option value="c">Total</option>
+        <option value="l">Low</option>
+        <option value="m">Medium</option>
+        <option value="h">High</option>
+        <option value="f">Fog</option>
+      </select>
+    </div>
 
     <div class="wm-group">
       <label class="wm-label">Past</label>
@@ -65,6 +73,7 @@
 const RECEIVER_LAT = {{ receiver_lat }};
 const RECEIVER_LON = {{ receiver_lon }};
 </script>
+<script src="{{ url_for('static', filename='js/wx_layer.js') }}"></script>
 <script src="{{ url_for('static', filename='js/weather.js') }}"></script>
 <style>
 .weather-page .wm-tslide { position:relative; display:inline-flex; align-items:center; }
@@ -75,7 +84,6 @@ const RECEIVER_LON = {{ receiver_lon }};
 .weather-page .wm-tload i.fc.ok { background:#a855f7; }
 .weather-page .wm-tlabel { min-width: 330px; }
 .wx-canvas { position:absolute; left:0; top:0; pointer-events:none; }
-.wx-key { display:inline-block; width:14px; height:9px; border-radius:2px; vertical-align:middle; }
 .wx-fc { color:#c084fc; font-weight:bold; }
 [data-theme="light"] .wx-fc { color:#7c3aed; }
 </style>

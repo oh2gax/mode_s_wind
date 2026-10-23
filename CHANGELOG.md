@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page; user management; unified dark-theme diagram background)
+## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page with cloud layers; weather overlay on the Live Map with MEPS and FMI radar; user management; unified dark-theme diagram background)
 
 ### MEPS model levels
 
@@ -27,6 +27,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **New Weather page** (`/weather`, navigation bar): the MEPS weather model over the whole MEPS area (Scandinavia, Finland, the Baltic) with a time slider from the past (24 h / 3 days / 7 days) to the forecast (none / 24 h / 48 h) and ▶ animation — isobars every 4 hPa with highs **H** and lows **L**, the rain and snow of each hour in radar-like colours (light blue → blue → green → yellow → red → pink; snow violet), total cloud cover as grey, a hover read-out and the run / lead of each hour. Drawn by the browser on a canvas (new `static/js/weather.js`, `web/templates/weather.html`); grid 20 km (about 30 kB per hour) or 10 km
 - `collector/meps.py` fetches each run's surface file — sea-level pressure, accumulated precipitation and snowfall, total and low cloud every 10 km; the main runs to +48 h while they are the newest (about 62 MB), the others to +6 h, back-fill to +3 h — into the new table `meps_wx_hours` (compressed, about 120 kB per hour, kept 7 days). New `web/api/weather.py` with `/api/weather/index` and `/api/weather/frames`. Optional `MEPS_WX`, `MEPS_WX_KM` (3000 = whole area, 800 = ± 800 km), `MEPS_WX_FORECAST_H`, `MEPS_WX_DAYS`
 - Weather maps fetched in pieces of 12 hours, each stored and logged at once (`MEPS weather maps: …` in the main log), and stored about twice as fast; the page looks for new hours every minute while few are stored
+- **Cloud layers**: the weather maps now also hold medium and high cloud, fog and the cloud base (clouds in 5 % and the base in 50 m steps, about 180 kB per hour); the Weather page's **Clouds** selector shows Total / Low / Medium / High / Fog and the hover read-out adds the cloud base in ft. `/api/weather/frames` takes `fields=`
+- **Live Map — weather overlay** (☂ button at the top right of the map, new `static/js/live_wx.js`): source Off / **MEPS model** (rain and snow, low cloud, fog, isobars of the present model hour) / **FMI radar** (observed rain rate every 5 min, Finland only), an opacity slider, under the aircraft; refreshed automatically; remembered in the browser. The drawing is shared with the Weather page (new `static/js/wx_layer.js`)
+- **FMI radar** (new `web/api/radar.py`, `/api/radar/latest`): the newest national composite of the download service (`fmi::radar::composite::rr`) at about 2 km, fetched on demand at most every 5 minutes and shared by all viewers, read with plain Python (uncompressed 16-bit GeoTIFF, ETRS-TM35FIN); nothing written to disk
 - Navigation bar: the page links keep to one line on narrower screens (smaller padding below 1 700 / 1 450 px)
 
 ### User management

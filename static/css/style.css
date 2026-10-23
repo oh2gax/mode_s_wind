@@ -2835,3 +2835,26 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-ap-badge + .ws-gs-badge { margin-left: 0; }
 [data-theme="light"] .ws-ap-badge { border-color: #1e293b; color: #1e293b; }
+
+/* ── Weather overlay (Live Map, static/js/live_wx.js) and its legend keys ── */
+.wx-key { display: inline-block; width: 14px; height: 9px; border-radius: 2px; vertical-align: middle; }
+.lwx { font-size: 11px; color: var(--text-2); text-align: right; }
+.lwx-btn { background: rgba(22, 32, 48, 0.92); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px;
+           padding: 4px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.lwx-btn:hover { border-color: var(--accent); }
+.lwx.on .lwx-btn { border-color: #22d3ee; color: #22d3ee; }
+.lwx-panel { display: none; margin-top: 4px; width: 300px; text-align: left; background: rgba(22, 32, 48, 0.94);
+             border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.lwx.open .lwx-panel { display: block; }
+.lwx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--text-1); }
+.lwx-x { background: none; border: none; color: var(--text-2); cursor: pointer; font-size: 14px; }
+.lwx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 5px; }
+.lwx-row label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
+.lwx-row label:has(input:disabled) { opacity: .45; cursor: default; }
+.lwx-lbl { color: var(--text-3); width: 48px; }
+.lwx-op { width: 150px; accent-color: var(--accent); }
+.lwx-status { color: var(--text-3); line-height: 1.35; margin-top: 2px; }
+.lwx-legend { margin-top: 4px; line-height: 1.6; }
+.lwx-legend:empty { display: none; }
+[data-theme="light"] .lwx-btn, [data-theme="light"] .lwx-panel { background: rgba(241, 245, 249, 0.95); }
+[data-theme="light"] .lwx.on .lwx-btn { border-color: #0e7490; color: #0e7490; }

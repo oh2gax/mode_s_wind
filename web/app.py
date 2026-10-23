@@ -696,8 +696,8 @@ def create_app(
     @app.route("/api/weather/frames")
     def weather_frames_api():
         """The fields of the hours ?ts=t1,t2,… (at most 96) on the grid
-        ?step=1 (10 km), 2 (20 km, default) or 4 (40 km); gzip-compressed
-        when the browser accepts it."""
+        ?step=1 (10 km), 2 (20 km, default) or 4 (40 km), ?fields=p,r,s,…
+        (default p,r,s,c); gzip-compressed when the browser accepts it."""
         import gzip as _gzip
         from web.api import weather as _wx
         try:
@@ -705,7 +705,22 @@ def create_app(
             step = int(request.args.get("step", 2))
         except ValueError:
             return jsonify({"error": "bad ts or step"}), 400
-        resp = jsonify(_wx.frames(get_db(), ts, step))
+        fields = [f for f in (request.args.get("fields") or "").split(",") if f] or None
+        resp = jsonify(_wx.frames(get_db(), ts, step, fields))
+        if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+            resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
+            resp.headers["Content-Encoding"] = "gzip"
+            resp.headers["Vary"] = "Accept-Encoding"
+        return resp
+
+    @app.route("/api/radar/latest")
+    def radar_latest_api():
+        """The newest FMI radar composite (rain rate, web/api/radar.py): fetched
+        on demand at most every 5 min and shared by all viewers; rainy cells
+        only ("rs" = [index, mm/h × 100, …]) on its ETRS-TM35FIN grid."""
+        import gzip as _gzip
+        from web.api import radar as _radar
+        resp = jsonify(_radar.latest())
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
             resp.headers["Content-Encoding"] = "gzip"

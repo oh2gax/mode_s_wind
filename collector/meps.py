@@ -101,7 +101,9 @@ MAP_HALF = 120               # grid cells (× 2.5 km) each side: ± 300 km
 MAP_STRIDE = 8               # every 8th cell: 20 km (31 × 31 points)
 MAP_FILL = -32768            # missing value in the stored int16 arrays
 WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r"),
-           ("snowfall_amount_acc", "s"), ("cloud_area_fraction", "c"), ("low_type_cloud_area_fraction", "l"))
+           ("snowfall_amount_acc", "s"), ("cloud_area_fraction", "c"), ("low_type_cloud_area_fraction", "l"),
+           ("medium_type_cloud_area_fraction", "m"), ("high_type_cloud_area_fraction", "h"),
+           ("fog_area_fraction", "f"), ("cloud_base_altitude", "b"))
 WX_STRIDE = 4                # every 4th cell: 10 km
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
 WX_CHUNK = 12                # forecast hours per request (the main runs come in 4 pieces, each stored at once)
@@ -349,14 +351,18 @@ class MepsFetcher:
     def _store_wx(self, db, run: int, d: dict) -> int:
         """Weather maps: per valid hour (leads 1 … n) the sea-level pressure
         ((hPa − 1000) × 10), the rain and the snow of the hour ending then
-        (mm water × 100, from the accumulated amounts), total and low cloud
-        (% ); compressed int16 arrays, rows older than wx_days removed."""
+        (mm water × 100, from the accumulated amounts), total, low, medium
+        and high cloud and fog (% in 5 % steps), cloud base (m in 50 m steps;
+        missing where no cloud);
+        compressed int16 arrays, rows older than wx_days removed."""
         xs, ys = list(d["x"]), list(d["y"])
         nx, ny = len(xs), len(ys)
         np_ = nx * ny
         meta = json.dumps({"x": [xs[0], xs[1] - xs[0], nx], "y": [ys[0], ys[1] - ys[0], ny],
-                           "f": ["p", "r", "s", "c", "l"]}, separators=(",", ":"))
-        P, R, S, C, Lc = (d[v] for v, _ in WX_VARS)
+                           "f": [k for _, k in WX_VARS]}, separators=(",", ":"))
+        P, R, S = d["air_pressure_at_sea_level"], d["precipitation_amount_acc"], d["snowfall_amount_acc"]
+        FRAC = [d[v] for v, k in WX_VARS if k in "clmhf"]
+        B = d["cloud_base_altitude"]
         F = MAP_FILL
         written = 0
         ensure_table(db)
@@ -370,8 +376,11 @@ class MepsFetcher:
             for acc in (R, S):
                 a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else (int(min(x - y, 320.0) * 100.0 + 0.5) if x > y else 0)
                                            for x, y in zip(acc[o1:o1 + np_], acc[o0:o0 + np_])]))
-            for cl in (C, Lc):
-                a.extend(array.array("h", [F if v > 1e30 else int(v * 100.0 + 0.5) for v in cl[o1:o1 + np_]]))
+            # clouds in 5 % steps and the cloud base in 50 m steps: a third smaller compressed
+            for cl in FRAC:
+                a.extend(array.array("h", [F if v > 1e30 else int(v * 20.0 + 0.5) * 5 for v in cl[o1:o1 + np_]]))
+            a.extend(array.array("h", [F if v > 1e30 or v < 0 or v > 30000 else int(v / 50.0 + 0.5) * 50
+                                       for v in B[o1:o1 + np_]]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(
