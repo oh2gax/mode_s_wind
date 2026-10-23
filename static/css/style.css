@@ -32,7 +32,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg-0); color: var
 .nav-icon  { margin-right: 6px; }
 .nav-links { display: flex; gap: 0.25rem; }
 .nav-link  { padding: 5px 12px; border-radius: 4px; color: var(--text-2);
-             text-decoration: none; transition: all .15s; }
+             text-decoration: none; transition: all .15s; white-space: nowrap; }
 .nav-link:hover  { background: var(--bg-3); color: var(--text-1); }
 .nav-link.active { background: var(--accent); color: #fff; }
 .nav-utc-clock { margin-left: auto; font-family: "Courier New", monospace;
@@ -2079,6 +2079,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 @media (max-width: 1500px) { .navbar { gap: 1rem; } .nav-status { margin-left: 10px; } }
 @media (max-width: 1400px) { .nav-utc-clock .clk-date { display: none; } }  /* date in the tooltip */
 @media (max-width: 1300px) { .navbar { gap: 0.6rem; } }
+@media (max-width: 1700px) { .nav-link { padding: 5px 9px; } }      /* eight page links (Weather, 23 Oct 2026) */
+@media (max-width: 1450px) { .nav-link { padding: 5px 6px; font-size: 13px; } .nav-links { gap: 0.1rem; } }
 .nav-whatsnew-dot {
   position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 0 2px var(--bg-1);

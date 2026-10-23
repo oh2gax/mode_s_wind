@@ -313,6 +313,12 @@ def create_app(
                                receiver_lat=cfg.RECEIVER_LAT,
                                receiver_lon=cfg.RECEIVER_LON)
 
+    @app.route("/weather")
+    def weather_page():
+        return render_template("weather.html",
+                               receiver_lat=cfg.RECEIVER_LAT,
+                               receiver_lon=cfg.RECEIVER_LON)
+
     @app.route("/windshear")
     def windshear_page():
         return render_template("windshear.html",
@@ -673,6 +679,33 @@ def create_app(
         if request.args.get("meps", "0") in ("1", "true", "yes"):
             _add_meps(db, result["frames"], cell_km)
         resp = jsonify(result)
+        if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+            resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
+            resp.headers["Content-Encoding"] = "gzip"
+            resp.headers["Vary"] = "Accept-Encoding"
+        return resp
+
+    # ── Weather page: MEPS surface maps (web/api/weather.py) ──────────────
+
+    @app.route("/api/weather/index")
+    def weather_index_api():
+        """The stored weather-map hours [[ts, run, lead], …] and their grid."""
+        from web.api import weather as _wx
+        return jsonify(_wx.index(get_db()))
+
+    @app.route("/api/weather/frames")
+    def weather_frames_api():
+        """The fields of the hours ?ts=t1,t2,… (at most 96) on the grid
+        ?step=1 (10 km), 2 (20 km, default) or 4 (40 km); gzip-compressed
+        when the browser accepts it."""
+        import gzip as _gzip
+        from web.api import weather as _wx
+        try:
+            ts = [int(float(t)) for t in (request.args.get("ts") or "").split(",") if t.strip()]
+            step = int(request.args.get("step", 2))
+        except ValueError:
+            return jsonify({"error": "bad ts or step"}), 400
+        resp = jsonify(_wx.frames(get_db(), ts, step))
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
             resp.headers["Content-Encoding"] = "gzip"

@@ -100,7 +100,11 @@ MAP_VARS = (("air_temperature_pl", "t"), ("x_wind_pl", "xw"), ("y_wind_pl", "yw"
 MAP_HALF = 120               # grid cells (× 2.5 km) each side: ± 300 km
 MAP_STRIDE = 8               # every 8th cell: 20 km (31 × 31 points)
 MAP_FILL = -32768            # missing value in the stored int16 arrays
-TIMEOUT = {"pl": 120.0, "ml": 240.0, "map": 120.0}
+WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r"),
+           ("snowfall_amount_acc", "s"), ("cloud_area_fraction", "c"), ("low_type_cloud_area_fraction", "l"))
+WX_STRIDE = 4                # every 4th cell: 10 km
+WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
+TIMEOUT = {"pl": 120.0, "ml": 240.0, "map": 120.0, "wx": 600.0}
 TRIES = 3                    # attempts per request (an empty or cut response is tried again)
 JOKIOINEN = (60.81397, 23.49825)
 KT = 1 / 0.514444
@@ -213,10 +217,16 @@ def ensure_table(db) -> None:
                       lead INTEGER NOT NULL,
                       meta TEXT    NOT NULL,      -- {"p": [hPa], "x": [x0, dx, nx], "y": [y0, dy, ny]} (LCC m)
                       data BLOB    NOT NULL)""")   # zlib(int16 [var t,u,v,z][level][point])
+    db.execute("""CREATE TABLE IF NOT EXISTS meps_wx_hours (
+                      ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour); rain / snow of the hour ending then
+                      run  INTEGER NOT NULL,
+                      lead INTEGER NOT NULL,
+                      meta TEXT    NOT NULL,      -- {"x": [x0, dx, nx], "y": [y0, dy, ny], "f": fields} (LCC m)
+                      data BLOB    NOT NULL)""")   # zlib(int16 [field p,r,s,c,l][point])
     db.commit()
 
 
-_TABLE = {"pl": "meps_hours", "ml": "meps_ml_hours", "map": "meps_map_hours"}
+_TABLE = {"pl": "meps_hours", "ml": "meps_ml_hours", "map": "meps_map_hours", "wx": "meps_wx_hours"}
 _UPSERT = """INSERT INTO {t} (ts, run, lead, data) VALUES (?, ?, ?, ?)
              ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead, data = excluded.data
              WHERE excluded.lead < {t}.lead
@@ -230,11 +240,15 @@ class MepsFetcher:
 
     def __init__(self, lat: float, lon: float, radius_km: float, base: str = BASE_URL,
                  backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True,
-                 map_fields: bool = True, map_days: float = 7.0):
+                 map_fields: bool = True, map_days: float = 7.0,
+                 wx: bool = True, wx_days: float = 7.0, wx_hours: int = 48, wx_km: float = 3000.0):
         self.lat, self.lon, self.radius = lat, lon, radius_km
         self.model_levels = model_levels
         self.map_fields = map_fields
         self.map_days = map_days
+        self.wx, self.wx_days = wx, wx_days
+        self.wx_hours = max(6, min(66, int(wx_hours)))
+        self.wx_half = max(40, int(round(wx_km / 2.5 / WX_STRIDE)))       # points each side
         self.base = base.rstrip("/")
         self.backfill_days = backfill_days
         self.enabled = enabled
@@ -242,6 +256,15 @@ class MepsFetcher:
         self.missing: dict = {}      # (kind, run) → time it was last found missing or failed
         self.last = None             # (time, text) of the last look
         self.newest_run = None
+
+    def _wx_leads(self, run: int, now: Optional[float] = None) -> int:
+        """Leads fetched for the weather maps: the main runs (00/06/12/18 UTC)
+        to the forecast length while they are the newest, the others +6 h,
+        and only +3 h for runs older than 6 h (history)."""
+        now = time.time() if now is None else now
+        if run < now - 6 * 3600:
+            return WX_HISTORY
+        return self.wx_hours if (run // 3600) % 6 == 0 else WX_SHORT
 
     def _url(self, run: int, kind: str = "pl") -> str:
         tag = time.strftime("%Y%m%dT%HZ", time.gmtime(run))
@@ -261,13 +284,23 @@ class MepsFetcher:
             self.grid = (ix - HALF, iy - HALF, len(x), len(y))
         return self.grid
 
-    def _cons(self, url: str, kind: str) -> str:
+    def _cons(self, url: str, kind: str, run: Optional[int] = None) -> str:
         ix0, iy0, _, _ = self._box(url)
         sx, sy = f"[{ix0}:{STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{STRIDE}:{iy0 + 2 * HALF}]"
         if kind == "pl":
             box = f"[0:{LEADS - 1}][{LEV[0]}:{LEV[1]}]{sy}{sx}"
             return ",".join([f"time[0:{LEADS - 1}]", f"pressure[{LEV[0]}:{LEV[1]}]", f"x{sx}", f"y{sy}"]
                             + [f"{v}.{v}{box}" for v, _ in VARS])
+        if kind == "wx":
+            gx, gy = ix0 + HALF, iy0 + HALF
+            nxg, nyg = self.grid[2], self.grid[3]
+            kx0, kx1 = min(self.wx_half, gx // WX_STRIDE), min(self.wx_half, (nxg - 1 - gx) // WX_STRIDE)
+            ky0, ky1 = min(self.wx_half, gy // WX_STRIDE), min(self.wx_half, (nyg - 1 - gy) // WX_STRIDE)
+            wxs = f"[{gx - kx0 * WX_STRIDE}:{WX_STRIDE}:{gx + kx1 * WX_STRIDE}]"
+            wys = f"[{gy - ky0 * WX_STRIDE}:{WX_STRIDE}:{gy + ky1 * WX_STRIDE}]"
+            nt = self._wx_leads(run)
+            box = f"[0:{nt}][0:0]{wys}{wxs}"
+            return ",".join([f"time[0:{nt}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
         if kind == "map":
             cx, cy = ix0 + HALF, iy0 + HALF
             mx = f"[{cx - MAP_HALF}:{MAP_STRIDE}:{cx + MAP_HALF}]"
@@ -285,11 +318,59 @@ class MepsFetcher:
     def fetch_run(self, db, run: int, kind: str = "pl") -> int:
         """Fetch one run (pressure levels "pl", model levels "ml" or the Wind Map
         fields "map"), store its hours; returns the rows written."""
-        url = self._url(run, "ml" if kind == "ml" else "pl")
-        d = _fetch(url, self._cons(url, kind), TIMEOUT[kind])
+        url = self._url(run, {"ml": "ml", "wx": "sfc"}.get(kind, "pl"))
+        if kind == "wx":
+            self._box(self._url(run, "pl"))          # the grid from a pressure-level file
+        d = _fetch(url, self._cons(url, kind, run), TIMEOUT[kind])
+        if kind == "wx":
+            return self._store_wx(db, run, d)
         if kind == "map":
             return self._store_map(db, run, d)
         return self._store(db, run, d) if kind == "pl" else self._store_ml(db, run, d)
+
+    def _store_wx(self, db, run: int, d: dict) -> int:
+        """Weather maps: per valid hour (leads 1 … n) the sea-level pressure
+        ((hPa − 1000) × 10), the rain and the snow of the hour ending then
+        (mm water × 100, from the accumulated amounts), total and low cloud
+        (% ); compressed int16 arrays, rows older than wx_days removed."""
+        xs, ys = list(d["x"]), list(d["y"])
+        nx, ny = len(xs), len(ys)
+        np_ = nx * ny
+        meta = json.dumps({"x": [xs[0], xs[1] - xs[0], nx], "y": [ys[0], ys[1] - ys[0], ny],
+                           "f": ["p", "r", "s", "c", "l"]}, separators=(",", ":"))
+        P, R, S, C, Lc = (d[v] for v, _ in WX_VARS)
+        F = MAP_FILL
+        def plane(src, off, fn):
+            a = array.array("h", [F if v > 1e30 else fn(v) for v in src[off:off + np_]])
+            return a
+        clip = lambda v: max(-32000, min(32000, int(round(v))))
+        written = 0
+        ensure_table(db)
+        times = list(d["time"])
+        for k in range(1, len(times)):
+            valid = int(round(times[k]))
+            lead = int(round((valid - run) / 3600))
+            o1, o0 = k * np_, (k - 1) * np_
+            a = plane(P, o1, lambda v: clip((v / 100 - 1000) * 10))
+            for acc in (R, S):
+                cur, prev = acc[o1:o1 + np_], acc[o0:o0 + np_]
+                a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else clip(max(0.0, x - y) * 100)
+                                           for x, y in zip(cur, prev)]))
+            a.extend(plane(C, o1, lambda v: clip(v * 100)))
+            a.extend(plane(Lc, o1, lambda v: clip(v * 100)))
+            if sys.byteorder != "little":
+                a.byteswap()
+            cur = db.execute(
+                """INSERT INTO meps_wx_hours (ts, run, lead, meta, data) VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead,
+                                                 meta = excluded.meta, data = excluded.data
+                   WHERE excluded.lead < meps_wx_hours.lead
+                      OR (excluded.lead = meps_wx_hours.lead AND excluded.run >= meps_wx_hours.run)""",
+                (valid, run, lead, meta, zlib.compress(a.tobytes(), 6)))
+            written += cur.rowcount
+        db.execute("DELETE FROM meps_wx_hours WHERE ts < ?", (int(time.time() - self.wx_days * 86400),))
+        db.commit()
+        return written
 
     def _store_map(self, db, run: int, d: dict) -> int:
         """Wind Map fields: every point of the ± 300 km box on the pressure
@@ -489,7 +570,8 @@ class MepsFetcher:
         newest = int(now // (RUN_STEP_H * 3600)) * RUN_STEP_H * 3600
         runs = [newest - k * RUN_STEP_H * 3600 for k in range(int(span_h // RUN_STEP_H) + 1)]
         ensure_table(db)
-        kinds = ("pl",) + (("ml",) if self.model_levels else ()) + (("map",) if self.map_fields else ())
+        kinds = ("pl",) + (("ml",) if self.model_levels else ()) + (("map",) if self.map_fields else ()) \
+            + (("wx",) if self.wx else ())
         have = {kd: dict(db.execute(f"SELECT ts, lead FROM {_TABLE[kd]} WHERE ts >= ?", (runs[-1],)).fetchall())
                 for kd in kinds}
         map_from = now - self.map_days * 86400 + RUN_STEP_H * 3600     # not older than the map retention
@@ -499,7 +581,12 @@ class MepsFetcher:
             for kd in kinds:
                 if kd == "map" and r < map_from:
                     continue
-                if all(have[kd].get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
+                if kd == "wx":
+                    if r < now - self.wx_days * 86400 + RUN_STEP_H * 3600:
+                        continue
+                    if all(have[kd].get(r + h * 3600, 99) <= h for h in range(1, WX_HISTORY + 1)):
+                        continue
+                elif all(have[kd].get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
                     continue
                 seen = self.missing.get((kd, r))
                 if seen is not None:
@@ -515,7 +602,7 @@ class MepsFetcher:
         now = time.time()
         span = max(self.backfill_days * 24, 30) if first else 30
         n_runs = 0
-        rows = {"pl": 0, "ml": 0, "map": 0}
+        rows = {"pl": 0, "ml": 0, "map": 0, "wx": 0}
         errors = []
         for r, kinds in self.due_runs(db, now, span)[:MAX_PER_CYCLE]:
             done = False
@@ -537,7 +624,8 @@ class MepsFetcher:
             time.sleep(1.0)
         txt = f"{n_runs} run(s), {rows['pl']} hour(s) stored" + \
               (f", {rows['ml']} model-level hour(s)" if self.model_levels else "") + \
-              (f", {rows['map']} map hour(s)" if self.map_fields else "")
+              (f", {rows['map']} map hour(s)" if self.map_fields else "") + \
+              (f", {rows['wx']} weather hour(s)" if self.wx else "")
         if errors:
             txt += f"; failed: {errors[-1]}"
             log.warning("MEPS fetch: %d request(s) failed, last: %s", len(errors), errors[-1])
@@ -572,7 +660,11 @@ def init(cfg) -> MepsFetcher:
                             enabled=bool(getattr(cfg, "MEPS_FETCH", True)),
                             model_levels=bool(getattr(cfg, "MEPS_MODEL_LEVELS", True)),
                             map_fields=bool(getattr(cfg, "MEPS_MAP", True)),
-                            map_days=float(getattr(cfg, "MEPS_MAP_DAYS", 7)))
+                            map_days=float(getattr(cfg, "MEPS_MAP_DAYS", 7)),
+                            wx=bool(getattr(cfg, "MEPS_WX", True)),
+                            wx_days=float(getattr(cfg, "MEPS_WX_DAYS", 7)),
+                            wx_hours=int(getattr(cfg, "MEPS_WX_FORECAST_H", 48)),
+                            wx_km=float(getattr(cfg, "MEPS_WX_KM", 3000)))
     return _instance
 
 

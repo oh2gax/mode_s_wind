@@ -25,6 +25,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **MLAT position support** — polls the Radarcape's JSON feed for multilateration-derived positions that remain accurate even when GPS jamming suppresses ADS-B position broadcasts
 - **Skew-T atmospheric soundings** — area profile of all aircraft over the last 30 min – 3 h, an hourly profile archive kept indefinitely, and per-flight vertical profiles for climbing/descending flights (Sounding page, or directly from the Flights browser); the Jokioinen radiosonde (FMI open data) and the **MEPS** weather model (MET Norway open data) can be drawn for comparison, every sounding is verified against the area profile automatically (**Sonde check**) and every hour is compared with the model (**MEPS check**); an **Indices** panel gives the stability indices and characteristic levels (CAPE, Lifted Index, LCL, freezing level, tropopause, lapse rates, wind shear …) of the shown profile next to those of the sonde
 - **Mini atmosphere profile panel** — always-visible Skew-T profile in the live map sidebar; clicking any aircraft immediately loads its full historical wind and temperature profile from the database, then continues accumulating live updates on top. Profile persists across page navigation — navigating away and back restores the full picture instantly.
+- **Weather page** — the MEPS weather model over Scandinavia and Finland with a time slider from the past 7 days to a 48 h forecast: isobars with highs and lows, rain and snow in radar-like colours, cloud cover
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark theme toggle** — a **Dark / Light** button in the navbar switches all pages between the default dark theme and a blue-grey paper-toned light theme; preference is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette. In the dark theme the diagrams (Skew-T, ILS profile, Wind Rose and Approach Conditions chart) and the Windshear map overlays (Wind Rose / ACI, Approach History) use the same blue-grey as the panels (`--bg-1`)
 - **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, aircraft list order, wind history density, theme) are remembered across browser sessions via localStorage
@@ -90,7 +91,7 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /maintenance   DB maintenance
 ```
 
-Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours`, vorticity profile `kinematics_hours` and GNSS-height cells `gnss_hours` with the height calibration `gnss_cal` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`, the radiosonde verification `sonde_verification`), **sondes** (radiosonde soundings from FMI open data) and **meps** (MEPS model profiles and Wind Map fields from MET Norway every 3 h into `meps_hours`, `meps_ml_hours` and `meps_map_hours`, see *MEPS check*). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
+Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours`, vorticity profile `kinematics_hours` and GNSS-height cells `gnss_hours` with the height calibration `gnss_cal` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`, the radiosonde verification `sonde_verification`), **sondes** (radiosonde soundings from FMI open data) and **meps** (MEPS model profiles, Wind Map fields and Weather page maps from MET Norway every 3 h into `meps_hours`, `meps_ml_hours`, `meps_map_hours` and `meps_wx_hours`, see *MEPS check* and *Weather*). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -290,6 +291,10 @@ class Config:
     # MEPS_MODEL_LEVELS = True        # optional: also fetch the model levels (dense MEPS profile on the Skew-T, about 50 MB a day)
     # MEPS_MAP = True                 # optional: also fetch the model maps for the Wind Map (about 8 MB a day)
     # MEPS_MAP_DAYS = 7               # optional: days of Wind Map model maps kept
+    # MEPS_WX = True                  # optional: fetch the surface weather maps for the Weather page
+    # MEPS_WX_KM = 3000               # optional: area of the weather maps (3000 = whole MEPS area; 800 = ± 800 km)
+    # MEPS_WX_FORECAST_H = 48         # optional: forecast hours of the weather maps (6 … 66)
+    # MEPS_WX_DAYS = 7                # optional: days of weather maps kept
     # MEPS_BACKFILL_DAYS = 3          # optional: days of model runs fetched at the first start
     # MEPS_URL = "https://thredds.met.no/thredds/dodsC/meps25epsarchive"   # optional: MEPS archive (OPeNDAP)
     # WIND_MAX_AGE_SEC = 6.0          # optional: max age (s) of the older BDS 5,0 / 6,0 reply for a wind placed at an altitude
@@ -964,6 +969,24 @@ pressure_alt = msl_alt + (1013.25 − qnh_hpa) × 27.3
 For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries pressure altitudes between about 1 916 ft and 2 916 ft (correction (1013.25 − 998) × 27.3 ≈ +416 ft, ±500 ft tolerance), which correspond to aircraft actually flying at 1 500–2 500 ft MSL. The displayed layer name always shows the MSL altitude you selected. The QNH is the **QNH of the period**: for a period ending within the last hour the current METAR (fetched by the server's background weather thread every 10 minutes), for an older period the METAR QNH stored with the hourly profile archive (`profile_hours`) nearest to the middle of the period (within 3 h); 1013.25 hPa when neither is available. The status line shows which (`QNH 1014 hPa (METAR 17 07 UTC)`). Raw pressure altitudes are never modified in the database.
 
 ---
+
+### Weather  `/weather`
+
+A weather map of the **MEPS** model (MET Norway open data, CC BY 4.0) over the whole MEPS area — Scandinavia, Finland, the Baltic and part of the Norwegian Sea — with a time slider from the past into the forecast, to follow weather systems as they move (`web/templates/weather.html`, `static/js/weather.js`, `web/api/weather.py`). It is a model, not a radar: for the last hours the rain areas are usually close to reality, but a shower can be tens of kilometres and an hour off.
+
+| Control | Options | Description |
+|---|---|---|
+| Pressure | tick box (on) | Sea-level pressure: isobars every 4 hPa (1000 hPa thicker) with labels, highs **H** (blue) and lows **L** (red) with their central pressure — an extreme of the smoothed field within about 250 km and at least 1 hPa beyond the ring around it |
+| Rain / snow | tick box (on) | The precipitation of the hour ending at the shown time in mm of water per hour, radar-like: light blue 0.1, blue 0.5, green 1, yellow 2, red 5, pink 10 mm/h; violet shades where at least half of it is snow |
+| Clouds | tick box (off) | Total cloud cover as grey shading, denser with more cloud |
+| Past | 24 h / 3 days / 7 days | How far back the slider reaches |
+| Forecast | none / 24 h / 48 h | How far ahead (the newest main model run) |
+| Grid | 20 km / 10 km | Resolution sent to the browser: 20 km about 30 kB per hour, 10 km (the stored resolution) about 4 × more |
+| ▶, slider, ⟲ | — | ▶ animates hour by hour (about 0.4 s per hour), the slider moves through the hours (the strip under it shows what is loaded, forecast hours in purple), ⟲ returns to the present hour; the label gives the time (UTC) and *forecast +N h* |
+
+Hovering the map shows the pressure, rain or snow and cloud cover at the point; the status line names the model run and lead time of the shown hour. Frames load in chunks of 12, the ones nearest the slider first, and stay in the browser while the grid is the same; the settings are remembered. The index of stored hours is reloaded every 10 minutes, so new model runs appear by themselves.
+
+How it works: besides the profiles and the Wind Map fields, the `meps` thread fetches from each run's surface file (`meps_mbr000_sfc_…`) the sea-level pressure, the accumulated precipitation and snowfall and the total and low cloud cover, every 10 km over the MEPS area (`MEPS_WX_KM`, default 3000 = the whole area; 800 gives a ± 800 km box around the receiver, about 2.5 × less data). The main runs (00 / 06 / 12 / 18 UTC) are fetched to `MEPS_WX_FORECAST_H` (48) hours ahead while they are the newest (about 62 MB per run for the whole area), the others to +6 h, and older runs (back-fill) to +3 h — so every past hour comes from a run at most 3 h older. Each valid hour is stored once, from the shortest lead, as compressed 16-bit arrays in `meps_wx_hours` (about 120 kB per hour for the whole area) and kept `MEPS_WX_DAYS` (7) days; rain and snow of an hour are the differences of the accumulated amounts. The browser gets the hours it needs averaged to 20 km (or at 10 km) and draws everything itself — the Pi only reads, decompresses and averages (cached in memory). About 300 MB a day are downloaded for the whole area with the 48 h forecast. `MEPS_WX = False` switches it off. The page needs the internet only for the map tiles and the new model runs: without a connection it keeps showing the stored hours and the last forecast.
 
 ### Windshear  `/windshear`
 
@@ -1816,6 +1839,8 @@ Used keys: `autopurge_flight_enabled` (`'0'`/`'1'`), `autopurge_flight_days` (in
 
 **`meps_map_hours`** — MEPS model maps for the Wind Map (`collector/meps.py`; **MEPS** tick box and *Mode S − MEPS model*; `MEPS_MAP`): `ts`, `run`, `lead` as in `meps_hours`, `meta` = JSON `{"p": [150 … 1000 hPa], "x": [x0, dx, nx], "y": [y0, dy, ny]}` (the 31 × 31 points of the ± 300 km box in the model's Lambert projection, m), `data` = zlib-compressed little-endian int16 arrays `[t °C × 100, u kt × 10, v kt × 10 (true north), z gpm][level][point]` (−32768 = missing). About 50 kB per hour; rows older than `MEPS_MAP_DAYS` (7) are deleted at each fetch.
 
+**`meps_wx_hours`** — MEPS surface maps for the Weather page (`collector/meps.py` kind `wx`, `web/api/weather.py`; `MEPS_WX`): `ts` (valid hour; rain and snow are those of the hour ending then), `run`, `lead` (the shortest stored), `meta` = JSON `{"x": [x0, dx, nx], "y": [y0, dy, ny], "f": ["p", "r", "s", "c", "l"]}` (10 km grid in the model's Lambert projection, m), `data` = zlib-compressed little-endian int16 planes: sea-level pressure (hPa − 1000) × 10, rain and snow of the hour (mm × 100), total and low cloud (%), −32768 = missing. About 120 kB per hour for the whole MEPS area; rows older than `MEPS_WX_DAYS` (7) are deleted at each fetch.
+
 **`height_series`** — dense pressure-altitude / GNSS − baro series per aircraft visit (`collector/height_series.py`): `ts` / `t_end` (first / last row), `icao`, `callsign`, `n` (rows), `n_gmb` (rows with a difference), `alt_min` / `alt_max` (ft pressure altitude), `data` = zlib-compressed JSON of integer columns `t` (0.1 s), `alt` (ft), `gmb` (ft), `lat` / `lon` (1e-4°), `nacp`, delta-coded except NACp; decoded by `height_series.decode()`. Rows older than `HEIGHT_SERIES_DAYS` (default 30) are deleted daily.
 
 **`approach_series`** — raw reply series on final per landing: `ts`, `icao`, `runway` (same as the `approach_history` row) and `data` = zlib-compressed JSON of integer columns (BDS 5,0 / 6,0 replies and the 3-s sweeps; layout in `WindshearTracker.SERIES_COLS`, decoded by `WindshearTracker.decode_series()`). About 2–3 kB per landing; rows older than `APPROACH_SERIES_DAYS` (default 90) are deleted daily, and with the approach history purges. See [Approach roughness logging](#approach-roughness-logging).
@@ -1942,13 +1967,15 @@ mode_s_wind/
 │   ├── api/
 │   │   ├── sounding.py        # Sounding aggregation logic (area, hourly archive, single flight)
 │   │   ├── lowlevel.py        # Airport low-level profile (landings + departures, 200 ft bands)
-│   │   └── windmap.py         # Gridded wind map aggregation logic, cross-section along a line
+│   │   ├── windmap.py         # Gridded wind map aggregation logic, cross-section along a line
+│   │   └── weather.py         # Weather page: stored MEPS surface maps → frames for the browser
 │   └── templates/
 │       ├── base.html          # Navbar, status indicator, config badges
 │       ├── live.html          # Live map page
 │       ├── flights.html       # Flights browser page
 │       ├── sounding.html      # Skew-T sounding page
 │       ├── windmap.html       # Gridded wind map page
+│       ├── weather.html       # Weather page (MEPS surface maps)
 │       ├── windshear.html     # Approach monitoring + windshear page
 │       ├── gps_quality.html   # GPS quality monitoring page
 │       ├── gps_episodes.html  # GPS degradation episode map / list / scatter page
@@ -1963,6 +1990,7 @@ mode_s_wind/
 │       ├── sounding.js        # Sounding page: sources, data table, diagram controls
 │       ├── timeheight.js      # Sounding page: time–height section of the hourly profiles
 │       ├── windmap.js         # Wind map barb rendering + controls
+│       ├── weather.js         # Weather page: canvas rain / snow / clouds, isobars, H / L, time slider
 │       ├── windmap_analysis.js # Wind map smoothed field, isotachs, streamlines, jet axis
 │       ├── windmap_xsection.js # Wind map vertical cross-section along a drawn line
 │       ├── windshear.js       # Approach strips, ILS profile, windshear detection
@@ -2052,6 +2080,8 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/heading_cal` | Heading calibration status: mode, airframe counts (calibrated / excluded), fleet and aircraft-type median offsets, and each airframe's offset, flights, samples and status (`?airframes=0` omits the list); RAM-only |
 | GET | `/api/windmap` | Gridded wind map (params: `fl`, `tolerance`, `cell` km (default 50; the old `grid` in degrees is still accepted), `window` or `start`+`end`, `gnss_ok=1`, `meps=1` — adds `meps`: the MEPS model in the same cells (`cells` with `lat`, `lon`, `bounds`, `wind_spd`, `wind_dir`, `temp`, `n` model points; `runs`, `lead_max`, `provisional`, `hours`, `p_hpa`; `outside` above 150 hPa; `null` when nothing is stored)): per cell `lat`, `lon`, `bounds`, `wind_dir`, `wind_spd`, `wind_sd`, `temp` (at the level), `dtemp`, `temp_sd`, `ac`, `obs`, `gnss_deg`, `dval` (D-value of the pressure surface, m) and `dval_ac`; plus `geo` (geostrophic wind of the area: `dir`, `spd`, `se_kt`, `meas_dir`, `meas_spd`, `ageo_dir`, `ageo_spd`, `grad_m_per_100km`, `aircraft`, `rms_m`, `centre_km`; null when too few points), `z_isa_m`, `gcal`, `alt_query_ft` (pressure altitude of the band centre), `aircraft`, `obs_used`, `removed` {frozen, jump, gnss}, `temp_layer`, `lapse_k_per_1000ft`, `qnh_hpa`, `qnh_source` |
 | GET | `/api/windmap/frames` | All frames of the time slider in one request: `fl`, `tolerance`, `cell`, `gnss_ok=1`, `meps=1` as `/api/windmap`, plus `end` (end of the newest frame), `period` (length in seconds, ≤ 86 400) and `n` (frames, ≤ 48; each an hour earlier than the previous) → `frames` = [answers as `/api/windmap`, newest first]. One database query; each frame is identical to the single answer for its period. Gzip-compressed when the browser accepts it |
+| GET | `/api/weather/index` | Weather page: the stored model hours `hours` = [[ts, run, lead], …] (oldest first) and the `grid` |
+| GET | `/api/weather/frames` | The fields of the hours `?ts=t1,t2,…` (≤ 96) at `?step=1` (10 km), `2` (20 km, default) or `4` (40 km): `grid` (decimated), `km`, `frames` = [{`ts`, `run`, `lead`, `p` (hPa − 1000) × 10, `r` / `s` rain / snow of the hour mm × 100, `c` cloud %}], integer lists in grid order (row by row from the south-west), `null` = missing. Gzip-compressed when the browser accepts it |
 | GET | `/api/windmap/xsection` | Vertical cross-section along a line: `lat1`, `lon1`, `lat2`, `lon2`, `start`, `end`, optional `width` (km, default 50), `step` (km, default 25), `gnss_ok=1` → `a`, `b`, `length_km`, `dir_deg`, `bins`, `step_km`, `width_km`, `layers`, `cells` = [[bin, alt_lo, temp, wind_dir, wind_spd, aircraft, dval], …], `aircraft`, `obs_used`, `removed` |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch), `qnh_hpa`, `elev_ft` (airport elevation for the Live Map ground line) and `metar_wind` (`dir`, `spd`, `gust`, `variable`); returns `[unavailable]` for a source only if the server has never successfully fetched it |
 | GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |

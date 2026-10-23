@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Weather – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="windmap-page weather-page">
+
+  <!-- ── Control strip ──────────────────────────────────────────────── -->
+  <div class="windmap-controls">
+    <label class="wm-check" title="Sea-level pressure: isobars every 4 hPa (1000 hPa drawn thicker) with the highs (H) and lows (L) and their central pressure">
+      <input type="checkbox" id="wx-pres" checked> Pressure
+    </label>
+    <label class="wm-check" title="Rain and snow of the hour ending at the shown time (mm of water per hour): rain light blue → blue → green → yellow → red → pink, snow in violet shades">
+      <input type="checkbox" id="wx-rain" checked> Rain / snow
+    </label>
+    <label class="wm-check" title="Total cloud cover: the more cloud, the denser the grey">
+      <input type="checkbox" id="wx-cloud"> Clouds
+    </label>
+
+    <div class="wm-group">
+      <label class="wm-label">Past</label>
+      <select id="wx-past" class="wm-select" title="How far back the time slider reaches">
+        <option value="24" selected>24 h</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+      </select>
+    </div>
+    <div class="wm-group">
+      <label class="wm-label">Forecast</label>
+      <select id="wx-fc" class="wm-select" title="How far ahead the time slider reaches (the newest model run)">
+        <option value="0">none</option>
+        <option value="24">24 h</option>
+        <option value="48" selected>48 h</option>
+      </select>
+    </div>
+    <div class="wm-group">
+      <label class="wm-label">Grid</label>
+      <select id="wx-step" class="wm-select" title="Resolution sent to the browser: 20 km loads about 12 kB per hour, 10 km (the stored resolution) about 40 kB">
+        <option value="2" selected>20 km</option>
+        <option value="1">10 km</option>
+      </select>
+    </div>
+
+    <div class="wm-group wm-time">
+      <button id="wx-play" class="wm-play-btn" type="button" title="Animate the period (one hour about every 0.4 s); click again to stop">▶</button>
+      <span class="wm-tslide"><input type="range" id="wx-t" min="0" max="0" step="1" value="0"><span id="wx-tload" class="wm-tload wm-hidden"></span></span>
+      <button id="wx-now" class="wm-play-btn" type="button" title="Back to the present hour">⟲</button>
+      <span id="wx-tlabel" class="wm-tlabel">—</span>
+    </div>
+  </div>
+
+  <!-- ── Map ─────────────────────────────────────────────────────────── -->
+  <div class="windmap-mapwrap">
+    <div id="wx-map" class="windmap-map"></div>
+    <div class="wm-overlay">
+      <div class="wm-legend" id="wx-legend"></div>
+      <div id="wx-readout" class="wm-status wm-hidden"></div>
+      <div id="wx-status" class="wm-status">Loading…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RECEIVER_LAT = {{ receiver_lat }};
+const RECEIVER_LON = {{ receiver_lon }};
+</script>
+<script src="{{ url_for('static', filename='js/weather.js') }}"></script>
+<style>
+.weather-page .wm-tslide { position:relative; display:inline-flex; align-items:center; }
+.weather-page .wm-time input[type=range] { width: 260px; }
+.weather-page .wm-tload { position:absolute; left:6px; right:6px; bottom:-4px; height:3px; display:flex; gap:1px; pointer-events:none; }
+.weather-page .wm-tload i { flex:1; background:var(--border); border-radius:1px; }
+.weather-page .wm-tload i.ok { background:var(--accent); opacity:.75; }
+.weather-page .wm-tload i.fc.ok { background:#a855f7; }
+.weather-page .wm-tlabel { min-width: 330px; }
+.wx-canvas { position:absolute; left:0; top:0; pointer-events:none; }
+.wx-key { display:inline-block; width:14px; height:9px; border-radius:2px; vertical-align:middle; }
+.wx-fc { color:#c084fc; font-weight:bold; }
+[data-theme="light"] .wx-fc { color:#7c3aed; }
+</style>
+{% endblock %}
