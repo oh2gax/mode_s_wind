@@ -48,6 +48,43 @@
       </div>
     </div>
 
+    <!-- ── Web users (web/users.py) ────────────────────────────────────── -->
+    <div class="maint-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Web Users</span>
+        <span class="maint-section-note">Who may open the web pages — the Maintenance page stays with the maintenance user only</span>
+        <button id="users-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-stats-grid">
+          <div class="maint-stat-row maint-stat-hdr maint-user-row">
+            <span>User</span><span>Type</span><span>Password changed (UTC)</span><span></span>
+          </div>
+          <div id="users-list"><div class="maint-stat-row maint-user-row"><span>—</span></div></div>
+        </div>
+        <div class="maint-row" id="users-edit-row" style="display:none">
+          <span class="maint-label">New password for <b id="users-edit-name"></b></span>
+          <input type="password" id="users-edit-pass"  class="maint-input maint-input-sm" placeholder="New password" autocomplete="new-password">
+          <input type="password" id="users-edit-pass2" class="maint-input maint-input-sm" placeholder="Repeat" autocomplete="new-password">
+          <button id="users-edit-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="users-edit-cancel-btn" class="maint-btn">Cancel</button>
+        </div>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-panel-title">Add user</div>
+        <div class="maint-row">
+          <label class="maint-label">User</label>
+          <input type="text"     id="users-add-name"  class="maint-input maint-input-sm" placeholder="Username" autocomplete="off">
+          <label class="maint-label">Password</label>
+          <input type="password" id="users-add-pass"  class="maint-input maint-input-sm" placeholder="Password" autocomplete="new-password">
+          <input type="password" id="users-add-pass2" class="maint-input maint-input-sm" placeholder="Repeat" autocomplete="new-password">
+          <button id="users-add-btn" class="maint-btn maint-btn-primary">Add</button>
+        </div>
+        <div id="users-status" class="maint-op-status"></div>
+        <div class="maint-hint">Usernames: 1–32 letters, digits and <code>. _ @ -</code>; passwords 8–128 characters. A new user can log in at once; a removed user, or one whose password was changed, is asked to log in again at the next page load. Passwords are stored only as hashes and never shown. The users are kept in <code id="users-file">webusers.txt</code> next to the maintenance login file (outside the database). The <b>built-in</b> user is set in <code>config.py</code> (<code>WEB_USER</code> / <code>WEB_PASS</code>) and cannot be changed here; the <b>maintenance</b> user can also open the web pages, and changing its password here also changes the Maintenance login.</div>
+      </div>
+    </div>
+
     <!-- ── Flight & Meteo data ──────────────────────────────────────────── -->
     <div class="maint-section">
       <div class="maint-section-hdr">

@@ -40,7 +40,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **ICAO24 blocklist** — a configurable prefix list (`BLOCKED_ICAO_PREFIXES`) silently drops non-aircraft Mode-S emitters system-wide at both the Beast TCP and JSON/MLAT live\_state entry points; default entry `T40` filters Finnish Air Navigation Services WAM ground interrogator stations that would otherwise inflate GPS quality counts and traffic statistics
 - **Registration blocklist** — a complementary prefix list (`BLOCKED_REG_PREFIXES`) silently drops aircraft by registration system-wide (registration from the Radarcape JSON feed, or from an optional `BaseStation.sqb` aircraft database when the feed has none — see [WAM ground station filtering](#wam-ground-station-filtering)); default entry `OH-H` filters Finnish helicopters whose continuous manoeuvring near EFHK produces unreliable computed wind and should not feed any meteo analysis
 - **SQLite database** with WAL mode — safe for Raspberry Pi SD-card or USB SSD operation
-- **HTTP Basic Auth** — simple credentials-based access control for local network deployment
+- **HTTP Basic Auth** — simple credentials-based access control for local network deployment; separate web users (hashed passwords) managed on the Maintenance page
 
 ---
 
@@ -343,6 +343,7 @@ class Config:
 
     # ── Maintenance page ──────────────────────────────────────────────────
     MAINTENANCE_AUTH_FILE = ""        # path to username:password file — page stays locked while empty
+    # WEB_USERS_FILE = ""             # optional: web users file (default: webusers.txt next to MAINTENANCE_AUTH_FILE)
 ```
 
 > **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `HEIGHT_SERIES*`, `KINEMATICS_RADIUS_KM`, `GNSS_HOURS_DAYS`, `GNSS_CAL_SLOPE`, `WIND_MAX_AGE_SEC`, `SONDE_*`, `ACCESS_*` — shown as commented lines below), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block below — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
@@ -353,7 +354,7 @@ Key values to change for your installation:
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
 - `MAG_DECLINATION` — magnetic declination at your receiver in degrees East. With `pygeomag` installed and `USE_WMM_DECLINATION = True` (default) the declination at each aircraft's own position is calculated automatically and this value is only a fallback (aircraft without a known position, or pygeomag missing — a warning is logged at startup). Find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); WMM2025 is valid until 2030, after which it is extrapolated with a warning — upgrade pygeomag then
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
-- `WEB_USER` / `WEB_PASS` — credentials for the web interface
+- `WEB_USER` / `WEB_PASS` — the built-in user of the web interface (further users: **Web Users** on the Maintenance page)
 - `MAINTENANCE_AUTH_FILE` — full path to the maintenance credential file (see [Maintenance](#maintenance--maintenance)); empty by default, which keeps the maintenance operations locked
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
 - `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 15 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
@@ -1923,6 +1924,7 @@ mode_s_wind/
 ├── web/
 │   ├── app.py                 # Flask app + all API routes
 │   ├── access_log.py          # Compact access / misuse log (logs/access.log), login lockout
+│   ├── users.py               # Web users: built-in, maintenance and users-file logins (hashed), Maintenance page management
 │   ├── whats_new.py           # Version v.DDMMYYYY (newest of doc/whats_new.md, CHANGELOG.md), What's new notes, user guides
 │   ├── api/
 │   │   ├── sounding.py        # Sounding aggregation logic (area, hourly archive, single flight)
@@ -1977,10 +1979,11 @@ The page has no navigation-bar link; open it by typing `/maintenance` after the 
 
 An administrator page for database housekeeping. It is accessible at `/maintenance` and rendered by `web/templates/maintenance.html`.
 
-Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt`). `MAINTENANCE_AUTH_FILE` is empty by default — while it is empty (or the file cannot be read) every login is rejected, so set the full path in your local `config.py`. Credentials are submitted with every operation and never stored in a server session.
+Authentication is handled separately from the main web credentials — all operations require a username and password read from a credential file whose path is set in `config.py` as `MAINTENANCE_AUTH_FILE`. The file contains a single line in `username:password` format (the password in clear, or hashed after it has been changed on the page) and should be placed outside the project directory and excluded from version control (`.gitignore` already ignores `dbauth.txt` and `webusers.txt`). This maintenance user is the only one who can open the Maintenance page; it can also log in to the other web pages. `MAINTENANCE_AUTH_FILE` is empty by default — while it is empty (or the file cannot be read) every login is rejected, so set the full path in your local `config.py`. Credentials are submitted with every operation and never stored in a server session.
 
 **Operations:**
 
+- **Web Users** — who may open the web pages (`web/users.py`): the list shows the **built-in** user of `config.py` (`WEB_USER` / `WEB_PASS`; fixed, not editable here), the **maintenance** user and the added **web page** users with the date their password was last changed. **Add user** (User, Password, Repeat), **New password** for a user or the maintenance user (which also changes the Maintenance login; the page keeps working with the new password) and **Remove** (with a confirmation; the built-in and the maintenance user cannot be removed). Usernames 1–32 letters, digits and `. _ @ -`; passwords 8–128 characters. There are no permission levels: every user can open all pages except the Maintenance page. The users are kept in a small text file, `WEB_USERS_FILE` in `config.py` (optional; default `webusers.txt` next to the maintenance login file, outside the database so that snapshots and archives do not carry them), one line `username:changed:hash` per user with the password as a salted PBKDF2-SHA256 hash (150 000 rounds) — passwords are never stored or shown in clear. The file is written only when a user is changed (atomic replace, readable by the owner only) and re-read when it changes, so a new user can log in at once and a removed user, or one with a new password, is asked to log in again at the next page load — no restart. The folder of the file must be writable by the service user. Basic authentication sends the password with every request, so a checked user / password pair is remembered in memory and the slow hash (about 0.2 s on a Raspberry Pi 4) is computed only once per pair
 - **Database statistics** — read-only view showing for each table: row count, number of distinct calendar days with data, oldest and newest record dates, and total SQLite file size; refreshed on demand; the days count helps choosing an appropriate purge threshold
 - **Flight & Meteo data purge** — deletes records from `observations` and `flights` either older than a configurable number of days, or within a chosen date range; each section has a **Preview** step that shows exact row counts before deletion; `approach_history` is never touched by Autopurge. Deletes run in batches of 5 000 rows, each committed separately, so the database write lock is only held briefly and the collector keeps storing live observations during a large purge (if the database is still momentarily locked, the collector keeps the observations in RAM and retries on its next flush instead of dropping them). Both purge types delete a flight row only when none of its observations remain — e.g. a flight that started before a chosen date range (crossed midnight) keeps its row and its earlier observations. **A large purge can take a long time** (on a Raspberry Pi roughly 2 000–7 000 observation rows per second, i.e. several minutes to tens of minutes for millions of rows); the result line appears on the page only when the purge has finished, and a browser may give up waiting after ~5 minutes while the server keeps purging. Completion is always logged: `Maintenance: deleted N observations, M flights` in `logs/modes_meteo.log`
 - **GPS Quality data purge** — separately deletes rows from `gps_quality_hours` and `gps_quality_zone_hours` either older than a configurable threshold or within a chosen date range; useful for removing a maintenance day with incomplete data; the in-RAM GPS quality cache is reloaded immediately after the delete so the GPS Quality page reflects the change without a server restart
@@ -2068,7 +2071,12 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | POST | `/api/maintenance/episodes/date-preview` | Preview gps_episodes rows starting within a date range; params: `date_from`, `date_to` (`YYYY-MM-DD`) |
 | POST | `/api/maintenance/episodes/date-purge` | Delete gps_episodes rows starting within a date range |
 
-All `/api/maintenance/*` endpoints require `username` and `password` fields in the JSON request body, validated against the `MAINTENANCE_AUTH_FILE` credential file.
+| POST | `/api/maintenance/users/list` | Web users: `file`, `writable`, `users` (`user`, `kind` = `config` / `maintenance` / `user`, `changed`) |
+| POST | `/api/maintenance/users/add` | Add a web user; params: `target` (username), `new_password` |
+| POST | `/api/maintenance/users/password` | New password for a web user or the maintenance user; params: `target`, `new_password` |
+| POST | `/api/maintenance/users/remove` | Remove a web user; params: `target` |
+
+All `/api/maintenance/*` endpoints require `username` and `password` fields in the JSON request body, validated against the `MAINTENANCE_AUTH_FILE` credential file (the maintenance user only).
 
 ---
 

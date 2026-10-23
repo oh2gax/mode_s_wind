@@ -2616,6 +2616,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .maint-label { font-size: 12px; color: var(--text-2); }
 .maint-hint { font-size: 11px; color: var(--text-3); margin-top: 0.4rem; line-height: 1.4; }
 .maint-stat-row.maint-arc-row { grid-template-columns: minmax(220px, 1.4fr) 70px 1.2fr 130px 130px; }
+.maint-stat-row.maint-user-row { grid-template-columns: minmax(160px, 220px) 150px 170px 1fr; align-items: center; }
+.maint-user-row .maint-user-actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+.maint-user-row .maint-user-kind { color: var(--text-3); }
+#users-edit-row { margin-top: 0.5rem; }
 .maint-stats-grid { padding: 0.5rem 0; }
 /* 5 columns: Table | Rows | Days | Oldest | Newest */
 .maint-stat-row { display: grid; grid-template-columns: 200px 65px 50px 1fr 1fr; gap: 0.5rem; padding: 0.3rem 1rem; font-size: 12px; font-variant-numeric: tabular-nums; }

@@ -1,6 +1,8 @@
 __pycache__
 aircraftlist.json
 dbauth.txt
+webusers.txt
+.webusers.txt.tmp
 api_keys.py
 
 # Local database (keep data/.gitkeep so the folder exists in the repo)

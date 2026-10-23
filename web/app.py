@@ -2,7 +2,8 @@
 Flask application factory and SSE live-stream endpoint.
 
 Basic HTTP authentication is enforced on every request via a before_request
-hook.  Credentials come from Config.WEB_USER / WEB_PASS.  Logins, refused
+hook.  Users: Config.WEB_USER / WEB_PASS, the maintenance user and the users
+file managed on the Maintenance page (web/users.py).  Logins, refused
 requests and misuse are written to logs/access.log (web/access_log.py).
 """
 
@@ -20,13 +21,12 @@ from flask import (
     jsonify, stream_with_context, send_from_directory, abort,
 )
 
-import hmac
-
 from config import Config
 from database.db import get_db
 from database import maintenance as maint
 from collector.approach_cond import approach_index
 from web import access_log
+from web import users as web_users
 
 log = logging.getLogger("modes.web")
 
@@ -213,9 +213,13 @@ def _parse_metar_wind(metar_text: str) -> dict | None:
 
 
 def _check_auth(username: str, password: str, cfg: Config) -> bool:
-    # constant-time comparison (no timing hint of how much of the password matched)
-    return (hmac.compare_digest((username or "").encode(), str(cfg.WEB_USER).encode())
-            & hmac.compare_digest((password or "").encode(), str(cfg.WEB_PASS).encode()))
+    # config.py user, maintenance user or a user of the users file (web/users.py;
+    # constant-time comparisons, hashed passwords)
+    try:
+        return web_users.check_web(cfg, username, password)
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("User check failed: %s", exc)
+        return False
 
 
 def _require_auth():
@@ -1229,17 +1233,11 @@ def create_app(
     # ── Maintenance page ──────────────────────────────────────────────────
 
     def _check_maint_auth(username: str, password: str) -> bool:
-        """Validate credentials against MAINTENANCE_AUTH_FILE (username:password)."""
-        path = cfg.MAINTENANCE_AUTH_FILE
-        if not path or not os.path.exists(path):
-            return False
+        """Validate credentials against MAINTENANCE_AUTH_FILE (username:password,
+        the password in clear or hashed; web/users.py)."""
         try:
-            with open(path) as f:
-                line = f.read().strip()
-            file_user, file_pass = line.split(":", 1)
-            return (hmac.compare_digest(username.strip(), file_user.strip()) and
-                    hmac.compare_digest(password.strip(), file_pass.strip()))
-        except Exception:
+            return web_users.check_maint(cfg, username, password)
+        except Exception:                          # noqa: BLE001
             return False
 
     def _maint_auth_required(data: dict) -> bool:
@@ -1299,6 +1297,42 @@ def create_app(
         from database import archive as _arc
         out = maint.get_autopurge_config(get_db())
         out["archive"] = _arc.is_enabled(get_db())
+        return jsonify(out)
+
+    # ── Web users (web/users.py; maintenance login only) ──────────────────
+
+    @app.route("/api/maintenance/users/list", methods=["POST"])
+    def maintenance_users_list():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        return jsonify(web_users.list_users(cfg))
+
+    @app.route("/api/maintenance/users/<action>", methods=["POST"])
+    def maintenance_users_change(action):
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        target = str(data.get("target", ""))
+        pw = data.get("new_password", "")
+        try:
+            if action == "add":
+                web_users.add_user(cfg, target, pw)
+                kind = "user"
+            elif action == "password":
+                kind = web_users.set_password(cfg, target, pw)
+            elif action == "remove":
+                web_users.remove_user(cfg, target)
+                kind = "user"
+            else:
+                abort(404)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except OSError as exc:
+            log.warning("Users file not written: %s", exc)
+            return jsonify({"ok": False, "error": "the file could not be written (permissions?)"}), 500
+        out = web_users.list_users(cfg)
+        out.update(ok=True, kind=kind)
         return jsonify(out)
 
     # ── Archive files and snapshots (database/archive.py) ─────────────────

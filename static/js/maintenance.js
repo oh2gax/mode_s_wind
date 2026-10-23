@@ -242,6 +242,99 @@ document.getElementById('gps-purge-btn').addEventListener('click', async () => {
   }
 });
 
+// ── Web users (/api/maintenance/users/…) ─────────────────────────────────────
+
+const _USER_KIND = { config: 'built-in (config.py)', maintenance: 'maintenance', user: 'web pages' };
+let _editUser = null;
+
+function _esc(t) {
+  return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderUsers(d) {
+  const list = document.getElementById('users-list');
+  document.getElementById('users-file').textContent = d.file || '(no file: MAINTENANCE_AUTH_FILE not set)';
+  list.innerHTML = (d.users || []).map(u => {
+    const edit = u.kind !== 'config'
+      ? `<button class="maint-btn maint-btn-sm" data-act="pw" data-user="${_esc(u.user)}">New password</button>` : '';
+    const del = u.kind === 'user'
+      ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
+    return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>` +
+      `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}</span>` +
+      `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${edit}${del}</span></div>`;
+  }).join('');
+  if (!d.writable) _setStatus('users-status', 'The folder of the users file is not writable — users cannot be changed.', true);
+}
+
+async function loadUsers() {
+  try { renderUsers(await _api('/api/maintenance/users/list')); }
+  catch (e) { _setStatus('users-status', `Error: ${e.message}`, true); }
+}
+
+async function _usersCall(action, target, pw) {
+  const r = await fetch(`/api/maintenance/users/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: _user, password: _pass, target, new_password: pw }),
+  });
+  if (r.status === 401) throw new Error('Unauthorized');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+
+function _closeEdit() {
+  _editUser = null;
+  document.getElementById('users-edit-row').style.display = 'none';
+  document.getElementById('users-edit-pass').value = document.getElementById('users-edit-pass2').value = '';
+}
+
+document.getElementById('users-refresh-btn').addEventListener('click', loadUsers);
+document.getElementById('users-list').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const name = b.dataset.user;
+  if (b.dataset.act === 'pw') {
+    _editUser = name;
+    document.getElementById('users-edit-name').textContent = name;
+    document.getElementById('users-edit-row').style.display = '';
+    document.getElementById('users-edit-pass').focus();
+    return;
+  }
+  if (!confirm(`Remove the user ${name}? They can no longer open the web pages.`)) return;
+  try {
+    renderUsers(await _usersCall('remove', name));
+    _setStatus('users-status', `✓ ${name} removed`);
+    if (_editUser === name) _closeEdit();
+  } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
+document.getElementById('users-edit-cancel-btn').addEventListener('click', _closeEdit);
+document.getElementById('users-edit-save-btn').addEventListener('click', async () => {
+  const p1 = document.getElementById('users-edit-pass').value, p2 = document.getElementById('users-edit-pass2').value;
+  if (!_editUser) return;
+  if (p1 !== p2) { _setStatus('users-status', 'The passwords do not match.', true); return; }
+  try {
+    const d = await _usersCall('password', _editUser, p1);
+    if (d.kind === 'maintenance' && _editUser === _user) {   // the Maintenance login changed with it
+      _pass = p1;
+      document.getElementById('maint-pass').value = '';
+    }
+    renderUsers(d);
+    _setStatus('users-status', `✓ New password saved for ${_editUser}` + (d.kind === 'maintenance' ? ' (also the Maintenance login)' : ''));
+    _closeEdit();
+  } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
+document.getElementById('users-add-btn').addEventListener('click', async () => {
+  const name = document.getElementById('users-add-name').value.trim();
+  const p1 = document.getElementById('users-add-pass').value, p2 = document.getElementById('users-add-pass2').value;
+  if (!name) { _setStatus('users-status', 'Enter a username.', true); return; }
+  if (p1 !== p2) { _setStatus('users-status', 'The passwords do not match.', true); return; }
+  try {
+    renderUsers(await _usersCall('add', name, p1));
+    _setStatus('users-status', `✓ ${name} added`);
+    ['users-add-name', 'users-add-pass', 'users-add-pass2'].forEach(id => { document.getElementById(id).value = ''; });
+  } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
+
 // ── Unlock ────────────────────────────────────────────────────────────────────
 
 document.getElementById('maint-unlock-btn').addEventListener('click', async () => {
@@ -259,6 +352,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadStats();
     await loadAutopurgeConfig();
     await loadArchives();
+    await loadUsers();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
