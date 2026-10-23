@@ -199,24 +199,26 @@ function createSkewT(canvas, tip, cfg = {}) {
 
 
   // ── Theme-aware colour palette for mini Skew-T canvas ────────────────────
+  // Dark theme: the panel colour (--bg-1 #162030) as background since
+  // 23 Oct 2026 (before #0c1620); the faint grid lines one step lighter with it.
   function miniSkewTTheme() {
     const light = document.documentElement.dataset.theme === 'light';
     return {
-      bg:        light ? '#eef2f7' : '#0c1620',
-      isobarMaj: light ? '#c5d0da' : '#1e2a3a',
-      isobarMin: light ? '#d8e0e8' : '#172030',
-      isotherm0: light ? '#9ab4c8' : '#1e3a5f',
-      isothermN: light ? '#cdd7e0' : '#182030',
-      isotLabel: light ? '#64748b' : '#374151',
-      axisLine:  light ? '#94a3b8' : '#2d3f52',
-      isa:       light ? '#9ab4c8' : '#1e3a5f',
-      label:     light ? '#475569' : '#374151',
-      hint:      light ? '#64748b' : '#374151',
+      bg:        light ? '#eef2f7' : '#162030',
+      isobarMaj: light ? '#c5d0da' : '#28344a',
+      isobarMin: light ? '#d8e0e8' : '#212a40',
+      isotherm0: light ? '#9ab4c8' : '#28446f',
+      isothermN: light ? '#cdd7e0' : '#222a40',
+      isotLabel: light ? '#64748b' : '#414b61',
+      axisLine:  light ? '#94a3b8' : '#374962',
+      isa:       light ? '#9ab4c8' : '#28446f',
+      label:     light ? '#475569' : '#414b61',
+      hint:      light ? '#64748b' : '#414b61',
       dotRing:   light ? '#1e293b' : '#ffffff',
-      kmLabel:   light ? '#94a3b8' : '#3b4b5e',
+      kmLabel:   light ? '#94a3b8' : '#45556e',
       area:      light ? '#64748b' : '#94a3b8',
       tempLbl:   light ? '#1e293b' : '#e2e8f0',
-      dryAdi:    light ? '#e2c3a0' : '#54422d',
+      dryAdi:    light ? '#e2c3a0' : '#5e4c37',
       ground:    light ? '#8b6f4e' : '#7c6345',
       anaTrop:   light ? '#7c3aed' : '#a78bfa',
       anaZero:   light ? '#0284c7' : '#38bdf8',
@@ -227,11 +229,11 @@ function createSkewT(canvas, tip, cfg = {}) {
       anaCold:   light ? '#2563eb' : '#60a5fa',
       anaCon:    light ? '#475569' : '#cbd5e1',
       anaTherm:  light ? '#c2410c' : '#fdba74',
-      anaLblBg:  light ? 'rgba(238,242,247,0.85)' : 'rgba(12,22,32,0.8)',
+      anaLblBg:  light ? 'rgba(238,242,247,0.85)' : 'rgba(22,32,48,0.85)',
       apt:       light ? '#b45309' : '#f59e0b',      // airport low-level profile
       stUnst:    '#ef4444', stCond: '#f59e0b', stStab: '#22c55e', stInv: '#a855f7',
       groundLbl: light ? '#6b5137' : '#b08d62',
-      moistAdi:  light ? '#a9d4b7' : '#2a5640',
+      moistAdi:  light ? '#a9d4b7' : '#346050',
       dew:       light ? '#15803d' : '#4ade80',      // METAR dewpoint, mixing-ratio line
       weak:      light ? '#dc2626' : '#f87171',      // layer from only 1–2 aircraft
       dqGood:    light ? '#15803d' : '#4ade80', dqFair: light ? '#b45309' : '#fbbf24', dqLow: light ? '#dc2626' : '#f87171',

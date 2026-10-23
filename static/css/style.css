@@ -1063,7 +1063,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   top: 44px;
   right: 8px;
   z-index: 800;
-  background: rgba(10, 18, 28, 0.90);
+  background: rgba(22, 32, 48, 0.92);       /* panel colour --bg-1, like the rose canvas */
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px;
@@ -1169,7 +1169,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   bottom: 8px;
   left: 8px;
   z-index: 800;
-  background: rgba(15, 23, 42, 0.93);
+  background: rgba(22, 32, 48, 0.93);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 7px;
@@ -1363,7 +1363,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-weight: 500;
   position: sticky;
   top: 0;
-  background: rgba(15, 23, 42, 0.97);
+  background: rgba(22, 32, 48, 0.97);
 }
 .ws-aphist-cell {
   color: var(--text-1);

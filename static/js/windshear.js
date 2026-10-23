@@ -387,16 +387,18 @@ new ResizeObserver(() => {
 resizeIlsCanvas();
 
 // ── Theme-aware colour palette for the ILS and Wind Rose canvases ─────────
+// Dark theme: the panel colour (--bg-1 #162030) as background since 23 Oct 2026
+// (before #0f1923 / #0a121c); grid and rings one step lighter with it.
 function wsCanvasTheme() {
   const light = document.documentElement.dataset.theme === 'light';
   return {
-    bg:         light ? '#eef2f7' : '#0f1923',
-    grid:       light ? '#c5d0da' : '#1e2d40',
+    bg:         light ? '#eef2f7' : '#162030',
+    grid:       light ? '#c5d0da' : '#28394f',
     gsband:     light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.07)',
     gsline:     light ? '#2563eb' : '#38bdf8',
     annot:      light ? '#475569' : '#475569',
     axisLabel:  light ? '#475569' : '#64748b',
-    noTraffic:  light ? '#64748b' : '#334155',
+    noTraffic:  light ? '#64748b' : '#3d4b60',
     trail:      light ? 'rgba(0,0,0,0.26)'      : 'rgba(255,255,255,0.32)',
     staleRing:  light ? 'rgba(37,99,235,0.30)'  : 'rgba(56,189,248,0.30)',
     staleGlow:  light ? 'rgba(37,99,235,0.08)'  : 'rgba(56,189,248,0.08)',
@@ -404,13 +406,13 @@ function wsCanvasTheme() {
     barbHint:   light ? '#64748b' : '#475569',
     metar:      light ? '#0284c7' : '#38bdf8',   // METAR surface wind barb at the threshold
     // Wind Rose
-    roseBg:     light ? '#e8edf3' : '#0a121c',
-    roseOuter:  light ? '#b8c8d8' : '#1a2d40',
-    roseRing:   light ? '#94a3b8' : '#1e3a5f',
+    roseBg:     light ? '#e8edf3' : '#162030',
+    roseOuter:  light ? '#b8c8d8' : '#243a52',
+    roseRing:   light ? '#94a3b8' : '#28446f',
     roseSpeed:  light ? '#94a3b8' : '#475569',
     roseInner:  light ? '#c5d5e5' : '#3b6ea0',
     roseLabel:  light ? '#475569' : '#475569',
-    labelBg:    light ? 'rgba(238,242,247,0.88)' : 'rgba(15,25,35,0.85)',   // behind callsign labels
+    labelBg:    light ? 'rgba(238,242,247,0.88)' : 'rgba(22,32,48,0.85)',   // behind callsign labels
   };
 }
 

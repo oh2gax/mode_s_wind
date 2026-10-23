@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; user management)
+## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; user management; unified dark-theme diagram background)
 
 ### MEPS model levels
 
@@ -20,6 +20,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### User management
 
 - User management added
+
+### Dark theme
+
+- The Skew-T diagrams (Live Map, Sounding page), the Windshear ILS profile, Wind Rose and Approach Conditions chart and the Approach History overlay now use the same blue-grey background as the panels (`--bg-1`) instead of slightly different darker shades; the faint grid lines, isotherms, adiabats and rings are one step lighter with it. Light theme unchanged
+- Windshear page: the view buttons of the Wind Rose panel are now **WR** and **ACI** (were Rose and Cond), and the Approach History column mode **Cond** is now **ACI**
 
 ---
 

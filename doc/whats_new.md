@@ -9,6 +9,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Model humidity in the RH strip**: with both **RH** and **MEPS** ticked, the strip beside the Skew-T also shows the model's relative humidity as a teal line, next to the aircraft moisture bars and the sonde's pink line — so you can follow every hour, also between the soundings, whether the aircraft moisture indicator sees the moist layers of a front arriving. Hover the strip for the layer averages.
 - **User guides updated**: the Skew-T guide (version 4.2) and the Sounding and Wind Map guide (version 2.6) explain the model's levels and the new humidity line.
 - **Personal logins**: the administrator can now give each tester their own username and password.
+- **Calmer dark theme**: the Skew-T diagrams and the Windshear page's ILS profile, Wind Rose and Approach Conditions windows now have the same blue-grey background as the rest of the page instead of a darker shade.
 
 ## v.22102026 — MEPS check, What's new and user guides, geoid correction, honest moisture uncertainty
 
