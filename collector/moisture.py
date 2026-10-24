@@ -50,6 +50,20 @@ PRIOR_N soundings — so with the first
 soundings it stays small and follows the data as it accumulates.  Computed
 when asked for, cached until a new sounding arrives (or for CACHE_SEC).
 
+From 24 Oct 2026 the offsets are also learnt from the MEPS weather model
+(collector/meps.py, model levels, the same 150 km area): every hour of the
+last MEPS_CAL_DAYS days with at least MEPS_MIN_FLIGHTS climbs (or descents)
+in a layer gives a pair aircraft − model Tv − T (the model's from its
+temperature and specific humidity, ln-p weighted), many more than the 2–3
+soundings a day, also at night.  Where a layer and direction has at least
+MEPS_MIN_HOURS such hours the MEPS offset (shrunk with MEPS_PRIOR_H hours) is
+used, otherwise the sonde offset — so without the model (USE_MEPS False, or
+no model data) the indicator works as before on the soundings alone.  A
+leave-one-day-out test on the front of 23–24 Oct 2026 (8 soundings per
+layer): the bias against the sondes went from +11 / +1 / +13 to +0 / +2 / −6
+points (1–5k / 5–10k / 10–15k ft); the scatter (RMS 30 / 50 / 63) is not
+changed by any offset — that is the noise of the method itself.
+
 Read only, pure Python.  An experiment: to be tuned with more weather.
 """
 
@@ -66,6 +80,11 @@ SONDE_MIN_FLIGHTS = 8
 CAL_DAYS = 30
 PRIOR_N = 3.0                                # offset shrunk towards 0 with this many soundings
 CACHE_SEC = 3600
+USE_MEPS = True                 # offsets also from the MEPS model (config MOIST_MEPS_OFFSETS)
+MEPS_CAL_DAYS = 14
+MEPS_MIN_FLIGHTS = 4            # climbs or descents in the layer within the hour
+MEPS_MIN_HOURS = 12             # hours needed before the MEPS offset replaces the sonde offset
+MEPS_PRIOR_H = 6.0              # MEPS offset shrunk towards 0 with this many hours
 DRY_BELOW, HUMID_FROM = 40.0, 70.0
 SYS_K = 0.3                     # systematic uncertainty of Tv − T (K), added in quadrature
 UNCERTAIN_PCT = 40              # index ± above this: drawn faint
@@ -192,7 +211,13 @@ def offsets(db, cal: dict, lat: float, lon: float, radius_km: float,
     now = _time.time() if now is None else now
     st = _sondes.get()
     items = st.items() if st is not None else []
-    key = (items[0]["key"] if items else None, cal.get("t"))
+    newest_ml = None
+    if USE_MEPS:
+        try:
+            newest_ml = db.execute("SELECT MAX(ts) FROM meps_ml_hours").fetchone()[0]
+        except Exception:                                # noqa: BLE001  (no model table)
+            newest_ml = None
+    key = (items[0]["key"] if items else None, cal.get("t"), newest_ml)
     if _cache["val"] is not None and _cache["key"] == key and now - _cache["t"] < CACHE_SEC:
         return _cache["val"]
     pairs: dict = {lo: [] for lo, _ in MOIST_LAYERS}
@@ -234,17 +259,92 @@ def offsets(db, cal: dict, lat: float, lon: float, radius_km: float,
             if s is None or tm is None or tm[2] < SONDE_MIN_FLIGHTS:
                 continue
             pairs[lo].append([meta["key"], dr, round(tm[0] - s[0], 3), tm[2]])
+    mp = _meps_pairs(db, cal, lat, lon, radius_km, now) if newest_ml else {}
     out = {}
     for lo, p in pairs.items():
         o = {"pairs": p}
+        src = set()
         for dr, name in ((1, "climb"), (-1, "descent")):
             d = [x[2] for x in p if x[1] == dr]
-            o[name] = round(sum(d) / (len(d) + PRIOR_N), 3) if d else 0.0
+            o["sonde_" + name] = round(sum(d) / (len(d) + PRIOR_N), 3) if d else 0.0
             o["n_" + name] = len(d)
+            m = [x for _, x in mp.get((lo, dr), [])]
+            o["n_meps_" + name] = len(m)
+            if len(m) >= MEPS_MIN_HOURS:
+                o["meps_" + name] = round(sum(m) / (len(m) + MEPS_PRIOR_H), 3)
+                o[name] = o["meps_" + name]
+                src.add("meps")
+            else:
+                o[name] = o["sonde_" + name]
+                src.add("sondes" if d else "none")
         o["off"] = round((o["climb"] + o["descent"]) / 2, 3)
         o["n"] = len({x[0] for x in p})
+        o["src"] = "meps" if src == {"meps"} else "meps+sondes" if "meps" in src else \
+            "sondes" if "sondes" in src else "none"
+        o["n_meps"] = min(o["n_meps_climb"], o["n_meps_descent"])
         out[lo] = o
     _cache.update(key=key, t=now, val=out)
+    return out
+
+
+def meps_layer_dtv(col: dict) -> dict:
+    """{layer bottom: Tv − T K} of a MEPS model column {"p": hPa, "t": °C,
+    "q": g/kg per level} (ln-p weighted, as sonde_layers)."""
+    p, t, q = col.get("p") or [], col.get("t") or [], col.get("q") or []
+    pts = sorted([(p[i], t[i], q[i]) for i in range(min(len(p), len(t), len(q)))
+                  if p[i] is not None and t[i] is not None and q[i] is not None], key=lambda x: -x[0])
+    out = {}
+    for lo, hi in MOIST_LAYERS:
+        plo, phi = _isa_p(lo), _isa_p(hi)
+        num = den = 0.0
+        for a, b in zip(pts, pts[1:]):
+            pa, pb = min(a[0], plo), max(b[0], phi)
+            if pa <= pb:
+                continue
+            w = math.log(pa / pb)
+            for _, tt, qq in (a, b):
+                num += w / 2 * 0.608 * (qq / 1000.0) * (tt + 273.15)
+                den += w / 2
+        if den >= 0.8 * math.log(plo / phi):
+            out[lo] = num / den
+    return out
+
+
+def _meps_pairs(db, cal: dict, lat: float, lon: float, radius_km: float, now: float) -> dict:
+    """{(layer bottom, ±1): [(hour, aircraft − MEPS Tv − T K), …]} of the last
+    MEPS_CAL_DAYS days: each hour's climbs (descents) of a layer, at least
+    MEPS_MIN_FLIGHTS of them, against the MEPS area column of that hour."""
+    import json
+    from collector import gnss_heights as gh
+    from collector import meps
+    t1 = int(now // 3600 * 3600)
+    t0 = t1 - int(MEPS_CAL_DAYS * 86400)
+    try:
+        ml = meps.hours(db, t0, t1 + 3600, kind="ml")
+    except Exception:                                    # noqa: BLE001
+        return {}
+    if not ml:
+        return {}
+    raw = gh.cells_for_hours(db, t0, t1, lat, lon, radius_km, now=now)
+    prof = {}
+    for ts, data in db.execute("SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ?", (t0, t1)):
+        try:
+            prof[ts] = {r[0]: r[1] for r in json.loads(data).get("lv") or [] if r[1] is not None}
+        except (ValueError, TypeError, IndexError):
+            pass
+    out: dict = {}
+    for h, cells in raw.items():
+        col = meps._hour_mean(ml, h)                      # the model over the hour [h, h + 1 h)
+        if h not in prof or not col:
+            continue
+        md = meps_layer_dtv(col)
+        for lo, v in flight_values(cells, cal, prof[h], lat).items():
+            if lo not in md:
+                continue
+            for dr in (1, -1):
+                tm = trimmed([x for x, _, d in v if d == dr])
+                if tm and tm[2] >= MEPS_MIN_FLIGHTS:
+                    out.setdefault((lo, dr), []).append((h, tm[0] - md[lo]))
     return out
 
 
@@ -298,6 +398,16 @@ def sonde_index(rec: dict) -> list:
     return out
 
 
+def _src_of(offs: dict) -> str:
+    """Overall source of the offsets: "meps", "meps+sondes", "sondes" or "none"."""
+    s = {o.get("src") for o in offs.values()}
+    if s == {"meps"}:
+        return "meps"
+    if any(x and "meps" in x for x in s):
+        return "meps+sondes"
+    return "sondes" if "sondes" in s else "none"
+
+
 def for_hour(db, h: int, lat: float, lon: float, radius_km: float,
              live_levels: list | None = None, now: float | None = None) -> dict:
     """The indicator of one hour for the Skew-T (Area · hour, or Area · now
@@ -326,4 +436,6 @@ def for_hour(db, h: int, lat: float, lon: float, radius_km: float,
     rows = columns(raw, prof, cal, offs, lat, [h]).get(h, [])
     return {"hour": h, "rows": rows, "window_h": {str(lo): w for lo, w in WINDOW_H.items()},
             "offsets_n": max((o.get("n", 0) for o in offs.values()), default=0),
+            "offsets_meps_h": max((o.get("n_meps", 0) for o in offs.values()), default=0),
+            "offsets_src": _src_of(offs),
             "uncertain_pct": UNCERTAIN_PCT}

@@ -31,12 +31,11 @@ A go-around climbing out of the approach is flagged ("ga") and kept: the
 aircraft was established on an approach (descending in an ILS corridor) in
 the windshear tracker when its climb began.
 
-Windshear band comparison (from 2026-10-24): every raw BDS 5,0 reply of the
-climb is also kept (time, roll, track rate, track, GS, TAS, interpolated
-altitude) and handed to shear_fn (WindshearTracker.dep_shear) after each sweep
-with new replies and once more at the end; the climb-out's band headwinds
-(TAS − GS) are compared with the landings and departures of the previous 45
-minutes, and the result is stored with the profile (shear_json).
+Windshear band comparison (from 2026-10-24): after each sweep with new wind
+pairs and once more at the end, the climb-out's band winds are handed to
+shear_fn (WindshearTracker.dep_shear) and compared with all landings and
+departures of the previous 45 minutes as the headwind along its runway
+direction; the result is stored with the profile (shear_json).
 """
 
 from __future__ import annotations
@@ -63,7 +62,6 @@ DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
 MAX_ROLL         = 5.0
-RAW5_MAX         = 400         # raw BDS 5,0 replies kept per climb (≈ 2–3 min)
 
 
 def _dist_nm(lat1, lon1, lat2, lon2):
@@ -133,19 +131,19 @@ class DepartureTracker:
                     and gs is not None and gs >= DEP_MIN_GS):
                 st = self._state[icao] = {
                     "t0": now, "since": now - 4.0, "prev_t": now - 3.0, "prev_alt": alt_msl,
-                    "last": now, "prof": {}, "qnh": qnh, "raw5": [],
+                    "last": now, "prof": {}, "qnh": qnh,
                     "track": ac.get("track"), "lat": lat, "lon": lon,
                     "ga": bool(self._on_app and self._on_app(icao)),
                 }
             else:
                 return
-        n5 = len(st["raw5"])
+        n_w = sum(len(P["u"]) for P in st["prof"].values())
         self._collect(icao, ac, st, now, alt_msl)
         st["last"] = now
         for k in ("callsign", "registration", "aircraft_type"):
             if ac.get(k):
                 st[k] = ac[k]
-        if self._shear and len(st["raw5"]) != n5 and not st["ga"]:
+        if self._shear and not st["ga"] and sum(len(P["u"]) for P in st["prof"].values()) != n_w:
             try:
                 self._shear(icao, st, now, False)
             except Exception as exc:                      # noqa: BLE001
@@ -179,14 +177,6 @@ class DepartureTracker:
         excluded = hsrc == "X"
         gs = ac.get("groundspeed")
         since = st["since"]
-        # raw BDS 5,0 replies for the windshear band comparison (TAS − GS)
-        raw5 = st["raw5"]
-        for t5, roll5, trate5, ttrk5, bgs5, tas5 in b50:
-            if t5 <= since or len(raw5) >= RAW5_MAX or tas5 is None or bgs5 is None:
-                continue
-            if gs is not None and abs(bgs5 - gs) > 50:
-                continue
-            raw5.append([t5, roll5, trate5, ttrk5, bgs5, tas5, round(alt_at(t5))])
         for smp in b60:
             ts, _ias, mhdg = smp[0], smp[1], smp[2]
             mach = smp[5] if len(smp) > 5 else None

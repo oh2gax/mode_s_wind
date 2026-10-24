@@ -880,10 +880,15 @@ def create_app(
         only hours with at least N aircraft (default 0)."""
         from collector import meps as _meps
         from collector import sondes as _sondes
+        from collector import tcorr as _tc
         days = max(1.0, min(90.0, request.args.get("days", 7, type=float)))
         busy = max(0, min(100, request.args.get("busy", 0, type=int)))
-        return jsonify(_meps.check(get_db(), days, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
-                                   cfg.SOUNDING_RADIUS_KM, busy=busy, store=_sondes.get()))
+        out = dict(_meps.check(get_db(), days, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                               cfg.SOUNDING_RADIUS_KM, busy=busy, store=_sondes.get()))
+        # the upper-level temperature correction learnt from these differences
+        # (collector/tcorr.py; the check itself always compares the raw values)
+        out["tcorr"] = _tc.info(_tc.current(get_db()))
+        return jsonify(out)
 
     @app.route("/api/sonde/verification")
     def sonde_verification_api():
@@ -891,8 +896,20 @@ def create_app(
         last ?days= (1–366, default 30): pooled launch statistics, per band,
         difference vs sounding age, and the list of verified launches."""
         from collector import sonde_verif as _sv
+        from collector import tcorr as _tc
         days = max(1.0, min(366.0, request.args.get("days", 30, type=float)))
-        return jsonify(_sv.summary(get_db(), days))
+        out = dict(_sv.summary(get_db(), days))
+        # raw Mach/TAS values; the bias the bands would have with the upper-level
+        # correction of the Skew-T / time–height (collector/tcorr.py)
+        tc = _tc.current(get_db())
+        if tc:
+            mid = {"20-30k": 25000, "30k+": 36000}
+            for b in out.get("bands") or []:
+                k = _tc.at_ft(tc, mid.get(b.get("band")))
+                if k and b.get("t_bias") is not None:
+                    b["t_bias_corr"] = round(b["t_bias"] + k, 2)
+            out["tcorr"] = _tc.info(tc)
+        return jsonify(out)
 
     @app.route("/api/sounding/hours")
     def sounding_hours_api():

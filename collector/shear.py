@@ -30,12 +30,19 @@ Shun & Chan 2008, and the 2026-10-24 restudy of 3 084 EFHK landings):
    threshold or within 5 NM):  advisory ≥ 10 kt · WSA (windshear alert)
    ≥ 15 kt · MBA (microburst alert) ≥ 30 kt loss.
 
-band_anomaly() adds the change in time: an aircraft's 200-ft band headwinds
-against the median of the landings and departures on the same runway direction
-in the previous 45 minutes — a front or gust front shows as a change between
-flights.  dep_bands() gives the band headwinds of a climb-out (from
-2026-10-24), so departures are compared too and fill the gaps between the
-arrival waves.
+band_anomaly() adds the change in time: the aircraft's wind in each 200-ft
+band (400–1 800 ft MSL) against the median wind of all landings and
+departures of the previous 45 minutes, whatever their runway, projected on
+the aircraft's own direction (+ = more headwind than before) — a front or gust
+front shows as a change between flights.  From the evening of 24 Oct 2026 it
+uses the heading-calibrated wind vectors per band (prof_json, every flight
+has them), not TAS − GS: TAS − GS is the headwind along the flight's own
+track only, so flights on other runway directions could not be compared, and
+at Helsinki-Vantaa 55 % of the departures had no landing on their own runway
+direction in the previous 45 minutes (land 15 / depart 22R).  Replay 9–24 Oct
+2026: ≥ 15 kt in 0.13 % of the landings and 0.30 % of the departures, among
+them the wind change of 17 Oct (a departure ten minutes before the landings)
+and a departure at 04:42 UTC on 24 Oct during the night-time frontal passage.
 
 Pure Python, no I/O.  Used live by collector/windshear.py for each aircraft on
 final (every sweep) and once per landing for the stored windshear report.
@@ -74,17 +81,14 @@ BAND_ADVISORY = 10.0          # kt
 BAND_WSA = 15.0
 BAND_MAX_FT = 1800            # bands compared: up to the top of the low-level zone (ft MSL)
 
-# Departures in the band comparison (from 2026-10-24): climb-out replies with
-# the track within DEP_TRACK_TOL of the runway direction; a departure climbs
-# 4–5× faster than a 3° glide path, so each band takes the replies within
-# ±DEP_BAND_TOL_FT (overlapping 400-ft windows) and needs DEP_MIN_N of them.
-# TAS − GS of the climb-outs was DEP_HW_BIAS kt larger than that of the landings
-# in the same bands and 45 minutes (9–23 Oct 2026, 1 946 replies, constant with
-# height); it is subtracted so departures and landings share one scale.
-DEP_TRACK_TOL = 15.0          # °
-DEP_BAND_TOL_FT = 200.0
-DEP_MIN_N = 2
-DEP_HW_BIAS = 2.3             # kt
+# Band wind vectors (prof_json per 200-ft band: n wind pairs, ws, wd, sd)
+VEC_MIN_FT = 400              # lowest band compared (few replies below)
+VEC_MAX_WS = 80.0             # kt — a band mean above this at low level is a corrupt reply
+VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above this: not used
+VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
+VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
+                              #     alerts only when a neighbouring band agrees
+REPORT_V = 3                  # report version (3: band comparison on the wind vector)
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -337,56 +341,84 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
     return out
 
 
-def _hdg_diff(a: float, b: float) -> float:
-    return abs((a - b + 180.0) % 360.0 - 180.0)
+def vec_bands(prof: dict | None, min_n: int = VEC_MIN_N_ARR, max_band: float = BAND_MAX_FT) -> dict:
+    """{band ft: (u, v kt towards east / north, wind pairs)} from a band profile
+    in the prof_json format ({"band": {"n", "ws", "wd", "sd", …}}), bands
+    VEC_MIN_FT … max_band with at least min_n pairs; corrupt bands (mean above
+    VEC_MAX_WS, spread above VEC_MAX_SD) are left out."""
+    out = {}
+    for b, v in (prof or {}).items():
+        try:
+            b = int(b)
+        except (TypeError, ValueError):
+            continue
+        if not (VEC_MIN_FT <= b <= max_band) or not isinstance(v, dict):
+            continue
+        n, ws, wd = v.get("n") or 0, v.get("ws"), v.get("wd")
+        if n < min_n or ws is None or wd is None or ws > VEC_MAX_WS or (v.get("sd") or 0) > VEC_MAX_SD:
+            continue
+        r = math.radians(wd)
+        out[b] = (-ws * math.sin(r), -ws * math.cos(r), n)
+    return out
 
 
-def dep_bands(b50: list, axis: float) -> dict | None:
-    """Band headwinds of a climb-out on the runway direction `axis` (°):
-    b50 rows as in analyze() (alt = interpolated ft MSL).  Only replies with
-    the track within DEP_TRACK_TOL of the axis (TAS − GS is the headwind along
-    the track); same cleaning as on final.  {"n": replies, "noise": kt,
-    "bd": {band: kt}} with DEP_HW_BIAS removed, or None."""
-    rows = [r for r in b50 if r and len(r) > 6 and r[3] is not None
-            and _hdg_diff(float(r[3]), float(axis)) <= DEP_TRACK_TOL]
-    pts, noise, _dropped = _points(rows, [])
-    if not pts:
+def vec_refs(history: list, ts: float) -> list:
+    """Band wind vectors ({band: (u, v, n)}) of the flights in history (records
+    with "ts" and "prof"; landings and departures, any runway) within
+    BAND_WINDOW_SEC before ts."""
+    out = []
+    for e in history:
+        t = e.get("ts") or 0
+        if not (ts - BAND_WINDOW_SEC <= t < ts):
+            continue
+        bv = e.get("bv")
+        if bv is None:
+            bv = vec_bands(e.get("prof"), 1)
+        if bv:
+            out.append(bv)
+    return out
+
+
+def _median(v: list) -> float:
+    v = sorted(v)
+    n = len(v)
+    return v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2])
+
+
+def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT) -> dict | None:
+    """Largest change of this flight's band wind from the median wind of the
+    reference flights (list of {band: (u, v, n)}), as the headwind component
+    along `heading` (the flight's direction, ° true; + = more headwind than
+    before).  Bands with fewer than BAND_MIN_REF references are skipped.
+    {"b": band ft, "a": kt, "ref": the references' headwind kt, "n": references,
+     "np": wind pairs of the band, "dv": vector change kt, "lvl": level}.
+    A band resting on a single wind pair gets a level only when a neighbouring
+    band (± 200 ft) shows a change of at least BAND_ADVISORY the same way."""
+    if heading is None:
         return None
-    bd = {}
-    for b in range(200, 3001, 200):
-        v = [p["hw"] for p in pts if p["alt"] is not None and abs(p["alt"] - b) <= DEP_BAND_TOL_FT]
-        if len(v) >= DEP_MIN_N:
-            bd[str(b)] = round(sum(v) / len(v) - DEP_HW_BIAS, 1)
-    if not bd:
-        return None
-    return {"n": len(pts), "noise": None if noise is None else round(noise, 2), "bd": bd}
-
-
-def band_means(rep: dict | None) -> dict:
-    """{band ft: headwind kt} of an analysis (its cleaned 200-ft band means)."""
-    return {int(b): float(v) for b, v in ((rep or {}).get("bd") or {}).items()}
-
-
-def band_anomaly(bands: dict, refs: list, max_band: float = BAND_MAX_FT) -> dict | None:
-    """Largest difference of this aircraft's band headwinds from the mean of
-    the reference landings (list of {band: hw}); bands with fewer than
-    BAND_MIN_REF references are skipped.  {"b": band ft, "a": kt (+ = more
-    headwind than before), "ref": median kt, "n": references, "lvl": level}.
-    The median keeps one odd reference landing from moving the reference."""
-    best = None
-    for b, hw in bands.items():
+    hr = math.radians(heading)
+    ex, ey = math.sin(hr), math.cos(hr)
+    per = {}
+    for b, (u, v, n) in bands.items():
         if b > max_band:
             continue
-        vals = sorted(r[b] for r in refs if b in r)
-        if len(vals) < BAND_MIN_REF:
+        rs = [r[b] for r in refs if b in r]
+        if len(rs) < BAND_MIN_REF:
             continue
-        n = len(vals)
-        m = vals[n // 2] if n % 2 else 0.5 * (vals[n // 2 - 1] + vals[n // 2])
-        a = hw - m
-        if best is None or abs(a) > abs(best["a"]):
-            best = {"b": b, "a": round(a, 1), "ref": round(m, 1), "n": len(vals)}
-    if best:
-        best["lvl"] = band_level(best["a"])
+        mu, mv = _median([x[0] for x in rs]), _median([x[1] for x in rs])
+        hw, hw0 = -(u * ex + v * ey), -(mu * ex + mv * ey)
+        per[b] = {"b": b, "a": round(hw - hw0, 1), "ref": round(hw0, 1), "n": len(rs), "np": n,
+                  "dv": round(math.hypot(u - mu, v - mv), 1)}
+    if not per:
+        return None
+    best = max(per.values(), key=lambda x: abs(x["a"]))
+    best = dict(best)
+    lvl = band_level(best["a"])
+    if lvl != "none" and best["np"] < 2:
+        nb = [per.get(best["b"] + d) for d in (-200, 200)]
+        if not any(x and x["a"] * best["a"] > 0 and abs(x["a"]) >= BAND_ADVISORY for x in nb):
+            lvl = "none"
+    best["lvl"] = lvl
     return best
 
 
@@ -396,21 +428,6 @@ def _r0(v):
 
 def _r2(v):
     return None if v is None else round(v, 2)
-
-
-def refs_from(history: list, ts: float, heading) -> list:
-    """Band headwinds ({band: kt}) of the landings — and departures — in
-    history (records with "ts", "rwy_heading" and "shear") on the same runway
-    direction within BAND_WINDOW_SEC before ts."""
-    out = []
-    for e in history:
-        t = e.get("ts") or 0
-        if not (ts - BAND_WINDOW_SEC <= t < ts) or e.get("rwy_heading") != heading:
-            continue
-        bm = band_means(e.get("shear"))
-        if bm:
-            out.append(bm)
-    return out
 
 
 def report(rep: dict | None, band: dict | None) -> dict | None:
@@ -426,5 +443,16 @@ def report(rep: dict | None, band: dict | None) -> dict | None:
         out["band"] = band
     lv = [out.get("lvl") or "none", (band or {}).get("lvl") or "none"]
     out["lvl"] = max(lv, key=LEVELS.index)
-    out["v"] = 2
+    out["v"] = REPORT_V
     return out
+
+
+def ramp_level(rep: dict | None) -> str:
+    """Level of the ramps alone of a stored report (its loss / gain in the
+    low-level zone), to recombine it with a new band comparison."""
+    lv = "none"
+    for k, loss in (("loss", True), ("gain", False)):
+        c = (rep or {}).get(k)
+        if c and c.get("zone"):
+            lv = max(lv, level_of(c.get("sc"), loss), key=LEVELS.index)
+    return lv

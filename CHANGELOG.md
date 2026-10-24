@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing, departures in the band comparison; the six browser algorithms retired; Weather page: 10 m wind and gusts)
+## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing and departure, band comparison on the wind vector across runways; the six browser algorithms retired; Weather page: 10 m wind and gusts; upper-level temperature correction and moisture offsets learnt from MEPS; post-front data check)
 
 ### Windshear detection v2
 
@@ -19,14 +19,27 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Approach History — new WS display mode**: Level, Loss, Gain (1-km equivalents), F 1 km, Band Δ, Low, n (with noise); hover shows the whole report
 - **Replay** of 3 071 landings 9–23 Oct 2026 (benign weather): no ramp WSA, 37 ramp advisories (1.2 %); band comparison of the landings 3 WSA and 1 advisory (the three WSA: the wind change of 17 Oct ~09:04 UTC on 22L)
 
-### Windshear: departures in the band comparison
+### Windshear: band comparison on the wind vector, departures included
 
-- **Climb-outs compared too** (`collector/departures.py`, `collector/shear.py` `dep_bands()`, `WindshearTracker.dep_shear()`): every raw BDS 5,0 reply of a climb is kept and its band headwinds (TAS − GS, replies with ≤ 5° bank and the track within 15° of the runway direction, ±200 ft per band, ≥ 2 replies) are compared with the landings and departures of the previous 45 min on the same runway direction; live band alerts marked *departure* (`ph: dep`); go-around climb-outs not used
-- Departure runway from the first position and initial track (within 25° of a runway direction, ≤ 1 NM from its extended centreline)
-- Departures become references for the landings and departures of the next 45 min (also reloaded after a restart); TAS − GS of climb-outs was 2.3 kt larger than that of landings in the same bands (9–23 Oct, 1 946 replies), offset removed
-- New column `departure_profiles.shear_json` (migration in `database/db.py`; `database/schema.sql` also lists both new `shear_json` columns)
-- Page: banner `RWY 22R departure`, log `22R dep`, ILS profile `WSA DEP`; reference count shown as *landings and departures*
-- Approximate replay (stored observations): landing alerts unchanged, landings with ≥ 3 references 89 → 93 %; climb-outs 1 WSA (FIN863 22R 17 Oct 08:54, 25 kt less headwind at 1 200 ft — ten minutes before the first landing with the same change) and 27 advisories (1.0 %)
+- **Band comparison on the wind vector** (`collector/shear.py` `vec_bands()`, `vec_refs()`, `band_anomaly()`): each flight's heading-calibrated band winds (prof_json, 400–1 800 ft MSL; corrupt bands with a mean above 80 kt or a spread above 15 kt left out) against the median wind of **all landings and departures of the previous 45 min, any runway**, as the headwind change along the flight's direction; a landing band needs ≥ 2 wind pairs; a departure band on a single pair gets a level only when a neighbouring band agrees (≥ 10 kt the same way); the ramps keep TAS − GS
+- **Why:** the first version of the same day (TAS − GS band headwinds, same runway direction only, departures from raw replies in a ±15° track window with a 2.3 kt offset) did not work in practice — the data check found 55 % of departures without a same-direction landing in the previous 45 min (land 15 / depart 22R) and only 7 of 19 live climb-outs with enough replies; it was replaced (`dep_bands()`, `refs_from()` and the departures' raw-reply capture removed)
+- **Departures** (`collector/departures.py`, `WindshearTracker.dep_shear()`): the climb-out's band winds are compared live (band alerts marked *departure*, `ph: dep`) and at the end; every climb-out becomes a reference for 45 min (reloaded from `departure_profiles.prof_json` after a restart); runway from the first position and initial track (within 25°, ≤ 1 NM from the extended centreline); go-around climb-outs not used
+- **Reports, version 3:** `approach_history.shear_json` and the new `departure_profiles.shear_json` (`rwy`, `hdg`, `band` {`b`, `a`, `ref`, `n`, `np`, `dv`, `lvl`}, `lvl`, `v`; migration in `database/db.py`, both columns also in `database/schema.sql`); the startup back-fill (`run.py`) now also fills the departures and recomputes the band comparison of older reports (landings keep their ramps), landings and departures in one time order — 6 400 flights in a few seconds
+- Page: banner `RWY 22R departure`, log `22R dep`, ILS profile `WSA DEP`; Approach History *Band Δ* and the report hover describe the vector comparison
+- **Replay** 9–24 Oct (3 310 landings, 3 084 departures): landings 4 WSA (17 Oct ×3, 18 Oct); departures 9 WSA and 21 advisories (1 %) — FIN863 22R at 08:54 on 17 Oct ten minutes before the landings, the reversed wind seen by the departures on 04 at 09:13–09:38, and a departure at 04:42 UTC on 24 Oct (+16 kt at 1 800 ft) during the night-time frontal passage
+
+### Upper-level temperature correction (learnt from MEPS)
+
+- New `collector/tcorr.py` and table `t_correction`: every hour (hourly jobs in `run.py`) the mean Mode S − MEPS difference per level of the last 21 days (hours with ≥ 8 aircraft, raw hourly profiles) is learnt; the correction at 400, 300, 250 and 200 hPa (shrunk with 24 hours, from 24 hours on) is applied when the Skew-T (live, hour, flight) and the time–height section are served (`web/api/sounding.py`): interpolated in log pressure, held above 200 hPa, faded out between 400 and 500 hPa; stored data stay raw
+- MEPS check: new column *Correction* per level; Sonde check: band bias *with* the correction and a note (`web/app.py`, `static/js/sounding.js`); Skew-T badge `· upper T corr.` and hover with the raw value (`static/js/skewt_chart.js`); time–height hover note (`static/js/timeheight.js`)
+- Without model data the last learnt values stay in use; optional config `TEMP_CORRECTION` (default True) and `TEMP_CORRECTION_DAYS` (21)
+- Test: learnt from 19–24 Oct leaving out each sounding's day, 27 soundings 12–24 Oct: 200–300 hPa RMS 1.27 → 0.96 K, bias +0.8–0.9 → +0.1–0.3 K; 400–925 hPa unchanged
+
+### Moisture indicator: offsets learnt from MEPS
+
+- `collector/moisture.py`: offsets per layer and direction also from the MEPS model humidity (model levels, same area): hours of the last 14 days with ≥ 4 climbs / descents in a layer give aircraft − model Tv − T pairs; with ≥ 12 hours the model offset (shrunk with 6 hours) replaces the sonde offset; otherwise, or with `MOIST_MEPS_OFFSETS = False` (optional config), the soundings as before
+- API: `offsets_src`, `offsets_meps_h` (moisture of the Skew-T), `mcal` `src` / `n_meps` (time–height); hovers name the source
+- Leave-one-day-out test at 8 soundings per layer: bias +11 / +1 / +13 → 0 / +2 / −6 points; scatter unchanged
 
 ### Retired: the six browser algorithms (v1)
 
@@ -41,8 +54,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documentation
 
+- README: new section *Project status and data checks* (data collection continues; findings of the post-front check of 24 Oct: windshear, moisture, temperature, wind, heights; model data optional); *Upper-level temperature correction* under the MEPS check; *Moisture (trial)* status after the front and the MEPS offsets; windshear band comparison on the wind vector and its results; `t_correction`, `departure_profiles.shear_json`, API fields and optional config keys
 - README: new *Weather* controls Wind and Gusts, `meps_wx_hours` fields `u v g`, `/api/weather/frames` fields
-- README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, departures in the band comparison, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, `shear_json` of both tables, API and project structure
+- README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, departures, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, API and project structure
 
 ## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page with cloud layers; weather overlay on the Live Map with MEPS and FMI radar; user management; unified dark-theme diagram background)
 

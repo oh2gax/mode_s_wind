@@ -195,6 +195,18 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                         hj_log.info("Sonde verification: %d row(s) added", n_sv)
                 except Exception as exc:
                     hj_log.warning("Sonde verification failed: %s", exc)
+            # Upper-level temperature correction learnt from the MEPS model
+            # (collector/tcorr.py): relearnt every hour from the raw hourly
+            # profiles; without model data the last learnt values stay in use
+            try:
+                from collector import tcorr as _tc
+                if _tc.ENABLED:
+                    _tv = _tc.update(db)
+                    if _tv and (_tv["ts"] // 3600) % 24 == 0:
+                        hj_log.info("Temperature correction (MEPS): %s",
+                                    " ".join(f"{p} hPa {c:+.2f} K" for p, c in sorted(_tv["corr"].items())))
+            except Exception as exc:
+                hj_log.warning("Temperature correction failed: %s", exc)
             _hc = heading_cal.get()
             if _hc is not None and _hc.enabled:
                 n_hc = _hc.save(db)
@@ -312,15 +324,15 @@ def _on_departure_committed(record: dict) -> None:
 
 
 def _preload_dep_refs(ws_tracker) -> None:
-    """Departures of the last 45 min with a windshear report → the band
-    comparison references of the windshear tracker (so a restart does not
-    leave the comparison without them)."""
+    """Climb-out profiles of the last 45 min → the band comparison references
+    of the windshear tracker (so a restart does not leave the comparison
+    without them)."""
     from database.db import get_db
     try:
         rows = get_db().execute(
-            "SELECT ts, shear_json FROM departure_profiles "
-            "WHERE ts >= ? AND shear_json IS NOT NULL", (time.time() - 2700,)).fetchall()
-        ws_tracker.preload_dep_refs([{"ts": r[0], "shear": json.loads(r[1])} for r in rows])
+            "SELECT ts, prof_json FROM departure_profiles "
+            "WHERE ts >= ? AND ga = 0 AND prof_json IS NOT NULL", (time.time() - 2700,)).fetchall()
+        ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1])} for r in rows])
     except Exception as exc:                              # noqa: BLE001
         log.debug("Departure windshear references not loaded: %s", exc)
 
@@ -447,67 +459,115 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
 
 def _shear_backfill(ws_tracker) -> None:
     """One-off at start: windshear reports (detection v2, collector/shear.py)
-    for the stored landings that have none but still have their raw reply
-    series (approach_series, kept APPROACH_SERIES_DAYS).  In time order, so
-    each landing is compared with the landings before it; written in batches,
-    then added to the landings in RAM.  Background thread, low priority."""
+    for the stored landings and departures that have none or an older version
+    (REPORT_V; 3 = band comparison on the wind vector, from 24 Oct 2026).
+    Landings without a report need their raw reply series (approach_series,
+    kept APPROACH_SERIES_DAYS) for the ramps; a landing with an older report
+    keeps its ramps and gets the new band comparison.  Departures get the band
+    comparison of their climb-out profile.  In time order, so each flight is
+    compared with the landings and departures before it; written in batches,
+    then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
     from database.db import get_db
     from collector import shear as _shear
     from collector.windshear import WindshearTracker
     sl = logging.getLogger("modes.windshear")
+    V = _shear.REPORT_V
+    old = f"instr(shear_json, '\"v\":{V}') = 0"
     try:
         time.sleep(30)                      # let the collector start first
         t_start = time.time()
         db = get_db()
-        first = db.execute(
-            """SELECT MIN(h.ts) FROM approach_history h
-               WHERE h.shear_json IS NULL
-                 AND EXISTS (SELECT 1 FROM approach_series s WHERE s.ts = h.ts AND s.icao = h.icao)"""
-        ).fetchone()[0]
+        f1 = db.execute(
+            f"""SELECT MIN(h.ts) FROM approach_history h
+               WHERE (h.shear_json IS NULL
+                      AND EXISTS (SELECT 1 FROM approach_series s WHERE s.ts = h.ts AND s.icao = h.icao))
+                  OR (h.shear_json IS NOT NULL AND {old.replace('shear_json', 'h.shear_json')})""").fetchone()[0]
+        f2 = db.execute(f"""SELECT MIN(ts) FROM departure_profiles
+                            WHERE ga = 0 AND (shear_json IS NULL OR {old})""").fetchone()[0]
+        first = min([x for x in (f1, f2) if x is not None], default=None)
         if first is None:
             return
-        rows = db.execute(
-            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.shear_json, s.data
+        t_from = first - _shear.BAND_WINDOW_SEC
+        land = db.execute(
+            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.prof_json, h.shear_json, s.data
                FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
-               WHERE h.ts >= ? ORDER BY h.ts""", (first - _shear.BAND_WINDOW_SEC,)).fetchall()
+               WHERE h.ts >= ? ORDER BY h.ts""", (t_from,)).fetchall()
+        dep = db.execute(
+            """SELECT id, ts, track, lat, lon, prof_json, shear_json FROM departure_profiles
+               WHERE ts >= ? AND ga = 0 ORDER BY ts""", (t_from,)).fetchall()
+        events = sorted([(r["ts"], 0, r) for r in land] + [(r["ts"], 1, r) for r in dep],
+                        key=lambda e: (e[0], e[1]))
         hist: deque = deque()
         done: dict = {}
-        batch = []
-        for i, row in enumerate(rows):
-            ts, heading = row["ts"], row["rwy_heading"]
+        b_land, b_dep = [], []
+        n_dep = 0
+
+        def is_old(sj):
+            return sj is None or f'"v":{V}' not in sj
+
+        for i, (ts, kind, row) in enumerate(events):
             while hist and hist[0]["ts"] < ts - _shear.BAND_WINDOW_SEC:
                 hist.popleft()
-            rep = json.loads(row["shear_json"]) if row["shear_json"] else None
-            if rep is None and row["data"]:
+            try:
+                prof = json.loads(row["prof_json"]) if row["prof_json"] else None
+            except ValueError:
+                prof = None
+            if ts >= first and is_old(row["shear_json"]):
+                refs = _shear.vec_refs(hist, ts)
                 try:
-                    d = WindshearTracker.decode_series(row["data"])
-                    b, s = d.get("b50") or {}, d.get("sw") or {}
-                    b50 = list(zip(*(b.get(c, []) for c in ("t", "roll", "trate", "trk", "gs", "tas", "alt"))))
-                    sw = list(zip(*(s.get(c, []) for c in ("t", "alt", "palt", "dthr", "xt"))))
-                    a = _shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"]))
-                    band = (_shear.band_anomaly(_shear.band_means(a), _shear.refs_from(hist, ts, heading))
-                            if a else None)
-                    rep = _shear.report(a, band)
+                    if kind == 0:
+                        rep_old = json.loads(row["shear_json"]) if row["shear_json"] else None
+                        band = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_ARR),
+                                                   refs, row["rwy_heading"])
+                        rep = None
+                        if rep_old is not None:
+                            rep = {k: v for k, v in rep_old.items() if k != "band"}
+                            if band:
+                                rep["band"] = band
+                            rep["lvl"] = max(_shear.ramp_level(rep_old), (band or {}).get("lvl") or "none",
+                                             key=_shear.LEVELS.index)
+                            rep["v"] = V
+                        elif row["data"]:
+                            d = WindshearTracker.decode_series(row["data"])
+                            b, s = d.get("b50") or {}, d.get("sw") or {}
+                            b50 = list(zip(*(b.get(c, []) for c in ("t", "roll", "trate", "trk", "gs", "tas", "alt"))))
+                            sw = list(zip(*(s.get(c, []) for c in ("t", "alt", "palt", "dthr", "xt"))))
+                            rep = _shear.report(_shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])), band)
+                        if rep is not None:
+                            b_land.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                            done[(int(ts), row["icao"])] = rep
+                    else:
+                        rwy, hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])
+                        band = (_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg)
+                                if hdg is not None and prof else None)
+                        rep = {"rwy": rwy, "hdg": hdg, "band": band,
+                               "lvl": (band or {}).get("lvl") or "none", "v": V}
+                        b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                        n_dep += 1
                 except Exception as exc:            # noqa: BLE001
-                    sl.debug("Windshear back-fill failed for %s: %s", row["icao"], exc)
-                    rep = None
-                if rep is not None:
-                    batch.append((json.dumps(rep, separators=(",", ":")), row["id"]))
-                    done[(int(ts), row["icao"])] = rep
-            hist.append({"ts": ts, "rwy_heading": heading, "shear": rep})
-            if len(batch) >= 200:
-                db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", batch)
+                    sl.debug("Windshear back-fill failed at %s: %s", ts, exc)
+            bv = _shear.vec_bands(prof, 1)
+            if bv:
+                hist.append({"ts": ts, "bv": bv})
+            if len(b_land) >= 200:
+                db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
                 db.commit()
-                batch = []
+                b_land = []
+            if len(b_dep) >= 200:
+                db.executemany("UPDATE departure_profiles SET shear_json = ? WHERE id = ?", b_dep)
+                db.commit()
+                b_dep = []
             if i % 50 == 49:
                 time.sleep(0.05)
-        if batch:
-            db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", batch)
-            db.commit()
+        if b_land:
+            db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
+        if b_dep:
+            db.executemany("UPDATE departure_profiles SET shear_json = ? WHERE id = ?", b_dep)
+        db.commit()
         n_ram = ws_tracker.attach_shear(done)
-        sl.info("Windshear reports back-filled for %d stored landing(s) (%d in RAM) in %.0f s",
-                len(done), n_ram, time.time() - t_start)
+        sl.info("Windshear reports back-filled for %d stored landing(s) (%d in RAM) and %d departure(s) in %.0f s",
+                len(done), n_ram, n_dep, time.time() - t_start)
     except Exception as exc:
         sl.warning("Windshear back-fill failed: %s", exc)
 
@@ -716,6 +776,12 @@ def main() -> None:
         log.info("Sounding fetcher off (SONDE_FETCH = False); stored soundings still shown")
 
     # ── MEPS model profiles (MET Norway open data → meps_hours) ──────────
+    # Model-learnt calibrations (optional; without model data both fall back:
+    # moisture offsets to the soundings, the temperature correction to the
+    # last learnt values or none)
+    from collector import moisture as _moist, tcorr as _tcorr
+    _moist.USE_MEPS = bool(getattr(cfg, "MOIST_MEPS_OFFSETS", True))
+    _tcorr.init(cfg)
     meps_fetcher = meps.init(cfg)
     if meps_fetcher.enabled:
         threading.Thread(target=meps_fetcher.run, name="meps", daemon=True).start()

@@ -421,3 +421,14 @@ CREATE TABLE IF NOT EXISTS sonde_verification (
     UNIQUE(kind, ts)
 );
 CREATE INDEX IF NOT EXISTS idx_sondever_ts ON sonde_verification(ts);
+
+-- ── t_correction ─────────────────────────────────────────────────────────────
+-- Upper-level temperature correction learnt every hour from the MEPS model
+-- (collector/tcorr.py, from 2026-10-24): data = {"ts", "days", "src", "n":
+-- {hPa: hours}, "bias": {hPa: Mode S − MEPS K}, "corr": {hPa: K added at
+-- 400–200 hPa}}.  Applied when the Skew-T and time–height are served; the
+-- stored profiles stay raw.  Kept 90 days (created by the module if missing).
+CREATE TABLE IF NOT EXISTS t_correction (
+    ts   INTEGER PRIMARY KEY,
+    data TEXT    NOT NULL
+);

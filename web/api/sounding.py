@@ -59,7 +59,22 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
     if moist:
         out["moisture"] = _moisture(db, now, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
                                     cfg.SOUNDING_RADIUS_KM, live_levels=levels, now=now)
+    _tcorr(db, out)
     return out
+
+
+def _tcorr(db, out: dict) -> None:
+    """Upper-level temperature correction learnt from the MEPS model
+    (collector/tcorr.py) on the levels of a Skew-T profile, with "tcorr"
+    describing it (absent when off or never learnt)."""
+    try:
+        from collector import tcorr
+        tc = tcorr.current(db)
+        if tc:
+            tcorr.apply_levels(out.get("levels"), tc)
+            out["tcorr"] = tcorr.info(tc)
+    except Exception:                                    # noqa: BLE001  (never break the profile)
+        log.debug("temperature correction failed", exc_info=True)
 
 
 def _moist_faint_pct():
@@ -90,7 +105,7 @@ def build_hour_sounding(db: sqlite3.Connection, hour_ts: int, moist_at: Optional
     if not row:
         return {"error": "no profile stored for this hour"}
     d = json.loads(row["data"])
-    return {
+    out = {
         "mode":         "hour",
         "hour_ts":      row["ts"],
         "radius_km":    d.get("r"),
@@ -103,6 +118,8 @@ def build_hour_sounding(db: sqlite3.Connection, hour_ts: int, moist_at: Optional
         "sfc":          d.get("m"),
         **({"moisture": _moisture(db, row["ts"], *moist_at)} if moist_at else {}),
     }
+    _tcorr(db, out)
+    return out
 
 
 def list_profile_hours(db: sqlite3.Connection, date: str) -> list:
@@ -180,13 +197,15 @@ def build_flight_sounding(flight_id: int, db: sqlite3.Connection) -> dict:
     # Sort high pressure → low pressure (surface → top) for Skew-T
     levels.sort(key=lambda lv: lv["pressure"], reverse=True)
 
-    return {
+    out = {
         "flight":       flight,
         "obs_used":     obs_used,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "levels":       levels,
         "mode":         "flight",
     }
+    _tcorr(db, out)
+    return out
 
 
 # ── Time–height cross-section (hourly profile archive) ───────────────────────
@@ -214,7 +233,10 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
                                Tv − T corrected K, raw K, ± % from the flights], …]}, …],
              "gcal": {"soundings", "pairs", "computed"} of the height calibration,
              "mcal": {layer bottom: {"climb", "descent" K, "n_climb", "n_descent",
-                      "n" soundings}} of the moisture offsets}
+                      "n" soundings, "src" meps / meps+sondes / sondes / none,
+                      "n_meps" model hours}} of the moisture offsets,
+             "tcorr": the upper-level temperature correction applied to the
+                      "lv" temperatures (collector/tcorr.py), or None}
     D-values and thickness temperatures: collector/gnss_heights.py.
     """
     import json
@@ -295,7 +317,8 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
     except Exception:                                    # noqa: BLE001  (never break the section)
         raw = None
     # moisture indicator (trial, collector/moisture.py): Tv − T of 1 000–15 000 ft
-    # from the flights of a few hours around each hour, offsets from the soundings
+    # from the flights of a few hours around each hour, offsets from the MEPS model
+    # (hourly) or the soundings
     mcal = None
     if raw is not None and gcal is not None:
         try:
@@ -312,12 +335,29 @@ def build_time_height(db: sqlite3.Connection, end_ts: float, hours: int,
             for c in cols:
                 if c["ts"] in mcols:
                     c["mo"] = mcols[c["ts"]]
-            mcal = {str(lo): {k: o[k] for k in ("climb", "descent", "n_climb", "n_descent", "n")}
+            mcal = {str(lo): {k: o.get(k) for k in ("climb", "descent", "n_climb", "n_descent", "n",
+                                                    "src", "n_meps")}
                     for lo, o in offs.items()}
         except Exception:                                # noqa: BLE001
             pass
+    # upper-level temperature correction (collector/tcorr.py), after the
+    # height and moisture products, which use the raw Mach/TAS temperature
+    tci = None
+    try:
+        from collector import tcorr
+        tc = tcorr.current(db)
+        if tc:
+            for c in cols:
+                for r in c["lv"]:
+                    hi = tcorr.layer_top(r[0])
+                    k = tcorr.at_ft(tc, (r[0] + hi) / 2 if hi is not None else r[0])
+                    if abs(k) >= 0.05 and r[1] is not None:
+                        r[1] = round(r[1] + k, 2)
+            tci = tcorr.info(tc)
+    except Exception:                                    # noqa: BLE001
+        pass
     return {"layers": LAYER_EDGES, "end_ts": end_hour + (3600 if end_hour >= cur else 0),
-            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal, "mcal": mcal,
+            "start_ts": start, "hours": hours, "cols": cols, "gcal": gcal, "mcal": mcal, "tcorr": tci,
             "moist_faint_pct": _moist_faint_pct(),
             "sondes": sonde_columns(start, end_hour + 3600)}
 

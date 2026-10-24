@@ -629,6 +629,8 @@
         const ch = p3 && p3.T[i] != null ? c.T[i] - p3.T[i] : null;
         parts.push(`T ${c.T[i].toFixed(1)} °C` + (an != null ? ` · anomaly ${an >= 0 ? '+' : ''}${an.toFixed(1)} K` : '') +
                    (ch != null ? ` · 3 h change ${ch >= 0 ? '+' : ''}${ch.toFixed(1)} K` : '') + ` <span class="mini-tip-dim">(${c.TN[i]} replies)</span>`);
+        if (data && data.tcorr && hi > 18000)
+          parts.push(`<span class="mini-tip-dim">upper levels corrected for the fleet's warm bias (learnt from the MEPS model; ${tcorrLevels(data.tcorr)})</span>`);
       }
       const lv = lapseValue(P, c, i);
       if (lv) parts.push(`lapse rate ${lv.v.toFixed(1)} K/km <span class="mini-tip-dim">(${(LAPSE.find(b => lv.v >= b[0] && lv.v < b[1]) || LAPSE[3])[3]})</span>`);
@@ -650,7 +652,7 @@
         ` <span class="mini-tip-dim">(${tk.n} climb${tk.n === 1 ? '' : 's'} / descents${tk.sd != null ? `, ±${tk.sd.toFixed(1)} K` : ''})</span>`);
       const mo = c.MO[i];
       if (mo && mo.idx != null) parts.push(`moisture (trial) ${fmtFt(mo.lo)}–${fmtFt(mo.hi)}: <b>${moistClass(mo.idx)[3]}</b>, index ${mo.idx} %` +
-        ` <span class="mini-tip-dim">(±${mo.se ?? '–'} %${mo.ser != null ? ` — ±${mo.ser} % from the flights, the rest systematic` : ''}; ${mo.n} climbs / descents of ±${mo.lo < 5000 ? 2 : 1} h; Tv − T ${mo.corr >= 0 ? '+' : ''}${mo.corr.toFixed(2)} K after the sonde offsets, ${mo.raw >= 0 ? '+' : ''}${mo.raw.toFixed(2)} K raw)</span>`);
+        ` <span class="mini-tip-dim">(±${mo.se ?? '–'} %${mo.ser != null ? ` — ±${mo.ser} % from the flights, the rest systematic` : ''}; ${mo.n} climbs / descents of ±${mo.lo < 5000 ? 2 : 1} h; Tv − T ${mo.corr >= 0 ? '+' : ''}${mo.corr.toFixed(2)} K after the offsets, ${mo.raw >= 0 ? '+' : ''}${mo.raw.toFixed(2)} K raw)</span>`);
       if (c.bulk && (st.field === 'thk' || tk)) {
         const b = c.bulk;
         parts.push(`<span class="mini-tip-dim">FL100–FL300: ${b.tv.toFixed(1)} °C` + (b.tref != null ? ` vs ${b.tref.toFixed(1)} °C (${b.tv - b.tref >= 0 ? '+' : ''}${(b.tv - b.tref).toFixed(1)} K)` : '') + `, ${b.n} flight${b.n === 1 ? '' : 's'}</span>`);
@@ -747,12 +749,19 @@
     el.innerHTML += ` <span class="th-lt">· faint: &lt; 3 replies · <span style="color:var(--th-sonde)">▼</span> Jokioinen launch · dashed frame: hour in progress</span>`;
   }
 
+  function tcorrLevels(tc) {
+    return Object.keys(tc.corr || {}).map(Number).sort((x, y) => y - x)
+      .map(p => `${p} hPa ${tc.corr[p] > 0 ? '+' : ''}${tc.corr[p].toFixed(1)} K`).join(', ');
+  }
+
   function moistNote() {
     const m = data && data.mcal;
     if (!m) return '';
     const n = Math.max(...Object.values(m).map(o => o.n || 0), 0);
+    const nm = Math.max(...Object.values(m).map(o => (o.src || '').includes('meps') ? (o.n_meps || 0) : 0), 0);
+    if (nm) return ` <span class="th-lt">(offsets from ${nm} hours of the MEPS model humidity — still learning)</span>`;
     return n ? ` <span class="th-lt">(offsets from ${n} sounding${n === 1 ? '' : 's'} — still learning)</span>`
-             : ' <span class="th-lt">(no sonde offsets yet)</span>';
+             : ' <span class="th-lt">(no offsets yet)</span>';
   }
   function calNote() {
     const g = data && data.gcal;

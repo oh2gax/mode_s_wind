@@ -453,6 +453,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     for (const l of lv) {
       miniHoverPts.push({ y: mskY(l.pressure), src: 'area', alt_ft: l.altitude, p: l.pressure,
                           t: l.temp, traw: areaSmooth ? l.temp_raw : null, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count,
+                          tc: l.temp_corr, tu: l.temp_uncorr,
                           ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count, ac: l.ac_count });
     }
   }
@@ -706,7 +707,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (!q) return;
     const { ML, MT } = MSK;
     const col = q.cls === 'GOOD' ? T.dqGood : q.cls === 'FAIR' ? T.dqFair : T.dqLow;
-    const main = `DATA ${q.cls} · ${q.n} aircraft · ${q.obs} obs`;
+    const main = `DATA ${q.cls} · ${q.n} aircraft · ${q.obs} obs` + (miniArea && miniArea.tcorr ? ' · upper T corr.' : '');
     const key = q.weakN ? `  ○ = 1–2 aircraft` : '';
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
     const x = ML + 16, y = MT + 12, w = ctx.measureText(main + key).width + 16;
@@ -1128,6 +1129,8 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (best.t != null) lines.push(`Temp ${best.t.toFixed(1)} °C` +
         (best.traw != null ? ` <span class="mini-tip-dim">(smoothed; layer ${best.traw.toFixed(1)})</span>` : '') +
         (best.t10 != null ? ` <span class="mini-tip-dim">(10–90 % ${best.t10.toFixed(0)}…${best.t90.toFixed(0)}, n ${best.tn}${best.ac != null ? ', ' + best.ac + ' aircraft' : ''})</span>` : ''));
+    if (best.tc) lines.push(`<span class="mini-tip-dim">corrected ${best.tc > 0 ? '+' : ''}${best.tc.toFixed(1)} K for the fleet's warm bias at this level (learnt from the MEPS model)` +
+        (best.tu != null ? `; raw Mach/TAS ${best.tu.toFixed(1)} °C` : '') + `</span>`);
     if (dqShow && best.src === 'area' && best.ac != null && best.ac <= 2)
       lines.push(`<span style="color:${miniSkewTTheme().weak}">Only ${best.ac} aircraft in this layer — single-aircraft value, read with care</span>`);
     if (best.ws != null) lines.push(`Wind ${String(Math.round(best.wd)).padStart(3, '0')}° / ${Math.round(best.ws)} kt` +
@@ -1573,7 +1576,9 @@ function createSkewT(canvas, tip, cfg = {}) {
     const mr = miniMeps ? rhAt(miniMeps.levels, mepsRh, p) : null;
     if (mr != null) parts.push(`<span style="color:${miniSkewTTheme().meps}">MEPS RH ${Math.round(mr)} % at this level</span>`);
     parts.push(`<span class="mini-tip-dim">Index ≈ RH from the thickness of climbs / descents (virtual temperature) minus the Mach/TAS temperature — a first trial, a tendency rather than a measurement` +
-      (miniMoist ? `, offsets from ${miniMoist.offsets_n || 0} sounding${miniMoist.offsets_n === 1 ? '' : 's'}` : '') + `</span>`);
+      (miniMoist ? ((miniMoist.offsets_src || '').includes('meps')
+        ? `, offsets from ${miniMoist.offsets_meps_h || 0} hours of the MEPS model humidity`
+        : `, offsets from ${miniMoist.offsets_n || 0} sounding${miniMoist.offsets_n === 1 ? '' : 's'}`) : '') + `</span>`);
     return parts.join('<br>');
   }
 

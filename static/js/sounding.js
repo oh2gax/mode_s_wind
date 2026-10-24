@@ -640,9 +640,15 @@ function renderVerification() {
   ageChart('sv-age-w', H, 'w_rms', 'kt', L.w_rms);
   // bands
   const BN = { '0-5k': '0–5 000 ft', '5-10k': '5–10 000 ft', '10-20k': '10–20 000 ft', '20-30k': '20–30 000 ft', '30k+': '> 30 000 ft' };
+  const tcOn = !!d.tcorr;
   document.getElementById('sv-bands').innerHTML = d.bands.length
-    ? `<thead><tr><th>Band</th><th class="num">Layers T / W</th><th class="num">T bias (K)</th><th class="num">T SD</th><th class="num">T RMS</th><th class="num">Wind RMS (kt)</th><th class="num">Speed bias</th></tr></thead><tbody>` +
-      d.bands.map(b => `<tr><td style="white-space:nowrap">${(BN[b.band] || b.band).replace(/ /g, '\u00a0')}</td><td class="num text-dim">${b.n_t} / ${b.n_w}</td><td class="num">${_f(b.t_bias, 2, true)}</td><td class="num">${_f(b.t_sd, 2)}</td><td class="num">${_f(b.t_rms, 2)}</td><td class="num">${_f(b.w_rms, 1)}</td><td class="num">${_f(b.ws_bias, 1, true)}</td></tr>`).join('') + '</tbody>'
+    ? `<thead><tr><th>Band</th><th class="num">Layers T / W</th><th class="num">T bias (K)</th>` +
+      (tcOn ? `<th class="num" title="The bias with the upper-level temperature correction of the Skew-T and the time–height section (learnt from the MEPS model)">corrected</th>` : '') +
+      `<th class="num">T SD</th><th class="num">T RMS</th><th class="num">Wind RMS (kt)</th><th class="num">Speed bias</th></tr></thead><tbody>` +
+      d.bands.map(b => `<tr><td style="white-space:nowrap">${(BN[b.band] || b.band).replace(/ /g, '\u00a0')}</td><td class="num text-dim">${b.n_t} / ${b.n_w}</td><td class="num">${_f(b.t_bias, 2, true)}</td>` +
+        (tcOn ? `<td class="num text-dim">${b.t_bias_corr != null ? _f(b.t_bias_corr, 2, true) : ''}</td>` : '') +
+        `<td class="num">${_f(b.t_sd, 2)}</td><td class="num">${_f(b.t_rms, 2)}</td><td class="num">${_f(b.w_rms, 1)}</td><td class="num">${_f(b.ws_bias, 1, true)}</td></tr>`).join('') + '</tbody>' +
+      (tcOn ? `<tfoot><tr><td colspan="8" class="text-dim" style="padding:4px 6px">${tcorrText(d.tcorr)}</td></tr></tfoot>` : '')
     : '<tbody><tr><td class="sv-empty">No verified launches in this period yet.</td></tr></tbody>';
   // launches
   document.getElementById('sv-launches').innerHTML = d.launches.length
@@ -658,6 +664,16 @@ function renderVerification() {
       }).join('') + '</tbody>'
     : '<tbody><tr><td class="sv-empty">No verified launches in this period yet — a launch is verified once the hour after it is over and the sounding is stored.</td></tr></tbody>';
   renderGnssCal();
+}
+
+// The upper-level temperature correction (collector/tcorr.py) in words
+function tcorrText(tc) {
+  if (!tc || !tc.corr) return '';
+  const lv = Object.keys(tc.corr).map(Number).sort((a, b) => b - a)
+    .map(p => `${p} hPa ${_f(tc.corr[p], 2, true)}`).join(' · ');
+  const n = Math.max(0, ...Object.values(tc.n || {}).map(v => v || 0));
+  return `The values here are the raw Mach/TAS temperatures. The Skew-T and the time–height section correct the fleet's warm bias at the upper levels: ${lv} K ` +
+    `(learnt from ${n} hours of the MEPS model, last ${tc.days || 21} days, updated ${tc.ts ? new Date(tc.ts * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '–'}; nothing below about FL180).`;
 }
 
 // GNSS height calibration (collector/gnss_heights.py): band correction,
@@ -786,9 +802,11 @@ function renderMepsCheck() {
   levelChart('mc-chart-w', L, 'w_rms', 'ws_bias', 'kt', 'n_w');
   document.getElementById('mc-levels').innerHTML = L.length
     ? `<thead><tr><th>Level</th><th class="num" title="Pressure altitude (standard atmosphere)">≈ ft</th><th class="num">Hours</th><th class="num">T mean (K)</th><th class="num">T SD</th><th class="num">T RMS</th>` +
+      (d.tcorr ? `<th class="num" title="Correction added to the Mode S temperature in the Skew-T and the time–height section at this level (learnt from these differences, last ${d.tcorr.days || 21} days, shrunk while there are few hours); this table compares the raw values">Correction</th>` : '') +
       `<th class="num">Wind RMS (kt)</th><th class="num">Speed diff.</th><th class="num" title="Height of the pressure surface from the aircraft GNSS heights minus MEPS (m), and the correlation of the hourly values">Height diff. (m)</th><th class="num">SD</th><th class="num">r</th></tr></thead><tbody>` +
       L.map(l => `<tr><td>${l.p} hPa</td><td class="num text-dim">${l.ft.toLocaleString()}</td><td class="num text-dim">${l.n_t}</td>` +
         `<td class="num">${_f(l.t_bias, 2, true)}</td><td class="num">${_f(l.t_sd, 2)}</td><td class="num ${l.t_rms > 1.5 ? 'snd-dev' : ''}">${_f(l.t_rms, 2)}</td>` +
+        (d.tcorr ? `<td class="num text-dim">${d.tcorr.corr && d.tcorr.corr[String(l.p)] != null ? _f(d.tcorr.corr[String(l.p)], 2, true) : ''}</td>` : '') +
         `<td class="num ${l.w_rms > 12 ? 'snd-dev' : ''}">${_f(l.w_rms, 1)}</td><td class="num">${_f(l.ws_bias, 1, true)}</td>` +
         `<td class="num">${l.n_d ? _f(l.d_bias, 1, true) : '–'}</td><td class="num text-dim">${l.n_d ? _f(l.d_sd, 1) : '–'}</td><td class="num text-dim">${l.d_r != null ? l.d_r.toFixed(3) : '–'}</td></tr>`).join('') + '</tbody>'
     : '<tbody><tr><td class="sv-empty">No hours with both a Mode S profile and the model in this period.</td></tr></tbody>';
