@@ -177,6 +177,7 @@
             </select>
             <a class="ws-log-info" href="/doc/Windshear_Algorithms_v1_Legacy.pdf" target="_blank" rel="noopener"
                title="Detection v2 (from 24 Oct 2026): one server-side detector replaced the six browser algorithms Pair, Gradient, Energy, Rate, Baseline and Kinematic, which were retired — they mostly flagged the normal change of the wind with height. Opens the description of the retired algorithms (PDF).">ⓘ v2</a>
+            {% if guide_links.windshear %}<a class="guide-q" href="{{ guide_links.windshear }}" target="_blank" rel="noopener" title="User guide: Windshear detection and the Windshear page — PDF in a new tab">?</a>{% endif %}
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <!-- 55/45 split: alerts left, today's stats right -->
