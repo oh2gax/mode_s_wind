@@ -22,6 +22,12 @@
  *            or null;  sondeRef: time its age is counted to (null = now)
  *   meps     MEPS model profile from /api/meps/profile ({found, levels, run,
  *            lead, provisional…}) or null — teal lines and barbs
+ *   anaSrc   profile the automatic analysis is computed from (from 2026-10-24):
+ *            'modes' (default: the area / flight profile with the METAR
+ *            surface), 'meps' or 'sonde' — the shown model / radiosonde
+ *            profile averaged into the Mode S layers (skewtSondeLayers of
+ *            skewt_indices.js) with its own surface point; falls back to
+ *            Mode S when that profile is not shown (tag at the top left)
  *   rh       RH strip on/off: a narrow strip between the plot and the wind
  *            barbs with the trial moisture indicator (moist = the "moisture"
  *            of /api/sounding?moist=1 or /api/sounding/hour, collector/
@@ -30,7 +36,8 @@
  *            (with meps) the model's relative humidity as a teal line
  *
  * Needs skewt_analysis.js (analyzeSkewT, skewtMoistLapse,
- * skewtContrailThresholds) loaded first.
+ * skewtContrailThresholds) loaded first, and skewt_indices.js
+ * (skewtSondeLayers) for the MEPS / sonde analysis source.
  */
 
 // ── ISA helpers (global: also used by live_map.js) ───────────────────────────────────────────────────────────
@@ -92,6 +99,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       sondeNote = null,   // "no sounding" text when switched on but none found
       miniMeps = null,    // MEPS model profile (/api/meps/profile) or null
       mepsNote = null,    // "no model data" text when switched on but none found
+      anaSrc = 'modes',   // analysis source: 'modes' | 'meps' | 'sonde'
+      anaSfc = null,      // surface point of the analysis source (set per draw)
       rhOn = false,       // RH strip (trial moisture indicator + sonde RH)
       miniMoist = null;   // {rows: [[lo, hi, index, ±, flights, Tv−T corr, raw]], window_h, offsets_n}
   const RH_W = 46;        // strip width (px) when on
@@ -225,6 +234,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       anaIso:    light ? '#64748b' : '#7dd3fc',
       anaWind:   light ? '#b45309' : '#fbbf24',
       anaInv:    light ? '#ea580c' : '#fb923c',
+      anaCloud:  light ? '#64748b' : '#cbd5e1',      // likely cloud layers (MEPS / sonde)
       anaWarm:   light ? '#dc2626' : '#f87171',
       anaCold:   light ? '#2563eb' : '#60a5fa',
       anaCon:    light ? '#475569' : '#cbd5e1',
@@ -816,11 +826,11 @@ function createSkewT(canvas, tip, cfg = {}) {
     }
     ctx.stroke(); ctx.setLineDash([]);
     // mixing-ratio line from the surface dewpoint to the LCL
-    if (sfcP != null && miniSfc && miniSfc.td != null) {
+    if (sfcP != null && anaSfc && anaSfc.td != null) {
       const w = pc.w / 1000;
       ctx.strokeStyle = T.dew; ctx.lineWidth = 1.2; ctx.setLineDash([2, 3]); ctx.beginPath();
       first = true;
-      for (let p = miniSfc.p; p >= pc.lcl.p - 0.01; p -= 5) {
+      for (let p = anaSfc.p; p >= pc.lcl.p - 0.01; p -= 5) {
         const pp = Math.max(p, pc.lcl.p);
         const e = w * pp / (0.622 + w), le = Math.log(e / 6.112);
         const tdp = 243.5 * le / (17.67 - le);
@@ -830,14 +840,14 @@ function createSkewT(canvas, tip, cfg = {}) {
     }
     // LCL: short bar across the parcel path
     const ftAgl = v => `${(Math.round(v / 100) * 100).toLocaleString()}ft AGL`;
-    const cloud = miniSfc && miniSfc.cld ? ` · METAR ${miniSfc.cld}` : '';
+    const cloud = anaSfc && anaSfc.cld ? ` · METAR ${anaSfc.cld}` : '';
     if (inPlot(pc.lcl.p)) {
       const x = mskX(pc.lcl.t, pc.lcl.p), y = mskY(pc.lcl.p);
       ctx.strokeStyle = T.dew; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x - 14, y); ctx.lineTo(x + 14, y); ctx.stroke();
       labels.push({ y, color: T.dew,
                     text: `LCL ${ftAgl(pc.lcl.agl)}${pc.cuBase ? ' Cu base' : ''}${cloud}` });
-      miniHoverPts.push({ y, src: 'lcl', p: pc.lcl.p, pc });
+      miniHoverPts.push({ y, src: 'lcl', p: pc.lcl.p, pc, sfc: anaSfc, tag: anaSrcInfo ? anaSrcInfo.who : null });
     }
     // CAPE / CIN / LI and the equilibrium level (cloud top of a cumulus)
     const li = pc.li != null ? ` LI ${pc.li > 0 ? '+' : ''}${pc.li.toFixed(1)}` : '';
@@ -851,8 +861,8 @@ function createSkewT(canvas, tip, cfg = {}) {
       labels.push({ y: inPlot(pc.lcl.p) ? mskY(pc.lcl.p) - 1 : MT + 24, color: T.anaTherm,
                     text: `PARCEL stable (no CAPE)${li}` });
     }
-    if (pc.spread <= 1.5 && miniSfc && inPlot(miniSfc.p)) {
-      labels.push({ y: mskY(miniSfc.p) - 16, color: T.dew,
+    if (pc.spread <= 1.5 && anaSfc && inPlot(anaSfc.p)) {
+      labels.push({ y: mskY(anaSfc.p) - 16, color: T.dew,
                     text: `T−Td ${pc.spread.toFixed(0)}K: FOG / LOW ST risk` });
     }
   }
@@ -860,11 +870,63 @@ function createSkewT(canvas, tip, cfg = {}) {
   // ── Skew-T analysis overlay (skewt_analysis.js) ─────────────────────────────
   // Lines / bands across the plot, labels at its right edge (spread so they do
   // not overlap), the stability strip just right of the pressure axis.
+  // Analysis source (from 2026-10-24): the Mode S profile (default) or the
+  // shown MEPS / sonde profile averaged into the Mode S layers, each with its
+  // own surface point; falls back to Mode S when the chosen one is not shown.
+  // → {src, levels, sfc, who, tag, note} (cached per input objects)
+  let anaSrcInfo = null, anaSrcKey = null;
+  function analysisSource() {
+    const key = [anaSrc, miniArea, miniSfc, miniMeps, miniSonde];
+    if (anaSrcKey && key.every((v, i) => v === anaSrcKey[i])) return anaSrcInfo;
+    anaSrcKey = key;
+    const pad = n => String(n).padStart(2, '0');
+    const avail = typeof skewtSondeLayers === 'function';
+    const fromLevels = (raw, who) => {
+      const L = raw.filter(l => l.pressure != null).slice().sort((x, y) => y.pressure - x.pressure);
+      const s0 = L.find(l => l.temp != null);
+      let z = s0 && s0.z_m != null ? s0.z_m : null;
+      if (s0 && z == null) {            // below the lowest level with a height: hypsometric
+        const z1 = L.find(l => l.z_m != null && l.temp != null);
+        if (z1) z = z1.z_m - 287.04 * ((s0.temp + z1.temp) / 2 + 273.15) / 9.80665 * Math.log(s0.pressure / z1.pressure);
+      }
+      return { levels: skewtSondeLayers(L), raw: L,
+               sfc: s0 ? { p: s0.pressure, t: s0.temp, td: s0.dewpoint != null ? s0.dewpoint : null,
+                           elev: z != null ? z / 0.3048 : null, cld: null, who } : null };
+    };
+    let info = null, note = '';
+    if (anaSrc === 'meps') {
+      if (miniMeps && avail) {
+        const r = new Date(miniMeps.run * 1000);
+        info = Object.assign(fromLevels(miniMeps.levels, 'MEPS lowest model level'), { src: 'meps', who: 'MEPS',
+          tag: `ANALYSIS · MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC +${miniMeps.lead} h` +
+               (miniMeps.provisional ? ' (forecast)' : '') });
+      } else note = 'MEPS not shown';
+    } else if (anaSrc === 'sonde') {
+      if (miniSonde && avail) {
+        const nm = (miniSonde.station || 'Sonde').split(/\s+/)[0].toUpperCase();
+        const n = new Date((miniSonde.nominal || miniSonde.launch) * 1000);
+        info = Object.assign(fromLevels(miniSonde.levels, `${nm} surface`), { src: 'sonde', who: nm,
+          tag: `ANALYSIS · ${nm} ${n.getUTCDate()}.${n.getUTCMonth() + 1}. ${pad(n.getUTCHours())} UTC` });
+      } else note = 'Sonde not shown';
+    }
+    if (info && (!info.levels.length || !info.sfc)) { info = null; note = (anaSrc === 'meps' ? 'MEPS' : 'Sonde') + ': no usable levels'; }
+    if (!info) {
+      info = { src: 'modes', who: 'Mode S', levels: miniArea && miniArea.levels ? miniArea.levels : null,
+               sfc: miniSfc && miniSfc.t != null ? miniSfc : null,
+               tag: anaSrc !== 'modes' ? `ANALYSIS · Mode S (${note || 'not available'})` : '' };
+    }
+    anaSrcInfo = info;
+    return info;
+  }
+
   function drawMiniAnalysis(ctx, T) {
-    if (!miniArea || !miniArea.levels || typeof analyzeSkewT !== 'function') return;
+    if (typeof analyzeSkewT !== 'function') return;
+    const S = analysisSource();
+    if (!S || !S.levels || !S.levels.length) return;
+    anaSfc = S.sfc;
     const { ML, PW, MT, PH, PT, PB } = MSK;
-    const a = analyzeSkewT(miniArea.levels, { lat: LAT,
-                                               sfc: miniSfc && miniSfc.t != null ? { p: miniSfc.p, t: miniSfc.t, td: miniSfc.td } : null });
+    const a = analyzeSkewT(S.levels, { lat: LAT,
+                                       sfc: anaSfc && anaSfc.t != null ? { p: anaSfc.p, t: anaSfc.t, td: anaSfc.td } : null });
     const fl = ft => 'FL' + String(Math.max(0, Math.round(ft / 100))).padStart(3, '0');
     const inPlot = p => p >= PT && p <= PB;
     const labels = [];                       // {y, text, color}
@@ -902,6 +964,21 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (a.maxWind) windMark(a.maxWind, `${a.maxWind.jet ? 'JET' : 'MAX'} ${Math.round(a.maxWind.spd)}kt ${fl(a.maxWind.alt)}`);
     if (a.llj) windMark(a.llj, `LLJ ${Math.round(a.llj.spd)}kt ${Math.round(a.llj.alt / 100) * 100}ft`);
 
+    // Likely cloud layers (MEPS / sonde only: the aircraft report no humidity),
+    // from the full-resolution profile: grey shading and a label
+    if (anaLevel >= 2 && S.raw && typeof skewtCloudLayers === 'function') {
+      const r100 = v => (Math.round(v / 100) * 100).toLocaleString('en-US');
+      for (const c of skewtCloudLayers(S.raw)) {
+        if (!inPlot(c.pBot) && !inPlot(c.pTop)) continue;
+        const yb = mskY(Math.min(c.pBot, PB)), yt = mskY(Math.max(c.pTop, PT));
+        ctx.fillStyle = T.anaCloud; ctx.globalAlpha = 0.13; ctx.fillRect(ML, yt, PW, Math.max(2, yb - yt)); ctx.globalAlpha = 1;
+        ctx.fillStyle = T.anaCloud; ctx.globalAlpha = 0.6; ctx.fillRect(ML + 15, yt, 3, Math.max(2, yb - yt)); ctx.globalAlpha = 1;
+        const base = c.sfc ? 'SFC' : c.altBot < 10000 ? `${r100(c.altBot)}ft` : fl(c.altBot);
+        const top = c.open ? `${fl(c.altTop)}+` : c.altTop < 10000 ? `${r100(c.altTop)}ft` : fl(c.altTop);
+        labels.push({ y: (yb + yt) / 2, color: T.anaCloud,
+                      text: `CLOUD ${base}–${top} RH ${Math.round(Math.min(c.rhMax, 100))}%` });
+      }
+    }
     if (anaLevel >= 2) {
       // Inversions: shaded layer
       for (const v of a.inversions) {
@@ -943,10 +1020,10 @@ function createSkewT(canvas, tip, cfg = {}) {
       } else if (th.none) {
         labels.push({ y: mskY(Math.min(th.p, PB)) - 14, color: T.anaTherm, text: 'THERMALS: none (stable surface layer)' });
       } else if (inPlot(th.p)) {
-        const theta = (miniSfc.t + 273.15) * Math.pow(1000 / miniSfc.p, 0.2857);
+        const theta = (anaSfc.t + 273.15) * Math.pow(1000 / anaSfc.p, 0.2857);
         ctx.strokeStyle = T.anaTherm; ctx.lineWidth = 1.8; ctx.beginPath();
         let first = true;
-        for (let p = miniSfc.p; p >= th.p - 0.01; p -= 5) {
+        for (let p = anaSfc.p; p >= th.p - 0.01; p -= 5) {
           const pp = Math.max(p, th.p);
           const x = mskX(theta * Math.pow(pp / 1000, 0.2857) - 273.15, pp), y = mskY(pp);
           first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
@@ -1071,15 +1148,16 @@ function createSkewT(canvas, tip, cfg = {}) {
       const pc = best.pc, r100 = v => (Math.round(v / 100) * 100).toLocaleString();
       tip.innerHTML = [`<b>Lifting condensation level (surface parcel)</b>`,
         `${r100(pc.lcl.agl)} ft AGL · ${Math.round(pc.lcl.p)} hPa · ${pc.lcl.t.toFixed(1)} °C`,
-        `<span class="mini-tip-dim">METAR ${miniSfc ? miniSfc.t : '?'} / ${miniSfc ? miniSfc.td : '?'} °C, mixing ratio ${pc.w.toFixed(1)} g/kg — base of cumulus formed from surface air</span>`,
-        miniSfc && miniSfc.cld ? `METAR lowest cloud: ${skewtCloudText(miniSfc.cld)}` : 'METAR: no cloud group',
+        `<span class="mini-tip-dim">${best.sfc && best.sfc.who ? best.sfc.who : 'METAR'} ${best.sfc ? (+best.sfc.t).toFixed(1) : '?'} / ${best.sfc && best.sfc.td != null ? (+best.sfc.td).toFixed(1) : '?'} °C, mixing ratio ${pc.w.toFixed(1)} g/kg — base of cumulus formed from surface air</span>`,
+        best.sfc && best.sfc.who ? '' : best.sfc && best.sfc.cld ? `METAR lowest cloud: ${skewtCloudText(best.sfc.cld)}` : 'METAR: no cloud group',
         pc.cuBase ? 'Dry thermals reach the LCL → cumulus base' : '<span class="mini-tip-dim">Dry thermals end below the LCL (no cumulus from surface heating now)</span>',
         pc.lfc && pc.cape >= 1
           ? `CAPE ${Math.round(pc.cape)} J/kg · CIN ${Math.round(pc.cin)} J/kg · LFC ${r100(pc.lfc.alt)} ft` +
             (pc.el ? ` · EL ${pc.el.open ? '> ' : ''}${r100(pc.el.alt)} ft` : '')
           : 'Parcel colder than the profile above the LCL: no CAPE',
         pc.li != null ? `Lifted Index ${pc.li > 0 ? '+' : ''}${pc.li.toFixed(1)} K (500 hPa)` : '',
-        `<span class="mini-tip-dim">No humidity aloft and no virtual-temperature correction: CAPE is a rough indication</span>`]
+        best.sfc && best.sfc.who ? `<span class="mini-tip-dim">Analysis of ${best.tag}: profile averaged into the Mode S layers; no virtual-temperature correction</span>`
+                                 : `<span class="mini-tip-dim">No humidity aloft and no virtual-temperature correction: CAPE is a rough indication</span>`]
         .filter(Boolean).join('<br>');
       tip.style.display = 'block';
       const wrapL = canvas.parentElement.getBoundingClientRect();
@@ -1424,7 +1502,19 @@ function createSkewT(canvas, tip, cfg = {}) {
         line += 1;
       }
       // ── MEPS label below the sonde label ──────────────────────────────────
-      if (miniMeps || mepsNote) drawMepsLabel(ctx, T, MT + topOff + 12 * line);
+      if (miniMeps || mepsNote) line += drawMepsLabel(ctx, T, MT + topOff + 12 * line);
+      // ── Analysis source tag (MEPS / sonde, or the Mode S fallback) ─────────
+      if (anaLevel > 0) {
+        const S = analysisSource();
+        if (S && S.tag) {
+          ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+          const yy = MT + topOff + 12 * line;
+          ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(S.tag).width + 6, 12);
+          ctx.fillStyle = S.src === 'meps' ? T.meps : S.src === 'sonde' ? T.sonde : T.area;
+          ctx.fillText(S.tag, ML + 12, yy);
+          ctx.restore();
+        }
+      }
     }
 
     // ── RH strip: trial moisture indicator and the sonde's relative humidity ─
@@ -1597,6 +1687,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     if ('low' in o)          miniLow = o.low;
     if ('aptMode' in o)      aptMode = o.aptMode || 'off';
     if ('anaLevel' in o)     anaLevel = o.anaLevel || 0;
+    if ('anaSrc' in o)       anaSrc = ['meps', 'sonde'].includes(o.anaSrc) ? o.anaSrc : 'modes';
     if ('smooth' in o)       areaSmooth = o.smooth || 0;
     if ('sfc' in o)          miniSfc = o.sfc;
     if ('ac' in o)           miniAcOverlay = o.ac;

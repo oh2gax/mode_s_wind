@@ -231,7 +231,7 @@
         <label class="toggle-label" title="MEPS weather model (MET Norway open data, 2.5 km; the mean over the same area as the Mode S profile): temperature (teal line), dewpoint (teal dashed) and winds (teal barbs inside the right edge) on 10 pressure levels. Area · now: the newest model hours (a forecast of up to +5 h, marked in the label); Area · hour and Flight: the model at that time. The label gives the run and the difference of the area profile from the model. The setting is shared with the Live Map."><input type="checkbox" id="skewt-meps"> MEPS</label>
         <label class="toggle-label" title="Trial moisture indicator: a narrow RH strip between the diagram and the wind barbs. Brown / green / blue bars = dry / moist / humid for 1 000–5 000, 5 000–10 000 and 10 000–15 000 ft from the aircraft themselves (index ≈ relative humidity, from the thickness of climbs and descents minus the Mach/TAS temperature, flights of ±1–2 h, offsets learnt against the soundings; faint: uncertain). With Sonde on, the radiosonde's relative humidity is drawn as a pink line in the strip. A first trial — hover the strip for the values. Not for a single flight. The setting is shared with the Live Map."><input type="checkbox" id="skewt-rh"> RH</label>
         <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
-                title="Automatic analysis of the shown profile. Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; with the METAR dewpoint the surface parcel: LCL / cumulus base compared with the METAR cloud group, CAPE / CIN, Lifted Index, equilibrium level; Area · now, and Area · hour from 11 Oct 2026 when a METAR was stored with the hour). Temperature and wind only — no humidity data. The setting is shared with the Live Map.">Analysis: Off</button>
+                title="Automatic analysis of the shown profile. Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; with the METAR dewpoint the surface parcel: LCL / cumulus base compared with the METAR cloud group, CAPE / CIN, Lifted Index, equilibrium level; Area · now, and Area · hour from 11 Oct 2026 when a METAR was stored with the hour). Temperature and wind only — no humidity data. With 'Analysis of' MEPS or Sonde (below the diagram) the same analysis is computed from the model or the sounding instead, with its own surface point and humidity. The setting is shared with the Live Map.">Analysis: Off</button>
         </span>
       </div>
       <div id="skewt-box" class="snd-skewt-box">
@@ -253,13 +253,20 @@
           <option value="overlay">Overlay</option>
           <option value="zoom">Zoom</option>
         </select>
+        <span class="density-label" style="margin-left:8px"
+              title="Which profile the Analysis (button in the panel title) is computed from: Mode S = the aircraft profile with the METAR surface point (default); MEPS = the MEPS model profile, Sonde = the shown Jokioinen sounding — both averaged into the same layers as the aircraft profile and with their own surface point (the lowest model level / the sonde's surface values), so the analysis gains real humidity for the parcel. Choosing MEPS or Sonde ticks that profile on; when it is not available the analysis falls back to Mode S and the diagram says so. The setting is shared with the Live Map.">Analysis of</span>
+        <select id="ana-src" class="label-mode-select">
+          <option value="modes">Mode S</option>
+          <option value="meps">MEPS</option>
+          <option value="sonde">Sonde</option>
+        </select>
       </div>
     </div>
 
-    <!-- Indices: stability indices and levels of the shown profile and of the sonde (skewt_indices.js) -->
+    <!-- Indices: stability indices and levels of the shown profile, MEPS and the sonde (skewt_indices.js) -->
     <div class="snd-idx-wrap" id="snd-idx">
       <div class="panel-header panel-header-row">
-        <div title="Stability indices and characteristic levels computed with the same method from the shown Mode S profile and from the radiosonde (averaged into the same layers). Hover a row for its definition, a value for details.">Indices</div>
+        <div title="Stability indices and characteristic levels computed with the same method from the shown Mode S profile, the MEPS model (tick MEPS) and the radiosonde (tick Sonde), both averaged into the same layers. Shaded: clearly different from Mode S. Hover a row for its definition, a value for details.">Indices</div>
         <button id="snd-idx-hide" class="snd-idx-btn" type="button" title="Hide the indices panel">⟨</button>
       </div>
       <div class="snd-idx-scroll"><table class="snd-idx-table" id="snd-idx-table"></table></div>
@@ -383,6 +390,18 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 [data-theme="light"] .snd-idx-table td.alert { color:#dc2626; }
 .snd-idx-table th.low { color:#f87171; }
 [data-theme="light"] .snd-idx-table th.low { color:#dc2626; }
+.snd-idx-table td.dif { background:rgba(167,139,250,.13); box-shadow:inset 2px 0 0 rgba(167,139,250,.55); }
+[data-theme="light"] .snd-idx-table td.dif { background:rgba(124,58,237,.08); box-shadow:inset 2px 0 0 rgba(124,58,237,.45); }
+/* three columns (Mode S + MEPS + sonde): compact on narrower screens, wider panel from 1 801 px */
+.snd-idx-wrap.idx-wide .snd-idx-table { font-size:11px; }
+.snd-idx-wrap.idx-wide .snd-idx-table th, .snd-idx-wrap.idx-wide .snd-idx-table td { padding-left:4px; padding-right:4px; }
+.snd-idx-wrap.idx-wide .snd-idx-table td:first-child { white-space:normal; line-height:1.2; }
+@media (min-width: 1801px) {
+  .snd-idx-wrap.idx-wide { flex-basis:440px; }
+  .snd-idx-wrap.idx-wide .snd-idx-table { font-size:11.5px; }
+  .snd-idx-wrap.idx-wide .snd-idx-table th, .snd-idx-wrap.idx-wide .snd-idx-table td { padding-left:6px; padding-right:6px; }
+  .snd-idx-wrap.idx-wide .snd-idx-table td:first-child { white-space:nowrap; }
+}
 .snd-idx-note { font-size:10.5px; line-height:1.4; color:var(--text-3); padding:6px 9px 8px; border-top:1px solid var(--border); }
 .snd-idx-btn { background:none; border:1px solid var(--border); color:var(--text-2); border-radius:4px;
                font-size:12px; line-height:1; padding:2px 7px; cursor:pointer; }
@@ -402,6 +421,8 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 @media (max-width: 1250px) {
   .sounding-layout { flex-wrap:wrap; }
   .sounding-layout .sounding-table-wrap { flex:1 1 100%; }
+  /* the diagram keeps its height when the panels wrap onto rows of their own */
+  .snd-skewt-box { min-height:min(560px, 75vh); }
 }
 </style>
 {% endblock %}

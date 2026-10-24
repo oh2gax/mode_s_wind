@@ -35,6 +35,10 @@
  *               a rough indication; the LCL (Bolton 1980) estimates the base of
  *               cumulus formed from surface air.
  *
+ * skewtCloudLayers(levels, opts) (from 2026-10-24): likely cloud layers
+ * (RH ≥ 90 %, over ice below 0 °C) of a profile with dewpoints — the MEPS
+ * model or the radiosonde, at full resolution; not for the aircraft.
+ *
  * Temperatures are smoothed lightly (3 layers, weights 1-2-1 × √replies) for
  * the lapse-rate based features; inversions use the layer means with a
  * significance test.  Layer thickness is the true (hypsometric) thickness
@@ -380,9 +384,57 @@
     return out;
   }
 
+  // ── Likely cloud layers from a profile with humidity (from 2026-10-24) ────
+  // For the MEPS model and the radiosonde (the aircraft report no humidity):
+  // levels {pressure, temp, dewpoint} at full resolution; relative humidity
+  // with respect to water at 0 °C and above and to ice below (the dewpoint is
+  // over water: RH = e(Td) / es(T) or es_ice(T)).  A layer is where RH ≥ thr
+  // (default 90 %), its base and top interpolated in ln p; layers less than
+  // gapFt (1 000 ft) apart are joined, layers thinner than minFt (100 ft)
+  // dropped.  → [{pBot, pTop, altBot, altTop, rhMax, tBot, tTop, sfc, open}]
+  // (sfc: from the lowest level — fog / low stratus; open: at the top of the data)
+  function esIce(tc) { return 6.112 * Math.exp(22.46 * tc / (272.62 + tc)); }
+  function cloudLayers(levels, opts = {}) {
+    const thr = opts.rh || 90, gapFt = opts.gapFt != null ? opts.gapFt : 1000, minFt = opts.minFt != null ? opts.minFt : 100;
+    const L = (levels || []).filter(l => l.pressure != null && l.temp != null && l.dewpoint != null)
+      .slice().sort((a, b) => b.pressure - a.pressure)
+      .map(l => ({ p: l.pressure, t: l.temp,
+                   rh: 100 * es(Math.min(l.dewpoint, l.temp + 5)) / (l.temp >= 0 ? es(l.temp) : esIce(l.temp)) }));
+    if (L.length < 2) return [];
+    const cross = (a, b) => {                                  // pressure where RH = thr between a and b
+      const f = (thr - a.rh) / (b.rh - a.rh);
+      return Math.exp(Math.log(a.p) + f * (Math.log(b.p) - Math.log(a.p)));
+    };
+    const tAt = p => {
+      for (let i = 0; i < L.length - 1; i++)
+        if (p <= L[i].p && p >= L[i + 1].p) return L[i].t + (L[i + 1].t - L[i].t) * Math.log(p / L[i].p) / Math.log(L[i + 1].p / L[i].p);
+      return p > L[0].p ? L[0].t : L[L.length - 1].t;
+    };
+    let out = [], cur = null;
+    for (let i = 0; i < L.length; i++) {
+      const wet = L[i].rh >= thr;
+      if (wet && !cur) cur = { pBot: i === 0 ? L[0].p : cross(L[i - 1], L[i]), sfc: i === 0, rhMax: L[i].rh };
+      else if (wet) cur.rhMax = Math.max(cur.rhMax, L[i].rh);
+      else if (cur) { cur.pTop = cross(L[i - 1], L[i]); out.push(cur); cur = null; }
+    }
+    if (cur) { cur.pTop = L[L.length - 1].p; cur.open = true; out.push(cur); }
+    // join close layers, drop thin ones
+    const joined = [];
+    for (const c of out) {
+      const prev = joined[joined.length - 1];
+      if (prev && pToAltFt(c.pBot) - pToAltFt(prev.pTop) < gapFt) {
+        prev.pTop = c.pTop; prev.open = c.open; prev.rhMax = Math.max(prev.rhMax, c.rhMax);
+      } else joined.push(Object.assign({}, c));
+    }
+    return joined.map(c => Object.assign(c, { altBot: pToAltFt(c.pBot), altTop: pToAltFt(c.pTop),
+                                                tBot: tAt(c.pBot), tTop: tAt(c.pTop), open: !!c.open }))
+                 .filter(c => c.altTop - c.altBot >= minFt);
+  }
+
   root.analyzeSkewT = analyzeSkewT;
+  root.skewtCloudLayers = cloudLayers;
   root.skewtMoistLapse = moistLapse;
   root.skewtContrailThresholds = contrailThresholds;
   root.skewtEs = es;
-  if (typeof module !== 'undefined') module.exports = { analyzeSkewT, moistLapse, contrailThresholds };
+  if (typeof module !== 'undefined') module.exports = { analyzeSkewT, moistLapse, contrailThresholds, cloudLayers };
 })(typeof window !== 'undefined' ? window : globalThis);

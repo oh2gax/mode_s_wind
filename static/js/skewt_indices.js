@@ -1,30 +1,37 @@
 /**
  * skewt_indices.js — stability indices and characteristic levels of a
  * profile, for the Sounding page's Indices panel.  The same function is run
- * on the Mode S area profile and on the radiosonde, so the two columns are
- * directly comparable.
+ * on the Mode S area profile, on the radiosonde and on the MEPS model profile,
+ * so the columns are directly comparable.
  *
  * skewtIndices(levels, opts) → { rows: {key: {v, txt, cls, tip, na}}, info }
  *
  *   levels  layer list in the /api/sounding naming (pressure, altitude, temp,
  *           temp_count, temp_p10 / p90, wind_spd, wind_dir, wind_count,
  *           wind_sd, and for a sonde dewpoint)
- *   opts    { sfc: {p, t, td, elev (ft), qnh}  surface point (METAR / sonde),
- *             lat, humid: true when the levels carry dewpoints (sonde),
- *             top: highest pressure level reached (hPa; partial sondes) }
+ *   opts    { sfc: {p, t, td, elev (ft), qnh}  surface point (METAR / sonde /
+ *                                              lowest MEPS model level),
+ *             lat, humid: true when the levels carry dewpoints (sonde / MEPS),
+ *             top: highest pressure level reached (hPa; partial sondes),
+ *             topWhat: its name in the notes ('sounding' / 'model levels') }
  *
- * sondeLayers(sondeLevels) averages a full-resolution sounding into the
- * Mode S layers (1 000 ft below 10 000 ft, 2 000 ft above, by pressure
- * altitude) — the same vertical resolution as the aircraft profile, so the
- * comparison shows measurement differences rather than resolution.
+ * skewtIndexDiff(key, a, b) compares two rows (Mode S a, reference b) with
+ * the clear-difference limits in SKEWT_INDEX_DIFF (the panel shades a
+ * reference value that differs clearly from Mode S).
+ *
+ * sondeLayers(sondeLevels) averages a full-resolution sounding (or the MEPS
+ * model levels) into the Mode S layers (1 000 ft below 10 000 ft, 2 000 ft
+ * above, by pressure altitude) — the same vertical resolution as the
+ * aircraft profile, so the comparison shows measurement differences rather
+ * than resolution.
  *
  * Built on analyzeSkewT (skewt_analysis.js): tropopause, isotherms,
  * inversions, max wind / low-level jet, turbulence, thermal advection,
  * contrail levels, dry thermal top and the surface parcel (LCL, LFC, EL,
  * CAPE, CIN, Lifted Index).  Added here: CCL and convective temperature,
  * temperatures at 850 / 700 / 500 hPa, lapse rates, 1000–500 hPa thickness,
- * Vertical Totals, bulk wind shear, and with dewpoints aloft (sonde only)
- * Showalter, K index, Total Totals and precipitable water.  Heights are
+ * Vertical Totals, bulk wind shear, and with dewpoints aloft (sonde / MEPS
+ * only) Showalter, K index, Total Totals and precipitable water.  Heights are
  * hypsometric from the surface point (ft above ground / above mean sea
  * level); without a surface point only flight levels are given.  Plain
  * temperature throughout (no virtual-temperature correction), as for the
@@ -121,7 +128,7 @@
     const na = (k, why) => { rows[k] = { v: null, txt: '–', na: why }; };
     const NO_HUM = 'needs humidity aloft — aircraft report none';
     const NO_SFC = opts.noSfc || 'needs the METAR surface temperature / dewpoint';
-    const ABOVE = topP ? `above the top of the sounding (${Math.round(topP)} hPa)` : 'outside the profile';
+    const ABOVE = topP ? `above the top of the ${opts.topWhat || 'sounding'} (${Math.round(topP)} hPa)` : 'outside the profile';
 
     const L = (levels || []).filter(l => l.pressure != null).slice().sort((a, b) => b.pressure - a.pressure);
     const tl = L.filter(l => l.temp != null && (l.temp_count || 0) >= 3 && (!sfc || l.pressure < sfc.p - 5));
@@ -362,7 +369,7 @@
 
   // Row definitions for the panel: [group, key, label, explanation]
   const ROWS = [
-    ['Surface & parcel', 'sfc', 'Surface T / Td (°C)', 'Surface temperature / dewpoint: METAR (Mode S column) or the sonde\'s surface values'],
+    ['Surface & parcel', 'sfc', 'Surface T / Td (°C)', 'Surface temperature / dewpoint: METAR (Mode S column), the sonde\'s surface values or the lowest MEPS model level (about 12 m above the model ground)'],
     [null, 'lcl', 'LCL (AGL)', 'Lifting condensation level: where surface air lifted dry-adiabatically saturates — the base of cumulus formed from surface air (Bolton 1980)'],
     [null, 'ccl', 'CCL (AGL) · T conv', 'Convective condensation level: where the mixing-ratio line through the surface dewpoint meets the profile; the convective temperature is the surface temperature needed for cumulus from surface heating alone (amber: reached)'],
     [null, 'thermal', 'Dry thermal top (AGL)', 'Surface temperature lifted along the dry adiabat until it meets the profile — top of dry thermals / mixing height'],
@@ -385,9 +392,9 @@
     [null, 'lr85', 'Lapse 850–500 (K/km)', 'Lapse rate 850–500 hPa (amber ≥ 7 K/km: steep mid-level lapse rates)'],
     [null, 'lr75', 'Lapse 700–500 (K/km)', 'Lapse rate 700–500 hPa'],
     [null, 'thk', '1000–500 hPa (dam)', 'Thickness of the 1000–500 hPa layer from the temperatures (dam); about 528 dam is a common rain / snow divide'],
-    [null, 't850', 'T 850 hPa (°C)', 'Temperature (sonde: / dewpoint) at 850 hPa'],
-    [null, 't700', 'T 700 hPa (°C)', 'Temperature (sonde: / dewpoint) at 700 hPa'],
-    [null, 't500', 'T 500 hPa (°C)', 'Temperature (sonde: / dewpoint) at 500 hPa'],
+    [null, 't850', 'T 850 hPa (°C)', 'Temperature (sonde / MEPS: / dewpoint) at 850 hPa'],
+    [null, 't700', 'T 700 hPa (°C)', 'Temperature (sonde / MEPS: / dewpoint) at 700 hPa'],
+    [null, 't500', 'T 500 hPa (°C)', 'Temperature (sonde / MEPS: / dewpoint) at 500 hPa'],
     ['Wind', 'sh1', 'Shear 0–1 km (kt)', 'Bulk wind shear: vector difference between the wind 1 km above the ground and the lowest layer'],
     [null, 'sh3', 'Shear 0–3 km (kt)', 'Bulk wind shear 0–3 km'],
     [null, 'sh6', 'Shear 0–6 km (kt)', 'Bulk wind shear 0–6 km (amber ≥ 40 kt: organised convection possible)'],
@@ -398,8 +405,35 @@
     [null, 'adv', 'Advection (K/h)', 'Strongest warm / cold advection from the wind turning with height (thermal wind)'],
   ];
 
+  // Clear-difference limits between two columns (from 2026-10-24): a reference
+  // value (MEPS / sonde) differing from the Mode S value by at least `d`
+  // (and, with `rel`, by that fraction of the larger value) is shaded.  Values
+  // are in the row's own units (heights ft, temperatures K, shear kt …).
+  const DIFF = {
+    sfc: { d: 2, u: 'K' }, lcl: { d: 1000, u: 'ft' }, ccl: { d: 1000, u: 'ft' }, thermal: { d: 1000, u: 'ft' },
+    lfc: { d: 1500, u: 'ft' }, el: { d: 3000, u: 'ft' }, cape: { d: 200, rel: 0.3, u: 'J/kg' }, cin: { d: 50, rel: 0.3, u: 'J/kg' },
+    li: { d: 2, u: 'K' }, si: { d: 2, u: 'K' }, kidx: { d: 5, u: '' }, tt: { d: 4, u: '' }, vt: { d: 2, u: 'K' }, pw: { d: 3, u: 'mm' },
+    fz: { d: 1000, u: 'ft' }, m10: { d: 1000, u: 'ft' }, m20: { d: 1000, u: 'ft' }, trop: { d: 2000, u: 'ft' }, con: { d: 2000, u: 'ft' },
+    lr03: { d: 1.5, u: 'K/km' }, lr85: { d: 1.5, u: 'K/km' }, lr75: { d: 1.5, u: 'K/km' }, thk: { d: 3, u: 'dam' },
+    t850: { d: 2, u: 'K' }, t700: { d: 2, u: 'K' }, t500: { d: 2, u: 'K' },
+    sh1: { d: 10, u: 'kt' }, sh3: { d: 10, u: 'kt' }, sh6: { d: 10, u: 'kt' }, maxw: { d: 10, u: 'kt' }, llj: { d: 10, u: 'kt' },
+  };
+  // Mode S value a, reference value b → {dv, txt, clear} or null (not comparable)
+  function indexDiff(key, a, b) {
+    const L = DIFF[key];
+    if (!L || !a || !b || a.na || b.na || a.v == null || b.v == null || !isFinite(a.v) || !isFinite(b.v)) return null;
+    const dv = a.v - b.v, ad = Math.abs(dv);
+    const clear = ad > L.d && (!L.rel || ad > L.rel * Math.max(Math.abs(a.v), Math.abs(b.v)));
+    const sg = dv > 0 ? '+' : dv < 0 ? '−' : '±';
+    const num = L.u === 'ft' ? (Math.round(ad / 100) * 100).toLocaleString('en-US').replace(/,/g, ' ')
+              : ad >= 20 || L.u === 'J/kg' || L.u === '' ? Math.round(ad).toString() : ad.toFixed(1);
+    return { dv, clear, txt: `${sg}${num}${L.u ? ' ' + L.u : ''}` };
+  }
+
   root.skewtIndices = skewtIndices;
   root.skewtSondeLayers = sondeLayers;
   root.SKEWT_INDEX_ROWS = ROWS;
+  root.SKEWT_INDEX_DIFF = DIFF;
+  root.skewtIndexDiff = indexDiff;
   if (typeof module !== 'undefined') module.exports = { skewtIndices, sondeLayers, ROWS };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -71,6 +71,8 @@ let areaSmooth  = parseInt(localStorage.getItem('ms_areaSmooth') || '0', 10);
 // 4 + thermal advection and contrail levels, 5 + dry thermal top
 const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Full'];
 let anaLevel    = parseInt(localStorage.getItem('ms_skewtAna') || '0', 10);
+let anaSrc      = localStorage.getItem('ms_skewtAnaSrc') || 'modes';   // analysis of: modes / meps / sonde (shared with the Sounding page)
+if (!['modes', 'meps', 'sonde'].includes(anaSrc)) anaSrc = 'modes';
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
 // Skew-T data-validity indicator (badge, rings on 1–2-aircraft layers); default ON
@@ -231,7 +233,7 @@ const skewt = createSkewT(document.getElementById('mini-sounding-canvas'),
 
 function syncSkewT() {
   skewt.set({
-    area: miniArea, low: miniLow, aptMode, anaLevel, smooth: areaSmooth, sfc: miniSfc,
+    area: miniArea, low: miniLow, aptMode, anaLevel, anaSrc, smooth: areaSmooth, sfc: miniSfc,
     ac: miniAcOverlay, density: windDensity,
     acLabel: (selectedIcao && getLabelText(aircraftData[selectedIcao] || {})) || 'Aircraft',
     profileTitle: 'Area, last ' + (miniArea ? miniArea.window_min : 60) + ' min',
@@ -923,6 +925,21 @@ if (aptSel) {
     localStorage.setItem('ms_aptMode', aptMode);
     drawMiniSounding();
     fetchMiniLow();
+  });
+}
+
+// ── Analysis source selector (Mode S / MEPS / Sonde): choosing MEPS or Sonde
+// also ticks that profile on; unticking it later falls back to Mode S
+const anaSrcSel = document.getElementById('ana-src');
+if (anaSrcSel) {
+  anaSrcSel.value = anaSrc;
+  anaSrcSel.addEventListener('change', e => {
+    anaSrc = e.target.value;
+    localStorage.setItem('ms_skewtAnaSrc', anaSrc);
+    const chk = document.getElementById(anaSrc === 'meps' ? 'skewt-meps' : anaSrc === 'sonde' ? 'skewt-sonde' : '');
+    if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
+    if (anaLevel === 0) setAnaLevel(1, false);
+    drawMiniSounding();
   });
 }
 

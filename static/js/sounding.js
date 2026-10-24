@@ -30,6 +30,7 @@ function _pad(n) { return String(n).padStart(2, '0'); }
 let sndMode    = _lsGet('ms_snd_mode', 'area');
 let anaLevel   = parseInt(_lsGet('ms_skewtAna', '0'), 10);
 let areaSmooth = parseInt(_lsGet('ms_areaSmooth', '0'), 10);
+let anaSrc     = _lsGet('ms_skewtAnaSrc', 'modes');   // analysis of: modes / meps / sonde (shared with the Live Map)
 let aptMode    = _lsGet('ms_aptMode', 'off');
 let sondeShow  = _lsGet('ms_skewtSonde', 'false') === 'true';   // radiosonde layer (default off)
 let rhShow     = _lsGet('ms_skewtRH', 'false') === 'true';      // RH strip: trial moisture indicator (default off)
@@ -46,6 +47,7 @@ let sndMepsAt  = null;   // time the model profile is taken at (Unix s; null = n
 let sndMepsSeq = 0;
 if (!(anaLevel >= 0 && anaLevel < ANA_NAMES.length)) anaLevel = 0;
 if (![0, 1, 2].includes(areaSmooth)) areaSmooth = 0;
+if (!['modes', 'meps', 'sonde'].includes(anaSrc)) anaSrc = 'modes';
 if (!['off', 'overlay', 'zoom'].includes(aptMode)) aptMode = 'off';
 
 let sndProfile = null;   // last /api/sounding… response (the main profile)
@@ -62,7 +64,7 @@ const skewt = createSkewT(document.getElementById('skewt-canvas'),
                           { lat: typeof RECEIVER_LAT !== 'undefined' ? RECEIVER_LAT : 60.3 });
 
 function syncChart() {
-  skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, smooth: areaSmooth,
+  skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, anaSrc, smooth: areaSmooth,
               sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
               sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef,
               meps: mepsShow ? sndMeps : null,
@@ -70,15 +72,17 @@ function syncChart() {
 }
 function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
 
-// ── Indices panel (skewt_indices.js): the shown Mode S profile and the sonde,
-// computed with the same method (the sonde averaged into the Mode S layers)
+// ── Indices panel (skewt_indices.js): the shown Mode S profile, the MEPS model
+// and the sonde, computed with the same method (MEPS and the sonde averaged
+// into the Mode S layers); the columns follow the MEPS / Sonde tick boxes
 let idxShow = _lsGet('ms_sndIdx', 'true') !== 'false';
 let idxKey = null;
 function renderIndices(force = false) {
   const tbl = document.getElementById('snd-idx-table');
   if (!tbl || !idxShow || typeof skewtIndices !== 'function') return;
   const sonde = sondeShow && sndSonde && sndSonde.found ? sndSonde : null;
-  const key = [sndProfile, sonde, sndSfc, sndMode];
+  const meps = mepsShow && sndMeps && sndMeps.found && (sndMeps.levels || []).length ? sndMeps : null;
+  const key = [sndProfile, sonde, meps, sndSfc, sndMode];
   if (!force && idxKey && key.every((v, i) => v === idxKey[i])) return;
   idxKey = key;
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -97,6 +101,24 @@ function renderIndices(force = false) {
                         src: `${sonde.station || 'sonde'} surface` } : null;
     S = skewtIndices(skewtSondeLayers(sl), { sfc: ssfc, lat: sonde.lat || lat, humid: true, top: sonde.min_p });
   }
+  // MEPS: the model levels averaged into the same layers like the sonde; the
+  // surface point is the model's own lowest level (about 12 m above the
+  // model ground, area mean), not the METAR
+  let E = null;
+  if (meps) {
+    const ml = meps.levels.slice().sort((a, b) => b.pressure - a.pressure);
+    const e0 = ml.find(l => l.temp != null);
+    let ez = e0 && e0.z_m != null ? e0.z_m : null;
+    if (e0 && ez == null) {            // below the lowest pressure level with a height: hypsometric
+      const z1 = ml.find(l => l.z_m != null && l.temp != null);
+      if (z1) ez = z1.z_m - 287.04 * ((e0.temp + z1.temp) / 2 + 273.15) / 9.80665 * Math.log(e0.pressure / z1.pressure);
+    }
+    const esfc = e0 ? { p: e0.pressure, t: e0.temp, td: e0.dewpoint, elev: ez != null ? ez / 0.3048 : null,
+                        src: `MEPS lowest ${meps.levels_kind === 'standard' ? 'pressure' : 'model'} level` +
+                             (ez != null ? `, ${Math.round(ez / 0.3048)} ft AMSL (area mean)` : '') } : null;
+    E = skewtIndices(skewtSondeLayers(ml), { sfc: esfc, lat, humid: true, top: ml[ml.length - 1].pressure,
+                                             topWhat: meps.levels_kind === 'standard' ? 'model pressure levels' : 'model levels' });
+  }
   const ac = sndProfile && sndProfile.aircraft != null ? sndProfile.aircraft : null;
   const win = sndProfile && sndProfile.window_min ? sndProfile.window_min / 60 : 1;
   const low = sndMode !== 'flight' && ac != null && ac / Math.max(1, win) < 8;
@@ -104,31 +126,70 @@ function renderIndices(force = false) {
   const sName = sonde ? (sonde.station || 'Sonde').split(/\s+/)[0] : '';
   let h = `<thead><tr><th>Index</th><th class="${low ? 'low' : ''}" title="${low ? 'LOW data: few aircraft behind the profile' : ''}">Mode S` +
           `<small>${sndMode === 'flight' ? 'flight' : ac != null ? ac + ' aircraft' + (low ? ' · LOW' : '') : 'area'}</small></th>` +
+          (E ? `<th title="${esc(mepsHeadTip(meps))}">MEPS<small>${esc(mepsHeadSub(meps))}</small></th>` : '') +
           (S ? `<th title="${esc(sonde.station)} ${st.getUTCDate()}.${st.getUTCMonth() + 1}. ${_pad(st.getUTCHours())} UTC${sonde.qc ? ' — top cut: ' + esc(sonde.qc) : ''}">${esc(sName.charAt(0) + sName.slice(1).toLowerCase())}` +
                `<small>${st.getUTCDate()}.${st.getUTCMonth() + 1}. ${_pad(st.getUTCHours())} UTC</small></th>` : '') +
           `</tr></thead><tbody>`;
-  const cell = r => {
+  // a reference value (MEPS / sonde) differing clearly from Mode S is shaded
+  // (limits: SKEWT_INDEX_DIFF in skewt_indices.js); the differences in the hover
+  const diffOf = (k, ref) => M && ref && typeof skewtIndexDiff === 'function' ? skewtIndexDiff(k, M.rows[k], ref.rows[k]) : null;
+  const cell = (r, extraTip = '', dif = false) => {
     if (!r) return '<td class="na">–</td>';
-    const tip = r.na ? r.na : r.tip || '';
-    return `<td class="${r.na ? 'na' : r.cls || ''}" title="${esc(tip)}">${esc(r.txt)}</td>`;
+    const tip = (r.na ? r.na : r.tip || '') + (extraTip ? (r.na || r.tip ? ' · ' : '') + extraTip : '');
+    const cls = [r.na ? 'na' : r.cls || '', dif ? 'dif' : ''].filter(Boolean).join(' ');
+    return `<td class="${cls}" title="${esc(tip)}">${esc(r.txt)}</td>`;
   };
+  const refs = [E ? ['MEPS', E] : null, S ? [sName ? sName.charAt(0) + sName.slice(1).toLowerCase() : 'sonde', S] : null].filter(Boolean);
+  const ncol = 2 + refs.length;
+  let nDif = 0;
   for (const [grp, k, label, expl] of SKEWT_INDEX_ROWS) {
-    if (grp) h += `<tr class="grp"><td colspan="${S ? 3 : 2}">${esc(grp)}</td></tr>`;
-    h += `<tr><td title="${esc(expl)}">${esc(label)}</td>${M ? cell(M.rows[k]) : '<td class="na">–</td>'}${S ? cell(S.rows[k]) : ''}</tr>`;
+    if (grp) h += `<tr class="grp"><td colspan="${ncol}">${esc(grp)}</td></tr>`;
+    const ds = refs.map(([nm, R]) => [nm, diffOf(k, R)]);
+    const mTip = ds.filter(([, d]) => d).map(([nm, d]) => `Mode S − ${nm}: ${d.txt}`).join(' · ');
+    h += `<tr><td title="${esc(expl)}">${esc(label)}</td>${M ? cell(M.rows[k], mTip) : '<td class="na">–</td>'}`;
+    refs.forEach(([nm, R], i) => {
+      const d = ds[i][1];
+      if (d && d.clear) nDif++;
+      h += cell(R.rows[k], d ? `Mode S − ${nm}: ${d.txt}${d.clear ? ' (clear difference)' : ''}` : '', !!(d && d.clear));
+    });
+    h += '</tr>';
   }
   tbl.innerHTML = h + '</tbody>';
+  document.getElementById('snd-idx').classList.toggle('idx-wide', refs.length > 1);
   const notes = [];
   if (!M) notes.push('No profile loaded.');
   else {
-    notes.push('Mode S: aircraft temperature / wind' + (sfc ? ' + METAR surface T / Td' : '') + '; humidity-aloft indices are sonde only.');
+    notes.push('Mode S: aircraft temperature / wind' + (sfc ? ' + METAR surface T / Td' : '') + '; humidity-aloft indices are sonde / MEPS only.');
     if (M.info.gaps.length) notes.push(`Mode S profile has data gaps (${M.info.gaps.join(', ')}): levels found above a gap are uncertain.`);
     if (low) notes.push('LOW data: few aircraft — single-aircraft layers can be several degrees off.');
   }
+  if (E) notes.push(`MEPS: model levels averaged into the same layers, own lowest model level as the surface (area mean)` +
+                    (meps.provisional ? `; a forecast (+${meps.lead} h), not an observation.` : '.') +
+                    (meps.levels_kind === 'standard' ? ' Only the 10 pressure levels stored: low levels coarse.' : ''));
   if (S) notes.push('Sonde: averaged into the same layers, own surface values (about 100 km NW, inland).' +
                     (sonde.min_p > 150 ? ` Partial: to ${Math.round(sonde.min_p)} hPa.` : ''));
-  else if (!sondeShow) notes.push('Tick Sonde to compare with the radiosonde.');
+  if (!S && !E) notes.push(mepsShow && sndMeps && !sndMeps.found ? 'No MEPS data for this time.' : 'Tick Sonde and / or MEPS to compare.');
+  else if (!S && !sondeShow) notes.push('Tick Sonde to add the radiosonde.');
+  else if (!E && !mepsShow) notes.push('Tick MEPS to add the model.');
+  else if (!E && sndMeps && !sndMeps.found) notes.push('No MEPS data for this time.');
+  if (refs.length && M) notes.push(nDif ? `Shaded: clearly different from Mode S (${nDif}; hover for the difference).` : 'No clear differences from Mode S.');
   notes.push('Heights: ft AMSL from the surface (FL without one). Hover for details.');
   document.getElementById('snd-idx-note').innerHTML = notes.map(esc).join(' ');
+}
+function mepsRunText(m) {
+  const r = new Date(m.run * 1000);
+  return `${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${_pad(r.getUTCHours())} UTC run`;
+}
+function mepsHeadSub(m) {
+  const r = new Date(m.run * 1000);
+  return `${_pad(r.getUTCHours())} +${m.lead} h${m.provisional ? ' fcst' : ''}`;
+}
+function mepsHeadTip(m) {
+  const a = new Date(m.at * 1000);
+  return `MEPS ${mepsRunText(m)} +${m.lead} h for ${_pad(a.getUTCHours())}:${_pad(a.getUTCMinutes())} UTC` +
+         (m.provisional ? ' — forecast (the newest model hours)' : '') +
+         ` · area mean of ${m.points} points within ${m.radius_km} km · ` +
+         (m.levels_kind === 'standard' ? '10 pressure levels' : 'model levels') + ` · ${m.source || 'MEPS'}`;
 }
 function setIdxShow(v) {
   idxShow = v;
@@ -513,6 +574,21 @@ smoothSel.addEventListener('change', e => {
   _lsSet('ms_areaSmooth', String(areaSmooth));
   drawChart();
 });
+
+// Analysis source (Mode S / MEPS / Sonde): choosing MEPS or Sonde also ticks
+// that profile on; unticking it later falls back to Mode S (tag in the diagram)
+const anaSrcSel = document.getElementById('ana-src');
+if (anaSrcSel) {
+  anaSrcSel.value = anaSrc;
+  anaSrcSel.addEventListener('change', e => {
+    anaSrc = e.target.value;
+    _lsSet('ms_skewtAnaSrc', anaSrc);
+    const chk = document.getElementById(anaSrc === 'meps' ? 'skewt-meps' : anaSrc === 'sonde' ? 'skewt-sonde' : '');
+    if (chk && !chk.checked) { chk.checked = true; chk.dispatchEvent(new Event('change')); }
+    if (anaLevel === 0) setAnaLevel(1, false);
+    drawChart();
+  });
+}
 
 const dqChk = document.getElementById('skewt-dq');
 dqChk.checked = dqShow;

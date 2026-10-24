@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing and departure, band comparison on the wind vector across runways; the six browser algorithms retired; Weather page: 10 m wind and gusts; upper-level temperature correction and moisture offsets learnt from MEPS; post-front data check)
+## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing and departure, band comparison on the wind vector across runways; the six browser algorithms retired; Weather page: 10 m wind and gusts; upper-level temperature correction and moisture offsets learnt from MEPS; MEPS column in the Sounding page Indices panel; Skew-T analysis of the MEPS or sonde profile with likely cloud layers; post-front data check)
 
 ### Windshear detection v2
 
@@ -52,9 +52,25 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `web/api/weather.py`: `?fields=` accepts `u,v,g`; on the 20 / 40 km grid the gust is the block maximum, the wind the block mean; the index and frames carry a wind flag `w` so the page (and the frame cache) reloads an hour whose wind arrived later with the same run and lead
 - Weather page (`web/templates/weather.html`, `static/js/weather.js`, `static/js/wx_layer.js`): new tick boxes **Wind** (10 m wind barbs about 50 px apart, fixed to the grid while panning) and **Gusts** (shading from 25 kt in Beaufort steps 25 / 34 / 41 / 48 / 56 / 64 kt, under the rain); hover read-out with wind direction / speed (kt, m/s) and gust; legend; the status line notes hours without stored wind
 
+### Sounding page: MEPS column in the Indices panel
+
+- `static/js/sounding.js`: the Indices panel gets a **MEPS** column; the columns follow the MEPS / Sonde tick boxes (Mode S + MEPS, Mode S + sonde or all three). The model profile shown on the Skew-T (`/api/meps/profile`) is averaged into the Mode S layers like the sonde (`skewtSondeLayers`) and run through the same `skewtIndices` with humidity aloft; its surface point is the model's lowest level (height from the model geopotential, extrapolated hypsometrically when below the lowest pressure level), not the METAR. Header: run hour, lead time and `fcst` when more than 2 h into the run, hover with run, valid time, model points and levels; notes per column ("no MEPS data for this time" when missing)
+- Clear differences: a MEPS or sonde value differing from Mode S beyond a per-row limit is shaded faint violet; every value's hover gives *Mode S − reference*; the note counts the shaded values
+- `static/js/skewt_indices.js`: `SKEWT_INDEX_DIFF` (limits per row) and `skewtIndexDiff(key, a, b)`; option `topWhat` for the "above the top of …" note; row tips mention MEPS
+- `web/templates/sounding.html`: shading style (dark / light), three-column mode (`idx-wide`: compact text and wrapping row labels, panel 440 px from 1 801 px wide screens), panel tooltip; on narrow screens where the panels wrap the Skew-T keeps a height of at least 560 px (it could collapse to a thin strip)
+
+### Skew-T: analysis of the MEPS or sonde profile
+
+- New selector **Analysis of** (Mode S / MEPS / Sonde) below the Skew-T on the Live Map and the Sounding page (`web/templates/live.html`, `web/templates/sounding.html`; `static/js/live_map.js`, `static/js/sounding.js`; shared setting `ms_skewtAnaSrc`, default Mode S). Choosing MEPS or Sonde ticks that profile on and switches a hidden analysis on at Levels
+- `static/js/skewt_chart.js`: option `anaSrc`; the analysis (all levels) runs on the chosen profile averaged into the Mode S layers (`skewtSondeLayers`) with its own surface point (lowest model level / sonde surface; height hypsometric when missing) for the thermal top and the parcel; cached per input; falls back to Mode S when the profile is not shown; tag `ANALYSIS · …` under the top-left labels; LCL hover names the surface point; METAR cloud comparison with Mode S only; airport inversions unchanged
+- `web/templates/live.html` loads `static/js/skewt_indices.js` (for the layer averaging)
+- Likely cloud layers for the MEPS / sonde analysis (from Analysis Stability): `skewtCloudLayers` in `static/js/skewt_analysis.js` — RH ≥ 90 % (over water at ≥ 0 °C, over ice below) on the full-resolution levels, base / top interpolated in ln p, layers < 1 000 ft apart joined, < 100 ft dropped; drawn as grey shading with a bar at the left and a `CLOUD base–top RH n%` label (`skewt_chart.js`, colour `anaCloud`)
+
 ### Documentation
 
+- User guides updated: **Skew-T v4.5** (20 pages; new Section 10.6 *Analysis of the MEPS model or the radiosonde* with a Mode S / MEPS comparison figure and the likely cloud layers with a sonde example; controls and limitations) and **Sounding and Wind Map pages v3.1** (44 pages; *Analysis of* and the cloud layers in the Skew-T controls) — earlier **v2.9** (44 pages; new Section 4.4 *Comparing with MEPS and the sonde* with a screenshot of the three-column panel and the table of shading limits; MEPS humidity indices in Section 4; the Wind Map section now starts at page 30, `open: windmap@30`) — earlier today **v2.8** (42 pages; new Section 7.1 *The upper-level temperature correction* with its table, the MEPS check *Correction* column and the Sonde check *corrected* column with new screenshots, the moisture offsets from MEPS and the check through the front of 23–24 Oct, data and limitations) and **Skew-T v4.3** (18 pages; the upper-level correction with the `upper T corr.` badge and hover, the RH strip status); `doc/guides.md` updated
 - README: new section *Project status and data checks* (data collection continues; findings of the post-front check of 24 Oct: windshear, moisture, temperature, wind, heights; model data optional); *Upper-level temperature correction* under the MEPS check; *Moisture (trial)* status after the front and the MEPS offsets; windshear band comparison on the wind vector and its results; `t_correction`, `departure_profiles.shear_json`, API fields and optional config keys
+- README: *Indices panel* — the MEPS column, the column choice by the tick boxes, the shading limits and the narrow-screen layout
 - README: new *Weather* controls Wind and Gusts, `meps_wx_hours` fields `u v g`, `/api/weather/frames` fields
 - README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, departures, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, API and project structure
 
