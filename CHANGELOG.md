@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing; the six browser algorithms retired)
+## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing, departures in the band comparison; the six browser algorithms retired)
 
 ### Windshear detection v2
 
@@ -17,7 +17,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Windshear report per landing**: stored in the new column `approach_history.shear_json` (about 0.35 kB; migration in `database/db.py`), returned as `shear` by the approach-history API and loaded with the RAM history; a one-off startup back-fill (`shear_backfill` thread in `run.py`) writes the report for older landings with stored raw replies, oldest first, in batches of 200
 - **Windshear page** (`static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`): the detection engine, the OFF/ON toggle, the algorithm selector and the Kinematic F-factor gate removed; the page shows the server's alerts — new alert-level select (Banner off / ADV / WSA (default) / MBA), banner headings *MICROBURST ALERT* / *WINDSHEAR ALERT* / *WINDSHEAR ADVISORY*, strip badges `ADV` / `WSA` / `MBA`, the ILS-profile band over the alert's height range, server log merged with the go-around log (Clear hides the shown entries in this browser), **ⓘ v2** link to the legacy description
 - **Approach History — new WS display mode**: Level, Loss, Gain (1-km equivalents), F 1 km, Band Δ, Low, n (with noise); hover shows the whole report
-- **Replay** of 3 071 landings 9–23 Oct 2026 (benign weather): no ramp WSA, 37 ramp advisories (1.2 %); band comparison 5 WSA and 4 advisories, including the wind change of 17 Oct ~09:04 UTC on 22L
+- **Replay** of 3 071 landings 9–23 Oct 2026 (benign weather): no ramp WSA, 37 ramp advisories (1.2 %); band comparison of the landings 3 WSA and 1 advisory (the three WSA: the wind change of 17 Oct ~09:04 UTC on 22L)
+
+### Windshear: departures in the band comparison
+
+- **Climb-outs compared too** (`collector/departures.py`, `collector/shear.py` `dep_bands()`, `WindshearTracker.dep_shear()`): every raw BDS 5,0 reply of a climb is kept and its band headwinds (TAS − GS, replies with ≤ 5° bank and the track within 15° of the runway direction, ±200 ft per band, ≥ 2 replies) are compared with the landings and departures of the previous 45 min on the same runway direction; live band alerts marked *departure* (`ph: dep`); go-around climb-outs not used
+- Departure runway from the first position and initial track (within 25° of a runway direction, ≤ 1 NM from its extended centreline)
+- Departures become references for the landings and departures of the next 45 min (also reloaded after a restart); TAS − GS of climb-outs was 2.3 kt larger than that of landings in the same bands (9–23 Oct, 1 946 replies), offset removed
+- New column `departure_profiles.shear_json` (migration in `database/db.py`; `database/schema.sql` also lists both new `shear_json` columns)
+- Page: banner `RWY 22R departure`, log `22R dep`, ILS profile `WSA DEP`; reference count shown as *landings and departures*
+- Approximate replay (stored observations): landing alerts unchanged, landings with ≥ 3 references 89 → 93 %; climb-outs 1 WSA (FIN863 22R 17 Oct 08:54, 25 kt less headwind at 1 200 ft — ten minutes before the first landing with the same change) and 27 advisories (1.0 %)
 
 ### Retired: the six browser algorithms (v1)
 
@@ -26,7 +35,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documentation
 
-- README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, `shear_json`, API and project structure
+- README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, departures in the band comparison, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, `shear_json` of both tables, API and project structure
 
 ## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page with cloud layers; weather overlay on the Live Map with MEPS and FMI radar; user management; unified dark-theme diagram background)
 

@@ -150,12 +150,16 @@ SERIES_MAX_ROWS      = 900     # per list per landing (≈ 15 min at 1 reply/s)
 # (doc/Windshear_Algorithms_v1_Legacy.pdf).  Runs here, for every aircraft
 # established on final, whenever new BDS 5,0 replies have arrived: headwind
 # ramps along the path (TAS − GS, 1-km equivalent ΔV·(1 km/L)^⅓) and the
-# change of the 200-ft band headwinds against the landings of the previous
-# 45 min.  Levels: advisory ≥ 10 kt · WSA ≥ 15 kt · MBA ≥ 30 kt loss.
+# change of the 200-ft band headwinds against the landings and departures of
+# the previous 45 min (departures from 2026-10-24: dep_shear(), called by
+# collector/departures.py for each climb-out).
+# Levels: advisory ≥ 10 kt · WSA ≥ 15 kt · MBA ≥ 30 kt loss.
 WS_CONFIRM           = 2       # found in this many consecutive analyses before it is an alert
 WS_HOLD_SEC          = 600.0   # an alert stays active this long after it was last seen
 WS_LOG_MAX           = 100     # alert log entries kept (newest first)
 WS_LOG_MAX_AGE       = 24 * 3600.0
+DEP_RWY_TRACK_TOL    = 25.0    # ° — a climb-out's initial track vs the runway direction
+DEP_RWY_MAX_XT_NM    = 1.0     # first position at most this far from the runway's extended centreline
 
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
@@ -444,6 +448,11 @@ class WindshearTracker:
         self._ws_hits:   dict[str, int]  = {}
         self._ws_log:    list[dict]      = []
         self._ws_seen_n: dict[str, int]  = {}
+        # departures in the band comparison: their hit counts and band
+        # headwinds of the last 45 min (records shaped like approach_history:
+        # ts, rwy_heading, shear.bd)
+        self._ws_dep_hits: dict[str, int] = {}
+        self._dep_refs:    list[dict]     = []
         self._lock  = threading.RLock()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
@@ -1757,25 +1766,34 @@ class WindshearTracker:
                         if lv != "none":
                             found.append(("ramp", d, lv, c))
                 ba = _shear.band_anomaly(_shear.band_means(a),
-                                         _shear.refs_from(self._approach_history, now,
-                                                          rw["heading"] if rw else None))
+                                         self._band_refs(now, rw["heading"] if rw else None))
                 if ba and ba["lvl"] != "none":
                     found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear analysis failed for %s: %s", icao, exc)
             return
+        self._apply_events(icao, callsign, ac_type, runway, found, a, now)
+
+    def _apply_events(self, icao: str, callsign: str, ac_type: str | None,
+                      runway: str | None, found: list, a: dict | None, now: float,
+                      phase: str = "arr") -> None:
+        """Confirm the events of one analysis (lock held): an event found in
+        WS_CONFIRM consecutive analyses becomes an alert; escalations are
+        logged again.  phase "arr" (on final) or "dep" (climb-out)."""
+        hits = self._ws_hits if phase == "arr" else self._ws_dep_hits
+        pre = f"{icao}:" if phase == "arr" else f"{icao}:dep:"
         keys_now = set()
         for kind, d, lv, c in found:
-            key = f"{icao}:{kind}:{d}"
+            key = f"{pre}{kind}:{d}"
             keys_now.add(key)
-            self._ws_hits[key] = self._ws_hits.get(key, 0) + 1
-            if self._ws_hits[key] < WS_CONFIRM:
+            hits[key] = hits.get(key, 0) + 1
+            if hits[key] < WS_CONFIRM:
                 continue
             ev = {"id": key, "icao": icao, "cs": callsign, "type": ac_type, "rwy": runway,
-                  "kind": kind, "dir": d, "lvl": lv, "tl": now}
+                  "kind": kind, "dir": d, "lvl": lv, "tl": now, "ph": phase}
             if kind == "ramp":
                 ev.update({k: c.get(k) for k in ("dv", "sc", "L", "a1", "a2", "d1", "d2")})
-                ev["fh"] = a.get("fh")
+                ev["fh"] = (a or {}).get("fh")
             else:
                 ev.update({"b": c["b"], "a": c["a"], "ref": c["ref"], "n": c["n"],
                            "a1": c["b"] + 100, "a2": c["b"] - 100,
@@ -1799,8 +1817,75 @@ class WindshearTracker:
                             le.update({k: v for k, v in ev.items() if k not in ("ts", "tl")})
                 else:
                     cur["tl"] = now
-        for key in [key for key in self._ws_hits if key.startswith(icao + ":") and key not in keys_now]:
-            del self._ws_hits[key]
+        for key in [key for key in hits if key.startswith(pre) and key not in keys_now]:
+            del hits[key]
+
+    # ── departures in the band comparison ─────────────────────────────────────
+
+    def _dep_runway(self, lat, lon, track):
+        """(runway name, heading) of a climb-out from its first position and
+        initial track: the runway of that direction whose extended centreline
+        is nearest (≤ DEP_RWY_MAX_XT_NM), or (None, None)."""
+        if lat is None or lon is None or track is None:
+            return None, None
+        best = None
+        for r in self.runways:
+            if _hdg_diff(track, r["heading"]) > DEP_RWY_TRACK_TOL:
+                continue
+            xt = abs(_cross_track_nm(lat, lon, r["thr_lat"], r["thr_lon"], r["heading"]))
+            if xt <= DEP_RWY_MAX_XT_NM and (best is None or xt < best[0]):
+                best = (xt, r["name"], r["heading"])
+        return (best[1], best[2]) if best else (None, None)
+
+    def _band_refs(self, now: float, heading) -> list:
+        """Band headwinds of the landings and departures on this runway
+        direction in the previous 45 min (lock held)."""
+        return _shear.refs_from(self._approach_history + self._dep_refs, now, heading)
+
+    def dep_shear(self, icao: str, st: dict, now: float, final: bool = False) -> dict | None:
+        """Band comparison of a climb-out (called by collector/departures.py
+        after each sweep with new replies, and once at the end).  Live: band
+        alerts as on final (phase "dep").  final: the climb-out joins the
+        references of the next 45 min and its report is returned
+        (departure_profiles.shear_json)."""
+        if "ws_rwy" not in st:
+            st["ws_rwy"] = self._dep_runway(st.get("lat"), st.get("lon"), st.get("track"))
+        rwy, hdg = st["ws_rwy"]
+        if hdg is None:
+            return None
+        bands = _shear.dep_bands(st.get("raw5") or [], hdg)
+        with self._lock:
+            if self._dep_refs and now - self._dep_refs[0]["ts"] > _shear.BAND_WINDOW_SEC:
+                self._dep_refs = [e for e in self._dep_refs
+                                  if now - e["ts"] <= _shear.BAND_WINDOW_SEC]
+            ba = None
+            if bands:
+                ba = _shear.band_anomaly({int(b): v for b, v in bands["bd"].items()},
+                                         self._band_refs(now, hdg))
+            if not final:
+                found = []
+                if ba and ba["lvl"] != "none":
+                    found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
+                self._apply_events(icao, st.get("callsign") or icao, st.get("aircraft_type"),
+                                   rwy, found, None, now, phase="dep")
+                return None
+            for key in [k for k in self._ws_dep_hits if k.startswith(f"{icao}:dep:")]:
+                del self._ws_dep_hits[key]
+            if not bands:
+                return None
+            self._dep_refs.append({"ts": now, "rwy_heading": hdg, "shear": {"bd": bands["bd"]}})
+        return {"rwy": rwy, "hdg": hdg, "n": bands["n"], "noise": bands["noise"],
+                "bd": bands["bd"], "band": ba,
+                "lvl": (ba or {}).get("lvl") or "none", "v": 2}
+
+    def preload_dep_refs(self, records: list) -> None:
+        """Departures of the last 45 min from the DB at startup:
+        [{"ts", "shear": report}] (reports with rwy heading "hdg" and "bd")."""
+        with self._lock:
+            self._dep_refs = sorted(
+                ({"ts": r["ts"], "rwy_heading": r["shear"].get("hdg"), "shear": {"bd": r["shear"].get("bd")}}
+                 for r in records if r.get("shear") and r["shear"].get("bd")),
+                key=lambda e: e["ts"])
 
     def _ws_log_add(self, ev: dict) -> None:
         e = dict(ev)
@@ -1812,8 +1897,9 @@ class WindshearTracker:
                      ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["dv"], ev["L"],
                      ev["sc"], ev.get("a1"), ev.get("a2"))
         else:
-            log.info("Windshear %s: %s (%s) RWY %s headwind %+.0f kt at %d ft vs the last 45 min (%d landings)",
-                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["a"], ev["b"], ev["n"])
+            log.info("Windshear %s: %s (%s) RWY %s%s headwind %+.0f kt at %d ft vs the last 45 min (%d flights)",
+                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"],
+                     " departure" if ev.get("ph") == "dep" else "", ev["a"], ev["b"], ev["n"])
 
     def _shear_report(self, rough: dict | None, runway: str | None,
                       heading, ts: float) -> dict | None:
@@ -1823,8 +1909,7 @@ class WindshearTracker:
             a = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
             band = None
             if a:
-                band = _shear.band_anomaly(_shear.band_means(a),
-                                           _shear.refs_from(self._approach_history, ts, heading))
+                band = _shear.band_anomaly(_shear.band_means(a), self._band_refs(ts, heading))
             return _shear.report(a, band)
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)

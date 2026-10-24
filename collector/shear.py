@@ -31,8 +31,11 @@ Shun & Chan 2008, and the 2026-10-24 restudy of 3 084 EFHK landings):
    ≥ 15 kt · MBA (microburst alert) ≥ 30 kt loss.
 
 band_anomaly() adds the change in time: an aircraft's 200-ft band headwinds
-against the mean of the landings on the same runway direction in the previous
-45 minutes — a front or gust front shows as a change between landings.
+against the median of the landings and departures on the same runway direction
+in the previous 45 minutes — a front or gust front shows as a change between
+flights.  dep_bands() gives the band headwinds of a climb-out (from
+2026-10-24), so departures are compared too and fill the gaps between the
+arrival waves.
 
 Pure Python, no I/O.  Used live by collector/windshear.py for each aircraft on
 final (every sweep) and once per landing for the stored windshear report.
@@ -70,6 +73,18 @@ BAND_MIN_REF = 3
 BAND_ADVISORY = 10.0          # kt
 BAND_WSA = 15.0
 BAND_MAX_FT = 1800            # bands compared: up to the top of the low-level zone (ft MSL)
+
+# Departures in the band comparison (from 2026-10-24): climb-out replies with
+# the track within DEP_TRACK_TOL of the runway direction; a departure climbs
+# 4–5× faster than a 3° glide path, so each band takes the replies within
+# ±DEP_BAND_TOL_FT (overlapping 400-ft windows) and needs DEP_MIN_N of them.
+# TAS − GS of the climb-outs was DEP_HW_BIAS kt larger than that of the landings
+# in the same bands and 45 minutes (9–23 Oct 2026, 1 946 replies, constant with
+# height); it is subtracted so departures and landings share one scale.
+DEP_TRACK_TOL = 15.0          # °
+DEP_BAND_TOL_FT = 200.0
+DEP_MIN_N = 2
+DEP_HW_BIAS = 2.3             # kt
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -322,6 +337,31 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
     return out
 
 
+def _hdg_diff(a: float, b: float) -> float:
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+def dep_bands(b50: list, axis: float) -> dict | None:
+    """Band headwinds of a climb-out on the runway direction `axis` (°):
+    b50 rows as in analyze() (alt = interpolated ft MSL).  Only replies with
+    the track within DEP_TRACK_TOL of the axis (TAS − GS is the headwind along
+    the track); same cleaning as on final.  {"n": replies, "noise": kt,
+    "bd": {band: kt}} with DEP_HW_BIAS removed, or None."""
+    rows = [r for r in b50 if r and len(r) > 6 and r[3] is not None
+            and _hdg_diff(float(r[3]), float(axis)) <= DEP_TRACK_TOL]
+    pts, noise, _dropped = _points(rows, [])
+    if not pts:
+        return None
+    bd = {}
+    for b in range(200, 3001, 200):
+        v = [p["hw"] for p in pts if p["alt"] is not None and abs(p["alt"] - b) <= DEP_BAND_TOL_FT]
+        if len(v) >= DEP_MIN_N:
+            bd[str(b)] = round(sum(v) / len(v) - DEP_HW_BIAS, 1)
+    if not bd:
+        return None
+    return {"n": len(pts), "noise": None if noise is None else round(noise, 2), "bd": bd}
+
+
 def band_means(rep: dict | None) -> dict:
     """{band ft: headwind kt} of an analysis (its cleaned 200-ft band means)."""
     return {int(b): float(v) for b, v in ((rep or {}).get("bd") or {}).items()}
@@ -359,9 +399,9 @@ def _r2(v):
 
 
 def refs_from(history: list, ts: float, heading) -> list:
-    """Band headwinds ({band: kt}) of the landings in history (records with
-    "ts", "rwy_heading" and "shear") on the same runway direction within
-    BAND_WINDOW_SEC before ts."""
+    """Band headwinds ({band: kt}) of the landings — and departures — in
+    history (records with "ts", "rwy_heading" and "shear") on the same runway
+    direction within BAND_WINDOW_SEC before ts."""
     out = []
     for e in history:
         t = e.get("ts") or 0

@@ -30,6 +30,13 @@ fewer wind pairs pass the bank gate; the temperature is unaffected by turns.
 A go-around climbing out of the approach is flagged ("ga") and kept: the
 aircraft was established on an approach (descending in an ILS corridor) in
 the windshear tracker when its climb began.
+
+Windshear band comparison (from 2026-10-24): every raw BDS 5,0 reply of the
+climb is also kept (time, roll, track rate, track, GS, TAS, interpolated
+altitude) and handed to shear_fn (WindshearTracker.dep_shear) after each sweep
+with new replies and once more at the end; the climb-out's band headwinds
+(TAS − GS) are compared with the landings and departures of the previous 45
+minutes, and the result is stored with the profile (shear_json).
 """
 
 from __future__ import annotations
@@ -56,6 +63,7 @@ DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
 MAX_ROLL         = 5.0
+RAW5_MAX         = 400         # raw BDS 5,0 replies kept per climb (≈ 2–3 min)
 
 
 def _dist_nm(lat1, lon1, lat2, lon2):
@@ -89,16 +97,19 @@ def prof_summary(prof: dict) -> dict | None:
 class DepartureTracker:
     def __init__(self, airport_lat: float, airport_lon: float, bds_sample_fn,
                  qnh_fn, on_commit=None, approach_state_fn=None,
-                 mag_declination: float | None = None) -> None:
+                 mag_declination: float | None = None, shear_fn=None) -> None:
         """qnh_fn() → (qnh_hpa or None, pressure-alt − MSL correction ft);
         approach_state_fn(icao) → True if the windshear tracker is following
-        the aircraft on an approach (go-around flag)."""
+        the aircraft on an approach (go-around flag);
+        shear_fn(icao, state, now, final) → windshear band comparison of the
+        climb (WindshearTracker.dep_shear; returns the report when final)."""
         self.apt_lat, self.apt_lon = airport_lat, airport_lon
         self._bds = bds_sample_fn
         self._qnh = qnh_fn
         self._on_commit = on_commit
         self._on_app = approach_state_fn
         self._decl = mag_declination
+        self._shear = shear_fn
         self._state: dict[str, dict] = {}
         self._lock = threading.Lock()
         self.n_committed = 0
@@ -122,17 +133,23 @@ class DepartureTracker:
                     and gs is not None and gs >= DEP_MIN_GS):
                 st = self._state[icao] = {
                     "t0": now, "since": now - 4.0, "prev_t": now - 3.0, "prev_alt": alt_msl,
-                    "last": now, "prof": {}, "qnh": qnh,
+                    "last": now, "prof": {}, "qnh": qnh, "raw5": [],
                     "track": ac.get("track"), "lat": lat, "lon": lon,
                     "ga": bool(self._on_app and self._on_app(icao)),
                 }
             else:
                 return
+        n5 = len(st["raw5"])
         self._collect(icao, ac, st, now, alt_msl)
         st["last"] = now
         for k in ("callsign", "registration", "aircraft_type"):
             if ac.get(k):
                 st[k] = ac[k]
+        if self._shear and len(st["raw5"]) != n5 and not st["ga"]:
+            try:
+                self._shear(icao, st, now, False)
+            except Exception as exc:                      # noqa: BLE001
+                log.debug("Departure windshear check failed: %s", exc)
         if (alt_msl > DEP_TOP_FT + 300 or dist > DEP_MAX_NM
                 or (vr is not None and vr < -500)):
             self._finish(icao, ac, now)
@@ -162,6 +179,14 @@ class DepartureTracker:
         excluded = hsrc == "X"
         gs = ac.get("groundspeed")
         since = st["since"]
+        # raw BDS 5,0 replies for the windshear band comparison (TAS − GS)
+        raw5 = st["raw5"]
+        for t5, roll5, trate5, ttrk5, bgs5, tas5 in b50:
+            if t5 <= since or len(raw5) >= RAW5_MAX or tas5 is None or bgs5 is None:
+                continue
+            if gs is not None and abs(bgs5 - gs) > 50:
+                continue
+            raw5.append([t5, roll5, trate5, ttrk5, bgs5, tas5, round(alt_at(t5))])
         for smp in b60:
             ts, _ias, mhdg = smp[0], smp[1], smp[2]
             mach = smp[5] if len(smp) > 5 else None
@@ -196,6 +221,14 @@ class DepartureTracker:
         st = self._state.pop(icao, None)
         if not st:
             return
+        # windshear band comparison: also for climbs without a stored profile
+        # (the climb-out still becomes a reference for the next 45 min)
+        shear = None
+        if self._shear and not st["ga"]:
+            try:
+                shear = self._shear(icao, st, now, True)
+            except Exception as exc:                      # noqa: BLE001
+                log.debug("Departure windshear report failed: %s", exc)
         # bands with a temperature or a wind (turboprops report no Mach, so
         # their climbs give winds only — kept, as on the approach profiles)
         n_b = sum(1 for P in st["prof"].values() if P["t"] or P["u"])
@@ -206,7 +239,7 @@ class DepartureTracker:
                "callsign": st.get("callsign"), "registration": st.get("registration"),
                "aircraft_type": st.get("aircraft_type"), "qnh_hpa": st["qnh"],
                "track": st["track"], "lat": st["lat"], "lon": st["lon"],
-               "ga": st["ga"], "prof": prof}
+               "ga": st["ga"], "prof": prof, "shear": shear}
         self.n_committed += 1
         if self._on_commit:
             try:

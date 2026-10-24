@@ -298,16 +298,31 @@ def _on_departure_committed(record: dict) -> None:
         db.execute(
             """INSERT INTO departure_profiles
                (ts, t_start, icao, callsign, registration, aircraft_type, qnh_hpa,
-                track, lat, lon, ga, prof_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                track, lat, lon, ga, prof_json, shear_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (record["ts"], record.get("t_start"), record["icao"], record.get("callsign"),
              record.get("registration"), record.get("aircraft_type"), record.get("qnh_hpa"),
              record.get("track"), record.get("lat"), record.get("lon"),
              1 if record.get("ga") else 0,
-             json.dumps(record["prof"], separators=(",", ":"))))
+             json.dumps(record["prof"], separators=(",", ":")),
+             json.dumps(record["shear"], separators=(",", ":")) if record.get("shear") else None))
         db.commit()
     except Exception as exc:
         log.warning("departure_profiles DB write failed: %s", exc)
+
+
+def _preload_dep_refs(ws_tracker) -> None:
+    """Departures of the last 45 min with a windshear report → the band
+    comparison references of the windshear tracker (so a restart does not
+    leave the comparison without them)."""
+    from database.db import get_db
+    try:
+        rows = get_db().execute(
+            "SELECT ts, shear_json FROM departure_profiles "
+            "WHERE ts >= ? AND shear_json IS NOT NULL", (time.time() - 2700,)).fetchall()
+        ws_tracker.preload_dep_refs([{"ts": r[0], "shear": json.loads(r[1])} for r in rows])
+    except Exception as exc:                              # noqa: BLE001
+        log.debug("Departure windshear references not loaded: %s", exc)
 
 
 def _on_approach_committed(record: dict) -> None:
@@ -612,6 +627,7 @@ def main() -> None:
     # Windshear reports (detection v2) for stored landings that have none
     threading.Thread(target=_shear_backfill, args=(ws_tracker,),
                      name="shear_backfill", daemon=True).start()
+    _preload_dep_refs(ws_tracker)
 
     # Departure climb-out profiles (collector/departures.py); optional
     # DEPARTURE_PROFILES = False turns the capture off
@@ -630,6 +646,8 @@ def main() -> None:
                 or bool((ws_tracker._state.get(icao) or {}).get("landing_rwy")
                         and not (ws_tracker._state.get(icao) or {}).get("landing_committed"))),
             mag_declination=cfg.MAG_DECLINATION,
+            # windshear band comparison of the climb-outs (detection v2)
+            shear_fn=ws_tracker.dep_shear,
         )
 
     ws_thread = threading.Thread(

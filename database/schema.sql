@@ -190,7 +190,8 @@ CREATE TABLE IF NOT EXISTS approach_history (
     qnh_hpa       REAL,                       -- METAR QNH used to convert bands to MSL (NULL = legacy rows: bands are pressure altitude)
     gnss_json     TEXT,                       -- GNSS quality on final per band + first-degraded / recovery points (from 2026-10-06; NULL before)
     rough_json    TEXT,                       -- approach roughness per segment (bank / track-rate / IAS / vertical-rate activity, crab) + METAR wind (from 2026-10-06; NULL before); "ap" autopilot state (from 2026-10-09)
-    prof_json     TEXT                        -- per 200-ft band: averaged wind (n, SD), headwind component, Mach/TAS temperature (from 2026-10-09; NULL before)
+    prof_json     TEXT,                       -- per 200-ft band: averaged wind (n, SD), headwind component, Mach/TAS temperature (from 2026-10-09; NULL before)
+    shear_json    TEXT                        -- windshear report (detection v2, from 2026-10-24; back-filled from approach_series)
 );
 
 CREATE INDEX IF NOT EXISTS idx_aphist_ts   ON approach_history(ts DESC);
@@ -393,7 +394,8 @@ CREATE TABLE IF NOT EXISTS departure_profiles (
     lat           REAL,               -- first position
     lon           REAL,
     ga            INTEGER NOT NULL DEFAULT 0,   -- 1 = climb-out of a go-around
-    prof_json     TEXT    NOT NULL
+    prof_json     TEXT    NOT NULL,
+    shear_json    TEXT                -- windshear band comparison of the climb-out (from 2026-10-24)
 );
 CREATE INDEX IF NOT EXISTS idx_depprof_ts ON departure_profiles(ts);
 

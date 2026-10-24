@@ -524,7 +524,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.font       = '10px "Courier New", monospace';
       ilsCtx.textAlign  = 'right';
       const trendArrow = ev.hw_trend === 'loss' ? '▼' : ev.hw_trend === 'gain' ? '▲' : '';
-      const label = `${(WS_LEVEL[ev.lvl] || WS_LEVEL.adv).short} ${ev.delta_kt}kt${trendArrow}`;
+      const label = `${(WS_LEVEL[ev.lvl] || WS_LEVEL.adv).short}${ev.ph === 'dep' ? ' DEP' : ''} ${ev.delta_kt}kt${trendArrow}`;
       ilsCtx.fillText(label, M.left + PW - 4, yTop + zoneH / 2 + 4);
     }
   }
@@ -1048,7 +1048,7 @@ function gsClass(gs) {
 // From 24 Oct 2026 the detection runs on the server for every aircraft on final
 // (collector/shear.py): headwind ramps along the path from the aircraft's own
 // BDS 5,0 replies (TAS − GS), scaled to a 1-km equivalent ΔV·(1 km/L)^⅓, and the
-// change of the 200-ft band headwinds against the landings of the previous
+// change of the 200-ft band headwinds against the landings and departures of the previous
 // 45 min.  /api/windshear/state returns the active alerts (ws_events) and the
 // alert log of the last 24 h (ws_log).  The six browser algorithms of May –
 // Oct 2026 (Pair, Gradient, Energy, Rate, Baseline, Kinematic) were retired —
@@ -1079,7 +1079,7 @@ function wsEventText(e, long = false) {
   const dir = e.dir === 'loss' ? 'headwind loss' : 'headwind gain';
   if (e.kind === 'band') {
     const s = `${Math.round(kt)} kt ${dir} at ${e.b} ft vs the last 45 min`;
-    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${e.n} landings)` : s;
+    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${e.n} landings and departures)` : s;
   }
   const km = (e.L / 1000).toFixed(1);
   const s = `${Math.round(kt)} kt ${dir} over ${km} km, ${e.a1}→${e.a2} ft`;
@@ -1149,7 +1149,7 @@ function updateAlertBanner(events) {
   const tags = active.map(e => {
     const lv = WS_LEVEL[e.lvl] || WS_LEVEL.adv;
     const trendTag = e.dir === 'loss' ? ' ▼LOSS' : ' ▲GAIN';
-    return `<span class="ws-alert-tag">${lv.short} · RWY ${e.rwy} · ${e.delta_kt} kt${trendTag} · ${wsEventText(e).replace(/^\d+ kt headwind (loss|gain) /, '')}  [${e.cs || e.icao}]</span>`;
+    return `<span class="ws-alert-tag">${lv.short} · RWY ${e.rwy}${e.ph === 'dep' ? ' departure' : ''} · ${e.delta_kt} kt${trendTag} · ${wsEventText(e).replace(/^\d+ kt headwind (loss|gain) /, '')}  [${e.cs || e.icao}]</span>`;
   }).join(' ');
   banner.className = `ws-alert-banner ${cls}`;
   banner.innerHTML = `${icon} ${head} &nbsp; ${tags}`;
@@ -1504,9 +1504,11 @@ function renderWsLog() {
     const sevCls = e.lvl === 'mba' ? ' ws-log-alarm' : e.lvl === 'wsa' ? ' ws-log-warning' : ' ws-log-monitor';
     const trend  = e.dir === 'loss' ? '▼' : '▲';
     const where  = e.kind === 'band' ? `@${e.b}ft` : `${(e.L / 1000).toFixed(1)}km`;
-    const compact = `${e._time} ${lv.short} ${e.rwy} ${e.delta_kt}kt${trend} ${where} ${e.cs || e.icao}`;
-    const how = e.kind === 'band' ? 'change against the earlier landings' : 'headwind ramp along the path';
-    const tip = `${e._time} UTC  ·  RWY ${e.rwy}  ·  ${lv.name}\n${wsEventText(e, true)}\n(${how})\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
+    const dep = e.ph === 'dep';
+    const compact = `${e._time} ${lv.short} ${e.rwy}${dep ? ' dep' : ''} ${e.delta_kt}kt${trend} ${where} ${e.cs || e.icao}`;
+    const how = dep ? 'climb-out compared with the earlier landings and departures'
+              : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
+    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsEventText(e, true)}\n(${how})\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
     return `<div class="ws-log-entry-compact${sevCls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
@@ -2754,7 +2756,7 @@ function renderApproachHistoryHeader() {
         ['Loss',  'Strongest headwind loss along the path: kt over km (hover for the 1-km equivalent and heights)'],
         ['Gain',  'Strongest headwind gain along the path: kt over km'],
         ['F 1km', 'Horizontal F-factor over 1 km (headwind loss rate / g; the downdraft part cannot be seen)'],
-        ['Band Δ','Largest change of a 200-ft band headwind (up to 1800 ft) against the landings on the same runway direction in the previous 45 min'],
+        ['Band Δ','Largest change of a 200-ft band headwind (up to 1800 ft) against the landings and departures on the same runway direction in the previous 45 min'],
         ['Low',   'Lowest height (ft MSL) the receiver followed the aircraft'],
         ['n',     'BDS 5,0 replies used (and their noise, kt)'],
       ].map(([t, tip]) => `<th class="ws-aphist-th" title="${tip}">${t}</th>`).join('')
@@ -3073,7 +3075,7 @@ function _wsTitle(w) {
     ramp(w.loss, 'Strongest loss'),
     ramp(w.gain, 'Strongest gain'),
     w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}${w.fh_a != null ? ` (at ${w.fh_a} ft)` : ''}` : '',
-    b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${b.n} landings)` : 'Band change: no reference landings',
+    b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${b.n} landings and departures)` : 'Band change: no reference flights',
     w.a ? `Followed ${w.a[0]}→${w.a[1]} ft, ${w.d && w.d[0] != null ? w.d[0].toFixed(1) : '?'}→${w.d && w.d[1] != null ? w.d[1].toFixed(1) : '?'} NM · ${w.n} replies, noise ±${w.noise != null ? w.noise : '?'} kt` : '',
     'Headwind = TAS − GS of each BDS 5,0 reply (detection v2)',
   ].filter(Boolean).join('\n');
