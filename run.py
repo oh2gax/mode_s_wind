@@ -337,6 +337,25 @@ def _preload_dep_refs(ws_tracker) -> None:
         log.debug("Departure windshear references not loaded: %s", exc)
 
 
+def _seed_ws_day(ws_tracker) -> None:
+    """Today's (UTC) windshear reports from the DB → the status line of the
+    Windshear page (counts, levels, strongest values survive a restart)."""
+    from database.db import get_db
+    try:
+        t0 = time.time() // 86400 * 86400
+        db = get_db()
+        recs = []
+        for ts, cs, sj in db.execute("SELECT ts, callsign, shear_json FROM approach_history "
+                                     "WHERE ts >= ? AND shear_json IS NOT NULL", (t0,)):
+            recs.append(("arr", ts, cs, json.loads(sj)))
+        for ts, cs, sj in db.execute("SELECT ts, callsign, shear_json FROM departure_profiles "
+                                     "WHERE ts >= ? AND ga = 0 AND shear_json IS NOT NULL", (t0,)):
+            recs.append(("dep", ts, cs, json.loads(sj)))
+        ws_tracker.seed_day(recs)
+    except Exception as exc:                              # noqa: BLE001
+        log.debug("Windshear day statistics not seeded: %s", exc)
+
+
 def _on_approach_committed(record: dict) -> None:
     """
     Callback wired into WindshearTracker.on_approach_committed.
@@ -566,6 +585,7 @@ def _shear_backfill(ws_tracker) -> None:
             db.executemany("UPDATE departure_profiles SET shear_json = ? WHERE id = ?", b_dep)
         db.commit()
         n_ram = ws_tracker.attach_shear(done)
+        _seed_ws_day(ws_tracker)
         sl.info("Windshear reports back-filled for %d stored landing(s) (%d in RAM) and %d departure(s) in %.0f s",
                 len(done), n_ram, n_dep, time.time() - t_start)
     except Exception as exc:
@@ -688,6 +708,7 @@ def main() -> None:
     threading.Thread(target=_shear_backfill, args=(ws_tracker,),
                      name="shear_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
+    _seed_ws_day(ws_tracker)
 
     # Departure climb-out profiles (collector/departures.py); optional
     # DEPARTURE_PROFILES = False turns the capture off

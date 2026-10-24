@@ -454,6 +454,14 @@ class WindshearTracker:
         # the prof_json format, like approach_history)
         self._ws_dep_hits: dict[str, int] = {}
         self._dep_refs:    list[dict]     = []
+        # Engine status line of the Windshear page (from 2026-10-24): time of
+        # the last analysis, the aircraft analysed recently and today's
+        # windshear reports (UTC day; seeded from the DB at startup)
+        self._ws_last_an:   float            = 0.0
+        self._ws_an_ts:     dict[str, float] = {}
+        self._ws_dep_an_ts: dict[str, float] = {}
+        self._ws_day:       dict | None      = None
+        self._ws_start:     float            = time.time()
         self._lock  = threading.RLock()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
@@ -1260,6 +1268,7 @@ class WindshearTracker:
         }
         # Windshear report of the landing (from 2026-10-24, collector/shear.py)
         record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts)
+        self._day_add("arr", record["shear"], record["callsign"], ts)
         # Raw reply series for approach_series (DB only, not kept in RAM)
         series = self._series_blob(rough, record)
         self._approach_history.insert(0, record)
@@ -1755,6 +1764,8 @@ class WindshearTracker:
         if n < 8 or self._ws_seen_n.get(icao) == n:
             return
         self._ws_seen_n[icao] = n
+        self._ws_last_an = now
+        self._ws_an_ts[icao] = now
         rw = next((x for x in self.runways if x["name"] == runway), None)
         try:
             a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
@@ -1861,6 +1872,8 @@ class WindshearTracker:
             if self._dep_refs and now - self._dep_refs[0]["ts"] > _shear.BAND_WINDOW_SEC:
                 self._dep_refs = [e for e in self._dep_refs
                                   if now - e["ts"] <= _shear.BAND_WINDOW_SEC]
+            self._ws_last_an = now
+            self._ws_dep_an_ts[icao] = now
             ba = None
             if hdg is not None and prof:
                 ba = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
@@ -1876,8 +1889,87 @@ class WindshearTracker:
                 del self._ws_dep_hits[key]
             if prof:                         # every climb-out is a reference (also off the runway axes)
                 self._dep_refs.append({"ts": now, "prof": prof})
-        return {"rwy": rwy, "hdg": hdg, "band": ba,
-                "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
+            self._ws_dep_an_ts.pop(icao, None)
+            rep = {"rwy": rwy, "hdg": hdg, "band": ba,
+                   "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
+            self._day_add("dep", rep, st.get("callsign") or icao, now)
+        return rep
+
+    # ── engine status (status line of the Windshear Alert panel) ─────────────
+
+    @staticmethod
+    def _utc_day(ts: float) -> str:
+        return time.strftime("%Y-%m-%d", time.gmtime(ts))
+
+    def _day_stats(self, now: float) -> dict:
+        """Today's (UTC) report statistics, reset at midnight (lock held)."""
+        day = self._utc_day(now)
+        if not self._ws_day or self._ws_day["day"] != day:
+            self._ws_day = {"day": day, "arr": 0, "dep": 0,
+                            "lvl": {"adv": 0, "wsa": 0, "mba": 0},
+                            "ramp": None, "band": None, "noise": [], "low": []}
+        return self._ws_day
+
+    def _day_add(self, phase: str, rep: dict | None, cs: str | None, ts: float) -> None:
+        """Count one windshear report (landing "arr" or departure "dep") in
+        today's statistics (lock held)."""
+        if rep is None:
+            return
+        d = self._day_stats(time.time())
+        if self._utc_day(ts) != d["day"]:
+            return
+        d[phase] += 1
+        lv = rep.get("lvl") or "none"
+        if lv in d["lvl"]:
+            d["lvl"][lv] += 1
+        for k in ("loss", "gain"):
+            c = rep.get(k)
+            if c and c.get("zone") and c.get("sc") is not None and \
+                    (d["ramp"] is None or c["sc"] > d["ramp"]["sc"]):
+                d["ramp"] = {"sc": c["sc"], "dv": c.get("dv"), "L": c.get("L"), "dir": k,
+                             "cs": cs, "ts": ts}
+        b = rep.get("band")
+        if b and b.get("a") is not None and (d["band"] is None or abs(b["a"]) > abs(d["band"]["a"])):
+            d["band"] = {"a": b["a"], "b": b.get("b"), "cs": cs, "ts": ts, "ph": phase}
+        if rep.get("noise") is not None and len(d["noise"]) < 2000:
+            d["noise"].append(rep["noise"])
+        a = rep.get("a")
+        if a and a[1] is not None and len(d["low"]) < 2000:
+            d["low"].append(a[1])
+
+    def seed_day(self, records: list) -> None:
+        """Today's statistics from the stored reports at startup (and after
+        the back-fill): records [(phase "arr"/"dep", ts, callsign, report)]."""
+        with self._lock:
+            self._ws_day = None
+            self._day_stats(time.time())
+            for phase, ts, cs, rep in sorted(records, key=lambda r: r[1]):
+                self._day_add(phase, rep, cs, ts)
+
+    def _engine_status(self, now: float) -> dict:
+        """Status of the detection for the page (lock held)."""
+        for dct in (self._ws_an_ts, self._ws_dep_an_ts):
+            for k in [k for k, t in dct.items() if now - t > 120]:
+                del dct[k]
+        d = self._day_stats(now)
+        med = lambda v: (sorted(v)[len(v) // 2] if v else None)     # noqa: E731
+        try:
+            refs = len(_shear.vec_refs(self._approach_history + self._dep_refs, now))
+        except Exception:                                 # noqa: BLE001
+            refs = None
+        return {
+            "now": round(now, 1),
+            "age": round(now - self._ws_last_an, 1) if self._ws_last_an else None,
+            "arr_now": sum(1 for t in self._ws_an_ts.values() if now - t <= 30),
+            "dep_now": sum(1 for t in self._ws_dep_an_ts.values() if now - t <= 30),
+            "final": sum(1 for e in self._state.values() if e.get("in_corridor")),
+            "refs": refs, "refs_min": _shear.BAND_MIN_REF,
+            "day": d["day"], "arr": d["arr"], "dep": d["dep"], "lvl": dict(d["lvl"]),
+            "ramp": d["ramp"], "band": d["band"],
+            "noise": med(d["noise"]), "low": med(d["low"]),
+            "last_alert": self._ws_log[0]["ts"] if self._ws_log else None,
+            "uptime": round(now - self._ws_start),
+        }
 
     def preload_dep_refs(self, records: list) -> None:
         """Departures of the last 45 min from the DB at startup:
@@ -1935,15 +2027,19 @@ class WindshearTracker:
           'ga_events' — list of go-around event dicts from this session
           'ws_events' — active windshear alerts (detection v2, see _live_shear)
           'ws_log'    — windshear alerts of the last 24 h, newest first
+          'ws_engine' — status of the detection (_engine_status): seconds since
+                        the last analysis, aircraft analysed now, reference
+                        flights, today's reports, levels and strongest values
         """
         with self._lock:
             items     = list(self._state.values())
             ga_events = list(self._ga_events)   # snapshot to avoid race
             ws_events = [dict(e) for e in self._ws_active.values()]
             ws_log    = [dict(e) for e in self._ws_log]
+            ws_engine = self._engine_status(time.time())
         items.sort(key=lambda x: x.get("dist_thr_nm") or x.get("dist_apt_nm") or 999)
         return {"aircraft": items, "ga_events": ga_events,
-                "ws_events": ws_events, "ws_log": ws_log}
+                "ws_events": ws_events, "ws_log": ws_log, "ws_engine": ws_engine}
 
     def get_approach_history(self) -> list:
         """Thread-safe snapshot of the landed approach history list (newest first)."""

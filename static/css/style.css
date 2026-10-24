@@ -2550,6 +2550,21 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   flex: 0 0 55%; overflow-y: auto; padding: 4px 6px;
   display: flex; flex-direction: column; gap: 3px;
 }
+.ws-engine {
+  flex-shrink: 0; padding: 3px 10px; border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 10.5px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; min-width: 0;
+}
+.ws-bottom-grid > .ws-ws-log { min-width: 0; }
+.ws-eng-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.ws-eng-ok { background: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,.6); }
+.ws-eng-idle { background: var(--text-3); }
+.ws-eng-stalled { background: #f59e0b; box-shadow: 0 0 4px rgba(245,158,11,.7); }
+.ws-eng-sep, .ws-eng-dim { color: var(--text-3); }
+.ws-eng-adv { color: #3b82f6; }
+.ws-eng-wsa { color: #d97706; }
+.ws-eng-mba { color: #ef4444; font-weight: 700; }
+.ws-eng-narrow .ws-eng-opt { display: none; }
 .ws-log-entry-compact {
   background: var(--bg-2); border-left: 3px solid var(--amber);
   border-radius: 0 3px 3px 0; padding: 3px 6px;

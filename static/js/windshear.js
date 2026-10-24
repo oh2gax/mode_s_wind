@@ -1466,6 +1466,74 @@ function _hideLogTooltip() {
   const tip = _wsTooltipEl(); if (tip) tip.style.display = 'none';
 }
 
+// ── Engine status line (ws_engine of /api/windshear/state, from 2026-10-24) ─
+// One line under the Windshear Alert header: is the server-side detection
+// running, how many aircraft it analyses now, the reference flights of the
+// band comparison, today's (UTC) windshear reports by level and the strongest
+// values of the day; the hover gives the details.
+function _ago(sec) {
+  if (sec == null) return '—';
+  if (sec < 90) return `${Math.round(sec)} s`;
+  if (sec < 5400) return `${Math.round(sec / 60)} min`;
+  return `${Math.floor(sec / 3600)} h ${String(Math.round(sec % 3600 / 60)).padStart(2, '0')} min`;
+}
+function _hm(ts) {
+  const d = new Date(ts * 1000);
+  return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+}
+function renderEngineStatus(e) {
+  const el = document.getElementById('ws-engine');
+  if (!el) return;
+  if (!e) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const stalled = e.final > 0 && (e.age == null || e.age > 120);
+  const idle = !stalled && e.age == null;
+  const st = stalled ? 'stalled' : idle ? 'idle' : 'ok';
+  const dot = `<span class="ws-eng-dot ws-eng-${st}"></span>`;
+  const head = stalled ? `no analysis for ${_ago(e.age)}` : idle ? 'waiting for traffic' : 'running';
+  const now = stalled ? `${e.final} in the ILS corridors`
+    : e.arr_now || e.dep_now ? `${e.arr_now} on final${e.dep_now ? ` · ${e.dep_now} dep` : ''}` : 'none on final';
+  const refsLow = e.refs != null && e.refs < e.refs_min;
+  const refs = e.refs == null ? '' : refsLow
+    ? `<span class="ws-eng-dim">refs ${e.refs} · band check waiting</span>` : `refs ${e.refs}`;
+  const lv = e.lvl || {};
+  const lvTxt = `<span class="ws-eng-adv">ADV ${lv.adv || 0}</span> <span class="ws-eng-wsa">WSA ${lv.wsa || 0}</span>` +
+                (lv.mba ? ` <span class="ws-eng-mba">MBA ${lv.mba}</span>` : '');
+  const rS = e.ramp ? e.ramp.sc : null, bS = e.band ? Math.abs(e.band.a) : null;
+  let mx = '';
+  if (rS != null || bS != null) {
+    const ramp = rS != null && (bS == null || rS >= bS);
+    mx = `max ${Math.round(ramp ? rS : bS)} kt ${ramp ? 'ramp' : 'band'}`;
+  }
+  // [html, optional] — optional parts are hidden on narrow screens (CSS)
+  const parts = [[`${dot}${head}`], [now, true], [refs], [`today ${e.arr} ldg / ${e.dep} dep`], [lvTxt], [mx, true]]
+    .filter(p => p[0]);
+  const sep = '<span class="ws-eng-sep"> · </span>';
+  el.innerHTML = parts.map(([h, opt], i) => opt ? `<span class="ws-eng-opt">${sep}${h}</span>` : (i ? sep : '') + h).join('');
+  // too long for the panel: leave out the optional parts (they stay in the hover)
+  el.classList.remove('ws-eng-narrow');
+  if (el.scrollWidth > el.clientWidth + 1) el.classList.add('ws-eng-narrow');
+
+  const r = e.ramp, b = e.band;
+  const tip = [
+    '<b>Windshear detection v2 — on the server</b>',
+    stalled ? `<span style="color:#f59e0b">No analysis for ${_ago(e.age)} although ${e.final} aircraft are in the ILS corridors — check the server log</span>`
+            : e.age != null ? `Last analysis ${_ago(e.age)} ago` : 'No aircraft analysed since the server started',
+    `Analysed now: ${e.arr_now} landing${e.arr_now === 1 ? '' : 's'} on final, ${e.dep_now} departure${e.dep_now === 1 ? '' : 's'} climbing out (in the ILS corridors: ${e.final})`,
+    e.refs == null ? '' : `Band comparison: ${e.refs} landings and departures in the last 45 min` +
+      (refsLow ? ` — at least ${e.refs_min} needed, so the change against earlier flights waits` : ` (at least ${e.refs_min} needed)`),
+    `Today (UTC ${e.day}): ${e.arr} landings and ${e.dep} departures checked; flights with a report at ADV ${lv.adv || 0} · WSA ${lv.wsa || 0} · MBA ${lv.mba || 0}`,
+    r ? `Strongest ramp: ${r.sc} kt per 1 km (${r.dir} ${Math.abs(r.dv)} kt over ${(r.L / 1000).toFixed(1)} km) — ${r.cs || '?'} ${_hm(r.ts)}` : 'Strongest ramp: none above the noise yet',
+    b ? `Largest band change: ${b.a > 0 ? '+' : ''}${b.a} kt at ${b.b} ft — ${b.cs || '?'} ${_hm(b.ts)}${b.ph === 'dep' ? ' (departure)' : ''}` : 'Largest band change: no comparison yet',
+    (e.noise != null || e.low != null) ? `Median of today's landings: reply noise ±${e.noise != null ? e.noise.toFixed(1) : '?'} kt · lowest height followed ${e.low != null ? e.low + ' ft' : '?'}` : '',
+    e.last_alert ? `Last alert ${_hms(e.last_alert)} UTC (${_ago(e.now - e.last_alert)} ago)` : 'No alert in the last 24 h',
+    `<span class="ws-eng-dim">Server running for ${_ago(e.uptime)} · levels: ADV ≥ 10 kt, WSA ≥ 15 kt, MBA ≥ 30 kt loss</span>`,
+  ].filter(Boolean).join('<br>');
+  el.onmouseenter = ev => _showLogTooltip(ev, tip);
+  el.onmousemove  = ev => _posLogTooltip(ev);
+  el.onmouseleave = () => _hideLogTooltip();
+}
+
 /** UTC hh:mm:ss of a Unix time (s). */
 function _hms(ts) {
   const d = new Date(ts * 1000);
@@ -2447,6 +2515,7 @@ async function fetchApproachState() {
     // Windshear alerts of the server's detection (collector/shear.py)
     lastShearEvents = Array.isArray(data) ? [] : (data.ws_events || []).map(mapWsEvent);
     wsServerLog     = Array.isArray(data) ? [] : (data.ws_log || []);
+    renderEngineStatus(Array.isArray(data) ? null : data.ws_engine);
 
     // Auto-barb: update selection before rendering so strips + canvas are in sync
     runAutoBarbSelection(corridor, aircraft);

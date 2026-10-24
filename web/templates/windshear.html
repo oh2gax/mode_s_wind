@@ -180,6 +180,8 @@
             {% if guide_links.windshear %}<a class="guide-q" href="{{ guide_links.windshear }}" target="_blank" rel="noopener" title="User guide: Windshear detection and the Windshear page — PDF in a new tab">?</a>{% endif %}
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
+          <!-- status line of the server-side detection (ws_engine of /api/windshear/state); hover for details -->
+          <div class="ws-engine" id="ws-engine" style="display:none"></div>
           <!-- 55/45 split: alerts left, today's stats right -->
           <div class="ws-ws-log-body">
             <div class="ws-ws-log-entries" id="ws-ws-log-entries">
