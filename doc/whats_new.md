@@ -3,7 +3,7 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.24102026 — New windshear detection; the old algorithms are retired
+## v.24102026 — New windshear detection; the old algorithms are retired; wind and gusts on the Weather page
 
 - **The six old windshear algorithms are retired.** Pairwise, Gradient, Energy, Rate, Baseline and Kinematic are no longer on the Windshear page, and the algorithm selector, the ON/OFF button and the F-factor gate are gone. A study of more than 3 000 recorded landings showed that in calm weather they mostly reacted to the normal increase of the wind with height — Energy, for example, would have warned on almost every approach. Their description is kept in the user guide *Windshear detection v1 — retired algorithms* (User guides tab), so older screenshots and notes can still be read.
 - **New windshear detection (v2) runs on the server** for every aircraft on final, all the time — also when nobody has the page open. It follows each aircraft's own headwind along its path (true airspeed − ground speed, straight from the aircraft's replies) and looks for sudden changes over 0.4–4 km, and it compares each landing with the landings of the last 45 minutes, which shows a front or gust front changing the wind between landings.
@@ -12,6 +12,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Departures count too**: every climb-out is now compared with the landings and departures of the last 45 minutes, and becomes a reference for the next flights. Helsinki-Vantaa works in waves, so during a departure wave there may be no landing for half an hour — the departures now fill those gaps. Their alerts are marked *departure* (`dep` in the log). In the recorded data a departure on 22R showed the sudden wind change of 17 October ten minutes before the first landing did.
 - **A windshear report for every landing**: the Approach History has a new **WS** view with the level, the strongest headwind loss and gain, the F-factor and the change against the earlier flights. Landings of the last weeks get their report automatically after the update.
 - In the first two weeks of data (calm weather) the new detector gave no windshear alert from a single approach and advisories on about 1 % of landings — mostly real low-level wind changes such as the night inversion of 11 October. The comparison with earlier landings caught the sudden wind change on runway 22L on 17 October around 09:04 UTC. The alerts are experimental research output, not an operational warning.
+- **Wind and gusts on the Weather page**: two new tick boxes show the MEPS model's wind at 10 m as wind barbs and its gusts as shading — from 25 kt through gale (34 kt) and storm (48 kt) to hurricane force. Hover the map for the wind direction and speed (kt and m/s) and the gust. After the update the last day and the forecast get the wind within about half an hour; older hours show the map without it.
 
 ## v.23102026 — Weather page, MEPS on the model's own levels and on the Wind Map
 

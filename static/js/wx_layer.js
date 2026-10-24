@@ -5,12 +5,15 @@
  * A frame (from /api/weather/frames) holds integer lists on a regular grid in
  * the MEPS Lambert projection: p (hPa − 1000) × 10, r / s rain / snow of the
  * hour (mm × 100), c / l / m / h total / low / medium / high cloud %, f fog %,
- * b cloud base (m).  WxLayer.create(map, opts) puts a canvas into its own
- * pane (under the aircraft on the Live Map) and draws:
+ * b cloud base (m), u / v 10 m wind towards east / north and g 10 m gust
+ * (kt).  WxLayer.create(map, opts) puts a canvas into its own pane (under
+ * the aircraft on the Live Map) and draws:
  *   clouds   — the chosen cloud fields as grey (fog: yellow), denser with
  *              more cover (cells drawn opaque on an offscreen canvas, then
  *              the cover turned into transparency: no seams between cells)
+ *   gusts    — shading of the 10 m gust from 25 kt (Beaufort 6) upwards
  *   rain     — radar-like colours by intensity, snow (≥ half of it) violet
+ *   wind     — barbs of the 10 m wind, thinned to about 50 px apart
  *   pressure — isobars every 4 hPa with labels, highs H and lows L
  * The overall opacity is the canvas opacity (setOpacity).
  *
@@ -66,12 +69,43 @@ const WxLayer = (() => {
   const RAIN_C = ['#7dd3fc', '#3b82f6', '#22c55e', '#facc15', '#ef4444', '#ec4899'];
   const SNOW_C = ['#ede9fe', '#ddd6fe', '#c4b5fd', '#a78bfa', '#8b5cf6', '#d946ef'];
   const rainClass = mm => { let k = -1; for (let i = 0; i < RAIN_T.length; i++) if (mm >= RAIN_T[i]) k = i; return k; };
+  // 10 m gust (kt): Beaufort 6 / gale 8 / strong gale 9 / storm 10 / violent storm 11 / hurricane 12
+  const GUST_T = [25, 34, 41, 48, 56, 64];
+  const GUST_C = ['#fde68a', '#fdba74', '#f97316', '#dc2626', '#9d174d', '#581c87'];
+  const gustClass = kt => { let k = -1; for (let i = 0; i < GUST_T.length; i++) if (kt >= GUST_T[i]) k = i; return k; };
+  const BARB_PX = 50;                                                      // barb spacing on screen
+  // meteorological wind barb at (cx, cy), staff pointing to where the wind comes from
+  function barb(g, cx, cy, dir, spd) {
+    const s = Math.round(spd / 5) * 5;
+    const r = dir * Math.PI / 180, ux = Math.sin(r), uy = -Math.cos(r);
+    const L = 15, fx = -uy, fy = ux;
+    const tx = cx + ux * L, ty = cy + uy * L;
+    if (s < 5) { g.beginPath(); g.arc(cx, cy, 2.2, 0, 2 * Math.PI); g.stroke(); return; }   // calm: circle
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(tx, ty); g.stroke();
+    let rem = s, pos = 0;
+    while (rem >= 50) {
+      const ax = tx - ux * pos, ay = ty - uy * pos;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 7 - ux * 2, ay + fy * 7 - uy * 2);
+      g.lineTo(ax - ux * 4, ay - uy * 4); g.closePath(); g.fill();
+      pos += 5; rem -= 50;
+    }
+    while (rem >= 10) {
+      const ax = tx - ux * pos, ay = ty - uy * pos;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 7 + ux * 2, ay + fy * 7 + uy * 2); g.stroke();
+      pos += 3.5; rem -= 10;
+    }
+    if (rem >= 5) {
+      const ax = tx - ux * (pos || 3), ay = ty - uy * (pos || 3);
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 3.5 + ux, ay + fy * 3.5 + uy); g.stroke();
+    }
+  }
+  const windDir = (u, v) => (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360;
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const theme = () => isLight()
     ? { iso: 'rgba(30,41,59,0.85)', isoLbl: '#1e293b', halo: 'rgba(241,245,249,0.9)', hi: '#1d4ed8', lo: '#b91c1c',
-        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)' }
+        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a' }
     : { iso: 'rgba(226,232,240,0.8)', isoLbl: '#e2e8f0', halo: 'rgba(15,25,35,0.85)', hi: '#60a5fa', lo: '#f87171',
-        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)' };
+        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)', barb: '#f8fafc' };
   const CLOUD_NAME = { c: 'cloud cover', l: 'low cloud', m: 'medium cloud', h: 'high cloud', f: 'fog' };
 
   function smooth(v, nx, ny, r) {
@@ -153,7 +187,7 @@ const WxLayer = (() => {
     const off = document.createElement('canvas');
     let frame = null, grid = null, geo = null, gridKey = '';
     let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
-    let o = { rain: true, clouds: [], pres: true };
+    let o = { rain: true, clouds: [], pres: true, wind: false, gust: false };
 
     function place() {
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
@@ -230,6 +264,18 @@ const WxLayer = (() => {
         g2.putImageData(img, 0, 0);
         layer(1);
       }
+      // 10 m gust: shading from 25 kt, under the rain
+      if (hasF && o.gust && f.g) {
+        begin();
+        let any = false;
+        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+          const v = f.g[j * nx + i];
+          if (v == null) continue;
+          const cl = gustClass(v);
+          if (cl >= 0) { quad(i, j, GUST_C[cl]); any = true; }
+        }
+        if (any) layer(opts.gustAlpha || (isLight() ? 0.55 : 0.72));
+      }
       // rain / snow: the model's, cut away inside the radar coverage, then the radar's
       const oq = hasO ? quads(ovGeo) : null;
       if (o.rain && (f.r || (hasO && ov.r))) {
@@ -275,7 +321,32 @@ const WxLayer = (() => {
         ctx.strokeStyle = T.radarEdge; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
         ctx.stroke(); ctx.setLineDash([]);
       }
+      if (hasF && o.wind && f.u && f.v) drawBarbs(ctx, f, T, P);
       if (hasF && o.pres && f.p) drawPressure(ctx, f, T, P);
+    }
+
+    // barbs of the 10 m wind on every n-th grid point (about BARB_PX apart on
+    // the screen; the same points while panning), only inside the view
+    function drawBarbs(ctx, f, T, P) {
+      const { nx, ny } = geo;
+      const c = map.getSize(), mid = Math.floor(ny / 2) * nx + Math.floor(nx / 2);
+      const a = P(geo.pt(mid)), b = P(geo.pt(mid + 1));
+      const cell = Math.max(0.5, Math.hypot(b.x - a.x, b.y - a.y));
+      const n = Math.max(1, Math.ceil(BARB_PX / cell));
+      ctx.lineCap = 'round';
+      const line = [];
+      for (let j = 0; j < ny; j += n) for (let i = 0; i < nx; i += n) {
+        const k = j * nx + i, u = f.u[k], v = f.v[k];
+        if (u == null || v == null) continue;
+        const q = P(geo.pt(k));
+        if (q.x < -20 || q.y < -20 || q.x > c.x + 20 || q.y > c.y + 20) continue;
+        line.push([q.x, q.y, windDir(u, v), Math.hypot(u, v)]);
+      }
+      for (const pass of ['halo', 'line']) {
+        ctx.strokeStyle = ctx.fillStyle = pass === 'halo' ? T.halo : T.barb;
+        ctx.lineWidth = pass === 'halo' ? 3.2 : 1.3;
+        for (const [x, y, d, sp] of line) barb(ctx, x, y, d, sp);
+      }
     }
 
     function drawPressure(ctx, f, T, P) {
@@ -385,13 +456,18 @@ const WxLayer = (() => {
       const i = Math.round((x - grid.x[0]) / grid.x[1]), j = Math.round((y - grid.y[0]) / grid.y[1]);
       if (i < 0 || j < 0 || i >= grid.x[2] || j >= grid.y[2]) return null;
       const k = j * grid.x[2] + i, f = frame, out = {};
-      for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b']) if (f[key] && f[key][k] != null) out[key] = f[key][k];
+      for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b', 'u', 'v', 'g']) if (f[key] && f[key][k] != null) out[key] = f[key][k];
       return out;
     }
     function describe(v, latlng) {
       if (!v) return '';
       const parts = latlng ? [`${latlng.lat.toFixed(2)}°N ${latlng.lng.toFixed(2)}°E`] : [];
       if (v.p != null) parts.push(`${(1000 + v.p / 10).toFixed(1)} hPa`);
+      if (v.u != null && v.v != null) {
+        const sp = Math.hypot(v.u, v.v);
+        parts.push(sp < 1 ? 'wind calm' : `wind ${String(Math.round(windDir(v.u, v.v)) % 360).padStart(3, '0')}° ${Math.round(sp)} kt (${(sp * 0.514444).toFixed(0)} m/s)`);
+      }
+      if (v.g != null) parts.push(`gust ${v.g} kt (${(v.g * 0.514444).toFixed(0)} m/s)`);
       if (v.r != null) {
         const snow = v.s != null && v.r > 0 && v.s >= 0.5 * v.r;
         parts.push(v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h` : 'dry');
@@ -435,10 +511,12 @@ const WxLayer = (() => {
       parts.push('snow ' + SNOW_C.map(key).join(''));
     }
     const T = theme();
+    if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
+    if (o.wind) parts.push('barbs: 10 m wind (kt; half feather 5, feather 10, pennant 50)');
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);
     for (const c of o.clouds || []) parts.push(c === 'f' ? `<span class="wx-key" style="background:rgb(${T.fog})"></span> fog` : `grey: ${CLOUD_NAME[c]}`);
     return parts.join(' &nbsp;·&nbsp; ');
   }
 
-  return { create, legendHtml, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME };
+  return { create, legendHtml, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C };
 })();

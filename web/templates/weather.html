@@ -12,6 +12,12 @@
     <label class="wm-check" title="Rain and snow of the hour ending at the shown time (mm of water per hour): rain light blue → blue → green → yellow → red → pink, snow in violet shades">
       <input type="checkbox" id="wx-rain" checked> Rain / snow
     </label>
+    <label class="wm-check" title="Wind barbs of the model's 10 m wind (kt), about 50 px apart; the hover read-out gives direction and speed">
+      <input type="checkbox" id="wx-wind"> Wind
+    </label>
+    <label class="wm-check" title="The model's 10 m wind gust, shaded from 25 kt (Beaufort 6) through gale 34, strong gale 41, storm 48 and violent storm 56 to hurricane force 64 kt; on the 20 km grid the strongest gust of each cell">
+      <input type="checkbox" id="wx-gust"> Gusts
+    </label>
     <div class="wm-group">
       <label class="wm-label">Clouds</label>
       <select id="wx-cloud" class="wm-select" title="Cloud layer drawn as grey shading, denser with more cover (fog in yellow); the hover read-out adds the cloud base">

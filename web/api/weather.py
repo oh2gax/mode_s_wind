@@ -12,8 +12,10 @@ frames() — the fields of chosen hours for the browser, on the 10 km grid or
            averaged to 20 / 40 km (step 2 / 4) to keep the download small:
            p = (hPa − 1000) × 10, r / s = mm × 100 (rain / snow of the hour),
            c / l / m / h = total / low / medium / high cloud %, f = fog %,
-           b = cloud base m, as plain integer lists (null = missing); only the
-           fields asked for (default p, r, s, c).
+           b = cloud base m, u / v = 10 m wind towards east / north (kt),
+           g = 10 m gust (kt; hours stored from 24 Oct 2026), as plain integer
+           lists (null = missing); only the fields asked for (default p, r,
+           s, c).  Averaged blocks take the mean, the gust the block maximum.
 The page draws them itself (static/js/weather.js), so the Pi only reads,
 decompresses and averages.
 """
@@ -27,17 +29,20 @@ import zlib
 
 FILL = -32768
 FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
-ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b")
+ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g")
+BLOCK_MAX = ("g",)                    # averaged blocks: the strongest gust, not the mean
 SEND = ("p", "r", "s", "c")          # default
 
 
 def index(db) -> dict:
     try:
-        rows = db.execute("SELECT ts, run, lead FROM meps_wx_hours ORDER BY ts").fetchall()
+        # [ts, run, lead, 1 when the hour has the 10 m wind] — a page reloads an
+        # hour whose wind arrived later (same run and lead, fetched again)
+        rows = db.execute("SELECT ts, run, lead, instr(meta, '\"u\"') > 0 FROM meps_wx_hours ORDER BY ts").fetchall()
         meta = db.execute("SELECT meta FROM meps_wx_hours ORDER BY ts DESC LIMIT 1").fetchone()
     except Exception:                                    # noqa: BLE001  (table missing)
         return {"hours": [], "grid": None}
-    return {"hours": [[ts, run, lead] for ts, run, lead in rows],
+    return {"hours": [[ts, run, lead, 1 if w else 0] for ts, run, lead, w in rows],
             "grid": json.loads(meta[0]) if meta else None,
             "source": "MEPS (MET Norway, CC BY 4.0)"}
 
@@ -59,8 +64,9 @@ def _mean(t):
     return round(sum(v) / len(v)) if v else None
 
 
-def _block(plane, nx: int, ny: int, step: int):
-    """Mean of step × step blocks (missing values left out); None where all missing."""
+def _block(plane, nx: int, ny: int, step: int, use_max: bool = False):
+    """Mean (or maximum) of step × step blocks (missing values left out);
+    None where all missing."""
     if step == 1:
         return [None if v == FILL else int(v) for v in plane]
     mx, my = nx // step, ny // step
@@ -70,7 +76,10 @@ def _block(plane, nx: int, ny: int, step: int):
     for J in range(my):
         rows = [plane[(J * step + j) * nx:(J * step + j + 1) * nx] for j in range(step)]
         cols = [row[i::step][:mx] for row in rows for i in range(step)]
-        if full:                               # the usual case: plain sums
+        if use_max:
+            out.extend((max(t) if full else max((x for x in t if x != FILL), default=None))
+                       for t in zip(*cols))
+        elif full:                             # the usual case: plain sums
             out.extend(round(sum(t) / k) for t in zip(*cols))
         else:
             out.extend(_mean(t) for t in zip(*cols))
@@ -86,10 +95,11 @@ def frames(db, ts_list, step: int = 2, fields=None) -> dict:
     send = tuple(f for f in ALL if f in (fields or SEND))
     out, grid = [], None
     for ts in ts_list[:96]:
-        r = db.execute("SELECT run, lead FROM meps_wx_hours WHERE ts = ?", (int(ts),)).fetchone()
+        r = db.execute("SELECT run, lead, instr(meta, '\"u\"') > 0 FROM meps_wx_hours WHERE ts = ?",
+                       (int(ts),)).fetchone()
         if not r:
             continue
-        key = (int(ts), r[0], r[1], step, send)
+        key = (int(ts), r[0], r[1], r[2], step, send)
         hit = _cache.get(key)
         if hit:
             if grid is None:
@@ -112,10 +122,10 @@ def frames(db, ts_list, step: int = 2, fields=None) -> dict:
             grid = g
         elif g != grid:                     # the grid changed (configuration): skip this hour
             continue
-        f = {"ts": int(ts), "run": r[0], "lead": r[1]}
+        f = {"ts": int(ts), "run": r[0], "lead": r[1], "w": 1 if "u" in planes else 0}
         for k in send:
             if k in planes:
-                f[k] = _block(planes[k], nx, ny, step)
+                f[k] = _block(planes[k], nx, ny, step, k in BLOCK_MAX)
         if len(_cache) > 400:
             _cache.clear()
         _cache[key] = (g, f)

@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing, departures in the band comparison; the six browser algorithms retired)
+## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing, departures in the band comparison; the six browser algorithms retired; Weather page: 10 m wind and gusts)
 
 ### Windshear detection v2
 
@@ -33,8 +33,15 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - Pairwise, Gradient, Energy, Rate, Baseline and Kinematic (in use May – 24 Oct 2026) are **retired** after a restudy on 3 084 stored landings: in benign weather they mostly measured the normal wind profile (Warning on 98 % of approaches with Energy, 13 % with Gradient, 7.6 % of pairs with Pairwise)
 - Their description, the replay results and the README text of 23 Oct 2026 are kept in the new `doc/Windshear_Algorithms_v1_Legacy.pdf` (8 pages; listed in `doc/guides.md`, so it is in the *User guides* tab)
 
+### Weather page: 10 m wind and gusts
+
+- `collector/meps.py`: the weather maps also store the MEPS 10 m wind (`x_wind_10m` / `y_wind_10m`, turned from the model grid to true north; rotation table kept per grid) and the 10 m gust (`wind_speed_of_gust`), kt in 2-kt steps, as fields `u`, `v`, `g` of `meps_wx_hours` (about 250 kB per hour instead of 180; download about a third more, ~80 MB per main run); hours stored without the wind are fetched again from the runs of the last 30 hours (`WX_REFILL_H`; once after the update, ~200 MB), older ones stay without it
+- `web/api/weather.py`: `?fields=` accepts `u,v,g`; on the 20 / 40 km grid the gust is the block maximum, the wind the block mean; the index and frames carry a wind flag `w` so the page (and the frame cache) reloads an hour whose wind arrived later with the same run and lead
+- Weather page (`web/templates/weather.html`, `static/js/weather.js`, `static/js/wx_layer.js`): new tick boxes **Wind** (10 m wind barbs about 50 px apart, fixed to the grid while panning) and **Gusts** (shading from 25 kt in Beaufort steps 25 / 34 / 41 / 48 / 56 / 64 kt, under the rain); hover read-out with wind direction / speed (kt, m/s) and gust; legend; the status line notes hours without stored wind
+
 ### Documentation
 
+- README: new *Weather* controls Wind and Gusts, `meps_wx_hours` fields `u v g`, `/api/weather/frames` fields
 - README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, departures in the band comparison, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, `shear_json` of both tables, API and project structure
 
 ## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page with cloud layers; weather overlay on the Live Map with MEPS and FMI radar; user management; unified dark-theme diagram background)

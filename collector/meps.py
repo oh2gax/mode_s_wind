@@ -103,10 +103,14 @@ MAP_FILL = -32768            # missing value in the stored int16 arrays
 WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r"),
            ("snowfall_amount_acc", "s"), ("cloud_area_fraction", "c"), ("low_type_cloud_area_fraction", "l"),
            ("medium_type_cloud_area_fraction", "m"), ("high_type_cloud_area_fraction", "h"),
-           ("fog_area_fraction", "f"), ("cloud_base_altitude", "b"))
+           ("fog_area_fraction", "f"), ("cloud_base_altitude", "b"),
+           # 10 m wind (grid x / y components, turned to true north) and the gust (from 2026-10-24)
+           ("x_wind_10m", "u"), ("y_wind_10m", "v"), ("wind_speed_of_gust", "g"))
 WX_STRIDE = 4                # every 4th cell: 10 km
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
 WX_CHUNK = 12                # forecast hours per request (the main runs come in 4 pieces, each stored at once)
+WX_REFILL_H = 30             # weather-map hours stored without the 10 m wind (before 24 Oct 2026) are
+                             # fetched again from the runs of this many hours (once: new rows always have it)
 TIMEOUT = {"pl": 120.0, "ml": 240.0, "map": 120.0, "wx": 600.0}
 TRIES = 3                    # attempts per request (an empty or cut response is tried again)
 JOKIOINEN = (60.81397, 23.49825)
@@ -353,8 +357,10 @@ class MepsFetcher:
         ((hPa − 1000) × 10), the rain and the snow of the hour ending then
         (mm water × 100, from the accumulated amounts), total, low, medium
         and high cloud and fog (% in 5 % steps), cloud base (m in 50 m steps;
-        missing where no cloud);
-        compressed int16 arrays, rows older than wx_days removed."""
+        missing where no cloud), the 10 m wind u / v towards east / north and
+        the 10 m gust (kt in 2-kt steps); compressed int16 arrays, rows older
+        than wx_days removed.  The field list of each row is in its meta "f"
+        (older rows have no wind)."""
         xs, ys = list(d["x"]), list(d["y"])
         nx, ny = len(xs), len(ys)
         np_ = nx * ny
@@ -363,6 +369,9 @@ class MepsFetcher:
         P, R, S = d["air_pressure_at_sea_level"], d["precipitation_amount_acc"], d["snowfall_amount_acc"]
         FRAC = [d[v] for v, k in WX_VARS if k in "clmhf"]
         B = d["cloud_base_altitude"]
+        XW, YW, GU = d["x_wind_10m"], d["y_wind_10m"], d["wind_speed_of_gust"]
+        rot = self._wx_rot(xs, ys)
+        KT2 = KT / 2.0
         F = MAP_FILL
         written = 0
         ensure_table(db)
@@ -381,6 +390,14 @@ class MepsFetcher:
                 a.extend(array.array("h", [F if v > 1e30 else int(v * 20.0 + 0.5) * 5 for v in cl[o1:o1 + np_]]))
             a.extend(array.array("h", [F if v > 1e30 or v < 0 or v > 30000 else int(v / 50.0 + 0.5) * 50
                                        for v in B[o1:o1 + np_]]))
+            # 10 m wind turned from the grid axes to true north, and the gust:
+            # kt in 2-kt steps (a third smaller compressed than whole knots)
+            xw, yw = XW[o1:o1 + np_], YW[o1:o1 + np_]
+            a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else int(round((x * c + y * sn) * KT2)) * 2
+                                       for x, y, (c, sn) in zip(xw, yw, rot)]))
+            a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else int(round((y * c - x * sn) * KT2)) * 2
+                                       for x, y, (c, sn) in zip(xw, yw, rot)]))
+            a.extend(array.array("h", [F if v > 1e30 or v < 0 else int(round(v * KT2)) * 2 for v in GU[o1:o1 + np_]]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(
@@ -394,6 +411,19 @@ class MepsFetcher:
         db.execute("DELETE FROM meps_wx_hours WHERE ts < ?", (int(time.time() - self.wx_days * 86400),))
         db.commit()
         return written
+
+    def _wx_rot(self, xs: list, ys: list) -> list:
+        """(cos, sin) of the angle between the grid y axis and true north at
+        each point of the weather-map grid (kept while the grid is the same)."""
+        key = (xs[0], xs[-1], len(xs), ys[0], ys[-1], len(ys))
+        if getattr(self, "_wx_rot_key", None) != key:
+            rot = []
+            for y in ys:
+                for x in xs:
+                    al = math.radians(_N * (lcc_latlon(x, y)[1] - LCC_LON0))
+                    rot.append((math.cos(al), math.sin(al)))
+            self._wx_rot_key, self._wx_rot_val = key, rot
+        return self._wx_rot_val
 
     def _store_map(self, db, run: int, d: dict) -> int:
         """Wind Map fields: every point of the ± 300 km box on the pressure
@@ -597,6 +627,10 @@ class MepsFetcher:
             + (("wx",) if self.wx else ())
         have = {kd: dict(db.execute(f"SELECT ts, lead FROM {_TABLE[kd]} WHERE ts >= ?", (runs[-1],)).fetchall())
                 for kd in kinds}
+        # weather-map hours with the 10 m wind: the recent runs are fetched again
+        # for the hours stored without it (rows written before the wind was added)
+        wx_wind = dict(db.execute("SELECT ts, lead FROM meps_wx_hours WHERE ts >= ? AND instr(meta, '\"u\"') > 0",
+                                  (runs[-1],)).fetchall()) if self.wx else {}
         map_from = now - self.map_days * 86400 + RUN_STEP_H * 3600     # not older than the map retention
         out = []
         for r in runs:
@@ -607,7 +641,8 @@ class MepsFetcher:
                 if kd == "wx":
                     if r < now - self.wx_days * 86400 + RUN_STEP_H * 3600:
                         continue
-                    if all(have[kd].get(r + h * 3600, 99) <= h for h in range(1, WX_HISTORY + 1)):
+                    hv = wx_wind if r >= now - WX_REFILL_H * 3600 else have[kd]
+                    if all(hv.get(r + h * 3600, 99) <= h for h in range(1, WX_HISTORY + 1)):
                         continue
                 elif all(have[kd].get(r + h * 3600, 99) <= h for h in range(VERIF_MAX_LEAD + 1)):
                     continue
