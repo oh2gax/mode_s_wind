@@ -34,7 +34,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
 - **Gridded wind and temperature map** — select a flight level, altitude tolerance, time window (preset or custom historical range) and cell size (25 / 50 / 100 km square cells); per-aircraft-averaged wind barbs at each populated cell, colour-coded by wind speed, faded by the number of aircraft behind them, optional ΔT colouring (temperature difference from the layer mean: air masses and fronts), isotachs and streamlines from a smoothed field, the Jokioinen radiosonde at the level, the change since the previous period or the thermal wind to another level (warm / cold advection per cell), and a time slider / animation over the last 24 hours; frozen and spoofed positions removed
 - **QNH pressure-altitude correction** — for wind map layers below FL050, the query band is automatically shifted into pressure-altitude space using the METAR QNH of the period so that observations are binned to the correct MSL altitude. Raw pressure altitudes are kept intact in the database; correction is applied at query time only
-- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, six selectable windshear detection algorithms, a go-around detector, a wind rose (with an approach-conditions chart view) and a persistent **Approach History** of every landing — wind per 200 ft band, GNSS quality on final, and a provisional **Approach Conditions Index (ACI)** (roughness) from the aircraft's own bank-angle, airspeed and vertical-rate activity; see [Windshear](#windshear--windshear) below
+- **Windshear approach monitoring page** — ATC-style real-time display of all aircraft established on ILS or RNP approach (RWY 04L, 04R, 22L, 22R, 15, 33), with flight strips, an ILS/RNP glideslope vertical profile canvas, server-side **windshear detection** (headwind ramps along the path and the change against the earlier landings, with *WS advisory / WSA / MBA* alerts and a stored windshear report for every landing), a go-around detector, a wind rose (with an approach-conditions chart view) and a persistent **Approach History** of every landing — wind per 200 ft band, GNSS quality on final, and a provisional **Approach Conditions Index (ACI)** (roughness) from the aircraft's own bank-angle, airspeed and vertical-rate activity; see [Windshear](#windshear--windshear) below
 - **GPS Quality monitoring page** — area-wide real-time and historical GPS degradation monitor covering all tracked aircraft at all altitudes; detects self-reported degradation (NACp accuracy and NIC integrity), position freeze, position gap and ADS-B position loss (MLAT covering a GPS dropout); renders a stacked bar chart (NACp / NIC / Freeze / Gap / ADS-B signal breakdown, with a `1d`–`6m` range selector), a 9-FL-band heatmap with its own `14d` / `1m` day-range selector, an `Events` / `% aircraft` mode, hover details and click-through to the GPS Episodes page, a FL band distribution doughnut chart with a summary stats panel over the same window, and a **distance zone selector** (All / 50 nm / 20 nm) that filters all views to aircraft within a chosen radius from the airport; see [GPS Quality](#gps-quality--gps) below
 - **GPS Episodes page** — map, list and altitude-vs-distance view of individual GPS degradation episodes (one aircraft's continuous degraded period: where it started, where the aircraft recovered or was lost); see [GPS Episodes](#gps-episodes--gps-episodes) below
 - **Maintenance page** — administrator tool for database housekeeping accessible at `/maintenance`; protected by a separate credential file independent of the main web auth; provides manual and scheduled purge of flight/meteo data (approach history, GPS quality data and the GPS degradation episode log are only ever purged manually); see [Maintenance](#maintenance--maintenance) below
@@ -91,7 +91,7 @@ Radarcape receiver (192.168.0.119)
                                                                                              └─ /maintenance   DB maintenance
 ```
 
-Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours`, vorticity profile `kinematics_hours` and GNSS-height cells `gnss_hours` with the height calibration `gnss_cal` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`, the radiosonde verification `sonde_verification`), **sondes** (radiosonde soundings from FMI open data) and **meps** (MEPS model profiles, Wind Map fields and Weather page maps from MET Norway every 3 h into `meps_hours`, `meps_ml_hours`, `meps_map_hours` and `meps_wx_hours`, see *MEPS check* and *Weather*). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations. The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
+Further background threads in `run.py`: **housekeeping** (see below), **autopurge** (daily flight / meteo purge when enabled on the Maintenance page) and **hourly_jobs** (hourly profile archive `profile_hours`, vorticity profile `kinematics_hours` and GNSS-height cells `gnss_hours` with the height calibration `gnss_cal` a few minutes after each hour, back-fill at startup, daily retention purges of `approach_series` and `departure_profiles` — archived first when enabled — and the hourly save of the heading calibration `heading_cal`, the radiosonde verification `sonde_verification`), **sondes** (radiosonde soundings from FMI open data) and **meps** (MEPS model profiles, Wind Map fields and Weather page maps from MET Norway every 3 h into `meps_hours`, `meps_ml_hours`, `meps_map_hours` and `meps_wx_hours`, see *MEPS check* and *Weather*). The **ws_sweep** thread also runs the departure climb-out capture (`collector/departures.py`). On the first start with the heading calibration a one-off **heading_cal_boot** thread learns the offsets from the stored observations; a one-off **shear_backfill** thread writes the windshear report of older landings that have stored raw replies (about a minute on a Pi for two weeks of landings, updates in batches of 200). The BDS 5,0 / 6,0 replies decoded by `receiver.py` are also kept briefly per aircraft (last 16 of each) for the windshear tracker's approach-roughness capture.
 
 A small **housekeeping thread** (`run.py`) runs every 60 s and removes aircraft from `live_state` that have not been seen for 10 minutes, and prunes the BDS 5,0 / 6,0 pairing caches. Without it every aircraft ever received would stay in RAM for the life of the process. 10 minutes is longer than every consumer window (map/API 5 min, GPS sweep 60 s, windshear sweep 30 s), so nothing displayed or analysed is affected — an aircraft that reappears is simply re-created from its next message.
 
@@ -1003,7 +1003,7 @@ How it works: besides the profiles and the Wind Map fields, the `meps` thread fe
 
 A dedicated real-time approach monitoring page for tracking aircraft established on ILS final approach. Live tracking is held entirely in RAM; the only data written to the database is one `approach_history` row per completed landing (used by the Approach History panel and the statistics panel).
 
-> **Keep the page open for best results.** All client-side history buffers — wind barb accumulation, kinematic IAS−GS differential history, the windshear event log, and the go-around log — exist only in the browser tab running the page. Navigating to another page or closing the tab clears these buffers entirely. When the Windshear page is reopened, it starts fresh: aircraft currently on approach will appear immediately, but any history built up during the previous session (wind profiles along the approach path, earlier windshear events, go-around events from before the page was opened) is gone. If you are monitoring an active approach sequence or want to study the windshear log over multiple arrival waves, keep the Windshear page as a dedicated open tab.
+> **Keep the page open for the wind barbs and the go-around log.** Windshear detection runs on the server whether or not the page is open, and its alert log (last 24 h) is shown again when the page is reopened. The wind barb accumulation of the ILS profile and the go-around log exist only in the browser tab running the page: navigating to another page or closing the tab clears them, and a reopened page starts these fresh (aircraft currently on approach appear immediately). If you want to follow the barbs or go-arounds over several arrival waves, keep the Windshear page as a dedicated open tab.
 
 ![MODE-S Wind Approach / Windshear screen](doc/Mode_S_Wind_Approach_Screen_1.png)
 
@@ -1024,11 +1024,12 @@ The page is divided into seven main areas:
 - **XW** — crosswind component in knots, signed the same way as the ILS profile XW labels: `-17` means 17 kt crosswind **from the left** of the aircraft on approach; `+8` means 8 kt crosswind **from the right**. The sign indicates the **source side** of the wind — where the wind is coming from — not the direction it blows across the runway. A left crosswind (`-`) pushes the aircraft to the right, requiring a left crab correction to maintain centreline. Colour-coded green (< 5 kt) / amber (5–9 kt) / red (≥ 10 kt).
 - **HW+XW** — both components in a two-line cell: headwind on top, crosswind below, separated by a hairline rule; each value is independently colour-coded.
 - **ACI** — the Approach Conditions Index instead of the wind bands (see [Approach roughness logging](#approach-roughness-logging) and [How the Approach Conditions Index (ACI) is calculated](#how-the-approach-conditions-index-aci-is-calculated)): the provisional **Index** (0–10, coloured badge + level *Smooth / Light / Choppy / Rough / Very rough*), the segment indices **Hi** (3 000–1 000 ft) and **Lo** (1 000–200 ft), and as `hi / lo` pairs the **Bank°**, **IAS** (kt) and **VS** (ft/min) fluctuation and the **Crab°** variation, the mean **Crab** angle (`+` = nose right of track, wind from the right) and the **METAR** wind at landing time. Hovering a row shows the full breakdown. `—` = not enough data (e.g. landings before the logging started, or contact lost before the aircraft was established). The panel widens to fit these columns; the Lo/Hi button is not used in this mode.
+- **WS** — the landing's **windshear report** (detection v2, see [Windshear detection](#windshear-detection)) instead of the wind bands, in seven columns: **Level** (`ADV` / `WSA` / `MBA` badge, `—` = none), **Loss** and **Gain** (strongest headwind ramp each way as its 1-km equivalent in kt, coloured by level, with the height range), **F 1km** (horizontal F-factor over 1 km), **Band Δ** (the largest change of a 200-ft band against the landings of the previous 45 min, e.g. `−27 @1200`), **Low** (lowest height followed, ft MSL) and **n** (replies used, with the noise ± kt). Hovering over a row shows the whole report. Landings without stored raw replies show `—`.
 
 There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
 - **ILS vertical profile (bottom left)** — a canvas rendering the 3° glideslope reference line for the selected runway from 0 to 15 NM, with all corridor aircraft plotted at their current distance and QNH-corrected altitude. Colour-coded zones show the glideslope tolerance band. An optional wind barb overlay accumulates per-aircraft barbs during the approach; barb display is selected by clicking a flight strip or using the `Auto` mode which always tracks the lowest aircraft on approach. Each barb is coloured from the `meteo_source` at the time it was captured — barbs recorded during a grey (NONE) period remain grey permanently even after the aircraft's data recovers, so the canvas gives an honest picture of data quality throughout the approach; observations from grey periods are not added to the barb buffer at all, leaving a visible gap rather than a repeated stale position.
 
-- **Windshear Alert + Today's Statistics (bottom right)** — the right portion of the bottom row is split 55/45: the left side is the windshear alert log (compact one-line entries with hover tooltip for full detail); the right side is a statistics panel showing today's runway usage and top aircraft types as percentage bars, refreshed every 5 minutes from the approach history database.
+- **Windshear Alert + Today's Statistics (bottom right)** — the right portion of the bottom row is split 55/45: the left side is the windshear alert log (server-side alerts of the last 24 h and the go-arounds, compact one-line entries with hover tooltip for full detail); the right side is a statistics panel showing today's runway usage and top aircraft types as percentage bars, refreshed every 5 minutes from the approach history database.
 
 - **METAR / TAF strip** — displayed below the map and ILS profile in the right column, showing the latest decoded METAR and TAF for the configured airport. Does not overlap the flight strips panel.
 
@@ -1079,7 +1080,7 @@ The strip layout is fixed — every row is always rendered so the strip never sh
 | **↕ fpm** | Vertical rate — arrow up/down, colour-coded |
 | **GS badge** | ON (green) / HIGH (amber) / LOW (red) / FAR (grey) — position relative to the 3° glideslope, computed client-side with full QNH correction applied (same correction as the ILS canvas) so strip badges always agree with the profile canvas |
 | **Squawk badge** | SSR Mode-A transponder code decoded from Mode-S replies; grey pill for normal codes, red pill for emergency codes (7500 HIJACK, 7600 NORDO, 7700 MAYDAY) |
-| **WS badge** | Pulsing amber/red badge when inside a detected windshear layer (visible only when detection is enabled) |
+| **WS badge** | `ADV` (blue) / `WSA` (amber, pulsing) / `MBA` (red, pulsing) while the aircraft has an active windshear alert at or above the chosen alert level — see [Windshear detection](#windshear-detection) |
 | **Alt** | Pressure altitude (ft) |
 | **Dist** | Distance from runway threshold (NM) |
 | **Wind** | Wind direction / speed decoded from EHS or JSON |
@@ -1105,7 +1106,7 @@ The canvas on the bottom left plots all corridor aircraft on a distance-vs-altit
 - **History trails** — faint white line showing the aircraft's path over the past 10 minutes
 - **Near-ground stale indicator** — when an aircraft is below 1 000 ft and no data has been received for more than 10 seconds (signal likely lost on short final), its dot fades to a dimmed blue and the label is removed. The dot remains at its last known position until the tracker removes it after the normal 30–45 second timeout
 - **Labels** — callsign, or the ICAO24 code when no callsign is known (e.g. `FIN3GJ`), drawn on top of the wind barbs on a small background box above-right of the dot (above-left near the threshold; a label that would overlap another is moved up); the glideslope deviation is shown by the dot colour. A trailing **`*`** (e.g. `FIN64A*`) means the **autopilot is engaged**, as reported in the aircraft's ADS-B target-state message (TC 29). Only version-2 transponders report it, so no `*` means either autopilot off or not reported. The flight strip shows a framed **`AP`** box in its top row, left of the glideslope badge (hover: autopilot engaged, and whether approach mode is active); no box = autopilot off or not reported
-- **Windshear zones** — amber/red horizontal bands between the altitudes of the two aircraft involved in a detected shear event (visible when detection is enabled)
+- **Windshear zones** — blue / amber / red horizontal bands over the height range of an active windshear alert (ramp start and end, or the 200-ft band of a band alert), labelled e.g. `WSA 25kt▼`; shown for alerts at or above the chosen alert level
 
 The glideslope line accounts for two corrections applied at render time so that aircraft on the correct slope land exactly on the line:
 
@@ -1152,7 +1153,7 @@ In both modes a second smaller label shows the raw `dir/spd` for reference (when
 
 **Zoom toggle:** the `Zoom` button, immediately to the right of `Trk`, halves the horizontal range of the ILS glideslope canvas from 15 NM to 7.5 NM. With the same canvas width now covering only the inner half of the approach, each NM occupies twice as many pixels, giving wind barbs and their labels significantly more horizontal room. The button turns purple when active and the effect is immediate — the existing barb and trail history is redrawn at the new scale without waiting for a new poll. The distance grid steps at 2.5 NM intervals in zoomed mode (versus 5 NM at full range) so axis labels remain readable. Aircraft or barbs beyond 7.5 NM from the threshold simply fall outside the canvas and are not drawn; they are not discarded — the full 15 NM history is always buffered, so toggling back to the full view immediately restores them. Zoom pairs well with Hi-resolution barb mode: activating both gives the highest possible barb density in the critical low-altitude segment of the approach. The zoom state is not persisted across page loads and resets to the full 15 NM view on reload.
 
-**Hi-resolution mode:** the `Hi` segment sits inside the `Barbs · Hi · Auto · Val` split button. Clicking it switches the canvas from the standard Lo buffer to the Hi buffer — a denser accumulation that stores a new observation whenever the aircraft has moved at least 150 ft in altitude or 0.2 NM along the track (versus 400 ft / 0.5 NM for Lo). The Hi buffer holds up to 100 observations per aircraft, enough to cover a full 15 NM approach at fine resolution. Because both buffers accumulate simultaneously, switching to Hi immediately shows the denser dataset already built up since the Barbs layer was enabled — there is no need to wait for a new approach. The Hi buffer is for research and visual inspection only; it is never used by any of the windshear detection algorithms, so enabling it has no effect on alert behaviour. The `Hi` button turns violet when active and the canvas corner label shows `· HI` to confirm the mode.
+**Hi-resolution mode:** the `Hi` segment sits inside the `Barbs · Hi · Auto · Val` split button. Clicking it switches the canvas from the standard Lo buffer to the Hi buffer — a denser accumulation that stores a new observation whenever the aircraft has moved at least 150 ft in altitude or 0.2 NM along the track (versus 400 ft / 0.5 NM for Lo). The Hi buffer holds up to 100 observations per aircraft, enough to cover a full 15 NM approach at fine resolution. Because both buffers accumulate simultaneously, switching to Hi immediately shows the denser dataset already built up since the Barbs layer was enabled — there is no need to wait for a new approach. The Hi buffer is for research and visual inspection only; windshear detection runs on the server from the raw replies, so enabling it has no effect on alerts. The `Hi` button turns violet when active and the canvas corner label shows `· HI` to confirm the mode.
 
 **Track lifetime:** only one aircraft's barbs are displayed at a time. Clicking a different flight strip immediately replaces the current overlay — no need to deselect first. When the selected aircraft lands and stops transmitting (typically 30–45 seconds after touchdown), its stored wind history is discarded and the overlay clears automatically. In Auto mode the next aircraft furthest along the approach is picked up on the same poll cycle, so the barb display stays continuous as long as there is approach traffic.
 
@@ -1195,13 +1196,13 @@ The rose is intended to let you quickly judge whether the MODE-S wind profile me
 
 The bottom-right area is split into two panels side by side (55 % / 45 %).
 
-**Left — Windshear Alert log:** maintains a compact timestamped log of all detected windshear events and go-around detections during the current session, newest first. Each entry is a single line showing time, algorithm badge, runway, magnitude, and callsign(s). Hovering over an entry shows a full tooltip with algorithm, altitude band, individual headwind components, and exact timestamp. Events are deduplicated per algorithm, runway, and aircraft within a 60-second window. The log is cleared by the **Clear** button or on page refresh and does not persist to the database.
+**Left — Windshear Alert log:** the windshear alerts of the last 24 hours from the server (up to 100, kept in RAM, so also those raised while the page was closed) and the go-arounds detected during the current page session, newest first. Each entry is a single line: time, level (`ADV` / `WSA` / `MBA`), runway, headwind change with ▼ loss / ▲ gain, ramp length (`1.2km`) or band (`@1200ft`), and callsign — e.g. `09:04:31 WSA 22L 25kt▼ @1200ft FIN2EZ`. Hovering over an entry shows the full description (heights, distances, 1-km equivalent, horizontal F-factor, reference landings). An alert that escalates (advisory → WSA) gets a new entry. **Clear** hides the entries shown so far in this browser; the server log is not changed. When the log is empty it says so and links the description of the retired v1 algorithms.
 
 **Right — Today's Statistics:** shows two sections with a **Live / Yest / 1w** time range selector at the top. **Live** shows today's UTC data, **Yest** shows the previous UTC day, and **1w** aggregates the last 7 days. Both sections are refreshed every 5 minutes and also update immediately on range switch; the selected range persists across sessions. A 📅 **calendar button** placed after `1w` opens the native browser date picker — selecting any date switches both sections to show historical data for that specific UTC day. When a date is active, a compact blue badge showing the formatted date (e.g. `04 Jun 2026`) appears in the timerow with an inline `×` clear button; clicking `×` returns to the previously active Live/Yest/1w range. Clicking any range button also clears the date selection. Date mode is not persisted across sessions — the panel always opens on the last-used range. **Runway Usage** lists each runway with a percentage bar; the section label shows the total landing count for the selected range (e.g. "Total: 89"); tall enough to show all active runways without scrolling in most configurations, with a scrollbar available when all directions are in use. Below the runway bars a **go-around count line** (`Go-arounds: N`) shows the total number of go-around events within the active time window, computed client-side from the `go_arounds` field of each approach record; the label is shown in muted grey when the count is zero and in normal text colour when at least one go-around is present. **Aircraft Types** shows all distinct aircraft types sorted by approach count with percentage bars and a vertical scrollbar; the label shows the number of distinct types (e.g. "Total types: 23"); aircraft with no decoded type code are labelled `NIL`. Hovering over any row shows the exact count for that runway or type.
 
 #### Go-around detector
 
-The tracker continuously monitors each approach aircraft for a go-around (missed approach) using a server-side state machine. Detection requires no user action and runs regardless of whether the windshear detection toggle is enabled.
+The tracker continuously monitors each approach aircraft for a go-around (missed approach) using a server-side state machine. Detection requires no user action and runs regardless of the windshear alert level.
 
 The state machine works in three stages:
 
@@ -1217,7 +1218,7 @@ When a go-around fires:
 
 - A blinking **✈ GO-AROUND** label appears on the flight strip (flashes for up to 60 seconds, configurable via `WINDSHEAR_GA_FLASH_SEC`)
 - The event is appended to the **windshear event log** with a timestamp, runway, altitude at detection, and ordinal count (1st / 2nd / 3rd go-around this session); a climb-out at or after the threshold is marked `low` (`✈ GA 22L low`)
-- Go-around log entries are always recorded even when windshear detection is disabled
+- Go-around log entries are always recorded, also when the windshear alert banner is off
 
 **Tuning the detector** — the default values work well at EFHK but may need adjustment depending on traffic mix and local procedures:
 
@@ -1245,202 +1246,46 @@ Overlay layers on ATC use muted navy/steel colours that contrast clearly against
 
 **WR / ACI toggle** — shows a compass rose overlay (top-right of the map) comparing METAR surface wind direction with low-altitude MODE-S wind observations from recent approach traffic.
 
-**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile for each completed approach; the title line shows the landing count for the selected time window or date. Every approach is persisted to the SQLite `approach_history` table and survives server restarts. The panel height scales dynamically with the map container. All controls sit on a single row: time-window buttons (1h · 3h · 6h · 12h · 1d, default 3h), a registration filter box (`Reg: OH-A`, prefix match), a `dd.mm.yyyy` date picker + 📅 calendar button for querying a specific day, a **Live** button (blue when in live rolling-window mode), and — after a separator — a **display mode dropdown** and a **Lo/Hi** resolution button. Columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands; registration and type show `—` when not available. Lo shows 8 columns (600–3 000 ft); Hi shows 13 columns (600–3 000 ft at 200 ft steps). The display mode dropdown offers five options: **Wind** (raw `dir°/spd`), **HW** (headwind component, default), **XW** (crosswind component — `+` = from right, `-` = from left, colour-coded by magnitude), **HW+XW** (both in a two-line cell) and **ACI** (approach-conditions index and its components per landing). See the Layout section above for a full explanation of the crosswind sign convention. There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
+**Approach History toggle** (`Apch Hist` button) — opens a floating table overlay (top-left of the map) that logs the wind profile for each completed approach; the title line shows the landing count for the selected time window or date. Every approach is persisted to the SQLite `approach_history` table and survives server restarts. The panel height scales dynamically with the map container. All controls sit on a single row: time-window buttons (1h · 3h · 6h · 12h · 1d, default 3h), a registration filter box (`Reg: OH-A`, prefix match), a `dd.mm.yyyy` date picker + 📅 calendar button for querying a specific day, a **Live** button (blue when in live rolling-window mode), and — after a separator — a **display mode dropdown** and a **Lo/Hi** resolution button. Columns: UTC time, callsign, registration, aircraft type, runway, and wind at altitude bands; registration and type show `—` when not available. Lo shows 8 columns (600–3 000 ft); Hi shows 13 columns (600–3 000 ft at 200 ft steps). The display mode dropdown offers six options: **Wind** (raw `dir°/spd`), **HW** (headwind component, default), **XW** (crosswind component — `+` = from right, `-` = from left, colour-coded by magnitude), **HW+XW** (both in a two-line cell), **ACI** (approach-conditions index and its components per landing) and **WS** (the landing's windshear report). See the Layout section above for a full explanation of the crosswind sign convention. There is no Clear button — data is persistent and the time filter or date picker controls what is visible.
 
 #### Windshear detection
 
-Windshear detection is controlled from the **Windshear Alert header bar**, which contains five inline controls: the **OFF/ON toggle button**, an **algorithm dropdown** (`Pair / Gradient / Energy / Rate / Baseline / Kinematic`), the **alert level** dropdown, the **Kinematic F-factor gate** dropdown, and the **Clear** button. Detection is **OFF by default** to allow monitoring of approach patterns before trusting automated alerts.
+Windshear detection (**v2**, from 24 October 2026) runs on the **server** for every aircraft on final approach, every sweep, whether or not anyone has the Windshear page open. The page only shows the result. It replaced the six browser algorithms of May – October 2026 (Pairwise, Gradient, Energy, Rate, Baseline, Kinematic), which were **retired** after a restudy on 3 084 stored landings showed that in benign weather they mostly reacted to the normal change of the wind with height (Energy reached *Warning* on 98 % of approaches, Gradient on 13 %). Their description, the replay results and the README text of 23 October 2026 are kept in [`doc/Windshear_Algorithms_v1_Legacy.pdf`](doc/Windshear_Algorithms_v1_Legacy.pdf) (also in the *User guides* tab), so earlier observations and screenshots can still be understood. Code: `collector/shear.py` (method) and `collector/windshear.py` (live alerts and the per-landing report).
 
-Six independent detection algorithms are available from the dropdown. Switching algorithm takes effect instantly and re-runs detection against the current aircraft set without waiting for the next poll. Only one algorithm is active at a time. Hovering over the dropdown shows a one-line description of each option.
+**Headwind from one register.** Each raw BDS 5,0 reply on final gives the headwind along the track directly as **TAS − GS**: both values come from the same register at the same instant, so no heading, magnetic declination, heading calibration or wind vector is involved (about 1 kt of noise, most of it the 2-kt quantisation of the register). With a crab angle β the value is larger by TAS·(1 − cos β), about 2 kt at 10°; it changes slowly and largely cancels in a ramp. Replies are dropped when the aircraft is banked more than 5°, when the register repeats its previous content, or when the value is more than 12 kt off the running median of ±7.5 s.
 
-**Shear direction:** every detected event is classified as `▼LOSS` (headwind decreasing — the operationally hazardous case) or `▲GAIN` (headwind increasing). The label appears in the alert banner, the ILS-profile canvas zone label, and the event log compact line. Severity thresholds (monitor / warning / alarm) are unchanged and based on the magnitude of the change regardless of direction.
+**Distance along the path, not altitude.** The distance flown is the reply's ground speed integrated over time — the reported positions are not used, so a GNSS position freeze does not affect it. Height is the barometric altitude (ft MSL) of the tracker's sweep. The headwinds are smoothed with a 400 m running mean on a 100 m grid.
 
-**Noise reduction:** the Kinematic algorithm uses a 3-sample median on both the reference and the current measurement window, the Rate algorithm on the reference window (compared with the aircraft's current headwind) before computing the headwind differential. This suppresses single-sample transients (momentary IAS spikes, noisy BDS 6,0 decodes) without adding meaningful detection latency — three samples at the 3-second poll rate represent ~9 seconds of data.
+**Ramps.** The detector looks for the largest headwind change ΔV between two points of the profile L = 400 … 4 000 m apart, in the direction of flight (a decrease = **loss**, the hazardous case; an increase = **gain**), and scales it to a **1-km equivalent** ΔV · (1 km / L)^⅓ — the scaling of the Hong Kong Observatory GLYGA "headwind ramp" alerts (Shun & Chan 2008). A sudden change counts more than the same change spread over kilometres, so the ordinary increase of the wind with height stays below the levels. A ramp must have data on at least 60 % of its length and must be at least 5 σ above the replies' own noise; a short ramp (≤ 600 m) also needs ≥ 3 replies at each end and must not bounce back by more than half over the next 400 m, so a single odd stretch of replies cannot raise it. Only ramps in the low-level zone count for alerts: below 1 600 ft above the threshold or within 5 NM of it.
 
-**Establishment gate:** no algorithm can fire until an aircraft has accumulated at least 6 valid observations inside the corridor (≈15–20 seconds at the 3-second poll rate). This prevents false detections from the first wind snapshot, which is computed during the ILS intercept roll-out when the aircraft is transitioning from the turn onto final and the BDS 5,0/6,0 data is at its least stable.
+**Change against the earlier landings (band comparison).** The aircraft's cleaned 200-ft band headwinds (up to 1 800 ft MSL) are compared with the median of the landings on the same runway direction in the previous 45 minutes (at least 3 of them). This catches what a single aircraft cannot see — a front or gust front that changes the wind between landings while each approach on its own looks smooth.
 
-**Grey (NONE) aircraft are excluded:** every algorithm skips aircraft whose current `meteo_source` is `NONE`, and their groundspeed / IAS samples are not added to the Energy and Kinematic buffers. An aircraft that goes grey during an intercept turn therefore cannot trigger an alert from a stale headwind value. This also means Energy and Kinematic only evaluate aircraft that currently have a valid computed wind.
+**Levels** (LLWAS-style names):
 
-All algorithms use the same headwind component formula:
+| Level | Badge | Ramp (1-km equivalent) | Band change | Colour |
+|-------|-------|------------------------|-------------|--------|
+| **WS advisory** | `ADV` | ≥ 10 kt, loss or gain | ≥ 10 kt | Blue |
+| **Windshear alert** | `WSA` | ≥ 15 kt, loss or gain | ≥ 15 kt | Amber |
+| **Microburst alert** | `MBA` | ≥ 30 kt **loss** | — | Red |
 
-```
-headwind (kt) = wind_speed × cos(wind_direction − runway_heading)
-```
+**Horizontal F-factor.** Each analysis also reports the largest horizontal F-factor over 1 km of path — the rate of headwind loss divided by g, i.e. (headwind loss in m/s) / (time to fly 1 km in s) / 9.81. The vertical (downdraft) term of the full F-factor cannot be observed from Mode-S data, so the value is a lower bound. As a guide from the NASA/FAA airborne windshear work, F around 0.1 averaged over 1 km is the hazard level of airborne windshear warning systems; on ordinary approaches the horizontal term is a few hundredths. The F-factor is shown in the alert tooltip and in the Approach History but does not set the level.
 
-Positive values represent a headwind; negative values represent a tailwind. The runway heading used is the approach heading from the tracker's runway table (true headings, e.g. 047° for RWY 04L/04R, 227° for RWY 22L/22R), matching the true wind direction from the wind calculation.
+**Live alerts.** An event (ramp loss, ramp gain or band change of one aircraft) becomes an **alert** when it is found in 2 consecutive analyses (a new analysis runs whenever new replies have arrived, about every 3 s). An alert stays active for 10 minutes after it was last seen and is then removed; an alert that escalates (e.g. advisory → WSA) is logged again, and a stronger value at the same level updates the logged entry. The server keeps the alert log of the last 24 hours (up to 100 entries) in RAM and writes a short line to the log file for each new alert. `GET /api/windshear/state` returns the active alerts (`ws_events`) and the log (`ws_log`).
 
-Events are classified into three severity levels based on headwind change magnitude:
+On the page, the **alert level** dropdown in the Windshear Alert header (`Banner off` / `ADV ≥10 kt` / `WSA ≥15 kt` / `MBA ≥30 kt`, default WSA, saved per browser) sets the minimum level that shows:
 
-| Level | Threshold | Colour | Meaning |
-|-------|-----------|--------|---------|
-| **Monitor** | ≥ 10 kt | Blue | Informational — sub-threshold variation worth watching |
-| **Warning** | ≥ 15 kt | Amber | ICAO windshear threshold — operationally significant |
-| **Alarm**   | ≥ 25 kt | Red   | Severe windshear — significant aircraft performance impact |
+- the **alert banner** at the top of the page, e.g. `⚠ WINDSHEAR ALERT WSA · RWY 22L · 25 kt ▼LOSS · at 1200 ft vs the last 45 min [FIN2EZ]` (heading *MICROBURST* / *WINDSHEAR ALERT* / *WINDSHEAR ADVISORY*; several active alerts are listed side by side),
+- the **WS badge** on the flight strip (`ADV` / `WSA` / `MBA`),
+- the coloured band on the **ILS profile** over the height range of the alert.
 
-A **confidence gate** requires 2 consecutive poll cycles (≈ 6 seconds) both detecting the same event before it is promoted to the log or banner. This eliminates single-poll false positives from transient data artefacts without meaningfully delaying alerts for real sustained shear.
+The alert log always shows all levels. The **ⓘ v2** link in the header opens the legacy description of the retired algorithms.
 
-The **alert level selector** dropdown in the log header (`Mon ≥10kt` / `Warn ≥15kt` / `Alarm ≥25kt`) controls the minimum severity that activates the banner and flight strip WS badge. The log always shows all three levels regardless of this setting. The preference is saved across sessions. Default is Warning.
+**Windshear report of every landing.** When a landing is committed, the same analysis is run once over the whole final and stored with the landing (`approach_history.shear_json`): replies used and noise, the strongest loss and gain ramps with heights and distances, the horizontal F-factor, the band change against the previous 45 minutes and the overall level. It is shown in the Approach History with the **WS** display mode. At startup a background back-fill writes the report for older landings that still have their raw replies (`approach_series`, kept 90 days), oldest first, in small batches.
 
-When a confirmed shear event meets the active alert level:
+**First results** (replay of 3 071 landings with raw replies, 9–23 October 2026, benign weather, highest METAR wind 17 kt): no ramp windshear alert, 37 ramp advisories (1.2 %), mostly real low-level wind-profile cases such as the night inversion of 11 October (+17 kt over 3 km between 1 800 and 1 200 ft in successive landings). The band comparison gave 5 WSA and 4 advisories, among them the wind change of 17 October around 09:04 UTC on 22L, where three aircraft in a row had 25–29 kt less headwind at 800–1 200 ft than the landings ten minutes earlier while the METAR hardly changed. The levels will be checked against windier and convective weather as data accumulates.
 
-- An **alert banner** appears at the top of the page with the algorithm name, runway, altitude band, and aircraft information
-- Affected flight strips get a pulsing **WS badge** (blue = monitor, amber = warning, red = alarm) — monitor badges do not pulse
-- A coloured **horizontal band** (blue / amber / red) is drawn on the ILS profile canvas between the relevant altitudes
-- The event is appended to the **windshear event log** with a coloured algorithm badge, timestamp, magnitude, gradient direction, and aircraft detail; Kinematic entries additionally show an **F-factor** value (e.g. `F=0.12`) — see [What is F-factor?](#what-is-f-factor) below for a full explanation
+**Limitations.** Only aircraft that answer BDS 5,0 interrogations are analysed; the detector sees the path of each aircraft, not the area around the runway, and no data is received below a few hundred feet at EFHK. Rapid changes over less than about 400 m are smoothed out. The crab bias of TAS − GS and differences between airframes enter the band comparison (both are a few kt). The alerts are an experimental research product of a passive receiver — not an operational windshear warning, and not for use in aircraft operations.
 
-The **Pairwise** and **Kinematic** algorithms only include aircraft with GS status **ON** (within ±300 ft of the QNH-corrected glideslope), preventing false alerts from aircraft still intercepting the glideslope from above or below; the other algorithms rely on the establishment gate.
-
-Turning the toggle OFF immediately clears all active alerts. Previously logged events remain visible until cleared manually. All data is held in RAM and does not persist across page refreshes.
-
-##### Algorithm 1 — Pairwise (classic ICAO method)
-
-**Requires: ≥ 2 aircraft simultaneously on the same approach, each with ≥ 6 wind history observations (establishment gate).**
-
-The Pairwise algorithm is the classical windshear detection technique defined in ICAO Doc 9817 and used operationally by airport LLWAS (Low-Level Windshear Alert Systems). It compares the headwind component between two simultaneously tracked aircraft on the same ILS corridor, one higher and one lower on the glideslope.
-
-For every pair of corridor aircraft within a 200–2 000 ft altitude separation window, the algorithm computes:
-
-```
-ΔHW = headwind(upper aircraft) − headwind(lower aircraft)
-```
-
-A large |ΔHW| reveals the presence of a wind shear layer between the two altitude levels. The 200 ft minimum separation prevents noise from aircraft at nearly the same level; the 2 000 ft maximum limits comparison to physically adjacent approach segments.
-
-**Limitation:** requires two aircraft on approach simultaneously. During low-traffic periods this algorithm produces no output even when real shear is present. It is most powerful during busy arrival sequences with closely stacked aircraft.
-
-##### Algorithm 2 — Gradient (single-aircraft wind history)
-
-**Requires: ≥ 6 stored wind observations for the same aircraft (establishment gate).**
-
-The Gradient algorithm examines the wind history accumulated for a single aircraft during its approach. As an aircraft descends from 3 000 ft to the threshold, the system stores up to 40 wind snapshots at intervals of ≥ 400 ft altitude change or ≥ 0.5 NM distance. The algorithm then finds the pair of observations — within a 200–3 000 ft altitude band — with the largest headwind difference.
-
-This directly measures the **vertical wind gradient** (dHW/dz) in the low-level approach environment. A gradient exceeding ~15 kt over 1 000 ft of altitude is operationally significant and is indicative of a wind shear layer within the approach path.
-
-**Advantage over Pairwise:** works with a single aircraft and accumulates evidence progressively as the aircraft descends through the wind field. Effective during single-runway VMC traffic when only one aircraft is on approach at a time.
-
-**Limitation:** detection sensitivity increases with each new wind observation. The algorithm produces no output until the establishment gate is satisfied (< 6 valid wind points) and improves in accuracy as the aircraft continues its descent.
-
-##### Algorithm 3 — Energy (total energy trend, GPWS-inspired)
-
-**Requires: ≥ 6 groundspeed + altitude observations within the last 45 seconds (establishment gate).**
-
-The Energy algorithm tracks a total mechanical energy proxy for each approach aircraft over a sliding 45-second window. The proxy is:
-
-```
-E = groundspeed (kt) + altitude (ft) / 100
-```
-
-On a stabilised 3° ILS approach at ~140 kt groundspeed, the aircraft descends roughly 318 ft per NM. Geometry and typical approach speeds mean that ~100 ft of altitude corresponds to approximately 1 kt of equivalent kinetic energy along the approach path. On a stable approach, E remains approximately constant as the aircraft trades altitude for forward speed at a predictable rate.
-
-A rapid decrease in E signals that the aircraft is losing more total energy than the normal glideslope geometry predicts — the classic kinematic signature of a microburst or strong headwind loss event. A drop of ≥ 10 kt-equivalent in 45 seconds is flagged (Monitor); ≥ 15 is Warning and ≥ 25 Alarm, as for the other algorithms.
-
-This algorithm is inspired conceptually by the energy-rate monitor in airborne EGPWS (Enhanced Ground Proximity Warning System) devices, which monitor the rate of total energy change to detect abnormal energy loss states during approach.
-
-**Advantage:** the energy trend itself is groundspeed-based — no wind vector is needed for the calculation. (Aircraft without a valid computed wind are nevertheless skipped, see *Grey (NONE) aircraft are excluded* above.)
-
-**Limitation:** any unrelated groundspeed fluctuation (e.g. temporary speed adjustment on ATC instruction) can trigger a false alarm. Works best with stable, consistent groundspeed data.
-
-##### Algorithm 4 — Rate (headwind rate of change)
-
-**Requires: ≥ 6 stored wind observations and a current headwind value (establishment gate).**
-
-The Rate algorithm compares the aircraft's current headwind component to a reference taken from its recent wind history (median of the oldest up to three of the last 6 observations). Unlike the Gradient algorithm, it is not altitude-filtered — it detects any headwind change along the approach path, whether driven by altitude-related wind structure or by horizontal passage through a shear zone.
-
-A large headwind change over a short segment — regardless of the altitude separation — indicates that the aircraft has rapidly entered a different wind environment. This catches purely horizontal or time-based wind shifts that develop at a fixed altitude level, including the leading edge of a microburst outflow where the shear layer may be nearly horizontal near the surface.
-
-**Advantage:** sensitive to rapid temporal wind changes that have little altitude variation. Particularly useful on short final (< 500 ft) where altitude change between observations is small but wind speed can still shift dramatically.
-
-**Limitation:** uses a short rolling window, so sustained slow changes may not accumulate to the threshold. More prone to transient false alarms than the altitude-separated algorithms.
-
-##### Algorithm 5 — Baseline (historical approach deviation)
-
-**Requires: ≥ 5 low-altitude wind observations from completed approaches in the last 30 minutes.**
-
-The Baseline algorithm constructs a reference wind from recent completed approaches and compares each active corridor aircraft's current headwind to what was expected based on that reference.
-
-When an approach aircraft disappears from the tracker (landed or left the corridor), the system harvests all of its stored wind observations below 2 000 ft and adds them to a rolling 30-minute buffer. The algorithm then vector-averages all observations in this buffer — using U/V component decomposition to handle the 360°/0° directional wrap correctly — to produce a background wind direction and speed. The expected headwind component for the current runway is derived from this averaged wind:
-
-```
-baseline_HW = avg_wind_speed × cos(avg_wind_dir − runway_heading)
-```
-
-If a current corridor aircraft's headwind deviates from `baseline_HW` by ≥ 10 kt (Monitor), ≥ 15 kt (Warning) or ≥ 25 kt (Alarm), shear is flagged — like the other algorithms, only for aircraft established in the corridor with at least the minimum number of corridor wind samples and valid meteo.
-
-**Physical basis:** the baseline represents the background low-level wind field sampled by multiple recent aircraft on the same approach path. A large deviation for the current aircraft suggests that the wind environment has changed sharply since the baseline was established — either spatially (a localised shear zone has developed) or temporally (a frontal passage or microburst onset has changed the surface wind since the last landing).
-
-**Advantage:** the most context-aware of the six algorithms — it adapts to the actual recent wind environment at the airport rather than using a fixed reference. It can detect wind changes that develop gradually between arrival waves.
-
-**Limitation:** requires landing traffic in the preceding 30 minutes to populate the baseline buffer. The algorithm is silent at the start of a session or after a long traffic gap. Also assumes the baseline is representative of the current runway and direction, which may not hold perfectly when runway direction changes between the baseline and current approaches.
-
-##### Algorithm 6 — Kinematic (IAS − GS differential rate)
-
-**Requires: a single aircraft in the ILS corridor with BDS 6,0 IAS data available.**
-
-The Kinematic algorithm detects windshear by monitoring the rate of change of the difference between Indicated Airspeed (IAS) and GPS groundspeed (GS) over a 45-second sliding window.
-
-At low altitude, air density is close to sea-level ISA conditions, so IAS ≈ TAS (True Airspeed). The identity `IAS − GS ≈ headwind component along track` therefore holds without requiring any wind direction decoding. If the aircraft is flying into a headwind the differential is positive; a tailwind makes it negative. A sudden change in this differential is a direct kinematic measurement of a windshear encounter:
-
-```
-differential(t) = IAS(t) − GS(t)
-diffOld = median(differential, oldest 3 samples in 45 s window)
-diffNew = median(differential, newest 3 samples in 45 s window)
-delta   = |diffNew − diffOld|
-```
-
-The median of 3 samples (rather than a single raw point) is used at each end to suppress single-poll IAS transients or noisy BDS 6,0 decodes before differencing. At the 3-second poll rate, three samples represent approximately 9 seconds of data.
-
-If `delta ≥ 10 kt` the event is recorded at **Monitor** level (sub-threshold, informational). `≥ 15 kt` is **Warning**; `≥ 25 kt` is **Alarm**.
-
-**Physical basis:** the approach phase is the only flight phase where a sudden change in `IAS − GS` can reliably be attributed to a wind shear and not to a deliberate speed change, because:
-- the aircraft is flying a stabilised approach at a fixed target IAS;
-- any large unintended IAS change is caused by an aerodynamic disturbance (gust, shear, microburst), not a throttle input;
-- GS reflects the aircraft's inertial motion, which lags momentarily behind the aerodynamic change, creating a measurable differential.
-
-A microburst headwind-loss encounter produces a rapid decrease in the differential (IAS drops faster than GS responds), while a headwind-gain event produces the opposite.
-
-**Advantage:** the most dataflow-simple of all algorithms — uses only two raw Mode S fields (BDS 6,0 airspeed, ADS-B groundspeed) with no wind vector reconstruction. Works with a single aircraft. No runway heading or wind direction needed.
-
-**Limitation:** requires BDS 6,0 Indicated Airspeed to be broadcast by the aircraft, which most modern jets do but is not mandatory. The IAS ≈ TAS approximation breaks down above ~6 000 ft (density altitude effect), but the algorithm is gated to GS-status-ON aircraft which are already on the glideslope well below that altitude.
-
-**Why Kinematic is the recommended algorithm for MODE-S EHS monitoring:**
-
-The other five algorithms all ultimately depend on computing a wind vector from BDS 5,0 (track, groundspeed, TAS) and BDS 6,0 (magnetic heading), then projecting it onto the runway axis as a headwind component. That chain has several vulnerable links specific to Mode-S data:
-
-- **Magnetic heading errors** — BDS 6,0 magnetic heading is encoded at ~0.18° resolution (90/512°) and some transponders carry small per-aircraft biases from the compass installation. Small heading errors produce proportionally large wind direction errors at approach speeds.
-- **Magnetic declination** — converting magnetic heading to true heading requires an accurate declination. The position-based WMM value removes the main error, but any residual difference between the model and the aircraft's own magnetic variation table still shifts computed wind vectors systematically, affecting pairwise, gradient, rate, and baseline equally.
-- **BDS 6,0 availability and quality** — IAS and magnetic heading are in the same BDS 6,0 register; a transponder broadcasting a bad magnetic heading also corrupts the wind vector even when IAS itself is clean.
-- **Multi-aircraft requirements** — Pairwise requires two aircraft simultaneously on the same corridor at different altitudes, which is not always available. The other single-aircraft algorithms need a long wind barb history to accumulate enough altitude range or time span to build a meaningful comparison.
-
-Kinematic sidesteps all of this. The `IAS − GS` differential is computed from two independent data sources: BDS 6,0 IAS (airspeed sensor) and ADS-B groundspeed (GPS/GNSS). Neither requires a heading, a declination constant, or any wind vector calculation. A change in the differential is a direct aerodynamic measurement — the aircraft itself is the sensor. No amount of magnetic heading noise, declination drift, or runway geometry uncertainty can corrupt it. At EFHK, where the GPS jamming environment from the east adds an additional source of position and velocity noise for other algorithms, this independence is particularly valuable.
-
-The practical consequence is that Kinematic produces the fewest false events from data-quality artifacts, while remaining sensitive to real shear. The 3-sample median filter (added to smooth single-poll IAS transients) and the corrected JAWS-reference F-factor gate give further control over the signal-to-noise trade-off.
-
-#### What is F-factor?
-
-Kinematic log entries display an F-factor value alongside the kt delta (for example `18 kt · F=0.12`). F-factor is a dimensionless number that answers the question: *how fast is the headwind changing relative to gravity?*
-
-```
-F = (headwind change in m/s) / (time window in seconds) / 9.81
-```
-
-Gravity (9.81 m/s²) is used as the normaliser because aircraft performance is ultimately governed by it — a headwind loss creates a sink rate, and that sink rate competes with the aircraft's ability to maintain the glideslope. An F-factor of 0.1 means the headwind is decaying at one-tenth of gravitational acceleration, which is the point where most approach aircraft start to struggle to maintain energy.
-
-**Reference thresholds from NASA/FAA JAWS research:**
-
-| F-factor | Interpretation |
-|----------|----------------|
-| < 0.05   | Negligible — normal approach variation |
-| 0.05–0.10 | Noticeable — pilot may sense it |
-| ≥ 0.10   | Operationally significant — performance impact likely |
-| ≥ 0.15   | Severe — significant control input needed |
-
-These thresholds come from the Joint Airport Weather Studies (JAWS) programme which established F-factor as the standard hazard metric used in airborne windshear warning systems (GPWS/EGPWS).
-
-**Why F-factor adds information beyond the kt value:** two events could both show `18 kt Warning` but have very different F-factors depending on how quickly the 18 kt was lost. An aircraft that lost 18 kt of headwind over 40 seconds (`F ≈ 0.024`) is a very different situation from one that lost it over 8 seconds (`F ≈ 0.12`). The kt value tells you the magnitude; the F-factor tells you the rate, which is what determines whether the crew had time to respond.
-
-F-factor is displayed as supplementary information in the log. Severity classification is still driven by the kt thresholds, but the **Kinematic F-factor gate** dropdown (`F: Off / F ≥0.05 / F ≥0.08 / F ≥0.10 / F ≥0.15`) in the log header lets you suppress Kinematic events whose F-factor is below a chosen minimum. This is useful for research — setting the gate to `F ≥0.05` silently discards the slow background drift events (typically F=0.02–0.03) that represent normal approach variation according to the JAWS thresholds, while preserving genuine rapid shear events. The gate is automatically greyed out when any other algorithm is selected, since F-factor is only computed for Kinematic. The preference is saved across sessions. Default is Off (no filtering).
-
-**F-factor reference window:** F is computed by scanning all 10–20 second sub-windows within the 45-second detection history and reporting the maximum. This matches the JAWS 1 km reference distance (≈15 s at typical approach speed). The 45-second detection window that determines whether an event fires is unchanged — only the F-factor value reported is affected. The F-gate thresholds in the table above are therefore correctly calibrated against the published JAWS values.
 
 #### Stale aircraft removal
 
@@ -1805,8 +1650,9 @@ Unique index on `(icao, t_start)`, index on `t_start`. Never auto-purged; manual
 | gnss_json | GNSS quality during the approach (`NULL` in older rows or when nothing was captured). `bands`: per altitude band (same keys and ±100 ft tolerance as `bands_json`) `{"nacp": lowest fresh NACp, "nic": lowest fresh NIC, "pa": largest age (s) of the aircraft's own ADS-B position, "fz": 1 if the position-freeze gate fired, "n": sweeps}`; `n` / `deg_n`: in-corridor sweeps / degraded sweeps; `first_deg`, `last_deg`, `rec`: `{"alt": ft MSL, "dist": NM to threshold}` of the first and last degraded sweep and of the first clean sweep after degradation. A sweep counts as degraded when NACp ≤ 6, NIC ≤ 6, the position freeze gate fired, or the aircraft is sending extended squitters but its own ADS-B position is ≥ 10 s old. Note that at the lowest altitudes `pa` also grows when the aircraft drops below the receiver's line of sight, so a large `pa` alone is not proof of jamming |
 | rough_json | Approach roughness on the established final (`NULL` in older rows): per segment `hi` (3 000–1 000 ft MSL) and `lo` (1 000–200 ft MSL) bank-angle, track-rate, IAS, vertical-rate and crab-angle statistics from all raw BDS 5,0 / 6,0 replies, plus the METAR at landing time and the autopilot state `ap`; see [Approach roughness logging](#approach-roughness-logging) |
 | prof_json | Wind / temperature profile of the final approach per 200-ft band (`NULL` in older rows): averaged wind with sample count and spread, headwind component (TAS − GS) and Mach/TAS temperature; see [Approach roughness logging](#approach-roughness-logging) |
+| shear_json | Windshear report of the landing (detection v2, `NULL` when there were too few raw replies): `n` replies used, `drop` dropped, `noise` (kt), `len` path length (m), `a` / `d` highest / lowest height (ft MSL) and distance (NM) followed, `loss` / `gain` strongest ramp each way `{dv, sc (1-km equivalent), L (m), a1, a2, d1, d2, zone}`, `fh` / `fh_a` horizontal F-factor over 1 km and its height, `bd` cleaned 200-ft band headwinds (TAS − GS), `band` the band change against the previous 45 min `{b, a, ref, n, lvl}`, `lvl` overall level (`none` / `adv` / `wsa` / `mba`), `v` = 2. Filled for older landings from `approach_series` by a back-fill at startup. About 0.35 kB |
 
-Indexed on `ts`, `date_utc`, and `runway`. Data volume: about 2 kB per landing with all JSON columns (bands ~0.4 kB, rough ~0.4 kB, GNSS ~0.6 kB, profile ~0.6 kB — measured 9 Oct 2026), i.e. roughly 0.5 MB per day or 150–200 MB per year at EFHK traffic (about 230 landings per day); never auto-purged (manual purge on the Maintenance page). Older rows without the JSON columns are much smaller (bands only). Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
+Indexed on `ts`, `date_utc`, and `runway`. Data volume: about 2 kB per landing with all JSON columns (bands ~0.4 kB, rough ~0.4 kB, GNSS ~0.6 kB, profile ~0.6 kB — measured 9 Oct 2026; windshear report ~0.35 kB from 24 Oct 2026), i.e. roughly 0.5 MB per day or 150–200 MB per year at EFHK traffic (about 230 landings per day); never auto-purged (manual purge on the Maintenance page). Older rows without the JSON columns are much smaller (bands only). Loaded on server startup to pre-populate the RAM approach list for immediate display in fresh browser sessions.
 
 **`maintenance_config`** — key/value store for maintenance page settings:
 
@@ -1967,7 +1813,8 @@ mode_s_wind/
 │   ├── gnss_heights.py        # Heights of the pressure surfaces: sonde calibration, D-values, thickness temperatures
 │   ├── moisture.py            # Trial moisture indicator (thickness Tv − Mach/TAS T, offsets from the soundings)
 │   ├── geoid.py               # EGM96 geoid height over southern Finland (built-in 5′ grid)
-│   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, approach history capture (wind bands, GNSS quality, roughness, autopilot, band profile, raw series)
+│   ├── windshear.py           # Approach tracker: ILS corridor, go-arounds, live windshear alerts, approach history capture (wind bands, GNSS quality, roughness, autopilot, band profile, raw series, windshear report)
+│   ├── shear.py               # Windshear detection v2: TAS − GS headwind ramps along the path, F-factor, band change vs earlier landings
 │   ├── approach_cond.py       # Provisional approach-conditions index (roughness → 0–10)
 │   ├── gps_quality.py         # Area-wide GPS quality monitor: hourly buckets (RAM + DB), degradation episode log
 │   └── filter.py              # Observation quality filters
@@ -2020,7 +1867,8 @@ mode_s_wind/
 │   └── efhk_ats.geojson, efhk_border.geojson, efhk_fir.geojson, efhk_nav.geojson
 │                              # Present but not currently loaded by any page (reserved for future overlays)
 ├── doc/                       # README screenshots, Skew-T user guide (SkewT_User_Guide.pdf), Approach Conditions Index article,
-│                              # Sounding page / Wind Map guide (Sounding_Page_User_Guide.pdf), whats_new.md (user notes of the
+│                              # Sounding page / Wind Map guide (Sounding_Page_User_Guide.pdf), retired windshear algorithms
+│                              # (Windshear_Algorithms_v1_Legacy.pdf), whats_new.md (user notes of the
 │                              # latest versions) and guides.md (the guides of the User guides tab) for the What's new window
 ├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb; soundings/ (radiosondes)
 ├── logs/                      # Log files (created at runtime)
@@ -2100,8 +1948,8 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/weather/frames` | The fields of the hours `?ts=t1,t2,…` (≤ 96) at `?step=1` (10 km), `2` (20 km, default) or `4` (40 km), `?fields=` any of `p,r,s,c,l,m,h,f,b` (default `p,r,s,c`): `grid` (decimated), `km`, `frames` = [{`ts`, `run`, `lead`, `p` (hPa − 1000) × 10, `r` / `s` rain / snow of the hour mm × 100, `c` / `l` / `m` / `h` total / low / medium / high cloud %, `f` fog %, `b` cloud base m}], integer lists in grid order (row by row from the south-west), `null` = missing. Gzip-compressed when the browser accepts it |
 | GET | `/api/windmap/xsection` | Vertical cross-section along a line: `lat1`, `lon1`, `lat2`, `lon2`, `start`, `end`, optional `width` (km, default 50), `step` (km, default 25), `gnss_ok=1` → `a`, `b`, `length_km`, `dir_deg`, `bins`, `step_km`, `width_km`, `layers`, `cells` = [[bin, alt_lo, temp, wind_dir, wind_spd, aircraft, dval], …], `aircraft`, `obs_used`, `removed` |
 | GET | `/api/wx` | METAR and TAF for the configured airport, served from an in-memory cache populated by a background polling thread (10-minute interval, 3 retries per source); response includes `cache_age_s` (seconds since last successful fetch), `qnh_hpa`, `elev_ft` (airport elevation for the Live Map ground line) and `metar_wind` (`dir`, `spd`, `gust`, `variable`); returns `[unavailable]` for a source only if the server has never successfully fetched it |
-| GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB) |
-| GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches), `gnss` (GNSS quality during the approach, see `gnss_json` under [Database](#database); `null` when not captured), `rough` (approach roughness + METAR wind, see `rough_json`; `null` when not captured), `cond` (provisional approach-conditions index computed from `rough`: `idx` 0–10, `lvl` 0–4, `lbl`, aircraft class `cls`, `raw` before the class factor, per-segment `hi` / `lo` scores and component values, `metar` wind string; `null` when not enough data) |
+| GET | `/api/windshear/state` | Snapshot of all currently tracked approach aircraft (RAM-only, no DB); `ws_events` — the active windshear alerts (`id`, `icao`, `cs`, `type`, `rwy`, `kind` `ramp` / `band`, `dir` `loss` / `gain`, `lvl` `adv` / `wsa` / `mba`, `ts` first and `tl` last seen; ramps `dv`, `sc`, `L`, `a1`, `a2`, `d1`, `d2`, `fh`; band alerts `b`, `a`, `ref`, `n`) and `ws_log` — the alert log of the last 24 h, newest first |
+| GET | `/api/windshear/approach-history` | Landed approach history. Without params: in-RAM list (backward compat). `?window=<seconds>` (e.g. `?window=10800`): DB query for rolling time window. `?date=YYYY-MM-DD`: DB query for a specific UTC calendar day (`WHERE date_utc = ?`); returns HTTP 400 on malformed date. `window` takes precedence over `date` if both supplied. Each entry: `ts`, `time_utc`, `icao`, `callsign`, `registration`, `aircraft_type`, `runway`, `rwy_heading`, `bands` (dict keyed by altitude ft), `go_arounds` (integer, number of go-arounds before final landing; 0 for normal approaches), `gnss` (GNSS quality during the approach, see `gnss_json` under [Database](#database); `null` when not captured), `rough` (approach roughness + METAR wind, see `rough_json`; `null` when not captured), `cond` (provisional approach-conditions index computed from `rough`: `idx` 0–10, `lvl` 0–4, `lbl`, aircraft class `cls`, `raw` before the class factor, per-segment `hi` / `lo` scores and component values, `metar` wind string; `null` when not enough data), `shear` (windshear report, see `shear_json`; `null` when none) |
 | POST | `/api/windshear/approach-history/clear` | Delete all rows from the `approach_history` DB table and clear the RAM list (administrative use; no UI button exposes this) |
 | GET | `/api/windshear/windrose-obs` | Rolling 6-hour buffer of low-altitude wind observations (alt ≤ 2 000 ft, non-NONE, in-corridor) harvested from recently landed aircraft; used by the browser on page load and re-fetched every 60 s to keep the Windrose and Hist trend feature current mid-session; each entry: `ts`, `dir`, `spd`, `alt` |
 | GET | `/api/gps/state` | GPS quality monitor state: live degraded aircraft, time series (up to 6 months), FL heatmap (up to 31 days), `band_days` (per UTC day and FL band: aircraft-hours seen `ac` / degraded `deg` and signal events `sig`, from `band_detail`; for the heatmap's % aircraft mode and hover text; `sev` = severe aircraft-hours), FL band summary stats (incl. `severe_24h`); optional `?zone=50nm` or `?zone=20nm` filters data to aircraft within that radius from the airport (default `all`); completed hours persisted in `gps_quality_hours` and `gps_quality_zone_hours` and reloaded on restart |

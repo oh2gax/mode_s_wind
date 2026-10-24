@@ -88,12 +88,13 @@
             </span>
             <button id="ws-aphist-live-btn" class="ws-aphist-live-btn ws-aphist-live-active" title="Back to live rolling window">Live</button>
             <span class="ws-aphist-sep"></span>
-            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both · Approach Conditions Index (ACI)">
+            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both · Approach Conditions Index (ACI) · windshear report (WS)">
               <option value="wind">Wind</option>
               <option value="hw" selected>HW</option>
               <option value="xw">XW</option>
               <option value="hwxw">HW+XW</option>
               <option value="cond">ACI</option>
+              <option value="ws">WS</option>
             </select>
             <button class="ws-aphist-ctrl-btn" id="ws-aphist-hi-btn" title="Toggle Hi resolution (13 bands, 600–3000 ft every 200 ft) vs Lo resolution (8 bands)">Lo</button>
           </div>
@@ -167,38 +168,21 @@
         <div class="ws-ws-log">
           <div class="ws-ws-log-hdr">
             <span class="ws-ws-log-title">Windshear Alert</span>
-            <button id="ws-det-btn" class="ws-det-btn" title="Enable windshear detection">
-              <span class="ws-det-state" id="ws-det-state">OFF</span>
-            </button>
-            <select id="ws-algo-select" class="ws-algo-select"
-              title="Pairwise: ≥2 aircraft · Gradient: single AC history · Energy: GS+alt proxy · Rate: recent HW change · Baseline: vs landing history · Kinematic: IAS−GS differential rate">
-              <option value="pair">Pair</option>
-              <option value="gradient">Gradient</option>
-              <option value="energy">Energy</option>
-              <option value="rate">Rate</option>
-              <option value="baseline">Baseline</option>
-              <option value="kinematic">Kinematic</option>
-            </select>
             <select id="ws-alert-level" class="ws-algo-select"
-              title="Minimum severity that triggers the alert banner and flight strip WS badge. The log always shows all levels.">
-              <option value="monitor">Mon ≥10kt</option>
-              <option value="warning" selected>Warn ≥15kt</option>
-              <option value="alarm">Alarm ≥25kt</option>
+              title="Lowest level that shows the alert banner, the flight-strip badge and the band on the ILS profile. The log lists all levels. Detection v2 runs on the server for every aircraft on final (from 24 Oct 2026): headwind ramps along the path from the aircraft's own replies, 1-km equivalent.">
+              <option value="off">Banner off</option>
+              <option value="adv">ADV ≥10 kt</option>
+              <option value="wsa" selected>WSA ≥15 kt</option>
+              <option value="mba">MBA ≥30 kt</option>
             </select>
-            <select id="ws-kin-f-gate" class="ws-algo-select"
-              title="Kinematic only: minimum F-factor required before an event is logged. Disabled when another algorithm is active. Off = no F-factor filtering.">
-              <option value="off">F: Off</option>
-              <option value="0.05">F ≥0.05</option>
-              <option value="0.08">F ≥0.08</option>
-              <option value="0.10">F ≥0.10</option>
-              <option value="0.15">F ≥0.15</option>
-            </select>
+            <a class="ws-log-info" href="/doc/Windshear_Algorithms_v1_Legacy.pdf" target="_blank" rel="noopener"
+               title="Detection v2 (from 24 Oct 2026): one server-side detector replaced the six browser algorithms Pair, Gradient, Energy, Rate, Baseline and Kinematic, which were retired — they mostly flagged the normal change of the wind with height. Opens the description of the retired algorithms (PDF).">ⓘ v2</a>
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <!-- 55/45 split: alerts left, today's stats right -->
           <div class="ws-ws-log-body">
             <div class="ws-ws-log-entries" id="ws-ws-log-entries">
-              <div class="ws-ws-log-empty">Enable detection to start logging</div>
+              <div class="ws-ws-log-empty">Loading…</div>
             </div>
             <div class="ws-stats-panel">
               <div class="ws-stats-timerow">

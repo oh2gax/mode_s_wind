@@ -73,6 +73,8 @@ def init_db(db_path: str) -> None:
         # GNSS − baro altitude difference and NACp per observation (2026-10-19)
         "ALTER TABLE observations ADD COLUMN gmb_ft INTEGER",
         "ALTER TABLE observations ADD COLUMN nacp INTEGER",
+        # Windshear report per landing (detection v2, 2026-10-24)
+        "ALTER TABLE approach_history ADD COLUMN shear_json TEXT",
     ]
     for sql in _migrations:
         try:

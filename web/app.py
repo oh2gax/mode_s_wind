@@ -1054,7 +1054,9 @@ def create_app(
         index computed from "rough" (collector/approach_cond.py; null when
         there is not enough data), and "prof" (from 2026-10-09: per 200-ft
         band averaged wind with n / SD, headwind component and Mach/TAS
-        temperature; null for older rows).
+        temperature; null for older rows), and "shear" (from 2026-10-24: the
+        windshear report of the landing, collector/shear.py; null when the
+        landing had too few replies or no raw series is left).
         """
         import json as _json
         window = request.args.get("window", type=int)
@@ -1068,7 +1070,7 @@ def create_app(
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json, prof_json
+                          gnss_json, rough_json, prof_json, shear_json
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -1084,6 +1086,8 @@ def create_app(
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
                 pf_txt = r.pop("prof_json", None)
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
+                sh_txt = r.pop("shear_json", None)
+                r["shear"] = _json.loads(sh_txt) if sh_txt else None
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
@@ -1097,7 +1101,7 @@ def create_app(
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json, prof_json
+                          gnss_json, rough_json, prof_json, shear_json
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -1113,6 +1117,8 @@ def create_app(
                 r["rough"] = _json.loads(rg_txt) if rg_txt else None
                 pf_txt = r.pop("prof_json", None)
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
+                sh_txt = r.pop("shear_json", None)
+                r["shear"] = _json.loads(sh_txt) if sh_txt else None
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)

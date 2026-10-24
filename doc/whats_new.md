@@ -3,6 +3,15 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.24102026 — New windshear detection; the old algorithms are retired
+
+- **The six old windshear algorithms are retired.** Pairwise, Gradient, Energy, Rate, Baseline and Kinematic are no longer on the Windshear page, and the algorithm selector, the ON/OFF button and the F-factor gate are gone. A study of more than 3 000 recorded landings showed that in calm weather they mostly reacted to the normal increase of the wind with height — Energy, for example, would have warned on almost every approach. Their description is kept in the user guide *Windshear detection v1 — retired algorithms* (User guides tab), so older screenshots and notes can still be read.
+- **New windshear detection (v2) runs on the server** for every aircraft on final, all the time — also when nobody has the page open. It follows each aircraft's own headwind along its path (true airspeed − ground speed, straight from the aircraft's replies) and looks for sudden changes over 0.4–4 km, and it compares each landing with the landings of the last 45 minutes, which shows a front or gust front changing the wind between landings.
+- **New alert names**, as at airports: **WS advisory (ADV)** from 10 kt, **Windshear alert (WSA)** from 15 kt and **Microburst alert (MBA)** from a 30 kt headwind loss. Choose from which level the banner, strip badge and ILS-profile band appear (default WSA, or *Banner off*).
+- **The alert log keeps the last 24 hours** and is shown again when you reopen the page; hover an entry for heights, distance and the F-factor.
+- **A windshear report for every landing**: the Approach History has a new **WS** view with the level, the strongest headwind loss and gain, the F-factor and the change against the earlier landings. Landings of the last weeks get their report automatically after the update.
+- In the first two weeks of data (calm weather) the new detector gave no windshear alert from a single approach and advisories on about 1 % of landings — mostly real low-level wind changes such as the night inversion of 11 October. The comparison with earlier landings caught the sudden wind change on runway 22L on 17 October around 09:04 UTC. The alerts are experimental research output, not an operational warning.
+
 ## v.23102026 — Weather page, MEPS on the model's own levels and on the Wind Map
 
 - **New Weather page**: the MEPS weather model over Scandinavia and Finland as a moving weather map — isobars with highs (H) and lows (L), rain and snow in radar-like colours and, if you like, the clouds. The time slider goes up to 7 days back and 48 hours ahead; press ▶ to watch the weather systems move, or step one hour at a time with **−1h** / **+1h**. Remember it is a model, not a radar: showers can be somewhat off in place and time.

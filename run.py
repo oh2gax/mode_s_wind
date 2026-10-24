@@ -329,8 +329,8 @@ def _on_approach_committed(record: dict) -> None:
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
                 aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa,
-                gnss_json, rough_json, prof_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                gnss_json, rough_json, prof_json, shear_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -350,6 +350,8 @@ def _on_approach_committed(record: dict) -> None:
                  if record.get("rough") else None),
                 (json.dumps(record["prof"], separators=(",", ":"))
                  if record.get("prof") else None),
+                (json.dumps(record["shear"], separators=(",", ":"))
+                 if record.get("shear") else None),
             ),
         )
         # Raw reply series (research data, retention APPROACH_SERIES_DAYS) —
@@ -397,7 +399,7 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         rows = db.execute(
             """SELECT ts, time_utc, icao, callsign, registration,
                       aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                      gnss_json, rough_json, prof_json
+                      gnss_json, rough_json, prof_json, shear_json
                FROM approach_history
                WHERE ts > ?
                ORDER BY ts DESC
@@ -419,12 +421,80 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
                 "gnss":         json.loads(row["gnss_json"]) if row["gnss_json"] else None,
                 "rough":        json.loads(row["rough_json"]) if row["rough_json"] else None,
                 "prof":         json.loads(row["prof_json"]) if row["prof_json"] else None,
+                "shear":        json.loads(row["shear_json"]) if row["shear_json"] else None,
             }
             for row in rows
         ]
         ws_tracker.preload_approach_history(records)
     except Exception as exc:
         log.warning("approach_history preload failed: %s", exc)
+
+
+def _shear_backfill(ws_tracker) -> None:
+    """One-off at start: windshear reports (detection v2, collector/shear.py)
+    for the stored landings that have none but still have their raw reply
+    series (approach_series, kept APPROACH_SERIES_DAYS).  In time order, so
+    each landing is compared with the landings before it; written in batches,
+    then added to the landings in RAM.  Background thread, low priority."""
+    from collections import deque
+    from database.db import get_db
+    from collector import shear as _shear
+    from collector.windshear import WindshearTracker
+    sl = logging.getLogger("modes.windshear")
+    try:
+        time.sleep(30)                      # let the collector start first
+        t_start = time.time()
+        db = get_db()
+        first = db.execute(
+            """SELECT MIN(h.ts) FROM approach_history h
+               WHERE h.shear_json IS NULL
+                 AND EXISTS (SELECT 1 FROM approach_series s WHERE s.ts = h.ts AND s.icao = h.icao)"""
+        ).fetchone()[0]
+        if first is None:
+            return
+        rows = db.execute(
+            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.shear_json, s.data
+               FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
+               WHERE h.ts >= ? ORDER BY h.ts""", (first - _shear.BAND_WINDOW_SEC,)).fetchall()
+        hist: deque = deque()
+        done: dict = {}
+        batch = []
+        for i, row in enumerate(rows):
+            ts, heading = row["ts"], row["rwy_heading"]
+            while hist and hist[0]["ts"] < ts - _shear.BAND_WINDOW_SEC:
+                hist.popleft()
+            rep = json.loads(row["shear_json"]) if row["shear_json"] else None
+            if rep is None and row["data"]:
+                try:
+                    d = WindshearTracker.decode_series(row["data"])
+                    b, s = d.get("b50") or {}, d.get("sw") or {}
+                    b50 = list(zip(*(b.get(c, []) for c in ("t", "roll", "trate", "trk", "gs", "tas", "alt"))))
+                    sw = list(zip(*(s.get(c, []) for c in ("t", "alt", "palt", "dthr", "xt"))))
+                    a = _shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"]))
+                    band = (_shear.band_anomaly(_shear.band_means(a), _shear.refs_from(hist, ts, heading))
+                            if a else None)
+                    rep = _shear.report(a, band)
+                except Exception as exc:            # noqa: BLE001
+                    sl.debug("Windshear back-fill failed for %s: %s", row["icao"], exc)
+                    rep = None
+                if rep is not None:
+                    batch.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                    done[(int(ts), row["icao"])] = rep
+            hist.append({"ts": ts, "rwy_heading": heading, "shear": rep})
+            if len(batch) >= 200:
+                db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", batch)
+                db.commit()
+                batch = []
+            if i % 50 == 49:
+                time.sleep(0.05)
+        if batch:
+            db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", batch)
+            db.commit()
+        n_ram = ws_tracker.attach_shear(done)
+        sl.info("Windshear reports back-filled for %d stored landing(s) (%d in RAM) in %.0f s",
+                len(done), n_ram, time.time() - t_start)
+    except Exception as exc:
+        sl.warning("Windshear back-fill failed: %s", exc)
 
 
 def main() -> None:
@@ -539,6 +609,9 @@ def main() -> None:
     # Pre-populate RAM approach history from the last 24 h of DB records so
     # the list is immediately available without waiting for the first landing.
     _preload_approach_history(ws_tracker, cfg.DB_PATH, hours=24)
+    # Windshear reports (detection v2) for stored landings that have none
+    threading.Thread(target=_shear_backfill, args=(ws_tracker,),
+                     name="shear_backfill", daemon=True).start()
 
     # Departure climb-out profiles (collector/departures.py); optional
     # DEPARTURE_PROFILES = False turns the capture off

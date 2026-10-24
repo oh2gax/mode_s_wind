@@ -7,6 +7,27 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing; the six browser algorithms retired)
+
+### Windshear detection v2
+
+- **New detector** (`collector/shear.py`): headwind along the track from each raw BDS 5,0 reply as TAS − GS (no heading or wind vector), distance along the path from the integrated ground speed (immune to GNSS position freeze), 400 m running mean on a 100 m grid; headwind ramps of 400–4 000 m scaled to a 1-km equivalent ΔV·(1 km/L)^⅓ (HKO GLYGA style) with coverage, 5σ significance and short-ramp persistence gates, in the low-level zone (below 1 600 ft above the threshold or within 5 NM); horizontal F-factor over 1 km; band comparison of the aircraft's 200-ft band headwinds (≤ 1 800 ft MSL) with the median of the landings on the same runway direction in the previous 45 min (≥ 3)
+- **Levels renamed** (LLWAS style): *WS advisory* `ADV` ≥ 10 kt · *Windshear alert* `WSA` ≥ 15 kt · *Microburst alert* `MBA` ≥ 30 kt loss (band change: advisory ≥ 10, WSA ≥ 15 kt) — replacing Monitor / Warning / Alarm
+- **Live detection on the server** (`collector/windshear.py`): every aircraft on final is analysed whenever new replies arrive; an event becomes an alert after 2 consecutive analyses, stays active 10 min after last seen, escalations are logged again; alert log of the last 24 h (≤ 100) in RAM; `/api/windshear/state` returns `ws_events` and `ws_log`
+- **Windshear report per landing**: stored in the new column `approach_history.shear_json` (about 0.35 kB; migration in `database/db.py`), returned as `shear` by the approach-history API and loaded with the RAM history; a one-off startup back-fill (`shear_backfill` thread in `run.py`) writes the report for older landings with stored raw replies, oldest first, in batches of 200
+- **Windshear page** (`static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`): the detection engine, the OFF/ON toggle, the algorithm selector and the Kinematic F-factor gate removed; the page shows the server's alerts — new alert-level select (Banner off / ADV / WSA (default) / MBA), banner headings *MICROBURST ALERT* / *WINDSHEAR ALERT* / *WINDSHEAR ADVISORY*, strip badges `ADV` / `WSA` / `MBA`, the ILS-profile band over the alert's height range, server log merged with the go-around log (Clear hides the shown entries in this browser), **ⓘ v2** link to the legacy description
+- **Approach History — new WS display mode**: Level, Loss, Gain (1-km equivalents), F 1 km, Band Δ, Low, n (with noise); hover shows the whole report
+- **Replay** of 3 071 landings 9–23 Oct 2026 (benign weather): no ramp WSA, 37 ramp advisories (1.2 %); band comparison 5 WSA and 4 advisories, including the wind change of 17 Oct ~09:04 UTC on 22L
+
+### Retired: the six browser algorithms (v1)
+
+- Pairwise, Gradient, Energy, Rate, Baseline and Kinematic (in use May – 24 Oct 2026) are **retired** after a restudy on 3 084 stored landings: in benign weather they mostly measured the normal wind profile (Warning on 98 % of approaches with Energy, 13 % with Gradient, 7.6 % of pairs with Pairwise)
+- Their description, the replay results and the README text of 23 Oct 2026 are kept in the new `doc/Windshear_Algorithms_v1_Legacy.pdf` (8 pages; listed in `doc/guides.md`, so it is in the *User guides* tab)
+
+### Documentation
+
+- README: new *Windshear detection* section (v2: method, levels, alerts, per-landing report, first results, limitations, retirement note), revised alert log, strip badge, ILS profile, Approach History WS mode, `shear_json`, API and project structure
+
 ## v.23102026 — 2026-10-23 (MEPS on the model's own levels: a dense model profile on the Skew-T and the model's humidity in the RH strip; MEPS on the Wind Map; new Weather page with cloud layers; weather overlay on the Live Map with MEPS and FMI radar; user management; unified dark-theme diagram background)
 
 ### MEPS model levels

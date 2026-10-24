@@ -35,3 +35,15 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
 - **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels
 - The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider
+
+## Windshear detection v1 — retired algorithms (legacy)
+file: Windshear_Algorithms_v1_Legacy.pdf
+version: 1.0
+date: 2026-10-24
+pages: 8
+
+The six browser algorithms of the **Windshear** page used May – 24 October 2026 (Pair, Gradient, Energy, Rate, Baseline, Kinematic), kept for reference after their retirement.
+
+- Why they were retired: a replay of 3 084 landings showed that they mostly flagged the normal change of the wind with height
+- A short summary of how they worked, and the README text of 23 October 2026
+- What replaced them: detection v2, one server-side headwind-ramp detector with a windshear report for every landing

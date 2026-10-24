@@ -64,6 +64,7 @@ import logging
 from collector.filter import is_blocked_registration
 from collector.atmos import tm_temp_c, trimmed_mean
 from collector.wind_calc import compute_wind
+from collector import shear as _shear
 
 log = logging.getLogger("modes.windshear")
 
@@ -143,6 +144,18 @@ PROF_PAIR_SEC        = 2.0     # BDS 5,0 and 6,0 replies paired within this for 
 PROF_MAX_ROLL        = 5.0     # ° — no wind pair above this bank (as WIND_MAX_ROLL_DEG)
 AP_FRESH_SEC         = 10.0    # TC 29 autopilot state older than this is ignored
 SERIES_MAX_ROWS      = 900     # per list per landing (≈ 15 min at 1 reply/s)
+
+# ── Windshear detection v2 (collector/shear.py, from 2026-10-24) ─────────────
+# Replaces the six browser algorithms of May – October 2026
+# (doc/Windshear_Algorithms_v1_Legacy.pdf).  Runs here, for every aircraft
+# established on final, whenever new BDS 5,0 replies have arrived: headwind
+# ramps along the path (TAS − GS, 1-km equivalent ΔV·(1 km/L)^⅓) and the
+# change of the 200-ft band headwinds against the landings of the previous
+# 45 min.  Levels: advisory ≥ 10 kt · WSA ≥ 15 kt · MBA ≥ 30 kt loss.
+WS_CONFIRM           = 2       # found in this many consecutive analyses before it is an alert
+WS_HOLD_SEC          = 600.0   # an alert stays active this long after it was last seen
+WS_LOG_MAX           = 100     # alert log entries kept (newest first)
+WS_LOG_MAX_AGE       = 24 * 3600.0
 
 # Position-freeze gate — protects band capture and windrose from GPS-frozen
 # positions where altitude keeps falling but lat/lon is stuck (GPS jamming).
@@ -425,6 +438,12 @@ class WindshearTracker:
         self._qnh_hpa: float | None = None           # latest METAR QNH (None = not yet known → no correction)
         self._metar: dict | None = None              # latest METAR surface wind (see set_metar)
         self._metar_set_ts: float = 0.0
+        # Windshear detection v2: active alerts (key icao:kind:dir), consecutive
+        # hit counts, the alert log (newest first) and the reply count analysed last
+        self._ws_active: dict[str, dict] = {}
+        self._ws_hits:   dict[str, int]  = {}
+        self._ws_log:    list[dict]      = []
+        self._ws_seen_n: dict[str, int]  = {}
         self._lock  = threading.RLock()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
@@ -633,8 +652,8 @@ class WindshearTracker:
         )
         gs_stat     = gs_status(alt, dist_thr, rwy_thr_elev + qnh_corr) if in_corridor else "FAR"
 
-        # Headwind component along the matched runway's approach heading.
-        # Used by the JS windshear detection algorithm.
+        # Headwind component along the matched runway's approach heading
+        # (flight strips; the windshear detection uses TAS − GS, collector/shear.py).
         rwy_hdg     = next((r["heading"] for r in self.runways if r["name"] == runway), None)
         headwind_kt = _headwind_kt(wind_spd, wind_dir, rwy_hdg) if rwy_hdg is not None else None
 
@@ -875,6 +894,8 @@ class WindshearTracker:
                 # Approach roughness (raw BDS 5,0 / 6,0 activity on final)
                 self._capture_rough(icao, aircraft, now, alt_msl, runway,
                                     cross_track, ga_phase, dist_thr)
+                # Windshear detection v2 on the replies collected so far
+                self._live_shear(icao, callsign, aircraft.get("aircraft_type"), runway, now)
             # Reset band state when established aircraft leaves the corridor
             # (vectored-off, overflight, missed approach leaving laterally).
             # (kept when the aircraft left by crossing the threshold — landing)
@@ -1143,6 +1164,16 @@ class WindshearTracker:
                     )
                 log.debug("Windshear: dropped stale %s (ga_phase=%s)", k, entry.get("ga_phase"))
 
+            # Windshear alerts: active ones expire WS_HOLD_SEC after last seen
+            for key in [key for key, ev in self._ws_active.items() if now - ev["tl"] > WS_HOLD_SEC]:
+                del self._ws_active[key]
+            while self._ws_log and now - self._ws_log[-1]["ts"] > WS_LOG_MAX_AGE:
+                self._ws_log.pop()
+            for k in [k for k in self._ws_seen_n if k not in self._state]:
+                self._ws_seen_n.pop(k, None)
+                for key in [key for key in self._ws_hits if key.startswith(k + ":")]:
+                    del self._ws_hits[key]
+
             # Purge windrose entries older than WINDROSE_BUFFER_MAX_SEC
             wr_cutoff = now - WINDROSE_BUFFER_MAX_SEC
             while self._windrose_buffer and self._windrose_buffer[0]["ts"] < wr_cutoff:
@@ -1217,6 +1248,8 @@ class WindshearTracker:
             # Wind / headwind / Mach-TAS temperature per 200-ft band (from 2026-10-09)
             "prof":          self._prof_record(rough),
         }
+        # Windshear report of the landing (from 2026-10-24, collector/shear.py)
+        record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts)
         # Raw reply series for approach_series (DB only, not kept in RAM)
         series = self._series_blob(rough, record)
         self._approach_history.insert(0, record)
@@ -1693,6 +1726,123 @@ class WindshearTracker:
                 block[name] = res
         return d
 
+    # ── Windshear detection v2 ────────────────────────────────────────────────
+
+    def _thr_ft(self, runway: str | None) -> float:
+        return next((r.get("thr_elevation_ft", self.thr_elevation_ft)
+                     for r in self.runways if r["name"] == runway), self.thr_elevation_ft)
+
+    def _live_shear(self, icao: str, callsign: str, ac_type: str | None,
+                    runway: str | None, now: float) -> None:
+        """Analyse the aircraft's replies on final so far (lock held) and
+        update the active windshear alerts and the alert log.  Runs only when
+        new BDS 5,0 replies have been collected since the last analysis."""
+        r = self._rough.get(icao)
+        if not r or not runway:
+            return
+        raw5 = r.get("raw5") or []
+        n = len(raw5)
+        if n < 8 or self._ws_seen_n.get(icao) == n:
+            return
+        self._ws_seen_n[icao] = n
+        rw = next((x for x in self.runways if x["name"] == runway), None)
+        try:
+            a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
+            found = []
+            if a:
+                for d in ("loss", "gain"):
+                    c = a.get(d)
+                    if c and c.get("zone"):
+                        lv = _shear.level_of(c["sc"], d == "loss")
+                        if lv != "none":
+                            found.append(("ramp", d, lv, c))
+                ba = _shear.band_anomaly(_shear.band_means(a),
+                                         _shear.refs_from(self._approach_history, now,
+                                                          rw["heading"] if rw else None))
+                if ba and ba["lvl"] != "none":
+                    found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Windshear analysis failed for %s: %s", icao, exc)
+            return
+        keys_now = set()
+        for kind, d, lv, c in found:
+            key = f"{icao}:{kind}:{d}"
+            keys_now.add(key)
+            self._ws_hits[key] = self._ws_hits.get(key, 0) + 1
+            if self._ws_hits[key] < WS_CONFIRM:
+                continue
+            ev = {"id": key, "icao": icao, "cs": callsign, "type": ac_type, "rwy": runway,
+                  "kind": kind, "dir": d, "lvl": lv, "tl": now}
+            if kind == "ramp":
+                ev.update({k: c.get(k) for k in ("dv", "sc", "L", "a1", "a2", "d1", "d2")})
+                ev["fh"] = a.get("fh")
+            else:
+                ev.update({"b": c["b"], "a": c["a"], "ref": c["ref"], "n": c["n"],
+                           "a1": c["b"] + 100, "a2": c["b"] - 100,
+                           "sc": abs(c["a"])})
+            cur = self._ws_active.get(key)
+            if cur is None:
+                ev["ts"] = now
+                self._ws_active[key] = ev
+                self._ws_log_add(ev)
+            else:
+                up = _shear.LEVELS.index(lv) > _shear.LEVELS.index(cur["lvl"])
+                if up or (ev.get("sc") or 0) > (cur.get("sc") or 0):
+                    ev["ts"] = cur["ts"]
+                    self._ws_active[key] = ev
+                    if up:
+                        self._ws_log_add(ev)
+                    else:
+                        # same level, stronger: show the strongest values in its log entry
+                        le = next((e for e in self._ws_log if e["id"] == key and e["lvl"] == lv), None)
+                        if le is not None:
+                            le.update({k: v for k, v in ev.items() if k not in ("ts", "tl")})
+                else:
+                    cur["tl"] = now
+        for key in [key for key in self._ws_hits if key.startswith(icao + ":") and key not in keys_now]:
+            del self._ws_hits[key]
+
+    def _ws_log_add(self, ev: dict) -> None:
+        e = dict(ev)
+        e["ts"] = ev["tl"]
+        self._ws_log.insert(0, e)
+        del self._ws_log[WS_LOG_MAX:]
+        if ev["kind"] == "ramp":
+            log.info("Windshear %s: %s (%s) RWY %s %+.0f kt over %d m (%.0f kt per 1 km) %s→%s ft",
+                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["dv"], ev["L"],
+                     ev["sc"], ev.get("a1"), ev.get("a2"))
+        else:
+            log.info("Windshear %s: %s (%s) RWY %s headwind %+.0f kt at %d ft vs the last 45 min (%d landings)",
+                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["a"], ev["b"], ev["n"])
+
+    def _shear_report(self, rough: dict | None, runway: str | None,
+                      heading, ts: float) -> dict | None:
+        """The windshear report of a landing (approach_history.shear_json)."""
+        try:
+            r = rough or {}
+            a = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
+            band = None
+            if a:
+                band = _shear.band_anomaly(_shear.band_means(a),
+                                           _shear.refs_from(self._approach_history, ts, heading))
+            return _shear.report(a, band)
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Windshear report failed: %s", exc)
+            return None
+
+    def attach_shear(self, reports: dict) -> int:
+        """Add back-filled windshear reports {(int(ts), icao): report} to the
+        landings in RAM that have none."""
+        n = 0
+        with self._lock:
+            for e in self._approach_history:
+                if e.get("shear") is None:
+                    rp = reports.get((int(e.get("ts") or 0), e.get("icao")))
+                    if rp is not None:
+                        e["shear"] = rp
+                        n += 1
+        return n
+
     def get_state(self) -> dict:
         """
         Thread-safe snapshot of all currently tracked approach aircraft plus
@@ -1701,12 +1851,17 @@ class WindshearTracker:
         Returns a dict with keys:
           'aircraft'  — list of aircraft dicts, sorted by distance from threshold
           'ga_events' — list of go-around event dicts from this session
+          'ws_events' — active windshear alerts (detection v2, see _live_shear)
+          'ws_log'    — windshear alerts of the last 24 h, newest first
         """
         with self._lock:
             items     = list(self._state.values())
             ga_events = list(self._ga_events)   # snapshot to avoid race
+            ws_events = [dict(e) for e in self._ws_active.values()]
+            ws_log    = [dict(e) for e in self._ws_log]
         items.sort(key=lambda x: x.get("dist_thr_nm") or x.get("dist_apt_nm") or 999)
-        return {"aircraft": items, "ga_events": ga_events}
+        return {"aircraft": items, "ga_events": ga_events,
+                "ws_events": ws_events, "ws_log": ws_log}
 
     def get_approach_history(self) -> list:
         """Thread-safe snapshot of the landed approach history list (newest first)."""
