@@ -399,6 +399,7 @@ class WindshearTracker:
         blocked_reg_prefixes: tuple = (),
         on_approach_committed       = None,
         bds_sample_fn               = None,
+        vel_sample_fn               = None,
         mag_declination: float | None = None,
         wind_max_age: float         = 6.0,
     ):
@@ -426,6 +427,9 @@ class WindshearTracker:
         # Optional callable(icao, since_ts) -> (bds50_samples, bds60_samples)
         # (collector.receiver.get_bds_samples); None disables the roughness capture.
         self._bds_sample_fn           = bds_sample_fn
+        # Optional callable(icao, since_ts) -> ADS-B ground-speed samples
+        # (collector.receiver.get_vel_samples): kept in the approach series ("v19")
+        self._vel_sample_fn           = vel_sample_fn
         self.mag_declination          = mag_declination  # fallback °E when the aircraft has no mag_decl
 
         self._state: dict[str, dict]  = {}   # icao → approach record
@@ -1397,6 +1401,15 @@ class WindshearTracker:
         newest = max([s[0] for s in b50] + [s[0] for s in b60], default=None)
         if newest is not None:
             r["last"] = newest
+        # ADS-B ground speed (TC 19, about twice a second), from 2026-10-24
+        v19 = []
+        if self._vel_sample_fn is not None:
+            try:
+                v19 = self._vel_sample_fn(icao, r.get("vlast", now - 4.0))
+            except Exception as exc:                      # noqa: BLE001
+                log.debug("Velocity sample fetch failed for %s: %s", icao, exc)
+            if v19:
+                r["vlast"] = v19[-1][0]
 
         seg = None
         for name, lo, hi in ROUGH_SEGMENTS:
@@ -1409,6 +1422,13 @@ class WindshearTracker:
                 or abs(cross_track) > ROUGH_MAX_XTRACK_NM or track is None
                 or rwy_hdg is None or _hdg_diff(track, rwy_hdg) > ROUGH_MAX_TRACK_DEV):
             return
+        if v19:
+            rv = r.setdefault("raw19", [])
+            for ts, vgs, vtrk, vvr in v19:
+                if len(rv) >= SERIES_MAX_ROWS:
+                    break
+                rv.append([round(ts, 2), vgs, None if vtrk is None else round(vtrk, 1), vvr,
+                           int(round(alt_msl))])
         if not b50 and not b60:
             return
 
@@ -1673,6 +1693,8 @@ class WindshearTracker:
                 ("dthr", 100, False), ("xt", 100, False), ("lat", 100000, False),
                 ("lon", 100000, False), ("gs", 1, False), ("trk", 10, False),
                 ("ap", 1, False), ("app", 1, False)),
+        "v19": (("t", 100, True), ("gs", 1, False), ("trk", 10, False),
+                ("vr", 1, False), ("alt", 1, True)),
     }
 
     @classmethod
@@ -1687,13 +1709,17 @@ class WindshearTracker:
           sw   sweeps (3 s): t, alt ft MSL, pressure alt ft, distance to
                threshold NM, cross-track NM, lat, lon, GS kt, track °,
                autopilot 0/1, approach mode 0/1
+          v19  ADS-B airborne velocity (TC 19, from 2026-10-24; about twice a
+               second): t, ground speed kt, track °, vertical rate ft/min,
+               alt (ft MSL of the sweep) — older series have no v19
         Column values are integers: value × scale, delta-coded where marked
         (see SERIES_COLS) — about 2–3 kB per landing.  Only replies accepted
         while established on final (as the roughness statistics).
         Decode: v = cumsum(col) if delta else col; value = v / scale."""
         if not r:
             return None
-        src = {"b50": r.get("raw5") or [], "b60": r.get("raw6") or [], "sw": r.get("sw") or []}
+        src = {"b50": r.get("raw5") or [], "b60": r.get("raw6") or [], "sw": r.get("sw") or [],
+               "v19": r.get("raw19") or []}
         if not any(src.values()):
             return None
         t0 = min(x[0] for v in src.values() for x in v)

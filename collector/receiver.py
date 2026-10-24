@@ -51,6 +51,14 @@ _CACHE_LOCK = threading.Lock()
 #   5,0: (ts, roll, track_rate, true_track, groundspeed, true_airspeed)
 #   6,0: (ts, indicated_airspeed, magnetic_heading, inertial_vr, baro_vr, mach)
 _BDS_SAMPLES_MAX = 16
+# Recent ADS-B airborne velocity messages (TC 19, subtype 1 / 2: ground speed
+# and track from the GNSS / inertial system, broadcast about twice a second,
+# 1-kt resolution) per aircraft, from 2026-10-24: kept with the approach
+# series of each landing for a later test of a denser headwind (TAS from the
+# Comm-B replies against this ground speed).  Tuples: (ts, groundspeed kt,
+# track °, vertical_rate ft/min)
+_VEL_SAMPLES_MAX = 40
+_VEL_SAMPLES: dict[str, deque] = {}
 STATS_LOG_SEC = 600           # the collector's "Stats:" log line every 10 min (was every 5000 messages)
 # Stored with each observation (pressure-surface heights): the aircraft's
 # latest GNSS − baro altitude difference (TC 19, sent about twice a second)
@@ -136,6 +144,24 @@ def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
             ))
 
 
+def _update_vel_samples(icao: str, ts: float, result: dict) -> None:
+    """Store one ADS-B airborne velocity message (ground speed) per ICAO."""
+    gs = result.get("groundspeed")
+    if gs is None:
+        return
+    with _CACHE_LOCK:
+        _VEL_SAMPLES.setdefault(icao, deque(maxlen=_VEL_SAMPLES_MAX)).append(
+            (ts, gs, result.get("track"), result.get("vertical_rate")))
+
+
+def get_vel_samples(icao: str, since_ts: float) -> list:
+    """ADS-B ground-speed samples (TC 19) of one aircraft received after
+    since_ts, oldest first (tuples as _VEL_SAMPLES).  Thread-safe; used by the
+    windshear tracker's approach series."""
+    with _CACHE_LOCK:
+        return [s for s in _VEL_SAMPLES.get(icao, ()) if s[0] > since_ts]
+
+
 def get_bds_samples(icao: str, since_ts: float) -> tuple[list, list]:
     """Raw BDS 5,0 and 6,0 samples of one aircraft received after since_ts.
 
@@ -163,7 +189,7 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
             for icao in [k for k, (ts, _) in cache.items() if ts < cutoff]:
                 del cache[icao]
                 removed += 1
-        for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES):
+        for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES, _VEL_SAMPLES):
             for icao in [k for k, dq in samples.items() if not dq or dq[-1][0] < cutoff]:
                 del samples[icao]
     return removed
@@ -439,6 +465,8 @@ def run_collector(
                 bds = result.get("bds")
                 if bds in ("5,0", "6,0"):
                     _update_bds_cache(icao, ts, result)
+                elif tc == 19:
+                    _update_vel_samples(icao, ts, result)   # ADS-B ground speed (approach series)
 
                 # ── Parallel MRAR / MHR check (DF20/21 only) ────────────
                 mrar: Optional[dict] = None

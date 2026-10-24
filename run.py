@@ -37,7 +37,7 @@ if ROOT not in sys.path:
 
 from config import Config
 from database.db import init_db
-from collector.receiver import run_collector, prune_bds_cache, get_bds_samples
+from collector.receiver import run_collector, prune_bds_cache, get_bds_samples, get_vel_samples
 from collector.radarcape_json import run_json_poller
 from collector.windshear import WindshearTracker
 from collector.departures import DepartureTracker
@@ -697,6 +697,7 @@ def main() -> None:
         blocked_reg_prefixes  = cfg.BLOCKED_REG_PREFIXES,
         on_approach_committed = _on_approach_committed,
         bds_sample_fn         = get_bds_samples,
+        vel_sample_fn         = get_vel_samples,
         mag_declination       = cfg.MAG_DECLINATION,
         wind_max_age          = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0)),
     )
