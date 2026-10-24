@@ -2402,6 +2402,25 @@ async function fetchApproachState() {
       }
     }
 
+    // ── Barbs and NONE markers from the server (from 2026-10-24) ───────────
+    // The tracker collects them with the same gates as below for every
+    // aircraft, also while no page is open, so a newly opened page shows the
+    // whole approach so far.  The local accumulation below is kept only as a
+    // fallback for a server without these fields.
+    let serverBarbs = false;
+    for (const ac of aircraft) {
+      if (!Array.isArray(ac.barbs)) continue;
+      serverBarbs = true;
+      const conv = r => ({ dist_nm: r[0], alt_ft: r[1], wind_spd: r[2], wind_dir: r[3], src: r[4] });
+      if (ac.barbs.length)              wsWindHistory[ac.icao]   = ac.barbs.map(conv);
+      if ((ac.barbs_hi  || []).length)  wsWindHiHistory[ac.icao] = ac.barbs_hi.map(conv);
+      if ((ac.none_hist || []).length)  wsNoneHistory[ac.icao]   =
+        ac.none_hist.map(r => ({ dist_nm: r[0], alt_ft: r[1], reason: r[2], ts: r[3] * 1000 }));
+      if ((ac.pre_hist  || []).length)  wsPreCorridorHistory[ac.icao] =
+        ac.pre_hist.map(r => ({ dist_nm: r[0], alt_ft: r[1], reason: 'qc', ts: r[2] * 1000 }));
+    }
+
+    if (!serverBarbs) {
     // ── Pre-corridor NONE history: accumulate for non-corridor aircraft ───
     // Captures positions where meteo_source is NONE but the aircraft is NOT
     // in the ILS corridor — the typical wide localizer intercept turn.
@@ -2511,6 +2530,7 @@ async function fetchApproachState() {
         if (noneHist.length > WS_WIND_HIST_MAX) noneHist.shift();
       }
     }
+    }   // end of the local fallback accumulation
 
     // Windshear alerts of the server's detection (collector/shear.py)
     lastShearEvents = Array.isArray(data) ? [] : (data.ws_events || []).map(mapWsEvent);

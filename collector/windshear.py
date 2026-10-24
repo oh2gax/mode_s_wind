@@ -155,6 +155,15 @@ SERIES_MAX_ROWS      = 900     # per list per landing (≈ 15 min at 1 reply/s)
 # previous 45 min (departures from 2026-10-24: dep_shear(), called by
 # collector/departures.py for each climb-out).
 # Levels: advisory ≥ 10 kt · WSA ≥ 15 kt · MBA ≥ 30 kt loss.
+# Wind barbs of the ILS profile, collected on the server (from 2026-10-24; the
+# page used to collect them itself while open): same gates as before
+BARB_ALT_GAP         = 400.0   # ft — Lo: a new barb after this altitude change …
+BARB_DIST_GAP        = 0.5     # NM — … or this distance change
+BARB_MAX             = 40      # Lo barbs (and NONE markers) kept per aircraft
+BARB_HI_ALT_GAP      = 150.0   # ft — Hi resolution
+BARB_HI_DIST_GAP     = 0.2     # NM
+BARB_HI_MAX          = 100
+BARB_PRE_MAX_NM      = 15.0    # pre-corridor NONE markers within the profile range
 WS_CONFIRM           = 2       # found in this many consecutive analyses before it is an alert
 WS_HOLD_SEC          = 600.0   # an alert stays active this long after it was last seen
 WS_LOG_MAX           = 100     # alert log entries kept (newest first)
@@ -1068,6 +1077,9 @@ class WindshearTracker:
                 "landing_exit_alt":  landing_exit_alt,
                 "landing_committed": landing_committed,
             }
+            # Wind barbs and NONE markers of the ILS profile (from 2026-10-24
+            # kept here, so a newly opened page shows the whole approach so far)
+            self._barb_history(prev, self._state[icao], now, wind_stale)
 
             # Confirm a threshold-pass landing once the aircraft has stayed
             # down for LANDING_CONFIRM_SEC — commit now rather than waiting for
@@ -1920,6 +1932,54 @@ class WindshearTracker:
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
             self._day_add("dep", rep, st.get("callsign") or icao, now)
         return rep
+
+    # ── ILS-profile wind barbs (server side from 2026-10-24) ──────────────────
+
+    def _barb_history(self, prev: dict, e: dict, now: float, wind_stale: bool) -> None:
+        """Accumulate the wind barbs and the NONE markers of one aircraft for
+        the ILS profile (lock held) — the same gates the page used when it
+        collected them itself: Lo every BARB_ALT_GAP ft or BARB_DIST_GAP NM
+        (BARB_MAX), Hi every BARB_HI_ALT_GAP ft or BARB_HI_DIST_GAP NM
+        (BARB_HI_MAX); only fresh (not stale) winds of corridor aircraft whose
+        position is not frozen.  NONE markers (wind suspended) in the corridor
+        with their reason, and before the corridor for turns ("qc") at the
+        distance to the nearest threshold, also every 15 s.  Kept with the
+        state entry, so they go when the aircraft is dropped (landed).
+        Compact lists: barbs [dist NM, alt ft, speed kt, dir °, source],
+        none [dist, alt, reason, t], pre [dist, alt, t]."""
+        def gated(hist, d, a, ag, dg, t=None):
+            if not hist:
+                return True
+            last = hist[-1]
+            return (abs(last[1] - a) >= ag or abs(last[0] - d) >= dg
+                    or (t is not None and now - last[-1] >= 15.0))
+        lo = list(prev.get("barbs") or [])
+        hi = list(prev.get("barbs_hi") or [])
+        nh = list(prev.get("none_hist") or [])
+        ph = list(prev.get("pre_hist") or [])
+        d, a, src = e.get("dist_thr_nm"), e.get("altitude"), e.get("meteo_source")
+        ws, wd = e.get("best_wind_spd"), e.get("best_wind_dir")
+        if e.get("in_corridor") and d is not None and a is not None:
+            if (ws is not None and wd is not None and src != "NONE"
+                    and not wind_stale and not e.get("pos_frozen")):
+                row = [d, a, round(ws, 1), round(wd), src]
+                if gated(lo, d, a, BARB_ALT_GAP, BARB_DIST_GAP):
+                    lo.append(row)
+                    del lo[:-BARB_MAX]
+                if gated(hi, d, a, BARB_HI_ALT_GAP, BARB_HI_DIST_GAP):
+                    hi.append(row)
+                    del hi[:-BARB_HI_MAX]
+            if src == "NONE" and gated(nh, d, a, BARB_ALT_GAP, BARB_DIST_GAP, now):
+                nh.append([d, a, e.get("none_reason") or "qc", round(now, 1)])
+                del nh[:-BARB_MAX]
+        elif (not e.get("in_corridor") and src == "NONE" and e.get("none_reason") == "qc"
+              and a is not None and e.get("dist_nearest_thr_nm") is not None
+              and e["dist_nearest_thr_nm"] <= BARB_PRE_MAX_NM):
+            dn = e["dist_nearest_thr_nm"]
+            if gated(ph, dn, a, BARB_ALT_GAP, BARB_DIST_GAP, now):
+                ph.append([dn, a, round(now, 1)])
+                del ph[:-BARB_MAX]
+        e["barbs"], e["barbs_hi"], e["none_hist"], e["pre_hist"] = lo, hi, nh, ph
 
     # ── engine status (status line of the Windshear Alert panel) ─────────────
 
