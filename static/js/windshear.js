@@ -1726,7 +1726,34 @@ function renderTodayStats(approaches) {
       row.addEventListener('mouseleave', _hideLogTooltip);
     });
   });
+  _fitWholeRows(typeEl);
 }
+
+/**
+ * Aircraft Types list: show whole rows only (from 2026-10-25).  When the list
+ * is longer than its space, the scroll area is cut to a whole number of rows
+ * (no half row at the bottom); scrolling snaps to the rows (CSS), so it stays
+ * that way while scrolling.  Recomputed after each render and on resize.
+ */
+function _fitWholeRows(el) {
+  if (!el) return;
+  el.style.flex = ''; el.style.height = '';           // back to the space the layout gives it
+  const rows = el.querySelectorAll('.ws-stats-row');
+  if (rows.length < 2) return;
+  const avail = el.clientHeight;                       // forces the layout
+  if (el.scrollHeight <= avail + 1) return;            // everything fits
+  const r0 = rows[0].getBoundingClientRect();
+  const pitch = rows[1].getBoundingClientRect().top - r0.top;   // row + gap
+  const gap = Math.max(0, pitch - r0.height);
+  if (pitch <= 0) return;
+  const n = Math.max(1, Math.floor((avail + gap) / pitch));
+  el.style.flex = '0 0 auto';
+  el.style.height = Math.floor(n * pitch - gap) + 'px';
+}
+window.addEventListener('resize', () => {
+  clearTimeout(_fitWholeRows._t);
+  _fitWholeRows._t = setTimeout(() => _fitWholeRows(document.getElementById('ws-stats-types')), 120);
+});
 
 /**
  * Add go-around events from the server to the shared log.
