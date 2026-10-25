@@ -117,7 +117,9 @@
   }
   const windLabel = () => st.wind === 'sfc' ? '10 m wind' : `MEPS wind FL${st.wind}` + (windShown && windShown.p ? ` (${Math.round(windShown.p)} hPa)` : '');
   function windOptions() {
-    return { rain: false, pres: false, clouds: [], wind: st.wind !== 'off', gust: st.wind === 'sfc' && !!st.gust,
+    // the gust shading follows the opacity slider (as on the Weather page at 100 %); the barbs stay opaque
+    const gustAlpha = (document.documentElement.dataset.theme === 'light' ? 0.55 : 0.72) * st.op / 100;
+    return { rain: false, pres: false, clouds: [], wind: st.wind !== 'off', gust: st.wind === 'sfc' && !!st.gust, gustAlpha,
              windLabel: windLabel() };
   }
   function applyOptions() {

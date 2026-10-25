@@ -36,7 +36,8 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Live Map: MEPS wind barbs
 - The ☂ weather panel has a new **Wind** row, independent of the source: *Off* / **10 m** (with an optional **Gusts** shading) / **FL50** / **FL100** / **FL200** / **FL300** / **FL340** / **FL390**. Barbs thinned to about 50 px, muted colours, in their own pane above the weather and under the aircraft; hovering a barb shows wind, temperature or gust, run and position; status line and button chip (`· Wind FL300`).
 - 10 m from the stored weather maps (`/api/weather/frames`, fields `u,v,g`, 20 km); flight levels from the stored Wind Map MEPS fields (± 300 km): new `collector/meps.py` `level_frame()` (ISA pressure of the level, log-p interpolation, nearest stored hour, cached) and API `/api/meps/winds?fl=`. Nothing new is downloaded or stored.
-- `static/js/wx_layer.js`: options `barb` (colours) and `windLabel`, `barbAt()` for the hover, `t` in the values; `static/js/live_wx.js`: the radar, the model weather and the wind load side by side, and a change during a load is applied after it; `static/css/style.css`.
+- The gust shading follows the panel's **Opacity** slider; the barbs stay fully drawn.
+- `static/js/wx_layer.js`: options `barb` (colours) and `windLabel`, `gustAlpha`, `barbAt()` for the hover, `t` in the values; `static/js/live_wx.js`: the radar, the model weather and the wind load side by side, and a change during a load is applied after it; `static/css/style.css`.
 
 ### Windshear page: go-arounds after a reopen, stored go-arounds
 - The alert log shows the go-arounds of the last 24 h, also those before the page was opened (before: only those of the page session); the hover says *Nth go-around of this flight* and gives the aircraft type and a windshear level active at that moment.

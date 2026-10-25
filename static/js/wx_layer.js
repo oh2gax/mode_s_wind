@@ -279,7 +279,7 @@ const WxLayer = (() => {
           const cl = gustClass(v);
           if (cl >= 0) { quad(i, j, GUST_C[cl]); any = true; }
         }
-        if (any) layer(opts.gustAlpha || (isLight() ? 0.55 : 0.72));
+        if (any) layer(o.gustAlpha != null ? o.gustAlpha : (opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
       }
       // rain / snow: the model's, cut away inside the radar coverage, then the radar's
       const oq = hasO ? quads(ovGeo) : null;

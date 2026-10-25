@@ -631,7 +631,7 @@ A **☂ Weather** button at the top right of the map opens a small panel (`stati
   - **FL…**: the wind at that flight level (pressure altitude, ISA: FL50 ≈ 843 hPa, FL100 ≈ 697, FL200 ≈ 466, FL300 ≈ 301, FL340 ≈ 250, FL390 ≈ 197 hPa), interpolated in log pressure between the stored model levels, from the hour nearest to now of the Wind Map's MEPS fields (`meps_map_hours`) — so only within **± 300 km of the receiver** (20 km grid). FL340 / FL390 show the jet core.
   - The barbs are thinned to about 50 px apart, drawn in a muted grey in their own layer above the weather and under the aircraft (so they are not mistaken for the winds measured by the aircraft); hovering a barb shows its wind, temperature (flight levels) or gust (10 m), the run and the position. Refreshed at each full hour and when a newer run is stored.
   - No extra load on the Pi: nothing more is downloaded or stored; a flight level is interpolated from one stored hour on request (a few ms, cached), `/api/meps/winds?fl=`. Needs `MEPS_MAP` (flight levels) / `MEPS_WX` (10 m), both on by default.
-- **Opacity** — 10–100 % (default 60 %) of the weather (the wind barbs are always drawn fully).
+- **Opacity** — 10–100 % (default 60 %) of the weather and of the 10 m gust shading (the wind barbs are always drawn fully).
 - The status line gives the run and hour and / or the time and age of the radar composite and of the model wind, and the legend the colours (rain 0.1 / 0.5 / 1 / 2 / 5 / 10 mm/h, snow violet, gusts). The button then reads e.g. `☂ Radar 11:55 UTC · Wind FL300`.
 
 #### Map labels
