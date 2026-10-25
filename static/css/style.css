@@ -2977,6 +2977,46 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .mst-hist { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; width: 120px; vertical-align: middle; }
 .mst-hist span { flex: 1; min-height: 1px; background: var(--accent); border-radius: 1px 1px 0 0; }
 .mst-foot { padding: 6px 10px 8px; font-size: 11px; line-height: 1.45; color: var(--text-2); border-top: 1px solid var(--border); }
+/* system health (Statistics summary bar) */
+.mst-bar { position: relative; }
+.mst-health { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; padding: 2px 6px; border-radius: 5px;
+  border: 1px solid transparent; outline: none; }
+.mst-health:hover, .mst-health:focus-visible, .mst-health[aria-expanded="true"] { border-color: var(--border); background: var(--bg-2); }
+.mst-hl-dots { display: inline-flex; align-items: center; gap: 9px; }
+.mst-hl { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-2); white-space: nowrap; }
+.mst-hl-chip { display: none; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+.mst-hl-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); flex: none; }
+.mst-hl-dot.st-ok { background: var(--green); }
+.mst-hl-dot.st-warn { background: var(--amber); }
+.mst-hl-dot.st-err { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 30%, transparent); }
+.mst-hl-dot.st-off { background: transparent; border: 1.5px solid var(--text-3); width: 8px; height: 8px; }
+@media (max-width: 1599px) { .mst-hl-dots { display: none; } .mst-hl-chip { display: inline-flex; } }
+.mst-hl-panel { position: absolute; top: calc(100% + 4px); right: 8px; z-index: 60; width: min(820px, calc(100vw - 24px));
+  max-height: calc(100vh - 140px); overflow-y: auto; background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font-size: 12px; color: var(--text-1); }
+.mst-hl-panel[hidden] { display: none; }
+.mst-hl-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+.mst-hl-head .mst-hl-x { margin-left: auto; background: none; border: none; color: var(--text-2); font-size: 18px; line-height: 1; cursor: pointer; }
+.mst-hl-head small { font-weight: 400; color: var(--text-3); }
+.mst-hl-panel table { width: 100%; border-collapse: collapse; }
+.mst-hl-panel td { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); vertical-align: top; }
+.mst-hl-panel td.mst-hl-name { white-space: nowrap; font-weight: 600; }
+.mst-hl-panel td.mst-hl-since { white-space: nowrap; color: var(--text-3); text-align: right; font-size: 11px; }
+.mst-hl-panel .mst-hl-det { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; }
+.mst-hl-sub { padding: 8px 12px 4px; font-weight: 600; color: var(--text-2); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.mst-hl-ch { padding: 2px 12px; color: var(--text-2); font-size: 11px; display: flex; gap: 6px; align-items: center; }
+.mst-hl-ch:last-child { padding-bottom: 10px; }
+.mst-hl-foot { padding: 6px 12px 10px; color: var(--text-3); font-size: 11px; line-height: 1.45; }
+.mst-sig-wrap { height: 150px; }
+.mst-table tr.mst-click { cursor: pointer; }
+.mst-table tr.mst-click:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.mst-table tr.mst-sel td { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.mst-polar-wrap { position: relative; display: flex; justify-content: center; padding: 6px 8px 2px; }
+.mst-polar-wrap canvas { width: 100%; max-width: 380px; aspect-ratio: 1 / 1; cursor: crosshair; }
+.mst-polar-tip { position: absolute; pointer-events: none; display: none; background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.4; color: var(--text-1); white-space: nowrap; z-index: 2; }
+.mst-legend { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+.mst-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .mst-stations span { display: inline-block; margin: 1px 6px 1px 0; font-family: "Courier New", monospace; color: var(--text-1); }
 @media (max-width: 1500px) { .mst-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px)  { .mst-body { grid-template-columns: minmax(0, 1fr); } }

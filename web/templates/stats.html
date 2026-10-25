@@ -40,9 +40,16 @@
         <button class="gps-zone-btn" data-win="1">1 min</button>
         <button class="gps-zone-btn active" data-win="10">10 min</button>
         <button class="gps-zone-btn" data-win="60">1 h</button>
+        <button class="gps-zone-btn" data-win="1440" title="The last 24 hours (since the server started, if later)">24 h</button>
       </span>
     </span>
+    <span class="mst-health" id="mst-health" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false"
+          title="System health — click for details">
+      <span class="mst-hl-dots" id="mst-hl-dots"></span>
+      <span class="mst-hl-chip" id="mst-hl-chip"><i class="mst-hl-dot"></i><span>Health …</span></span>
+    </span>
     <span class="gps-updated" id="mst-updated">Waiting…</span>
+    <div class="mst-hl-panel" id="mst-hl-panel" role="dialog" aria-label="System health" hidden></div>
     {% if guide_links.stats %}<a class="guide-q" href="{{ guide_links.stats }}" target="_blank" rel="noopener" title="User guide: Mode S &amp; ADS-B and the Statistics page — PDF in a new tab">?</a>{% endif %}
   </div>
 
@@ -73,6 +80,21 @@
         <div class="gps-panel-hdr"><span class="gps-panel-title">Downlink formats</span>
           <span class="mst-hdr-note" id="mst-df-note"></span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-df"></table></div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Signal strength</span>
+          <select id="mst-sig-cat" class="gpe-input" title="Message class">
+            <option value="all">All frames</option>
+            <option value="adsb">ADS-B (DF17/18)</option>
+            <option value="reply">Replies (DF4/5, DF20/21)</option>
+            <option value="df11">All-call (DF11)</option>
+            <option value="acas">ACAS (DF0/16)</option>
+          </select>
+          <span class="mst-hdr-note" id="mst-sig-note"></span></div>
+        <div class="mst-chart-wrap mst-sig-wrap"><canvas id="mst-sig-chart"></canvas></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-sig"></table></div>
+        <div class="mst-foot" id="mst-sig-foot"></div>
       </div>
 
       <div class="mst-panel">
@@ -123,6 +145,14 @@
         <div class="gps-panel-hdr"><span class="gps-panel-title">Interrogators (DF11 all-call replies)</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-iid"></table></div>
         <div class="mst-foot" id="mst-iid-foot"></div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Range rings (ADS-B positions)</span>
+          <span class="mst-hdr-note" id="mst-rng-note"></span></div>
+        <div class="mst-polar-wrap"><canvas id="mst-polar"></canvas><div class="mst-polar-tip" id="mst-polar-tip"></div></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-rng"></table></div>
+        <div class="mst-foot" id="mst-rng-foot"></div>
       </div>
     </div>
   </div>

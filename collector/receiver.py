@@ -31,6 +31,7 @@ from collector.declination import declination as mag_declination_at
 from collector import aircraft_db
 from collector import heading_cal
 from collector import msg_stats
+from collector import beast_sig
 from collector.height_series import HeightSeries
 from collector.writer import BatchWriter
 from database.db import get_db
@@ -427,6 +428,14 @@ def run_collector(
     # Message statistics of the Statistics page (collector/msg_stats.py, RAM only)
     mstats = msg_stats.get()
     mstats.airport = (cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON)
+    # Antenna position for the range rings (optional keys; default the map centre)
+    mstats.site = (float(getattr(cfg, "ANTENNA_LAT", cfg.RECEIVER_LAT)),
+                   float(getattr(cfg, "ANTENNA_LON", cfg.RECEIVER_LON)))
+    # Beast signal-level byte for the signal histogram (collector/beast_sig.py)
+    sig_on = False
+    if getattr(cfg, "MSG_STATS_SIGNAL", True):
+        sig_on = beast_sig.install()
+        mstats.sig_state = "on" if sig_on else "unavailable"
 
     while True:
         try:
@@ -434,13 +443,14 @@ def run_collector(
             log.info("Connected to Radarcape at %s:%d",
                      cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
             mstats.connected()
+            beast_sig.reset()
 
             msg_count = 0
             stats_next = time.time() + STATS_LOG_SEC
             stats_count = 0
             for msg_hex, ts in source:
                 msg_count += 1
-                mstats.raw(ts, msg_hex)
+                mstats.raw(ts, msg_hex, beast_sig.pop(msg_hex) if sig_on else None)
 
                 # ── Decode with pyModeS PipeDecoder ──────────────────────
                 try:

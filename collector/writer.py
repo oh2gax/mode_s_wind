@@ -20,6 +20,7 @@ from typing import Optional
 
 from database.db import get_db
 from collector.atmos import layer_of
+from collector import health
 
 log = logging.getLogger("modes.writer")
 
@@ -121,6 +122,7 @@ class BatchWriter:
             self._write_batch(db, batch)
             db.commit()
             log.debug("Flushed %d observations to DB", len(batch))
+            health.beat("db", rows=len(batch))
         except sqlite3.Error as exc:
             # Undo the partial batch so a retry cannot insert duplicates, and
             # forget cached flight sessions: a flight row created inside the
@@ -139,8 +141,10 @@ class BatchWriter:
                 # observations and retry on the next flush instead of dropping.
                 self._buffer[:0] = batch
                 log.warning("DB busy (%s) — %d observations kept for retry", exc, len(batch))
+                health.fail("db", "database busy — observations kept and written later", level="warn")
             else:
                 log.error("DB write failed: %s — %d observations dropped", exc, len(batch))
+                health.fail("db", "database write failed — observations lost", level="error")
         finally:
             self._last_flush = time.monotonic()
             if self._last_flush - self._last_prune >= PRUNE_INTERVAL_SEC:

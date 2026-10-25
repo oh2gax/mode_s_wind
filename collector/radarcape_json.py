@@ -45,6 +45,7 @@ from typing import Optional
 from collector.filter import is_blocked_icao, is_blocked_registration
 from collector import aircraft_db
 from collector import msg_stats
+from collector import health
 
 log = logging.getLogger("modes.json_poller")
 
@@ -274,6 +275,7 @@ def run_json_poller(
                     live_state[icao]    = merged
 
             consecutive_errors = 0
+            health.beat("json", entries=n_entries, consecutive=0)
             try:
                 msg_stats.get().json_poll(n_entries, n_src.get("M", 0), n_src.get("A", 0),
                                           n_src.get("?", 0), stations)
@@ -287,6 +289,7 @@ def run_json_poller(
         except Exception as exc:
             consecutive_errors += 1
             msg_stats.get().json_error()
+            health.fail("json", "no answer from the Radarcape aircraft list", consecutive=consecutive_errors)
             # Log first 3 errors verbosely, then throttle to every 20th
             if consecutive_errors <= 3 or consecutive_errors % 20 == 0:
                 log.warning("JSON poller error (#%d): %s", consecutive_errors, exc)

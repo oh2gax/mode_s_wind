@@ -47,6 +47,7 @@ from collector import aircraft_db
 from collector import heading_cal
 from collector import sondes
 from collector import meps
+from collector import health
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -63,8 +64,10 @@ def _autopurge_thread(db_path: str, interval_sec: float = 3_600.0) -> None:
         try:
             conn = _get_db()
             maint.run_autopurge_if_needed(conn, db_path)
+            health.beat("autopurge")
         except Exception as exc:
             log.warning("Autopurge error: %s", exc)
+            health.fail("autopurge", "automatic purge check failed")
         _time.sleep(interval_sec)
 
 
@@ -102,8 +105,10 @@ def _housekeeping_thread(
             if stale or n_bds:
                 hk_log.debug("Pruned %d live_state entries (%d remain), %d BDS cache entries",
                              len(stale), remaining, n_bds)
+            health.beat("housekeeping", live=remaining)
         except Exception as exc:
             hk_log.warning("Housekeeping error: %s", exc)
+            health.fail("housekeeping", "memory clean-up failed")
 
 
 def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
@@ -150,6 +155,7 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
     last_purge = 0.0
     first = True
     while True:
+        health.mark("hourly", run_ts=time.time())
         try:
             db = _get_db()
             n = store_missing_profile_hours(
@@ -234,8 +240,10 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                     if cur.rowcount:
                         hj_log.info("%s: deleted %d rows older than %g days",
                                     table, cur.rowcount, days)
+            health.beat("hourly", run_ts=None)
         except Exception as exc:
             hj_log.warning("Hourly jobs error: %s", exc)
+            health.fail("hourly", "hourly jobs failed", run_ts=None)
         # wake up 3 minutes after the next hour change
         now = time.time()
         time.sleep(max(60.0, (now // 3600 + 1) * 3600 + 180 - now))
@@ -262,8 +270,10 @@ def _gps_quality_sweep(
                 tracker.update(ac)
             tracker.prune_stale()
             tracker.rebuild_live(recent)
+            health.beat("gps_sweep", sweep=sweep_sec)
         except Exception as exc:
             log.debug("GPS quality sweep error: %s", exc)
+            health.fail("gps_sweep", "GPS quality sweep failed")
         time.sleep(sweep_sec)
 
 
@@ -296,8 +306,10 @@ def _windshear_sweep(
             tracker.prune_stale()
             if dep_tracker is not None:
                 dep_tracker.prune(now)
+            health.beat("ws_sweep")
         except Exception as exc:
             log.debug("Windshear sweep error: %s", exc)
+            health.fail("ws_sweep", "windshear sweep failed")
         time.sleep(3)
 
 

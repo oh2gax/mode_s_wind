@@ -30,12 +30,26 @@ Radarcape Beast feed and the JSON poller:
                 MRAR (BDS 4,4) and MHR (BDS 4,5) reports
   • JSON      — MLAT and ADS-B positions in the Radarcape aircraft list, WAM
                 ground stations (blocked addresses such as T40…) it lists
+  • signal    — the Beast signal-level byte of every frame (collector/beast_sig.py)
+                as dBFS = 20·log10(byte / 255), a 2-dB histogram per message
+                class (all, ADS-B DF17/18, replies DF4/5/20/21, all-call DF11,
+                ACAS DF0/16), and the frames ≥ −3 dBFS (near the top of the
+                receiver's range)
+  • range     — ADS-B airborne positions decoded from our own reception
+                (DF17 TC 9–18 / 20–22): the farthest position per 10° bearing
+                sector and altitude band (< FL100, FL100–FL245, ≥ FL250) from
+                the antenna (ANTENNA_LAT / ANTENNA_LON, default RECEIVER_LAT /
+                RECEIVER_LON), and the positions, aircraft and signal per range
+                band.  A position counts only when it fits the aircraft's
+                previous one (a single bad decode cannot set a record).
 
 Windows: one record per minute (counters, interval histograms, aircraft sets)
-for the last hour, a compact per-minute vector of the main series for 24 h,
-and the message count per 10 s for the last hour (rate sparkline).  About
-2–4 MB of RAM in daytime traffic.  The counting costs a few microseconds per
-message (dictionary increments; one CRC per DF11 reply).
+for the last hour, the same merged per clock hour for the last 24 h (the
+24 h window), a compact per-minute vector of the main series for 24 h, and the
+message count per 10 s for the last hour (rate sparkline).  About 2–4 MB of
+RAM for the hour plus up to ~10–15 MB for the 24 hourly records in daytime
+traffic.  The counting costs a few microseconds per message (dictionary
+increments; one CRC per DF11 reply; one distance per ADS-B position).
 
 Thread safety: the collector thread and the JSON poller write, the web thread
 reads a snapshot (one lock; held only for increments and the snapshot copy).
@@ -60,6 +74,24 @@ TERM_ALT_FT, TERM_NM = 10_000.0, 60.0
 EHS_SILENT_SEC = 30.0      # an EHS aircraft with no BDS 5,0 for this long is "silent"
 MINUTES_DETAIL = 60        # full minute records kept (1 h)
 MINUTES_TREND = 1440       # compact minute vectors kept (24 h)
+HOURS_DETAIL = 24          # hourly merged records (the 24 h window)
+WINDOW_MAX_MIN = 1440
+
+# signal level: 2-dB bins from −50 to 0 dBFS (byte 1 = −48.1 dBFS, 255 = 0)
+SIG_BINS = 25
+SIG_LO_DB, SIG_STEP_DB = -50.0, 2.0
+SIG_STRONG_BYTE = 180      # ≥ −3.0 dBFS
+SIG_CATS = ("all", "adsb", "reply", "df11", "acas", "other")
+_SIG_BIN = [0] + [min(SIG_BINS - 1, max(0, int((20 * math.log10(b / 255.0) - SIG_LO_DB) // SIG_STEP_DB)))
+                  for b in range(1, 256)]
+_DF_SIGCAT = {17: "adsb", 18: "adsb", 4: "reply", 5: "reply", 20: "reply", 21: "reply",
+              11: "df11", 0: "acas", 16: "acas"}
+
+# range
+RNG_SECTORS = 36           # 10° bearing sectors
+RNG_EDGES_NM = (0, 25, 50, 100, 150, 200, 250, 300)   # bands; the last is 300 NM →
+RNG_MAX_NM = 400.0         # farther: implausible for 1090 MHz, not counted
+RNG_ALT = ("low", "mid", "high")                     # < FL100, FL100–FL245, ≥ FL250
 
 # compact 24 h series (per minute)
 TREND_KEYS = ("msgs", "df4", "df5", "df11", "df17", "df20", "df21", "bds50", "bds60",
@@ -117,7 +149,57 @@ def _dist_nm(lat1, lon1, lat2, lon2) -> float:
 
 
 def _new_minute(t0: float) -> dict:
-    return {"t0": t0, "c": Counter(), "h": {}, "ac": {}, "ivar": {}}
+    # c counters, h interval histograms, ac aircraft sets, s signal histograms,
+    # r farthest position per sector {alt band: [[nm, alt, icao] | None] * 36}
+    return {"t0": t0, "c": Counter(), "h": {}, "ac": {}, "ivar": {}, "s": {}, "r": {}}
+
+
+def _merge(dst: dict, m: dict) -> None:
+    """Add minute / hour record m into dst."""
+    dst["c"].update(m["c"])
+    for key in ("h", "s"):
+        d = dst[key]
+        for k, h in m[key].items():
+            t = d.get(k)
+            if t is None:
+                d[k] = list(h)
+            else:
+                for i, v in enumerate(h):
+                    t[i] += v
+    for k, st in m["ac"].items():
+        t = dst["ac"].get(k)
+        if t is None:
+            dst["ac"][k] = set(st)
+        else:
+            t.update(st)
+    for band, sec in m["r"].items():
+        t = dst["r"].get(band)
+        if t is None:
+            dst["r"][band] = [list(x) if x else None for x in sec]
+            continue
+        for i, x in enumerate(sec):
+            if x and (t[i] is None or x[0] > t[i][0]):
+                t[i] = list(x)
+
+
+def _bearing(lat1, lon1, lat2, lon2) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def _sig_quantile(hist: list, q: float) -> float | None:
+    n = sum(hist)
+    if n == 0:
+        return None
+    target, acc = q * n, 0.0
+    for i, k in enumerate(hist):
+        if acc + k >= target and k > 0:
+            return round(SIG_LO_DB + SIG_STEP_DB * (i + (target - acc) / k), 1)
+        acc += k
+    return 0.0
 
 
 def _hist_quantile(hist: list, q: float, lo: float = CAD_DUP_SEC) -> float | None:
@@ -145,6 +227,13 @@ class MsgStats:
         self.total_msgs = 0
         self._min: dict = _new_minute(self._minute_of(time.time()))
         self._minutes: deque = deque(maxlen=MINUTES_DETAIL)
+        self._hour: dict | None = None               # the current clock hour (closed minutes)
+        self._hours: deque = deque(maxlen=HOURS_DETAIL)
+        self._hours_cache: tuple | None = None       # (key, merged closed hours)
+        self.site = _EFHK                            # antenna position for the range
+        self.sig_state = "off"                       # on / off / unavailable (set by the collector)
+        self._cur_sig: int | None = None             # signal byte of the frame being decoded
+        self._rpos: dict = {}                        # icao → (ts, lat, lon) of the last ADS-B position
         self._trend: deque = deque(maxlen=MINUTES_TREND)
         self._ten: deque = deque(maxlen=360)          # [t0, msgs] per 10 s
         self._ten_cur = [self._ten_of(time.time()), 0]
@@ -181,6 +270,14 @@ class MsgStats:
             self._minutes.append(m)
             self._trend.append(self._compact(m))
             self._min = _new_minute(tm)
+            # hourly record for the 24 h window
+            th = float(int(m["t0"] // 3600) * 3600)
+            if self._hour is not None and self._hour["t0"] != th:
+                self._hours.append(self._hour)
+                self._hour = None
+            if self._hour is None:
+                self._hour = _new_minute(th)
+            _merge(self._hour, m)
             # forget per-aircraft state of aircraft not heard for 10 min
             if len(self._seen) > 50:
                 cut = now - 600
@@ -189,6 +286,8 @@ class MsgStats:
                     self._b50.pop(icao, None)
                 for k in [k for k, t in self._last.items() if t < cut]:
                     del self._last[k]
+                for k in [k for k, v in self._rpos.items() if v[0] < cut]:
+                    del self._rpos[k]
 
     def _compact(self, m: dict) -> list:
         c = m["c"]
@@ -209,9 +308,11 @@ class MsgStats:
             self.connects += 1
             self.connected_ts = time.time()
 
-    def raw(self, ts: float, msg_hex: str) -> None:
-        """Every frame from the feed, before decoding."""
+    def raw(self, ts: float, msg_hex: str, sig: int | None = None) -> None:
+        """Every frame from the feed, before decoding (sig: the Beast signal
+        byte 0–255, None when not available)."""
         now = time.time()
+        self._cur_sig = sig
         with self._lock:
             self._roll(now)
             self.total_msgs += 1
@@ -220,6 +321,24 @@ class MsgStats:
             c = self._min["c"]
             c["msgs"] += 1
             c["short" if len(msg_hex) <= 14 else "long"] += 1
+            if sig is not None:
+                if sig <= 0:
+                    c["sig0"] += 1
+                    return
+                try:
+                    cat = _DF_SIGCAT.get(int(msg_hex[:2], 16) >> 3, "other")
+                except ValueError:
+                    cat = "other"
+                b = _SIG_BIN[sig if sig < 256 else 255]
+                s = self._min["s"]
+                for k in (("sig", "all"), ("sig", cat)):
+                    h = s.get(k)
+                    if h is None:
+                        h = s[k] = [0] * SIG_BINS
+                    h[b] += 1
+                if sig >= SIG_STRONG_BYTE:
+                    c[("sig_strong", "all")] += 1
+                    c[("sig_strong", cat)] += 1
 
     def count(self, key) -> None:
         with self._lock:
@@ -258,6 +377,44 @@ class MsgStats:
             i += 1
         h[i] += 1
 
+    def _range(self, icao: str, ts: float, lat: float, lon: float, alt) -> None:
+        """One decoded ADS-B airborne position (lock held)."""
+        prev = self._rpos.get(icao)
+        self._rpos[icao] = (ts, lat, lon)
+        if prev is None or not 0 <= ts - prev[0] <= 60:
+            return                       # the first position of a visit: not yet confirmed
+        if _dist_nm(prev[1], prev[2], lat, lon) > 2.0 + 0.35 * (ts - prev[0]):
+            self._min["c"]["rng_jump"] += 1
+            return
+        d = _dist_nm(self.site[0], self.site[1], lat, lon)
+        c = self._min["c"]
+        if d > RNG_MAX_NM:
+            c["rng_far"] += 1
+            return
+        c["rng_n"] += 1
+        band = ("low" if alt is not None and alt < 10_000 else
+                "high" if alt is not None and alt >= 25_000 else "mid")
+        sec = self._min["r"].get(band)
+        if sec is None:
+            sec = self._min["r"][band] = [None] * RNG_SECTORS
+        i = int(_bearing(self.site[0], self.site[1], lat, lon) // (360 / RNG_SECTORS)) % RNG_SECTORS
+        if sec[i] is None or d > sec[i][0]:
+            sec[i] = [round(d, 1), int(alt) if alt is not None else None, icao]
+        rb = len(RNG_EDGES_NM) - 1
+        for j in range(1, len(RNG_EDGES_NM)):
+            if d < RNG_EDGES_NM[j]:
+                rb = j - 1
+                break
+        c[("rbn", rb)] += 1
+        self._ac(("rb", rb), icao)
+        sig = self._cur_sig
+        if sig:
+            k = ("rb", rb)
+            h = self._min["s"].get(k)
+            if h is None:
+                h = self._min["s"][k] = [0] * SIG_BINS
+            h[_SIG_BIN[sig if sig < 256 else 255]] += 1
+
     def message(self, ts: float, msg_hex: str, result: dict, alt, lat, lon) -> None:
         """One decoded, not blocked message (collector thread)."""
         df = result.get("df")
@@ -280,6 +437,9 @@ class MsgStats:
                 self._ac("df17", icao)
                 if tc is not None and (9 <= tc <= 18 or 20 <= tc <= 22):
                     self._cadence(icao, "es_pos", ts, phase)
+                    plat, plon = result.get("latitude"), result.get("longitude")
+                    if plat is not None and plon is not None:
+                        self._range(icao, ts, plat, plon, alt)
                 elif tc == 19:
                     c[("v19", result.get("subtype"))] += 1
                     if result.get("geo_minus_baro") is not None:
@@ -354,23 +514,26 @@ class MsgStats:
     # ── snapshot (web thread) ───────────────────────────────────────────────
     def snapshot(self, window_min: int = 10) -> dict:
         now = time.time()
-        window_min = max(1, min(60, int(window_min)))
+        window_min = max(1, min(WINDOW_MAX_MIN, int(window_min)))
+        hours: list = []
         with self._lock:
             self._roll(now)
-            mins = list(self._minutes)[-(window_min - 1):] if window_min > 1 else []
-            mins = mins + [self._min]
-            c = Counter()
-            hist: dict = {}
-            ac: dict = {}
-            for m in mins:
-                c.update(m["c"])
-                for k, h in m["h"].items():
-                    t = hist.setdefault(k, [0] * len(CAD_EDGES))
-                    for i, v in enumerate(h):
-                        t[i] += v
-                for k, s in m["ac"].items():
-                    ac.setdefault(k, set()).update(s)
-            secs = max(1.0, now - mins[0]["t0"])
+            agg = _new_minute(0.0)
+            if window_min > 60:
+                # 24 h: the closed hours (immutable; merged outside the lock),
+                # the current hour so far and the current minute
+                hours = list(self._hours)[-(window_min // 60 - 1):]
+                for m in ([self._hour] if self._hour else []) + [self._min]:
+                    _merge(agg, m)
+                t_first = (hours[0] if hours else self._hour or self._min)["t0"]
+            else:
+                mins = list(self._minutes)[-(window_min - 1):] if window_min > 1 else []
+                mins = mins + [self._min]
+                for m in mins:
+                    _merge(agg, m)
+                t_first = mins[0]["t0"]
+            sig_state = self.sig_state
+            site = self.site
             ten = list(self._ten)[-360:]
             trend = list(self._trend)
             iid_seen = {k: list(v) for k, v in self._iid_seen.items()}
@@ -383,6 +546,17 @@ class MsgStats:
             feed = {"started": self.started, "connects": self.connects,
                     "connected_ts": self.connected_ts, "last_msg_ts": self.last_msg_ts,
                     "total_msgs": self.total_msgs}
+        if hours:
+            key = (len(hours), hours[0]["t0"], hours[-1]["t0"])
+            hc = self._hours_cache
+            if hc is None or hc[0] != key:
+                base = _new_minute(0.0)
+                for m in hours:
+                    _merge(base, m)
+                hc = self._hours_cache = (key, base)
+            _merge(agg, hc[1])
+        c, hist, ac = agg["c"], agg["h"], agg["ac"]
+        secs = max(1.0, now - max(t_first, self.started))
         rate = lambda n: round(n / secs, 2)
         n_ac = lambda k: len(ac.get(k, ()))
         # downlink formats
@@ -432,6 +606,33 @@ class MsgStats:
                  for k, v in iid_seen.items() if k not in in_win]
         um = sorted(({"iis": k[1], "ids": k[2], "n": v} for k, v in c.items()
                      if isinstance(k, tuple) and k[0] == "um"), key=lambda x: -x["n"])
+        # signal level
+        sh = agg["s"]
+        sig_cats = {}
+        for cat in SIG_CATS:
+            h = sh.get(("sig", cat))
+            if not h:
+                continue
+            sig_cats[cat] = {"n": sum(h), "hist": h, "strong": c[("sig_strong", cat)],
+                             "median": _sig_quantile(h, 0.5), "p10": _sig_quantile(h, 0.1),
+                             "p90": _sig_quantile(h, 0.9)}
+        # range
+        rows = []
+        for j in range(len(RNG_EDGES_NM)):
+            n = c[("rbn", j)]
+            if not n:
+                continue
+            h = sh.get(("rb", j))
+            rows.append({"lo": RNG_EDGES_NM[j],
+                         "hi": RNG_EDGES_NM[j + 1] if j + 1 < len(RNG_EDGES_NM) else None,
+                         "pos": n, "ac": n_ac(("rb", j)),
+                         "sig_median": _sig_quantile(h, 0.5) if h else None,
+                         "sig_p10": _sig_quantile(h, 0.1) if h else None})
+        far = None
+        for band, sec in agg["r"].items():
+            for i, x in enumerate(sec):
+                if x and (far is None or x[0] > far["nm"]):
+                    far = {"nm": x[0], "alt": x[1], "icao": x[2], "brg": i * 360 // RNG_SECTORS + 5}
         return {
             "now": now, "window_min": window_min, "window_sec": round(secs, 1),
             "feed": feed,
@@ -450,9 +651,23 @@ class MsgStats:
             "iid": {"rows": iids, "quiet": quiet, "df11_bad": c["df11_bad"], "um": um[:20]},
             "meteo": {k: c[("met", k)] for k in ("wind", "wind_old", "nowind", "temp", "mrar", "mhr")},
             "json": js,
+            "signal": {"state": sig_state, "lo_db": SIG_LO_DB, "step_db": SIG_STEP_DB, "bins": SIG_BINS,
+                       "strong_db": -3.0, "zero": c["sig0"], "cats": sig_cats,
+                       "parser": _sig_parser_state()},
+            "range": {"site": list(site), "sectors": RNG_SECTORS, "max": agg["r"], "rows": rows,
+                      "n": c["rng_n"], "jumps": c["rng_jump"], "far_rejected": c["rng_far"],
+                      "farthest": far, "max_nm": RNG_MAX_NM},
             "ten": ten,
             "trend": {"keys": ["t0"] + list(TREND_KEYS), "rows": trend},
         }
+
+
+def _sig_parser_state() -> dict:
+    try:
+        from collector import beast_sig
+        return beast_sig.state()
+    except Exception:                       # noqa: BLE001
+        return {}
 
 
 _STATS = MsgStats()

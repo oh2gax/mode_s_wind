@@ -5,20 +5,29 @@
  * the summary bar, the message-rate chart (1 h every 10 s, or 24 h per
  * minute with a choice of series), the downlink formats, the Comm-B
  * registers, the ADS-B type codes, the reply cadence per flight phase, the
- * interrogators of the DF11 all-call replies, the meteo yield and the
- * Radarcape aircraft list.  The window (1 min / 10 min / 1 h) is remembered
- * in the browser.
+ * interrogators of the DF11 all-call replies, the signal-strength histogram
+ * (Beast signal byte, dBFS) per message class, the range rings (farthest
+ * ADS-B position per 10° sector and altitude band, positions and signal per
+ * range band), the meteo yield and the Radarcape aircraft list.  The window
+ * (1 min / 10 min / 1 h / 24 h) is remembered in the browser.
+ *
+ * System health (from 2026-10-25): /api/health with every poll — a row of
+ * coloured dots right of the Window buttons (one chip on narrower screens);
+ * a click opens the detail panel (state, reason, details, time in that state,
+ * the recent state changes).
  */
 (function () {
   'use strict';
   const POLL_MS = 10000;
-  let win = 10, range = '1h', series = 'rate', cadKind = '5,0';
+  let win = 10, range = '1h', series = 'rate', cadKind = '5,0', sigCat = 'all';
   try {
     win = parseInt(localStorage.getItem('ms_statsWindow') || '10', 10) || 10;
     series = localStorage.getItem('ms_statsSeries') || 'rate';
     cadKind = localStorage.getItem('ms_statsCad') || '5,0';
+    sigCat = localStorage.getItem('ms_statsSig') || 'all';
   } catch (e) { /* private mode */ }
-  let data = null, chart = null, timer = null;
+  if (![1, 10, 60, 1440].includes(win)) win = 10;
+  let data = null, chart = null, sigChart = null, timer = null, health = null;
 
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -72,7 +81,9 @@
     el.className = 'gps-summary-val ' + (age != null && age < 5 ? 'mst-ok' : 'mst-warn');
     el.title = `Last frame ${ago(age)} ago · connected ${f.connected_ts ? ago(d.now - f.connected_ts) : '—'} · `
       + `${f.connects} connection(s) since the server started (${hhmm(f.started)} UTC) · ${f.total_msgs.toLocaleString('en')} frames in all`;
-    $('mst-updated').textContent = `Updated ${hhmm(d.now)}:${String(new Date(d.now * 1000).getUTCSeconds()).padStart(2, '0')} UTC · window ${Math.round(d.window_sec / 60)} min`;
+    const ws = d.window_sec;
+    $('mst-updated').textContent = `Updated ${hhmm(d.now)}:${String(new Date(d.now * 1000).getUTCSeconds()).padStart(2, '0')} UTC · window `
+      + (ws >= 7200 ? `${(ws / 3600).toFixed(1)} h` : `${Math.round(ws / 60)} min`);
   }
 
   // ── tables ────────────────────────────────────────────────────────────────
@@ -195,6 +206,216 @@
       + (st.length ? '<div class="mst-foot mst-stations">' + st.map(([k, v]) => `<span title="${esc(`source ${v.src || '?'}${v.alt != null ? ', altitude ' + v.alt + ' ft' : ''}; first ${hhmm(v.first)}, last ${hhmm(v.last)} UTC`)}">${esc(k)}${d.now - v.last > 300 ? ' (' + ago(d.now - v.last) + ')' : ''}</span>`).join(' ') + '</div>' : '');
   }
 
+  // ── signal strength ───────────────────────────────────────────────────────
+  const SIG_NAME = { all: 'All frames', adsb: 'ADS-B (DF17/18)', reply: 'Replies (DF4/5, DF20/21)', df11: 'All-call (DF11)', acas: 'ACAS (DF0/16)', other: 'Other formats' };
+  function renderSig(d) {
+    const sg = d.signal || {}, cats = sg.cats || {};
+    const all = cats.all;
+    if (!all || !all.n) {
+      if (sigChart) { sigChart.destroy(); sigChart = null; }
+      const why = sg.state === 'off' ? 'Signal levels are switched off (MSG_STATS_SIGNAL = False in config.py).'
+        : sg.state === 'unavailable' ? 'Signal levels are not available with this pyModeS version (its Beast parser was not found).'
+        : 'No signal levels in the window yet.';
+      table('mst-sig', [['Class']], []);
+      $('mst-sig').querySelector('.mst-empty').textContent = why;
+      $('mst-sig-note').textContent = '';
+      $('mst-sig-foot').textContent = '';
+      return;
+    }
+    const rows = ['all', 'adsb', 'reply', 'df11', 'acas', 'other'].filter(k => cats[k] && cats[k].n).map(k => {
+      const c = cats[k];
+      return `<tr class="mst-click${k === sigCat ? ' mst-sel' : ''}" data-cat="${k}"><td>${esc(SIG_NAME[k])}</td><td class="num">${c.n.toLocaleString('en')}</td>`
+        + `<td class="num"><b>${fmt(c.median, 1)}</b></td><td class="num">${fmt(c.p10, 1)}</td><td class="num">${fmt(c.p90, 1)}</td>`
+        + `<td class="num">${pct(c.strong, c.n)}</td></tr>`;
+    });
+    table('mst-sig', [['Class', 'Click a row to show it in the histogram'], ['Frames', 'Frames with a signal level in the window', 'num'],
+      ['Median', 'Median signal level, dBFS', 'num'], ['p10', '10 % of the frames are weaker (dBFS)', 'num'],
+      ['p90', '90 % of the frames are weaker (dBFS)', 'num'], ['≥ −3 dB', 'Share of frames within 3 dB of the top of the receiver range (strong, possibly clipped)', 'num']], rows);
+    $('mst-sig').querySelectorAll('tr[data-cat]').forEach(tr => tr.addEventListener('click', () => setSigCat(tr.dataset.cat)));
+    $('mst-sig-note').textContent = `median ${fmt(all.median, 1)} dBFS`;
+    $('mst-sig-foot').innerHTML = 'The level is the Beast signal byte of each frame, the receiver\'s peak amplitude of the reply, '
+      + 'shown as dBFS = 20·log₁₀(byte / 255): 0 dBFS is the top of its range, about −48 dBFS the weakest reply it reports. '
+      + 'It is not calibrated in dBm, but it is consistent for this receiver, so the shape and its changes are what count: '
+      + 'the weak tail is the edge of the coverage (distant aircraft, low-elevation shadows), the strong end nearby aircraft '
+      + 'and ground traffic; a strong-end share that grows can mean an overloaded front end. Replies to the ground interrogators '
+      + '(DF4/5/20/21, DF11) and ADS-B come from the same transponder, so the classes differ mainly through where the aircraft are when they send.'
+      + (sg.zero ? ` Frames with no level: ${sg.zero}.` : '')
+      + (sg.parser && (sg.parser.skipped || sg.parser.misaligned) ? ` Bursts without levels (parser check): ${(sg.parser.skipped || 0) + (sg.parser.misaligned || 0)}.` : '');
+    // chart
+    if (typeof Chart === 'undefined') return;
+    const c = cats[sigCat] && cats[sigCat].n ? cats[sigCat] : all;
+    const lbl = c.hist.map((_, i) => String(sg.lo_db + sg.step_db * i).replace('-', '−'));
+    const share = h => { const n = h.reduce((a, b) => a + b, 0) || 1; return h.map(v => +(100 * v / n).toFixed(2)); };
+    const sets = [{ type: 'bar', label: SIG_NAME[cats[sigCat] && cats[sigCat].n ? sigCat : 'all'], data: share(c.hist), backgroundColor: css('--accent'), borderWidth: 0, barPercentage: 1, categoryPercentage: 0.92 }];
+    if (c !== all) sets.push({ type: 'line', label: 'All frames', data: share(all.hist), borderColor: css('--text-3'), borderWidth: 1.2, pointRadius: 0, tension: 0.25 });
+    const grid = css('--border'), txt = css('--text-2');
+    const cfg = {
+      type: 'bar', data: { labels: lbl, datasets: sets },
+      options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: sets.length > 1, labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { title: it => `${lbl[it[0].dataIndex]} … ${String(sg.lo_db + sg.step_db * (it[0].dataIndex + 1)).replace('-', '−')} dBFS`,
+            label: x => `${x.dataset.label}: ${x.parsed.y} %` } } },
+        scales: { x: { title: { display: true, text: 'dBFS', color: txt, font: { size: 10 } }, ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 13, font: { size: 10 } }, grid: { display: false } },
+                  y: { beginAtZero: true, title: { display: true, text: '% of frames', color: txt, font: { size: 10 } }, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid } } } },
+    };
+    if (sigChart) { sigChart.data = cfg.data; sigChart.options = cfg.options; sigChart.update('none'); }
+    else sigChart = new Chart($('mst-sig-chart'), cfg);
+  }
+  function setSigCat(k) {
+    sigCat = k;
+    const sel = $('mst-sig-cat'); if (sel) sel.value = k;
+    try { localStorage.setItem('ms_statsSig', k); } catch (e) { /* */ }
+    if (data) renderSig(data);
+  }
+
+  // ── range rings ───────────────────────────────────────────────────────────
+  const BAND_NAME = { high: 'FL250 and above', mid: 'FL100–FL245', low: 'below FL100' };
+  let polarGeom = null;
+  function renderRange(d) {
+    const rg = d.range || {}, mx = rg.max || {}, nsec = rg.sectors || 36;
+    const cv = $('mst-polar');
+    const w = Math.round(cv.getBoundingClientRect().width) || 300;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = w * dpr; cv.height = w * dpr;
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, w);
+    let far = 0;
+    for (const b in mx) for (const x of mx[b]) if (x && x[0] > far) far = x[0];
+    const step = far > 260 ? 100 : 50;
+    const outer = Math.max(100, Math.ceil(far / step) * step);
+    const cx = w / 2, cy = w / 2, R = w / 2 - 18;
+    const k = R / outer;
+    polarGeom = { cx, cy, R, k, nsec, outer };
+    const grid = css('--border'), txt = css('--text-3');
+    g.font = '10px system-ui, sans-serif';
+    // sectors (high first, the lower bands on top)
+    const COL = { high: css('--accent'), mid: css('--green'), low: css('--amber') };
+    for (const b of ['high', 'mid', 'low']) {
+      const sec = mx[b]; if (!sec) continue;
+      g.fillStyle = COL[b];
+      for (let i = 0; i < nsec; i++) {
+        const x = sec[i]; if (!x) continue;
+        const a0 = (i * 360 / nsec - 90) * Math.PI / 180, a1 = ((i + 1) * 360 / nsec - 90) * Math.PI / 180;
+        g.globalAlpha = 0.33;
+        g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, x[0] * k, a0, a1); g.closePath(); g.fill();
+        g.globalAlpha = 0.95;
+        g.strokeStyle = COL[b]; g.lineWidth = 1.6;
+        g.beginPath(); g.arc(cx, cy, x[0] * k, a0, a1); g.stroke();
+      }
+    }
+    g.globalAlpha = 1;
+    // rings and spokes
+    g.strokeStyle = grid; g.lineWidth = 1; g.fillStyle = txt;
+    for (let r = step; r <= outer; r += step) {
+      g.beginPath(); g.arc(cx, cy, r * k, 0, 2 * Math.PI); g.stroke();
+      const a = -Math.PI / 4;
+      const lx = cx + r * k * Math.cos(a) + 2, ly = cy + r * k * Math.sin(a) - 2;
+      g.lineWidth = 3; g.strokeStyle = css('--bg-1'); g.strokeText(`${r}`, lx, ly);
+      g.lineWidth = 1; g.strokeStyle = grid; g.fillText(`${r}`, lx, ly);
+    }
+    for (let deg = 0; deg < 360; deg += 30) {
+      const a = (deg - 90) * Math.PI / 180;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a)); g.stroke();
+    }
+    g.fillStyle = css('--text-2'); g.font = '600 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    [['N', 0], ['E', 90], ['S', 180], ['W', 270]].forEach(([t, deg]) => {
+      const a = (deg - 90) * Math.PI / 180;
+      g.fillText(t, cx + (R + 9) * Math.cos(a), cy + (R + 9) * Math.sin(a));
+    });
+    g.textAlign = 'start'; g.textBaseline = 'alphabetic';
+    g.fillStyle = css('--text-1'); g.beginPath(); g.arc(cx, cy, 2.5, 0, 2 * Math.PI); g.fill();
+    // table
+    const rows = (rg.rows || []);
+    const tot = rows.reduce((a, r) => a + r.pos, 0);
+    const out = rows.map(r => `<tr><td>${r.lo}–${r.hi == null ? '' : r.hi} NM${r.hi == null ? '+' : ''}</td><td class="num">${r.pos.toLocaleString('en')}</td>`
+      + `<td class="num">${pct(r.pos, tot)}</td><td>${bar(tot ? r.pos / tot : 0, 'mst-fill-b')}</td><td class="num">${r.ac}</td>`
+      + `<td class="num">${fmt(r.sig_median, 1)}</td><td class="num">${fmt(r.sig_p10, 1)}</td></tr>`);
+    table('mst-rng', [['Range', 'Distance from the antenna'], ['Positions', 'Accepted ADS-B airborne positions', 'num'], ['Share', '', 'num'], [''],
+      ['Aircraft', 'Distinct aircraft with a position in the band', 'num'], ['Signal', 'Median signal level of those position messages, dBFS', 'num'],
+      ['p10', '10 % of them are weaker (dBFS)', 'num']], out);
+    const f = rg.farthest;
+    $('mst-rng-note').textContent = f ? `farthest ${fmt(f.nm, 0)} NM at ${String(f.brg).padStart(3, '0')}°` : '';
+    $('mst-rng-note').title = f ? `${f.icao}${f.alt != null ? ', ' + f.alt.toLocaleString('en') + ' ft' : ''}` : '';
+    const leg = ['high', 'mid', 'low'].map(b => `<span class="mst-legend"><i style="background:${COL[b]}"></i>${BAND_NAME[b]}</span>`).join('');
+    const site = rg.site || [];
+    $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
+      + `(${site.length ? site[0].toFixed(3) + '° N ' + site[1].toFixed(3) + '° E' : '—'}; ANTENNA_LAT / ANTENNA_LON in config.py, default the map centre); `
+      + `rings every ${step} NM. Only positions decoded from our own reception count, and only when they fit the aircraft's previous position, `
+      + 'so a single bad decode cannot make a record. The shape shows the horizon (higher aircraft are seen farther) and the shadows of nearby terrain and buildings; '
+      + 'a sector that shrinks at all levels suggests the antenna or its cable. Hover a sector for its values.'
+      + ` Positions ${(rg.n || 0).toLocaleString('en')} · rejected jumps ${rg.jumps || 0} · beyond ${rg.max_nm || 400} NM ${rg.far_rejected || 0}.`;
+  }
+  function polarHover(ev) {
+    const tip = $('mst-polar-tip');
+    if (!data || !polarGeom) return;
+    const cv = $('mst-polar'), rect = cv.getBoundingClientRect();
+    const x = ev.clientX - rect.left - polarGeom.cx, y = ev.clientY - rect.top - polarGeom.cy;
+    const dist = Math.hypot(x, y) / polarGeom.k;
+    if (dist > polarGeom.outer * 1.02) { tip.style.display = 'none'; return; }
+    const brg = (Math.atan2(x, -y) * 180 / Math.PI + 360) % 360;
+    const i = Math.floor(brg / (360 / polarGeom.nsec)) % polarGeom.nsec;
+    const mx = (data.range || {}).max || {};
+    const lines = ['high', 'mid', 'low'].map(b => {
+      const v = mx[b] && mx[b][i];
+      return `${BAND_NAME[b]}: ${v ? `<b>${fmt(v[0], 0)} NM</b> (${esc(v[2])}${v[1] != null ? ', ' + v[1].toLocaleString('en') + ' ft' : ''})` : '—'}`;
+    });
+    const s0 = i * 360 / polarGeom.nsec;
+    tip.innerHTML = `<b>${String(s0).padStart(3, '0')}–${String(s0 + 360 / polarGeom.nsec).padStart(3, '0')}°</b> · cursor ${fmt(dist, 0)} NM<br>` + lines.join('<br>');
+    tip.style.display = 'block';
+    const wrap = cv.parentElement.getBoundingClientRect();
+    let left = ev.clientX - wrap.left + 12, top = ev.clientY - wrap.top + 12;
+    if (left + tip.offsetWidth > wrap.width - 4) left = ev.clientX - wrap.left - tip.offsetWidth - 12;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  }
+
+  // ── system health ─────────────────────────────────────────────────────────
+  const ST_NAME = { ok: 'Healthy', warn: 'Degraded', err: 'Fault', off: 'Off' };
+  const dot = st => `<i class="mst-hl-dot st-${st}"></i>`;
+  const forDur = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 86400)} d`;
+  function renderHealth(h) {
+    if (!h) return;
+    $('mst-hl-dots').innerHTML = h.items.map(i => `<span class="mst-hl" title="${esc(i.label + ' — ' + ST_NAME[i.state] + ': ' + i.text)}">${dot(i.state)}${esc(i.label)}</span>`).join('');
+    const c = h.counts, act = h.items.length - c.off;
+    const txt = h.overall === 'err' ? `${c.err} fault${c.err > 1 ? 's' : ''}`
+      : h.overall === 'warn' ? `${c.warn} warning${c.warn > 1 ? 's' : ''}` : `Healthy ${c.ok}/${act}`;
+    $('mst-hl-chip').innerHTML = `${dot(h.overall)}<span>${esc(txt)}</span>`;
+    const bad = h.items.filter(i => i.state === 'err' || i.state === 'warn');
+    $('mst-health').title = 'System health — ' + (bad.length ? bad.map(i => `${i.label}: ${i.text}`).join(' · ') : 'all parts working') + ' (click for details)';
+    if (!$('mst-hl-panel').hidden) renderHealthPanel();
+  }
+  function renderHealthPanel() {
+    const h = health, p = $('mst-hl-panel');
+    if (!h) { p.innerHTML = '<div class="mst-hl-foot">Loading…</div>'; return; }
+    const rows = h.items.map(i => `<tr><td>${dot(i.state)}</td><td class="mst-hl-name" title="${esc(i.title)}">${esc(i.label)}</td>`
+      + `<td>${esc(i.text)}${i.detail && i.detail.length ? `<span class="mst-hl-det">${esc(i.detail.join(' · '))}</span>` : ''}</td>`
+      + `<td class="mst-hl-since" title="In this state since ${hhmm(i.since)} UTC">${ST_NAME[i.state]}<br>${forDur(h.now - i.since)}</td></tr>`).join('');
+    const ch = h.changes.length ? h.changes.slice(0, 12).map(x => `<div class="mst-hl-ch"><span>${hhmm(x.ts)}</span>${dot(x.from)}→${dot(x.to)}<b>${esc(x.label)}</b><span>${esc(x.text)}</span></div>`).join('')
+      : `<div class="mst-hl-ch">No changes since the server started (${hhmm(h.started)} UTC).</div>`;
+    p.innerHTML = `<div class="mst-hl-head">${dot(h.overall)} System health <small>· checked ${hhmm(h.now)} UTC · server running ${forDur(h.now - h.started)}</small>`
+      + `<button class="mst-hl-x" title="Close" aria-label="Close">×</button></div>`
+      + `<table><tbody>${rows}</tbody></table>`
+      + `<div class="mst-hl-sub">Recent changes</div>${ch}`
+      + '<div class="mst-hl-foot">Green: working normally · amber: working but late, retrying or on a fallback (e.g. the stored calibration when there is no new model data) · '
+      + 'red: stopped, failing or out of date · grey ring: switched off in config.py. MEPS is optional, so it is never red. '
+      + 'Checked every 10 s while the page is open and every minute in the background; the details of errors are in the server log.</div>';
+    p.querySelector('.mst-hl-x').addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(false); });
+  }
+  function toggleHealth(open) {
+    const p = $('mst-hl-panel');
+    p.hidden = !(open ?? p.hidden);
+    $('mst-health').setAttribute('aria-expanded', String(!p.hidden));
+    if (!p.hidden) renderHealthPanel();
+  }
+  async function pollHealth() {
+    try {
+      const r = await fetch('/api/health');
+      if (!r.ok) return;
+      health = await r.json();
+      renderHealth(health);
+    } catch (e) { /* next poll */ }
+  }
+
   // ── chart ─────────────────────────────────────────────────────────────────
   function chartData(d) {
     const keys = d.trend.keys, rows = d.trend.rows;
@@ -246,12 +467,13 @@
   // ── polling ───────────────────────────────────────────────────────────────
   function renderAll() {
     if (!data) return;
-    const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderMeteo, renderChart];
+    const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderSig, renderRange, renderMeteo, renderChart];
     for (const f of parts) { try { f(data); } catch (e) { console.error('stats', f.name, e); } }
   }
   async function poll() {
     clearTimeout(timer);
     if (document.hidden) return;
+    pollHealth();
     try {
       const r = await fetch('/api/msgstats?window=' + win);
       data = await r.json();
@@ -283,9 +505,27 @@
     const k = $('mst-cad-kind');
     k.value = cadKind;
     k.addEventListener('change', () => { cadKind = k.value; try { localStorage.setItem('ms_statsCad', cadKind); } catch (e) { /* */ } if (data) renderCad(data); });
+    const sc = $('mst-sig-cat');
+    sc.value = sigCat;
+    sc.addEventListener('change', () => setSigCat(sc.value));
+    const hl = $('mst-health');
+    hl.addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(); });
+    hl.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleHealth(); } });
+    $('mst-hl-panel').addEventListener('click', ev => ev.stopPropagation());
+    document.addEventListener('click', () => { if (!$('mst-hl-panel').hidden) toggleHealth(false); });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('mst-hl-panel').hidden) toggleHealth(false); });
+    const pv = $('mst-polar');
+    pv.addEventListener('mousemove', polarHover);
+    pv.addEventListener('mouseleave', () => { $('mst-polar-tip').style.display = 'none'; });
+    let rt = null;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (data) renderRange(data); }, 150); });
   }
 
-  window.onThemeChange = () => { if (chart) { chart.destroy(); chart = null; } if (data) renderChart(data); };
+  window.onThemeChange = () => {
+    if (chart) { chart.destroy(); chart = null; }
+    if (sigChart) { sigChart.destroy(); sigChart = null; }
+    if (data) { renderChart(data); renderSig(data); renderRange(data); }
+  };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
   initButtons();
   poll();

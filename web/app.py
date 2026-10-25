@@ -358,8 +358,9 @@ def create_app(
 
     @app.route("/api/msgstats")
     def msgstats_api():
-        """Message statistics of the last `window` minutes (1–60, default 10)
-        plus the 1-h rate series and the 24-h trend (collector/msg_stats.py,
+        """Message statistics of the last `window` minutes (1–60, or 1440 for
+        24 h; default 10) plus the 1-h rate series and the 24-h trend, the
+        signal-level histograms and the range rings (collector/msg_stats.py,
         RAM only; the page polls every 10 s)."""
         from collector import msg_stats
         try:
@@ -367,6 +368,23 @@ def create_app(
         except ValueError:
             window = 10
         return jsonify(msg_stats.get().snapshot(window))
+
+    # System health indicators of the Statistics page (web/api/health.py):
+    # evaluated at most every 10 s on request, and every minute in the
+    # background so the state changes are recorded while nobody is watching
+    from web.api import health as _health
+
+    def _wx_snapshot():
+        with _wx_cache_lock:
+            return dict(_wx_cache)
+
+    _health.start_thread(cfg, ws_tracker, _wx_snapshot)
+
+    @app.route("/api/health")
+    def health_api():
+        """System health: 11 indicators (green / amber / red / grey) with a
+        plain-language reason and details, and the last 50 state changes."""
+        return jsonify(_health.get(cfg, ws_tracker, _wx_snapshot()))
 
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.
