@@ -43,6 +43,7 @@
       </span>
     </span>
     <span class="gps-updated" id="mst-updated">Waiting…</span>
+    {% if guide_links.stats %}<a class="guide-q" href="{{ guide_links.stats }}" target="_blank" rel="noopener" title="User guide: Mode S &amp; ADS-B and the Statistics page — PDF in a new tab">?</a>{% endif %}
   </div>
 
   <div class="mst-body">
@@ -112,7 +113,7 @@
         <div class="mst-table-wrap"><table class="mst-table" id="mst-cad"></table></div>
         <div class="mst-foot">Time between successive replies of the same aircraft as heard here.
           <b>Final</b>: below 5 000 ft within 25 NM of EFHK; <b>terminal</b>: below 10 000 ft within 60 NM;
-          <b>en route</b>: the rest. Replies closer than 0.5 s are counted as near-duplicates (the same
+          <b>en route</b>: the rest. Replies closer than 0.5 s (ADS-B squitters: 0.15 s) are counted as near-duplicates (the same
           register answered twice, e.g. to two interrogators), gaps over 60 s are not intervals. The
           receiver hears the aircraft's replies (1090 MHz), not the interrogations (1030 MHz): a longer
           interval can also be a reply that did not reach Tuusula.</div>

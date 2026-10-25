@@ -4,7 +4,7 @@ The user guides listed in the **User guides** tab of the What's new window
 (web/whats_new.py). Each guide: a `## title` heading, then `key: value` lines —
 `file` (PDF in this folder; only these files are served, at /doc/<file>),
 `version`, `date` (YYYY-MM-DD), `pages`, `open` (the pages whose **?** button
-opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear; `windmap@30` opens it at PDF page 30)
+opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats; `windmap@30` opens it at PDF page 30)
 — then a blank line and the description (bullets, **bold**, `code`).
 
 ## Reading the Atmosphere Profile (Skew-T)
@@ -51,6 +51,20 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view, ACI, wind rose
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October), first results and the limitations
+
+## Mode S & ADS-B and the Statistics page
+file: Statistics_User_Guide.pdf
+version: 1.0
+date: 2026-10-25
+pages: 9
+open: stats
+
+What the receiver hears from the aircraft, and how to read and use the **Statistics** page.
+
+- Mode S and ADS-B in a nutshell: interrogations and replies, all-call and roll-call, the 24-bit address, interrogator codes (II / SI), squitters, and who interrogates around Helsinki (Fintraffic's WAM network and the Mode S radars)
+- The messages: the downlink formats, parity and why some addresses cannot be verified; Comm-B and the registers 1,0 … 6,0 (ELS / EHS) with their contents; the ADS-B type codes, versions and the GNSS − baro difference
+- The page part by part: summary bar, message rate (1 h / 24 h), downlink formats, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, meteo yield and the Radarcape aircraft list
+- What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## Windshear detection v1 — retired algorithms (legacy)
 file: Windshear_Algorithms_v1_Legacy.pdf

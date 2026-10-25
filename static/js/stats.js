@@ -146,20 +146,32 @@
       ['0.5 → 60 s', 'Histogram of the intervals (hover a bar)']], out);
   }
 
+  // the use of an interrogator code (ICAO EUR / MID practice, EUROCONTROL MICA): the IC value
+  // (II, or SI modulo 16) 1–13 operational Mode S radars, 0 multilateration / WAM / mobile,
+  // 14 test and development, 15 military
+  function iidClass(type, code) {
+    const ic = type === 'II' ? code : code % 16;
+    return ic === 0 ? 'MLAT / WAM / mobile' : ic === 14 ? 'test / development' : ic === 15 ? 'military' : 'Mode S radar';
+  }
   function renderIid(d) {
     const io = d.iid;
     const sq = io.rows.find(r => r.type === 'SQ');
     const rows = io.rows.filter(r => r.type !== 'SQ').map(r => `<tr><td class="mst-code">${r.type} ${r.code}</td>`
+      + `<td class="mst-dim2">${iidClass(r.type, r.code)}</td>`
       + `<td class="num">${fmtRate(r.rate)}</td><td class="num">${r.n.toLocaleString('en')}</td><td class="num">${r.ac ?? '—'}</td>`
       + `<td class="num">${hhmm(r.first)}</td><td class="num">${ago(d.now - r.last)}</td></tr>`);
-    if (sq) rows.push(`<tr class="mst-dim"><td>Acquisition squitter</td><td class="num">${fmtRate(sq.rate)}</td><td class="num">${sq.n.toLocaleString('en')}</td><td colspan="3">spontaneous, no interrogator</td></tr>`);
-    table('mst-iid', [['Code', 'II = interrogator identifier (1–15), SI = surveillance identifier (1–63)'], ['/s', 'Replies per second', 'num'],
+    if (sq) rows.push(`<tr class="mst-dim"><td>Squitter / II 0</td><td colspan="1">acquisition squitters (spontaneous) and replies to II 0</td><td class="num">${fmtRate(sq.rate)}</td><td class="num">${sq.n.toLocaleString('en')}</td><td colspan="3"></td></tr>`);
+    table('mst-iid', [['Code', 'II = interrogator identifier (1–15), SI = surveillance identifier (1–63)'],
+      ['Use', 'How codes with this value are allocated (ICAO EUR practice, EUROCONTROL MICA): 1–13 operational Mode S radars, 0 (SI 16 / 32 / 48) MLAT, WAM and mobile interrogators, 14 test and development, 15 military'],
+      ['/s', 'Replies per second', 'num'],
       ['Replies', 'In the window', 'num'], ['Aircraft', 'Distinct aircraft that replied to it', 'num'],
       ['First', 'First heard since the server started (UTC)', 'num'], ['Last', 'Time since the last reply', 'num']], rows);
     const quiet = io.quiet.map(q => `${q.type} ${q.code} (last ${hhmm(q.last)})`).join(', ');
     const um = io.um.slice(0, 6).map(u => `IIS ${u.iis}/IDS ${u.ids}: ${u.n}`).join(' · ');
-    $('mst-iid-foot').innerHTML = 'An all-call reply (DF11) carries the code of the ground interrogator that asked; '
-      + 'which code belongs to which radar or WAM site is not published, but a code that disappears or a new one shows a change. '
+    $('mst-iid-foot').innerHTML = 'An all-call reply (DF11) carries the code of the Mode S interrogator that asked (an all-call '
+      + 'with a code also locks out the aircraft it has already acquired, so the replies come mostly from aircraft new to that '
+      + 'interrogator). Which code belongs to which site is not published, but a code that disappears or a new one shows a change. '
+      + 'WAM interrogates selectively and usually needs no code (II 0). '
       + `Corrupted DF11: ${io.df11_bad}.`
       + (quiet ? `<br><b>Heard earlier, not in this window:</b> ${esc(quiet)}` : '')
       + (um ? `<br><span title="Utility message of the surveillance and Comm-B replies: IIS = the interrogator holding a reservation, IDS = its type (1 Comm-B, 2 Comm-C, 3 Comm-D)">Reservations (UM): ${esc(um)}</span>` : '');

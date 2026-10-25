@@ -17,11 +17,13 @@ Radarcape Beast feed and the JSON poller:
                 5,0 / 6,0 / 4,0 / 2,0, the surveillance replies DF4/5 and the
                 ADS-B position / velocity squitters, by flight phase (final
                 approach, terminal area, en route); near-duplicate replies
-                (< 0.5 s) are counted apart, gaps over 60 s are not intervals
+                (< 0.5 s; ADS-B squitters < 0.15 s) are counted apart, gaps over
+                60 s are not intervals
   • interrogators — DF11 all-call replies: the CRC remainder of a DF11 reply is
                 its interrogator identifier (II code 1–15, or SI code 1–63;
-                0 = acquisition squitter, not a reply), so the replies show which
-                ground interrogators are active; the UM field of DF4/5/20/21
+                0 = an acquisition squitter or a reply to II 0, which cannot be
+                told apart), so the replies show which ground interrogators are
+                active; the UM field of DF4/5/20/21
                 (IIS / IDS: interrogator holding a reservation, its type)
   • meteo     — per new BDS 5,0 / 6,0 reply: a wind computed, a partner too
                 old, or no wind (no partner in time / rejected by the checks);
@@ -47,8 +49,9 @@ import time
 from collections import Counter, deque
 
 # Interval histogram edges (s): bin i holds edges[i-1] <= dt < edges[i]
-CAD_EDGES = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0, 20.0, 30.0, 60.0)
+CAD_EDGES = (0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0, 20.0, 30.0, 60.0)
 CAD_DUP_SEC = 0.5          # closer replies of the same register: near-duplicates
+CAD_DUP_ES_SEC = 0.15      # … for the ADS-B squitters, sent by themselves every 0.4–0.6 s
 CAD_GAP_SEC = 60.0         # longer: a gap, not an interval
 CAD_KINDS = ("5,0", "6,0", "4,0", "2,0", "surv", "es_pos", "es_vel")
 PHASES = ("final", "terminal", "enroute")
@@ -93,8 +96,9 @@ def crc_remainder(msg_hex: str) -> int | None:
 
 def df11_iid(msg_hex: str) -> tuple[str, int] | None:
     """Interrogator of a DF11 all-call reply: ("II", 1–15), ("SI", 1–63),
-    ("SQ", 0) for an acquisition squitter, None when the remainder is not a
-    valid interrogator code (a corrupted reply)."""
+    ("SQ", 0) for an acquisition squitter or a reply to II 0 (the same bits),
+    None when the remainder is not a valid interrogator code (a corrupted
+    reply)."""
     r = crc_remainder(msg_hex)
     if r is None or r & ~0x7F:
         return None
@@ -116,12 +120,11 @@ def _new_minute(t0: float) -> dict:
     return {"t0": t0, "c": Counter(), "h": {}, "ac": {}, "ivar": {}}
 
 
-def _hist_quantile(hist: list, q: float) -> float | None:
+def _hist_quantile(hist: list, q: float, lo: float = CAD_DUP_SEC) -> float | None:
     n = sum(hist)
     if n == 0:
         return None
     target, acc = q * n, 0.0
-    lo = CAD_DUP_SEC
     for i, k in enumerate(hist):
         hi = CAD_EDGES[i + 1] if i + 1 < len(CAD_EDGES) else CAD_GAP_SEC
         if acc + k >= target and k > 0:
@@ -238,7 +241,7 @@ class MsgStats:
         c = self._min["c"]
         if dt < 0:
             return
-        if dt < CAD_DUP_SEC:
+        if dt < (CAD_DUP_ES_SEC if kind.startswith("es_") else CAD_DUP_SEC):
             c[("dup", kind)] += 1
             c[("dup_ph", kind, phase)] += 1
             self._last[key] = prev      # keep the first of the pair as the reference
@@ -401,6 +404,7 @@ class MsgStats:
         # cadence
         cad = []
         for kind in CAD_KINDS:
+            lo = CAD_DUP_ES_SEC if kind.startswith("es_") else CAD_DUP_SEC
             for ph in PHASES:
                 h = hist.get((kind, ph))
                 n_int = sum(h) if h else 0
@@ -409,8 +413,8 @@ class MsgStats:
                 if not (n_int or dup or gaps):
                     continue
                 cad.append({"kind": kind, "phase": ph, "n": n_int, "dup": dup, "gaps": gaps,
-                            "median": _hist_quantile(h, 0.5) if h else None,
-                            "p90": _hist_quantile(h, 0.9) if h else None,
+                            "median": _hist_quantile(h, 0.5, lo) if h else None,
+                            "p90": _hist_quantile(h, 0.9, lo) if h else None,
                             "hist": h or [0] * len(CAD_EDGES)})
         # interrogators
         iids = []
