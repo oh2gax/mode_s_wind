@@ -538,5 +538,5 @@ const WxLayer = (() => {
     return parts.join(' &nbsp;·&nbsp; ');
   }
 
-  return { create, legendHtml, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C };
+  return { create, legendHtml, barb, windDir, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C };
 })();

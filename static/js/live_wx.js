@@ -21,6 +21,13 @@
  * the wind at FL50 / 100 / 200 / 300 / 340 / 390 from the stored Wind Map
  * fields (± 300 km around the receiver, /api/meps/winds).  Nothing extra is
  * downloaded by the server.  Hovering a barb shows its wind and temperature.
+ *
+ * Mode S wind (from 2026-10-25 evening): at the same flight levels the
+ * aircraft's own winds of the last 1 / 3 (default) / 6 / 12 / 24 h, averaged
+ * into 50 km cells exactly as on the Wind Map page (/api/windmap: heading
+ * calibration, frozen / jumping positions removed, QNH below FL050, ± 1 000 ft),
+ * drawn in colour by speed (the Wind Map colours) and faint where only one or
+ * two aircraft are behind a cell; MEPS and Mode S can be shown together.
  */
 'use strict';
 
@@ -28,7 +35,9 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180 };
+  const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
+  const MODES_CELL_KM = 50, MODES_TOL_FT = 1000;
   const WIND_LEVELS = [['off', 'Off'], ['sfc', '10 m'], ['50', 'FL50'], ['100', 'FL100'], ['200', 'FL200'],
                        ['300', 'FL300'], ['340', 'FL340'], ['390', 'FL390']];
   let st = Object.assign({}, DEF);
@@ -41,6 +50,68 @@
   const windLayer = WxLayer.create(map, { pane: 'wxWindPane', zIndex: 360, gustAlpha: 0.5,
                                           barb: ['rgba(186,198,214,0.85)', 'rgba(51,65,85,0.8)'] });
   const pad2 = n => String(n).padStart(2, '0');
+
+  // ── Mode S wind barbs: cells of the Wind Map at the level ────────────────
+  const MODES_COL = { dark: ['#6ee7b7', '#3b82f6', '#f59e0b', '#ef4444'], light: ['#047857', '#1d4ed8', '#b45309', '#b91c1c'] };
+  const modesLayer = (() => {
+    const paneName = 'wxModesPane';
+    if (!map.getPane(paneName)) { const p = map.createPane(paneName); p.style.zIndex = 365; p.style.pointerEvents = 'none'; }
+    const canvas = L.DomUtil.create('canvas', 'wx-canvas');
+    canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0'; canvas.style.pointerEvents = 'none';
+    map.getPane(paneName).appendChild(canvas);
+    let cells = null, meta = null, drawn = [], on = false;
+    const isLight = () => document.documentElement.dataset.theme === 'light';
+    const col = spd => { const p = MODES_COL[isLight() ? 'light' : 'dark']; return spd < 15 ? p[0] : spd < 30 ? p[1] : spd < 50 ? p[2] : p[3]; };
+    function place() {
+      const size = map.getSize(), dpr = window.devicePixelRatio || 1;
+      L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+      canvas.width = Math.round(size.x * dpr); canvas.height = Math.round(size.y * dpr);
+      canvas.style.width = size.x + 'px'; canvas.style.height = size.y + 'px';
+      draw();
+    }
+    function draw() {
+      const ctx = canvas.getContext('2d'), dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawn = [];
+      if (!on || !cells) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.lineCap = 'round';
+      const sz = map.getSize();
+      const list = [];
+      for (const c of [...cells].sort((a, b) => (b.ac || 0) - (a.ac || 0))) {      // best-covered cells first
+        const q = map.latLngToContainerPoint([c.lat, c.lon]);
+        if (q.x < -20 || q.y < -20 || q.x > sz.x + 20 || q.y > sz.y + 20) continue;
+        if (list.some(o => Math.hypot(o[0] - q.x, o[1] - q.y) < 30)) continue;     // keep about 30 px apart
+        list.push([q.x, q.y, c]);
+      }
+      const halo = isLight() ? 'rgba(241,245,249,0.9)' : 'rgba(15,25,35,0.85)';
+      for (const pass of ['halo', 'line']) {
+        for (const [x, y, c] of list) {
+          ctx.globalAlpha = (c.ac || 0) >= 3 ? 1 : (c.ac || 0) === 2 ? 0.7 : 0.45;
+          ctx.strokeStyle = ctx.fillStyle = pass === 'halo' ? halo : col(c.wind_spd);
+          ctx.lineWidth = pass === 'halo' ? 3.4 : 1.6;
+          WxLayer.barb(ctx, x, y, c.wind_dir, c.wind_spd);
+          if (pass === 'line') { ctx.beginPath(); ctx.arc(x, y, 2, 0, 2 * Math.PI); ctx.fill(); }
+        }
+      }
+      ctx.globalAlpha = 1;
+      drawn = list;
+    }
+    map.on('zoomstart', () => { canvas.style.visibility = 'hidden'; });
+    map.on('zoomend moveend resize', () => { canvas.style.visibility = ''; place(); });
+    place();
+    return {
+      set(c, m) { cells = c; meta = m || null; draw(); },
+      show(v) { on = !!v; canvas.style.display = on ? '' : 'none'; draw(); },
+      redraw: draw,
+      meta: () => meta,
+      at(pt, r = 12) {
+        if (!on) return null;
+        let best = null, bd = r * r;
+        for (const d of drawn) { const k = (d[0] - pt.x) ** 2 + (d[1] - pt.y) ** 2; if (k <= bd) { bd = k; best = d[2]; } }
+        return best;
+      },
+    };
+  })();
 
   // ── Control ──────────────────────────────────────────────────────────────
   let el = null;
@@ -68,8 +139,14 @@
             <select class="lwx-wind" title="MEPS model wind barbs: the 10 m wind (whole map) or the wind at a flight level (± 300 km around the receiver; pressure altitude, ISA)">
               ${WIND_LEVELS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
             </select>
-            <span class="lwx-note" title="The wind barbs are the MEPS weather model's wind (MET Norway), not winds measured by the aircraft">MEPS model</span>
-            <label title="10 m gusts from 25 kt (with the 10 m wind)"><input type="checkbox" class="lwx-gust"> Gusts</label>
+            <label title="10 m gusts from 25 kt (with the MEPS 10 m wind)"><input type="checkbox" class="lwx-gust"> Gusts</label>
+          </div>
+          <div class="lwx-row"><span class="lwx-lbl">Barbs</span>
+            <label title="The MEPS weather model's wind (MET Norway): muted grey barbs"><input type="checkbox" class="lwx-wm"> MEPS model</label>
+            <label title="The winds measured by the aircraft (Mode S), averaged into 50 km cells as on the Wind Map page: coloured barbs, faint with only 1–2 aircraft. Flight levels only (no aircraft winds at 10 m)"><input type="checkbox" class="lwx-ws"> Mode S</label>
+            <select class="lwx-per" title="Period of the Mode S winds: the last 1, 3, 6, 12 or 24 hours">
+              ${PERIODS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
+            </select>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
             <input type="range" class="lwx-op" min="10" max="100" step="5"> <span class="lwx-opv"></span>
@@ -97,10 +174,16 @@
   q('.lwx-op').addEventListener('input', e => { st.op = parseInt(e.target.value, 10); save(); sync(); });
   q('.lwx-wind').addEventListener('change', e => { st.wind = e.target.value; save(); windKey = ''; sync(); refresh(true); });
   q('.lwx-gust').addEventListener('change', e => { st.gust = e.target.checked; save(); windKey = ''; sync(); refresh(true); });
+  q('.lwx-wm').addEventListener('change', e => { st.wMeps = e.target.checked; save(); windKey = ''; sync(); refresh(true); });
+  q('.lwx-ws').addEventListener('change', e => { st.wModes = e.target.checked; save(); modesKey = ''; sync(); refresh(true); });
+  q('.lwx-per').addEventListener('change', e => { st.wPer = parseInt(e.target.value, 10); save(); modesKey = ''; sync(); refresh(true); });
 
   // ── State → page ─────────────────────────────────────────────────────────
   const useMeps = () => st.src === 'meps' || st.src === 'both';
   const useRadar = () => st.src === 'radar' || st.src === 'both';
+  const mepsWind = () => st.wind !== 'off' && st.wMeps;                     // MEPS barbs shown
+  const modesWind = () => st.wind !== 'off' && st.wind !== 'sfc' && st.wModes; // Mode S barbs shown
+  const perTxt = () => (PERIODS.find(p => p[0] === st.wPer) || [0, st.wPer + ' min'])[1];
   function options() {
     const edge = useRadar() && !!radarShown;
     if (st.src === 'radar') return { rain: true, pres: false, clouds: [], edge };
@@ -128,7 +211,11 @@
     windLayer.setOptions(windOptions());
     const parts = [];
     if (st.src !== 'off') parts.push(WxLayer.legendHtml(options()));
-    if (st.wind !== 'off') parts.push(WxLayer.legendHtml(windOptions()));
+    if (mepsWind()) parts.push(WxLayer.legendHtml(windOptions()));
+    if (modesWind()) parts.push('Mode S barbs (aircraft, last ' + perTxt() + '): ' +
+      MODES_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']
+        .map((c, i) => `<span class="wx-key" style="background:${c}"></span> ${['< 15', '15–30', '30–50', '≥ 50'][i]}`).join(' ') +
+      ' kt · faint: 1–2 aircraft');
     q('.lwx-legend').innerHTML = parts.join(' &nbsp;·&nbsp; ');
   }
   let shown = null;          // {ts, run, lead} of the MEPS hour shown
@@ -146,8 +233,14 @@
     layer.show(st.src !== 'off');
     q('.lwx-wind').value = st.wind;
     q('.lwx-gust').checked = !!st.gust;
-    q('.lwx-gust').disabled = st.wind !== 'sfc';
-    windLayer.show(st.wind !== 'off');
+    q('.lwx-gust').disabled = st.wind !== 'sfc' || !st.wMeps;
+    q('.lwx-wm').checked = !!st.wMeps;
+    q('.lwx-ws').checked = !!st.wModes;
+    q('.lwx-ws').disabled = st.wind === 'sfc';
+    q('.lwx-per').value = String(st.wPer);
+    q('.lwx-per').disabled = !st.wModes || st.wind === 'sfc';
+    windLayer.show(mepsWind());
+    modesLayer.show(modesWind());
     const chip = q('.lwx-chip');
     const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
     const rTxt = () => radarShown ? `Radar ${fmtUtc(radarShown.ts)}` : 'Radar …';
@@ -156,7 +249,11 @@
     else if (st.src === 'radar') txt = `${rTxt()} UTC`;
     else if (st.src === 'meps') txt = `${mTxt()} UTC`;
     else txt = `${rTxt()} + ${mTxt()} UTC`;
-    if (st.wind !== 'off') txt += (txt ? ' · ' : '') + 'MEPS wind ' + (st.wind === 'sfc' ? '10 m' : 'FL' + st.wind);
+    if (mepsWind() || modesWind()) {
+      const lvl = st.wind === 'sfc' ? '10 m' : 'FL' + st.wind;
+      const who = [mepsWind() ? 'MEPS' : '', modesWind() ? 'Mode S ' + perTxt() : ''].filter(Boolean).join(' + ');
+      txt += (txt ? ' · ' : '') + `Wind ${lvl} (${who})`;
+    }
     chip.textContent = txt;
     el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off');
     applyOptions();
@@ -165,9 +262,10 @@
   // ── Data ─────────────────────────────────────────────────────────────────
   let index = null, indexAt = 0, busy = false, fetchedKey = '';
   let radarAt = 0, radarTs = null;
-  let mepsStatus = '', radarStatus = '', windStatus = '';
+  let mepsStatus = '', radarStatus = '', windStatus = '', modesStatus = '';
+  let modesKey = '', modesAt = 0;
   let windShown = null, windKey = '', windAt = 0;     // {ts, run, lead, p} of the wind shown
-  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus, windStatus].filter(Boolean).join('<br>'); };
+  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus, windStatus, modesStatus].filter(Boolean).join('<br>'); };
 
   async function loadRadar(force) {
     const nowMs = Date.now();
@@ -239,6 +337,22 @@
     }
   }
 
+  // Mode S winds of the last st.wPer minutes at the level, 50 km cells (the Wind Map's /api/windmap)
+  async function loadModes(force) {
+    const nowMs = Date.now();
+    const key = `${st.wind}|${st.wPer}`;
+    if (!force && key === modesKey && nowMs - modesAt < 5 * 60 * 1000) return;
+    modesAt = nowMs;
+    const d = await (await fetch(`/api/windmap?fl=${st.wind}&tolerance=${MODES_TOL_FT}&cell=${MODES_CELL_KM}&window=${st.wPer}`)).json();
+    modesKey = key;
+    const cells = (d.cells || []).filter(c => c.wind_spd != null && c.wind_dir != null);
+    modesLayer.set(cells, { fl: st.wind, per: perTxt(), end: d.end_ts });
+    modesStatus = `Mode S FL${st.wind} ± ${MODES_TOL_FT.toLocaleString('en').replace(',', ' ')} ft, last ${perTxt()}: ` +
+      `${d.aircraft || 0} aircraft, ${d.obs_used || 0} observations → ${cells.length} cells of ${MODES_CELL_KM} km` +
+      (cells.length ? '' : ' · <span style="color:#f59e0b">no aircraft winds at this level in the period</span>') +
+      ' · measured by the aircraft, averaged as on the Wind Map page';
+  }
+
   async function loadMeps(force) {
     const nowMs = Date.now();
     await getIndex(force);
@@ -279,7 +393,10 @@
       if (useRadar()) jobs.push(loadRadar(force).catch(e => { console.warn('Radar overlay:', e); }));
       if (useMeps()) jobs.push(loadMeps(force).catch(e => {
         console.warn('Weather overlay:', e); mepsStatus = 'MEPS: loading failed, trying again in a minute.'; }));
-      if (st.wind === 'off') { windShown = null; windKey = ''; windStatus = ''; windLayer.setFrame(null); }
+      if (!modesWind()) { modesKey = ''; modesStatus = ''; modesLayer.set(null); }
+      else jobs.push(loadModes(force).catch(e => {
+        console.warn('Mode S wind overlay:', e); modesStatus = 'Mode S wind: loading failed, trying again in a minute.'; }));
+      if (!mepsWind()) { windShown = null; windKey = ''; windStatus = ''; windLayer.setFrame(null); }
       else jobs.push(loadWind(force).catch(e => {
         console.warn('Wind overlay:', e); windStatus = 'MEPS wind: loading failed, trying again in a minute.'; }));
       await Promise.all(jobs);
@@ -294,13 +411,23 @@
 
   // the page's Light / Dark button: redraw with the other colours too
   const prevTheme = window.onThemeChange;
-  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); applyOptions(); };
+  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); applyOptions(); };
 
   // hover a model barb: its wind (and temperature at a flight level)
   const tip = L.DomUtil.create('div', 'lwx-tip', map.getContainer());
   tip.style.display = 'none';
+  const place = e => { tip.style.display = ''; tip.style.left = (e.containerPoint.x + 14) + 'px'; tip.style.top = (e.containerPoint.y + 10) + 'px'; };
   map.on('mousemove', e => {
-    if (st.wind === 'off' || !windShown) { tip.style.display = 'none'; return; }
+    const c = modesWind() ? modesLayer.at(e.containerPoint) : null;          // a Mode S barb first
+    if (c) {
+      const m = modesLayer.meta() || {};
+      tip.innerHTML = `<b>Mode S FL${m.fl}</b> (aircraft, last ${m.per}): ${String(Math.round(c.wind_dir) % 360 || 360).padStart(3, '0')}°/${Math.round(c.wind_spd)} kt` +
+        (c.temp != null ? `, ${c.temp.toFixed(0)} °C` : '') +
+        `<br><span>${c.ac} aircraft, ${c.obs} observations${c.wind_sd != null ? `, spread ${Math.round(c.wind_sd)} kt` : ''} · ${MODES_CELL_KM} km cell at ${c.lat.toFixed(2)}°N ${c.lon.toFixed(2)}°E</span>`;
+      place(e);
+      return;
+    }
+    if (!mepsWind() || !windShown) { tip.style.display = 'none'; return; }
     const b = windLayer.barbAt(e.containerPoint);
     if (!b) { tip.style.display = 'none'; return; }
     const v = b.values, sp = Math.hypot(v.u, v.v);
