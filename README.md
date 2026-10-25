@@ -576,7 +576,7 @@ The navbar also shows live aircraft counts: total aircraft visible and how many 
 
 **Version and What's new:** next to the theme button the navbar shows the version of the system, **v.DDMMYYYY** — one version per day of development, named after the date and taken automatically from the newest version heading in `doc/whats_new.md` or `CHANGELOG.md`, whichever is newer (so `CHANGELOG.md` need not be copied to the device). Clicking it (**v.… · What's new · Guides**; on screens narrower than 1 700 px only the version) opens a window over the current page with two tabs: **What's new** — short notes for users of the last 10 versions (from `doc/whats_new.md`, updated with each delivery) — and **User guides** — the PDF user guides with a short description each, **Open PDF** (new browser tab) and **Download** (listed in `doc/guides.md`: title, file, version, date, pages and description). The window scrolls and closes with ×, Esc or a click outside it (`/api/whatsnew`). Only the PDFs listed in `doc/guides.md` are served (`/doc/<file>`, behind the same login).
 
-**About:** the **About** button right of the version opens a window in the same style with the author (Otso Laakso / OH2GAX, Vantaa, Finland — email and LinkedIn), the receiver site (Jetvision Radarcape in Tuusula, Finland, locator KP20MJ), a short *What is MODE-S Wind?* with the main features and what makes it different, and the copyright, license and GitHub link. It closes with ×, Esc or a click outside it. The content is plain HTML in `web/templates/_about.html` (edit the text there). On screens narrower than 1 400 px the button is a small **i** (tooltip *About*); to make room, the UTC clock drops its date below 1 550 px (was 1 400 px; the date stays in its tooltip), and below 1 300 px the navbar is a little more compact, so it fits at 1 280 px.
+**About:** the **About** button right of the version opens a window in the same style with the author (Otso Laakso / OH2GAX, Vantaa, Finland — email and LinkedIn), the receiver site (Jetvision Radarcape in Tuusula, Finland, locator KP20MJ), a description written for meteorologists and scientists — *What is MODE-S Wind?* (the observing principle and the Mode S / ADS-B registers used), *How the observations are made* (wind, Mach/TAS temperature, GNSS heights of the pressure surfaces, verification figures), *Derived products* (soundings with their automatic analysis, the time–height fields such as temperature anomaly, lapse rate, vertical motion and vorticity, the Wind Map analyses, the airport boundary-layer profiles, the humidity trial), *Windshear detection v2* (with its references), *Why it is interesting* and *Special credits* (Siebren de Haan, KNMI, and Junzi Sun, TU Delft, with their key publications) — then the pages, and the copyright, license and GitHub link. It closes with ×, Esc or a click outside it. The content is plain HTML in `web/templates/_about.html` (edit the text there). On screens narrower than 1 400 px the button is a small **i** (tooltip *About*); to make room, the UTC clock drops its date below 1 550 px (was 1 400 px; the date stays in its tooltip), and below 1 300 px the navbar is a little more compact, so it fits at 1 280 px.
 
 **Guide shortcuts:** a small **?** opens the matching user guide in a new tab — next to *Atmosphere Profile* on the Live Map and *Skew-T* on the Sounding page (Skew-T guide), after **Refresh** on the Sounding page (Sounding and Wind Map guide) at the end of the Wind Map controls (the same guide, opened at the Wind Map section; `open: windmap@30` in `doc/guides.md`) and in the *Windshear Alert* header of the Windshear page, after **ⓘ v2** (Windshear guide). A small dot on the link means the system has a newer version than the one this browser last opened in the window; it disappears once the window has been opened (remembered per browser in `localStorage`).
 
@@ -2054,6 +2054,26 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | POST | `/api/maintenance/users/remove` | Remove a web user; params: `target` |
 
 All `/api/maintenance/*` endpoints require `username` and `password` fields in the JSON request body, validated against the `MAINTENANCE_AUTH_FILE` credential file (the maintenance user only).
+
+---
+
+## Special credits
+
+MODE-S Wind stands on the work of two researchers in the Netherlands.
+
+**Siebren de Haan** (KNMI, the Royal Netherlands Meteorological Institute) showed that wind and temperature derived from Mode S EHS radar replies (BDS 5,0 / 6,0) are accurate and dense enough for meteorology, worked out the corrections they need (heading, airspeed, the Mach/TAS temperature) and brought them into numerical weather prediction. The author's own interest in the subject began in 2009 with de Haan's KNMI report below; his first ADS-B receiver had been running since 2006, when all of this was still new.
+
+- de Haan, S., 2009: *Quality assessment of high resolution wind and temperature observation from ModeS.* KNMI Scientific Report WR 2009-07 (revised 2010), De Bilt. [KNMI publication](https://www.knmi.nl/research/publications/quality-assessment-of-high-resolution-wind-and-temperature-observation-from-modes)
+- de Haan, S., 2011: High-resolution wind and temperature observations from aircraft tracked by Mode-S air traffic control radar. *Journal of Geophysical Research*, 116, D10111. [doi:10.1029/2010JD015264](https://doi.org/10.1029/2010JD015264)
+- de Haan, S. and A. Stoffelen, 2012: Assimilation of high-resolution Mode-S wind and temperature observations in a regional NWP model. *Weather and Forecasting*, 27, 918–937. [doi:10.1175/WAF-D-11-00088.1](https://doi.org/10.1175/WAF-D-11-00088.1)
+
+**Junzi Sun** (TU Delft, Faculty of Aerospace Engineering) wrote **pyModeS**, the open-source Mode S / ADS-B decoder this system is built on, the open book that explains the signals, and research on reconstructing the weather from aircraft surveillance data.
+
+- Sun, J., H. Vû, J. Ellerbroek and J. M. Hoekstra, 2020: pyModeS: Decoding Mode-S surveillance data for open air transportation research. *IEEE Transactions on Intelligent Transportation Systems*, 21(7), 2777–2786. [doi:10.1109/TITS.2019.2914770](https://doi.org/10.1109/TITS.2019.2914770) — [github.com/junzis/pyModeS](https://github.com/junzis/pyModeS)
+- Sun, J., 2021: *The 1090 Megahertz Riddle: A Guide to Decoding Mode S and ADS-B Signals.* TU Delft OPEN Books. [doi:10.34641/mg.11](https://doi.org/10.34641/mg.11)
+- Sun, J., H. Vû, J. Ellerbroek and J. M. Hoekstra, 2018: Weather field reconstruction using aircraft surveillance data and a novel meteo-particle model. *PLOS ONE*, 13(10), e0205029. [doi:10.1371/journal.pone.0205029](https://doi.org/10.1371/journal.pone.0205029)
+
+The same credits are on the web pages' **About** window.
 
 ---
 

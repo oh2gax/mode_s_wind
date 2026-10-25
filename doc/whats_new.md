@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.25102026 — About window
 
-- **About**: the new button right of the version (**What's new**) opens a window with who made MODE-S Wind and how to reach him, where the receiver is, and a short description of what the system does, its main features and what makes it different. On smaller screens it is a small **i**.
+- **About**: the new button right of the version (**What's new**) opens a window with who made MODE-S Wind and how to reach him, where the receiver is, and a description for meteorologists and scientists: how the wind, temperature and pressure-surface heights are measured and verified, the derived products (temperature anomaly, lapse rate, vertical motion, vorticity, …), the new windshear detection, why the system is interesting, and special credits to Siebren de Haan (KNMI) and Junzi Sun (TU Delft, pyModeS), whose work this system builds on. On smaller screens it is a small **i**.
 - The top bar now fits also on 1 280 px wide screens; below 1 550 px the clock shows the time only (hover it for the date).
 
 ## v.24102026 — New windshear detection; the old algorithms are retired; wind and gusts on the Weather page; upper-level temperatures corrected; MEPS in the Indices panel and in the Skew-T analysis
