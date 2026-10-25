@@ -43,6 +43,8 @@
           title="Version {{ app_version }} — What's new (changes of the last versions) and the user guides">{{ app_version }}<span class="wn-lbl"> · What's new · Guides</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
   <button id="nav-about-btn" class="nav-whatsnew-btn nav-about-btn" type="button"
           title="About MODE-S Wind — the author, the receiver site and the system in a nutshell"><span class="ab-lbl">About</span><span class="ab-ico" aria-hidden="true">i</span></button>
+  {% if shared_login %}<button id="nav-shared-chip" class="nav-shared-chip{{ ' sl-last' if shared_login.phase == 'last' else '' }}" type="button"
+          title="You are using the shared test login: it works until {{ shared_login.expires_txt }} (UTC). Click for how to get personal credentials."><span class="sl-chip-lbl">Shared login · </span><span class="sl-chip-ico" aria-hidden="true">⚠ </span>{{ shared_login.days_left }} d</button>{% endif %}
   <span id="nav-utc-clock" class="nav-utc-clock"></span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
@@ -73,6 +75,7 @@
 </div>
 
 {% include "_about.html" %}
+{% if shared_login %}{% include "_shared_notice.html" %}{% endif %}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>

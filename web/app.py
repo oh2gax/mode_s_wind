@@ -27,6 +27,7 @@ from database import maintenance as maint
 from collector.approach_cond import approach_index
 from web import access_log
 from web import users as web_users
+from web import shared_login
 
 log = logging.getLogger("modes.web")
 
@@ -263,6 +264,9 @@ def create_app(
             "carto_api_key":     cfg.CARTO_API_KEY,
             "app_version":       whats_new.version(),    # v.DDMMYYYY (doc/whats_new.md, CHANGELOG.md)
             "guide_links":       whats_new.guide_links(), # ? buttons -> user guide PDFs
+            # the shared test login is being phased out (web/shared_login.py):
+            # its state for the navbar chip / notice, None for everyone else
+            "shared_login":      g.get("shared_state"),
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -282,6 +286,45 @@ def create_app(
             g.auth_state, g.auth_user = "bad", auth.username
             return _require_auth()
         g.auth_state, g.auth_user = "ok", auth.username
+        # The shared test login (config.py WEB_USER) is phased out: a notice
+        # during the grace period, no data after the end date
+        if shared_login.is_shared(cfg, auth.username):
+            st = shared_login.state(cfg)
+            g.shared_state = st if st["phase"] != "none" else None
+            if st["phase"] == "ended":
+                if request.endpoint in ("static", "shared_login_page", "switch_user"):
+                    return None
+                g.auth_state = "shared_ended"
+                if request.endpoint in _PAGE_ENDPOINTS:
+                    return render_template("shared_ended.html", st=st), 403
+                return jsonify({"error": "the shared test login has ended"}), 403
+            if request.method == "GET" and request.endpoint in _PAGE_ENDPOINTS:
+                try:
+                    shared_login.note_page(cfg)
+                except Exception as exc:                  # noqa: BLE001
+                    log.debug("shared login usage: %s", exc)
+
+    _PAGE_ENDPOINTS = {"index", "flights_page", "sounding_page", "windmap_page", "weather_page",
+                       "windshear_page", "gps_page", "gps_episodes_page", "msgstats_page",
+                       "maintenance_page"}
+
+    @app.route("/shared-login")
+    def shared_login_page():
+        """The notice of the shared test login (also after its end)."""
+        st = shared_login.state(cfg)
+        return render_template("shared_ended.html", st=st), (403 if st["phase"] == "ended" else 200)
+
+    @app.route("/switch-user")
+    def switch_user():
+        """Makes the browser ask for the login again (basic authentication has
+        no logout): the shared login gets 401 until other credentials are
+        entered, then the Live Map opens."""
+        auth = request.authorization
+        if auth is None or shared_login.is_shared(cfg, auth.username):
+            return Response("Log in with your personal user name and password.", 401,
+                            {"WWW-Authenticate": 'Basic realm="MODE-S Meteo"'})
+        from flask import redirect
+        return redirect("/")
 
     # Compact access / misuse log (logs/access.log, see web/access_log.py)
     access_log.init_app(app)
@@ -1480,7 +1523,27 @@ def create_app(
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
-        return jsonify(web_users.list_users(cfg))
+        out = web_users.list_users(cfg)
+        out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        return jsonify(out)
+
+    @app.route("/api/maintenance/users/shared", methods=["POST"])
+    def maintenance_users_shared():
+        """End date of the shared test login: {"expires": "YYYY-MM-DD" | "now" | ""}."""
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            shared_login.set_expires(cfg, data.get("expires") or None)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except OSError as exc:
+            log.warning("Shared login file not written: %s", exc)
+            return jsonify({"ok": False, "error": "the file could not be written (permissions? MAINTENANCE_AUTH_FILE set?)"}), 500
+        out = web_users.list_users(cfg)
+        out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        out["ok"] = True
+        return jsonify(out)
 
     @app.route("/api/maintenance/users/<action>", methods=["POST"])
     def maintenance_users_change(action):
@@ -1506,6 +1569,7 @@ def create_app(
             log.warning("Users file not written: %s", exc)
             return jsonify({"ok": False, "error": "the file could not be written (permissions?)"}), 500
         out = web_users.list_users(cfg)
+        out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
         out.update(ok=True, kind=kind)
         return jsonify(out)
 

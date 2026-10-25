@@ -72,6 +72,19 @@
         </div>
       </div>
       <div class="maint-panel">
+        <div class="maint-panel-title">Shared test login</div>
+        <div class="maint-row">
+          <label class="maint-label" for="shared-exp-date">Works until (UTC)</label>
+          <input type="date" id="shared-exp-date" class="maint-input maint-input-sm">
+          <button id="shared-exp-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="shared-exp-now-btn" class="maint-btn maint-btn-danger">End now</button>
+          <button id="shared-exp-none-btn" class="maint-btn">No end date</button>
+        </div>
+        <div id="shared-exp-info" class="maint-hint"></div>
+        <div id="shared-exp-status" class="maint-op-status"></div>
+        <div class="maint-hint">The built-in user of <code>config.py</code> (<code>WEB_USER</code>) was shared by the testers. With an end date its pages show a notice with your contact details (the About window's) asking for personal credentials — once a day, on every page load in the last 3 days — and after the date it opens no pages or data any more, only that notice. The maintenance user and the personal users are not affected. Stored in <code>shared_login.json</code> next to the users file; <code>WEB_USER_EXPIRES</code> in <code>config.py</code> is used when no date has been set here.</div>
+      </div>
+      <div class="maint-panel">
         <div class="maint-panel-title">Add user</div>
         <div class="maint-row">
           <label class="maint-label">User</label>

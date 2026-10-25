@@ -2163,6 +2163,30 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   .nav-link { padding: 5px 4px; }
 }
 .ab-box { width: 600px; }
+/* shared test login notice (from 2026-10-25, web/shared_login.py) */
+.nav-shared-chip { flex: none; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); white-space: nowrap; }
+.nav-shared-chip .sl-chip-ico { display: none; }
+@media (max-width: 1900px) { .nav-shared-chip .sl-chip-lbl { display: none; } .nav-shared-chip .sl-chip-ico { display: inline; } .nav-shared-chip { padding: 3px 6px; } }
+.nav-shared-chip.sl-last { border-color: var(--red); background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+[data-theme="light"] .nav-shared-chip { color: #b45309; }
+[data-theme="light"] .nav-shared-chip.sl-last { color: #b91c1c; }
+.sl-box { width: 560px; }
+.sl-lead { margin-top: 2px; }
+.sl-amber { color: var(--amber); }
+.sl-red { color: var(--red); }
+.sl-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 6px; }
+.sl-btn { display: inline-block; padding: 6px 14px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2);
+  color: var(--text-1); font-size: 13px; text-decoration: none; cursor: pointer; }
+.sl-btn:hover { background: var(--bg-3); }
+.sl-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sl-btn-primary:hover { filter: brightness(1.1); background: var(--accent); }
+.sl-actions a.sl-btn, .sl-actions a.sl-btn:visited { text-decoration: none; }
+.sl-actions a.sl-btn-primary, .sl-actions a.sl-btn-primary:visited { color: #fff; }
+.sl-note { font-size: 12px; color: var(--text-3); }
+.sl-h { font-size: 18px; margin: 4px 0 10px; color: var(--text-1); }
+body.sl-page { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; padding: 60px 12px; box-sizing: border-box; background: var(--bg-0); overflow: auto; }
+.sl-standalone { max-width: 100%; }
 .ab-head-title { font-size: 14px; font-weight: 600; padding: 4px 12px; }
 .ab-hero { text-align: center; padding: 18px 0 14px; border-bottom: 1px solid var(--border); }
 .ab-name { font-size: 24px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-1); }

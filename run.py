@@ -928,6 +928,12 @@ def main() -> None:
     except KeyboardInterrupt:
         log.info("Shutting down…")
     finally:
+        # Shared test login: usage counts not yet written (web/shared_login.py)
+        try:
+            from web import shared_login as _sl
+            _sl.flush(cfg)
+        except Exception:
+            pass
         # Statistics page: the hour in progress and the recent series
         try:
             from database.db import get_db as _get_db

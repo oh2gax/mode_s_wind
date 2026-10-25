@@ -261,10 +261,39 @@ function renderUsers(d) {
     const del = u.kind === 'user'
       ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
     return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>` +
-      `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}</span>` +
+      `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}${u.kind === 'config' && d.shared && d.shared.phase !== 'none' ? (d.shared.phase === 'ended' ? ' · shared, ended' : ` · shared, until ${_esc(d.shared.expires)}`) : ''}</span>` +
       `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${edit}${del}</span></div>`;
   }).join('');
   if (!d.writable) _setStatus('users-status', 'The folder of the users file is not writable — users cannot be changed.', true);
+  if (d.shared) renderShared(d.shared);
+}
+
+// ── Shared test login: end date (web/shared_login.py) ────────────────────────
+function renderShared(sh) {
+  const inp = document.getElementById('shared-exp-date');
+  if (inp && document.activeElement !== inp) inp.value = sh.expires || '';
+  const u = sh.usage || {};
+  const ago = u.last ? Math.round((Date.now() / 1000 - u.last) / 60) : null;
+  const agoTxt = ago == null ? 'not used since this was set up' :
+    ago < 90 ? `last used ${ago} min ago` : ago < 2880 ? `last used ${Math.round(ago / 60)} h ago` : `last used ${Math.round(ago / 1440)} days ago`;
+  const phase = { none: 'no end date — works as before', grace: `works until ${sh.expires} (${sh.days_left} days left)`,
+                  last: `works until ${sh.expires} (${sh.days_left} day${sh.days_left === 1 ? '' : 's'} left — notice on every page load)`,
+                  ended: `ended after ${sh.expires} — opens only the notice` }[sh.phase] || '';
+  document.getElementById('shared-exp-info').innerHTML =
+    `<b>${_esc(sh.user)}</b>: ${_esc(phase)} · ${_esc(agoTxt)} · last 7 days: used on ${u.days_7 || 0} day(s), ${u.pages_7 || 0} page loads`;
+}
+async function _sharedSet(expires) {
+  try {
+    const r = await fetch('/api/maintenance/users/shared', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: _user, password: _pass, expires }),
+    });
+    if (r.status === 401) throw new Error('Unauthorized');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    renderUsers(d);
+    _setStatus('shared-exp-status', expires === 'now' ? '✓ The shared login has ended' : expires ? `✓ Works until ${expires}` : '✓ No end date');
+  } catch (err) { _setStatus('shared-exp-status', `Error: ${err.message}`, true); }
 }
 
 async function loadUsers() {
@@ -645,3 +674,14 @@ document.getElementById('msgstats-clear-btn').addEventListener('click', async ev
     alert(`Error: ${e.message}`);
   }
 });
+
+document.getElementById('shared-exp-save-btn').addEventListener('click', () => {
+  const v = document.getElementById('shared-exp-date').value;
+  if (!v) { _setStatus('shared-exp-status', 'Choose a date (or No end date).', true); return; }
+  _sharedSet(v);
+});
+document.getElementById('shared-exp-now-btn').addEventListener('click', () => {
+  if (!confirm('End the shared test login now? Its users then see only the notice with your contact details.')) return;
+  _sharedSet('now');
+});
+document.getElementById('shared-exp-none-btn').addEventListener('click', () => _sharedSet(''));

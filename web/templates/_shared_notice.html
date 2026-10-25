@@ -1,0 +1,59 @@
+{#- Shared test login notice (from 2026-10-25, web/shared_login.py): included by
+    base.html only for the shared login during its grace period.  Opens by
+    itself once a day per browser, on every page load in the last days; the
+    navbar chip opens it too. -#}
+{%- set sl = shared_login -%}
+{%- set end_txt = sl.expires and (sl.end_ts - 86400) | int -%}
+<div id="sl-overlay" class="wn-overlay" hidden>
+  <div class="wn-box ab-box sl-box" role="dialog" aria-modal="true" aria-labelledby="sl-title">
+    <div class="wn-head">
+      <div class="ab-head-title" id="sl-title">Shared test login</div>
+      <button id="sl-close" class="wn-close" type="button" title="Close (Esc)">×</button>
+    </div>
+    <div class="wn-body ab-body">
+      <p class="sl-lead">You are logged in with the <b>shared test login</b>
+        (<code>{{ sl.user }}</code>). It works until <b class="sl-date" data-ts="{{ end_txt }}">{{ sl.expires }}</b>
+        (UTC){% if sl.days_left is not none %} — <b class="{{ 'sl-red' if sl.phase == 'last' else 'sl-amber' }}">{{ sl.days_left }} day{{ '' if sl.days_left == 1 else 's' }} left</b>{% endif %}.</p>
+      <p>Every tester can now have a <b>personal user name and password</b>. Please contact the author for
+        your own credentials — a short email is enough. After the end date the shared login no longer opens
+        the pages.</p>
+      <dl class="ab-info">
+        {% include "_contact.html" %}
+      </dl>
+      <div class="sl-actions">
+        <a class="sl-btn sl-btn-primary" href="/switch-user" title="The browser asks for the login again: enter your personal user name and password">Log in with my personal account</a>
+        <button id="sl-later" class="sl-btn" type="button">Close</button>
+      </div>
+      <p class="sl-note">Already have personal credentials? The button makes the browser ask for the login again;
+        closing the browser, or opening the page in a private window, does the same.</p>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var ov = document.getElementById('sl-overlay');
+  var chip = document.getElementById('nav-shared-chip');
+  if (!ov) return;
+  // the end date in the reader's words, e.g. "4 November 2026"
+  var d = ov.querySelector('.sl-date');
+  if (d && d.dataset.ts) {
+    var t = new Date(Number(d.dataset.ts) * 1000);
+    var M = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    d.textContent = t.getUTCDate() + ' ' + M[t.getUTCMonth()] + ' ' + t.getUTCFullYear();
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  function open() { ov.hidden = false; document.addEventListener('keydown', onKey); }
+  function close() { ov.hidden = true; document.removeEventListener('keydown', onKey); }
+  if (chip) chip.addEventListener('click', open);
+  document.getElementById('sl-close').addEventListener('click', close);
+  document.getElementById('sl-later').addEventListener('click', close);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  var last = {{ 'true' if sl.phase == 'last' else 'false' }};
+  var today = new Date().toISOString().slice(0, 10), seen = null;
+  try { seen = localStorage.getItem('ms_shared_notice_day'); } catch (e) { /* private mode */ }
+  if (last || seen !== today) {
+    open();
+    try { localStorage.setItem('ms_shared_notice_day', today); } catch (e) { /* */ }
+  }
+})();
+</script>

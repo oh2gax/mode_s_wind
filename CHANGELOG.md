@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px; Mode S & ADS-B Statistics page; one GPS link; go-arounds kept for 24 h and stored; MEPS and Mode S wind barbs on the Live Map; signal strength, range rings, a 24 h window and system health indicators on the Statistics page; Statistics kept over restarts; Windshear page: ACI + windshear view)
+## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px; Mode S & ADS-B Statistics page; one GPS link; go-arounds kept for 24 h and stored; MEPS and Mode S wind barbs on the Live Map; signal strength, range rings, a 24 h window and system health indicators on the Statistics page; Statistics kept over restarts; Windshear page: ACI + windshear view; shared test login phased out)
 
 ### About window
 - New **About** button in the navbar, right of the version / What's new button: opens a window in the What's new style with the author (Otso Laakso / OH2GAX, Vantaa, Finland; email and LinkedIn links), the receiver site (Jetvision Radarcape, Tuusula, Finland, KP20MJ), a description written for the first testers (meteorologists and scientists): what MODE-S Wind is and the registers used, how the observations are made with verification figures, the derived products (soundings with automatic analysis, temperature anomaly, lapse rate, vertical motion, vorticity, height change, thickness temperature, Wind Map analyses, airport boundary-layer profiles, humidity trial), windshear detection v2 with its references, why it is interesting, special credits, the pages, and the copyright / GPLv3 / GitHub line. Closes with ×, Esc or a click outside.
@@ -44,6 +44,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Statistics page: system health indicators
 - System health indicators on the Statistics page: green / amber / red / off for eleven parts of the system, right of the Window buttons (one summary chip on narrower screens), with a detail panel and the recent state changes. RAM only.
 - New `collector/health.py`, `web/api/health.py` (`/api/health`); `run.py`, `collector/radarcape_json.py`, `collector/writer.py`, `web/app.py`, `web/templates/stats.html`, `static/js/stats.js`, `static/css/style.css`.
+
+### Shared test login phased out
+- The shared test login is being phased out: its users are asked to request personal credentials.
 
 ### Windshear page: ACI + windshear on one time axis
 - The Wind Rose / ACI panel has a third view, **WS** (**WR | ACI | WS**): the ACI chart above and a windshear strip below on the same time axis, in knots of headwind change (never on the ACI scale). Per landing the strongest ramp (1-km equivalent) as a stem from zero, loss down and gain up, coloured by its level in the low-level zone, and its band change as a filled diamond; per departure its band change as a hollow diamond; go-arounds as triangles with a dotted line through both parts; dashed ADV / WSA / MBA lines; scale ±20 kt, widened to ±40 / ±50 kt. Hover for the flight's report (and ACI); the readout adds the alerts of the range. The range button applies to both parts; the panel grows by up to 95 px where the map has room below it (clear of the map attribution), otherwise the stacked view keeps the ACI view's size.

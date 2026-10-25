@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shared test login — MODE-S Wind</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script>
+    (function () { try { if (localStorage.getItem('ms_theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {} })();
+  </script>
+</head>
+<body class="sl-page">
+{#- The shared test login after its end date (from 2026-10-25, web/shared_login.py):
+    shown instead of every page; no data, no polling.  Also /shared-login. -#}
+<div class="wn-box ab-box sl-box sl-standalone" role="main">
+  <div class="wn-head">
+    <div class="ab-head-title">MODE-S Wind</div>
+  </div>
+  <div class="wn-body ab-body">
+    {% if st.phase == 'ended' %}
+    <h2 class="sl-h">The shared test login has ended</h2>
+    <p>The shared login <code>{{ st.user }}</code> was for the first tests and worked until
+      <b>{{ st.expires_txt }}</b> (UTC). MODE-S Wind now uses <b>personal user names and passwords</b>.</p>
+    {% else %}
+    <h2 class="sl-h">Shared test login</h2>
+    <p>The shared login <code>{{ st.user }}</code> {% if st.expires %}works until <b>{{ st.expires_txt }}</b> (UTC){% else %}is still in use{% endif %}.
+      MODE-S Wind now uses <b>personal user names and passwords</b>.</p>
+    {% endif %}
+    <p>Please contact the author for your own credentials — a short email is enough:</p>
+    <dl class="ab-info">
+      {% include "_contact.html" %}
+    </dl>
+    <div class="sl-actions">
+      <a class="sl-btn sl-btn-primary" href="/switch-user" title="The browser asks for the login again: enter your personal user name and password">Log in with my personal account</a>
+    </div>
+    <p class="sl-note">The browser remembers the last login until it is closed. The button makes it ask again;
+      closing the browser, or opening the page in a private window, does the same.</p>
+  </div>
+</div>
+</body>
+</html>
