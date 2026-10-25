@@ -2181,6 +2181,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ab-refs i { color: var(--text-1); }
 .ab-thanks { margin-top: 12px !important; padding: 12px 0; border-top: 1px solid var(--border);
              border-bottom: 1px solid var(--border); }
+.ab-thanks + .ab-thanks2 { margin-top: 0 !important; border-top: none; }   /* one line between the two */
 .ab-foot { color: var(--text-2); font-size: 11.5px; margin-top: 12px !important; padding-top: 10px;
            border-top: 1px solid var(--border); text-align: center; }
 @media (max-width: 520px) { .ab-info { grid-template-columns: 1fr; gap: 0 0; } .ab-info dd { margin-bottom: 6px; } }
