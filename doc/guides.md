@@ -39,7 +39,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 1.4
+version: 1.5
 date: 2026-10-25
 pages: 15
 open: windshear
@@ -49,7 +49,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - The method step by step: headwind TAS − GS from each BDS 5,0 reply, **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with all landings and departures of the last 45 minutes
 - The alert levels **ADV / WSA / MBA**, how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
-- The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view, ACI, wind rose
+- The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view, ACI and the new **ACI + windshear** view on one time axis, wind rose
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October), first results and the limitations
 
 ## Mode S & ADS-B and the Statistics page

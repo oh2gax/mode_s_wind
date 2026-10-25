@@ -1197,6 +1197,33 @@ def create_app(
             for e in ws_tracker.get_approach_history()
         ])
 
+    @app.route("/api/windshear/departures")
+    def windshear_departures_api():
+        """Departures of the last ?window= seconds (60 s – 1 d, default 3 h)
+        with their windshear report (band comparison of the climb-out,
+        departure_profiles.shear_json, from 2026-10-24), newest first:
+        [{ts, icao, callsign, aircraft_type, ga, shear: {rwy, hdg, band, lvl}}]
+        — for the ACI + WS view of the Windshear page."""
+        import json as _json
+        window = max(60, min(request.args.get("window", 10800, type=int), 86400))
+        try:
+            rows = get_db().execute(
+                """SELECT ts, icao, callsign, aircraft_type, ga, shear_json
+                   FROM departure_profiles
+                   WHERE ts > ? AND shear_json IS NOT NULL
+                   ORDER BY ts DESC""", (time.time() - window,)).fetchall()
+        except Exception:                              # noqa: BLE001  (older database)
+            return jsonify([])
+        out = []
+        for r in rows:
+            try:
+                sh = _json.loads(r["shear_json"])
+            except (TypeError, ValueError):
+                continue
+            out.append({"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
+                        "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh})
+        return jsonify(out)
+
     @app.route("/api/windshear/approach-history/clear", methods=["POST"])
     def windshear_approach_history_clear_api():
         """
