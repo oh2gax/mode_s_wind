@@ -356,6 +356,37 @@ def _seed_ws_day(ws_tracker) -> None:
         log.debug("Windshear day statistics not seeded: %s", exc)
 
 
+def _on_go_around(ev: dict) -> None:
+    """Callback wired into WindshearTracker.on_go_around: one row in the
+    go_arounds table per go-around (a few a day)."""
+    from database.db import get_db
+    try:
+        db = get_db()
+        db.execute("INSERT INTO go_arounds (ts, icao, callsign, aircraft_type, runway, alt_ft, "
+                   "count, low, ws) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (ev["ts"], ev["icao"], ev.get("callsign"), ev.get("ac_type"), ev.get("rwy"),
+                    ev.get("alt_ft"), ev.get("count"), 1 if ev.get("low") else 0, ev.get("ws")))
+        db.commit()
+    except Exception as exc:                              # noqa: BLE001
+        log.warning("go_arounds DB write failed: %s", exc)
+
+
+def _preload_ga_events(ws_tracker) -> None:
+    """Go-arounds of the last 24 h → the tracker's event list, so the
+    Windshear page's alert log shows them also after a restart."""
+    from database.db import get_db
+    try:
+        rows = get_db().execute(
+            "SELECT ts, icao, callsign, aircraft_type, runway, alt_ft, count, low, ws "
+            "FROM go_arounds WHERE ts >= ? ORDER BY ts", (time.time() - 86400,)).fetchall()
+        ws_tracker.preload_ga_events([
+            {"type": "go_around", "ts": r[0], "icao": r[1], "callsign": r[2], "ac_type": r[3],
+             "rwy": r[4] or "?", "alt_ft": r[5], "count": r[6] or 1, "low": bool(r[7]),
+             "ws": r[8] or "none"} for r in rows])
+    except Exception as exc:                              # noqa: BLE001
+        log.debug("Go-arounds not pre-loaded: %s", exc)
+
+
 def _on_approach_committed(record: dict) -> None:
     """
     Callback wired into WindshearTracker.on_approach_committed.
@@ -696,6 +727,7 @@ def main() -> None:
         ga_flash_sec          = cfg.WINDSHEAR_GA_FLASH_SEC,
         blocked_reg_prefixes  = cfg.BLOCKED_REG_PREFIXES,
         on_approach_committed = _on_approach_committed,
+        on_go_around          = _on_go_around,
         bds_sample_fn         = get_bds_samples,
         vel_sample_fn         = get_vel_samples,
         mag_declination       = cfg.MAG_DECLINATION,
@@ -710,6 +742,7 @@ def main() -> None:
                      name="shear_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
     _seed_ws_day(ws_tracker)
+    _preload_ga_events(ws_tracker)
 
     # Departure climb-out profiles (collector/departures.py); optional
     # DEPARTURE_PROFILES = False turns the capture off

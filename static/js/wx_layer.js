@@ -13,7 +13,10 @@
  *              the cover turned into transparency: no seams between cells)
  *   gusts    — shading of the 10 m gust from 25 kt (Beaufort 6) upwards
  *   rain     — radar-like colours by intensity, snow (≥ half of it) violet
- *   wind     — barbs of the 10 m wind, thinned to about 50 px apart
+ *   wind     — barbs of the 10 m wind, thinned to about 50 px apart (or of
+ *              any u / v frame on the same projection: the Live Map's MEPS
+ *              winds at a flight level, /api/meps/winds; opts.barb = [dark,
+ *              light] colours, barbAt(point) = the barb under the cursor)
  *   pressure — isobars every 4 hPa with labels, highs H and lows L
  * The overall opacity is the canvas opacity (setOpacity).
  *
@@ -188,6 +191,7 @@ const WxLayer = (() => {
     let frame = null, grid = null, geo = null, gridKey = '';
     let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
     let o = { rain: true, clouds: [], pres: true, wind: false, gust: false };
+    let drawn = [];            // barbs drawn last: [x, y, dir, spd, grid index] (barbAt)
 
     function place() {
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
@@ -211,6 +215,7 @@ const WxLayer = (() => {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const hasF = frame && geo, hasO = ov && ovGeo;
+      drawn = [];
       if (!hasF && !hasO) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const T = theme();
@@ -340,10 +345,12 @@ const WxLayer = (() => {
         if (u == null || v == null) continue;
         const q = P(geo.pt(k));
         if (q.x < -20 || q.y < -20 || q.x > c.x + 20 || q.y > c.y + 20) continue;
-        line.push([q.x, q.y, windDir(u, v), Math.hypot(u, v)]);
+        line.push([q.x, q.y, windDir(u, v), Math.hypot(u, v), k]);
       }
+      drawn = line;
+      const bc = opts.barb ? opts.barb[isLight() ? 1 : 0] : T.barb;
       for (const pass of ['halo', 'line']) {
-        ctx.strokeStyle = ctx.fillStyle = pass === 'halo' ? T.halo : T.barb;
+        ctx.strokeStyle = ctx.fillStyle = pass === 'halo' ? T.halo : bc;
         ctx.lineWidth = pass === 'halo' ? 3.2 : 1.3;
         for (const [x, y, d, sp] of line) barb(ctx, x, y, d, sp);
       }
@@ -456,7 +463,7 @@ const WxLayer = (() => {
       const i = Math.round((x - grid.x[0]) / grid.x[1]), j = Math.round((y - grid.y[0]) / grid.y[1]);
       if (i < 0 || j < 0 || i >= grid.x[2] || j >= grid.y[2]) return null;
       const k = j * grid.x[2] + i, f = frame, out = {};
-      for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b', 'u', 'v', 'g']) if (f[key] && f[key][k] != null) out[key] = f[key][k];
+      for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b', 'u', 'v', 'g', 't']) if (f[key] && f[key][k] != null) out[key] = f[key][k];
       return out;
     }
     function describe(v, latlng) {
@@ -498,6 +505,19 @@ const WxLayer = (() => {
       show(on) { canvas.style.display = on ? '' : 'none'; },
       redraw: draw,
       grid: () => grid,
+      // the barb drawn nearest to a container point (within r px): {k, dir, spd, values} or null
+      barbAt(pt, r = 12) {
+        if (!frame || canvas.style.display === 'none') return null;
+        let best = null, bd = r * r;
+        for (const b of drawn) {
+          const d = (b[0] - pt.x) ** 2 + (b[1] - pt.y) ** 2;
+          if (d <= bd) { bd = d; best = b; }
+        }
+        if (!best) return null;
+        const vals = {};
+        for (const key of ['u', 'v', 'g', 't']) if (frame[key] && frame[key][best[4]] != null) vals[key] = frame[key][best[4]];
+        return { k: best[4], dir: best[2], spd: best[3], values: vals, latlng: geo.pt(best[4]) };
+      },
       valuesAt, describe,
     };
   }
@@ -512,7 +532,7 @@ const WxLayer = (() => {
     }
     const T = theme();
     if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
-    if (o.wind) parts.push('barbs: 10 m wind (kt; half feather 5, feather 10, pennant 50)');
+    if (o.wind) parts.push(`barbs: ${o.windLabel || '10 m wind'} (kt; half feather 5, feather 10, pennant 50)`);
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);
     for (const c of o.clouds || []) parts.push(c === 'f' ? `<span class="wx-key" style="background:rgb(${T.fog})"></span> fog` : `grey: ${CLOUD_NAME[c]}`);
     return parts.join(' &nbsp;·&nbsp; ');

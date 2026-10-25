@@ -2921,3 +2921,58 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .lwx-legend:empty { display: none; }
 [data-theme="light"] .lwx-btn, [data-theme="light"] .lwx-panel { background: rgba(241, 245, 249, 0.95); }
 [data-theme="light"] .lwx.on .lwx-btn { border-color: #0e7490; color: #0e7490; }
+.lwx-wind { background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px;
+            font-size: 11px; padding: 1px 4px; }
+/* hover read-out of a MEPS wind barb (Live Map, from 25 Oct 2026) */
+.lwx-tip { position: absolute; z-index: 1000; pointer-events: none; background: rgba(22, 32, 48, 0.94); color: var(--text-1);
+           border: 1px solid var(--border); border-radius: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.lwx-tip span { color: var(--text-3); }
+[data-theme="light"] .lwx-tip { background: rgba(241, 245, 249, 0.96); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GPS Quality / GPS Episodes switch (one GPS link in the navbar, 25 Oct 2026)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.gps-switch { display: inline-flex; flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.gps-switch-btn { padding: 2px 10px; font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--bg-3);
+                  text-decoration: none; line-height: 1.6; }
+.gps-switch-btn + .gps-switch-btn { border-left: 1px solid var(--border); }
+.gps-switch-btn:hover { color: var(--text-1); }
+.gps-switch-btn.active { background: var(--accent); color: #fff; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Statistics page (stats.html / stats.js, 25 Oct 2026)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mst-page { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--bg-0); }
+.mst-bar { flex-wrap: wrap; row-gap: 4px; }
+.mst-ok { color: var(--green) !important; }
+.mst-warn { color: var(--amber) !important; }
+.mst-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px; padding: 8px; align-items: start; }
+.mst-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mst-panel { background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mst-panel .gps-panel-hdr { flex-wrap: wrap; row-gap: 4px; }
+.mst-hdr-note { margin-left: auto; color: var(--text-3); font-size: 11px; }
+.mst-chart-wrap { position: relative; height: 230px; padding: 6px 8px 4px; }
+.mst-table-wrap { overflow-x: auto; }
+.mst-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mst-table th { text-align: left; font-weight: 600; font-size: 11px; color: var(--text-3); padding: 4px 8px;
+                border-bottom: 1px solid var(--border); white-space: nowrap; }
+.mst-table td { padding: 3px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); color: var(--text-1); }
+.mst-table tr:last-child td { border-bottom: none; }
+.mst-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mst-table th.num { text-align: right; }
+.mst-code { font-family: "Courier New", monospace; font-weight: 700; color: var(--accent) !important; white-space: nowrap; }
+.mst-empty { color: var(--text-3) !important; text-align: center; font-style: italic; }
+.mst-dim td { color: var(--text-3); }
+.mst-sep td { border-top: 1px solid var(--border); }
+.mst-kv td:first-child { color: var(--text-2); }
+.mst-bar-cell { display: block; width: 70px; height: 7px; background: var(--bg-3); border-radius: 3px; overflow: hidden; }
+.mst-fill { display: block; height: 100%; background: var(--accent); }
+.mst-fill.mst-fill-b { background: var(--green); }
+.mst-fill.mst-fill-g { background: var(--purple); }
+.mst-hist { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; width: 120px; vertical-align: middle; }
+.mst-hist span { flex: 1; min-height: 1px; background: var(--accent); border-radius: 1px 1px 0 0; }
+.mst-foot { padding: 6px 10px 8px; font-size: 11px; line-height: 1.45; color: var(--text-2); border-top: 1px solid var(--border); }
+.mst-stations span { display: inline-block; margin: 1px 6px 1px 0; font-family: "Courier New", monospace; color: var(--text-1); }
+@media (max-width: 1500px) { .mst-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px)  { .mst-body { grid-template-columns: minmax(0, 1fr); } }

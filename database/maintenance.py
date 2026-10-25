@@ -417,6 +417,7 @@ def purge_approach_data(conn, days: int) -> dict:
         "DELETE FROM approach_history WHERE ts < ?", (cutoff,)
     ).rowcount
     conn.execute("DELETE FROM approach_series WHERE ts < ?", (cutoff,))
+    conn.execute("DELETE FROM go_arounds WHERE ts < ?", (cutoff,))
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows", deleted)
     return {"approaches_deleted": deleted}
@@ -445,6 +446,8 @@ def purge_approach_date_range(conn, date_from: str, date_to: str) -> dict:
         (date_from, date_to),
     ).rowcount
     conn.execute("DELETE FROM approach_series WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+                 (date_from, date_to))
+    conn.execute("DELETE FROM go_arounds WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
                  (date_from, date_to))
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows (%s – %s)",

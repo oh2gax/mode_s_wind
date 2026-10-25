@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px)
+## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px; Mode S & ADS-B Statistics page; one GPS link; go-arounds kept for 24 h and stored; MEPS wind barbs on the Live Map)
 
 ### About window
 - New **About** button in the navbar, right of the version / What's new button: opens a window in the What's new style with the author (Otso Laakso / OH2GAX, Vantaa, Finland; email and LinkedIn links), the receiver site (Jetvision Radarcape, Tuusula, Finland, KP20MJ), a description written for the first testers (meteorologists and scientists): what MODE-S Wind is and the registers used, how the observations are made with verification figures, the derived products (soundings with automatic analysis, temperature anomaly, lapse rate, vertical motion, vorticity, height change, thickness temperature, Wind Map analyses, airport boundary-layer profiles, humidity trial), windshear detection v2 with its references, why it is interesting, special credits, the pages, and the copyright / GPLv3 / GitHub line. Closes with ×, Esc or a click outside.
@@ -21,6 +21,23 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - The UTC clock hides its date below 1 550 px (was 1 400 px); the date stays in the tooltip.
 - Below 1 300 px: a little less padding in the navbar, the page links and the configuration badges, and a smaller brand name. The navbar now fits at 1 280 px (it was 26 px too wide there already before the About button).
 - The theme / What's new / About buttons keep a small even gap at all widths (below 1 300 px the What's new button overlapped the theme button by a few pixels).
+- **GPS Quality and GPS Episodes share one GPS link**; both pages have a *Quality / Episodes* switch at the top left of their control bar. This makes room for the new **Statistics** link.
+
+### Mode S & ADS-B Statistics page
+- New page `/stats` (`web/templates/stats.html`, `static/js/stats.js`) and API `/api/msgstats?window=1…60` (`web/app.py`): what the receiver hears, polled every 10 s (paused in hidden tabs); window 1 min / 10 min / 1 h (remembered in the browser).
+- Sections: summary bar (messages/s, aircraft, ADS-B, EHS, EHS aircraft without BDS 5,0 for > 30 s, MLAT / ADS-B positions, feed state); message-rate chart (1 h per 10 s, 24 h per minute; series: messages, formats, registers, aircraft, median BDS 5,0 interval per phase, interrogators heard); downlink formats; Comm-B registers (rate, share, aircraft, ambiguous inferences, unverified addresses); ADS-B type codes, velocity subtypes, GNSS − baro share, versions; **reply cadence per aircraft** for BDS 5,0 / 6,0 / 4,0 / 2,0, DF4/5 and ADS-B position / velocity by flight phase (final / terminal / en route: median, p90, histogram, near-duplicates, gaps); **interrogators** from the DF11 all-call replies (interrogator code from the CRC remainder: II 1–15 / SI 1–63, acquisition squitters apart, codes heard earlier but not in the window), reservation subfields (UM IIS / IDS); meteo yield per BDS 5,0 / 6,0 reply (wind computed, partner too old, no wind), MRAR / MHR; the Radarcape aircraft list (entries, MLAT / ADS-B positions, polls, errors, blocked ground stations it lists).
+- Counting in the new module `collector/msg_stats.py` (RAM only, no database writes; per-minute records for 1 h, a compact per-minute series for 24 h; own CRC-24 table), hooked into `collector/receiver.py` (every frame, decoded message, decode errors, blocked addresses, meteo yield) and `collector/radarcape_json.py` (each poll). A few microseconds per message.
+
+### Live Map: MEPS wind barbs
+- The ☂ weather panel has a new **Wind** row, independent of the source: *Off* / **10 m** (with an optional **Gusts** shading) / **FL50** / **FL100** / **FL200** / **FL300** / **FL340** / **FL390**. Barbs thinned to about 50 px, muted colours, in their own pane above the weather and under the aircraft; hovering a barb shows wind, temperature or gust, run and position; status line and button chip (`· Wind FL300`).
+- 10 m from the stored weather maps (`/api/weather/frames`, fields `u,v,g`, 20 km); flight levels from the stored Wind Map MEPS fields (± 300 km): new `collector/meps.py` `level_frame()` (ISA pressure of the level, log-p interpolation, nearest stored hour, cached) and API `/api/meps/winds?fl=`. Nothing new is downloaded or stored.
+- `static/js/wx_layer.js`: options `barb` (colours) and `windLabel`, `barbAt()` for the hover, `t` in the values; `static/js/live_wx.js`: the radar, the model weather and the wind load side by side, and a change during a load is applied after it; `static/css/style.css`.
+
+### Windshear page: go-arounds after a reopen, stored go-arounds
+- The alert log shows the go-arounds of the last 24 h, also those before the page was opened (before: only those of the page session); the hover says *Nth go-around of this flight* and gives the aircraft type and a windshear level active at that moment.
+- The server keeps up to 50 go-arounds (was 20) and sends those of the last 24 h; each go-around is written to the new table **`go_arounds`** (ts, icao, callsign, type, runway, altitude, count, low, active windshear level; a few rows a day) and the last 24 h are loaded at startup, so they survive a restart — and the table starts a go-around history for the windshear validation. Deleted with the approach history (Maintenance purges, Approach History *Clear*).
+- `collector/windshear.py` (`on_go_around` callback, `preload_ga_events`), `run.py`, `database/schema.sql`, `database/maintenance.py`, `web/app.py`, `static/js/windshear.js`.
+- Windshear user guide **version 1.4**: the log shows the go-arounds of the last 24 h and they are stored; the Statistics page shows the current reply cadence.
 
 ---
 

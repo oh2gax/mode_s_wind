@@ -1005,6 +1005,52 @@ def map_cells(db, alt_ft: float, start_ts: float, end_ts: float, cell_km: float,
             "source": "MEPS (MET Norway, CC BY 4.0)"}
 
 
+_lvl_frame_cache: dict = {}   # (ts, run, lead, fl) → frame (Live Map wind barbs)
+
+
+def level_frame(db, fl: int, now: float | None = None) -> dict:
+    """The model wind and temperature at flight level fl (pressure altitude
+    fl × 100 ft, ISA pressure, ln p between the stored levels) on every point
+    of the stored Wind Map box (± 300 km around the receiver, 20 km) for the
+    stored hour nearest to now (within 90 min) — for the wind barbs of the Live
+    Map weather overlay (from 2026-10-25).  Nothing is fetched: the hours are
+    those stored for the Wind Map (meps_map_hours).
+    {"ts", "run", "lead", "fl", "p_hpa", "grid": {"x", "y"}, "u", "v" (kt, true
+    north), "t" (°C) lists in grid order (None where missing)} or {"error"}."""
+    import time as _t
+    now = _t.time() if now is None else now
+    p_hpa = _isa_p(fl * 100.0)
+    try:
+        row = db.execute("SELECT ts, run, lead FROM meps_map_hours ORDER BY ABS(ts - ?) LIMIT 1",
+                         (int(now),)).fetchone()
+    except Exception:                                    # noqa: BLE001  (table missing)
+        row = None
+    if not row or abs(row[0] - now) > 5400:
+        return {"error": "no MEPS upper-air hours stored near now (Wind Map MEPS fields, MEPS_MAP)"}
+    ts, run, lead = row
+    key = (ts, run, lead, int(fl))
+    c = _lvl_frame_cache.get(key)
+    if c is not None:
+        return c
+    e = _map_hour(db, ts, run, lead)
+    if e is None:
+        return {"error": "stored hour not readable"}
+    vals = _at_pressure(e, p_hpa)
+    if vals is None:
+        return {"error": f"FL{fl} is outside the stored levels"}
+    meta = e[2]
+    out = {"ts": ts, "run": run, "lead": lead, "fl": int(fl), "p_hpa": round(p_hpa, 1),
+           "grid": {"x": meta["x"], "y": meta["y"]},
+           "u": [None if v is None else round(v[0], 1) for v in vals],
+           "v": [None if v is None else round(v[1], 1) for v in vals],
+           "t": [None if v is None else round(v[2], 1) for v in vals],
+           "source": "MEPS (MET Norway, CC BY 4.0)"}
+    if len(_lvl_frame_cache) > 24:
+        _lvl_frame_cache.clear()
+    _lvl_frame_cache[key] = out
+    return out
+
+
 # ── MEPS check (Mode S minus MEPS) ──────────────────────────────────────────
 
 def _isa_p(ft: float) -> float:

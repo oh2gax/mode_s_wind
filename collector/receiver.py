@@ -30,6 +30,7 @@ from collector.wind_calc import try_compute_wind
 from collector.declination import declination as mag_declination_at
 from collector import aircraft_db
 from collector import heading_cal
+from collector import msg_stats
 from collector.height_series import HeightSeries
 from collector.writer import BatchWriter
 from database.db import get_db
@@ -423,33 +424,42 @@ def run_collector(
     wind_max_age = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0))
     # Dense pressure-altitude / GNSS − baro series per visit (height_series)
     hseries = HeightSeries(enabled=bool(getattr(cfg, "HEIGHT_SERIES", True)))
+    # Message statistics of the Statistics page (collector/msg_stats.py, RAM only)
+    mstats = msg_stats.get()
+    mstats.airport = (cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON)
 
     while True:
         try:
             source = NetworkSource(cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
             log.info("Connected to Radarcape at %s:%d",
                      cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
+            mstats.connected()
 
             msg_count = 0
             stats_next = time.time() + STATS_LOG_SEC
             stats_count = 0
             for msg_hex, ts in source:
                 msg_count += 1
+                mstats.raw(ts, msg_hex)
 
                 # ── Decode with pyModeS PipeDecoder ──────────────────────
                 try:
                     result = pipe.decode(msg_hex, timestamp=ts)
                 except Exception as exc:
                     log.debug("Decode error: %s", exc)
+                    mstats.count("dec_err")
                     continue
 
                 if result.get("error"):
+                    mstats.count("err")
                     continue
 
                 icao = result.get("icao", "")
                 if not icao:
+                    mstats.count("err")
                     continue
                 if is_blocked_icao(icao, cfg.BLOCKED_ICAO_PREFIXES):
+                    mstats.count("blocked")
                     continue
 
                 df = result.get("df", 0)
@@ -483,6 +493,13 @@ def run_collector(
                 # best available altitude for the wind calculation.
                 with live_lock:
                     cached = dict(live_state.get(icao, {}))
+                try:
+                    mstats.message(ts, msg_hex, result,
+                                   result.get("altitude") if result.get("altitude") is not None
+                                   else cached.get("altitude"),
+                                   cached.get("lat"), cached.get("lon"))
+                except Exception as exc:                    # noqa: BLE001
+                    log.debug("Message statistics error: %s", exc)
 
                 # Best altitude: prefer freshly decoded, fall back to cache
                 current_altitude = (result.get("altitude") if result.get("altitude") is not None
@@ -682,9 +699,23 @@ def run_collector(
                 # A computed wind / Mach-TAS temperature from replies older
                 # than WIND_MAX_AGE_SEC is not stored: it would be written at
                 # the aircraft's current altitude, not where it was measured.
-                if (wind and obs.get("wind_ts") is not None
-                        and ts - obs["wind_ts"] > wind_max_age):
+                _stale = (wind and obs.get("wind_ts") is not None
+                          and ts - obs["wind_ts"] > wind_max_age)
+                if _stale:
                     obs = _without_stale_wind(obs, mrar, mhr)
+                if bds in ("5,0", "6,0"):        # a new BDS 5,0 / 6,0 reply: did it give a wind?
+                    if not wind:
+                        mstats.meteo("nowind")
+                    elif _stale:
+                        mstats.meteo("wind_old")
+                    else:
+                        mstats.meteo("wind")
+                        if obs.get("tm_temp") is not None:
+                            mstats.meteo("temp")
+                if mrar is not None:
+                    mstats.meteo("mrar")
+                elif mhr is not None:
+                    mstats.meteo("mhr")
                 if _is_worth_storing(obs):
                     writer.add(obs)
 

@@ -349,6 +349,25 @@ def create_app(
                                episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
                                coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
 
+    @app.route("/stats")
+    def msgstats_page():
+        """Mode S & ADS-B Statistics page (from 2026-10-25): what the receiver
+        hears — downlink formats, ADS-B type codes, Comm-B registers, the reply
+        cadence per flight phase, the interrogators (DF11) and the meteo yield."""
+        return render_template("stats.html", airport_icao=cfg.AIRPORT_ICAO)
+
+    @app.route("/api/msgstats")
+    def msgstats_api():
+        """Message statistics of the last `window` minutes (1–60, default 10)
+        plus the 1-h rate series and the 24-h trend (collector/msg_stats.py,
+        RAM only; the page polls every 10 s)."""
+        from collector import msg_stats
+        try:
+            window = int(request.args.get("window", 10))
+        except ValueError:
+            window = 10
+        return jsonify(msg_stats.get().snapshot(window))
+
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.
     # Used by the windshear map to load ILS centrelines and airport outlines.
@@ -873,6 +892,18 @@ def create_app(
         at = request.args.get("at", type=float) or _t.time()
         return jsonify(_meps.profile(get_db(), at))
 
+    @app.route("/api/meps/winds")
+    def meps_winds_api():
+        """MEPS wind and temperature at ?fl=<flight level> (10–450) for the
+        stored hour nearest to now, on the Wind Map box (± 300 km, 20 km grid),
+        for the Live Map weather overlay's wind barbs (collector/meps.py
+        level_frame; stored data only, nothing is fetched)."""
+        from collector import meps as _meps
+        fl = request.args.get("fl", type=int)
+        if fl is None or not 10 <= fl <= 450:
+            return jsonify({"error": "fl 10–450"}), 400
+        return jsonify(_meps.level_frame(get_db(), fl))
+
     @app.route("/api/meps/check")
     def meps_check_api():
         """Mode S minus MEPS over the last ?days= (1–90, default 7), every hour
@@ -1161,6 +1192,7 @@ def create_app(
         db = get_db()
         db.execute("DELETE FROM approach_history")
         db.execute("DELETE FROM approach_series")
+        db.execute("DELETE FROM go_arounds")
         db.commit()
         return jsonify({"ok": True})
 

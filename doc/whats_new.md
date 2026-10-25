@@ -3,10 +3,15 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.25102026 — About window
+## v.25102026 — About window, Statistics page, go-arounds kept for 24 hours, model winds on the Live Map
 
 - **About**: the new button right of the version (**What's new**) opens a window with who made MODE-S Wind and how to reach him, where the receiver is, and a description for meteorologists and scientists: how the wind, temperature and pressure-surface heights are measured and verified, the derived products (temperature anomaly, lapse rate, vertical motion, vorticity, …), the new windshear detection, why the system is interesting, and special credits to Siebren de Haan (KNMI) and Junzi Sun (TU Delft, pyModeS), whose work this system builds on. On smaller screens it is a small **i**.
 - The top bar now fits also on 1 280 px wide screens; below 1 550 px the clock shows the time only (hover it for the date).
+- **New Statistics page**: what the receiver hears from the aircraft, updated every 10 seconds — messages per second, the message formats, which Comm-B registers the aircraft are asked for, the ADS-B messages, and **how often each aircraft answers** on final, in the terminal area and en route (the rhythm of the WAM and radar interrogations behind the wind and windshear data). It also lists the **ground interrogators** whose all-call replies are heard, so a change in the ground system shows up, and how many winds the replies give.
+- **Model winds on the Live Map**: the ☂ weather panel has a new **Wind** choice — the MEPS model's 10 m wind (with gusts if you like) or its wind at **FL50, FL100, FL200, FL300, FL340 or FL390** (within about 300 km of the receiver). The barbs are drawn in a muted grey under the aircraft, so you can compare the model with the winds the aircraft measure; hover a barb for its wind and temperature. It works with the radar too.
+- **GPS Quality and GPS Episodes now share one GPS link** in the top bar; switch between them with *Quality / Episodes* at the top left of the page.
+- **Go-arounds stay in the Windshear alert log for 24 hours** — also when you open the page later or after a restart of the server — and are stored with the windshear level active at that moment, so they can later be compared with the alerts.
+- The Windshear user guide (version 1.4) is updated for these.
 
 ## v.24102026 — New windshear detection; the old algorithms are retired; wind and gusts on the Weather page; upper-level temperatures corrected; MEPS in the Indices panel and in the Skew-T analysis
 

@@ -14,18 +14,32 @@
  * each full hour, and when a newer model run has been stored (the index is
  * read every 5 minutes).  All choices are remembered in the browser; with the
  * panel closed the button shows what is on.
+ *
+ * Wind (from 2026-10-25): a Wind row, independent of the source, draws MEPS
+ * wind barbs in their own pane above the weather — the 10 m wind (with the
+ * gust shading if ticked) from the stored weather maps (whole MEPS area), or
+ * the wind at FL50 / 100 / 200 / 300 / 340 / 390 from the stored Wind Map
+ * fields (± 300 km around the receiver, /api/meps/winds).  Nothing extra is
+ * downloaded by the server.  Hovering a barb shows its wind and temperature.
  */
 'use strict';
 
 (function () {
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
-  const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false };
+  const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
+                wind: 'off', gust: false };
+  const WIND_LEVELS = [['off', 'Off'], ['sfc', '10 m'], ['50', 'FL50'], ['100', 'FL100'], ['200', 'FL200'],
+                       ['300', 'FL300'], ['340', 'FL340'], ['390', 'FL390']];
   let st = Object.assign({}, DEF);
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* defaults */ }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* private mode */ } };
 
   const layer = WxLayer.create(map, { pane: 'wxPane', zIndex: 350, rainAlpha: 0.85, cloudMax: 0.45 });
+  // the MEPS wind barbs: own pane above the weather, under the aircraft; muted colours
+  // so they are not mistaken for the winds measured by the aircraft
+  const windLayer = WxLayer.create(map, { pane: 'wxWindPane', zIndex: 360, gustAlpha: 0.5,
+                                          barb: ['rgba(186,198,214,0.85)', 'rgba(51,65,85,0.8)'] });
   const pad2 = n => String(n).padStart(2, '0');
 
   // ── Control ──────────────────────────────────────────────────────────────
@@ -49,6 +63,12 @@
             <label title="Low cloud cover (grey, denser with more cloud)"><input type="checkbox" data-k="low"> Low cloud</label>
             <label title="Fog (yellow)"><input type="checkbox" data-k="fog"> Fog</label>
             <label title="Sea-level pressure: isobars every 4 hPa, highs H and lows L"><input type="checkbox" data-k="pres"> Isobars</label>
+          </div>
+          <div class="lwx-row"><span class="lwx-lbl">Wind</span>
+            <select class="lwx-wind" title="MEPS model wind barbs: the 10 m wind (whole map) or the wind at a flight level (± 300 km around the receiver; pressure altitude, ISA)">
+              ${WIND_LEVELS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
+            </select>
+            <label title="10 m gusts from 25 kt (with the 10 m wind)"><input type="checkbox" class="lwx-gust"> Gusts</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
             <input type="range" class="lwx-op" min="10" max="100" step="5"> <span class="lwx-opv"></span>
@@ -74,6 +94,8 @@
     if (fields() !== before) refresh(true); else applyOptions();
   }));
   q('.lwx-op').addEventListener('input', e => { st.op = parseInt(e.target.value, 10); save(); sync(); });
+  q('.lwx-wind').addEventListener('change', e => { st.wind = e.target.value; save(); windKey = ''; sync(); refresh(true); });
+  q('.lwx-gust').addEventListener('change', e => { st.gust = e.target.checked; save(); windKey = ''; sync(); refresh(true); });
 
   // ── State → page ─────────────────────────────────────────────────────────
   const useMeps = () => st.src === 'meps' || st.src === 'both';
@@ -93,9 +115,18 @@
     if (st.fog) f.push('f');
     return f.join(',');
   }
+  const windLabel = () => st.wind === 'sfc' ? '10 m wind' : `MEPS wind FL${st.wind}` + (windShown && windShown.p ? ` (${Math.round(windShown.p)} hPa)` : '');
+  function windOptions() {
+    return { rain: false, pres: false, clouds: [], wind: st.wind !== 'off', gust: st.wind === 'sfc' && !!st.gust,
+             windLabel: windLabel() };
+  }
   function applyOptions() {
     layer.setOptions(options());
-    q('.lwx-legend').innerHTML = st.src === 'off' ? '' : WxLayer.legendHtml(options());
+    windLayer.setOptions(windOptions());
+    const parts = [];
+    if (st.src !== 'off') parts.push(WxLayer.legendHtml(options()));
+    if (st.wind !== 'off') parts.push(WxLayer.legendHtml(windOptions()));
+    q('.lwx-legend').innerHTML = parts.join(' &nbsp;·&nbsp; ');
   }
   let shown = null;          // {ts, run, lead} of the MEPS hour shown
   let radarShown = null;     // {ts} of the radar composite shown
@@ -110,22 +141,30 @@
     q('.lwx-op').value = st.op; q('.lwx-opv').textContent = `${st.op} %`;
     layer.setOpacity(st.op / 100);
     layer.show(st.src !== 'off');
+    q('.lwx-wind').value = st.wind;
+    q('.lwx-gust').checked = !!st.gust;
+    q('.lwx-gust').disabled = st.wind !== 'sfc';
+    windLayer.show(st.wind !== 'off');
     const chip = q('.lwx-chip');
     const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
     const rTxt = () => radarShown ? `Radar ${fmtUtc(radarShown.ts)}` : 'Radar …';
-    if (st.src === 'off') chip.textContent = 'Weather';
-    else if (st.src === 'radar') chip.textContent = `${rTxt()} UTC`;
-    else if (st.src === 'meps') chip.textContent = `${mTxt()} UTC`;
-    else chip.textContent = `${rTxt()} + ${mTxt()} UTC`;
-    el.classList.toggle('on', st.src !== 'off');
+    let txt;
+    if (st.src === 'off') txt = st.wind === 'off' ? 'Weather' : '';
+    else if (st.src === 'radar') txt = `${rTxt()} UTC`;
+    else if (st.src === 'meps') txt = `${mTxt()} UTC`;
+    else txt = `${rTxt()} + ${mTxt()} UTC`;
+    if (st.wind !== 'off') txt += (txt ? ' · ' : '') + 'Wind ' + (st.wind === 'sfc' ? '10 m' : 'FL' + st.wind);
+    chip.textContent = txt;
+    el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off');
     applyOptions();
   }
 
   // ── Data ─────────────────────────────────────────────────────────────────
   let index = null, indexAt = 0, busy = false, fetchedKey = '';
   let radarAt = 0, radarTs = null;
-  let mepsStatus = '', radarStatus = '';
-  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus].filter(Boolean).join('<br>'); };
+  let mepsStatus = '', radarStatus = '', windStatus = '';
+  let windShown = null, windKey = '', windAt = 0;     // {ts, run, lead, p} of the wind shown
+  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus, windStatus].filter(Boolean).join('<br>'); };
 
   async function loadRadar(force) {
     const nowMs = Date.now();
@@ -148,12 +187,58 @@
     }
   }
 
-  async function loadMeps(force) {
+  async function getIndex(force) {
     const nowMs = Date.now();
     if (force || !index || nowMs - indexAt > 5 * 60 * 1000) {
       index = (await (await fetch('/api/weather/index', { cache: 'no-store' })).json()).hours || [];
       indexAt = nowMs;
     }
+    return index;
+  }
+
+  // MEPS wind barbs: 10 m from the weather maps, flight levels from the Wind Map fields
+  async function loadWind(force) {
+    const nowMs = Date.now(), now = nowMs / 1000;
+    if (st.wind === 'sfc') {
+      const idx = await getIndex(force);
+      if (!idx.length) { windShown = null; windLayer.setFrame(null); windStatus = 'MEPS 10 m wind: no weather maps stored yet.'; return; }
+      const h = idx.find(x => x[0] >= now) || idx[idx.length - 1];
+      const fl = st.gust ? 'u,v,g' : 'u,v';
+      const key = `sfc|${h[0]}|${h[1]}|${h[2]}|${fl}`;
+      if (force || key !== windKey) {
+        const d = await (await fetch(`/api/weather/frames?ts=${h[0]}&step=2&fields=${fl}`)).json();
+        const f = (d.frames || [])[0];
+        if (f) { windLayer.setFrame(f, d.grid); windKey = key; windShown = { ts: f.ts, run: f.run, lead: f.lead }; }
+      }
+    } else {
+      if (!force && windKey.startsWith(st.wind + '|') && nowMs - windAt < 10 * 60 * 1000) return;
+      windAt = nowMs;
+      const d = await (await fetch(`/api/meps/winds?fl=${st.wind}`)).json();
+      if (d.error || !d.u) {
+        windShown = null; windKey = ''; windLayer.setFrame(null);
+        windStatus = `MEPS wind FL${st.wind}: ${d.error || 'not available'}.`;
+        return;
+      }
+      const key = `${st.wind}|${d.ts}|${d.run}|${d.lead}`;
+      if (force || key !== windKey) {
+        windLayer.setFrame({ u: d.u, v: d.v, t: d.t }, d.grid);
+        windKey = key;
+        windShown = { ts: d.ts, run: d.run, lead: d.lead, p: d.p_hpa };
+      }
+    }
+    if (windShown) {
+      const r = new Date(windShown.run * 1000), t = new Date(windShown.ts * 1000);
+      const lvl = st.wind === 'sfc' ? '10 m wind' + (st.gust ? ' and gusts' : '') + `, hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC`
+        : `wind FL${st.wind} (${Math.round(windShown.p)} hPa) at ${pad2(t.getUTCHours())} UTC · ± 300 km around the receiver`;
+      windStatus = `MEPS ${lvl} · ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${windShown.lead} h` +
+        (windShown.ts < now - 5400 ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
+        ' · model barbs (muted), not aircraft · MET Norway, CC BY 4.0';
+    }
+  }
+
+  async function loadMeps(force) {
+    const nowMs = Date.now();
+    await getIndex(force);
     if (!index.length) {
       shown = null; fetchedKey = ''; layer.setFrame(null);
       mepsStatus = 'No MEPS weather maps stored yet (see the Weather page).';
@@ -179,20 +264,26 @@
     }
   }
 
+  let pending = false;
   async function refresh(force = false) {
-    if (busy) return;
+    if (busy) { pending = true; return; }          // a change during a load: load again after it
     busy = true;
     try {
       if (!useMeps()) { shown = null; fetchedKey = ''; mepsStatus = ''; layer.setFrame(null); }
       if (!useRadar()) { radarShown = null; radarTs = null; radarStatus = ''; layer.setOverlay(null); }
-      if (useRadar()) await loadRadar(force);
-      if (useMeps()) {
-        try { await loadMeps(force); }
-        catch (e) { console.warn('Weather overlay:', e); mepsStatus = 'MEPS: loading failed, trying again in a minute.'; }
-      }
+      // radar, model weather and model wind load side by side (a slow radar does not hold up the rest)
+      const jobs = [];
+      if (useRadar()) jobs.push(loadRadar(force).catch(e => { console.warn('Radar overlay:', e); }));
+      if (useMeps()) jobs.push(loadMeps(force).catch(e => {
+        console.warn('Weather overlay:', e); mepsStatus = 'MEPS: loading failed, trying again in a minute.'; }));
+      if (st.wind === 'off') { windShown = null; windKey = ''; windStatus = ''; windLayer.setFrame(null); }
+      else jobs.push(loadWind(force).catch(e => {
+        console.warn('Wind overlay:', e); windStatus = 'MEPS wind: loading failed, trying again in a minute.'; }));
+      await Promise.all(jobs);
       showStatus(); sync();
     } finally {
       busy = false;
+      if (pending) { pending = false; refresh(true); }
     }
   }
   setInterval(() => { if (!document.hidden) refresh(false); }, 60 * 1000);
@@ -200,7 +291,27 @@
 
   // the page's Light / Dark button: redraw with the other colours too
   const prevTheme = window.onThemeChange;
-  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); applyOptions(); };
+  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); applyOptions(); };
+
+  // hover a model barb: its wind (and temperature at a flight level)
+  const tip = L.DomUtil.create('div', 'lwx-tip', map.getContainer());
+  tip.style.display = 'none';
+  map.on('mousemove', e => {
+    if (st.wind === 'off' || !windShown) { tip.style.display = 'none'; return; }
+    const b = windLayer.barbAt(e.containerPoint);
+    if (!b) { tip.style.display = 'none'; return; }
+    const v = b.values, sp = Math.hypot(v.u, v.v);
+    const wTxt = sp < 1 ? 'calm' : `${String(Math.round(b.dir) % 360 || 360).padStart(3, '0')}°/${Math.round(sp)} kt`;
+    const r = new Date(windShown.run * 1000);
+    const lvl = st.wind === 'sfc' ? '10 m' : `FL${st.wind} (${Math.round(windShown.p)} hPa)`;
+    tip.innerHTML = `<b>MEPS ${lvl}</b>: ${wTxt}` + (v.t != null ? `, ${v.t.toFixed(0)} °C` : '') +
+      (v.g != null ? `, gust ${Math.round(v.g)} kt` : '') +
+      `<br><span>run ${pad2(r.getUTCHours())} UTC +${windShown.lead} h · ${b.latlng[0].toFixed(2)}°N ${b.latlng[1].toFixed(2)}°E</span>`;
+    tip.style.display = '';
+    tip.style.left = (e.containerPoint.x + 14) + 'px';
+    tip.style.top = (e.containerPoint.y + 10) + 'px';
+  });
+  map.on('mouseout zoomstart movestart', () => { tip.style.display = 'none'; });
 
   sync();
   refresh(true);

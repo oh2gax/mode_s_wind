@@ -399,6 +399,27 @@ CREATE TABLE IF NOT EXISTS departure_profiles (
 );
 CREATE INDEX IF NOT EXISTS idx_depprof_ts ON departure_profiles(ts);
 
+-- ── go_arounds ────────────────────────────────────────────────────────────────
+-- One row per go-around detected by the windshear tracker (from 2026-10-25,
+-- collector/windshear.py): the Windshear page's alert log shows those of the
+-- last 24 h also after a restart, and it is a go-around history for the
+-- windshear validation (ws = the highest windshear level active at that moment
+-- for the aircraft or its runway).  A few rows a day, about 0.1 kB each; never
+-- auto-purged (with approach_history in the Maintenance purges and Clear).
+CREATE TABLE IF NOT EXISTS go_arounds (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            REAL    NOT NULL,   -- time the go-around was confirmed
+    icao          TEXT    NOT NULL,
+    callsign      TEXT,
+    aircraft_type TEXT,
+    runway        TEXT,
+    alt_ft        INTEGER,            -- altitude when confirmed (ft)
+    count         INTEGER,            -- go-around number of this flight (1, 2, …)
+    low           INTEGER NOT NULL DEFAULT 0,   -- 1 = climb-out at / after the threshold
+    ws            TEXT                -- none / adv / wsa / mba active at that moment
+);
+CREATE INDEX IF NOT EXISTS idx_go_arounds_ts ON go_arounds(ts);
+
 -- ── sonde_verification ───────────────────────────────────────────────────────
 -- Mode S area profile vs the radiosonde (collector/sonde_verif.py, written by
 -- the hourly jobs thread): kind 'launch' = area profile of ±1 h around a

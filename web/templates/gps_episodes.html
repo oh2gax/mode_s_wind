@@ -6,6 +6,10 @@
 
   <!-- ── Control bar: time window / date + filters ─────────────────────── -->
   <div class="gps-summary-bar gpe-bar">
+  <!-- GPS Quality / GPS Episodes switch (one GPS link in the navbar, from 25 Oct 2026) -->
+  <span class="gps-switch" role="tablist">
+    <a href="/gps" class="gps-switch-btn">Quality</a><a href="/gps-episodes" class="gps-switch-btn active">Episodes</a>
+  </span>
     <span class="gpe-ctrl">
       <span class="gps-summary-label">Window</span>
       <span class="gps-range-btns gpe-window-btns" id="gpe-window-btns">

@@ -1544,10 +1544,12 @@ function renderWsLog() {
   const el = document.getElementById('ws-ws-log-entries');
   if (!el) return;
 
-  // Windshear alerts from the server log (last 24 h) + go-arounds of this page session
+  // Windshear alerts from the server log (last 24 h) + go-arounds (last 24 h, from 25 Oct 2026
+  // also those before the page was opened or the server restarted)
   const ws = wsServerLog.filter(e => e.ts > wsLogClearedAt)
     .map(e => ({ ...mapWsEvent(e), _type: 'ws', _ts: e.ts * 1000, _time: _hms(e.ts) }));
-  const all = ws.concat(wsLog.filter(e => e._ts / 1000 > wsLogClearedAt))
+  const gaCut = Math.max(wsLogClearedAt, Date.now() / 1000 - 86400);
+  const all = ws.concat(wsLog.filter(e => e._ts / 1000 > gaCut))
     .sort((a, b) => b._ts - a._ts).slice(0, WS_LOG_MAX);
 
   if (all.length === 0) {
@@ -1561,7 +1563,8 @@ function renderWsLog() {
     // ── Go-around entry (compact) ─────────────────────────────────────────
     if (e._type === 'go_around') {
       const lowTxt = e.low ? '\nClimb-out at / after the threshold (low go-around or touch-and-go)' : '';
-      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} this session\nAlt: ${e.alt_ft} ft${lowTxt}\nAircraft: ${e.callsign || e.icao}`;
+      const wsTxt = e.ws && e.ws !== 'none' && WS_LEVEL[e.ws] ? `\n${WS_LEVEL[e.ws].name} active at that moment` : '';
+      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} go-around of this flight\nAlt: ${e.alt_ft} ft${lowTxt}${wsTxt}\nAircraft: ${e.callsign || e.icao}${e.ac_type ? '  ' + e.ac_type : ''}`;
       return `<div class="ws-log-entry-compact ws-log-ga"
   data-tip="${tip.replace(/"/g,'&quot;')}"
 >${e._time} ✈ GA ${e.rwy}${e.low ? ' low' : ''}  ${e.callsign || e.icao}</div>`;
@@ -1727,20 +1730,19 @@ function renderTodayStats(approaches) {
 
 /**
  * Add go-around events from the server to the shared log.
- * Deduplicates by icao + count using a persistent Set that survives log
+ * Deduplicates by icao + time using a persistent Set that survives log
  * clears — this prevents cleared GA entries from bouncing back on the next
  * poll cycle (the server keeps returning the same events from RAM).
  * GA events are always logged regardless of whether windshear detection
  * is enabled.
  */
 const wsGaSeenKeys   = new Set();          // persists across Clear button presses
-const wsSessionStart = Date.now() / 1000;  // Unix seconds — gate for historical events
 
 function addGaToWsLog(events) {
   if (!events || events.length === 0) return;
   for (const ev of events) {
-    if (ev.ts < wsSessionStart) continue;  // occurred before this page session — skip
-    const key = `ga:${ev.icao}:${ev.count}`;
+    if (ev.ts < Date.now() / 1000 - 86400) continue;   // older than the 24 h log
+    const key = `ga:${ev.icao}:${Math.round(ev.ts)}`;
     if (wsGaSeenKeys.has(key)) continue;   // already seen — don't re-add after clear
     wsGaSeenKeys.add(key);
 

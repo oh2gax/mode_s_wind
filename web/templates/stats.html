@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Statistics – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="mst-page">
+
+  <!-- ── Summary bar ──────────────────────────────────────────────────────── -->
+  <div class="gps-summary-bar mst-bar">
+    <span class="gps-summary-item" title="All frames from the Radarcape Beast feed in the last complete 10 seconds">
+      <span class="gps-summary-label">Messages/s</span>
+      <span class="gps-summary-val" id="mst-k-rate">—</span>
+    </span>
+    <span class="gps-summary-item" title="Distinct aircraft addresses heard in the window">
+      <span class="gps-summary-label">Aircraft</span>
+      <span class="gps-summary-val" id="mst-k-ac">—</span>
+    </span>
+    <span class="gps-summary-item" title="Aircraft that sent ADS-B extended squitters (DF17) in the window">
+      <span class="gps-summary-label">ADS-B</span>
+      <span class="gps-summary-val" id="mst-k-adsb">—</span>
+    </span>
+    <span class="gps-summary-item" title="Aircraft that answered BDS 5,0 or 6,0 (Enhanced Surveillance) in the window">
+      <span class="gps-summary-label">EHS</span>
+      <span class="gps-summary-val" id="mst-k-ehs">—</span>
+    </span>
+    <span class="gps-summary-item" title="Aircraft heard in the last 10 s that answered BDS 5,0 within the last 30 s (being interrogated now) / those whose last BDS 5,0 is 30 s – 10 min old (not interrogated for EHS at the moment, or their replies are not heard here)">
+      <span class="gps-summary-label">EHS now / silent &gt; 30 s</span>
+      <span class="gps-summary-val" id="mst-k-ehsnow">—</span>
+    </span>
+    <span class="gps-summary-item" title="Positions in the Radarcape aircraft list in the last poll: multilateration (MLAT) / ADS-B">
+      <span class="gps-summary-label">MLAT / ADS-B pos</span>
+      <span class="gps-summary-val" id="mst-k-mlat">—</span>
+    </span>
+    <span class="gps-summary-item" title="Time since the last frame from the feed; connection uptime and the number of (re)connections since the server started">
+      <span class="gps-summary-label">Feed</span>
+      <span class="gps-summary-val" id="mst-k-feed">—</span>
+    </span>
+    <span class="gps-zone-wrap">
+      <span class="gps-summary-label">Window</span>
+      <span class="gps-zone-btns" id="mst-win-btns">
+        <button class="gps-zone-btn" data-win="1">1 min</button>
+        <button class="gps-zone-btn active" data-win="10">10 min</button>
+        <button class="gps-zone-btn" data-win="60">1 h</button>
+      </span>
+    </span>
+    <span class="gps-updated" id="mst-updated">Waiting…</span>
+  </div>
+
+  <div class="mst-body">
+
+    <!-- ── Column 1 ─────────────────────────────────────────────────────── -->
+    <div class="mst-col">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Message rate</span>
+          <span class="gps-heatmap-range-btns" id="mst-chart-range">
+            <button class="gps-range-btn active" data-range="1h" title="Messages per second, every 10 s">1 h</button>
+            <button class="gps-range-btn" data-range="24h" title="Per minute over the last 24 h (since the server started)">24 h</button>
+          </span>
+          <select id="mst-chart-series" class="gpe-input" title="Series of the 24 h chart">
+            <option value="rate">Messages/s</option>
+            <option value="formats">DF4/5 · DF11 · DF17 · DF20/21 (/s)</option>
+            <option value="regs">BDS 5,0 · 6,0 · 4,0 · 2,0 (/s)</option>
+            <option value="aircraft">Aircraft · EHS aircraft (per min)</option>
+            <option value="cad">BDS 5,0 interval, median (s)</option>
+            <option value="iid">Interrogators heard (per min)</option>
+          </select>
+        </div>
+        <div class="mst-chart-wrap"><canvas id="mst-chart"></canvas></div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Downlink formats</span>
+          <span class="mst-hdr-note" id="mst-df-note"></span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-df"></table></div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Meteo yield · Radarcape aircraft list</span></div>
+        <div class="mst-table-wrap" id="mst-meteo"></div>
+      </div>
+    </div>
+
+    <!-- ── Column 2 ─────────────────────────────────────────────────────── -->
+    <div class="mst-col">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Comm-B registers (EHS / ELS replies, DF20/21)</span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-bds"></table></div>
+        <div class="mst-foot" id="mst-bds-foot"></div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">ADS-B extended squitter (DF17)</span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-tc"></table></div>
+        <div class="mst-foot" id="mst-tc-foot"></div>
+      </div>
+    </div>
+
+    <!-- ── Column 3 ─────────────────────────────────────────────────────── -->
+    <div class="mst-col">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Reply cadence per aircraft (WAM / radar)</span>
+          <select id="mst-cad-kind" class="gpe-input" title="Register or message type">
+            <option value="5,0">BDS 5,0</option>
+            <option value="6,0">BDS 6,0</option>
+            <option value="4,0">BDS 4,0</option>
+            <option value="2,0">BDS 2,0</option>
+            <option value="surv">DF4/5 surveillance</option>
+            <option value="es_pos">ADS-B position</option>
+            <option value="es_vel">ADS-B velocity</option>
+          </select>
+        </div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-cad"></table></div>
+        <div class="mst-foot">Time between successive replies of the same aircraft as heard here.
+          <b>Final</b>: below 5 000 ft within 25 NM of EFHK; <b>terminal</b>: below 10 000 ft within 60 NM;
+          <b>en route</b>: the rest. Replies closer than 0.5 s are counted as near-duplicates (the same
+          register answered twice, e.g. to two interrogators), gaps over 60 s are not intervals. The
+          receiver hears the aircraft's replies (1090 MHz), not the interrogations (1030 MHz): a longer
+          interval can also be a reply that did not reach Tuusula.</div>
+      </div>
+
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Interrogators (DF11 all-call replies)</span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-iid"></table></div>
+        <div class="mst-foot" id="mst-iid-foot"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/stats.js') }}"></script>
+{% endblock %}

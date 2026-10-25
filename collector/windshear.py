@@ -90,7 +90,8 @@ GA_MIN_ALT_GAIN_FT   = 50.0   # minimum actual altitude gain (ft) required to co
 GA_CLIMB_FPM         = 600.0   # ft/min climb rate that triggers detection
 GA_MAX_ALT_FT        = 2_200.0 # altitude ceiling for detection
 GA_FLASH_SEC         = 60.0    # seconds to keep the GO-AROUND flag active
-GA_EVENTS_MAX        = 20      # maximum go-around events retained in RAM
+GA_EVENTS_MAX        = 50      # maximum go-around events retained in RAM (20 before 25 Oct 2026)
+GA_EVENTS_MAX_AGE    = 86_400.0 # … and only those of the last 24 h (shown in the alert log after a reopen)
 GA_COUNT_EXPIRY_SEC  = 7_200.0 # forget a go-around count 2 h after the go-around if
                                # the aircraft never came back to land (e.g. diverted),
                                # so its next visit is not shown as a "2nd APP"
@@ -407,6 +408,7 @@ class WindshearTracker:
         ga_flash_sec: float         = GA_FLASH_SEC,
         blocked_reg_prefixes: tuple = (),
         on_approach_committed       = None,
+        on_go_around                = None,
         bds_sample_fn               = None,
         vel_sample_fn               = None,
         mag_declination: float | None = None,
@@ -433,6 +435,9 @@ class WindshearTracker:
         self.ga_flash_sec         = ga_flash_sec
         self.blocked_reg_prefixes     = blocked_reg_prefixes
         self._on_approach_committed   = on_approach_committed  # optional callback(record)
+        # Optional callback(event) for each go-around (run.py stores it in the
+        # go_arounds table, so the alert log keeps them after a restart)
+        self._on_go_around            = on_go_around
         # Optional callable(icao, since_ts) -> (bds50_samples, bds60_samples)
         # (collector.receiver.get_bds_samples); None disables the roughness capture.
         self._bds_sample_fn           = bds_sample_fn
@@ -1110,18 +1115,33 @@ class WindshearTracker:
         self._ga_counts[icao] = self._ga_counts.get(icao, 0) + 1
         self._ga_last_ts[icao] = now
         count = self._ga_counts[icao]
-        self._ga_events.append({
+        # the highest windshear level active at that moment for this aircraft or
+        # its runway (for the go-around record: go-arounds after alerts)
+        ws_lvl = "none"
+        for ev in self._ws_active.values():
+            if ev.get("icao") == icao or (rwy and ev.get("rwy") == rwy):
+                if _shear.LEVELS.index(ev["lvl"]) > _shear.LEVELS.index(ws_lvl):
+                    ws_lvl = ev["lvl"]
+        event = {
             "type":     "go_around",
             "ts":       now,
             "icao":     icao,
             "callsign": callsign,
+            "ac_type":  (self._state.get(icao) or {}).get("aircraft_type"),
             "rwy":      rwy or "?",
             "alt_ft":   round(alt),
             "count":    count,
             "low":      low,
-        })
+            "ws":       ws_lvl,
+        }
+        self._ga_events.append(event)
         if len(self._ga_events) > GA_EVENTS_MAX:
             self._ga_events.pop(0)
+        if self._on_go_around is not None:
+            try:
+                self._on_go_around(dict(event))
+            except Exception as exc:                       # noqa: BLE001
+                log.warning("go-around record not stored: %s", exc)
         log.info("GO-AROUND detected: %s (%s) RWY %s at %d ft (gained %d ft, GA #%d)%s",
                  callsign, icao, rwy, round(alt), round(gained), count,
                  " — climb-out at/after the threshold (low go-around / touch-and-go)" if low else "")
@@ -2110,7 +2130,8 @@ class WindshearTracker:
 
         Returns a dict with keys:
           'aircraft'  — list of aircraft dicts, sorted by distance from threshold
-          'ga_events' — list of go-around event dicts from this session
+          'ga_events' — go-around events of the last 24 h (also from before a
+                        restart: preload_ga_events), oldest first
           'ws_events' — active windshear alerts (detection v2, see _live_shear)
           'ws_log'    — windshear alerts of the last 24 h, newest first
           'ws_engine' — status of the detection (_engine_status): seconds since
@@ -2119,13 +2140,23 @@ class WindshearTracker:
         """
         with self._lock:
             items     = list(self._state.values())
-            ga_events = list(self._ga_events)   # snapshot to avoid race
+            cut = time.time() - GA_EVENTS_MAX_AGE
+            ga_events = [dict(e) for e in self._ga_events if e["ts"] >= cut]   # last 24 h
             ws_events = [dict(e) for e in self._ws_active.values()]
             ws_log    = [dict(e) for e in self._ws_log]
             ws_engine = self._engine_status(time.time())
         items.sort(key=lambda x: x.get("dist_thr_nm") or x.get("dist_apt_nm") or 999)
         return {"aircraft": items, "ga_events": ga_events,
                 "ws_events": ws_events, "ws_log": ws_log, "ws_engine": ws_engine}
+
+    def preload_ga_events(self, events: list) -> None:
+        """Go-arounds of the last 24 h from the go_arounds table (run.py at
+        startup), oldest first, so the alert log shows them after a restart."""
+        with self._lock:
+            have = {(e["icao"], round(e["ts"])) for e in self._ga_events}
+            old = [e for e in events if (e["icao"], round(e["ts"])) not in have]
+            self._ga_events = sorted(old + self._ga_events, key=lambda e: e["ts"])[-GA_EVENTS_MAX:]
+        log.info("Go-arounds: pre-loaded %d of the last 24 h from DB", len(old))
 
     def get_approach_history(self) -> list:
         """Thread-safe snapshot of the landed approach history list (newest first)."""

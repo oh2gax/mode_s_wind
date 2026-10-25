@@ -27,8 +27,10 @@
     <a href="/windmap"      target="mw_windmap"      class="nav-link {% if request.endpoint == 'windmap_page'      %}active{% endif %}">Wind Map</a>
     <a href="/weather"      target="mw_weather"      class="nav-link {% if request.endpoint == 'weather_page'      %}active{% endif %}">Weather</a>
     <a href="/windshear"    target="mw_windshear"    class="nav-link {% if request.endpoint == 'windshear_page'    %}active{% endif %}">Windshear</a>
-    <a href="/gps"          target="mw_gps"          class="nav-link {% if request.endpoint == 'gps_page'          %}active{% endif %}">GPS Quality</a>
-    <a href="/gps-episodes" target="mw_gps_episodes" class="nav-link {% if request.endpoint == 'gps_episodes_page' %}active{% endif %}">GPS Episodes</a>
+    <a href="/gps"          target="mw_gps"          class="nav-link {% if request.endpoint in ('gps_page', 'gps_episodes_page') %}active{% endif %}"
+       title="GPS Quality and GPS Episodes (switch between them at the top left of the page)">GPS</a>
+    <a href="/stats"        target="mw_stats"        class="nav-link {% if request.endpoint == 'msgstats_page'     %}active{% endif %}"
+       title="Mode S &amp; ADS-B Statistics: what the receiver hears — formats, registers, reply cadence, interrogators">Statistics</a>
   </div>
   <div class="nav-config-badges">
     <span class="config-badge badge-src-{{ meteo_source_mode | lower }}"

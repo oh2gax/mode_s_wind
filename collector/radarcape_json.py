@@ -44,6 +44,7 @@ from typing import Optional
 
 from collector.filter import is_blocked_icao, is_blocked_registration
 from collector import aircraft_db
+from collector import msg_stats
 
 log = logging.getLogger("modes.json_poller")
 
@@ -151,6 +152,11 @@ def run_json_poller(
             n_pos_mlat = 0
             n_pos_adsb = 0
             n_meteo    = 0
+            # Statistics page: the list's position sources and the blocked
+            # ground stations (WAM, T40…) it lists
+            n_src = {"M": 0, "A": 0}
+            n_entries = 0
+            stations = {}
 
             with live_lock:
                 for entry in entries:
@@ -159,8 +165,14 @@ def run_json_poller(
                         continue
 
                     icao    = parsed["icao"]
+                    n_entries += 1
                     if is_blocked_icao(icao, blocked_icao_prefixes):
+                        stations[icao] = {"src": parsed.get("json_src"), "alt": parsed.get("altitude"),
+                                          "lat": parsed.get("lat"), "lon": parsed.get("lon")}
                         continue
+                    if parsed.get("lat") is not None:
+                        _s = parsed.get("json_src") if parsed.get("json_src") in ("M", "A") else "?"
+                        n_src[_s] = n_src.get(_s, 0) + 1
                     reg = parsed.get("registration") or ""
                     if is_blocked_registration(reg, blocked_reg_prefixes):
                         # Remove from live_state if a previous Beast message
@@ -262,6 +274,11 @@ def run_json_poller(
                     live_state[icao]    = merged
 
             consecutive_errors = 0
+            try:
+                msg_stats.get().json_poll(n_entries, n_src.get("M", 0), n_src.get("A", 0),
+                                          n_src.get("?", 0), stations)
+            except Exception:                              # noqa: BLE001
+                pass
             log.debug(
                 "JSON poll: MLAT pos=%d  JSON pos=%d  meteo injected=%d",
                 n_pos_mlat, n_pos_adsb, n_meteo,
@@ -269,6 +286,7 @@ def run_json_poller(
 
         except Exception as exc:
             consecutive_errors += 1
+            msg_stats.get().json_error()
             # Log first 3 errors verbosely, then throttle to every 20th
             if consecutive_errors <= 3 or consecutive_errors % 20 == 0:
                 log.warning("JSON poller error (#%d): %s", consecutive_errors, exc)
