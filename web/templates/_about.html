@@ -1,0 +1,74 @@
+<!-- About window (from 2026-10-25): the author, the receiver site and MODE-S Wind in a nutshell.
+     Included by base.html; opened with the navbar "About" button, closes with × / Esc / a click outside. -->
+<div id="ab-overlay" class="wn-overlay" hidden>
+  <div class="wn-box ab-box" role="dialog" aria-modal="true" aria-labelledby="ab-title">
+    <div class="wn-head">
+      <div class="ab-head-title" id="ab-title">About</div>
+      <button id="ab-close" class="wn-close" type="button" title="Close (Esc)">×</button>
+    </div>
+    <div class="wn-body ab-body">
+
+      <div class="ab-hero">
+        <div class="ab-name">MODE-S Wind</div>
+        <div class="ab-tag">The weather measured by the aircraft overhead</div>
+        {% if app_version %}<div class="ab-ver">Version <span class="wn-ver">{{ app_version }}</span></div>{% endif %}
+      </div>
+
+      <dl class="ab-info">
+        <dt>Developed by</dt>
+        <dd><b>Otso Laakso</b> / OH2GAX</dd>
+        <dt>Location</dt>
+        <dd>Vantaa, Finland</dd>
+        <dt>Email</dt>
+        <dd><a href="mailto:otso.laakso@kolumbus.fi">otso.laakso@kolumbus.fi</a></dd>
+        <dt>LinkedIn</dt>
+        <dd><a href="https://fi.linkedin.com/in/otso-laakso-6176b4381" target="_blank" rel="noopener">fi.linkedin.com/in/otso-laakso-6176b4381</a></dd>
+        <dt>Receiver site</dt>
+        <dd>Jetvision Radarcape · Tuusula, Finland · locator KP20MJ</dd>
+      </dl>
+
+      <section class="ab-sec">
+        <h3>What is MODE-S Wind?</h3>
+        <p>MODE-S Wind turns the radio replies of the aircraft around Helsinki-Vantaa into weather
+          observations. When the ground radars and the wide-area multilateration (WAM) network
+          interrogate an aircraft, its transponder answers with its true airspeed, heading, ground
+          speed, track and Mach number (Mode S Enhanced Surveillance), and broadcasts its position and
+          velocity (ADS-B). From these the system computes the <b>wind</b> and the <b>air temperature</b>
+          at every aircraft, every few seconds, from the runway up to 40 000 ft — thousands of
+          observations an hour from one receiver and a Raspberry Pi 4.</p>
+      </section>
+
+      <section class="ab-sec">
+        <h3>Main features</h3>
+        <ul>
+          <li><b>Live Map</b> — every aircraft with its wind and temperature, and an always-on atmosphere profile.</li>
+          <li><b>Sounding</b> — Skew-T soundings from the aircraft (now, hourly archive, single flights) with
+            stability indices, compared with the Jokioinen radiosonde and the MEPS weather model; time–height section.</li>
+          <li><b>Wind Map</b> — wind and temperature at any flight level over the whole coverage, the jet stream and
+            the heights of the pressure surfaces from the aircraft's GNSS altitudes.</li>
+          <li><b>Windshear</b> — all approaches and departures at EFHK, with windshear detection running on the
+            server for every flight and a report for every landing.</li>
+          <li><b>Weather</b> — the MEPS model map: isobars, rain and snow, 10 m wind and gusts, clouds.</li>
+          <li><b>GPS Quality</b> and <b>GPS Episodes</b> — monitoring of the GNSS interference in the area.</li>
+        </ul>
+      </section>
+
+      <section class="ab-sec">
+        <h3>Why it is different</h3>
+        <ul>
+          <li><b>Measured, not modelled</b> — everything comes from the aircraft themselves; no model data is
+            needed. The model and the radiosondes are optional, for comparison and small calibrations.</li>
+          <li><b>Dense in time and space</b> — an up-to-date profile every few minutes right over the airport, where a
+            radiosonde gives one a few times a day, 100 km away.</li>
+          <li><b>Low-level detail</b> — every landing and take-off is a small sounding of the lowest 3 000 ft,
+            where wind shear and inversions matter most.</li>
+          <li><b>Low cost and open</b> — an off-the-shelf receiver, a Raspberry Pi and open data; free software (GPLv3).</li>
+        </ul>
+      </section>
+
+      <p class="ab-foot">Copyright © 2026 Otso Laakso (OH2GAX) · GNU GPL v3 ·
+        <a href="https://github.com/oh2gax/mode_s_wind" target="_blank" rel="noopener">github.com/oh2gax/mode_s_wind</a><br>
+        Research system — not an operational meteorological or air-traffic service.</p>
+    </div>
+  </div>
+</div>

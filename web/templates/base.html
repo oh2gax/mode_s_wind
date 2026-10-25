@@ -39,6 +39,8 @@
   <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
   <button id="nav-whatsnew-btn" class="nav-whatsnew-btn" type="button" data-version="{{ app_version }}"
           title="Version {{ app_version }} — What's new (changes of the last versions) and the user guides">{{ app_version }}<span class="wn-lbl"> · What's new · Guides</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
+  <button id="nav-about-btn" class="nav-whatsnew-btn nav-about-btn" type="button"
+          title="About MODE-S Wind — the author, the receiver site and the system in a nutshell"><span class="ab-lbl">About</span><span class="ab-ico" aria-hidden="true">i</span></button>
   <span id="nav-utc-clock" class="nav-utc-clock"></span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
@@ -67,6 +69,8 @@
     <div id="wn-body-guides" class="wn-body" hidden>Loading…</div>
   </div>
 </div>
+
+{% include "_about.html" %}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -248,6 +252,22 @@ setInterval(refreshStats, 15000);
   btn.addEventListener('click', function () { open('news'); });
   tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); }); });
   document.getElementById('wn-close').addEventListener('click', close);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+})();
+
+// ── About window (from 2026-10-25; content in _about.html) ──────────────────
+(function () {
+  var btn = document.getElementById('nav-about-btn');
+  var ov = document.getElementById('ab-overlay');
+  if (!btn || !ov) return;
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  function close() { ov.hidden = true; document.removeEventListener('keydown', onKey); }
+  btn.addEventListener('click', function () {
+    ov.hidden = false;
+    document.addEventListener('keydown', onKey);
+    ov.querySelector('.ab-body').scrollTop = 0;
+  });
+  document.getElementById('ab-close').addEventListener('click', close);
   ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
 })();
 

@@ -7,6 +7,20 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px)
+
+### About window
+- New **About** button in the navbar, right of the version / What's new button: opens a window in the What's new style with the author (Otso Laakso / OH2GAX, Vantaa, Finland; email and LinkedIn links), the receiver site (Jetvision Radarcape, Tuusula, Finland, KP20MJ), a short *What is MODE-S Wind?* with the main features and advantages, and the copyright / GPLv3 / GitHub line. Closes with ×, Esc or a click outside.
+- Content in the new template `web/templates/_about.html` (included by `base.html`); styles `.ab-*` in `style.css`.
+
+### Navbar
+- Below 1 400 px the About button is a small **i** (tooltip *About*).
+- The UTC clock hides its date below 1 550 px (was 1 400 px); the date stays in the tooltip.
+- Below 1 300 px: a little less padding in the navbar, the page links and the configuration badges, and a smaller brand name. The navbar now fits at 1 280 px (it was 26 px too wide there already before the About button).
+- The theme / What's new / About buttons keep a small even gap at all widths (below 1 300 px the What's new button overlapped the theme button by a few pixels).
+
+---
+
 ## v.24102026 — 2026-10-24 (Windshear detection v2 on the server: headwind ramps and band change, WS advisory / WSA / MBA alerts, a windshear report for every landing and departure, band comparison on the wind vector across runways; the six browser algorithms retired; Weather page: 10 m wind and gusts; upper-level temperature correction and moisture offsets learnt from MEPS; MEPS column in the Sounding page Indices panel; Skew-T analysis of the MEPS or sonde profile with likely cloud layers; Windshear user guide and engine status line; ADS-B ground speed in the approach series; ILS-profile wind barbs collected on the server; post-front data check)
 
 ### Windshear detection v2

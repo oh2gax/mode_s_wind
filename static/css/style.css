@@ -2085,7 +2085,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 @media (max-width: 1700px) { .nav-whatsnew-btn .wn-lbl { display: none; } }   /* version only; tooltip says What's new */
 .nav-whatsnew-btn.no-ver .wn-lbl { display: inline !important; }
 @media (max-width: 1500px) { .navbar { gap: 1rem; } .nav-status { margin-left: 10px; } }
-@media (max-width: 1400px) { .nav-utc-clock .clk-date { display: none; } }  /* date in the tooltip */
+@media (max-width: 1550px) { .nav-utc-clock .clk-date { display: none; } }  /* date in the tooltip (1 550 px from 25 Oct 2026: room for About) */
 @media (max-width: 1300px) { .navbar { gap: 0.6rem; } }
 @media (max-width: 1700px) { .nav-link { padding: 5px 9px; } }      /* eight page links (Weather, 23 Oct 2026) */
 @media (max-width: 1450px) { .nav-link { padding: 5px 6px; font-size: 13px; } .nav-links { gap: 0.1rem; } }
@@ -2144,6 +2144,41 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .wn-body code { font-family: "Courier New", monospace; font-size: 12px; background: var(--bg-3);
                 padding: 0 3px; border-radius: 3px; }
 .wn-foot { color: var(--text-2); font-size: 12px; margin-top: 10px !important; }
+/* About window (base.html / _about.html, from 2026-10-25) */
+.nav-whatsnew-btn + .nav-about-btn { margin-left: -0.9rem; }      /* next to What's new */
+@media (max-width: 1500px) { .nav-whatsnew-btn + .nav-about-btn, #nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.6rem; } }
+@media (max-width: 1300px) { .nav-whatsnew-btn + .nav-about-btn, #nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.3rem; } }
+.nav-about-btn .ab-ico { display: none; }
+@media (max-width: 1400px) {                                        /* only an "i" on narrow screens; tooltip says About */
+  .nav-about-btn { padding: 2px 5px; }
+  .nav-about-btn .ab-lbl { display: none; }
+  .nav-about-btn .ab-ico { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px;
+                           border-radius: 50%; border: 1px solid currentColor; font: 700 10px/1 Georgia, serif; font-style: italic; }
+}
+@media (max-width: 1300px) {                                        /* 1 280 px: the navbar fits again */
+  .navbar { padding: 0 0.6rem; }
+  .nav-brand { font-size: 13px; }
+  .config-badge { padding: 2px 4px; letter-spacing: 0; }
+  .nav-status { margin-left: 4px; }
+  .nav-link { padding: 5px 4px; }
+}
+.ab-box { width: 600px; }
+.ab-head-title { font-size: 14px; font-weight: 600; padding: 4px 12px; }
+.ab-hero { text-align: center; padding: 18px 0 14px; border-bottom: 1px solid var(--border); }
+.ab-name { font-size: 24px; font-weight: 700; letter-spacing: 0.02em; color: var(--text-1); }
+.ab-tag { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.ab-ver { font-size: 12px; color: var(--text-2); margin-top: 8px; }
+.ab-info { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 14px 0 6px;
+           padding: 12px 16px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; }
+.ab-info dt { color: var(--text-2); font-size: 12px; }
+.ab-info dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
+.ab-body a { color: var(--accent); text-decoration: none; }
+.ab-body a:hover { text-decoration: underline; }
+.ab-sec { padding: 10px 0 4px; }
+.ab-sec h3 { margin: 0 0 4px; font-size: 14px; }
+.ab-foot { color: var(--text-2); font-size: 11.5px; margin-top: 12px !important; padding-top: 10px;
+           border-top: 1px solid var(--border); text-align: center; }
+@media (max-width: 520px) { .ab-info { grid-template-columns: 1fr; gap: 0 0; } .ab-info dd { margin-bottom: 6px; } }
 @media (max-width: 700px) {
   .wn-overlay { padding: 50px 6px 6px; }
   .wn-box { max-height: calc(100vh - 60px); }
