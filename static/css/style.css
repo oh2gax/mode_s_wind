@@ -2922,6 +2922,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .lwx-legend:empty { display: none; }
 [data-theme="light"] .lwx-btn, [data-theme="light"] .lwx-panel { background: rgba(241, 245, 249, 0.95); }
 [data-theme="light"] .lwx.on .lwx-btn { border-color: #0e7490; color: #0e7490; }
+.lwx-note { color: var(--text-3); font-style: normal; }
 .lwx-wind { background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px;
             font-size: 11px; padding: 1px 4px; }
 /* hover read-out of a MEPS wind barb (Live Map, from 25 Oct 2026) */

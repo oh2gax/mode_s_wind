@@ -68,6 +68,7 @@
             <select class="lwx-wind" title="MEPS model wind barbs: the 10 m wind (whole map) or the wind at a flight level (± 300 km around the receiver; pressure altitude, ISA)">
               ${WIND_LEVELS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
             </select>
+            <span class="lwx-note" title="The wind barbs are the MEPS weather model's wind (MET Norway), not winds measured by the aircraft">MEPS model</span>
             <label title="10 m gusts from 25 kt (with the 10 m wind)"><input type="checkbox" class="lwx-gust"> Gusts</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
@@ -155,7 +156,7 @@
     else if (st.src === 'radar') txt = `${rTxt()} UTC`;
     else if (st.src === 'meps') txt = `${mTxt()} UTC`;
     else txt = `${rTxt()} + ${mTxt()} UTC`;
-    if (st.wind !== 'off') txt += (txt ? ' · ' : '') + 'Wind ' + (st.wind === 'sfc' ? '10 m' : 'FL' + st.wind);
+    if (st.wind !== 'off') txt += (txt ? ' · ' : '') + 'MEPS wind ' + (st.wind === 'sfc' ? '10 m' : 'FL' + st.wind);
     chip.textContent = txt;
     el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off');
     applyOptions();
