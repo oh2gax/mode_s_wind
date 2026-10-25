@@ -45,6 +45,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - System health indicators on the Statistics page: green / amber / red / off for eleven parts of the system, right of the Window buttons (one summary chip on narrower screens), with a detail panel and the recent state changes. RAM only.
 - New `collector/health.py`, `web/api/health.py` (`/api/health`); `run.py`, `collector/radarcape_json.py`, `collector/writer.py`, `web/app.py`, `web/templates/stats.html`, `static/js/stats.js`, `static/css/style.css`.
 
+### About window: receiver maker
+- *Receiver site* now reads "Radarcape receiver by Jetvision (jetvision.de)" with a link to the maker's site. `web/templates/_about.html`.
+
 ### Windshear page: Aircraft Types list shows whole rows
 - The Aircraft Types list of Today's Statistics no longer shows a half row at its bottom: when the list scrolls, its height is cut to a whole number of rows (recomputed after each update and on resize) and scrolling snaps to the rows. `static/js/windshear.js` (`_fitWholeRows`), `static/css/style.css`.
 
