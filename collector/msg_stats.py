@@ -43,6 +43,16 @@ Radarcape Beast feed and the JSON poller:
                 band.  A position counts only when it fits the aircraft's
                 previous one (a single bad decode cannot set a record).
 
+Kept over restarts (from 2026-10-25 evening): each closed clock hour is
+written as one compressed row to msg_stats_hours (about 10–50 kB, kept
+MSG_STATS_DAYS = 7 days; written by the housekeeping thread within a minute
+of the hour's end), and at a clean stop the hour in progress, the minute
+records, the 24 h series, the 10-s rate series, the interrogators' first /
+last times and the recent health changes go to msg_stats_state (one row).
+At the start restore() reads them back; the time the server was down is a
+gap (not counted in the rates, a break in the charts).  After a crash or a
+power cut only the hour in progress is lost.
+
 Windows: one record per minute (counters, interval histograms, aircraft sets)
 for the last hour, the same merged per clock hour for the last 24 h (the
 24 h window), a compact per-minute vector of the main series for 24 h, and the
@@ -57,10 +67,15 @@ reads a snapshot (one lock; held only for increments and the snapshot copy).
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 import threading
 import time
+import zlib
 from collections import Counter, deque
+
+log = logging.getLogger("modes.msg_stats")
 
 # Interval histogram edges (s): bin i holds edges[i-1] <= dt < edges[i]
 CAD_EDGES = (0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0, 20.0, 30.0, 60.0)
@@ -182,6 +197,54 @@ def _merge(dst: dict, m: dict) -> None:
                 t[i] = list(x)
 
 
+# ── encoding for the database (keys are strings or tuples) ─────────────────
+
+def _kenc(k):
+    return list(k) if isinstance(k, tuple) else k
+
+
+def _kdec(k):
+    return tuple(k) if isinstance(k, list) else k
+
+
+def _rec_enc(m: dict) -> dict:
+    return {"t0": m["t0"],
+            "c": [[_kenc(k), v] for k, v in m["c"].items()],
+            "h": [[_kenc(k), v] for k, v in m["h"].items()],
+            "s": [[_kenc(k), v] for k, v in m["s"].items()],
+            "ac": [[_kenc(k), sorted(v)] for k, v in m["ac"].items()],
+            "r": m["r"]}
+
+
+def _rec_dec(d: dict) -> dict:
+    m = _new_minute(float(d["t0"]))
+    m["c"] = Counter({_kdec(k): v for k, v in d.get("c", [])})
+    m["h"] = {_kdec(k): list(v) for k, v in d.get("h", [])}
+    m["s"] = {_kdec(k): list(v) for k, v in d.get("s", [])}
+    m["ac"] = {_kdec(k): set(v) for k, v in d.get("ac", [])}
+    m["r"] = {b: [list(x) if x else None for x in sec] for b, sec in (d.get("r") or {}).items()}
+    return m
+
+
+def _pack(obj) -> bytes:
+    return zlib.compress(json.dumps(obj, separators=(",", ":")).encode(), 6)
+
+
+def _unpack(blob) -> dict:
+    return json.loads(zlib.decompress(blob).decode())
+
+
+def ensure_tables(db) -> None:
+    db.execute("""CREATE TABLE IF NOT EXISTS msg_stats_hours (
+                      ts   INTEGER PRIMARY KEY,   -- clock hour (UTC, Unix s)
+                      data BLOB    NOT NULL)""")   # zlib(JSON {v, rec, trend})
+    db.execute("""CREATE TABLE IF NOT EXISTS msg_stats_state (
+                      k     TEXT PRIMARY KEY,     -- 'state'
+                      saved REAL NOT NULL,        -- time of the save
+                      data  BLOB NOT NULL)""")    # zlib(JSON), written at a clean stop
+    db.commit()
+
+
 def _bearing(lat1, lon1, lat2, lon2) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dl = math.radians(lon2 - lon1)
@@ -221,6 +284,10 @@ class MsgStats:
         self._lock = threading.Lock()
         self.airport = _EFHK
         self.started = time.time()
+        self.since = self.started                    # the oldest data held (earlier after a restore)
+        self.keep_days = 7.0                         # MSG_STATS_DAYS
+        self._gaps: list = []                        # [(stop, start)] server down times (restores)
+        self._pending: list = []                     # closed hours to be written to msg_stats_hours
         self.connects = 0
         self.connected_ts: float | None = None
         self.last_msg_ts: float | None = None
@@ -274,6 +341,7 @@ class MsgStats:
             th = float(int(m["t0"] // 3600) * 3600)
             if self._hour is not None and self._hour["t0"] != th:
                 self._hours.append(self._hour)
+                self._pending.append(self._hour)
                 self._hour = None
             if self._hour is None:
                 self._hour = _new_minute(th)
@@ -522,18 +590,20 @@ class MsgStats:
             if window_min > 60:
                 # 24 h: the closed hours (immutable; merged outside the lock),
                 # the current hour so far and the current minute
-                hours = list(self._hours)[-(window_min // 60 - 1):]
+                h0 = float(int(now // 3600) * 3600) - (window_min // 60 - 1) * 3600
+                hours = [h for h in self._hours if h["t0"] >= h0]
                 for m in ([self._hour] if self._hour else []) + [self._min]:
                     _merge(agg, m)
                 t_first = (hours[0] if hours else self._hour or self._min)["t0"]
             else:
-                mins = list(self._minutes)[-(window_min - 1):] if window_min > 1 else []
-                mins = mins + [self._min]
+                m0 = self._min["t0"] - (window_min - 1) * 60
+                mins = [m for m in self._minutes if m["t0"] >= m0] + [self._min]
                 for m in mins:
                     _merge(agg, m)
                 t_first = mins[0]["t0"]
             sig_state = self.sig_state
             site = self.site
+            downs = list(self._gaps)
             ten = list(self._ten)[-360:]
             trend = list(self._trend)
             iid_seen = {k: list(v) for k, v in self._iid_seen.items()}
@@ -556,7 +626,9 @@ class MsgStats:
                 hc = self._hours_cache = (key, base)
             _merge(agg, hc[1])
         c, hist, ac = agg["c"], agg["h"], agg["ac"]
-        secs = max(1.0, now - max(t_first, self.started))
+        t_from = max(t_first, self.since)
+        down = sum(max(0.0, min(b, now) - max(a, t_from)) for a, b in downs)
+        secs = max(1.0, now - t_from - down)
         rate = lambda n: round(n / secs, 2)
         n_ac = lambda k: len(ac.get(k, ()))
         # downlink formats
@@ -635,6 +707,7 @@ class MsgStats:
                     far = {"nm": x[0], "alt": x[1], "icao": x[2], "brg": i * 360 // RNG_SECTORS + 5}
         return {
             "now": now, "window_min": window_min, "window_sec": round(secs, 1),
+            "since": self.since, "gaps": [g for g in downs if g[1] > now - 86400],
             "feed": feed,
             "totals": {"msgs": c["msgs"], "rate": rate(c["msgs"]), "short": c["short"],
                        "long": c["long"], "dec_err": c["dec_err"], "err": c["err"],
@@ -660,6 +733,163 @@ class MsgStats:
             "ten": ten,
             "trend": {"keys": ["t0"] + list(TREND_KEYS), "rows": trend},
         }
+
+
+# ── persistence ────────────────────────────────────────────────────────────
+
+def _persist(self, db) -> int:
+    """Write the closed hours not yet stored (housekeeping thread, every
+    minute; one INSERT per hour) and delete rows older than keep_days."""
+    with self._lock:
+        pend, self._pending = self._pending, []
+        rows = [(h, [r for r in self._trend if h["t0"] <= r[0] < h["t0"] + 3600]) for h in pend]
+        since = self.since
+    if not rows:
+        return 0
+    try:
+        ensure_tables(db)
+        for h, tr in rows:
+            db.execute("INSERT OR REPLACE INTO msg_stats_hours (ts, data) VALUES (?, ?)",
+                       (int(h["t0"]), _pack({"v": 1, "rec": _rec_enc(h), "trend": tr,
+                                             "since": max(since, h["t0"])})))
+        db.execute("DELETE FROM msg_stats_hours WHERE ts < ?", (int(time.time() - self.keep_days * 86400),))
+        db.commit()
+    except Exception:
+        with self._lock:                         # try again at the next round
+            self._pending[:0] = pend[-48:]
+        raise
+    return len(rows)
+
+
+def _save_state(self, db) -> int:
+    """At a clean stop: the hour in progress, the minute records, the 24 h
+    series, the 10-s series and the other small state (one row)."""
+    from collector import health as _hb
+    try:
+        self.persist(db)
+    except Exception as exc:                     # noqa: BLE001
+        log.warning("Statistics history: hourly rows not written at the stop (%s)", exc)
+    now = time.time()
+    with self._lock:
+        self._roll(now)
+        st = {"v": 1, "saved": now, "since": self.since, "gaps": self._gaps[-20:],
+              "minutes": [_rec_enc(m) for m in self._minutes] + [_rec_enc(self._min)],
+              "hour": _rec_enc(self._hour) if self._hour else None,
+              "trend": list(self._trend) + [self._compact(self._min)],
+              "ten": [list(t) for t in self._ten] + [list(self._ten_cur)],
+              "iid_seen": [[list(k), v] for k, v in self._iid_seen.items()],
+              "health": _hb.export_changes()}
+    blob = _pack(st)
+    ensure_tables(db)
+    db.execute("INSERT OR REPLACE INTO msg_stats_state (k, saved, data) VALUES ('state', ?, ?)", (now, blob))
+    db.commit()
+    return len(blob)
+
+
+def _restore(self, db) -> str:
+    """At the start, before the collector runs: the last 24 h of hourly rows
+    and the state saved at the last clean stop (if under 24 h old)."""
+    from collector import health as _hb
+    now = time.time()
+    ensure_tables(db)
+    cur_h = float(int(now // 3600) * 3600)
+    h_from = cur_h - (HOURS_DETAIL - 1) * 3600
+    hours, trends, first = {}, {}, {}
+    for ts, blob in db.execute("SELECT ts, data FROM msg_stats_hours WHERE ts >= ? ORDER BY ts",
+                               (int(h_from),)).fetchall():
+        try:
+            d = _unpack(blob)
+            hours[float(ts)] = _rec_dec(d["rec"])
+            trends[float(ts)] = d.get("trend") or []
+            first[float(ts)] = float(d.get("since") or ts)
+        except Exception as exc:                 # noqa: BLE001
+            log.warning("Statistics history: hour %s unreadable (%s)", ts, exc.__class__.__name__)
+    st = None
+    row = db.execute("SELECT saved, data FROM msg_stats_state WHERE k = 'state'").fetchone()
+    if row and now - float(row[0]) < 86400:
+        try:
+            st = _unpack(row[1])
+        except Exception as exc:                 # noqa: BLE001
+            log.warning("Statistics state unreadable (%s)", exc.__class__.__name__)
+    if row:                                      # used once
+        db.execute("DELETE FROM msg_stats_state")
+        db.commit()
+    gap_marker = lambda t: [t] + [None] * len(TREND_KEYS)      # noqa: E731
+    with self._lock:
+        closed = []
+        if st:
+            mins = [_rec_dec(x) for x in st.get("minutes") or []]
+            hour = _rec_dec(st["hour"]) if st.get("hour") else None
+            if mins:                             # the minute in progress at the stop: closed now
+                m = mins[-1]
+                th = float(int(m["t0"] // 3600) * 3600)
+                if hour is not None and hour["t0"] != th:
+                    closed.append(hour)
+                    hour = None
+                if hour is None:
+                    hour = _new_minute(th)
+                _merge(hour, m)
+            if hour is not None:
+                if hour["t0"] == cur_h:
+                    self._hour = hour
+                else:
+                    closed.append(hour)
+            self._minutes = deque((m for m in mins if m["t0"] >= now - 3600), maxlen=MINUTES_DETAIL)
+            trend = [r for r in st.get("trend") or [] if r and r[0] >= now - 86400]
+            stop = float(st.get("saved") or now)
+            self._gaps = [tuple(g) for g in st.get("gaps") or [] if g[1] > now - 86400 * 2] + [(stop, now)]
+            ten = [tuple(t) for t in st.get("ten") or [] if t[0] >= now - 3600]
+            if ten:                              # the down time as empty 10-s slots (a break in the chart)
+                t = max(ten[-1][0] + 10, self._ten_of(now) - 3600)
+                while t < self._ten_of(now):
+                    ten.append((t, None))
+                    t += 10
+            self._ten = deque(ten, maxlen=360)
+            for k, v in st.get("iid_seen") or []:
+                self._iid_seen[tuple(k)] = list(v)
+            _hb.import_changes(st.get("health") or [], stop, now)
+        else:
+            trend = []
+            for ts in sorted(trends):
+                trend.extend(trends[ts])
+            trend = [r for r in trend if r and r[0] >= now - 86400]
+            if hours:
+                stop = max(hours) + 3600
+                self._gaps = [(stop, now)]
+                _hb.import_changes([], None, now)
+        for h in closed:
+            hours[h["t0"]] = h
+        self._hours = deque((hours[t] for t in sorted(hours) if t >= h_from and t < cur_h),
+                            maxlen=HOURS_DETAIL)
+        self._pending = [h for h in closed if h["t0"] >= now - self.keep_days * 86400]
+        if trend:
+            if self._gaps:                       # the down time as empty minutes (a break in the chart)
+                t = max(trend[-1][0] + 60, self._minute_of(now) - 86400)
+                while t < self._minute_of(now):
+                    trend.append(gap_marker(t))
+                    t += 60
+            self._trend = deque(trend, maxlen=MINUTES_TREND)
+        t0s = [h["t0"] for h in self._hours] + [m["t0"] for m in self._minutes] + \
+              ([self._hour["t0"]] if self._hour else [])
+        if t0s:
+            self.since = min(t0s)
+            if st and st.get("since"):
+                self.since = max(self.since, float(st["since"]))
+            elif self._hours and self._hours[0]["t0"] in first:
+                self.since = max(self.since, first[self._hours[0]["t0"]])
+        n_h = len(self._hours)
+    return (f"{n_h} hour(s) of the last 24 h" + (", and the state of the last stop "
+            f"({time.strftime('%H:%M', time.gmtime(stop))} UTC, down {_dur(now - stop)})" if st else
+            ", no saved state (the hour in progress at the stop is lost)" if hours else ""))
+
+
+def _dur(s: float) -> str:
+    return f"{s:.0f} s" if s < 90 else f"{s / 60:.0f} min" if s < 5400 else f"{s / 3600:.1f} h"
+
+
+MsgStats.persist = _persist
+MsgStats.save_state = _save_state
+MsgStats.restore = _restore
 
 
 def _sig_parser_state() -> dict:

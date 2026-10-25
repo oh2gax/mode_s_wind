@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 
 _lock = threading.Lock()
 _rec: dict = {}
 STARTED = time.time()
+CHANGES: deque = deque(maxlen=50)   # state changes of the indicators, newest first (web/api/health.py)
 
 
 def beat(name: str, **info) -> None:
@@ -58,3 +60,23 @@ def mark(name: str, **info) -> None:
 def get(name: str) -> dict:
     with _lock:
         return dict(_rec.get(name) or {})
+
+
+def export_changes() -> list:
+    """The recent state changes, for the state saved at a clean stop."""
+    return [dict(c) for c in CHANGES]
+
+
+def import_changes(changes: list, stop, now: float) -> None:
+    """Restore the state changes saved at the last stop and add the restart."""
+    CHANGES.clear()
+    for c in changes[:CHANGES.maxlen]:
+        CHANGES.append(dict(c))
+    if stop:
+        down = now - stop
+        txt = (f"{down:.0f} s" if down < 90 else f"{down / 60:.0f} min" if down < 5400 else f"{down / 3600:.1f} h")
+        CHANGES.appendleft({"ts": now, "key": "server", "label": "Server", "from": "off", "to": "ok",
+                            "text": f"Restarted (down {txt})"})
+    else:
+        CHANGES.appendleft({"ts": now, "key": "server", "label": "Server", "from": "err", "to": "ok",
+                            "text": "Started after an unclean stop (the hour in progress was lost)"})

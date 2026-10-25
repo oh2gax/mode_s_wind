@@ -1397,6 +1397,14 @@ def create_app(
         conn = get_db()
         return jsonify(maint.get_stats(conn, cfg.DB_PATH))
 
+    @app.route("/api/maintenance/msgstats/purge", methods=["POST"])
+    def maintenance_msgstats_purge():
+        """Delete the stored Statistics page history (msg_stats_hours)."""
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        return jsonify(maint.purge_msg_stats(get_db()))
+
     @app.route("/api/maintenance/flight/preview", methods=["POST"])
     def maintenance_flight_preview():
         data = request.get_json(silent=True) or {}

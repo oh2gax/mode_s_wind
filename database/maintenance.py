@@ -109,6 +109,11 @@ def get_stats(conn, db_path: str) -> dict:
         gnsh = dict(empty)
 
     try:
+        msh = _table_stats("msg_stats_hours", "ts", "date(ts, 'unixepoch')")
+    except Exception:
+        msh = dict(empty)
+
+    try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
     except OSError:
         db_size_mb = None
@@ -126,6 +131,7 @@ def get_stats(conn, db_path: str) -> dict:
         "height_series":         hser,
         "kinematics_hours":      kinh,
         "gnss_hours":            gnsh,
+        "msg_stats_hours":       msh,
         "db_size_mb":            db_size_mb,
     }
 
@@ -567,3 +573,16 @@ def run_autopurge_if_needed(conn, db_path: str) -> None:
         ("autopurge_last_run", str(time.time())),
     )
     conn.commit()
+
+
+def purge_msg_stats(conn) -> dict:
+    """Delete the stored Statistics page history (msg_stats_hours and the
+    saved state); the counts in memory are not changed."""
+    n = 0
+    for t in ("msg_stats_hours", "msg_stats_state"):
+        try:
+            n += conn.execute(f"DELETE FROM {t}").rowcount or 0
+        except Exception:                      # noqa: BLE001  (no table yet)
+            pass
+    conn.commit()
+    return {"rows_deleted": n}

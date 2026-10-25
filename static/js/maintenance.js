@@ -67,6 +67,7 @@ async function loadStats() {
     if (d.gnss_hours) _fill('stat-gnssh', d.gnss_hours);
     if (d.departure_profiles) _fill('stat-depprof', d.departure_profiles);
     if (d.height_series) _fill('stat-hseries', d.height_series);
+    if (d.msg_stats_hours) _fill('stat-msgstats', d.msg_stats_hours);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {
@@ -628,5 +629,19 @@ document.getElementById('episodes-date-purge-btn').addEventListener('click', asy
     await loadStats();
   } catch (e) {
     _setStatus('episodes-date-purge-result', `Error: ${e.message}`, true);
+  }
+});
+
+// ── Statistics page history (msg_stats_hours) ────────────────────────────────
+
+document.getElementById('msgstats-clear-btn').addEventListener('click', async ev => {
+  ev.stopPropagation();
+  if (!_unlocked) return;
+  if (!confirm('Delete the stored Statistics page history (msg_stats_hours)? The counts in memory stay until the next restart.')) return;
+  try {
+    await _api('/api/maintenance/msgstats/purge');
+    await loadStats();
+  } catch (e) {
+    alert(`Error: ${e.message}`);
   }
 });

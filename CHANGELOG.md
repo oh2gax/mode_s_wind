@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px; Mode S & ADS-B Statistics page; one GPS link; go-arounds kept for 24 h and stored; MEPS and Mode S wind barbs on the Live Map; signal strength, range rings, a 24 h window and system health indicators on the Statistics page)
+## v.25102026 — 2026-10-25 (About window; navbar fits at 1 280 px; Mode S & ADS-B Statistics page; one GPS link; go-arounds kept for 24 h and stored; MEPS and Mode S wind barbs on the Live Map; signal strength, range rings, a 24 h window and system health indicators on the Statistics page; Statistics kept over restarts)
 
 ### About window
 - New **About** button in the navbar, right of the version / What's new button: opens a window in the What's new style with the author (Otso Laakso / OH2GAX, Vantaa, Finland; email and LinkedIn links), the receiver site (Jetvision Radarcape, Tuusula, Finland, KP20MJ), a description written for the first testers (meteorologists and scientists): what MODE-S Wind is and the registers used, how the observations are made with verification figures, the derived products (soundings with automatic analysis, temperature anomaly, lapse rate, vertical motion, vorticity, height change, thickness temperature, Wind Map analyses, airport boundary-layer profiles, humidity trial), windshear detection v2 with its references, why it is interesting, special credits, the pages, and the copyright / GPLv3 / GitHub line. Closes with ×, Esc or a click outside.
@@ -43,6 +43,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Statistics page: system health indicators
 - System health indicators on the Statistics page: green / amber / red / off for eleven parts of the system, right of the Window buttons (one summary chip on narrower screens), with a detail panel and the recent state changes. RAM only.
 - New `collector/health.py`, `web/api/health.py` (`/api/health`); `run.py`, `collector/radarcape_json.py`, `collector/writer.py`, `web/app.py`, `web/templates/stats.html`, `static/js/stats.js`, `static/css/style.css`.
+
+### Statistics page: kept over restarts
+- The Statistics page no longer starts empty after a restart: each closed clock hour is stored as one compressed row in the new table `msg_stats_hours` (about 10–50 kB; kept `MSG_STATS_DAYS`, default 7, days), and at a clean stop the hour in progress, the minute records, the 24 h and 10-s chart series, the interrogators' first / last times and the recent health changes are saved in `msg_stats_state` and read back at the start (`MsgStats.persist()` every minute from the housekeeping thread, `save_state()` at shutdown, `restore()` before the collector starts). The down time is a break in the charts and is left out of the rates; the health panel lists the restart. After a crash only the hour in progress is lost.
+- The 1 min / 10 min / 1 h and 24 h windows now select their minute / hour records by time (not by count).
+- `collector/msg_stats.py`, `collector/health.py`, `web/api/health.py`, `run.py`, `database/schema.sql`, `web/app.py`, `web/templates/stats.html`, `static/js/stats.js`.
 
 ### Live Map: MEPS wind barbs
 - The ☂ weather panel has a new **Wind** row, independent of the source: *Off* / **10 m** (with an optional **Gusts** shading) / **FL50** / **FL100** / **FL200** / **FL300** / **FL340** / **FL390**. Barbs thinned to about 50 px, muted colours, in their own pane above the weather and under the aircraft; hovering a barb shows wind, temperature or gust, run and position; status line and button chip (`· MEPS wind FL300`); the Wind row is marked *MEPS model*, so the barbs are not taken for aircraft winds.

@@ -40,7 +40,6 @@ import re
 import shutil
 import threading
 import time
-from collections import deque
 
 from collector import health as hb
 
@@ -73,7 +72,6 @@ TASK = {"collector": "Feed reader", "json_poller": "Aircraft list poller", "ws_s
         "wx_poll": "METAR fetcher"}
 
 _slow: dict = {}             # cached slow readings: key → (time, value)
-_changes: deque = deque(maxlen=50)
 _last: dict = {}             # indicator → (state, since)
 _cache = {"t": 0.0, "val": None}
 _lock = threading.Lock()
@@ -524,14 +522,14 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
             if prev is None:
                 _last[key] = (it["state"], now)
             elif prev[0] != it["state"]:
-                _changes.appendleft({"ts": now, "key": key, "label": LABEL[key], "from": prev[0],
+                hb.CHANGES.appendleft({"ts": now, "key": key, "label": LABEL[key], "from": prev[0],
                                      "to": it["state"], "text": it["text"]})
                 _last[key] = (it["state"], now)
                 (log.warning if it["state"] == "err" else log.info)(
                     "Health: %s %s → %s (%s)", LABEL[key], prev[0], it["state"], it["text"])
             it["since"] = _last[key][1]
             out.append(it)
-        changes = list(_changes)
+        changes = list(hb.CHANGES)
     worst = max((RANK[i["state"]] for i in out), default=1)
     overall = {3: "err", 2: "warn"}.get(worst, "ok")
     return {"now": now, "started": hb.STARTED, "overall": overall,

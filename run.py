@@ -48,6 +48,7 @@ from collector import heading_cal
 from collector import sondes
 from collector import meps
 from collector import health
+from collector import msg_stats
 from web.app import create_app, start_wx_poll_thread
 
 
@@ -102,6 +103,12 @@ def _housekeeping_thread(
                     del live_state[k]
                 remaining = len(live_state)
             n_bds = prune_bds_cache()
+            # Statistics page: closed hours → msg_stats_hours (one row an hour)
+            try:
+                from database.db import get_db as _get_db
+                msg_stats.get().persist(_get_db())
+            except Exception as exc:
+                hk_log.warning("Statistics history write failed: %s", exc)
             if stale or n_bds:
                 hk_log.debug("Pruned %d live_state entries (%d remain), %d BDS cache entries",
                              len(stale), remaining, n_bds)
@@ -696,6 +703,17 @@ def main() -> None:
     else:
         log.info("Heading calibration: off")
 
+    # ── Statistics page history (collector/msg_stats.py) ──────────────────
+    # The last 24 h of hourly rows and the state saved at the last clean
+    # stop, read back before the collector starts counting
+    _ms = msg_stats.get()
+    _ms.keep_days = float(getattr(cfg, "MSG_STATS_DAYS", 7))
+    try:
+        from database.db import get_db as _get_db
+        log.info("Statistics page: restored %s", _ms.restore(_get_db()) or "nothing (no history yet)")
+    except Exception as exc:
+        log.warning("Statistics page: history not restored: %s", exc)
+
     # ── Shared live state ─────────────────────────────────────────────────
     live_state: dict = {}
     live_lock = threading.RLock()
@@ -910,6 +928,13 @@ def main() -> None:
     except KeyboardInterrupt:
         log.info("Shutting down…")
     finally:
+        # Statistics page: the hour in progress and the recent series
+        try:
+            from database.db import get_db as _get_db
+            n_ms = msg_stats.get().save_state(_get_db())
+            log.info("Statistics page: state saved at shutdown (%d kB)", n_ms // 1024)
+        except Exception as exc:
+            log.warning("Statistics page: state not saved: %s", exc)
         # Save the hour in progress, the open GPS episodes and the closed
         # episodes not yet written, so a restart loses nothing of them
         try:

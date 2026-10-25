@@ -420,6 +420,23 @@ CREATE TABLE IF NOT EXISTS go_arounds (
 );
 CREATE INDEX IF NOT EXISTS idx_go_arounds_ts ON go_arounds(ts);
 
+-- ── msg_stats_hours / msg_stats_state ────────────────────────────────────────
+-- Statistics page history kept over restarts (from 2026-10-25,
+-- collector/msg_stats.py): one row per closed clock hour (zlib-compressed JSON:
+-- counters, histograms, aircraft sets, signal and range data, and the hour's
+-- per-minute chart series; about 10–50 kB), kept MSG_STATS_DAYS (default 7)
+-- days; and one 'state' row written at a clean stop (the hour in progress, the
+-- minute records, the 24 h and 10-s series), read back and deleted at the start.
+CREATE TABLE IF NOT EXISTS msg_stats_hours (
+    ts    INTEGER PRIMARY KEY,   -- clock hour (UTC, Unix s)
+    data  BLOB    NOT NULL
+);
+CREATE TABLE IF NOT EXISTS msg_stats_state (
+    k     TEXT PRIMARY KEY,      -- 'state'
+    saved REAL NOT NULL,         -- time of the save
+    data  BLOB NOT NULL
+);
+
 -- ── sonde_verification ───────────────────────────────────────────────────────
 -- Mode S area profile vs the radiosonde (collector/sonde_verif.py, written by
 -- the hourly jobs thread): kind 'launch' = area profile of ±1 h around a

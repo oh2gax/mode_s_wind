@@ -64,7 +64,7 @@
 
   // ── summary bar ───────────────────────────────────────────────────────────
   function renderBar(d) {
-    const ten = d.ten || [];
+    const ten = (d.ten || []).filter(t => t[1] != null);
     const last = ten.length ? ten[ten.length - 1][1] / 10 : null;
     $('mst-k-rate').textContent = last == null ? '—' : fmtRate(last);
     $('mst-k-rate').title = `Last 10 s: ${last == null ? '—' : fmtRate(last)} /s · window average ${fmtRate(d.totals.rate)} /s`;
@@ -170,13 +170,13 @@
     const rows = io.rows.filter(r => r.type !== 'SQ').map(r => `<tr><td class="mst-code">${r.type} ${r.code}</td>`
       + `<td class="mst-dim2">${iidClass(r.type, r.code)}</td>`
       + `<td class="num">${fmtRate(r.rate)}</td><td class="num">${r.n.toLocaleString('en')}</td><td class="num">${r.ac ?? '—'}</td>`
-      + `<td class="num">${hhmm(r.first)}</td><td class="num">${ago(d.now - r.last)}</td></tr>`);
+      + `<td class="num">${d.now - r.first > 72000 ? new Date(r.first * 1000).getUTCDate() + '.' + (new Date(r.first * 1000).getUTCMonth() + 1) + '. ' : ''}${hhmm(r.first)}</td><td class="num">${ago(d.now - r.last)}</td></tr>`);
     if (sq) rows.push(`<tr class="mst-dim"><td>Squitter / II 0</td><td colspan="1">acquisition squitters (spontaneous) and replies to II 0</td><td class="num">${fmtRate(sq.rate)}</td><td class="num">${sq.n.toLocaleString('en')}</td><td colspan="3"></td></tr>`);
     table('mst-iid', [['Code', 'II = interrogator identifier (1–15), SI = surveillance identifier (1–63)'],
       ['Use', 'How codes with this value are allocated (ICAO EUR practice, EUROCONTROL MICA): 1–13 operational Mode S radars, 0 (SI 16 / 32 / 48) MLAT, WAM and mobile interrogators, 14 test and development, 15 military'],
       ['/s', 'Replies per second', 'num'],
       ['Replies', 'In the window', 'num'], ['Aircraft', 'Distinct aircraft that replied to it', 'num'],
-      ['First', 'First heard since the server started (UTC)', 'num'], ['Last', 'Time since the last reply', 'num']], rows);
+      ['First', 'First heard (UTC; kept over restarts, from 25 Oct 2026)', 'num'], ['Last', 'Time since the last reply', 'num']], rows);
     const quiet = io.quiet.map(q => `${q.type} ${q.code} (last ${hhmm(q.last)})`).join(', ');
     const um = io.um.slice(0, 6).map(u => `IIS ${u.iis}/IDS ${u.ids}: ${u.n}`).join(' · ');
     $('mst-iid-foot').innerHTML = 'An all-call reply (DF11) carries the code of the Mode S interrogator that asked (an all-call '
@@ -423,17 +423,18 @@
     const sel = range === '1h' ? rows.slice(-60) : rows;
     const lbl = r => hhmm(r[0]);
     const per = k => sel.map(r => r[col(k)] == null ? null : +(r[col(k)] / 60).toFixed(2));
+    const per2 = (a, b) => sel.map(r => r[col(a)] == null ? null : +((r[col(a)] + r[col(b)]) / 60).toFixed(2));
     const raw = k => sel.map(r => r[col(k)]);
     const C = [css('--accent'), css('--green'), css('--amber'), css('--purple') || '#8b5cf6', css('--red')];
     if (series === 'rate' && range === '1h') {
       const ten = d.ten.slice(-360);
-      return { labels: ten.map(t => hhmm(t[0])), sets: [['Messages/s', ten.map(t => t[1] / 10), C[0]]], unit: '/s' };
+      return { labels: ten.map(t => hhmm(t[0])), sets: [['Messages/s', ten.map(t => t[1] == null ? null : t[1] / 10), C[0]]], unit: '/s' };
     }
     const L = sel.map(lbl);
     switch (series) {
       case 'formats': return { labels: L, unit: '/s', sets: [
-        ['DF4/5', sel.map((r, i) => +((r[col('df4')] + r[col('df5')]) / 60).toFixed(2)), C[0]], ['DF11', per('df11'), C[3]],
-        ['DF17', per('df17'), C[1]], ['DF20/21', sel.map(r => +((r[col('df20')] + r[col('df21')]) / 60).toFixed(2)), C[2]]] };
+        ['DF4/5', per2('df4', 'df5'), C[0]], ['DF11', per('df11'), C[3]],
+        ['DF17', per('df17'), C[1]], ['DF20/21', per2('df20', 'df21'), C[2]]] };
       case 'regs': return { labels: L, unit: '/s', sets: [['BDS 5,0', per('bds50'), C[0]], ['BDS 6,0', per('bds60'), C[1]],
         ['BDS 4,0', per('bds40'), C[2]], ['BDS 2,0', per('bds20'), C[3]]] };
       case 'aircraft': return { labels: L, unit: '', sets: [['Aircraft', raw('ac'), C[0]], ['EHS aircraft', raw('ehs'), C[1]]] };

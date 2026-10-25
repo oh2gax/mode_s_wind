@@ -40,7 +40,7 @@
         <button class="gps-zone-btn" data-win="1">1 min</button>
         <button class="gps-zone-btn active" data-win="10">10 min</button>
         <button class="gps-zone-btn" data-win="60">1 h</button>
-        <button class="gps-zone-btn" data-win="1440" title="The last 24 hours (since the server started, if later)">24 h</button>
+        <button class="gps-zone-btn" data-win="1440" title="The last 24 hours (kept over restarts)">24 h</button>
       </span>
     </span>
     <span class="mst-health" id="mst-health" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false"
@@ -62,7 +62,7 @@
           <span class="gps-panel-title">Message rate</span>
           <span class="gps-heatmap-range-btns" id="mst-chart-range">
             <button class="gps-range-btn active" data-range="1h" title="Messages per second, every 10 s">1 h</button>
-            <button class="gps-range-btn" data-range="24h" title="Per minute over the last 24 h (since the server started)">24 h</button>
+            <button class="gps-range-btn" data-range="24h" title="Per minute over the last 24 h (kept over restarts; the time the server was down is a gap)">24 h</button>
           </span>
           <select id="mst-chart-series" class="gpe-input" title="Series of the 24 h chart">
             <option value="rate">Messages/s</option>
