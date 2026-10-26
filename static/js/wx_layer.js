@@ -24,6 +24,10 @@
  * cov on its own grid, the Live Map): its rain is drawn over the model's, the
  * model's rain is cut away inside the radar coverage, and a thin line marks
  * the edge of the coverage (outside it the model's rain, if any, is shown).
+ * With opts modelOutline (the Live Map's Both, from 2026-10-26) the model's
+ * rain inside the coverage is drawn as outlines over the radar's colours —
+ * thin from 0.1 mm/h, thick from 1 mm/h — so the forecast can be compared
+ * with what the radar observes without mixing the two.
  */
 'use strict';
 
@@ -106,9 +110,11 @@ const WxLayer = (() => {
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const theme = () => isLight()
     ? { iso: 'rgba(30,41,59,0.85)', isoLbl: '#1e293b', halo: 'rgba(241,245,249,0.9)', hi: '#1d4ed8', lo: '#b91c1c',
-        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a' }
+        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a',
+        mrain: '#1e293b', mrainHalo: 'rgba(255,255,255,0.75)' }
     : { iso: 'rgba(226,232,240,0.8)', isoLbl: '#e2e8f0', halo: 'rgba(15,25,35,0.85)', hi: '#60a5fa', lo: '#f87171',
-        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)', barb: '#f8fafc' };
+        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)', barb: '#f8fafc',
+        mrain: '#f8fafc', mrainHalo: 'rgba(15,25,35,0.7)' };
   const CLOUD_NAME = { c: 'cloud cover', l: 'low cloud', m: 'medium cloud', h: 'high cloud', f: 'fog' };
 
   function smooth(v, nx, ny, r) {
@@ -311,6 +317,45 @@ const WxLayer = (() => {
           }
         }
         if (any) layer(opts.rainAlpha || 0.72);
+      }
+      // the model's rain inside the radar coverage as outlines (clipped to the coverage)
+      if (hasF && hasO && o.rain && o.modelOutline && f.r && ov.cov) {
+        ctx.save();
+        ctx.beginPath();
+        for (let q = 0; q < ov.cov.length; q += 3) {
+          const j = ov.cov[q], onx1 = ovGeo.nx + 1;
+          for (let i = ov.cov[q + 1]; i <= ov.cov[q + 2]; i += SPLIT) {
+            const i1 = Math.min(i + SPLIT - 1, ov.cov[q + 2]);
+            const a = oq.C(j * onx1 + i), b = oq.C(j * onx1 + i1 + 1), c = oq.C((j + 1) * onx1 + i1 + 1), d = oq.C((j + 1) * onx1 + i);
+            ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+          }
+        }
+        ctx.clip();
+        const C = quad.C, nx1 = nx + 1;
+        for (const [cl0, w] of [[0, 1], [2, 2]]) {            // ≥ 0.1 mm/h thin, ≥ 1 mm/h thick
+          const m = (i, j) => {
+            if (i < 0 || j < 0 || i >= nx || j >= ny) return false;
+            const r = f.r[j * nx + i];
+            return r != null && rainClass(r / 100) >= cl0;
+          };
+          ctx.beginPath();
+          let any = false;
+          for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+            if (i < nx && m(i, j - 1) !== m(i, j)) {          // edge along the top of cell (i, j)
+              const a = C(j * nx1 + i), b = C(j * nx1 + i + 1);
+              ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); any = true;
+            }
+            if (j < ny && m(i - 1, j) !== m(i, j)) {          // edge along the left of cell (i, j)
+              const a = C(j * nx1 + i), b = C((j + 1) * nx1 + i);
+              ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); any = true;
+            }
+          }
+          if (!any) continue;
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = T.mrainHalo; ctx.lineWidth = w + 2; ctx.stroke();
+          ctx.strokeStyle = T.mrain; ctx.lineWidth = w; ctx.stroke();
+        }
+        ctx.restore();
       }
       // the edge of the radar coverage
       if (hasO && ov.edges && o.outline !== false) {
@@ -525,6 +570,10 @@ const WxLayer = (() => {
   function legendHtml(o) {
     const parts = [];
     if (o.edge) parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${theme().radarEdge};vertical-align:middle"></span> edge of the radar coverage`);
+    if (o.edge && o.rain && o.modelOutline) {
+      const T = theme(), ln = w => `<span style="display:inline-block;width:16px;border-top:${w}px solid ${T.mrain};box-shadow:0 0 0 1px ${T.mrainHalo};vertical-align:middle"></span>`;
+      parts.push(`${ln(1)} ${ln(2)} the model's rain inside the radar area (from 0.1 / 1 mm/h)`);
+    }
     const key = c => `<span class="wx-key" style="background:${c}"></span>`;
     if (o.rain) {
       parts.push('rain ' + RAIN_C.map((c, i) => `${key(c)} ${RAIN_T[i]}`).join(' ') + ' mm/h');

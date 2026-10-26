@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown)
+## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar)
 
 ### Radarcape receiver status
 - New module `collector/radarcape_status.py`: reads the Radarcape's own status page `http://<RADARCAPE_HOST>/systemstatus.json` once a minute (thread `rc_status`, started in `run.py`; timeout 5 s, RAM only, nothing written). Keeps the GPS and FPGA flags, the GPS module temperature (lowest / highest of up to 24 h in memory), the OS and receiver-software uptimes (a decrease marks a software restart), the time sources and NTP RMS offset, GPS and system time, the receiver position and height, versions, board, feeders and the online-service states. The network fields, the MLAT nickname and the other device fields are not kept. Optional `RADARCAPE_STATUS` in `config.py` (default `True`).
@@ -22,6 +22,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Statistics page layout
 - The **Interrogators** panel ends level with the **Meteo yield** panel when the columns stand side by side; the rest of its table and notes scroll inside the panel, with the column titles kept in view and the scroll position kept over the 10-s updates (`stats.html`, `fitIid` in `stats.js`, `.mst-scroll` in `style.css`). On one-column screens it keeps its full height.
+
+### Live Map weather overlay: model rain outlined under the radar
+- With **Both**, the MEPS model's rain inside the FMI radar coverage was cut away entirely, so in practice only the radar's rain could be seen. It is now drawn there as outlines over the radar's colours — thin around the model's rain from 0.1 mm/h, thick from 1 mm/h, with a halo for contrast, clipped to the coverage — so the forecast can be compared with the observation without mixing the two (`static/js/wx_layer.js` option `modelOutline`, `static/js/live_wx.js`). Outside the coverage the model's rain is drawn in colour as before; the legend and the status line say so. *FMI radar* alone and the Weather page are unchanged.
 
 ### Fixes
 - Windshear page: the return-approach badge of an aircraft after two go-arounds (its third approach) read **2x APP**; it now reads **3x APP** (`static/js/windshear.js`).

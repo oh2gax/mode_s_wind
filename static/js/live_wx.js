@@ -5,7 +5,8 @@
  * (Off / MEPS model / FMI radar / Both), what to show (MEPS: rain and snow,
  * low cloud, fog, isobars; radar: the observed rain rate) and an opacity
  * slider.  Both: the radar's rain inside its coverage (dashed edge), the
- * model's rain outside it, and the model's clouds, fog and isobars.
+ * model's rain outside it (and inside it as outlines, from 2026-10-26), and
+ * the model's clouds, fog and isobars.
  * The radar (/api/radar/latest, web/api/radar.py) covers Finland and the
  * nearby seas only, the model the whole MEPS area — so MEPS is the default.  The overlay lies in its own pane under the
  * aircraft (wx_layer.js, the same drawing as the Weather page) and shows the
@@ -127,7 +128,7 @@
             <label><input type="radio" name="lwx-src" value="off"> Off</label>
             <label title="The MEPS weather model (MET Norway open data, CC BY 4.0): the present hour, from the newest stored run"><input type="radio" name="lwx-src" value="meps"> MEPS model</label>
             <label title="FMI radar composite (FMI open data, CC BY 4.0): the observed rain rate every 5 minutes, about 2 km — Finland and the nearby seas only (not the Baltic states)"><input type="radio" name="lwx-src" value="radar"> FMI radar</label>
-            <label title="The FMI radar's rain inside the radar coverage (dashed edge), the MEPS model's rain outside it, and the model's low cloud, fog and isobars as chosen"><input type="radio" name="lwx-src" value="both"> Both</label>
+            <label title="The FMI radar's rain inside the radar coverage (dashed edge), the MEPS model's rain outside it — and inside it as outlines (thin from 0.1, thick from 1 mm/h) to compare the forecast with the radar — and the model's low cloud, fog and isobars as chosen"><input type="radio" name="lwx-src" value="both"> Both</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Show</span>
             <label title="Rain and snow of the hour (mm of water per hour), radar-like colours; snow in violet. With the radar: the observed rain rate (mm/h)"><input type="checkbox" data-k="rain"> Rain / snow</label>
@@ -190,7 +191,7 @@
     const clouds = [];
     if (st.low) clouds.push('l');
     if (st.fog) clouds.push('f');
-    return { rain: st.rain, pres: st.pres, clouds, edge };
+    return { rain: st.rain, pres: st.pres, clouds, edge, modelOutline: st.src === 'both' };
   }
   function fields() {
     const f = ['p'];
@@ -376,7 +377,7 @@
         `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${shown.lead} h · ` +
         `hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
         (stale ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
-        (st.src === 'both' && radarShown ? ' · rain outside the radar area' : '') +
+        (st.src === 'both' && radarShown ? ' · rain outside the radar area, outlined inside it' : '') +
         ' · model, not radar · MET Norway, CC BY 4.0';
     }
   }
