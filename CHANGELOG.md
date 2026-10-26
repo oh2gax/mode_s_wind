@@ -40,6 +40,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - The labels at the top left (data badge, sonde, MEPS, analysis source, sonde note) wrap at their ` · ` / ` — ` separators (or between words) to stay inside the plot, instead of running under the RH strip and over the barbs and values on a narrow diagram; the lines below move down accordingly.
 - The isotherms are clipped to the plot (before, they ran on across the RH strip, the barbs and the values); an area temperature label that would leave the plot is written on the left of its point.
 
+### RH strip: the last full hour beside the hour in progress
+- The trial moisture indicator in the Skew-T's RH strip (Live Map; Sounding page *Area · now*; `/app`) shows each layer split in two: upper, filled bar the hour in progress (changes as the flights come in), lower, outlined bar the last full hour (steadier: its ± window of flights is complete). The hover gives both. `web/api/sounding.py`: `/api/sounding?moist=1` adds `moisture.prev` (the indicator of the last full hour, cached for 10 minutes); `static/js/skewt_chart.js`. *Area · hour* unchanged (one bar per layer).
+
 ### Live Map weather overlay: model rain outlined under the radar
 - With **Both**, the MEPS model's rain inside the FMI radar coverage was cut away entirely, so in practice only the radar's rain could be seen. It is now drawn there as outlines over the radar's colours — thin around the model's rain from 0.1 mm/h, thick from 1 mm/h, with a halo for contrast, clipped to the coverage — so the forecast can be compared with the observation without mixing the two (`static/js/wx_layer.js` option `modelOutline`, `static/js/live_wx.js`). Outside the coverage the model's rain is drawn in colour as before; the legend and the status line say so. *FMI radar* alone and the Weather page are unchanged.
 
@@ -50,6 +53,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documentation
 - New **Mobile user guide** v1.0 (`doc/Mobile_User_Guide.pdf`, 8 pp): opening `/app`, Add to Home Screen, the menu, touch and updates, the five views with their options, troubleshooting, quick reference; listed in `doc/guides.md` and linked in the `/app` menu (*General*).
+- Skew-T user guide v4.8 and Sounding / Wind Map guide v3.4: the RH strip's two bars (hour in progress, last full hour; Live Map figure renewed).
 - Skew-T user guide v4.7 and Sounding / Wind Map guide v3.3: the MEPS wind barbs beside the aircraft's in the right margin (text and figures renewed with the same data), the diagram in the mobile view; `doc/guides.md`.
 - Statistics user guide v1.2: new section on the Radarcape receiver panel and the Radarcape health indicator; range-ring centre (`doc/Statistics_User_Guide.pdf`, `doc/guides.md`).
 - README: Statistics section (Radarcape receiver panel, health table, range-ring centre), configuration (`RADARCAPE_STATUS`), architecture, file tree and API.

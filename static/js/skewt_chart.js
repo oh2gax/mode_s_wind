@@ -1677,15 +1677,30 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.globalAlpha = 0.6; ctx.setLineDash([2, 3]);
     for (const v of [40, 70]) { ctx.beginPath(); ctx.moveTo(x(v) + 0.5, MT); ctx.lineTo(x(v) + 0.5, MT + PH); ctx.stroke(); }
     ctx.setLineDash([]); ctx.globalAlpha = 1;
-    // aircraft bars
-    for (const r of (miniMoist && miniMoist.rows) || []) {
+    // aircraft bars.  In Area · now (from 26 Oct 2026) the layer is split:
+    // the upper part the hour in progress (filled, changes as the flights
+    // come in), the lower part the last full hour (outlined, steadier).
+    const prev = miniMoist && miniMoist.prev && (miniMoist.prev.rows || []).length ? miniMoist.prev : null;
+    const bars = (M, part) => {
+     for (const r of (M && M.rows) || []) {
       const [lo, hi, idx, se] = r;
       if (idx == null) continue;
-      const yb = mskY(altToPressHPa(lo)), yt = mskY(altToPressHPa(hi));
+      let yb = mskY(altToPressHPa(lo)), yt = mskY(altToPressHPa(hi));
       if (yb < MT || yt > MT + PH) continue;
-      const weak = se == null || se > (miniMoist.uncertain_pct || 40), c = moistCls(idx)[2];
-      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.3 : 0.65})`;
-      ctx.fillRect(x0 + 1, yt + 1, Math.max(2, x(idx) - x0 - 1), yb - yt - 2);
+      if (part === 'now') yb = yt + (yb - yt) * 0.55 - 1;
+      else if (part === 'prev') yt = yt + (yb - yt) * 0.55 + 1;
+      const weak = se == null || se > (M.uncertain_pct || 40), c = moistCls(idx)[2];
+      if (part === 'prev') {                           // outlined, lightly filled
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.1 : 0.22})`;
+        ctx.fillRect(x0 + 1, yt + 1, Math.max(2, x(idx) - x0 - 1), yb - yt - 2);
+        ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.55 : 0.95})`; ctx.lineWidth = 1;
+        ctx.setLineDash([3, 2]);
+        ctx.strokeRect(x0 + 1.5, yt + 1.5, Math.max(2, x(idx) - x0 - 2), yb - yt - 3);
+        ctx.setLineDash([]);
+      } else {
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${weak ? 0.3 : 0.65})`;
+        ctx.fillRect(x0 + 1, yt + 1, Math.max(2, x(idx) - x0 - 1), yb - yt - 2);
+      }
       ctx.strokeStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x(idx), yt + 1); ctx.lineTo(x(idx), yb - 1); ctx.stroke();
       if (se != null) {                                // ± range at the middle of the layer
@@ -1696,10 +1711,13 @@ function createSkewT(canvas, tip, cfg = {}) {
         ctx.moveTo(x(idx + se), ym - 3); ctx.lineTo(x(idx + se), ym + 3); ctx.stroke();
       }
       if (idx > 100) {                                 // beyond the scale: a small arrow at the edge
-        const ym = (yt + yb) / 2 - 8;
+        const ym = (yt + yb) / 2 - Math.min(8, (yb - yt) / 3);
         ctx.fillStyle = T.tempLbl; ctx.beginPath(); ctx.moveTo(x1 - 1, ym); ctx.lineTo(x1 - 6, ym - 3); ctx.lineTo(x1 - 6, ym + 3); ctx.fill();
       }
-    }
+     }
+    };
+    bars(miniMoist, prev ? 'now' : 'full');
+    if (prev) bars(prev, 'prev');
     // sonde RH line
     if (miniSonde) {
       const L = miniSonde.levels.filter(l => l.pressure >= PT * 0.97 && l.pressure <= PB * 1.02 && sondeRh(l) != null);
@@ -1727,7 +1745,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.fillText('RH %', (x0 + x1) / 2, MT - 3);
     ctx.textAlign = 'left'; ctx.fillText('0', x0, MT + PH + 14);
     ctx.textAlign = 'right'; ctx.fillText('100', x1 + 2, MT + PH + 14);
-    if (!miniMoist || !(miniMoist.rows || []).length) {
+    if (!miniMoist || (!(miniMoist.rows || []).length && !(miniMoist.prev && (miniMoist.prev.rows || []).length))) {
       ctx.textAlign = 'center'; ctx.fillStyle = T.area;
       ctx.save(); ctx.translate((x0 + x1) / 2, mskY(altToPressHPa(8000))); ctx.rotate(-Math.PI / 2);
       ctx.fillText(miniMoist ? 'too few flights' : 'no aircraft value', 0, 3); ctx.restore();
@@ -1742,17 +1760,29 @@ function createSkewT(canvas, tip, cfg = {}) {
     const fmt = f => f >= 6000 ? `FL${String(Math.round(f / 100)).padStart(3, '0')}` : `${Math.round(f).toLocaleString()} ft`;
     const r = ((miniMoist && miniMoist.rows) || []).find(r => ft >= r[0] && ft < r[1]);
     parts.push(`<b>Moisture (trial)</b> · ${fmt(ft)} · ${Math.round(p)} hPa`);
+    const pv = miniMoist && miniMoist.prev ? (miniMoist.prev.rows || []).find(q => ft >= q[0] && ft < q[1]) : null;
+    const pvLine = () => {
+      if (!pv) return;
+      const hh = t => String(new Date(t * 1000).getUTCHours()).padStart(2, '0');
+      const ph = miniMoist.prev.hour;
+      parts.push(`Last full hour ${hh(ph)}–${hh(ph + 3600)} UTC: <b>${moistCls(pv[2])[1]}</b>, index ${pv[2]} %${pv[3] != null ? ` ±${pv[3]} %` : ''}` +
+        ` <span class="mini-tip-dim">(${pv[4]} climbs / descents; the outlined lower bar — steadier than the hour in progress, the filled upper bar)</span>`);
+    };
     if (r) {
       const [lo, hi, idx, se, n, corr, raw, ser] = r;
       const w = miniMoist.window_h ? miniMoist.window_h[String(lo)] : null;
-      parts.push(`Aircraft ${fmt(lo)}–${fmt(hi)}: <b>${moistCls(idx)[1]}</b>, index ${idx} %${se != null ? ` ±${se} %` : ''}` +
+      parts.push(`${miniMoist.prev && (miniMoist.prev.rows || []).length ? 'Now (hour in progress) ' : 'Aircraft '}${fmt(lo)}–${fmt(hi)}: <b>${moistCls(idx)[1]}</b>, index ${idx} %${se != null ? ` ±${se} %` : ''}` +
         (ser != null ? ` <span class="mini-tip-dim">(±${ser} % from the flights, the rest systematic)</span>` : '') +
         ` <span class="mini-tip-dim">(${n} climbs / descents${w ? ` of ±${w} h` : ''}; Tv − T ${corr >= 0 ? '+' : ''}${corr.toFixed(2)} K after the sonde offsets, ${raw >= 0 ? '+' : ''}${raw.toFixed(2)} K raw)</span>`);
+      pvLine();
       const sl = sondeLayerRh(lo, hi);
       if (sl != null) parts.push(`<span style="color:${miniSkewTTheme().sonde}">Sonde mean RH of the layer ${Math.round(sl)} %</span>`);
       const ml = mepsLayerRh(lo, hi);
       if (ml != null) parts.push(`<span style="color:${miniSkewTTheme().meps}">MEPS mean RH of the layer ${Math.round(ml)} %</span>`);
-    } else if (miniMoist) parts.push('<span class="mini-tip-dim">no aircraft value here (1 000–15 000 ft only, enough climbs / descents needed)</span>');
+    } else if (miniMoist) {
+      parts.push('<span class="mini-tip-dim">no aircraft value here' + (pv ? ' for the hour in progress' : ' (1 000–15 000 ft only, enough climbs / descents needed)') + '</span>');
+      pvLine();
+    }
     const sv = miniSonde ? sondeAt(p) : null;
     if (sv && sv.t != null && sv.td != null) {
       const es = t => 6.112 * Math.exp(17.67 * t / (t + 243.5));

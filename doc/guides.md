@@ -9,7 +9,7 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
-version: 4.7
+version: 4.8
 date: 2026-10-26
 pages: 20
 open: live, skewt
@@ -19,12 +19,12 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 - The diagram element by element, the **data-quality** badge and rings, smoothing and a selected aircraft
 - The **Airport** low-level profile from the landings and departures at Helsinki-Vantaa
 - The **Analysis** button: tropopause, freezing level, jet streams, inversions, stability, turbulence risk, warm / cold advection, contrails and the surface parcel (cloud base, CAPE, Lifted Index) — of the aircraft, the MEPS model or the sonde (**Analysis of**, with likely cloud layers)
-- The comparison profiles: the Jokioinen **radiosonde**, the **MEPS** weather model on its own levels (its wind barbs beside the aircraft's) and the trial **RH** strip with the sonde's and the model's humidity
+- The comparison profiles: the Jokioinen **radiosonde**, the **MEPS** weather model on its own levels (its wind barbs beside the aircraft's) and the trial **RH** strip (the hour in progress and the last full hour) with the sonde's and the model's humidity
 - The **upper-level temperature correction** (*upper T corr.*): the fleet's warm bias at cruise levels, learnt from the MEPS model
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.3
+version: 3.4
 date: 2026-10-26
 pages: 44
 open: sounding, windmap@30

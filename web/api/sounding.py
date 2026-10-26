@@ -38,7 +38,10 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
              "generated_at", "levels"} — levels surface first; each level
     also has ac_count (distinct aircraft in the layer).  With moist: also
     "moisture" — the trial moisture indicator of the hour in progress
-    (collector/moisture.py, flights of the last 1–2 hours).
+    (collector/moisture.py, flights of the last 1–2 hours) — and in it
+    "prev", the indicator of the last full hour (from 2026-10-26: steadier
+    than the hour in progress, drawn beside it in the RH strip; computed at
+    most every PREV_MOIST_SEC per hour).
     """
     import datetime
     now = time.time()
@@ -59,8 +62,32 @@ def build_sounding(cfg: Config, db: sqlite3.Connection,
     if moist:
         out["moisture"] = _moisture(db, now, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
                                     cfg.SOUNDING_RADIUS_KM, live_levels=levels, now=now)
+        if out["moisture"] is not None:
+            out["moisture"]["prev"] = _moisture_prev(db, now, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                                     cfg.SOUNDING_RADIUS_KM)
     _tcorr(db, out)
     return out
+
+
+# The last full hour's moisture indicator, cached: it changes only a little
+# (flights of the hour in progress still enter its ± window), and the Live Map
+# asks for it every 2 minutes.
+PREV_MOIST_SEC = 600
+_prev_cache: dict = {}
+
+
+def _moisture_prev(db, now, lat, lon, radius_km):
+    h = int(now // 3600 * 3600) - 3600
+    key = (h, round(lat, 3), round(lon, 3), radius_km)
+    hit = _prev_cache.get(key)
+    if hit and now - hit[0] < PREV_MOIST_SEC:
+        return hit[1]
+    val = _moisture(db, h, lat, lon, radius_km, now=now)
+    if val is not None and not (val.get("rows") or []):
+        val = None
+    _prev_cache.clear()                                  # one entry: the current last full hour
+    _prev_cache[key] = (now, val)
+    return val
 
 
 def _tcorr(db, out: dict) -> None:
