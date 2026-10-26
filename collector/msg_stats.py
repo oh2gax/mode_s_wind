@@ -298,7 +298,10 @@ class MsgStats:
         self._hours: deque = deque(maxlen=HOURS_DETAIL)
         self._hours_cache: tuple | None = None       # (key, merged closed hours)
         self.site = _EFHK                            # antenna position for the range
-        self.site_src = "centre"                     # config (ANTENNA_*) / radarcape (its GPS) / centre
+        self.site_src = "centre"                     # radarcape (its GPS) / config (ANTENNA_*) / centre
+        self.site_cfg = None                         # ANTENNA_LAT / ANTENNA_LON (fallback), or None
+        self.site_centre = _EFHK                     # RECEIVER_LAT / RECEIVER_LON (last resort)
+        self.site_rc_why = None                      # why the Radarcape position is not used (plain words)
         self.site_alt = None                         # antenna altitude (m), from the Radarcape
         self.sig_state = "off"                       # on / off / unavailable (set by the collector)
         self._cur_sig: int | None = None             # signal byte of the frame being decoded
@@ -373,6 +376,18 @@ class MsgStats:
                 c[("met", "wind")], med("5,0", "final"), med("5,0", "terminal"), med("5,0", "enroute")]
 
     # ── feed events (collector thread) ──────────────────────────────────────
+    def choose_site(self, rc_pos=None, why=None) -> None:
+        """Centre of the range rings (from 2026-10-26): the Radarcape's own GPS
+        position while it is good (`rc_pos`), else ANTENNA_LAT / ANTENNA_LON,
+        else RECEIVER_LAT / RECEIVER_LON (the map centre)."""
+        self.site_rc_why = None if rc_pos else why
+        if rc_pos:
+            self.site, self.site_src = (float(rc_pos[0]), float(rc_pos[1])), "radarcape"
+        elif self.site_cfg:
+            self.site, self.site_src = self.site_cfg, "config"
+        else:
+            self.site, self.site_src = self.site_centre, "centre"
+
     def connected(self) -> None:
         with self._lock:
             self.connects += 1
@@ -730,6 +745,7 @@ class MsgStats:
                        "strong_db": -3.0, "zero": c["sig0"], "cats": sig_cats,
                        "parser": _sig_parser_state()},
             "range": {"site": list(site), "site_src": self.site_src, "site_alt": self.site_alt,
+                      "site_cfg": list(self.site_cfg) if self.site_cfg else None, "site_rc_why": self.site_rc_why,
                       "sectors": RNG_SECTORS, "max": agg["r"], "rows": rows,
                       "n": c["rng_n"], "jumps": c["rng_jump"], "far_rejected": c["rng_far"],
                       "farthest": far, "max_nm": RNG_MAX_NM},

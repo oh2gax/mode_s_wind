@@ -24,8 +24,10 @@ Meanings (Jetvision wiki, Radarcape: Software Features):
                  the air around it (not the air temperature)
   ntp_rms_offset the system clock's NTP RMS offset in microseconds
 
-When ANTENNA_LAT / ANTENNA_LON are not set in config.py, the receiver's own GPS
-position becomes the centre of the range rings (collector/msg_stats.py).
+The receiver's own GPS position is the centre of the range rings while it is
+good (live fix, antenna OK, 3+ satellites, read within 15 min); otherwise
+ANTENNA_LAT / ANTENNA_LON from config.py, and without them the map centre
+(collector/msg_stats.py choose_site; from 2026-10-26).
 """
 
 from __future__ import annotations
@@ -108,7 +110,7 @@ class RadarcapeStatus:
             "mlat_time_source": raw.get("mlat_time_source"), "ntp_source": raw.get("system_ntp_source"),
             "ntp_rms": _num(raw.get("ntp_rms_offset")),
             "gps_time": raw.get("gps_time"), "sys_time": raw.get("sys_time"),
-            "position": {k: pos.get(k) for k in ("lat", "lon", "alt", "live")} if pos else None,
+            "position": {k: pos.get(k) for k in ("lat", "lon", "alt", "live", "alias")} if pos else None,
             "feeders": dict(raw.get("external_sw") or raw.get("feeders") or {}),
             "internet": dict(raw.get("internet_connection_status") or {}),
             "ts": now,
@@ -136,20 +138,45 @@ class RadarcapeStatus:
                 log.debug("Radarcape status error: %s", exc)
             time.sleep(POLL_SEC)
 
+    def position_problem(self, now: float | None = None):
+        """None when the receiver's GPS position is good for the range-ring
+        centre, else the reason in plain words: status not read for 15 min,
+        no position, a stored (not live) or privacy-alias position, GPS
+        antenna fault, no satellites tracked or only 1–2 satellites."""
+        now = time.time() if now is None else now
+        if self.data is None or self.ok_ts is None:
+            return "no status from the Radarcape"
+        if now - self.ok_ts > 900:
+            return "Radarcape status not read for 15 min"
+        p = self.data.get("position") or {}
+        if not isinstance(p.get("lat"), (int, float)) or not isinstance(p.get("lon"), (int, float)):
+            return "no GPS position"
+        if p.get("live") is not True:
+            return "stored position, no live GPS fix"
+        if p.get("alias"):
+            return "position replaced for privacy"
+        g = set(self.data.get("gps") or [])
+        for flag, why in (("AntOk", "GPS antenna fault"), ("Track", "GPS tracks no satellites"),
+                          ("GoodSat", "only 1–2 satellites")):
+            if flag not in g:
+                return why
+        return None
+
     def _set_site(self) -> None:
-        """Range-ring centre from the receiver's GPS when ANTENNA_* are not set."""
+        """Range-ring centre: the receiver's GPS position while it is good,
+        else ANTENNA_LAT / ANTENNA_LON, else the map centre (msg_stats.choose_site)."""
         from collector import msg_stats
         ms = msg_stats.get()
         p = (self.data or {}).get("position") or {}
-        if isinstance(p.get("alt"), (int, float)):
-            ms.site_alt = p.get("alt")                  # antenna altitude, also with ANTENNA_*
-        if getattr(ms, "site_src", "") == "config" or p.get("lat") is None or p.get("lon") is None:
-            return
-        if p.get("live") is False:
-            return
-        ms.site = (float(p["lat"]), float(p["lon"]))
-        ms.site_src = "radarcape"
-        ms.site_alt = p.get("alt")
+        why = self.position_problem()
+        if why is None:
+            ms.choose_site((p["lat"], p["lon"]))
+            if isinstance(p.get("alt"), (int, float)):
+                ms.site_alt = p["alt"]                  # antenna height (GPS)
+        else:
+            ms.choose_site(None, why)
+            if ms.site_alt is None and isinstance(p.get("alt"), (int, float)) and p.get("live") is True:
+                ms.site_alt = p["alt"]
 
     def public(self, now: float | None = None) -> dict:
         """For the Statistics page (/api/msgstats → "radarcape")."""

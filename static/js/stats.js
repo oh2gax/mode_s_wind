@@ -235,10 +235,12 @@
     if (p && p.lat != null) {
       let pos = `${Number(p.lat).toFixed(4)}° N ${Number(p.lon).toFixed(4)}° E`
         + (p.alt != null ? ` · ${fmt(p.alt, 0)} m` : '') + (p.live ? ' · live GPS fix' : ' · stored position');
-      if (rg.site_src === 'config' && rg.site && rg.site.length) {
-        const m = distM(rg.site[0], rg.site[1], p.lat, p.lon);
+      if (rg.site_src === 'radarcape') pos += ' <span class="mst-dim2">· centre of the range rings</span>';
+      else pos += ` <span class="mst-rc-warn">· not used for the range rings${rg.site_rc_why ? ' (' + esc(rg.site_rc_why) + ')' : ''} — ${rg.site_src === 'config' ? 'ANTENNA_LAT / LON' : 'the map centre'} in use</span>`;
+      if (rg.site_cfg && rg.site_cfg.length) {
+        const m = distM(rg.site_cfg[0], rg.site_cfg[1], p.lat, p.lon);
         pos += ` <span class="mst-dim2">· ${m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'} from ANTENNA_LAT / LON</span>`;
-      } else if (rg.site_src === 'radarcape') pos += ' <span class="mst-dim2">· centre of the range rings</span>';
+      }
       row('Position', pos, 'The receiver\'s GPS position and height (GPS height, about the height above sea level)');
     }
     row('Settings', `<span class="mst-rc-chips">${fpga}</span>`, 'Receiver (FPGA) settings that MODE-S Wind relies on (hover a setting); amber = differs from what this system expects');
@@ -411,7 +413,9 @@
     const site = rg.site || [];
     $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
       + `(${site.length ? site[0].toFixed(3) + '° N ' + site[1].toFixed(3) + '° E' : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
-      + `${{ config: 'ANTENNA_LAT / ANTENNA_LON in config.py', radarcape: 'the Radarcape\'s GPS position (ANTENNA_LAT / ANTENNA_LON not set)', centre: 'the map centre — set ANTENNA_LAT / ANTENNA_LON in config.py' }[rg.site_src] || 'ANTENNA_LAT / ANTENNA_LON in config.py'}); `
+      + `${{ radarcape: 'the Radarcape\'s own GPS position' + (rg.site_cfg ? ', ANTENNA_LAT / ANTENNA_LON as the fallback' : ''),
+             config: 'ANTENNA_LAT / ANTENNA_LON in config.py' + (rg.site_rc_why ? ' — the Radarcape\'s GPS position not used: ' + rg.site_rc_why : ''),
+             centre: 'the map centre — the Radarcape\'s GPS position not available; ANTENNA_LAT / ANTENNA_LON in config.py would be the fallback' }[rg.site_src] || 'ANTENNA_LAT / ANTENNA_LON in config.py'}); `
       + `rings every ${step} NM. Only positions decoded from our own reception count, and only when they fit the aircraft's previous position, `
       + 'so a single bad decode cannot make a record. The shape shows the horizon (higher aircraft are seen farther) and the shadows of nearby terrain and buildings; '
       + 'a sector that shrinks at all levels suggests the antenna or its cable. Hover a sector for its values.'

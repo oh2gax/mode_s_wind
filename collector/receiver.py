@@ -428,15 +428,14 @@ def run_collector(
     # Message statistics of the Statistics page (collector/msg_stats.py, RAM only)
     mstats = msg_stats.get()
     mstats.airport = (cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON)
-    # Antenna position for the range rings: ANTENNA_LAT / ANTENNA_LON (optional);
-    # without them the Radarcape's own GPS position (collector/radarcape_status.py)
-    # or, until that is known, the map centre
+    # Antenna position for the range rings: the Radarcape's own GPS position while
+    # it is good (collector/radarcape_status.py), else ANTENNA_LAT / ANTENNA_LON
+    # (optional), else the map centre (RECEIVER_LAT / RECEIVER_LON)
     if getattr(cfg, "ANTENNA_LAT", None) is not None and getattr(cfg, "ANTENNA_LON", None) is not None:
-        mstats.site = (float(cfg.ANTENNA_LAT), float(cfg.ANTENNA_LON))
-        mstats.site_src = "config"
-    elif mstats.site_src != "radarcape":
-        mstats.site = (float(cfg.RECEIVER_LAT), float(cfg.RECEIVER_LON))
-        mstats.site_src = "centre"
+        mstats.site_cfg = (float(cfg.ANTENNA_LAT), float(cfg.ANTENNA_LON))
+    mstats.site_centre = (float(cfg.RECEIVER_LAT), float(cfg.RECEIVER_LON))
+    if mstats.site_src != "radarcape":
+        mstats.choose_site(None)
     # Beast signal-level byte for the signal histogram (collector/beast_sig.py)
     sig_on = False
     if getattr(cfg, "MSG_STATS_SIGNAL", True):
