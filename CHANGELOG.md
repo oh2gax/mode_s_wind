@@ -26,6 +26,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Documentation
 - Statistics user guide v1.2: new section on the Radarcape receiver panel and the Radarcape health indicator; range-ring centre (`doc/Statistics_User_Guide.pdf`, `doc/guides.md`).
 - README: Statistics section (Radarcape receiver panel, health table, range-ring centre), configuration (`RADARCAPE_STATUS`), architecture, file tree and API.
+- README screenshots renewed (main screen, Approach / Windshear, Skew-T) and a new one of the Statistics page (`doc/Statistics_Screen_1.png`, with a caption); the Skew-T picture is shown at its own size (765 px) with a new caption.
 
 ---
 
