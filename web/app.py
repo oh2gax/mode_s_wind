@@ -50,6 +50,29 @@ _wx_cache: dict = {
 }
 _wx_cache_lock = threading.Lock()
 
+# ── /api/windshear/state: gzip and the ?lite=1 answer (from 2026-10-26) ───
+# Fields of an aircraft that the mobile ILS view (static/js/app.js,
+# static/js/ils_profile.js) uses; ?lite=1 sends only these.
+_WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
+                 "best_wind_spd", "best_wind_dir", "meteo_source", "ap",
+                 "in_corridor", "approach_runway", "dist_thr_nm", "last_seen",
+                 "barbs", "barbs_hi", "none_hist")
+_GZIP_MIN_BYTES = 1024
+
+
+def _gzip_json(obj):
+    """jsonify(obj), gzip-compressed (level 5) when the browser accepts it
+    and the body is at least _GZIP_MIN_BYTES."""
+    import gzip as _gzip
+    resp = jsonify(obj)
+    resp.headers["Vary"] = "Accept-Encoding"
+    if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+        body = resp.get_data()
+        if len(body) >= _GZIP_MIN_BYTES:
+            resp.set_data(_gzip.compress(body, compresslevel=5))
+            resp.headers["Content-Encoding"] = "gzip"
+    return resp
+
 _WX_POLL_INTERVAL_SEC  = 600  # fetch every 10 minutes
 _WX_FETCH_RETRIES      = 3    # attempts per source before giving up
 _WX_FETCH_RETRY_DELAY  = 5    # seconds between retries
@@ -434,21 +457,26 @@ def create_app(
 
     @app.route("/api/msgstats")
     def msgstats_api():
-        """Message statistics of the last `window` minutes (1–60, or 1440 for
-        24 h; default 10) plus the 1-h rate series and the 24-h trend, the
-        signal-level histograms and the range rings (collector/msg_stats.py,
-        RAM only; the page polls every 10 s)."""
+        """Message statistics of the last `window` minutes (1–60, 1440 for
+        24 h or 10080 for 7 d; default 10) plus the 1-h rate series and the
+        24-h trend, the signal-level histograms and the range rings
+        (collector/msg_stats.py; RAM, and for 7 d also the stored hours of
+        msg_stats_hours; the page polls every 10 s).  ?trend=7d adds the 7 d
+        chart series per 10 min (trend_week).  gzip-compressed when the
+        browser accepts it (from 2026-10-26)."""
         from collector import msg_stats
         try:
             window = int(request.args.get("window", 10))
         except ValueError:
             window = 10
-        out = msg_stats.get().snapshot(window)
+        week_trend = request.args.get("trend") == "7d"
+        db = get_db() if (window >= msg_stats.WEEK_MIN or week_trend) else None
+        out = msg_stats.get().snapshot(window, db=db, week_trend=week_trend)
         # the Radarcape's own status (systemstatus.json, collector/radarcape_status.py)
         from collector import radarcape_status as _rcs
         rc = _rcs.get()
         out["radarcape"] = rc.public() if rc is not None else None
-        return jsonify(out)
+        return _gzip_json(out)
 
     # System health indicators of the Statistics page (web/api/health.py):
     # evaluated at most every 10 s on request, and every minute in the
@@ -1172,10 +1200,30 @@ def create_app(
         Data is maintained in RAM by the background windshear sweep thread
         and requires no database access.  Includes a rolling 10-minute
         position history for each aircraft (used by the ILS profile graph).
+
+        From 2026-10-26 the answer is gzip-compressed when the browser accepts
+        it (15–60 kB → about a quarter; the Windshear page polls every 3 s,
+        the mobile ILS view every 5 s), and ?lite=1 (the mobile ILS view)
+        returns only what that view draws: the aircraft in the approach
+        corridor with the fields of the strips / profile, their history as
+        {ts, altitude, dist_thr} only, and the active alerts (ws_events) —
+        no ws_log, ga_events or ws_engine (about 2 kB gzipped with two
+        aircraft on the approach).
         """
         if ws_tracker is None:
             return jsonify([])
-        return jsonify(ws_tracker.get_state())
+        state = ws_tracker.get_state()
+        if request.args.get("lite", "0") in ("1", "true", "yes") and isinstance(state, dict):
+            acs = []
+            for a in state.get("aircraft") or []:
+                if not a.get("in_corridor") or a.get("dist_thr_nm") is None:
+                    continue
+                x = {k: a.get(k) for k in _WS_LITE_KEYS if k in a}
+                x["history"] = [{k: h.get(k) for k in ("ts", "altitude", "dist_thr")}
+                                for h in a.get("history") or []]
+                acs.append(x)
+            state = {"aircraft": acs, "ws_events": state.get("ws_events") or [], "lite": 1}
+        return _gzip_json(state)
 
     @app.route("/api/windshear/approach-history")
     def windshear_approach_history_api():

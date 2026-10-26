@@ -2,8 +2,8 @@
  * stats.js — Mode S & ADS-B Statistics page (from 2026-10-25).
  *
  * Polls /api/msgstats every 10 s (not while the tab is hidden) and draws:
- * the summary bar, the message-rate chart (1 h every 10 s, or 24 h per
- * minute with a choice of series), the downlink formats, the Comm-B
+ * the summary bar, the message-rate chart (1 h every 10 s, 24 h per
+ * minute or 7 d per 10 min, with a choice of series), the downlink formats, the Comm-B
  * registers, the ADS-B type codes, the reply cadence per flight phase, the
  * interrogators of the DF11 all-call replies, the signal-strength histogram
  * (Beast signal byte, dBFS) per message class, the range rings (farthest
@@ -11,7 +11,7 @@
  * range band), the Radarcape receiver's own status (GPS flags, GPS module
  * temperature, time sources, uptimes, position, settings — from 2026-10-26),
  * the meteo yield and the Radarcape aircraft list.  The window
- * (1 min / 10 min / 1 h / 24 h) is remembered in the browser.
+ * (1 min / 10 min / 1 h / 24 h / 7 d) is remembered in the browser.
  *
  * System health (from 2026-10-25): /api/health with every poll — a row of
  * coloured dots right of the Window buttons (one chip on narrower screens);
@@ -28,7 +28,7 @@
     cadKind = localStorage.getItem('ms_statsCad') || '5,0';
     sigCat = localStorage.getItem('ms_statsSig') || 'all';
   } catch (e) { /* private mode */ }
-  if (![1, 10, 60, 1440].includes(win)) win = 10;
+  if (![1, 10, 60, 1440, 10080].includes(win)) win = 10;
   let data = null, chart = null, sigChart = null, timer = null, health = null;
 
   const $ = id => document.getElementById(id);
@@ -85,7 +85,7 @@
       + `${f.connects} connection(s) since the server started (${hhmm(f.started)} UTC) · ${f.total_msgs.toLocaleString('en')} frames in all`;
     const ws = d.window_sec;
     $('mst-updated').textContent = `Updated ${hhmm(d.now)}:${String(new Date(d.now * 1000).getUTCSeconds()).padStart(2, '0')} UTC · window `
-      + (ws >= 7200 ? `${(ws / 3600).toFixed(1)} h` : `${Math.round(ws / 60)} min`);
+      + (ws >= 2 * 86400 ? `${(ws / 86400).toFixed(1)} d` : ws >= 7200 ? `${(ws / 3600).toFixed(1)} h` : `${Math.round(ws / 60)} min`);
   }
 
   // ── tables ────────────────────────────────────────────────────────────────
@@ -172,7 +172,7 @@
     const rows = io.rows.filter(r => r.type !== 'SQ').map(r => `<tr><td class="mst-code">${r.type} ${r.code}</td>`
       + `<td class="mst-dim2">${iidClass(r.type, r.code)}</td>`
       + `<td class="num">${fmtRate(r.rate)}</td><td class="num">${r.n.toLocaleString('en')}</td><td class="num">${r.ac ?? '—'}</td>`
-      + `<td class="num">${d.now - r.first > 72000 ? new Date(r.first * 1000).getUTCDate() + '.' + (new Date(r.first * 1000).getUTCMonth() + 1) + '. ' : ''}${hhmm(r.first)}</td><td class="num">${ago(d.now - r.last)}</td></tr>`);
+      + `<td class="num">${r.first != null && d.now - r.first > 72000 ? new Date(r.first * 1000).getUTCDate() + '.' + (new Date(r.first * 1000).getUTCMonth() + 1) + '. ' : ''}${hhmm(r.first)}</td><td class="num">${r.last == null ? '—' : ago(d.now - r.last)}</td></tr>`);
     if (sq) rows.push(`<tr class="mst-dim"><td>Squitter / II 0</td><td colspan="1">acquisition squitters (spontaneous) and replies to II 0</td><td class="num">${fmtRate(sq.rate)}</td><td class="num">${sq.n.toLocaleString('en')}</td><td colspan="3"></td></tr>`);
     table('mst-iid', [['Code', 'II = interrogator identifier (1–15), SI = surveillance identifier (1–63)'],
       ['Use', 'How codes with this value are allocated (ICAO EUR practice, EUROCONTROL MICA): 1–13 operational Mode S radars, 0 (SI 16 / 32 / 48) MLAT, WAM and mobile interrogators, 14 test and development, 15 military'],
@@ -493,10 +493,13 @@
 
   // ── chart ─────────────────────────────────────────────────────────────────
   function chartData(d) {
-    const keys = d.trend.keys, rows = d.trend.rows;
+    // 7 d: the 10-min means of the stored minutes (same units as the 24 h)
+    const tr = range === '7d' && d.trend_week ? d.trend_week : d.trend;
+    const keys = tr.keys, rows = tr.rows;
     const col = k => keys.indexOf(k);
     const sel = range === '1h' ? rows.slice(-60) : rows;
-    const lbl = r => hhmm(r[0]);
+    const dm = t => { const x = new Date(t * 1000); return `${x.getUTCDate()}.${x.getUTCMonth() + 1}. `; };
+    const lbl = range === '7d' ? r => dm(r[0]) + hhmm(r[0]) : r => hhmm(r[0]);
     const per = k => sel.map(r => r[col(k)] == null ? null : +(r[col(k)] / 60).toFixed(2));
     const per2 = (a, b) => sel.map(r => r[col(a)] == null ? null : +((r[col(a)] + r[col(b)]) / 60).toFixed(2));
     const raw = k => sel.map(r => r[col(k)]);
@@ -568,7 +571,7 @@
     if (document.hidden) return;
     pollHealth();
     try {
-      const r = await fetch('/api/msgstats?window=' + win);
+      const r = await fetch('/api/msgstats?window=' + win + (range === '7d' ? '&trend=7d' : ''));
       data = await r.json();
       renderAll();
     } catch (e) {
@@ -590,7 +593,8 @@
     document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(b => b.addEventListener('click', () => {
       range = b.dataset.range;
       document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(x => x.classList.toggle('active', x === b));
-      if (data) renderChart(data);
+      if (range === '7d' && !(data && data.trend_week)) poll();          // the 7 d series is sent only when asked for
+      else if (data) renderChart(data);
     }));
     const s = $('mst-chart-series');
     s.value = series;

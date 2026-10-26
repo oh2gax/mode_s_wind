@@ -8,7 +8,9 @@
  *   Time–height         timeheight.js (the Sounding page's section; its
  *                       controls are in the menu with the same ids)
  *   ILS approach        ils_profile.js: the Windshear page's ILS profile from
- *                       /api/windshear/state every 5 s, with the strips below
+ *                       /api/windshear/state?lite=1 every 5 s (only the
+ *                       corridor aircraft and the alerts, gzipped), with
+ *                       the strips below
  *   ACI & WS            ws_cond_chart.js (the Windshear page's chart) with
  *                       the landings, departures and go-arounds of 3 h … 1 d
  * The Skew-T options are the same settings as on the Live Map and the
@@ -518,7 +520,7 @@
   }
   async function loadIls() {
     try {
-      const st = await (await fetch('/api/windshear/state', { cache: 'no-store' })).json();
+      const st = await (await fetch('/api/windshear/state?lite=1', { cache: 'no-store' })).json();
       I.ac = st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : [];
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];
       I.fetched = Date.now();

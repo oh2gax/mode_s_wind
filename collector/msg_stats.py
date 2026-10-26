@@ -44,7 +44,7 @@ Radarcape Beast feed and the JSON poller:
                 previous one (a single bad decode cannot set a record).
 
 Kept over restarts (from 2026-10-25 evening): each closed clock hour is
-written as one compressed row to msg_stats_hours (about 10–50 kB, kept
+written as one compressed row to msg_stats_hours (about 2–8 kB, kept
 MSG_STATS_DAYS = 7 days; written by the housekeeping thread within a minute
 of the hour's end), and at a clean stop the hour in progress, the minute
 records, the 24 h series, the 10-s rate series, the interrogators' first /
@@ -56,7 +56,11 @@ power cut only the hour in progress is lost.
 Windows: one record per minute (counters, interval histograms, aircraft sets)
 for the last hour, the same merged per clock hour for the last 24 h (the
 24 h window), a compact per-minute vector of the main series for 24 h, and the
-message count per 10 s for the last hour (rate sparkline).  About 2–4 MB of
+message count per 10 s for the last hour (rate sparkline).  The 7 d window
+(from 2026-10-26, WEEK_MIN) adds the stored hours of msg_stats_hours older than
+the 24 h: read and merged once per clock hour (about 1 s on a Pi 4) while the
+page asks for it and dropped after an hour without a request; its chart series
+is the stored minutes binned per 10 min.  Nothing more is written.  About 2–4 MB of
 RAM for the hour plus up to ~10–15 MB for the 24 hourly records in daytime
 traffic.  The counting costs a few microseconds per message (dictionary
 increments; one CRC per DF11 reply; one distance per ADS-B position).
@@ -91,6 +95,9 @@ MINUTES_DETAIL = 60        # full minute records kept (1 h)
 MINUTES_TREND = 1440       # compact minute vectors kept (24 h)
 HOURS_DETAIL = 24          # hourly merged records (the 24 h window)
 WINDOW_MAX_MIN = 1440
+WEEK_MIN = 10080           # the 7 d window (from 2026-10-26): read from msg_stats_hours
+WEEK_STEP_SEC = 600        # the 7 d chart: per 10 min
+WEEK_CACHE_IDLE_SEC = 3600 # the merged 7 d rows are dropped when not asked for this long
 
 # signal level: 2-dB bins from −50 to 0 dBFS (byte 1 = −48.1 dBFS, 255 = 0)
 SIG_BINS = 25
@@ -297,6 +304,8 @@ class MsgStats:
         self._hour: dict | None = None               # the current clock hour (closed minutes)
         self._hours: deque = deque(maxlen=HOURS_DETAIL)
         self._hours_cache: tuple | None = None       # (key, merged closed hours)
+        self._week_lock = threading.Lock()           # one reader of msg_stats_hours at a time
+        self._week_cache: dict | None = None         # the 7 d part older than the 24 h (see _week)
         self.site = _EFHK                            # antenna position for the range
         self.site_src = "centre"                     # radarcape (its GPS) / config (ANTENNA_*) / centre
         self.site_cfg = None                         # ANTENNA_LAT / ANTENNA_LON (fallback), or None
@@ -597,17 +606,31 @@ class MsgStats:
             self._json["errors"] += 1
 
     # ── snapshot (web thread) ───────────────────────────────────────────────
-    def snapshot(self, window_min: int = 10) -> dict:
+    def snapshot(self, window_min: int = 10, db=None, week_trend: bool = False) -> dict:
+        """The statistics of the last window_min minutes (1–60, 1440 = 24 h, or
+        WEEK_MIN = 7 d with db: the stored hours older than the 24 h are read
+        from msg_stats_hours, merged once per hour and kept while asked for).
+        week_trend (with db): also the 7 d chart series per 10 min."""
         now = time.time()
-        window_min = max(1, min(WINDOW_MAX_MIN, int(window_min)))
+        week = None
+        if db is not None and (int(window_min) >= WEEK_MIN or week_trend):
+            try:
+                week = self._week(db, now)
+            except Exception as exc:                 # noqa: BLE001  (the 24 h still works)
+                log.warning("Statistics 7 d: stored hours not read (%s)", exc)
+        elif self._week_cache and now - self._week_cache["used"] > WEEK_CACHE_IDLE_SEC:
+            self._week_cache = None                  # nobody looks at the 7 d: free the memory
+        is_week = int(window_min) >= WEEK_MIN and week is not None
+        window_min = WEEK_MIN if is_week else max(1, min(WINDOW_MAX_MIN, int(window_min)))
         hours: list = []
         with self._lock:
             self._roll(now)
             agg = _new_minute(0.0)
             if window_min > 60:
                 # 24 h: the closed hours (immutable; merged outside the lock),
-                # the current hour so far and the current minute
-                h0 = float(int(now // 3600) * 3600) - (window_min // 60 - 1) * 3600
+                # the current hour so far and the current minute; 7 d: the
+                # same plus the older stored hours (week["base"])
+                h0 = float(int(now // 3600) * 3600) - (min(window_min, WINDOW_MAX_MIN) // 60 - 1) * 3600
                 hours = [h for h in self._hours if h["t0"] >= h0]
                 for m in ([self._hour] if self._hour else []) + [self._min]:
                     _merge(agg, m)
@@ -642,9 +665,16 @@ class MsgStats:
                     _merge(base, m)
                 hc = self._hours_cache = (key, base)
             _merge(agg, hc[1])
-        c, hist, ac = agg["c"], agg["h"], agg["ac"]
         t_from = max(t_first, self.since)
-        down = sum(max(0.0, min(b, now) - max(a, t_from)) for a, b in downs)
+        down_from = t_from
+        week_down = 0.0
+        if is_week and week["n"]:
+            _merge(agg, week["base"])
+            t_from = week["since"]
+            down_from = max(t_from, week["cutoff"])    # older down time: the hours without a row
+            week_down = week["down"]
+        c, hist, ac = agg["c"], agg["h"], agg["ac"]
+        down = week_down + sum(max(0.0, min(b, now) - max(a, down_from)) for a, b in downs)
         secs = max(1.0, now - t_from - down)
         rate = lambda n: round(n / secs, 2)
         n_ac = lambda k: len(ac.get(k, ()))
@@ -751,7 +781,92 @@ class MsgStats:
                       "farthest": far, "max_nm": RNG_MAX_NM},
             "ten": ten,
             "trend": {"keys": ["t0"] + list(TREND_KEYS), "rows": trend},
+            **({"trend_week": {"keys": ["t0"] + list(TREND_KEYS), "step": WEEK_STEP_SEC,
+                               "rows": self._week_rows(week, trend, now)}}
+               if week_trend and week is not None else {}),
         }
+
+    # ── 7 d (from 2026-10-26) ────────────────────────────────────────────────
+    def _week(self, db, now: float) -> dict:
+        """The stored hours of the 7 d window that lie before the 24 h kept in
+        RAM ([now − 168 h, now − 23 h) by clock hour), merged into one record,
+        with their per-minute series binned per 10 min.  Read again when the
+        hour changes or a row is added (about 1 s on a Pi for 144 rows, once an
+        hour, only while the 7 d is asked for); nothing is written."""
+        cur_h = float(int(now // 3600) * 3600)
+        cutoff = cur_h - (HOURS_DETAIL - 1) * 3600
+        w0 = cur_h - (WEEK_MIN // 60 - 1) * 3600
+        with self._week_lock:
+            ensure_tables(db)
+            n, last = db.execute("SELECT COUNT(*), MAX(ts) FROM msg_stats_hours WHERE ts >= ? AND ts < ?",
+                                 (int(w0), int(cutoff))).fetchone()
+            key = (cutoff, n, last)
+            wc = self._week_cache
+            if wc is None or wc["key"] != key:
+                base, bins, have, since = _new_minute(0.0), {}, set(), None
+                for ts, blob in db.execute("SELECT ts, data FROM msg_stats_hours WHERE ts >= ? AND ts < ? "
+                                           "ORDER BY ts", (int(w0), int(cutoff))):
+                    try:
+                        d = _unpack(blob)
+                        _merge(base, _rec_dec(d["rec"]))
+                    except Exception as exc:     # noqa: BLE001
+                        log.warning("Statistics history: hour %s unreadable (%s)", ts, exc.__class__.__name__)
+                        continue
+                    have.add(int(ts))
+                    if since is None:
+                        since = max(float(ts), float(d.get("since") or ts))
+                    _bin_rows(bins, d.get("trend") or [])
+                down = 0.0
+                if since is not None:            # hours without a row: the server was down (or crashed)
+                    h = float(int(since // 3600) * 3600)
+                    while h < cutoff:
+                        if int(h) not in have:
+                            down += 3600.0
+                        h += 3600
+                wc = self._week_cache = {"key": key, "cutoff": cutoff, "n": len(have), "base": base,
+                                         "since": since, "down": down, "bins": bins, "w0": w0}
+            wc["used"] = now
+            return wc
+
+    def _week_rows(self, week: dict, trend: list, now: float) -> list:
+        """The 7 d chart rows: per 10 min the mean of the minutes (the same
+        units as the 24 h series); the stored part plus the RAM minutes from the
+        cutoff on; empty 10-min slots as gaps (None)."""
+        bins = {k: [list(v[0]), v[1]] for k, v in week["bins"].items()}
+        _bin_rows(bins, [r for r in trend if r and r[0] >= week["cutoff"]])
+        start = week["w0"] if not bins else min(min(bins), week["w0"])
+        out, t = [], start
+        end = float(int(now // WEEK_STEP_SEC) * WEEK_STEP_SEC)
+        nk = len(TREND_KEYS)
+        while t <= end:
+            b = bins.get(t)
+            if b is None:
+                out.append([t] + [None] * nk)
+            else:
+                sums, cnts = b
+                out.append([t] + [round(sums[i] / cnts[i], 2) if cnts[i] else None for i in range(nk)])
+            t += WEEK_STEP_SEC
+        while out and all(v is None for v in out[0][1:]):   # no leading gap before the first data
+            out.pop(0)
+        return out
+
+
+def _bin_rows(bins: dict, rows: list) -> None:
+    """Add per-minute series rows [t0, v…] into 10-min bins {t: [sums, counts]}
+    (None values — gaps — are skipped)."""
+    nk = len(TREND_KEYS)
+    for r in rows:
+        if not r or r[0] is None:
+            continue
+        t = float(int(r[0] // WEEK_STEP_SEC) * WEEK_STEP_SEC)
+        b = bins.get(t)
+        if b is None:
+            b = bins[t] = [[0.0] * nk, [0] * nk]
+        for i in range(nk):
+            v = r[i + 1] if i + 1 < len(r) else None
+            if v is not None:
+                b[0][i] += v
+                b[1][i] += 1
 
 
 # ── persistence ────────────────────────────────────────────────────────────

@@ -54,7 +54,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.3
+version: 1.4
 date: 2026-10-26
 pages: 14
 open: stats
@@ -63,12 +63,12 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 - Mode S and ADS-B in a nutshell: interrogations and replies, all-call and roll-call, the 24-bit address, interrogator codes (II / SI), squitters, and who interrogates around Helsinki (Fintraffic's WAM network and the Mode S radars)
 - The messages: the downlink formats, parity and why some addresses cannot be verified; Comm-B and the registers 1,0 … 6,0 (ELS / EHS) with their contents; the ADS-B type codes, versions and the GNSS − baro difference
-- The page part by part: summary bar, the **system health** dots and panel, message rate (1 h / 24 h), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
+- The page part by part: summary bar, the **system health** dots and panel, the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.0
+version: 1.1
 date: 2026-10-26
 pages: 8
 
