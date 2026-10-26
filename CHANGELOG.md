@@ -33,6 +33,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `static/js/skewt_chart.js`: option `hidpi` (canvas at the screen's pixel density, used by `/app`); the hover read-out maps the pointer in diagram units (no change on the desktop pages).
 - `static/js/ws_cond_chart.js` (new): the ACI / ACI + WS chart moved out of `windshear.js` unchanged in what it draws, so the Windshear page and `/app` share it (`windshear.html` loads it before `windshear.js`).
 
+### Skew-T: MEPS barbs beside the Mode S barbs
+- `static/js/skewt_chart.js`: the MEPS wind barbs moved from inside the plot (34 px left of its right edge, over the curves) into the right margin, 16 px right of the plot; the Mode S area barbs (and the airport barbs of the Airport zoom) then stand at 42 px instead of 22 px, closer to their values. Without MEPS, or with an aircraft overlay (whose barbs use the margin), as before. All Skew-T diagrams: Live Map, Sounding page and `/app`.
+
 ### Live Map weather overlay: model rain outlined under the radar
 - With **Both**, the MEPS model's rain inside the FMI radar coverage was cut away entirely, so in practice only the radar's rain could be seen. It is now drawn there as outlines over the radar's colours — thin around the model's rain from 0.1 mm/h, thick from 1 mm/h, with a halo for contrast, clipped to the coverage — so the forecast can be compared with the observation without mixing the two (`static/js/wx_layer.js` option `modelOutline`, `static/js/live_wx.js`). Outside the coverage the model's rain is drawn in colour as before; the legend and the status line say so. *FMI radar* alone and the Weather page are unchanged.
 

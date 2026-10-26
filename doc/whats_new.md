@@ -12,6 +12,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - The **range rings** are centred on the receiver's own GPS position while its GPS is working well; otherwise on the antenna position set in the configuration (or the map centre).
 - The Statistics user guide (version 1.2) has a new section on the receiver panel.
 - **Live Map weather overlay, Both**: the model's rain is no longer hidden under the radar — inside the radar area it is drawn as outlines (thin from 0.1 mm/h, thick from 1 mm/h; white on the dark map, dark on the light one) over the radar's colours, so you can see where the forecast expected rain and where the radar actually sees it.
+- **Skew-T with MEPS**: the model's wind barbs now stand beside the aircraft's in the right margin instead of over the diagram, so the two columns of barbs and the values are side by side and the curves stay clear.
 - Weather page: the **−1h** / **+1h** buttons by the time slider now show their text centred.
 - Windshear page: an aircraft on its third approach (after two go-arounds) is now marked **3x APP** instead of 2x.
 - **When the MEPS model data runs out**: if newer model runs have not arrived (e.g. MET Norway's server is down), the Skew-T now says up to which hour the model data reaches and from which run, and the **MEPS** health dot turns amber instead of staying green.

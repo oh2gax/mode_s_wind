@@ -343,7 +343,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         if (l.wind_spd == null) continue;
         const y = mskY(l.pressure);
         if (lastW != null && Math.abs(y - lastW) < 11) continue;
-        drawMiniBarb(ctx, ML + PW + stripW + 22, y, l.wind_spd, l.wind_dir, T.apt);
+        drawMiniBarb(ctx, ML + PW + stripW + areaBarbDx(), y, l.wind_spd, l.wind_dir, T.apt);
         ctx.fillStyle = T.apt; ctx.textAlign = 'right';
         ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, y + 3);
         lastW = y;
@@ -457,7 +457,7 @@ function createSkewT(canvas, tip, cfg = {}) {
         if (l.wind_spd == null) continue;
         const y = mskY(l.pressure);
         if (lastW != null && Math.abs(y - lastW) < 9) continue;   // keep the barbs readable
-        drawMiniBarb(ctx, ML + PW + stripW + 22, y, l.wind_spd, l.wind_dir, T.area);
+        drawMiniBarb(ctx, ML + PW + stripW + areaBarbDx(), y, l.wind_spd, l.wind_dir, T.area);
         ctx.fillStyle = T.area; ctx.textAlign = 'right';
         ctx.fillText(Math.round(l.wind_dir) + '° ' + Math.round(l.wind_spd) + 'kt', W - 2, y + 3);
         lastW = y;
@@ -566,9 +566,16 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.restore();
   }
   // ── MEPS model profile (MET Norway open data; area mean) ─────────────────
-  // Temperature (teal line), dewpoint (teal dashed) and winds (teal barbs a
-  // little inside the sonde's, ≥ 17 px apart): the model's own levels (about
-  // 56 up to 190 hPa) or, when those are missing, the 10 pressure levels.
+  // Temperature (teal line), dewpoint (teal dashed) and winds (teal barbs,
+  // ≥ 17 px apart): the model's own levels (about 56 up to 190 hPa) or, when
+  // those are missing, the 10 pressure levels.  The barbs stand in the right
+  // margin just left of the Mode S barbs, which move a little to the right
+  // towards their values (from 26 Oct 2026; before, they stood inside the plot
+  // over the curves).  With an aircraft overlay the margin holds the
+  // aircraft's barbs, so the model's stay inside the plot as before.
+  const mepsInMargin = () => !!(miniMeps && !miniAcOverlay && miniMeps.levels &&
+                                 miniMeps.levels.some(l => l.wind_spd != null));
+  const areaBarbDx = () => (mepsInMargin() ? 42 : 22);   // Mode S / airport barbs from the plot's right edge
   function mepsAt(p) { return miniMeps ? levelsAt(miniMeps.levels, p) : null; }
   function mepsDiff() {
     if (!miniMeps || !miniArea || !miniArea.levels) return null;
@@ -604,15 +611,18 @@ function createSkewT(canvas, tip, cfg = {}) {
     line('dewpoint', 1.2, [5, 3], 0.8);
     line('temp', 1.6, [], 1);
     ctx.setLineDash([]); ctx.globalAlpha = 1;
+    const margin = mepsInMargin();
+    if (margin) ctx.restore();                      // the barbs outside the plot's clip
+    const bx = margin ? ML + PW + stripW + 16 : ML + PW - 34;
     let lastY = null;
     for (const l of L) {
       if (l.wind_spd == null || l.wind_dir == null) continue;
       const y = mskY(l.pressure);
       if (y < MT + 4 || y > MT + PH - 2 || (lastY != null && Math.abs(y - lastY) < 17)) continue;
-      drawMiniBarb(ctx, ML + PW - 34, y, l.wind_spd, l.wind_dir, T.meps);
+      drawMiniBarb(ctx, bx, y, l.wind_spd, l.wind_dir, T.meps);
       lastY = y;
     }
-    ctx.restore();
+    if (!margin) ctx.restore();
   }
   function mepsLabelText() {
     if (!miniMeps) return null;
