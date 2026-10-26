@@ -1233,7 +1233,7 @@ function buildStrip(ac, wsSeverity = null) {
 
   // Return-approach badge next to callsign
   const returnBadge = ac.is_return
-    ? `<span class="ws-return-badge">${ac.ga_count > 1 ? ac.ga_count + 'x' : '2nd'} APP</span>`
+    ? `<span class="ws-return-badge">${ac.ga_count > 1 ? (ac.ga_count + 1) + 'x' : '2nd'} APP</span>`
     : '';
 
   // Headwind component label: positive = headwind, negative = tailwind

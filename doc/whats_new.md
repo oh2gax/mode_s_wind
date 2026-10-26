@@ -10,6 +10,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - A new **Radarcape** dot among the system health indicators turns amber or red when the receiver's GPS or timestamps have a problem, it runs hot, a setting has changed or its status cannot be read.
 - The **range rings** are centred on the receiver's own GPS position while its GPS is working well; otherwise on the antenna position set in the configuration (or the map centre).
 - The Statistics user guide (version 1.2) has a new section on the receiver panel.
+- Windshear page: an aircraft on its third approach (after two go-arounds) is now marked **3x APP** instead of 2x.
 - **When the MEPS model data runs out**: if newer model runs have not arrived (e.g. MET Norway's server is down), the Skew-T now says up to which hour the model data reaches and from which run, and the **MEPS** health dot turns amber instead of staying green.
 
 ## v.25102026 — About window, Statistics page, go-arounds kept for 24 hours, model and aircraft winds on the Live Map

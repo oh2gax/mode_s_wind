@@ -23,9 +23,14 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Statistics page layout
 - The **Interrogators** panel ends level with the **Meteo yield** panel when the columns stand side by side; the rest of its table and notes scroll inside the panel, with the column titles kept in view and the scroll position kept over the 10-s updates (`stats.html`, `fitIid` in `stats.js`, `.mst-scroll` in `style.css`). On one-column screens it keeps its full height.
 
+### Fixes
+- Windshear page: the return-approach badge of an aircraft after two go-arounds (its third approach) read **2x APP**; it now reads **3x APP** (`static/js/windshear.js`).
+- Tooltips brought up to date: the **MEPS** tick box of the Skew-T (model levels, the 10 pressure levels only as a fallback), the **RH** tick box (offsets learnt from the MEPS model humidity; the model's RH as a teal line), the Airport zoom (to about 840 hPa) on the Live Map (`live.html`, `sounding.html`), and the grid sizes of the Weather page (`weather.html`).
+
 ### Documentation
 - Statistics user guide v1.2: new section on the Radarcape receiver panel and the Radarcape health indicator; range-ring centre (`doc/Statistics_User_Guide.pdf`, `doc/guides.md`).
 - README: Statistics section (Radarcape receiver panel, health table, range-ring centre), configuration (`RADARCAPE_STATUS`), architecture, file tree and API.
+- README audited against the code: API table (missing rows for the Statistics history purge, the shared-login end date and the shared-login / switch-user pages; a table break; fuller descriptions of the approach-history, purge and autopurge calls), file tree (`run.py` threads), architecture diagram (Radarcape status branch, `/weather`, the batch writer), background threads (`rc_status`, all retention purges), the meteo source mode (affects the live view only), configuration notes (`RADARCAPE_JSON_URL`, `WINDSHEAR_THR_ELEVATION_FT` as a fallback, optional keys), Features, Skew-T panel width, Sounding page buttons, Windshear page (go-arounds kept on the server, database writes, WS view, Loss / Gain cells, alert log size, list structure), GPS pages (one GPS link, heatmap cap, band names), health table rules, database columns and keys, GPS episode volume, Maintenance page and acknowledgements of the data providers.
 - README screenshots renewed (main screen, Approach / Windshear, Skew-T) and a new one of the Statistics page (`doc/Statistics_Screen_1.png`, with a caption); the Skew-T picture is shown at its own size (765 px) with a new caption.
 
 ---
