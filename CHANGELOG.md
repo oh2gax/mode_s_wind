@@ -27,6 +27,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - With **Both**, the MEPS model's rain inside the FMI radar coverage was cut away entirely, so in practice only the radar's rain could be seen. It is now drawn there as outlines over the radar's colours — thin around the model's rain from 0.1 mm/h, thick from 1 mm/h, with a halo for contrast, clipped to the coverage — so the forecast can be compared with the observation without mixing the two (`static/js/wx_layer.js` option `modelOutline`, `static/js/live_wx.js`). Outside the coverage the model's rain is drawn in colour as before; the legend and the status line say so. *FMI radar* alone and the Weather page are unchanged.
 
 ### Fixes
+- Weather page: the **−1h** / **+1h** buttons beside the time slider were too narrow for their text, which sat off-centre; they are now 34 px wide with the text centred (`web/templates/weather.html`).
 - Windshear page: the return-approach badge of an aircraft after two go-arounds (its third approach) read **2x APP**; it now reads **3x APP** (`static/js/windshear.js`).
 - Tooltips brought up to date: the **MEPS** tick box of the Skew-T (model levels, the 10 pressure levels only as a fallback), the **RH** tick box (offsets learnt from the MEPS model humidity; the model's RH as a teal line), the Airport zoom (to about 840 hPa) on the Live Map (`live.html`, `sounding.html`), and the grid sizes of the Weather page (`weather.html`).
 
