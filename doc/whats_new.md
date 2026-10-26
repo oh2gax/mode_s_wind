@@ -5,7 +5,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.26102026 — The Radarcape receiver's own status on the Statistics page
 
-- **Radarcape receiver** panel on the Statistics page (under the range rings): is the receiver's GPS working — antenna, satellites, the 1PPS pulse and the nanosecond timestamps that MLAT and the GPS quality monitor depend on — each shown as a green, amber or red chip (hover it for the meaning); the temperature of its GPS module with the lowest and highest of the day, how long the receiver has been running, where its clock takes the time from, its position and height, and whether its settings are the ones this system expects.
+- **Radarcape receiver** panel on the Statistics page (under the range rings): is the receiver's GPS working — antenna, satellites, the 1PPS pulse and the nanosecond timestamps that MLAT and the GPS quality monitor depend on — each shown as a green, amber or red chip (hover it for the meaning); the temperature of its GPS module with the lowest and highest of the day (the module runs about 20 °C warmer than the air around it, so this is not the outside temperature), how long the receiver has been running, where its clock takes the time from, its position and height, and whether its settings are the ones this system expects.
+- The **Interrogators** list on the Statistics page now ends level with the Meteo yield panel; scroll inside it for the rest of the codes.
 - A new **Radarcape** dot among the system health indicators turns amber or red when the receiver's GPS or timestamps have a problem, it runs hot, a setting has changed or its status cannot be read.
 - The **range rings** use the receiver's own GPS position as their centre when no antenna position has been set.
 - The Statistics user guide (version 1.2) has a new section on the receiver panel.

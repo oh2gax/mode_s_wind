@@ -221,14 +221,14 @@
     const rows = [];
     const row = (k, v, title) => rows.push(`<tr><td${title ? ` title="${esc(title)}"` : ''}>${k}</td><td>${v}</td></tr>`);
     row('GPS', `<span class="mst-rc-chips">${gps}</span>`, 'The GPS flags of the receiver (hover a flag): green as it should be, red a fault that spoils the timestamps (MLAT, the GPS quality monitor), amber a minor condition');
-    row('GPS module', t == null ? '—' : `<span class="${tcls}">${fmt(t, 1)} °C</span>`
+    row('GPS module', t == null ? '—' : `<span class="${tcls}">${fmt(t, 1)} °C</span> <span class="mst-dim2">(≈ ${fmt(t - 20, 0)} °C around it)</span>`
       + (rc.temp_min != null && rc.temp_n > 1 ? ` <span class="mst-dim2">· ${fmt(rc.temp_min, 0)}–${fmt(rc.temp_max, 0)} °C over ${rc.temp_n >= 1400 ? '24 h' : dur(rc.temp_n * 60)} (since the server started)</span>` : ''),
-      'Temperature of the GPS module inside the receiver (amber from 70 °C, red from 85 °C)');
+      'Temperature of the GPS module inside the receiver. It runs about 20 K above the air around it (Jetvision), so it is not the air temperature. Amber from 70 °C, red from 85 °C (about 50 / 65 °C around it)');
     const off = x.gps_time != null && x.sys_time != null ? x.sys_time - x.gps_time : null;
     row('Time', `timestamps ${esc(x.mlat_time_source || '?')} · system clock ${esc(x.ntp_source || '?')}`
-      + (x.ntp_rms != null ? `, RMS offset ${x.ntp_rms} ms` : '')
+      + (x.ntp_rms != null ? `, RMS offset ${x.ntp_rms} µs` : '')
       + (off != null ? ` · system − GPS ${off > 0 ? '+' : ''}${off} s` : ''),
-      'Where the message timestamps and the receiver\'s system clock get their time (NTP RMS offset as the receiver reports it)');
+      'Where the message timestamps and the receiver\'s system clock get their time (NTP RMS offset: the receiver\'s system clock against its time source, in microseconds)');
     row('Uptime', `receiver software ${dur(x.rcd_uptime)} · system ${dur(x.os_uptime)}`
       + (rc.restart_ts ? ` · <span class="mst-rc-warn">software restart seen ${hhmm(rc.restart_ts)} UTC</span>` : ''));
     const p = x.position, rg = d.range || {};
@@ -541,6 +541,23 @@
     if (!data) return;
     const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
     for (const f of parts) { try { f(data); } catch (e) { console.error('stats', f.name, e); } }
+    fitIid();
+  }
+  // The Interrogators panel (middle column) ends level with the Meteo yield
+  // panel (left column) when the two columns stand side by side; the rest of
+  // its table and notes scroll inside it.  Stacked (one column): full height.
+  function fitIid() {
+    const sc = $('mst-iid-scroll'), ip = $('mst-iid-panel'), mp = $('mst-meteo-panel');
+    if (!sc || !ip || !mp) return;
+    const top = sc.scrollTop;
+    sc.style.maxHeight = '';
+    const ic = ip.parentElement, mc = mp.parentElement;
+    if (ic === mc || ic.offsetLeft === mc.offsetLeft || Math.abs(ic.offsetTop - mc.offsetTop) > 2) return;
+    const target = mp.getBoundingClientRect().bottom;
+    if (ip.getBoundingClientRect().bottom <= target + 1) return;           // fits as it is
+    const room = target - sc.getBoundingClientRect().top - 1;              // 1 px: the panel's bottom border
+    sc.style.maxHeight = Math.max(160, Math.floor(room)) + 'px';
+    sc.scrollTop = top;
   }
   async function poll() {
     clearTimeout(timer);
@@ -590,7 +607,7 @@
     pv.addEventListener('mousemove', polarHover);
     pv.addEventListener('mouseleave', () => { $('mst-polar-tip').style.display = 'none'; });
     let rt = null;
-    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (data) renderRange(data); }, 150); });
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (data) { renderRange(data); fitIid(); } }, 150); });
   }
 
   window.onThemeChange = () => {

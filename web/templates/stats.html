@@ -97,7 +97,7 @@
         <div class="mst-foot" id="mst-sig-foot"></div>
       </div>
 
-      <div class="mst-panel">
+      <div class="mst-panel" id="mst-meteo-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Meteo yield · Radarcape aircraft list</span></div>
         <div class="mst-table-wrap" id="mst-meteo"></div>
       </div>
@@ -117,10 +117,13 @@
         <div class="mst-foot" id="mst-tc-foot"></div>
       </div>
 
-      <div class="mst-panel">
+      <div class="mst-panel" id="mst-iid-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Interrogators (DF11 all-call replies)</span></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-iid"></table></div>
-        <div class="mst-foot" id="mst-iid-foot"></div>
+        <!-- bottom kept level with the Meteo yield panel; the rest scrolls (stats.js fitIid) -->
+        <div class="mst-scroll" id="mst-iid-scroll">
+          <div class="mst-table-wrap"><table class="mst-table" id="mst-iid"></table></div>
+          <div class="mst-foot" id="mst-iid-foot"></div>
+        </div>
       </div>
     </div>
 

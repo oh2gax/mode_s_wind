@@ -20,7 +20,9 @@ Meanings (Jetvision wiki, Radarcape: Software Features):
                  TrueUTC/Daysec+1 (legacy day-second range)
   fpga_settings  BIN/AVR, ALL/DF17, CRC/CRCoff, TSgps/TS12M, RTS/RTSoff,
                  FEC/FECoff, AC/ACoff
-  temperature    on a Radarcape: the GPS module temperature
+  temperature    on a Radarcape: the GPS module temperature, about 20 K above
+                 the air around it (not the air temperature)
+  ntp_rms_offset the system clock's NTP RMS offset in microseconds
 
 When ANTENNA_LAT / ANTENNA_LON are not set in config.py, the receiver's own GPS
 position becomes the centre of the range rings (collector/msg_stats.py).

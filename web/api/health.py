@@ -260,7 +260,7 @@ def _rc_item(now: float, up: float) -> dict:
     det = []
     t = d.get("temp")
     if isinstance(t, (int, float)):
-        det.append(f"GPS module {t:.0f} °C" + (f" (24 h {pub['temp_min']:.0f}–{pub['temp_max']:.0f} °C)"
+        det.append(f"GPS module {t:.0f} °C, ≈ {t - 20:.0f} °C around it" + (f" (24 h {pub['temp_min']:.0f}–{pub['temp_max']:.0f} °C)"
                                                 if pub.get("temp_min") is not None else ""))
         if t >= 85:
             red.append(f"GPS module very hot ({t:.0f} °C)")
@@ -281,7 +281,7 @@ def _rc_item(now: float, up: float) -> dict:
     if d.get("rcd_uptime") is not None:
         det.append(f"receiver up {_ago(d['rcd_uptime'])}")
     det.append(f"time {d.get('mlat_time_source') or '?'}, NTP {d.get('ntp_source') or '?'}"
-               + (f", RMS offset {d['ntp_rms']:g} ms" if d.get("ntp_rms") is not None else ""))
+               + (f", RMS offset {d['ntp_rms']:g} µs" if d.get("ntp_rms") is not None else ""))
     det.append(f"read {_ago(age)} ago")
     if red:
         return _item("rc", "err", "; ".join(red + amber), det)
