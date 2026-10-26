@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar)
+## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar; mobile view /app with the ILS approach)
 
 ### Radarcape receiver status
 - New module `collector/radarcape_status.py`: reads the Radarcape's own status page `http://<RADARCAPE_HOST>/systemstatus.json` once a minute (thread `rc_status`, started in `run.py`; timeout 5 s, RAM only, nothing written). Keeps the GPS and FPGA flags, the GPS module temperature (lowest / highest of up to 24 h in memory), the OS and receiver-software uptimes (a decrease marks a software restart), the time sources and NTP RMS offset, GPS and system time, the receiver position and height, versions, board, feeders and the online-service states. The network fields, the MLAT nickname and the other device fields are not kept. Optional `RADARCAPE_STATUS` in `config.py` (default `True`).
@@ -22,6 +22,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Statistics page layout
 - The **Interrogators** panel ends level with the **Meteo yield** panel when the columns stand side by side; the rest of its table and notes scroll inside the panel, with the column titles kept in view and the scroll position kept over the 10-s updates (`stats.html`, `fitIid` in `stats.js`, `.mst-scroll` in `style.css`). On one-column screens it keeps its full height.
+
+### Mobile view /app
+- **Menu redone for touch**: the views as tiles; each product's options in a folding section (the shown view's open, the others reachable); tap buttons (chips) instead of drop-down lists (the selects stay hidden as the value holders, so `timeheight.js` works unchanged); switches instead of check boxes; ‹ › steppers for the date and hour of *Area hour*; the menu scrolls on its own (`overscroll-behavior: contain`); view changes by buttons instead of radio labels; a tap beside the menu closes it also on iPhones.
+- **Views scroll**: when a view is taller than the screen (ACI & WS with its list, Skew-T in landscape) an up-down drag that starts on the diagram scrolls the page (`touch-action: pan-y`); taps still give the read-out.
+- **New view ILS approach**: the Windshear page's ILS profile live every 5 s (`static/js/ils_profile.js`, new compact renderer; `windshear.js` unchanged): glideslope and band, traffic with trails, windshear alert bands, METAR barb, the barbs of the lowest (or a tapped) aircraft with HW / XW, NONE points, strips under the profile; runway, range, barbs, component, alert level and trails in the menu. The route passes the threshold elevation and glideslope trim.
+- Time–height on a phone now really starts with 24 h (the default is set before `timeheight.js` reads it).
+- New page **`/app`** for phones (`web/templates/app.html`, `static/js/app.js`, `static/css/app.css`, route in `web/app.py`): a slim top bar with a ☰ menu, the view's name and the system-health dot; one product at a time filling the screen; every choice in the menu. Views: **Skew-T · Area now** (refreshed every 2 min), **Skew-T · Area hour** (date + hour), **Time–height** (24 h by default) and **ACI & WS** (3 h – 1 d, with the latest landings as a list; every minute). Taps and drags act as the desktop hover read-outs. Only the shown view is refreshed, nothing while the page is hidden. The Skew-T options are the desktop settings of the same browser.
+- **Add to Home Screen**: web-app manifest `/app/manifest.webmanifest` (full screen, start `/app`) and icons `static/icons/app-192.png`, `app-512.png`, `apple-touch-icon.png`. The manifest and the icons are served without a login (the phone fetches them by itself); all pages and data still need the login.
+- `static/js/skewt_chart.js`: option `hidpi` (canvas at the screen's pixel density, used by `/app`); the hover read-out maps the pointer in diagram units (no change on the desktop pages).
+- `static/js/ws_cond_chart.js` (new): the ACI / ACI + WS chart moved out of `windshear.js` unchanged in what it draws, so the Windshear page and `/app` share it (`windshear.html` loads it before `windshear.js`).
 
 ### Live Map weather overlay: model rain outlined under the radar
 - With **Both**, the MEPS model's rain inside the FMI radar coverage was cut away entirely, so in practice only the radar's rain could be seen. It is now drawn there as outlines over the radar's colours — thin around the model's rain from 0.1 mm/h, thick from 1 mm/h, with a halo for contrast, clipped to the coverage — so the forecast can be compared with the observation without mixing the two (`static/js/wx_layer.js` option `modelOutline`, `static/js/live_wx.js`). Outside the coverage the model's rain is drawn in colour as before; the legend and the status line say so. *FMI radar* alone and the Weather page are unchanged.

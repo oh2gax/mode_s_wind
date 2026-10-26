@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- MODE-S Wind mobile view /app (from 2026-10-26): one product at a time,
+       full screen, all choices in the ☰ menu (static/js/app.js, static/css/app.css);
+       the menu's selects marked data-chips are shown as tap buttons by app.js -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MODE-S Wind</title>
+  <meta name="theme-color" content="#0f1923">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MODE-S Wind">
+  <link rel="manifest" href="{{ url_for('app_manifest') }}" crossorigin="use-credentials">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/app-192.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script>
+    (function(){
+      try { if (localStorage.getItem('ms_theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}
+      // Time–height: one day by default on a phone (read by timeheight.js when it loads)
+      try { if (localStorage.getItem('ms_th_hours') == null) localStorage.setItem('ms_th_hours', '24'); } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="app-body">
+
+<header class="app-bar">
+  <button id="app-menu-btn" class="app-icon-btn" type="button" aria-label="Menu" aria-controls="app-drawer" aria-expanded="false">☰</button>
+  <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
+  <span id="app-health" class="app-health" title="System health"></span>
+</header>
+
+<div class="app-main" role="main">
+  <!-- Skew-T (Area · now / Area · hour) -->
+  <section id="v-skewt" class="app-view" hidden>
+    <div id="app-skewt-box" class="app-skewt-box">
+      <canvas id="app-skewt"></canvas>
+      <div id="app-skewt-tip" class="mini-skewt-tip app-tip" style="display:none"></div>
+    </div>
+    <div id="app-skewt-meta" class="app-meta"></div>
+  </section>
+
+  <!-- Time–height (timeheight.js uses these ids) -->
+  <section id="v-th" class="app-view app-th" hidden>
+    <div class="th-box app-th-box" id="th-box">
+      <canvas id="th-canvas"></canvas>
+      <div id="th-tip" class="mini-skewt-tip app-tip" style="display:none"></div>
+    </div>
+    <div class="th-legend app-th-legend" id="th-legend"></div>
+    <div id="sounding-meta" class="app-meta"></div>
+  </section>
+
+  <!-- ILS approach (ils_profile.js, the Windshear page's ILS profile) -->
+  <section id="v-ils" class="app-view" hidden>
+    <div id="app-ils-box" class="app-aci-box"><canvas id="app-ils"></canvas></div>
+    <div id="app-ils-pick" class="app-pick app-ils-pick"></div>
+    <div id="app-ils-list" class="app-strips"></div>
+  </section>
+
+  <!-- ACI & WS (ws_cond_chart.js) -->
+  <section id="v-aci" class="app-view" hidden>
+    <div id="app-aci-box" class="app-aci-box"><canvas id="app-aci"></canvas></div>
+    <div id="app-aci-pick" class="app-pick">Tap a dot for the landing.</div>
+    <div id="app-aci-readout" class="app-meta app-aci-readout"></div>
+    <div id="app-aci-list" class="app-list"></div>
+  </section>
+</div>
+
+<div id="app-backdrop" class="app-backdrop" hidden></div>
+<div id="app-drawer" class="app-drawer" role="dialog" aria-label="Menu" aria-hidden="true">
+  <div class="app-drawer-head">
+    <span>MODE-S Wind</span>
+    <button id="app-menu-close" class="app-icon-btn" type="button" aria-label="Close">✕</button>
+  </div>
+
+  <!-- the views as tiles (buttons: a tap switches the view and closes the menu) -->
+  <div class="app-tiles" role="group" aria-label="View">
+    <button type="button" class="app-tile" data-view="skewt-now"><b>Skew-T</b><small>Area · now</small></button>
+    <button type="button" class="app-tile" data-view="skewt-hour"><b>Skew-T</b><small>Area · hour</small></button>
+    <button type="button" class="app-tile" data-view="th"><b>Time–height</b><small>hourly profiles</small></button>
+    <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
+    <button type="button" class="app-tile" data-view="aci"><b>ACI &amp; WS</b><small>landings</small></button>
+  </div>
+
+  <!-- options of each product, folded; the shown view's section opens by itself -->
+  <details class="app-sec" data-for="skewt">
+    <summary>Skew-T options</summary>
+    <div class="app-field" data-for="skewt-now"><span>Window</span>
+      <select id="app-minutes" data-chips>
+        <option value="30">30 min</option>
+        <option value="60">60 min</option>
+        <option value="120">2 h</option>
+        <option value="180">3 h</option>
+      </select></div>
+    <div class="app-field" data-for="skewt-hour"><span>Date (UTC)</span>
+      <div class="app-stepper">
+        <button type="button" class="app-step" id="app-date-prev" aria-label="Previous day">‹</button>
+        <input type="date" id="app-date">
+        <button type="button" class="app-step" id="app-date-next" aria-label="Next day">›</button>
+      </div></div>
+    <div class="app-field" data-for="skewt-hour"><span>Hour</span>
+      <div class="app-stepper">
+        <button type="button" class="app-step" id="app-hour-prev" aria-label="Previous hour">‹</button>
+        <select id="app-hour"><option value="">—</option></select>
+        <button type="button" class="app-step" id="app-hour-next" aria-label="Next hour">›</button>
+      </div></div>
+    <div class="app-field"><span>Analysis</span>
+      <select id="app-ana" data-chips>
+        <option value="0">Off</option><option value="1">Levels</option><option value="2">Stability</option>
+        <option value="3">Turbulence</option><option value="4">Advection</option><option value="5">Full</option>
+      </select></div>
+    <div class="app-field"><span>Analysis of</span>
+      <select id="app-ana-src" data-chips><option value="modes">Mode S</option><option value="meps">MEPS</option><option value="sonde">Sonde</option></select></div>
+    <div class="app-field"><span>Airport profile</span>
+      <select id="app-apt" data-chips><option value="off">Off</option><option value="overlay">Overlay</option><option value="zoom">Zoom</option></select></div>
+    <div class="app-field"><span>Smoothing</span>
+      <select id="app-smooth" data-chips><option value="0">Off</option><option value="1">3 layers</option><option value="2">5 layers</option></select></div>
+    <div class="app-switches">
+      <label class="app-switch"><span>Sonde</span><input type="checkbox" id="app-sonde"></label>
+      <label class="app-switch"><span>MEPS</span><input type="checkbox" id="app-meps"></label>
+      <label class="app-switch"><span>RH</span><input type="checkbox" id="app-rh"></label>
+      <label class="app-switch"><span>Data quality</span><input type="checkbox" id="app-dq"></label>
+    </div>
+  </details>
+
+  <details class="app-sec" data-for="th">
+    <summary>Time–height options</summary>
+    <div class="app-field"><span>Field</span>
+      <select id="th-field" data-chips>
+        <option value="anomaly" data-short="T anomaly">Temperature anomaly</option>
+        <option value="change" data-short="ΔT 3 h">Temperature change 3 h</option>
+        <option value="wind" data-short="Wind">Wind speed</option>
+        <option value="lapse" data-short="Lapse rate">Lapse rate</option>
+        <option value="vvel" data-short="Vertical motion">Vertical motion</option>
+        <option value="vort" data-short="Vorticity">Vorticity</option>
+        <option value="dval" data-short="Heights">Height of the pressure surfaces</option>
+        <option value="dchg" data-short="ΔHeight 6 h">Height change 6 h</option>
+        <option value="thk" data-short="Thickness T">Thickness temperature check</option>
+        <option value="moist" data-short="Moisture">Moisture (trial)</option>
+      </select></div>
+    <div class="app-field"><span>Length</span>
+      <select id="th-hours" data-chips>
+        <option value="12">12 h</option><option value="24">24 h</option><option value="48">2 d</option>
+        <option value="72">3 d</option><option value="168">7 d</option><option value="336">14 d</option>
+      </select></div>
+    <div class="app-field"><span>Ending</span>
+      <div class="app-stepper"><input type="date" id="th-end"><button id="th-now" class="app-btn" type="button">Now</button></div></div>
+    <div class="app-switches">
+      <label class="app-switch"><span>Barbs</span><input type="checkbox" id="th-barbs"></label>
+      <label class="app-switch"><span>Isotherms</span><input type="checkbox" id="th-iso"></label>
+      <label class="app-switch"><span>Tropopause</span><input type="checkbox" id="th-tp"></label>
+      <label class="app-switch"><span>Max wind</span><input type="checkbox" id="th-vmax"></label>
+      <label class="app-switch"><span>Sonde</span><input type="checkbox" id="th-sondecol"></label>
+    </div>
+    <button id="th-png" class="app-btn app-btn-wide" type="button">Save picture (PNG)</button>
+  </details>
+
+  <details class="app-sec" data-for="ils">
+    <summary>ILS approach options</summary>
+    <div class="app-field"><span>Runway</span>
+      <select id="app-ils-rwy" data-chips>
+        <option value="">All</option><option value="04L&amp;R">04L+R</option><option value="22L&amp;R">22L+R</option>
+        <option value="04L">04L</option><option value="04R">04R</option><option value="22L">22L</option>
+        <option value="22R">22R</option><option value="15">15</option><option value="33">33</option>
+      </select></div>
+    <div class="app-field"><span>Range</span>
+      <select id="app-ils-range" data-chips><option value="15">15 NM</option><option value="7.5">7.5 NM</option></select></div>
+    <div class="app-field"><span>Wind barbs</span>
+      <select id="app-ils-barbs" data-chips><option value="lo">Lo</option><option value="hi">Hi</option><option value="off">Off</option></select></div>
+    <div class="app-field"><span>Wind component</span>
+      <select id="app-ils-comp" data-chips><option value="hw">Headwind</option><option value="xw">Crosswind</option><option value="off">Off</option></select></div>
+    <div class="app-field"><span>Windshear alerts</span>
+      <select id="app-ils-lvl" data-chips><option value="adv">ADV +</option><option value="wsa">WSA +</option><option value="mba">MBA</option><option value="off">Off</option></select></div>
+    <div class="app-switches">
+      <label class="app-switch"><span>Trails</span><input type="checkbox" id="app-ils-trails"></label>
+    </div>
+    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft or its strip to follow another one.</div>
+  </details>
+
+  <details class="app-sec" data-for="aci">
+    <summary>ACI &amp; WS options</summary>
+    <div class="app-field"><span>Range</span>
+      <select id="app-aci-hours" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
+    <div class="app-field"><span>Show</span>
+      <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option></select></div>
+  </details>
+
+  <details class="app-sec app-sec-gen">
+    <summary>General</summary>
+    <div class="app-field"><span>Theme</span>
+      <select id="app-theme" data-chips><option value="dark">Dark</option><option value="light">Light</option></select></div>
+    <div id="app-health-txt" class="app-small"></div>
+    <a class="app-link" href="/">Full site ↗</a>
+  </details>
+  <div class="app-foot">{{ app_version }} · Mode S data: own receiver · MEPS: MET Norway, sondes: FMI open data (CC BY 4.0)</div>
+</div>
+
+<script>
+  const RECEIVER_LAT = {{ receiver_lat }};
+  const WS_THR_ELEVATION_FT = {{ thr_elevation_ft }};
+  const WS_GS_OFFSET_FT = {{ gs_offset_ft }};
+</script>
+<script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
+<script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
+<script src="{{ url_for('static', filename='js/skewt_chart.js') }}"></script>
+<script src="{{ url_for('static', filename='js/timeheight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ws_cond_chart.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ils_profile.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -3,8 +3,9 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.26102026 — The Radarcape receiver's own status on the Statistics page
+## v.26102026 — The Radarcape receiver's own status on the Statistics page; MODE-S Wind on a phone
 
+- **MODE-S Wind on your phone: `/app`** — open the address of MODE-S Wind with `/app` at the end. One picture at a time fills the screen: the **Skew-T** (now, or any stored hour), the **Time–height** section, the live **ILS approach** — the glideslope with the aircraft on final, their trails and the wind barbs of the lowest one (tap another aircraft or its strip to follow it) — or the **approach conditions and windshear** chart with the latest landings. Everything is chosen from the **☰** menu at the top left: tap a view's tile, and its options open below as tap buttons and switches; the other views' options are one tap away. Tap the diagram for the values. Use *Add to Home Screen* in the phone's browser to get a MODE-S Wind icon that opens it full screen like an app.
 - **Radarcape receiver** panel on the Statistics page (under the range rings): is the receiver's GPS working — antenna, satellites, the 1PPS pulse and the nanosecond timestamps that MLAT and the GPS quality monitor depend on — each shown as a green, amber or red chip (hover it for the meaning); the temperature of its GPS module with the lowest and highest of the day (the module runs about 20 °C warmer than the air around it, so this is not the outside temperature), how long the receiver has been running, where its clock takes the time from, its position and height, and whether its settings are the ones this system expects.
 - The **Interrogators** list on the Statistics page now ends level with the Meteo yield panel; scroll inside it for the rest of the codes.
 - A new **Radarcape** dot among the system health indicators turns amber or red when the receiver's GPS or timestamps have a problem, it runs hot, a setting has changed or its status cannot be read.

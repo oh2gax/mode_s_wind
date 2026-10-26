@@ -17,7 +17,7 @@ import urllib.request
 from functools import wraps
 
 from flask import (
-    Flask, Response, g, render_template, request,
+    Flask, Response, g, render_template, request, url_for,
     jsonify, stream_with_context, send_from_directory, abort,
 )
 
@@ -278,6 +278,14 @@ def create_app(
             g.auth_state = "blocked"
             return Response("Too many failed logins — try again later.", 429,
                             {"Retry-After": str(int(tr.lock_sec))})
+        # The mobile view's home-screen icon and web-app manifest (from
+        # 2026-10-26) load without a login: the phone fetches them on its own
+        # when "Add to Home Screen" is used; they hold only the name and icon
+        if request.endpoint == "app_manifest" or (
+                request.endpoint == "static"
+                and (request.view_args or {}).get("filename", "") in _PUBLIC_STATIC):
+            g.auth_state = "public"
+            return None
         auth = request.authorization
         if not auth:
             g.auth_state = "none"
@@ -306,7 +314,8 @@ def create_app(
 
     _PAGE_ENDPOINTS = {"index", "flights_page", "sounding_page", "windmap_page", "weather_page",
                        "windshear_page", "gps_page", "gps_episodes_page", "msgstats_page",
-                       "maintenance_page"}
+                       "maintenance_page", "app_page"}
+    _PUBLIC_STATIC = {"icons/app-192.png", "icons/app-512.png", "icons/apple-touch-icon.png"}
 
     @app.route("/shared-login")
     def shared_login_page():
@@ -391,6 +400,30 @@ def create_app(
                                receiver_lon=cfg.RECEIVER_LON,
                                episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
                                coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
+
+    @app.route("/app")
+    def app_page():
+        """Mobile view (from 2026-10-26): Skew-T (Area now / hour), Time–height,
+        ILS approach and ACI & WS, one at a time, all choices in a ☰ menu
+        (static/js/app.js)."""
+        return render_template("app.html", receiver_lat=cfg.RECEIVER_LAT,
+                               thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
+                               gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
+
+    @app.route("/app/manifest.webmanifest")
+    def app_manifest():
+        """Web-app manifest for "Add to Home Screen": opens /app full screen."""
+        man = {
+            "name": "MODE-S Wind", "short_name": "MODE-S Wind",
+            "description": "Aircraft-derived winds and temperatures, Skew-T, time–height and approach conditions",
+            "start_url": "/app", "scope": "/app", "display": "standalone", "orientation": "any",
+            "background_color": "#0f1923", "theme_color": "#0f1923",
+            "icons": [
+                {"src": url_for("static", filename="icons/app-192.png"), "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+                {"src": url_for("static", filename="icons/app-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            ],
+        }
+        return Response(json.dumps(man), mimetype="application/manifest+json")
 
     @app.route("/stats")
     def msgstats_page():

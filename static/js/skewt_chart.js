@@ -89,6 +89,10 @@ function isaTempP(p_hPa) {
 
 function createSkewT(canvas, tip, cfg = {}) {
   const LAT = cfg.lat != null ? cfg.lat : 60.3;
+  // cfg.hidpi (the mobile view /app, from 2026-10-26): the canvas holds
+  // devicePixelRatio × the CSS size and the drawing is scaled, so the lines
+  // and labels are sharp on a phone; the geometry stays in CSS pixels
+  const DPR = () => cfg.hidpi ? (window.devicePixelRatio || 1) : 1;
   // State, set by the page with set()
   let miniArea = null, miniLow = null, aptMode = 'off', anaLevel = 0, areaSmooth = 0,
       miniSfc = null, miniSfcLink = null, miniAcOverlay = null, windDensity = 2,
@@ -1130,9 +1134,9 @@ function createSkewT(canvas, tip, cfg = {}) {
   function miniHover(ev) {
     if (!canvas || !tip) return;
     const r  = canvas.getBoundingClientRect();
-    const my = (ev.clientY - r.top) * (canvas.height / r.height);
+    const my = (ev.clientY - r.top) * (MSK.H / r.height);
     if (rhOn) {                                      // over the RH strip
-      const mx = (ev.clientX - r.left) * (canvas.width / r.width), g = rhGeom();
+      const mx = (ev.clientX - r.left) * (MSK.W / r.width), g = rhGeom();
       if (mx >= g.x0 - 3 && mx <= g.x1 + 3 && my >= MSK.MT && my <= MSK.MT + MSK.PH) {
         tip.innerHTML = rhHover(my);
         tip.style.display = 'block';
@@ -1244,6 +1248,7 @@ function createSkewT(canvas, tip, cfg = {}) {
   function drawMiniSounding() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    if (cfg.hidpi) ctx.setTransform(DPR(), 0, 0, DPR(), 0, 0);
     applyMskRange();
     stripW = rhOn ? RH_W : 0;    // the RH strip takes its width from the plot
     MSK.PW = MSK.W - MSK.ML - MSK.MR - stripW;
@@ -1686,8 +1691,10 @@ function createSkewT(canvas, tip, cfg = {}) {
 
 
   function resize(w, h) {
-    if (canvas.width === w && canvas.height === h) return false;
-    canvas.width = w; canvas.height = h;
+    const d = DPR(), cw = Math.round(w * d), ch = Math.round(h * d);
+    if (canvas.width === cw && canvas.height === ch && MSK.W === w && MSK.H === h) return false;
+    canvas.width = cw; canvas.height = ch;
+    if (cfg.hidpi) { canvas.style.width = w + 'px'; canvas.style.height = h + 'px'; }
     MSK.W = w; MSK.H = h;
     MSK.PW = w - MSK.ML - MSK.MR;
     MSK.PH = h - MSK.MT - MSK.MB;

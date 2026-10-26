@@ -179,7 +179,8 @@ class AccessTracker:
     def record(self, ip: str, method: str, path: str, status: int,
                auth: str, user, ua: str, fp: str | None = None) -> None:
         """One finished request.  auth: ok / none / bad / blocked; fp: fingerprint
-        of a wrong login (the same one counts once towards the lockout)."""
+        of a wrong login (the same one counts once towards the lockout); public: a
+        file served without a login (the /app icon and manifest), not recorded."""
         if not self.enabled:
             return
         now = time.time()
@@ -188,6 +189,8 @@ class AccessTracker:
             st = self._stats
             if auth == "blocked":
                 self._emit(ip, "BLOCKED", f"{req} refused (blocked)", _clean(path, 40))
+                return
+            if auth == "public":             # the mobile view's icon / manifest (no login needed)
                 return
             if auth == "none":
                 st["denied"] += 1

@@ -1,0 +1,159 @@
+/* app.css — the mobile view /app (from 2026-10-26): a slim top bar with the
+   ☰ menu, one product at a time filling the screen, the menu sliding in from
+   the left: the views as tiles, each product's options in a folding section,
+   choices as chips and switches.  Colours come from the theme variables of
+   style.css. */
+
+html, body.app-body { height: 100%; }
+body.app-body {
+  margin: 0; overflow: hidden; background: var(--bg-0); color: var(--text-1);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  display: flex; flex-direction: column;
+  height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── top bar ── */
+.app-bar {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  height: 46px; padding: env(safe-area-inset-top) 10px 0 calc(6px + env(safe-area-inset-left));
+  box-sizing: content-box;
+  background: var(--bg-1); border-bottom: 1px solid var(--border);
+}
+.app-icon-btn {
+  flex: none; width: 40px; height: 36px; border-radius: 6px; font-size: 20px; line-height: 1;
+  background: transparent; color: var(--text-1); border: 1px solid transparent; cursor: pointer;
+}
+.app-icon-btn:active { background: var(--bg-3); }
+.app-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
+.app-title span { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-title small { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-health { flex: none; width: 11px; height: 11px; border-radius: 50%; background: var(--text-3); margin-right: 4px; }
+.app-health.st-ok { background: var(--green); }
+.app-health.st-warn { background: var(--amber); }
+.app-health.st-err { background: var(--red); }
+
+/* ── views ── */
+.app-main { flex: 1; min-height: 0; position: relative; overflow: hidden;
+            padding-bottom: env(safe-area-inset-bottom); }
+.app-view { position: absolute; inset: 0; display: flex; flex-direction: column; overflow-y: auto;
+            padding: 4px calc(4px + env(safe-area-inset-right)) env(safe-area-inset-bottom) calc(4px + env(safe-area-inset-left)); }
+.app-view[hidden] { display: none; }
+.app-view > * { flex: none; }
+.app-skewt-box { align-self: center; }
+.app-skewt-box, .app-aci-box { position: relative; flex: none; }
+.app-skewt-box canvas, .app-aci-box canvas { display: block; border-radius: 4px; touch-action: none; }
+/* a view taller than the screen scrolls also when the finger starts on the diagram (app.js sets .scrolls) */
+.app-view.scrolls canvas { touch-action: pan-y; }
+.app-th-box.th-box { flex: none; height: auto; min-height: 0; margin: 0; }
+.app-th-box canvas { touch-action: none; }
+.app-tip { white-space: normal; max-width: calc(100% - 16px); font-size: 11px; }
+.app-meta { font-size: 11px; color: var(--text-2); padding: 4px 4px 2px; line-height: 1.45; }
+.app-th-legend { justify-content: flex-start; padding: 4px 4px 0; font-size: 10.5px; }
+.app-pick { font-size: 12px; color: var(--text-1); padding: 6px 6px; min-height: 2.9em; white-space: pre-line;
+            background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; margin: 6px 2px 0; }
+.app-aci-readout { font-family: 'Courier New', monospace; }
+.app-list { margin: 4px 2px 8px; font-size: 12px; }
+.app-list table { width: 100%; border-collapse: collapse; }
+.app-list th { text-align: left; font-weight: 600; font-size: 10.5px; color: var(--text-3); padding: 3px 4px; border-bottom: 1px solid var(--border); }
+.app-list td { padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); white-space: nowrap; }
+.app-list .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── ILS approach: strips under the profile ── */
+.app-ils-pick { display: flex; align-items: center; gap: 8px; min-height: 0; white-space: normal; }
+.app-ils-pick .txt { flex: 1; min-width: 0; font-family: 'Courier New', monospace; font-size: 11.5px; line-height: 1.4; }
+.app-strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; margin: 6px 2px 10px; }
+.app-strip { display: grid; grid-template-columns: auto 1fr auto; gap: 1px 6px; align-items: baseline; text-align: left;
+             padding: 6px 8px; border-radius: 8px; background: var(--bg-1); color: var(--text-1);
+             border: 1px solid var(--border); border-left: 4px solid var(--src, var(--border)); font: inherit; cursor: pointer; }
+.app-strip.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+.app-strip .rwy { font-weight: 700; font-size: 12px; color: var(--text-2); }
+.app-strip .cs { font-weight: 700; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-strip .gs { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 9px; background: var(--bg-3); }
+.app-strip .row { grid-column: 1 / -1; font-family: 'Courier New', monospace; font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-strip .ws { color: #fff; border-radius: 4px; padding: 0 4px; font-weight: 700; }
+.app-empty { grid-column: 1 / -1; font-size: 12px; color: var(--text-3); padding: 8px 4px; }
+
+/* ── menu ── */
+.app-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 40; cursor: pointer; }
+.app-backdrop[hidden] { display: none; }
+.app-drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 50; width: min(88vw, 360px);
+  background: var(--bg-1); border-right: 1px solid var(--border);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  padding: env(safe-area-inset-top) 0 calc(16px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+  transform: translateX(-102%); visibility: hidden;
+  transition: transform 0.2s ease-out, visibility 0s linear 0.2s;
+  box-shadow: 4px 0 18px rgba(0, 0, 0, 0.35);
+}
+.app-drawer.open { transform: none; visibility: visible; transition: transform 0.2s ease-out, visibility 0s; }
+.app-drawer-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+                   padding: 6px 6px 6px 16px; font-weight: 700; font-size: 15px;
+                   background: var(--bg-1); border-bottom: 1px solid var(--border); }
+
+/* view tiles */
+.app-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.app-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 54px; padding: 9px 11px;
+            border-radius: 12px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-1);
+            font: inherit; text-align: left; cursor: pointer; touch-action: manipulation;
+            transition: background 0.12s, border-color 0.12s; }
+.app-tile b { font-size: 14px; font-weight: 650; }
+.app-tile small { font-size: 11.5px; color: var(--text-2); }
+.app-tile:active { transform: scale(0.98); }
+.app-tile.on { background: color-mix(in srgb, var(--accent) 22%, var(--bg-2)); border-color: var(--accent); }
+.app-tile.on small { color: var(--text-1); }
+
+/* folded option sections */
+.app-sec { border-bottom: 1px solid var(--border); }
+.app-sec > summary { list-style: none; display: flex; align-items: center; justify-content: space-between;
+                     padding: 13px 16px; font-size: 14px; font-weight: 650; cursor: pointer; touch-action: manipulation;
+                     -webkit-user-select: none; user-select: none; }
+.app-sec > summary::-webkit-details-marker { display: none; }
+.app-sec > summary::after { content: '›'; font-size: 20px; line-height: 1; color: var(--text-3); transition: transform 0.15s; }
+.app-sec[open] > summary::after { transform: rotate(90deg); }
+.app-sec.cur > summary { color: var(--accent); }
+.app-sec[open] { padding-bottom: 12px; }
+.app-sec > :not(summary) { margin-left: 16px; margin-right: 14px; }
+.app-field { margin: 4px 0 12px; }
+.app-field[hidden] { display: none; }
+.app-field > span { display: block; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+                    color: var(--text-3); margin-bottom: 6px; }
+
+/* chips (a select shown as tap buttons) */
+.app-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-chip { min-height: 34px; padding: 6px 13px; border-radius: 17px; font: inherit; font-size: 13.5px; line-height: 1.2;
+            background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); cursor: pointer;
+            touch-action: manipulation; transition: background 0.12s, border-color 0.12s, color 0.12s; }
+.app-chip:active { transform: scale(0.96); }
+.app-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* steppers: ‹ date / hour › */
+.app-stepper { display: flex; align-items: center; gap: 6px; }
+.app-stepper select, .app-stepper input[type="date"] {
+  flex: 1; min-width: 0; height: 38px; box-sizing: border-box; font: inherit; font-size: 15px; padding: 0 10px; border-radius: 10px;
+  background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border);
+  -webkit-appearance: none; appearance: none; text-align: center; text-align-last: center; color-scheme: dark;
+}
+:root[data-theme="light"] .app-stepper select, :root[data-theme="light"] .app-stepper input[type="date"] { color-scheme: light; }
+.app-step { flex: none; width: 38px; height: 38px; border-radius: 10px; font-size: 22px; line-height: 1; padding: 0 0 3px;
+            background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); cursor: pointer; touch-action: manipulation; }
+.app-step:active, .app-btn:active { background: var(--bg-3); }
+
+/* switches (checkboxes) */
+.app-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; margin-top: 2px; }
+.app-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px;
+              font-size: 14px; cursor: pointer; touch-action: manipulation; }
+.app-switch input { -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0;
+                    width: 40px; height: 24px; border-radius: 12px; background: var(--bg-3); border: 1px solid var(--border);
+                    cursor: pointer; transition: background 0.15s; }
+.app-switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+                           background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transition: transform 0.15s; }
+.app-switch input:checked { background: var(--accent); border-color: var(--accent); }
+.app-switch input:checked::after { transform: translateX(16px); }
+
+.app-btn { min-height: 38px; font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 10px; background: var(--bg-2);
+           color: var(--text-1); border: 1px solid var(--border); cursor: pointer; touch-action: manipulation; }
+.app-btn-wide { display: block; width: calc(100% - 30px); margin-top: 10px; }
+.app-small { font-size: 12px; color: var(--text-2); margin: 6px 0; line-height: 1.45; }
+.app-link { display: inline-block; margin-top: 6px; font-size: 14px; color: var(--accent); text-decoration: none; }
+.app-foot { padding: 12px 16px; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
