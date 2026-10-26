@@ -507,11 +507,9 @@
       return `<button type="button" class="app-strip${a.icao === I.sel && I.barbs !== 'off' ? ' sel' : ''}" data-icao="${esc(a.icao)}"` +
              ` style="--src:${ILS_SRC[a.meteo_source] || 'var(--border)'}">` +
              `<span class="rwy">${esc(a.approach_runway || '?')}</span><span class="cs">${esc(a.callsign || a.icao)}${a.ap ? ' <small>AP</small>' : ''}</span>` +
-             `<span class="gs" style="color:${pal[gs]}">${gs}</span>` +
-             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM</span>` +
-             `<span class="row">${a.altitude != null ? Math.round(a.altitude) + ' ft' : '—'}${vs ? ' · ' + vs : ''}</span>` +
-             `<span class="row">wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}` +
-             `${w ? ` <span class="ws" style="background:${WSC[w.lvl]}">${w.lvl.toUpperCase()}</span>` : ''}</span></button>`;
+             `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}">${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${pal[gs]}">${gs}</span></span>` +
+             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${a.altitude != null ? Math.round(a.altitude) + ' ft' : '—'}${vs ? ' · ' + vs : ''}</span>` +
+             `<span class="row">wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}</span></button>`;
     }).join('') : '';
     const alert = evs.length ? ' · ⚠ ' + [...new Set(evs.map(e => `${e.lvl.toUpperCase()} ${e.rwy}`))].join(', ') : '';
     $('app-sub').textContent = I.fetched

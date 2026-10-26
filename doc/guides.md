@@ -9,8 +9,8 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
-version: 4.6
-date: 2026-10-24
+version: 4.7
+date: 2026-10-26
 pages: 20
 open: live, skewt
 
@@ -19,13 +19,13 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 - The diagram element by element, the **data-quality** badge and rings, smoothing and a selected aircraft
 - The **Airport** low-level profile from the landings and departures at Helsinki-Vantaa
 - The **Analysis** button: tropopause, freezing level, jet streams, inversions, stability, turbulence risk, warm / cold advection, contrails and the surface parcel (cloud base, CAPE, Lifted Index) — of the aircraft, the MEPS model or the sonde (**Analysis of**, with likely cloud layers)
-- The comparison profiles: the Jokioinen **radiosonde**, the **MEPS** weather model on its own levels and the trial **RH** strip with the sonde's and the model's humidity
+- The comparison profiles: the Jokioinen **radiosonde**, the **MEPS** weather model on its own levels (its wind barbs beside the aircraft's) and the trial **RH** strip with the sonde's and the model's humidity
 - The **upper-level temperature correction** (*upper T corr.*): the fleet's warm bias at cruise levels, learnt from the MEPS model
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.2
-date: 2026-10-24
+version: 3.3
+date: 2026-10-26
 pages: 44
 open: sounding, windmap@30
 
@@ -65,6 +65,20 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - The messages: the downlink formats, parity and why some addresses cannot be verified; Comm-B and the registers 1,0 … 6,0 (ELS / EHS) with their contents; the ADS-B type codes, versions and the GNSS − baro difference
 - The page part by part: summary bar, the **system health** dots and panel, message rate (1 h / 24 h), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
+
+## MODE-S Wind on a phone
+file: Mobile_User_Guide.pdf
+version: 1.0
+date: 2026-10-26
+pages: 8
+
+How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
+
+- Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar and the system-health dot
+- The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers
+- Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
+- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips) and **ACI & WS**, with their options
+- What to do when something looks wrong, and a quick reference
 
 ## Windshear detection v1 — retired algorithms (legacy)
 file: Windshear_Algorithms_v1_Legacy.pdf

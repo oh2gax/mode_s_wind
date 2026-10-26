@@ -172,6 +172,41 @@ function createSkewT(canvas, tip, cfg = {}) {
     return (_adiCache[key] = { dry, moist });
   }
 
+  // ── Label lines that fit the plot ──────────────────────────────────────────
+  // The labels at the top left are written inside the plot; on a narrow
+  // diagram (a phone, or with the RH strip) a long line would run over the
+  // strip, the wind barbs and their values.  Break it at its ' · ' / ' — '
+  // separators into lines no wider than maxW (ctx.font already set); the
+  // continuation lines are indented.  (From 26 Oct 2026.)
+  function wrapLabel(ctx, txt, maxW, indent = '  ') {
+    const pieces = String(txt).split(/(?= · | — )/);
+    const out = [];
+    let cur = '';
+    for (const pc of pieces) {
+      const t = cur + pc;
+      if (cur && ctx.measureText(t).width > maxW) {
+        out.push(cur);
+        cur = indent + pc.replace(/^ · /, '').replace(/^ /, '');
+      } else cur = t;
+    }
+    if (cur) out.push(cur);
+    // a piece still too wide on its own (no separator in it): break at spaces
+    const res = [];
+    for (const ln of out) {
+      if (ctx.measureText(ln).width <= maxW) { res.push(ln); continue; }
+      const lead = ln.match(/^ */)[0];
+      let c2 = '';
+      for (const w of ln.trim().match(/\([^)]*\)\S*|\S+/g)) {      // keep "(RMS 1.8)" together
+        const t = c2 ? c2 + ' ' + w : lead + w;
+        if (c2 && ctx.measureText(t).width > maxW) { res.push(c2); c2 = (res.length ? indent : '') + w; }
+        else c2 = t;
+      }
+      if (c2) res.push(c2);
+    }
+    return res;
+  }
+  const labelMaxW = off => Math.max(120, MSK.PW - off - 4);   // from ML + off to the plot's right edge
+
   // ── Mini wind barb (scaled for small canvas) ──────────────────────────────
   // color defaults to grey for area sounding barbs; pass aircraft colour for overlays.
   function drawMiniBarb(ctx, x, y, speedKt, dirFrom, color = '#94a3b8') {
@@ -449,8 +484,10 @@ function createSkewT(canvas, tip, cfg = {}) {
       for (const l of tl) {
         const y = mskY(l.pressure);
         if (lastT != null && Math.abs(y - lastT) < 12) continue;
-        ctx.fillStyle = weak(l) ? T.weak : T.tempLbl; ctx.textAlign = 'left';
-        ctx.fillText(l.temp.toFixed(0) + '°', mskX(l.temp, l.pressure) + 5, y + 3);
+        ctx.fillStyle = weak(l) ? T.weak : T.tempLbl;
+        const tx = mskX(l.temp, l.pressure), tl = l.temp.toFixed(0) + '°';
+        if (tx + 5 + ctx.measureText(tl).width > ML + PW - 2) { ctx.textAlign = 'right'; ctx.fillText(tl, tx - 5, y + 3); }
+        else { ctx.textAlign = 'left'; ctx.fillText(tl, tx + 5, y + 3); }
         lastT = y;
       }
       for (const l of (withBarbs ? lv : [])) {
@@ -648,9 +685,9 @@ function createSkewT(canvas, tip, cfg = {}) {
     return ['MEPS: no model data for this time'];
   }
   function drawMepsLabel(ctx, T, y) {
-    const lines = miniMeps ? mepsLabelText() : (mepsNote || []);
     const { ML } = MSK;
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    const lines = [].concat(...(miniMeps ? mepsLabelText() : (mepsNote || [])).map(t => wrapLabel(ctx, t, labelMaxW(22))));
     lines.forEach((txt, i) => {
       const yy = y + i * 12, w = ctx.measureText(txt).width + 16;
       ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, w, 12);
@@ -696,7 +733,9 @@ function createSkewT(canvas, tip, cfg = {}) {
     const { ML } = MSK;
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
     const col = age > 12 * 3600 ? T.sondeOld : T.sonde;
-    [l1, l2].filter(Boolean).forEach((txt, i) => {
+    const w1 = wrapLabel(ctx, l1, labelMaxW(22));
+    const lines = [...w1, ...(l2 ? wrapLabel(ctx, l2, labelMaxW(22)) : [])];
+    lines.forEach((txt, i) => {
       const yy = y + i * 12, w = ctx.measureText(txt).width + 16;
       ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, w, 12);
       if (i === 0) {                              // legend swatch: pink line + green dash
@@ -704,11 +743,11 @@ function createSkewT(canvas, tip, cfg = {}) {
         ctx.strokeStyle = T.dew; ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(ML + 11, yy - 1); ctx.lineTo(ML + 18, yy - 1); ctx.stroke();
         ctx.setLineDash([]);
       }
-      ctx.fillStyle = i === 0 ? col : T.sonde;
+      ctx.fillStyle = i < w1.length ? col : T.sonde;
       ctx.fillText(txt, ML + 22, yy);
     });
     ctx.restore();
-    return [l1, l2].filter(Boolean).length;
+    return lines.length;
   }
   // Hover lines: the sonde values at the hovered level
   function sondeHoverLines(p) {
@@ -743,15 +782,30 @@ function createSkewT(canvas, tip, cfg = {}) {
     if (!q) return;
     const { ML, MT } = MSK;
     const col = q.cls === 'GOOD' ? T.dqGood : q.cls === 'FAIR' ? T.dqFair : T.dqLow;
-    const main = `DATA ${q.cls} · ${q.n} aircraft · ${q.obs} obs` + (miniArea && miniArea.tcorr ? ' · upper T corr.' : '');
-    const key = q.weakN ? `  ○ = 1–2 aircraft` : '';
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
-    const x = ML + 16, y = MT + 12, w = ctx.measureText(main + key).width + 16;
-    ctx.fillStyle = T.anaLblBg; ctx.fillRect(x - 3, y - 9, w, 12);
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + 3, y - 3, 3, 0, 2 * Math.PI); ctx.fill();
-    ctx.fillText(main, x + 10, y);
-    if (key) { ctx.fillStyle = T.weak; ctx.fillText(key, x + 10 + ctx.measureText(main).width, y); }
+    const L = badgeLines(ctx, q);
+    const x = ML + 16;
+    L.forEach((ln, i) => {
+      const y = MT + 12 + 12 * i, w = ctx.measureText(ln.main + ln.key).width + 16;
+      ctx.fillStyle = T.anaLblBg; ctx.fillRect(x - 3, y - 9, w, 12);
+      if (i === 0) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + 3, y - 3, 3, 0, 2 * Math.PI); ctx.fill(); }
+      if (ln.main) { ctx.fillStyle = col; ctx.fillText(ln.main, x + 10, y); }
+      if (ln.key) { ctx.fillStyle = T.weak; ctx.fillText(ln.key, x + 10 + ctx.measureText(ln.main).width, y); }
+    });
     ctx.restore();
+  }
+  // the badge's text as lines that fit the plot: [{main, key}] (ctx.font set)
+  function badgeLines(ctx, q) {
+    const main = `DATA ${q.cls} · ${q.n} aircraft · ${q.obs} obs` + (miniArea && miniArea.tcorr ? ' · upper T corr.' : '');
+    const key = q.weakN ? '○ = 1–2 aircraft' : '';
+    const maxW = labelMaxW(26);
+    const L = wrapLabel(ctx, main, maxW).map(t => ({ main: t, key: '' }));
+    if (key) {
+      const last = L[L.length - 1];
+      if (ctx.measureText(last.main + '  ' + key).width <= maxW) last.key = '  ' + key;
+      else L.push({ main: '', key: '  ' + key });
+    }
+    return L;
   }
 
   // Ground line at the airport's station pressure (QNH reduced to the field
@@ -1293,7 +1347,11 @@ function createSkewT(canvas, tip, cfg = {}) {
       ctx.fillText(p, ML - 3, y - 6 < MT ? y + 9 : y + 3);
     }
 
-    // Isotherms (skewed temperature lines)
+    // Isotherms (skewed temperature lines), clipped to the plot itself — not
+    // over the RH strip, the wind barbs and their values (from 26 Oct 2026)
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
     const isoT = zoom ? [-30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30, 35]
                       : [-90, -80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30];
     for (const t of isoT) {
@@ -1373,7 +1431,12 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.setLineDash([]);
 
     // ── Ground: station pressure from the METAR QNH, with the surface temperature ─
-    topOff = dataQuality() ? 14 : 0;
+    {
+      const q = dataQuality();
+      ctx.save(); ctx.font = '9px monospace';
+      topOff = q ? 2 + 12 * badgeLines(ctx, q).length : 0;
+      ctx.restore();
+    }
     drawMiniGround(ctx, T);
 
     // ── Radiosonde (when switched on) under the Mode S profiles ─────────────
@@ -1522,11 +1585,14 @@ function createSkewT(canvas, tip, cfg = {}) {
       if (miniSonde) line += drawSondeLabel(ctx, T, MT + topOff + 12 * line);
       else if (sondeNote) {
         ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
-        const yy = MT + topOff + 12 * line;
-        ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(sondeNote).width + 6, 12);
-        ctx.fillStyle = T.sonde; ctx.fillText(sondeNote, ML + 12, yy);
+        const nl = wrapLabel(ctx, sondeNote, labelMaxW(12));
+        nl.forEach((t, i) => {
+          const yy = MT + topOff + 12 * (line + i);
+          ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(t).width + 6, 12);
+          ctx.fillStyle = T.sonde; ctx.fillText(t, ML + 12, yy);
+        });
         ctx.restore();
-        line += 1;
+        line += nl.length;
       }
       // ── MEPS label below the sonde label ──────────────────────────────────
       if (miniMeps || mepsNote) line += drawMepsLabel(ctx, T, MT + topOff + 12 * line);
@@ -1535,10 +1601,12 @@ function createSkewT(canvas, tip, cfg = {}) {
         const S = analysisSource();
         if (S && S.tag) {
           ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
-          const yy = MT + topOff + 12 * line;
-          ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(S.tag).width + 6, 12);
-          ctx.fillStyle = S.src === 'meps' ? T.meps : S.src === 'sonde' ? T.sonde : T.area;
-          ctx.fillText(S.tag, ML + 12, yy);
+          wrapLabel(ctx, S.tag, labelMaxW(12)).forEach((t, i) => {
+            const yy = MT + topOff + 12 * (line + i);
+            ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, yy - 9, ctx.measureText(t).width + 6, 12);
+            ctx.fillStyle = S.src === 'meps' ? T.meps : S.src === 'sonde' ? T.sonde : T.area;
+            ctx.fillText(t, ML + 12, yy);
+          });
           ctx.restore();
         }
       }
