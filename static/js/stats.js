@@ -8,7 +8,9 @@
  * interrogators of the DF11 all-call replies, the signal-strength histogram
  * (Beast signal byte, dBFS) per message class, the range rings (farthest
  * ADS-B position per 10° sector and altitude band, positions and signal per
- * range band), the meteo yield and the Radarcape aircraft list.  The window
+ * range band), the Radarcape receiver's own status (GPS flags, GPS module
+ * temperature, time sources, uptimes, position, settings — from 2026-10-26),
+ * the meteo yield and the Radarcape aircraft list.  The window
  * (1 min / 10 min / 1 h / 24 h) is remembered in the browser.
  *
  * System health (from 2026-10-25): /api/health with every poll — a row of
@@ -188,6 +190,74 @@
       + (um ? `<br><span title="Utility message of the surveillance and Comm-B replies: IIS = the interrogator holding a reservation, IDS = its type (1 Comm-B, 2 Comm-C, 3 Comm-D)">Reservations (UM): ${esc(um)}</span>` : '');
   }
 
+  // ── Radarcape receiver (its systemstatus.json, read by the server every 60 s) ─
+  const dur = s => s == null ? '—' : s < 5400 ? ago(s) : s < 172800 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 86400) + ' d';
+  const chip = (f, cls) => `<span class="mst-rc-chip ${cls}" title="${esc(f.text)}">${esc(f.flag)}</span>`;
+  function distM(a, b, c, e) {
+    const r = Math.PI / 180, x = (e - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r;
+    return 6371000 * Math.hypot(x, y);
+  }
+  function renderRc(d) {
+    const rc = d.radarcape, tb = $('mst-rc'), foot = $('mst-rc-foot');
+    if (!tb) return;
+    if (!rc || !rc.enabled) {
+      tb.innerHTML = '<tbody><tr><td class="mst-empty">Not read (RADARCAPE_STATUS = False, or no RADARCAPE_HOST)</td></tr></tbody>';
+      $('mst-rc-note').textContent = '';
+      foot.innerHTML = 'The receiver\'s own status (systemstatus.json) is read once a minute when RADARCAPE_STATUS is on (the default).';
+      return;
+    }
+    const x = rc.data;
+    if (!x) {
+      tb.innerHTML = `<tbody><tr><td class="mst-empty">${rc.err ? 'No answer from the Radarcape status yet' : 'Waiting for the first reading…'}</td></tr></tbody>`;
+      $('mst-rc-note').textContent = '';
+      foot.innerHTML = '';
+      return;
+    }
+    const red = new Set(['AntFail', 'notTrack', 'noSync', 'PpsFail', 'TsipUbxFail']);
+    const gps = (rc.gps_flags || []).map(f => chip(f, f.ok ? 'ok' : red.has(f.flag) ? 'err' : 'warn')).join('');
+    const fpga = (rc.fpga_flags || []).map(f => chip(f, f.ok ? 'ok' : 'warn')).join('')
+      + (rc.fpga_other || []).map(f => chip({ flag: f, text: 'other setting' }, '')).join('');
+    const t = x.temp, tcls = t == null ? '' : t >= 85 ? 'mst-rc-err' : t >= 70 ? 'mst-rc-warn' : '';
+    const rows = [];
+    const row = (k, v, title) => rows.push(`<tr><td${title ? ` title="${esc(title)}"` : ''}>${k}</td><td>${v}</td></tr>`);
+    row('GPS', `<span class="mst-rc-chips">${gps}</span>`, 'The GPS flags of the receiver (hover a flag): green as it should be, red a fault that spoils the timestamps (MLAT, the GPS quality monitor), amber a minor condition');
+    row('GPS module', t == null ? '—' : `<span class="${tcls}">${fmt(t, 1)} °C</span>`
+      + (rc.temp_min != null && rc.temp_n > 1 ? ` <span class="mst-dim2">· ${fmt(rc.temp_min, 0)}–${fmt(rc.temp_max, 0)} °C over ${rc.temp_n >= 1400 ? '24 h' : dur(rc.temp_n * 60)} (since the server started)</span>` : ''),
+      'Temperature of the GPS module inside the receiver (amber from 70 °C, red from 85 °C)');
+    const off = x.gps_time != null && x.sys_time != null ? x.sys_time - x.gps_time : null;
+    row('Time', `timestamps ${esc(x.mlat_time_source || '?')} · system clock ${esc(x.ntp_source || '?')}`
+      + (x.ntp_rms != null ? `, RMS offset ${x.ntp_rms} ms` : '')
+      + (off != null ? ` · system − GPS ${off > 0 ? '+' : ''}${off} s` : ''),
+      'Where the message timestamps and the receiver\'s system clock get their time (NTP RMS offset as the receiver reports it)');
+    row('Uptime', `receiver software ${dur(x.rcd_uptime)} · system ${dur(x.os_uptime)}`
+      + (rc.restart_ts ? ` · <span class="mst-rc-warn">software restart seen ${hhmm(rc.restart_ts)} UTC</span>` : ''));
+    const p = x.position, rg = d.range || {};
+    if (p && p.lat != null) {
+      let pos = `${Number(p.lat).toFixed(4)}° N ${Number(p.lon).toFixed(4)}° E`
+        + (p.alt != null ? ` · ${fmt(p.alt, 0)} m` : '') + (p.live ? ' · live GPS fix' : ' · stored position');
+      if (rg.site_src === 'config' && rg.site && rg.site.length) {
+        const m = distM(rg.site[0], rg.site[1], p.lat, p.lon);
+        pos += ` <span class="mst-dim2">· ${m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'} from ANTENNA_LAT / LON</span>`;
+      } else if (rg.site_src === 'radarcape') pos += ' <span class="mst-dim2">· centre of the range rings</span>';
+      row('Position', pos, 'The receiver\'s GPS position and height (GPS height, about the height above sea level)');
+    }
+    row('Settings', `<span class="mst-rc-chips">${fpga}</span>`, 'Receiver (FPGA) settings that MODE-S Wind relies on (hover a setting); amber = differs from what this system expects');
+    row('Versions', `${esc(x.sw_type || '')} software ${esc(x.sw_ver || '—')}<span class="mst-dim2"> · FPGA ${esc(x.fpga_ver || '—')}</span>`,
+      `${x.board || ''}${x.distribution ? ', OS ' + x.distribution : ''}`);
+    const fe = Object.entries(x.feeders || {}).map(([k, v]) => `${esc(k.replace(/_/g, ' '))} ${esc(String(v).replace(/^[a-z0-9]+_/i, ''))}`);
+    const inet = Object.entries(x.internet || {});
+    const on = inet.filter(([, v]) => String(v).toUpperCase() !== 'DISABLED');
+    row('Feeders', (fe.length ? fe.join(', ') : 'none')
+      + (inet.length ? ` <span class="mst-dim2">· online services ${on.length ? on.map(([k, v]) => esc(k.replace(/_/g, ' ')) + ' ' + esc(String(v).toLowerCase())).join(', ') : 'all off'}</span>` : ''));
+    tb.innerHTML = '<tbody>' + rows.join('') + '</tbody>';
+    const age = d.now - rc.ok_ts;
+    $('mst-rc-note').textContent = `read ${ago(age)} ago` + (rc.err && rc.err_ts > rc.ok_ts ? ' · last try failed' : '');
+    $('mst-rc-note').className = 'mst-hdr-note' + (age > 900 ? ' mst-rc-err' : age > 300 ? ' mst-rc-warn' : '');
+    foot.innerHTML = 'The receiver\'s own status page (systemstatus.json), read by the server once a minute and kept in memory only. '
+      + 'The GPS gives the receiver its nanosecond timestamps (MLAT and the GPS quality monitor depend on them): a red flag points to the antenna, its cable or the GPS module. '
+      + 'Network details are not shown.';
+  }
+
   function renderMeteo(d) {
     const m = d.meteo, s = d.window_sec / 60, j = d.json || {};
     const pairs = m.wind + m.wind_old + m.nowind;
@@ -340,7 +410,8 @@
     const leg = ['high', 'mid', 'low'].map(b => `<span class="mst-legend"><i style="background:${COL[b]}"></i>${BAND_NAME[b]}</span>`).join('');
     const site = rg.site || [];
     $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
-      + `(${site.length ? site[0].toFixed(3) + '° N ' + site[1].toFixed(3) + '° E' : '—'}; ANTENNA_LAT / ANTENNA_LON in config.py, default the map centre); `
+      + `(${site.length ? site[0].toFixed(3) + '° N ' + site[1].toFixed(3) + '° E' : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
+      + `${{ config: 'ANTENNA_LAT / ANTENNA_LON in config.py', radarcape: 'the Radarcape\'s GPS position (ANTENNA_LAT / ANTENNA_LON not set)', centre: 'the map centre — set ANTENNA_LAT / ANTENNA_LON in config.py' }[rg.site_src] || 'ANTENNA_LAT / ANTENNA_LON in config.py'}); `
       + `rings every ${step} NM. Only positions decoded from our own reception count, and only when they fit the aircraft's previous position, `
       + 'so a single bad decode cannot make a record. The shape shows the horizon (higher aircraft are seen farther) and the shadows of nearby terrain and buildings; '
       + 'a sector that shrinks at all levels suggests the antenna or its cable. Hover a sector for its values.'
@@ -468,7 +539,7 @@
   // ── polling ───────────────────────────────────────────────────────────────
   function renderAll() {
     if (!data) return;
-    const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderSig, renderRange, renderMeteo, renderChart];
+    const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
     for (const f of parts) { try { f(data); } catch (e) { console.error('stats', f.name, e); } }
   }
   async function poll() {

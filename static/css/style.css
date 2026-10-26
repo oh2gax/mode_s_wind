@@ -3003,6 +3003,16 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-fill.mst-fill-g { background: var(--purple); }
 .mst-hist { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; width: 120px; vertical-align: middle; }
 .mst-hist span { flex: 1; min-height: 1px; background: var(--accent); border-radius: 1px 1px 0 0; }
+/* Radarcape receiver panel (from 2026-10-26) */
+.mst-rc-chips { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.mst-rc-chip { display: inline-block; padding: 0 5px; border-radius: 4px; font-size: 10.5px; line-height: 16px; cursor: help;
+  border: 1px solid var(--border); color: var(--text-2); background: var(--bg-2); font-family: "Courier New", monospace; font-weight: 700; }
+.mst-rc-chip.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.mst-rc-chip.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 55%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.mst-rc-chip.err { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.mst-rc-warn { color: var(--amber) !important; }
+.mst-rc-err { color: var(--red) !important; }
+#mst-rc td:first-child { white-space: nowrap; vertical-align: top; width: 1%; }
 .mst-foot { padding: 6px 10px 8px; font-size: 11px; line-height: 1.45; color: var(--text-2); border-top: 1px solid var(--border); }
 /* system health (Statistics summary bar) */
 .mst-bar { position: relative; }

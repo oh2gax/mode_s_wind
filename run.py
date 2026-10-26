@@ -714,6 +714,15 @@ def main() -> None:
     except Exception as exc:
         log.warning("Statistics page: history not restored: %s", exc)
 
+    # ── Radarcape receiver status (systemstatus.json, collector/radarcape_status.py)
+    from collector import radarcape_status as _rcs
+    _rc = _rcs.init(cfg)
+    if _rc.enabled:
+        threading.Thread(target=_rc.run, name="rc_status", daemon=True).start()
+        log.info("Radarcape status reader started (%s, every %.0f s)", _rc.url, _rcs.POLL_SEC)
+    else:
+        log.info("Radarcape status reader off (RADARCAPE_STATUS = False)")
+
     # ── Shared live state ─────────────────────────────────────────────────
     live_state: dict = {}
     live_lock = threading.RLock()

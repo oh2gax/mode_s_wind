@@ -168,10 +168,19 @@ function renderIndices(force = false) {
                     (meps.levels_kind === 'standard' ? ' Only the 10 pressure levels stored: low levels coarse.' : ''));
   if (S) notes.push('Sonde: averaged into the same layers, own surface values (about 100 km NW, inland).' +
                     (sonde.min_p > 150 ? ` Partial: to ${Math.round(sonde.min_p)} hPa.` : ''));
-  if (!S && !E) notes.push(mepsShow && sndMeps && !sndMeps.found ? 'No MEPS data for this time.' : 'Tick Sonde and / or MEPS to compare.');
+  const noMeps = () => {      // past the newest stored model hour: say so
+    const m = sndMeps;
+    if (m && m.newest != null && m.at != null && m.at > m.newest + 5400) {
+      const hh = t => String(new Date(t * 1000).getUTCHours()).padStart(2, '0');
+      return `No MEPS data for this time: the newest model hour is ${hh(m.newest)} UTC`
+        + (m.newest_run != null ? ` (run ${hh(m.newest_run)} UTC)` : '') + ', newer runs not received yet.';
+    }
+    return 'No MEPS data for this time.';
+  };
+  if (!S && !E) notes.push(mepsShow && sndMeps && !sndMeps.found ? noMeps() : 'Tick Sonde and / or MEPS to compare.');
   else if (!S && !sondeShow) notes.push('Tick Sonde to add the radiosonde.');
   else if (!E && !mepsShow) notes.push('Tick MEPS to add the model.');
-  else if (!E && sndMeps && !sndMeps.found) notes.push('No MEPS data for this time.');
+  else if (!E && sndMeps && !sndMeps.found) notes.push(noMeps());
   if (refs.length && M) notes.push(nDif ? `Shaded: clearly different from Mode S (${nDif}; hover for the difference).` : 'No clear differences from Mode S.');
   notes.push('Heights: ft AMSL from the surface (FL without one). Hover for details.');
   document.getElementById('snd-idx-note').innerHTML = notes.map(esc).join(' ');

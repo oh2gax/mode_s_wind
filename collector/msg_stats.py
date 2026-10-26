@@ -298,6 +298,8 @@ class MsgStats:
         self._hours: deque = deque(maxlen=HOURS_DETAIL)
         self._hours_cache: tuple | None = None       # (key, merged closed hours)
         self.site = _EFHK                            # antenna position for the range
+        self.site_src = "centre"                     # config (ANTENNA_*) / radarcape (its GPS) / centre
+        self.site_alt = None                         # antenna altitude (m), from the Radarcape
         self.sig_state = "off"                       # on / off / unavailable (set by the collector)
         self._cur_sig: int | None = None             # signal byte of the frame being decoded
         self._rpos: dict = {}                        # icao → (ts, lat, lon) of the last ADS-B position
@@ -727,7 +729,8 @@ class MsgStats:
             "signal": {"state": sig_state, "lo_db": SIG_LO_DB, "step_db": SIG_STEP_DB, "bins": SIG_BINS,
                        "strong_db": -3.0, "zero": c["sig0"], "cats": sig_cats,
                        "parser": _sig_parser_state()},
-            "range": {"site": list(site), "sectors": RNG_SECTORS, "max": agg["r"], "rows": rows,
+            "range": {"site": list(site), "site_src": self.site_src, "site_alt": self.site_alt,
+                      "sectors": RNG_SECTORS, "max": agg["r"], "rows": rows,
                       "n": c["rng_n"], "jumps": c["rng_jump"], "far_rejected": c["rng_far"],
                       "farthest": far, "max_nm": RNG_MAX_NM},
             "ten": ten,

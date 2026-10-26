@@ -801,18 +801,29 @@ def _wind(lv: dict, u, v) -> None:
         lv["wind_dir"] = round(math.degrees(math.atan2(-u, -v)) % 360, 0)
 
 
+def newest_hour(db):
+    """(valid ts, run) of the newest stored profile hour (pressure or model
+    levels), or None — the end of what the Skew-T can show."""
+    best = None
+    for t in ("meps_hours", "meps_ml_hours"):
+        try:
+            r = db.execute(f"SELECT ts, run FROM {t} ORDER BY ts DESC LIMIT 1").fetchone()
+        except Exception:                                # noqa: BLE001
+            r = None
+        if r and r[0] is not None and (best is None or r[0] > best[0]):
+            best = (int(r[0]), int(r[1]))
+    return best
+
+
 def profile(db, at: float) -> dict:
     """Model profile for the Skew-T (area mean) at time `at`: the model levels
     when stored (levels_kind "model"), else the 10 pressure levels ("standard")."""
     col, info = column_at(db, at)
     mcol, minfo = column_at(db, at, kind="ml")
     if col is None and mcol is None:
-        newest = None
-        try:
-            newest = db.execute("SELECT MAX(ts) FROM meps_hours").fetchone()[0]
-        except Exception:                                # noqa: BLE001
-            pass
-        return {"found": False, "at": at, "newest": newest}
+        nw = newest_hour(db)
+        return {"found": False, "at": at, "newest": nw[0] if nw else None,
+                "newest_run": nw[1] if nw else None}
     levels = []
     if mcol is not None:
         # heights of the model levels from the pressure-level geopotential (ln p)

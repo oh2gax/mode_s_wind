@@ -3,6 +3,14 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.26102026 — The Radarcape receiver's own status on the Statistics page
+
+- **Radarcape receiver** panel on the Statistics page (under the range rings): is the receiver's GPS working — antenna, satellites, the 1PPS pulse and the nanosecond timestamps that MLAT and the GPS quality monitor depend on — each shown as a green, amber or red chip (hover it for the meaning); the temperature of its GPS module with the lowest and highest of the day, how long the receiver has been running, where its clock takes the time from, its position and height, and whether its settings are the ones this system expects.
+- A new **Radarcape** dot among the system health indicators turns amber or red when the receiver's GPS or timestamps have a problem, it runs hot, a setting has changed or its status cannot be read.
+- The **range rings** use the receiver's own GPS position as their centre when no antenna position has been set.
+- The Statistics user guide (version 1.2) has a new section on the receiver panel.
+- **When the MEPS model data runs out**: if newer model runs have not arrived (e.g. MET Norway's server is down), the Skew-T now says up to which hour the model data reaches and from which run, and the **MEPS** health dot turns amber instead of staying green.
+
 ## v.25102026 — About window, Statistics page, go-arounds kept for 24 hours, model and aircraft winds on the Live Map
 
 - **About**: the new button right of the version (**What's new**) opens a window with who made MODE-S Wind and how to reach him, where the receiver is, and a description for meteorologists and scientists: how the wind, temperature and pressure-surface heights are measured and verified, the derived products (temperature anomaly, lapse rate, vertical motion, vorticity, …), the new windshear detection, why the system is interesting, and special credits to Siebren de Haan (KNMI) and Junzi Sun (TU Delft, pyModeS), whose work this system builds on. On smaller screens it is a small **i**.

@@ -410,7 +410,12 @@ def create_app(
             window = int(request.args.get("window", 10))
         except ValueError:
             window = 10
-        return jsonify(msg_stats.get().snapshot(window))
+        out = msg_stats.get().snapshot(window)
+        # the Radarcape's own status (systemstatus.json, collector/radarcape_status.py)
+        from collector import radarcape_status as _rcs
+        rc = _rcs.get()
+        out["radarcape"] = rc.public() if rc is not None else None
+        return jsonify(out)
 
     # System health indicators of the Statistics page (web/api/health.py):
     # evaluated at most every 10 s on request, and every minute in the

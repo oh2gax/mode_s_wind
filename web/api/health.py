@@ -2,17 +2,23 @@
 web/api/health.py — system health indicators of the Statistics page
 (from 2026-10-25).
 
-Eleven indicators, each green (healthy) / amber (degraded: late, retrying or
+Twelve indicators, each green (healthy) / amber (degraded: late, retrying or
 on a fallback) / red (fault: stopped, failing or very old) / grey (off):
 
   feed      Radarcape Beast feed      last frame < 5 s / < 60 s / older
   json      Radarcape aircraft list   last good poll < 15 s / failing / > 5 min
+  rc        Radarcape receiver        its systemstatus.json (every 60 s): GPS
+                                      antenna / tracking / 1PPS / timestamp
+                                      sync, GPS module temperature (≥ 70 °C
+                                      amber, ≥ 85 °C red), receiver settings,
+                                      software restart, read ≤ 5 / 15 min
   decode    decoding / meteo          winds while EHS aircraft are heard
   db        database & jobs           batch writes, hourly jobs, purge check,
                                       memory clean-up
   ws        windshear engine          sweep running (every 3 s)
   gps       GPS quality               sweep running
-  meps      MEPS model                newest stored run ≤ 9 h (never red: the
+  meps      MEPS model                newest stored run ≤ 9 h and a profile hour
+                                      within 1.5 h of now (never red: the
                                       system works without the model)
   sondes    soundings                 newest Jokioinen sounding ≤ 15 h / 30 h
   calib     calibrations              temperature correction learnt from MEPS
@@ -45,12 +51,13 @@ from collector import health as hb
 
 log = logging.getLogger("modes.health")
 
-ORDER = ("feed", "json", "decode", "db", "ws", "gps", "meps", "sondes", "calib", "metar", "pi")
-LABEL = {"feed": "Feed", "json": "Aircraft list", "decode": "Decoding", "db": "Database",
+ORDER = ("feed", "json", "rc", "decode", "db", "ws", "gps", "meps", "sondes", "calib", "metar", "pi")
+LABEL = {"feed": "Feed", "json": "Aircraft list", "rc": "Radarcape", "decode": "Decoding", "db": "Database",
          "ws": "Windshear", "gps": "GPS", "meps": "MEPS", "sondes": "Soundings",
          "calib": "Calibrations", "metar": "METAR", "pi": "Pi"}
 TITLE = {"feed": "Radarcape Beast feed (Mode S messages)",
          "json": "Radarcape aircraft list (MLAT positions, registrations)",
+         "rc": "Radarcape receiver (GPS, timestamps, GPS module temperature, settings)",
          "decode": "Decoding and wind computation",
          "db": "Database writes and background jobs",
          "ws": "Windshear detection engine",
@@ -65,11 +72,11 @@ RANK = {"off": 0, "ok": 1, "warn": 2, "err": 3}
 # thread name → indicator (threads started in run.py / web/app.py)
 THREADS = {"collector": "feed", "json_poller": "json", "ws_sweep": "ws", "gps_sweep": "gps",
            "housekeeping": "db", "hourly_jobs": "db", "autopurge": "db",
-           "sondes": "sondes", "meps": "meps", "wx_poll": "metar"}
+           "sondes": "sondes", "meps": "meps", "wx_poll": "metar", "rc_status": "rc"}
 TASK = {"collector": "Feed reader", "json_poller": "Aircraft list poller", "ws_sweep": "Windshear sweep",
         "gps_sweep": "GPS sweep", "housekeeping": "Memory clean-up", "hourly_jobs": "Hourly jobs",
         "autopurge": "Purge check", "sondes": "Sounding fetcher", "meps": "MEPS fetcher",
-        "wx_poll": "METAR fetcher"}
+        "wx_poll": "METAR fetcher", "rc_status": "Radarcape status reader"}
 
 _slow: dict = {}             # cached slow readings: key → (time, value)
 _last: dict = {}             # indicator → (state, since)
@@ -235,6 +242,55 @@ def _pi(cfg, now) -> dict:
     return _item("pi", st, text[0].upper() + text[1:], det)
 
 
+# ── Radarcape receiver ─────────────────────────────────────────────────────
+
+def _rc_item(now: float, up: float) -> dict:
+    from collector import radarcape_status as rcs
+    rc = rcs.get()
+    if rc is None or not rc.enabled:
+        return _item("rc", "off", "Off (RADARCAPE_STATUS = False)")
+    pub = rc.public(now)
+    d = pub["data"]
+    if d is None:
+        if up < 180:
+            return _item("rc", "warn", "Starting")
+        return _item("rc", "err", "No answer from the Radarcape status")
+    age = now - pub["ok_ts"]
+    red, amber = rcs.gps_problems(d.get("gps"))
+    det = []
+    t = d.get("temp")
+    if isinstance(t, (int, float)):
+        det.append(f"GPS module {t:.0f} °C" + (f" (24 h {pub['temp_min']:.0f}–{pub['temp_max']:.0f} °C)"
+                                                if pub.get("temp_min") is not None else ""))
+        if t >= 85:
+            red.append(f"GPS module very hot ({t:.0f} °C)")
+        elif t >= 70:
+            amber.append(f"GPS module hot ({t:.0f} °C)")
+    gt, stt = d.get("gps_time"), d.get("sys_time")
+    if isinstance(gt, (int, float)) and isinstance(stt, (int, float)) and abs(gt - stt) > 2:
+        amber.append(f"system time {stt - gt:+.0f} s from GPS time")
+    if pub.get("restart_ts") and now - pub["restart_ts"] < 3600:
+        amber.append(f"receiver software restarted {_ago(now - pub['restart_ts'])} ago")
+    diff = rcs.fpga_differences(d.get("fpga"))
+    if diff:
+        amber.append("receiver setting differs: " + ", ".join(diff))
+    if age > 900:
+        red.append(f"status not read for {_ago(age)}")
+    elif age > 300:
+        amber.append(f"status not read for {_ago(age)}")
+    if d.get("rcd_uptime") is not None:
+        det.append(f"receiver up {_ago(d['rcd_uptime'])}")
+    det.append(f"time {d.get('mlat_time_source') or '?'}, NTP {d.get('ntp_source') or '?'}"
+               + (f", RMS offset {d['ntp_rms']:g} ms" if d.get("ntp_rms") is not None else ""))
+    det.append(f"read {_ago(age)} ago")
+    if red:
+        return _item("rc", "err", "; ".join(red + amber), det)
+    if amber:
+        return _item("rc", "warn", "; ".join(amber), det)
+    return _item("rc", "ok", "GPS locked, timestamps synchronised" +
+                 (f" — GPS module {t:.0f} °C" if isinstance(t, (int, float)) else ""), det)
+
+
 # ── evaluation ──────────────────────────────────────────────────────────────
 
 def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
@@ -381,10 +437,20 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
             det.append(f"last look {_ago(now - mf.last[0])} ago" + (" — a request failed" if failed else ""))
         else:
             failed = False
+        nh = _cached("meps_hour", 60, lambda: meps.newest_hour(get_db()))
+        behind = now - nh[0] if nh else None
         if newest:
             nage = now - newest
             det.insert(0, f"newest run {time.strftime('%d.%m. %H', time.gmtime(newest))} UTC")
-            if nage <= 9 * 3600 and not (failed and nage > 6 * 3600):
+            if nh:
+                det.insert(1, f"profiles up to {time.strftime('%H', time.gmtime(nh[0]))} UTC")
+            if behind is not None and behind > 5400:
+                # the Skew-T profile needs a stored hour within 1.5 h of the time shown
+                items["meps"] = _item("meps", "warn", "No model profile for the current hour — newest "
+                                      f"{time.strftime('%H', time.gmtime(nh[0]))} UTC (run "
+                                      f"{time.strftime('%H', time.gmtime(nh[1]))} UTC); newer runs not received"
+                                      + (", fetch failing" if failed else ""), det)
+            elif nage <= 9 * 3600 and not (failed and nage > 6 * 3600):
                 items["meps"] = _item("meps", "ok", f"Run {time.strftime('%H', time.gmtime(newest))} UTC stored ({_ago(nage)} old)", det)
             else:
                 items["meps"] = _item("meps", "warn", f"Newest run {_ago(nage)} old — "
@@ -492,6 +558,9 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
             else:
                 items["metar"] = _item("metar", "err", f"METAR {txt} — QNH out of date", det)
 
+    # Radarcape receiver (systemstatus.json, collector/radarcape_status.py)
+    items["rc"] = _rc_item(now, up)
+
     # Raspberry Pi
     items["pi"] = _pi(cfg, now)
 
@@ -505,6 +574,8 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         if tname == "meps" and (meps.get() is None or not meps.get().enabled):
             continue
         if tname == "wx_poll" and not icao:
+            continue
+        if tname == "rc_status" and items["rc"]["state"] == "off":
             continue
         if up < 30:
             continue

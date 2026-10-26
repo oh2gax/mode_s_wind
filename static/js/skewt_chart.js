@@ -98,7 +98,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       sondeRef = null,    // time (Unix s) the sonde age is counted to; null = now
       sondeNote = null,   // "no sounding" text when switched on but none found
       miniMeps = null,    // MEPS model profile (/api/meps/profile) or null
-      mepsNote = null,    // "no model data" text when switched on but none found
+      mepsNote = null,    // "no model data" lines when switched on but none found
       anaSrc = 'modes',   // analysis source: 'modes' | 'meps' | 'sonde'
       anaSfc = null,      // surface point of the analysis source (set per draw)
       rhOn = false,       // RH strip (trial moisture indicator + sonde RH)
@@ -621,8 +621,20 @@ function createSkewT(canvas, tip, cfg = {}) {
                     (dd.nw ? `${dd.n ? ' · ' : ''}wind ${Math.round(dd.wrms)} kt RMS` : '') : '';
     return [l1, l2].filter(Boolean);
   }
+  // no model profile: past the newest stored hour (newer runs not received) or
+  // simply no data for that time (older than kept, or not fetched)
+  function mepsMissing(m) {
+    const hh = t => String(new Date(t * 1000).getUTCHours()).padStart(2, '0');
+    if (m.newest != null && m.at != null && m.at > m.newest + 5400) {
+      const r = m.newest_run != null ? new Date(m.newest_run * 1000) : null;
+      return ['MEPS: no model data for this time',
+              `newest model hour ${hh(m.newest)} UTC` + (r ? ` (run ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${hh(m.newest_run)} UTC)` : '')
+              + ' — newer runs not received yet'];
+    }
+    return ['MEPS: no model data for this time'];
+  }
   function drawMepsLabel(ctx, T, y) {
-    const lines = miniMeps ? mepsLabelText() : (mepsNote ? [mepsNote] : []);
+    const lines = miniMeps ? mepsLabelText() : (mepsNote || []);
     const { ML } = MSK;
     ctx.save(); ctx.font = '9px monospace'; ctx.textAlign = 'left';
     lines.forEach((txt, i) => {
@@ -1703,7 +1715,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     if ('sondeRef' in o)     sondeRef = o.sondeRef;
     if ('meps' in o) {
       miniMeps = o.meps && o.meps.found && o.meps.levels && o.meps.levels.length ? o.meps : null;
-      mepsNote = o.meps && !miniMeps ? 'MEPS: no model data for this time' : null;
+      mepsNote = o.meps && !miniMeps ? mepsMissing(o.meps) : null;
     }
     if ('rh' in o)           rhOn = !!o.rh;
     if ('moist' in o)        miniMoist = o.moist || null;
