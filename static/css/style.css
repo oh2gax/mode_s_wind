@@ -3061,3 +3061,18 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-stations span { display: inline-block; margin: 1px 6px 1px 0; font-family: "Courier New", monospace; color: var(--text-1); }
 @media (max-width: 1500px) { .mst-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px)  { .mst-body { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── "New! Mobile" notice in the navbar (from 2026-10-26): the mobile view /app.
+   Text only — the address is meant for the phone; the tooltip explains it.
+   Full text on wide screens, the phone icon with a NEW tag below 1 800 px,
+   the icon alone below 1 500 px (the navbar must still fit at 1 280 px). */
+.nav-mobile-chip { display: inline-flex; align-items: center; gap: 5px; margin-right: 6px; padding: 2px 8px 2px 6px;
+                   border-radius: 10px; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+                   background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text-2);
+                   font-size: 10.5px; white-space: nowrap; cursor: help; user-select: none; }
+.nav-mobile-chip .mob-ico { width: 8px; height: 13px; color: var(--accent); flex: none; }
+.nav-mobile-chip .mob-new { font-size: 8.5px; font-weight: 800; letter-spacing: .5px; color: #fff; background: var(--accent);
+                            border-radius: 6px; padding: 1px 4px; line-height: 1.25; }
+.nav-mobile-chip .mob-txt b { color: var(--text-1); font-family: 'Courier New', monospace; font-weight: 700; }
+@media (max-width: 1800px) { .nav-mobile-chip .mob-txt { display: none; } .nav-mobile-chip { padding: 2px 6px; } }
+@media (max-width: 1500px) { .nav-mobile-chip .mob-new { display: none; } .nav-mobile-chip { padding: 2px 5px; margin-right: 2px; } }
