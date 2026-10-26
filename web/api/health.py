@@ -5,14 +5,19 @@ web/api/health.py — system health indicators of the Statistics page
 Twelve indicators, each green (healthy) / amber (degraded: late, retrying or
 on a fallback) / red (fault: stopped, failing or very old) / grey (off):
 
-  feed      Radarcape Beast feed      last frame < 5 s / < 60 s / older
+  feed      Radarcape Beast feed      last frame < 30 s / < 10 min / older
+                                      (from 26 Oct 2026: a quiet night has
+                                      pauses of several seconds)
   json      Radarcape aircraft list   last good poll < 15 s / failing / > 5 min
   rc        Radarcape receiver        its systemstatus.json (every 60 s): GPS
                                       antenna / tracking / 1PPS / timestamp
                                       sync, GPS module temperature (≥ 70 °C
                                       amber, ≥ 85 °C red), receiver settings,
                                       software restart, read ≤ 5 / 15 min
-  decode    decoding / meteo          winds while EHS aircraft are heard
+  decode    decoding / meteo          winds while EHS aircraft are heard (judged
+                                      only with ≥ DECODE_MIN_EHS of them: at
+                                      night 2–4 aircraft are interrogated too
+                                      rarely for 5,0 / 6,0 pairs)
   db        database & jobs           batch writes, hourly jobs, purge check,
                                       memory clean-up
   ws        windshear engine          sweep running (every 3 s)
@@ -25,7 +30,8 @@ on a fallback) / red (fault: stopped, failing or very old) / grey (off):
                                       within 3 h (else the stored values are in
                                       use), heading calibration
   metar     METAR / QNH               observation ≤ 75 min / 3 h
-  pi        Raspberry Pi              CPU temperature, under-voltage /
+  pi        Raspberry Pi              CPU temperature (amber from 72 °C, back
+                                      to green below 68 °C), under-voltage /
                                       throttling, free memory, disk, load
 
 Plus: a background thread of the server that has stopped turns its indicator
@@ -38,6 +44,10 @@ open, and logged.
 """
 
 from __future__ import annotations
+
+DECODE_MIN_EHS = 8            # EHS aircraft in 10 min before "no / few winds" is judged
+PI_HOT_ON, PI_HOT_OFF = 72.0, 68.0     # °C: amber on / off (hysteresis: no flapping at 70 °C)
+_pi_hot = {"on": False}
 
 import calendar
 import logging
@@ -182,9 +192,10 @@ def _pi(cfg, now) -> dict:
     temp = _cpu_temp()
     if temp is not None:
         det.append(f"CPU {temp:.0f} °C")
+        _pi_hot["on"] = temp >= (PI_HOT_OFF if _pi_hot["on"] else PI_HOT_ON)
         if temp >= 80:
             st = "err"; notes.append(f"CPU very hot ({temp:.0f} °C)")
-        elif temp >= 70:
+        elif _pi_hot["on"]:
             st = "warn"; notes.append(f"CPU hot ({temp:.0f} °C)")
     thr = _cached("throttled", 30, _throttled)
     if thr is not None:
@@ -310,9 +321,12 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         det.append(f"connected {_ago(now - feed['connected_ts'])}")
     if age is None:
         items["feed"] = _item("feed", "err" if up > 60 else "warn", "No messages from the receiver yet", det)
-    elif age < 5:
-        items["feed"] = _item("feed", "ok", f"Live — {snap['ten'][-1][1] / 10 if snap['ten'] else tot['rate']:.0f} messages/s", det)
-    elif age < 60:
+    elif age < 30:
+        # the newest complete 10-s slot (after a restart the down time is filled with empty slots)
+        last10 = next((v for _, v in reversed(snap["ten"] or []) if v is not None), None)
+        rate = last10 / 10 if last10 is not None else tot["rate"]
+        items["feed"] = _item("feed", "ok", f"Live — {rate:.0f} messages/s", det)
+    elif age < 600:
         items["feed"] = _item("feed", "warn", f"Silent for {_ago(age)}", det)
     else:
         items["feed"] = _item("feed", "err", f"No messages for {_ago(age)} — receiver or network down?", det)
@@ -342,9 +356,9 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
            f"undecodable {100 * bad / tot['msgs']:.1f} %" if tot["msgs"] else "no messages"]
     if items["feed"]["state"] == "err" or not tot["msgs"]:
         items["decode"] = _item("decode", "warn", "Nothing to decode — no messages", det)
-    elif ehs >= 3 and m["wind"] == 0:
+    elif ehs >= DECODE_MIN_EHS and pairs >= 100 and m["wind"] == 0:
         items["decode"] = _item("decode", "err", f"{ehs} EHS aircraft heard but no winds computed in 10 min", det)
-    elif pairs >= 50 and m["wind"] / pairs < 0.2:
+    elif ehs >= DECODE_MIN_EHS and pairs >= 200 and m["wind"] / pairs < 0.2:
         items["decode"] = _item("decode", "warn", f"Few winds: {100 * m['wind'] / pairs:.0f} % of the BDS 5,0 / 6,0 replies", det)
     elif tot["msgs"] > 1000 and bad / tot["msgs"] > 0.3:
         items["decode"] = _item("decode", "warn", f"Many undecodable messages ({100 * bad / tot['msgs']:.0f} %)", det)

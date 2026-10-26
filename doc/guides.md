@@ -24,7 +24,7 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.4
+version: 3.5
 date: 2026-10-26
 pages: 44
 open: sounding, windmap@30
@@ -34,27 +34,27 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 - **Area · now**, **Area · hour** and **Flight** profiles, the **Indices** panel (Mode S, MEPS and the sonde side by side) and the level table
 - The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
-- **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels, and the **upper-level temperature correction** learnt from it
+- **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels, the comparison at the aircraft's own positions, and the **upper-level temperature correction** learnt from it
 - The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 1.5
-date: 2026-10-25
+version: 1.6
+date: 2026-10-26
 pages: 15
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
 
 - The method step by step: headwind TAS − GS from each BDS 5,0 reply, **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with all landings and departures of the last 45 minutes
-- The alert levels **ADV / WSA / MBA**, how an event becomes an alert, and the windshear report of every landing and departure
+- The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile), how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view, ACI and the new **ACI + windshear** view on one time axis, wind rose
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October), first results and the limitations
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.2
+version: 1.3
 date: 2026-10-26
 pages: 14
 open: stats

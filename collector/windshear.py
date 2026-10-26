@@ -1829,14 +1829,18 @@ class WindshearTracker:
             a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
             found = []
             if a:
+                refs = self._band_refs(now)
+                hdg = rw["heading"] if rw else None
+                # ramp advisories relative to the other flights' profile (REPORT_V 4)
+                ref_hw = _shear._ref_headwind(refs, hdg) if refs and hdg is not None else None
                 for d in ("loss", "gain"):
                     c = a.get(d)
                     if c and c.get("zone"):
-                        lv = _shear.level_of(c["sc"], d == "loss")
+                        lv = _shear.ramp_rel_level(c, d == "loss", ref_hw)
                         if lv != "none":
                             found.append(("ramp", d, lv, c))
                 ba = _shear.band_anomaly(_shear.vec_bands(self._prof_record(r), _shear.VEC_MIN_N_ARR),
-                                         self._band_refs(now), rw["heading"] if rw else None)
+                                         refs, hdg)
                 if ba and ba["lvl"] != "none":
                     found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
         except Exception as exc:                          # noqa: BLE001
@@ -2103,9 +2107,10 @@ class WindshearTracker:
         try:
             r = rough or {}
             a = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
+            refs = self._band_refs(ts)
             band = _shear.band_anomaly(_shear.vec_bands(self._prof_record(rough), _shear.VEC_MIN_N_ARR),
-                                       self._band_refs(ts), heading)
-            return _shear.report(a, band)
+                                       refs, heading)
+            return _shear.report(a, band, refs, heading)
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)
             return None

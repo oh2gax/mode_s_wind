@@ -1154,6 +1154,135 @@ def _sonde_levels(rec: dict, P: list) -> dict:
 _check_cache: dict = {}
 
 
+# Position-matched comparison (from 26 Oct 2026).  The aircraft do not fill
+# the 150 km area evenly: at FL250–FL400 their mean position was 25–40 km
+# south and 45–60 km west of the receiver (19–26 Oct 2026).  In a strong
+# height gradient the model's area mean is then not what the aircraft flew
+# through: at 300 hPa the model surface at the aircraft positions lay 12 m
+# (7 days) and 26 m (24–26 Oct, a 100-kt jet) below its area mean — almost the
+# whole "Mode S heights below MEPS" of the check.  Temperatures moved only
+# 0.0–0.1 K, winds 3–7 kt near the jet.  So the check compares each hour with
+# the model at the aircraft's own positions: the stored Weather-page model
+# fields (meps_map_hours, 20 km grid, kept MEPS_MAP_DAYS) give the model at the
+# grid points the aircraft of that hour and level passed, weighted by their
+# observations, minus the model's area mean over the same grid — added to the
+# area profile.  Hours without such fields (older than the map retention, or
+# fewer than POS_MIN_OBS observations) keep the area mean.
+POS_LAYER_FT = 1000.0         # observations within this of the level's pressure altitude
+POS_MIN_OBS = 5
+
+
+def _pos_offsets(db, t0: int, t1: int, P: list, lat: float, lon: float, radius_km: float) -> dict:
+    """{hour: {"t", "u", "v", "z": [offset or None per level of P]}} — the model
+    at the aircraft positions of the hour [h, h + 1 h) minus the model area
+    mean (map hours h and h + 1 averaged as in _hour_mean)."""
+    try:
+        maps = {ts: (run, lead) for ts, run, lead in db.execute(
+            "SELECT ts, run, lead FROM meps_map_hours WHERE ts >= ? AND ts <= ?", (t0, t1 + 3600))}
+    except Exception:                                    # noqa: BLE001  (table missing)
+        return {}
+    if not maps:
+        return {}
+    cl = math.cos(math.radians(lat))
+    dlat, dlon = radius_km / 111.2, radius_km / (111.2 * cl)
+    lev_ft = [_isa_ft(p) for p in P]
+    cnt: dict = {}                                       # (h, j, kind) → {bin: n}
+    lev_of: dict = {}                                    # 100-ft step → level index or -1
+    for ts, la, lo, alt, has_t, has_w, has_z in db.execute(
+            "SELECT ts, lat, lon, altitude, best_temp IS NOT NULL, wind_spd IS NOT NULL, gmb_ft IS NOT NULL "
+            "FROM observations WHERE ts >= ? AND ts < ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
+            "AND altitude IS NOT NULL", (t0, t1, lat - dlat, lat + dlat, lon - dlon, lon + dlon)):
+        if ((la - lat) * 111.2) ** 2 + ((lo - lon) * 111.2 * cl) ** 2 > radius_km ** 2:
+            continue
+        k100 = int(alt // 100)
+        j = lev_of.get(k100, -1) if k100 in lev_of else None
+        if j is None:                                    # nearest level, cached per 100 ft
+            j = min(range(len(P)), key=lambda i: abs(k100 * 100 + 50 - lev_ft[i]))
+            j = lev_of[k100] = j if abs(k100 * 100 + 50 - lev_ft[j]) <= POS_LAYER_FT else -1
+        if j < 0:
+            continue
+        h = int(ts // 3600 * 3600)
+        b = (round(la * 20), round(lo * 10))             # about 5.5 km bins
+        for kind, flag in (("t", has_t), ("w", has_w), ("z", has_z)):
+            if flag:
+                d = cnt.setdefault((h, j, kind), {})
+                d[b] = d.get(b, 0) + 1
+    if not cnt:
+        return {}
+    near: dict = {}                                      # (grid key, bin) → point index
+    lvl_cache: dict = {}
+
+    def field(ts):
+        """(points inside the area, {level index of P: (t, u, v, z) lists}) of one map hour."""
+        if ts in lvl_cache:
+            return lvl_cache[ts]
+        res = None
+        rl = maps.get(ts)
+        e = _map_hour(db, ts, rl[0], rl[1]) if rl else None
+        if e is not None:
+            _, _, meta, a = e
+            MP = meta["p"]
+            npt = meta["x"][2] * meta["y"][2]
+            n = len(MP) * npt
+            pts = _map_points(meta)
+            inside = [i for i, (pa, po) in enumerate(pts)
+                      if ((pa - lat) * 111.2) ** 2 + ((po - lon) * 111.2 * cl) ** 2 <= radius_km ** 2]
+            lv = {}
+            for j, p in enumerate(P):
+                if p not in MP:
+                    continue
+                k = MP.index(p)
+                cols = []
+                for var, sc in ((0, 100.0), (1, 10.0), (2, 10.0), (3, 1.0)):
+                    o = var * n + k * npt
+                    cols.append({i: a[o + i] / sc for i in inside if a[o + i] != MAP_FILL})
+                lv[j] = cols
+            res = ((tuple(meta["x"]), tuple(meta["y"])), pts, inside, lv)
+        lvl_cache[ts] = res
+        return res
+
+    def offsets_at(ts, h):
+        F = field(ts)
+        if F is None:
+            return None
+        gkey, pts, inside, lv = F
+        out = {k: [None] * len(P) for k in ("t", "u", "v", "z")}
+        for j, cols in lv.items():
+            for kind, vars_ in (("t", (0,)), ("w", (1, 2)), ("z", (3,))):
+                c = cnt.get((h, j, kind))
+                if not c or sum(c.values()) < POS_MIN_OBS:
+                    continue
+                for var in vars_:
+                    col = cols[var]
+                    if len(col) < 5:
+                        continue
+                    sw = sv = 0.0
+                    for b, w in c.items():
+                        nk = (gkey, b)
+                        i = near.get(nk)
+                        if i is None:
+                            bl, bo = b[0] / 20.0, b[1] / 10.0
+                            i = min(inside, key=lambda q: (pts[q][0] - bl) ** 2 + ((pts[q][1] - bo) * cl) ** 2)
+                            near[nk] = i
+                        if i in col:
+                            sw += w; sv += w * col[i]
+                    if sw:
+                        out["tuvz"[var]][j] = sv / sw - sum(col.values()) / len(col)
+        return out
+
+    res = {}
+    for h in sorted({k[0] for k in cnt}):
+        a, b = offsets_at(h, h), offsets_at(h + 3600, h)
+        if a is None and b is None:
+            continue
+        if a is None or b is None:
+            res[h] = a or b
+        else:
+            res[h] = {k: [None if x is None and y is None else (x if y is None else y if x is None else (x + y) / 2)
+                          for x, y in zip(a[k], b[k])] for k in a}
+    return res
+
+
 def check(db, days: float, lat: float, lon: float, radius_km: float, busy: int = 0,
           now: Optional[float] = None, store=None) -> dict:
     """Mode S minus MEPS over the last `days` days (cached 10 min):
@@ -1205,14 +1334,27 @@ def check(db, days: float, lat: float, lon: float, radius_km: float, busy: int =
                 dv_by_h[h] = _at_levels(cen, [d for _, d, _, _ in dv], P)
     except Exception as exc:                             # noqa: BLE001
         log.debug("MEPS check heights: %s", exc)
+    try:
+        pos = _pos_offsets(db, t0, t1, P, lat, lon, radius_km)
+    except Exception as exc:                             # noqa: BLE001  (never break the check)
+        log.debug("MEPS check positions: %s", exc)
+        pos = {}
     nL = len(P)
     acc = [{"t": [], "w": [], "s": [], "d": [], "dm": []} for _ in P]
+    n_pos = 0
     tot = {"all": [[], []], "day": [[], []], "night": [[], []]}
     n_hours = 0
     for h, pr in sorted(prof.items()):
         m = _hour_mean(rows, h)
         if m is None or pr.get("a", 0) < busy:
             continue
+        off = pos.get(h)
+        if off:                                          # the model at the aircraft positions
+            m = {k: list(v) for k, v in m.items()}
+            for k in ("t", "u", "v", "z"):
+                if k in m:
+                    m[k] = [None if x is None else x + (off[k][j] or 0.0) for j, x in enumerate(m[k])]
+            n_pos += 1
         a = modes_levels(pr.get("lv"), P)
         hh = (h // 3600) % 24
         part = "day" if 5 <= hh < 19 else "night"
@@ -1264,6 +1406,7 @@ def check(db, days: float, lat: float, lon: float, radius_km: float, busy: int =
         out["totals"][k] = {"n_t": len(tv), "t_bias": _r(tb, 2), "t_rms": _r(trms, 2),
                             "w_rms": _r(math.sqrt(sum(wv) / len(wv)), 1) if wv else None}
     out["hours"] = n_hours
+    out["pos_hours"] = n_pos                             # hours compared with the model at the aircraft positions
     out["soundings"], out["distance"] = _soundings(db, store, rows, prof, P, t0, t1)
     _check_cache.clear()
     _check_cache[key] = out

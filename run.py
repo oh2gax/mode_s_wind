@@ -533,7 +533,8 @@ def _shear_backfill(ws_tracker) -> None:
     Landings without a report need their raw reply series (approach_series,
     kept APPROACH_SERIES_DAYS) for the ramps; a landing with an older report
     keeps its ramps and gets the new band comparison.  Departures get the band
-    comparison of their climb-out profile.  In time order, so each flight is
+    comparison of their climb-out profile; 4 (from 26 Oct 2026) re-levels the
+    ramp advisories against the reference profile.  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -594,15 +595,16 @@ def _shear_backfill(ws_tracker) -> None:
                             rep = {k: v for k, v in rep_old.items() if k != "band"}
                             if band:
                                 rep["band"] = band
-                            rep["lvl"] = max(_shear.ramp_level(rep_old), (band or {}).get("lvl") or "none",
-                                             key=_shear.LEVELS.index)
+                            rep["lvl"] = max(_shear.ramps_level(rep, refs, row["rwy_heading"]),
+                                             (band or {}).get("lvl") or "none", key=_shear.LEVELS.index)
                             rep["v"] = V
                         elif row["data"]:
                             d = WindshearTracker.decode_series(row["data"])
                             b, s = d.get("b50") or {}, d.get("sw") or {}
                             b50 = list(zip(*(b.get(c, []) for c in ("t", "roll", "trate", "trk", "gs", "tas", "alt"))))
                             sw = list(zip(*(s.get(c, []) for c in ("t", "alt", "palt", "dthr", "xt"))))
-                            rep = _shear.report(_shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])), band)
+                            rep = _shear.report(_shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])), band,
+                                                refs, row["rwy_heading"])
                         if rep is not None:
                             b_land.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                             done[(int(ts), row["icao"])] = rep

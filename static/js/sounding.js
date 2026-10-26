@@ -875,7 +875,8 @@ function renderMepsCheck() {
     return;
   }
   document.getElementById('mc-tiles').innerHTML = [
-    tile(`${d.hours || 0}`, `hours compared · ${d.hours_meps} model hours stored`),
+    tile(`${d.hours || 0}`, `hours compared · ${d.hours_meps} model hours stored` +
+         (d.pos_hours != null ? ` · ${d.pos_hours} of them against the model at the aircraft positions` : '')),
     tile(A.t_bias == null ? '–' : `${_f(A.t_bias, 2, true)} <small>K · RMS ${_f(A.t_rms, 2)}</small>`,
          `temperature, Mode S − MEPS, 925–200 hPa (day ${_f(Dy.t_rms, 2)} / night ${_f(Nt.t_rms, 2)} K RMS)`),
     tile(A.w_rms == null ? '–' : `${_f(A.w_rms, 1)} <small>kt</small>`,
@@ -888,7 +889,7 @@ function renderMepsCheck() {
   document.getElementById('mc-levels').innerHTML = L.length
     ? `<thead><tr><th>Level</th><th class="num" title="Pressure altitude (standard atmosphere)">≈ ft</th><th class="num">Hours</th><th class="num">T mean (K)</th><th class="num">T SD</th><th class="num">T RMS</th>` +
       (d.tcorr ? `<th class="num" title="Correction added to the Mode S temperature in the Skew-T and the time–height section at this level (learnt from these differences, last ${d.tcorr.days || 21} days, shrunk while there are few hours); this table compares the raw values">Correction</th>` : '') +
-      `<th class="num">Wind RMS (kt)</th><th class="num">Speed diff.</th><th class="num" title="Height of the pressure surface from the aircraft GNSS heights minus MEPS (m), and the correlation of the hourly values">Height diff. (m)</th><th class="num">SD</th><th class="num">r</th></tr></thead><tbody>` +
+      `<th class="num">Wind RMS (kt)</th><th class="num">Speed diff.</th><th class="num" title="Height of the pressure surface from the aircraft GNSS heights minus MEPS (m), and the correlation of the hourly values. The model is taken at the aircraft positions of each hour (Weather-page model fields, kept 7 days) — its plain area mean would make the aircraft look 10–25 m low when they fly on the low side of a strong height gradient">Height diff. (m)</th><th class="num">SD</th><th class="num">r</th></tr></thead><tbody>` +
       L.map(l => `<tr><td>${l.p} hPa</td><td class="num text-dim">${l.ft.toLocaleString()}</td><td class="num text-dim">${l.n_t}</td>` +
         `<td class="num">${_f(l.t_bias, 2, true)}</td><td class="num">${_f(l.t_sd, 2)}</td><td class="num ${l.t_rms > 1.5 ? 'snd-dev' : ''}">${_f(l.t_rms, 2)}</td>` +
         (d.tcorr ? `<td class="num text-dim">${d.tcorr.corr && d.tcorr.corr[String(l.p)] != null ? _f(d.tcorr.corr[String(l.p)], 2, true) : ''}</td>` : '') +

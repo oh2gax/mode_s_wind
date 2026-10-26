@@ -74,6 +74,15 @@ ZONE_NM = 5.0                 # … or within this distance of the threshold
 LEVEL_ADVISORY = 10.0         # kt, 1-km equivalent
 LEVEL_WSA = 15.0
 LEVEL_MBA = 30.0              # loss only
+# Advisory from a ramp (from 26 Oct 2026, REPORT_V 4): a ramp of 10–12 kt per
+# km is an advisory only when it is also LEVEL_ADVISORY beyond the change the
+# other flights of the last 45 min had over the same altitudes (their median
+# band winds along this runway) — so the normal increase of the wind with
+# height in a stable evening boundary layer (25 Oct: 20 kt at 400 ft, 35 kt
+# at 1 800 ft; 10 of 39 landings flagged) is no longer an advisory.  At or
+# above RAMP_ADV_ABS, and with no references (quiet night), the ramp alone
+# decides as before; windshear and microburst alerts are never relative.
+RAMP_ADV_ABS = 12.0
 
 BAND_WINDOW_SEC = 45 * 60     # reference landings for the band anomaly
 BAND_MIN_REF = 3
@@ -88,7 +97,8 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 3                  # report version (3: band comparison on the wind vector)
+REPORT_V = 4                  # report version (3: band comparison on the wind vector,
+                              #     4: ramp advisories relative to the reference profile)
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -422,6 +432,75 @@ def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND
     return best
 
 
+def _ref_headwind(refs: list, heading: float) -> dict:
+    """{band ft: median headwind kt along heading} of the reference flights
+    (bands with at least BAND_MIN_REF of them)."""
+    hr = math.radians(heading)
+    ex, ey = math.sin(hr), math.cos(hr)
+    acc: dict = {}
+    for r in refs:
+        for b, (u, v, _n) in r.items():
+            acc.setdefault(b, []).append((u, v))
+    out = {}
+    for b, uv in acc.items():
+        if len(uv) >= BAND_MIN_REF:
+            mu, mv = _median([x[0] for x in uv]), _median([x[1] for x in uv])
+            out[b] = -(mu * ex + mv * ey)
+    return out
+
+
+def _at_alt(prof: dict, a: float):
+    """prof {band ft: kt} interpolated at a (ft); None more than 200 ft
+    outside the bands or across a gap of more than 400 ft."""
+    if not prof or a is None:
+        return None
+    ks = sorted(prof)
+    if a <= ks[0]:
+        return prof[ks[0]] if ks[0] - a <= 200 else None
+    if a >= ks[-1]:
+        return prof[ks[-1]] if a - ks[-1] <= 200 else None
+    for k0, k1 in zip(ks, ks[1:]):
+        if k0 <= a <= k1:
+            if k1 - k0 > 400:
+                return None
+            return prof[k0] + (prof[k1] - prof[k0]) * (a - k0) / (k1 - k0)
+    return None
+
+
+def ramp_rel_level(c: dict | None, loss: bool, ref_hw: dict | None) -> str:
+    """Level of one ramp (report "loss" / "gain") with the advisory relative
+    to the reference profile (see RAMP_ADV_ABS).  Adds to c "exp" (the change
+    the reference flights had from a1 to a2, kt) and "rel" (the ramp beyond
+    it, 1-km equivalent kt) when they could be computed."""
+    if not c or c.get("sc") is None:
+        return "none"
+    lv = level_of(c["sc"], loss)
+    if lv != "adv" or c["sc"] >= RAMP_ADV_ABS or not ref_hw:
+        return lv
+    e1, e2 = _at_alt(ref_hw, c.get("a1")), _at_alt(ref_hw, c.get("a2"))
+    dv = c.get("dv")
+    if e1 is None or e2 is None or not dv:
+        return lv
+    exp = e2 - e1
+    an = dv - exp
+    rel = abs(an) * c["sc"] / abs(dv) if (an < 0) == loss else 0.0
+    c["exp"], c["rel"] = round(exp, 1), round(rel, 1)
+    return "adv" if rel >= LEVEL_ADVISORY else "none"
+
+
+def ramps_level(rep: dict | None, refs: list | None, heading) -> str:
+    """Level of the ramps in the low-level zone of an analysis / stored
+    report, advisories relative to the reference flights (refs as from
+    vec_refs, heading ° true; without them the ramps alone)."""
+    ref_hw = _ref_headwind(refs, heading) if refs and heading is not None else None
+    lv = "none"
+    for k, loss in (("loss", True), ("gain", False)):
+        c = (rep or {}).get(k)
+        if c and c.get("zone"):
+            lv = max(lv, ramp_rel_level(c, loss, ref_hw), key=LEVELS.index)
+    return lv
+
+
 def _r0(v):
     return None if v is None else int(round(v))
 
@@ -430,9 +509,11 @@ def _r2(v):
     return None if v is None else round(v, 2)
 
 
-def report(rep: dict | None, band: dict | None) -> dict | None:
+def report(rep: dict | None, band: dict | None, refs: list | None = None,
+           heading=None) -> dict | None:
     """The stored windshear report of one landing (approach_history.shear_json):
-    the analysis plus the band comparison "band" and the overall level "lvl"."""
+    the analysis plus the band comparison "band" and the overall level "lvl"
+    (ramp advisories relative to the reference flights refs, see RAMP_ADV_ABS)."""
     if rep is None and band is None:
         return None
     out = dict(rep or {})
@@ -441,6 +522,8 @@ def report(rep: dict | None, band: dict | None) -> dict | None:
             out[k] = {kk: vv for kk, vv in out[k].items() if kk != "t2"}
     if band:
         out["band"] = band
+    if rep is not None:
+        out["lvl"] = ramps_level(out, refs, heading)
     lv = [out.get("lvl") or "none", (band or {}).get("lvl") or "none"]
     out["lvl"] = max(lv, key=LEVELS.index)
     out["v"] = REPORT_V

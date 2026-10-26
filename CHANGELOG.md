@@ -40,6 +40,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - The labels at the top left (data badge, sonde, MEPS, analysis source, sonde note) wrap at their ` · ` / ` — ` separators (or between words) to stay inside the plot, instead of running under the RH strip and over the barbs and values on a narrow diagram; the lines below move down accordingly.
 - The isotherms are clipped to the plot (before, they ran on across the RH strip, the barbs and the values); an area temperature label that would leave the plot is written on the left of its point.
 
+### MEPS check: the model at the aircraft positions
+- `collector/meps.py`: each hour of the MEPS check is compared with the model at the aircraft's own positions (Weather-page model fields `meps_map_hours`, 20 km grid, kept 7 days; the observations of the hour within ±1 000 ft of each level, weighted by their number, for temperature, wind and GNSS height separately), not the plain area mean; older hours keep the area mean. `pos_hours` in `/api/meps/check`; the Sounding page tile says how many hours were matched (`static/js/sounding.js`). Reason: the aircraft at FL250–FL400 fly 25–40 km south and 45–60 km west of the receiver on average, and in a strong height gradient the area mean made their heights look 10–26 m too low. Effect (7 days to 26 Oct): heights 300 hPa −16.5 → +1.6 m, wind vector RMS 300 hPa 9.9 → 4.3 kt; temperatures under 0.1 K.
+
+### Windshear: ramp advisories relative to the profile
+- `collector/shear.py` (`REPORT_V` 4, `RAMP_ADV_ABS` = 12 kt): a ramp of 10–12 kt per km is an advisory only when it is also ≥ 10 kt beyond the change the reference flights of the last 45 min had over the same heights; from 12 kt and without references as before; WSA / MBA unchanged. Live (`collector/windshear.py`) and stored reports; the start-up back-fill (`run.py`) re-levels the stored reports once. Replay 9–26 Oct: landing advisories 59 → 26.
+
+### System health indicators
+- Fixed: `/api/health` failed for a few seconds after a restart (the Statistics feed rate read an empty 10-s slot).
+- Feed: green up to 30 s of silence, amber up to 10 min (was 5 s / 60 s). Decoding: "no winds" / "few winds" judged only with 8 or more EHS aircraft and enough replies. Pi: amber from 72 °C, green again below 68 °C (no flapping at 70 °C). `web/api/health.py`.
+
 ### RH strip: the last full hour beside the hour in progress
 - The trial moisture indicator in the Skew-T's RH strip (Live Map; Sounding page *Area · now*; `/app`) shows each layer split in two: upper, filled bar the hour in progress (changes as the flights come in), lower, outlined bar the last full hour (steadier: its ± window of flights is complete). The hover gives both. `web/api/sounding.py`: `/api/sounding?moist=1` adds `moisture.prev` (the indicator of the last full hour, cached for 10 minutes); `static/js/skewt_chart.js`. *Area · hour* unchanged (one bar per layer).
 
@@ -53,6 +63,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documentation
 - New **Mobile user guide** v1.0 (`doc/Mobile_User_Guide.pdf`, 8 pp): opening `/app`, Add to Home Screen, the menu, touch and updates, the five views with their options, troubleshooting, quick reference; listed in `doc/guides.md` and linked in the `/app` menu (*General*).
+- Sounding / Wind Map guide v3.5 (MEPS check at the aircraft positions), Windshear guide v1.6 (ramp advisories against the profile), Statistics guide v1.3 (health limits).
 - Skew-T user guide v4.8 and Sounding / Wind Map guide v3.4: the RH strip's two bars (hour in progress, last full hour; Live Map figure renewed).
 - Skew-T user guide v4.7 and Sounding / Wind Map guide v3.3: the MEPS wind barbs beside the aircraft's in the right margin (text and figures renewed with the same data), the diagram in the mobile view; `doc/guides.md`.
 - Statistics user guide v1.2: new section on the Radarcape receiver panel and the Radarcape health indicator; range-ring centre (`doc/Statistics_User_Guide.pdf`, `doc/guides.md`).
