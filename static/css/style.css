@@ -3107,3 +3107,18 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
   top: calc(47px + env(safe-area-inset-top) + 6px); left: 8px; right: 8px; transform: none;
   width: auto; max-width: none; font-size: 13px; gap: 8px; padding: 8px 8px 8px 10px;
 }
+
+/* ── Statistics page: Message rate / Data transfer tabs (from 27 Oct 2026) ── */
+.mst-tabs { display: inline-flex; gap: 2px; background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+.mst-tab { background: none; border: none; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.mst-tab:hover { color: var(--text-1); background: var(--bg-3); }
+.mst-tab.active { background: var(--accent); color: #fff; }
+.mst-tr-sum { padding: 6px 8px 0; overflow-x: auto; }
+.mst-tr-table th, .mst-tr-table td { white-space: nowrap; }
+.mst-tr-table td { text-align: right; font-variant-numeric: tabular-nums; }
+.mst-tr-table thead th { text-align: right; }
+.mst-tr-table thead th:first-child, .mst-tr-table tbody th { text-align: left; }
+.mst-tr-table tbody th { font-weight: 600; color: var(--text-2); font-size: 11.5px; padding: 3px 8px; }
+.mst-tr-table .mst-tr-none { text-align: left; color: var(--text-3); }
+.mst-panel [hidden] { display: none !important; }

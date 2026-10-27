@@ -816,6 +816,16 @@ def main() -> None:
     else:
         log.info("Radarcape status reader off (RADARCAPE_STATUS = False)")
 
+    # ── Data transfer counters for the Statistics page (collector/traffic.py,
+    # from 2026-10-27): Beast, aircraft list, status, web pages served, and the
+    # network interface totals; one row per hour in traffic_hours
+    from collector import traffic as _traffic
+    _tr = _traffic.get()
+    _tr.init(cfg.DB_PATH)
+    threading.Thread(target=_tr.run, name="traffic", daemon=True).start()
+    log.info("Data transfer counters started (network interface: %s)",
+             ", ".join(_tr.ifaces) or ("all" if _tr.if_ok else "not available"))
+
     # ── Shared live state ─────────────────────────────────────────────────
     live_state: dict = {}
     live_lock = threading.RLock()

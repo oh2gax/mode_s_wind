@@ -45,6 +45,7 @@ from typing import Optional
 from collector.filter import is_blocked_icao, is_blocked_registration
 from collector import aircraft_db
 from collector import msg_stats
+from collector import traffic
 from collector import health
 
 log = logging.getLogger("modes.json_poller")
@@ -146,6 +147,9 @@ def run_json_poller(
         try:
             with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT) as resp:
                 raw = resp.read()
+                # data transfer counters (collector/traffic.py): the body, the
+                # response headers and about 150 bytes of request
+                traffic.add("json", len(raw) + 150 + sum(len(k) + len(v) + 4 for k, v in resp.headers.items()))
 
             entries = json_mod.loads(raw)
             now = time.time()

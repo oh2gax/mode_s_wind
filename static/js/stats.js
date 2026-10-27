@@ -22,9 +22,13 @@
   'use strict';
   const POLL_MS = 10000;
   let win = 10, range = '1h', series = 'rate', cadKind = '5,0', sigCat = 'all';
+  // Message rate / Data transfer tabs of the chart panel (from 2026-10-27)
+  let tab = 'msgs', trView = 'app', trData = null, chartType = null;
   try {
     win = parseInt(localStorage.getItem('ms_statsWindow') || '10', 10) || 10;
     series = localStorage.getItem('ms_statsSeries') || 'rate';
+    tab = localStorage.getItem('ms_statsTab') === 'traffic' ? 'traffic' : 'msgs';
+    trView = localStorage.getItem('ms_statsTrView') === 'net' ? 'net' : 'app';
     cadKind = localStorage.getItem('ms_statsCad') || '5,0';
     sigCat = localStorage.getItem('ms_statsSig') || 'all';
   } catch (e) { /* private mode */ }
@@ -523,8 +527,100 @@
     }
   }
 
+  // ── Data transfer (collector/traffic.py, /api/traffic; from 2026-10-27) ──
+  const fmtB = (b, d) => {
+    if (b == null) return '—';
+    const u = [['GB', 1e9], ['MB', 1e6], ['kB', 1e3]];
+    for (const [n, f] of u) if (Math.abs(b) >= f) return (b / f).toFixed(d != null ? d : (b / f >= 100 ? 0 : b / f >= 10 ? 1 : 2)) + ' ' + n;
+    return Math.round(b) + ' B';
+  };
+  const fmtRateB = v => v == null ? '—' : v >= 1e6 ? (v / 1e6).toFixed(2) + ' MB/s' : (v / 1e3).toFixed(v >= 1e4 ? 0 : 1) + ' kB/s';
+  // the summary table above the chart: one row per period
+  function trRow(name, x, perSec, title) {
+    const n = v => perSec ? fmtRateB(v) : fmtB(v);
+    if (!x || (!perSec && !x.hours)) return `<tr><th>${esc(name)}</th><td colspan="4" class="mst-tr-none">no data yet</td></tr>`;
+    const tip = `Beast stream ${n(x.beast)} · aircraft list ${n(x.json)} · receiver status ${n(x.status)}`;
+    const net = trData.iface_ok;
+    return `<tr${title ? ` title="${esc(title)}"` : ''}><th>${esc(name)}</th>` +
+      `<td title="${esc(tip)}">${n(x.app_in)}</td><td>${n(x.web)}</td>` +
+      `<td>${net ? n(x.rx) : '—'}</td><td>${net ? n(x.tx) : '—'}</td></tr>`;
+  }
+  function renderTrafficSum() {
+    const el = $('mst-tr-sum');
+    if (!trData) { el.innerHTML = ''; return; }
+    const t = trData;
+    const rows = [
+      trRow('Now (per second)', t.rate && t.rate.app_in != null ? t.rate : null, true, 'The last full minute'),
+      trRow('Today (UTC)', t.today), trRow('Yesterday', t.yesterday), trRow('Last 7 days', t.last7),
+      trRow(`${t.month_label}`, t.month, false, `The month so far (UTC; counted ${t.month_counted_h} h)`),
+      t.month_projection ? trRow('≈ whole month', Object.assign({ hours: 1 }, t.month_projection), false,
+        `${t.month_label} at the rate of the ${t.month_counted_h} h counted so far, scaled to the whole month`) : '',
+    ].join('');
+    el.innerHTML = `<table class="mst-table mst-tr-table"><thead><tr><th></th>` +
+      `<th title="The Beast stream, the aircraft list and the status page received from the receiver (hover a value for the parts)">From receiver</th>` +
+      `<th title="The web pages and data sent to the users (bodies and headers; the Live Map's live stream included)">Served to users</th>` +
+      `<th title="Everything the network interface${t.iface ? ' (' + esc(t.iface) + ')' : ''} received: also the encryption overhead, HTTPS, model / sounding / METAR downloads and system updates">Interface ↓</th>` +
+      `<th title="Everything the network interface sent">Interface ↑</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function trChartData() {
+    const t = trData, keys = ['t'].concat(t.kinds), col = k => keys.indexOf(k);
+    const bins = t.bins || [];
+    const dm = x => `${x.getUTCDate()}.${x.getUTCMonth() + 1}.`;
+    const lbl = t.bin_sec === 86400 ? b => dm(new Date(b[0] * 1000))
+      : t.bin_sec === 3600 && range === '7d' ? b => dm(new Date(b[0] * 1000)) + ' ' + hhmm(b[0]) : b => hhmm(b[0]);
+    const C = [css('--accent'), css('--green'), css('--purple') || '#8b5cf6', css('--amber'), css('--red')];
+    const v = k => bins.map(b => b[col(k)]);
+    const sets = trView === 'net'
+      ? [['Received (interface)', v('rx'), C[0], 'in'], ['Sent (interface)', v('tx'), C[3], 'out']]
+      : [['Beast stream', v('beast'), C[0], 'in'], ['Aircraft list', v('json'), C[1], 'in'],
+         ['Receiver status', v('status'), C[2], 'in'], ['Web pages served', v('web'), C[3], 'out']];
+    let max = 0;
+    bins.forEach((b, i) => { const s = { in: 0, out: 0 }; sets.forEach(x => { s[x[3]] += x[1][i] || 0; }); max = Math.max(max, s.in, s.out); });
+    const [unit, f] = max >= 2e9 ? ['GB', 1e9] : max >= 2e6 ? ['MB', 1e6] : ['kB', 1e3];
+    const per = t.bin_sec === 60 ? 'minute' : t.bin_sec === 3600 ? 'hour' : 'day';
+    return { labels: bins.map(lbl), unit, per, binSec: t.bin_sec,
+             sets: sets.map(([l, vals, c, st]) => [l, vals.map(x => x == null ? null : +(x / f).toFixed(3)), c, st]) };
+  }
+  function renderTrafficChart() {
+    if (typeof Chart === 'undefined' || !trData) return;
+    const cd = trChartData();
+    const grid = css('--border'), txt = css('--text-2');
+    const cfg = {
+      type: 'bar',
+      data: { labels: cd.labels, datasets: cd.sets.map(([label, vals, color, stack]) => ({
+        label, data: vals, backgroundColor: color, borderWidth: 0, stack, barPercentage: 0.95, categoryPercentage: 0.9 })) },
+      options: {
+        animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: true, labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
+                   tooltip: { callbacks: {
+                     label: c => c.parsed.y == null ? `${c.dataset.label}: —`
+                       : `${c.dataset.label}: ${c.parsed.y} ${cd.unit} (${fmtRateB(c.parsed.y * (cd.unit === 'GB' ? 1e9 : cd.unit === 'MB' ? 1e6 : 1e3) / cd.binSec)})` } } },
+        scales: { x: { stacked: true, ticks: { color: txt, maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }, grid: { color: grid } },
+                  y: { stacked: true, beginAtZero: true, title: { display: true, text: `${cd.unit} per ${cd.per}`, color: txt, font: { size: 10 } },
+                       ticks: { color: txt, font: { size: 10 } }, grid: { color: grid } } },
+      },
+    };
+    if (chart && chartType === 'bar') { chart.data = cfg.data; chart.options = cfg.options; chart.update('none'); }
+    else { if (chart) chart.destroy(); chart = new Chart($('mst-chart'), cfg); chartType = 'bar'; }
+  }
+  function setTab(t) {
+    tab = t;
+    try { localStorage.setItem('ms_statsTab', tab); } catch (e) { /* */ }
+    document.querySelectorAll('#mst-chart-tabs .mst-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    const tr = tab === 'traffic';
+    document.querySelectorAll('#mst-chart-range .mst-tr-only').forEach(b => { b.hidden = !tr; });
+    $('mst-tr-view').hidden = !tr;
+    $('mst-chart-series').hidden = tr;
+    $('mst-tr-sum').hidden = !tr;
+    if (!tr && range === '30d') {
+      range = '7d';
+      document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(x => x.classList.toggle('active', x.dataset.range === range));
+    }
+  }
+
   function renderChart(d) {
     if (typeof Chart === 'undefined') return;
+    if (tab === 'traffic') { renderTrafficSum(); renderTrafficChart(); return; }
     const cd = chartData(d);
     const grid = css('--border'), txt = css('--text-2');
     const cfg = {
@@ -539,8 +635,8 @@
                   y: { beginAtZero: true, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid } } },
       },
     };
-    if (chart) { chart.data = cfg.data; chart.options = cfg.options; chart.update('none'); }
-    else chart = new Chart($('mst-chart'), cfg);
+    if (chart && chartType === 'line') { chart.data = cfg.data; chart.options = cfg.options; chart.update('none'); }
+    else { if (chart) chart.destroy(); chart = new Chart($('mst-chart'), cfg); chartType = 'line'; }
   }
 
   // ── polling ───────────────────────────────────────────────────────────────
@@ -571,8 +667,10 @@
     if (document.hidden) return;
     pollHealth();
     try {
-      const r = await fetch('/api/msgstats?window=' + win + (range === '7d' ? '&trend=7d' : ''));
+      const wk = range === '7d' && tab === 'msgs';
+      const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : ''));
       data = await r.json();
+      if (tab === 'traffic') await pollTraffic(false);
       renderAll();
     } catch (e) {
       $('mst-updated').textContent = 'Update failed — retrying';
@@ -580,7 +678,26 @@
     timer = setTimeout(poll, POLL_MS);
   }
 
+  async function pollTraffic(render) {
+    try {
+      const r = await fetch('/api/traffic?range=' + encodeURIComponent(range));
+      trData = await r.json();
+    } catch (e) { /* the next poll tries again */ }
+    if (render) renderChart(data);
+  }
+
   function initButtons() {
+    document.querySelectorAll('#mst-chart-tabs .mst-tab').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.tab === tab) return;
+      setTab(b.dataset.tab);
+      if (tab === 'traffic') pollTraffic(true);
+      else if (range === '7d' && !(data && data.trend_week)) poll();
+      else if (data) renderChart(data);
+    }));
+    const tv = $('mst-tr-view');
+    tv.value = trView;
+    tv.addEventListener('change', () => { trView = tv.value; try { localStorage.setItem('ms_statsTrView', trView); } catch (e) { /* */ } renderChart(data); });
+    setTab(tab);
     document.querySelectorAll('#mst-win-btns .gps-zone-btn').forEach(b => {
       b.classList.toggle('active', +b.dataset.win === win);
       b.addEventListener('click', () => {
@@ -593,7 +710,8 @@
     document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(b => b.addEventListener('click', () => {
       range = b.dataset.range;
       document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(x => x.classList.toggle('active', x === b));
-      if (range === '7d' && !(data && data.trend_week)) poll();          // the 7 d series is sent only when asked for
+      if (tab === 'traffic') pollTraffic(true);
+      else if (range === '7d' && !(data && data.trend_week)) poll();     // the 7 d series is sent only when asked for
       else if (data) renderChart(data);
     }));
     const s = $('mst-chart-series');
@@ -619,7 +737,7 @@
   }
 
   window.onThemeChange = () => {
-    if (chart) { chart.destroy(); chart = null; }
+    if (chart) { chart.destroy(); chart = null; chartType = null; }
     if (sigChart) { sigChart.destroy(); sigChart = null; }
     if (data) { renderChart(data); renderSig(data); renderRange(data); }
   };

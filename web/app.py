@@ -29,6 +29,7 @@ from collector.approach_cond import approach_index
 from web import access_log
 from web import users as web_users
 from web import shared_login
+from collector import traffic as _traffic
 
 log = logging.getLogger("modes.web")
 
@@ -311,6 +312,20 @@ def create_app(
             return None
         return redirect(_moved_url + request.full_path.rstrip("?"), code=302)
 
+    # ── Data transfer counters: bytes served to the users (from 2026-10-27,
+    # collector/traffic.py) — the body and the headers of every response with
+    # a known length; the Live Map's live stream counts its chunks itself
+    @app.after_request
+    def _count_served(resp):
+        try:
+            if request.method != "HEAD" and resp.status_code not in (204, 304):
+                n = resp.content_length
+                if n is not None:
+                    _traffic.add("web", n + 17 + sum(len(k) + len(v) + 4 for k, v in resp.headers.items()))
+        except Exception:                             # noqa: BLE001
+            pass
+        return resp
+
     # ── Template globals — config badges shown in every page's navbar ─────
 
     @app.context_processor
@@ -515,6 +530,19 @@ def create_app(
         out["radarcape"] = rc.public() if rc is not None else None
         return _gzip_json(out)
 
+    @app.route("/api/traffic")
+    def traffic_api():
+        """Data transfer counters (collector/traffic.py, from 2026-10-27):
+        bytes of the Beast stream, the aircraft list, the receiver status, the
+        web pages served and the network interface totals — the rate of the
+        last minute, today / yesterday / the last 7 days / this month (UTC)
+        with a whole-month projection, and the chart bins of ?range=1h (per
+        minute), 24h / 7d (per hour) or 30d (per day)."""
+        rng = request.args.get("range", "24h")
+        if rng not in ("1h", "24h", "7d", "30d"):
+            rng = "24h"
+        return _gzip_json(_traffic.get().snapshot(rng))
+
     # System health indicators of the Statistics page (web/api/health.py):
     # evaluated at most every 10 s on request, and every minute in the
     # background so the state changes are recorded while nobody is watching
@@ -606,7 +634,9 @@ def create_app(
                             "last_seen": ac.get("last_seen"),
                         })
 
-                    yield f"data: {json.dumps(slim)}\n\n"
+                    chunk = f"data: {json.dumps(slim)}\n\n"
+                    _traffic.add("web", len(chunk.encode("utf-8")) + 8)   # + chunk framing
+                    yield chunk
                     time.sleep(3)
                 except GeneratorExit:
                     break

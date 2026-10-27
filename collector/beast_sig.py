@@ -31,10 +31,12 @@ from __future__ import annotations
 import logging
 from collections import deque
 
+from collector import traffic
+
 log = logging.getLogger(__name__)
 
 _Q: deque = deque(maxlen=4096)
-_STATE = {"installed": False, "reason": "not installed", "bursts": 0, "skipped": 0,
+_STATE = {"installed": False, "reason": "not installed", "bursts": 0, "skipped": 0, "signal": True,
           "misaligned": 0}
 
 _LEN = {0x32: 14, 0x33: 21}        # MLAT(6) + SIG(1) + payload (7 / 14)
@@ -108,9 +110,13 @@ def scan(buf: bytes) -> list:
     return out
 
 
-def install() -> bool:
+def install(signal: bool = True) -> bool:
     """Wrap pyModeS's Beast parser.  False (and the reason in state()) when
-    this pyModeS version has no such parser."""
+    this pyModeS version has no such parser.  The wrapper also counts the
+    bytes of the Beast stream for the data transfer counters (from
+    2026-10-27, collector/traffic.py) — every byte the parser consumed, once;
+    with signal=False (MSG_STATS_SIGNAL = False) it only counts."""
+    _STATE["signal"] = bool(signal)
     if _STATE["installed"]:
         return True
     try:
@@ -126,7 +132,11 @@ def install() -> bool:
 
     def wrapped(buf):
         frames, remainder = orig(buf)
-        if frames:
+        try:
+            traffic.add("beast", len(buf) - len(remainder))
+        except Exception:                       # noqa: BLE001
+            pass
+        if frames and _STATE["signal"]:
             _STATE["bursts"] += 1
             try:
                 sig = scan(buf)
@@ -144,7 +154,8 @@ def install() -> bool:
     src._parse_beast_buffer = wrapped
     _STATE["installed"] = True
     _STATE["reason"] = ""
-    log.info("Beast signal levels enabled for the Statistics page")
+    log.info("Beast %s enabled for the Statistics page",
+             "signal levels and byte counts" if signal else "byte counts")
     return True
 
 

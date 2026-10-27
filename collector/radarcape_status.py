@@ -42,6 +42,7 @@ import urllib.request
 from collections import deque
 
 from collector import health as hb
+from collector import traffic
 
 log = logging.getLogger("modes.radarcape")
 
@@ -96,7 +97,9 @@ class RadarcapeStatus:
         now = time.time()
         try:
             with urllib.request.urlopen(self.url, timeout=TIMEOUT) as r:
-                raw = json.loads(r.read(64 * 1024).decode("utf-8", "replace"))
+                body = r.read(64 * 1024)
+                traffic.add("status", len(body) + 150 + sum(len(k) + len(v) + 4 for k, v in r.headers.items()))
+                raw = json.loads(body.decode("utf-8", "replace"))
             if not isinstance(raw, dict):
                 raise ValueError("not a JSON object")
         except Exception as exc:                    # noqa: BLE001

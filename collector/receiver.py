@@ -437,10 +437,14 @@ def run_collector(
     if mstats.site_src != "radarcape":
         mstats.choose_site(None)
     # Beast signal-level byte for the signal histogram (collector/beast_sig.py)
+    # (the same wrapper counts the bytes of the Beast stream for the data
+    # transfer counters, collector/traffic.py — also with the signal off)
     sig_on = False
     if getattr(cfg, "MSG_STATS_SIGNAL", True):
-        sig_on = beast_sig.install()
+        sig_on = beast_sig.install(signal=True)
         mstats.sig_state = "on" if sig_on else "unavailable"
+    else:
+        beast_sig.install(signal=False)
 
     while True:
         try:
