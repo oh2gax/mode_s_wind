@@ -28,7 +28,9 @@ on a fallback) / red (fault: stopped, failing or very old) / grey (off):
   sondes    soundings                 newest Jokioinen sounding ≤ 15 h / 30 h
   calib     calibrations              temperature correction learnt from MEPS
                                       within 3 h (else the stored values are in
-                                      use), heading calibration
+                                      use), heading calibration; amber when the
+                                      magnetic declination model (pygeomag) is
+                                      missing or out of date (from 27 Oct 2026)
   metar     METAR / QNH               observation ≤ 75 min / 3 h
   pi        Raspberry Pi              CPU temperature (amber from 72 °C, back
                                       to green below 68 °C), under-voltage /
@@ -74,7 +76,7 @@ TITLE = {"feed": "Radarcape Beast feed (Mode S messages)",
          "gps": "GPS quality monitor",
          "meps": "MEPS weather model data (optional)",
          "sondes": "Jokioinen radiosoundings",
-         "calib": "Calibrations (temperature correction, heading calibration)",
+         "calib": "Calibrations (temperature correction, heading calibration, magnetic declination)",
          "metar": "METAR / QNH of the airport",
          "pi": "Raspberry Pi (temperature, power, memory, disk, load)"}
 RANK = {"off": 0, "ok": 1, "warn": 2, "err": 3}
@@ -530,7 +532,38 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
             pass
     else:
         det.append("heading calibration off")
-    if not tcorr.ENABLED and (hc is None or not hc.enabled):
+    # magnetic declination at the aircraft position (collector/declination.py):
+    # without the pygeomag package the fixed MAG_DECLINATION is used, with only
+    # a warning at start-up — the winds far from the airport lose accuracy
+    decl_warn = None
+    mag = getattr(cfg, "MAG_DECLINATION", None)
+    if getattr(cfg, "USE_WMM_DECLINATION", True):
+        try:
+            from collector import declination as _decl
+            ds = _decl.status()
+            if ds["state"] != "ok":
+                decl_warn = f"Magnetic declination model (pygeomag) missing — fixed {mag}° in use"
+                det.append(f"magnetic declination: the WMM2025 model could not be loaded "
+                           f"({ds['error'] or 'pygeomag not installed'}); the fixed MAG_DECLINATION "
+                           f"{mag}° is used, so winds far from the airport are less accurate (up to "
+                           f"about 2° of heading). Install pygeomag for the Python that runs "
+                           f"MODE-S Wind and restart")
+            elif ds["extrapolated"]:
+                decl_warn = "Magnetic declination model out of date — update pygeomag"
+                det.append("magnetic declination: WMM2025 outside its validity period, extrapolated "
+                           "— update pygeomag for the next World Magnetic Model")
+            else:
+                det.append("magnetic declination: WMM2025 model (pygeomag), at each aircraft's position")
+        except Exception:                             # noqa: BLE001
+            pass
+    else:
+        det.append(f"magnetic declination fixed {mag}° (USE_WMM_DECLINATION = False)")
+    if decl_warn:
+        st = max(st, "warn", key=RANK.get)
+        for t in txt:                                 # the other note stays visible in the details
+            det.insert(0, t[:1].lower() + t[1:])
+        txt.insert(0, decl_warn)
+    if not tcorr.ENABLED and (hc is None or not hc.enabled) and not decl_warn:
         items["calib"] = _item("calib", "off", "Off", det)
     else:
         items["calib"] = _item("calib", st, txt[0] if txt else "Active", det)

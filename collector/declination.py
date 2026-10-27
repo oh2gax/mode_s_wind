@@ -29,6 +29,12 @@ the fixed Config.MAG_DECLINATION value is returned — exactly the previous
 behaviour.  After the model's validity period (WMM2025: 2025.0–2030.0) the
 model is extrapolated with a one-time warning; update pygeomag to get the
 next WMM release.
+
+status() (from 2026-10-27) tells the System health indicators of the
+Statistics page (web/api/health.py, Calibrations) whether the model is in use:
+a missing pygeomag only writes a warning at start-up, and the winds far from
+the airport quietly lose accuracy — on 27 Oct 2026 that went unnoticed on the
+Raspberry Pi until a data check.
 """
 
 import logging
@@ -47,11 +53,12 @@ _cache_built   = 0.0
 _warned_expiry = False
 _model         = None           # GeoMag instance, or None when unavailable
 _model_state   = "unloaded"     # "unloaded" | "ok" | "unavailable"
+_model_error   = ""             # why the model could not be loaded
 
 
 def _load_model() -> None:
     """Load pygeomag's WMM2025 once; mark unavailable on any failure."""
-    global _model, _model_state
+    global _model, _model_state, _model_error
     try:
         from pygeomag import GeoMag
         m = GeoMag(coefficients_file="wmm/WMM_2025.COF")
@@ -60,7 +67,7 @@ def _load_model() -> None:
         _model, _model_state = m, "ok"
         log.info("Magnetic declination: WMM2025 model (pygeomag) — position-based")
     except Exception as exc:
-        _model, _model_state = None, "unavailable"
+        _model, _model_state, _model_error = None, "unavailable", str(exc)
         log.warning("Magnetic declination: pygeomag not available (%s) — "
                     "using fixed MAG_DECLINATION from config.py", exc)
 
@@ -103,6 +110,15 @@ def is_model_active() -> bool:
         if _model_state == "unloaded":
             _load_model()
         return _model_state == "ok"
+
+
+def status() -> dict:
+    """{"state": "ok" | "unavailable", "extrapolated": bool, "error": str} of
+    the WMM2025 model (loads it on the first call)."""
+    with _lock:
+        if _model_state == "unloaded":
+            _load_model()
+        return {"state": _model_state, "extrapolated": _warned_expiry, "error": _model_error}
 
 
 def declination(lat: float | None, lon: float | None, fallback: float) -> float:

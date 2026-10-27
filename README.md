@@ -142,7 +142,7 @@ Wind = ground vector − air vector. The ground vector is the true track and gro
 
 **Fresh pairs only where the altitude matters** — the live view recomputes the wind with every message of the aircraft from the latest BDS 5,0 / 6,0 pair in memory (up to 60 s old), so the aircraft keeps its wind and temperature between its Comm-B replies. When these replies stop while ADS-B positions continue — typically low on final, below about 1 000 ft — that pair would be placed at the aircraft's current, lower altitude. Where the altitude matters, the wind and the Mach/TAS temperature are therefore only used when the older of the two replies is at most `WIND_MAX_AGE_SEC` (optional, default 6 s) old: stored observations (a stale pair is not stored; the next fresh one is), the Windshear page's ILS barbs, approach bands, wind rose buffer and detection, and the Live Map aircraft profile on the Skew-T. The live wind shown in the aircraft list, popups and flight strips keeps the latest value. On 10–11 Oct 2026, 28–33 % of the live approach winds at 400–600 ft were an exact copy of the band 200 ft above, measured higher up.
 
-**True heading** — BDS 6,0 reports magnetic heading. The magnetic declination is taken from the **World Magnetic Model (WMM2025)** at the aircraft's own position via the `pygeomag` package (cached on a 0.5° grid, rebuilt daily so the ~0.15°/year drift is followed automatically). Within 150 NM of EFHK declination ranges from about 8.7° (west / south-west) to 12.6° (north-east); a single fixed value would be off by up to ~2°, which at 450 kt TAS is a ~16 kt wind error. `MAG_DECLINATION` is used only as a fallback — when the position is not yet known, `pygeomag` is not installed, or `USE_WMM_DECLINATION = False`. The value used is stored per observation (`mag_decl`).
+**True heading** — BDS 6,0 reports magnetic heading. The magnetic declination is taken from the **World Magnetic Model (WMM2025)** at the aircraft's own position via the `pygeomag` package (cached on a 0.5° grid, rebuilt daily so the ~0.15°/year drift is followed automatically). Within 150 NM of EFHK declination ranges from about 8.7° (west / south-west) to 12.6° (north-east); a single fixed value would be off by up to ~2°, which at 450 kt TAS is a ~16 kt wind error. `MAG_DECLINATION` is used only as a fallback — when the position is not yet known, `pygeomag` is not installed, or `USE_WMM_DECLINATION = False`. The value used is stored per observation (`mag_decl`). A missing `pygeomag` used to show only as one warning line at start-up; from 27 Oct 2026 it also turns the **Calibrations** health indicator of the Statistics page amber (*Magnetic declination model (pygeomag) missing — fixed … ° in use*), as does a WMM past its validity period (`collector/declination.py` `status()`).
 
 **True airspeed** — taken from the best available source, stored per observation as `tas_source`:
 
@@ -248,6 +248,8 @@ Python 3.11 or newer is required (pyModeS 3.x requires 3.11).
 ```bash
 pip3 install flask pyModeS pygeomag --break-system-packages
 ```
+
+Install them as the user that runs MODE-S Wind (the systemd service's `User=`), not with `sudo`: a service run by `oh2gax` with `/usr/bin/python3` does not see packages installed for root. Check with `/usr/bin/python3 -c "import pygeomag"` as that user.
 
 Or inside a virtual environment:
 
@@ -1821,7 +1823,7 @@ What the receiver hears from the aircraft, as counted by the collector (`collect
 | **GPS** — GPS quality monitor | the sweep within 3 × `GPS_SWEEP_SEC` + 15 s | late / over 5 min |
 | **MEPS** — model data (optional) | the newest stored run at most 9 h old, and a model profile hour within 1.5 h of now (what the Skew-T needs) | older, the fetch failing, or no profile for the current hour (*No model profile for the current hour — newest 02 UTC (run 21 UTC); newer runs not received*, from 26 Oct 2026) — never red: the system works without the model (stored values / fallbacks) |
 | **Soundings** — Jokioinen | the newest sounding at most 15 h old | 15–30 h / older |
-| **Calibrations** | the upper-level temperature correction learnt from MEPS within 3 h; heading calibration in the details | the correction learnt earlier is in use (no new model data), or none learnt yet |
+| **Calibrations** | the upper-level temperature correction learnt from MEPS within 3 h; magnetic declination from the World Magnetic Model; heading calibration in the details | the correction learnt earlier is in use (no new model data), or none learnt yet; the declination model (`pygeomag`) missing — the fixed `MAG_DECLINATION` in use — or past its validity period |
 | **METAR** — METAR / QNH of `AIRPORT_ICAO` | the observation at most 75 min old | up to 3 h (QNH may be out of date) / older or none |
 | **Pi** — Raspberry Pi | CPU below 72 °C (once amber, green again below 68 °C, from 26 Oct 2026 — a Pi running at 70 °C made the dot flip every minute), no under-voltage or throttling, memory, disk and load normal (details: temperature, power, free memory, server process, free disk, load, uptime) | CPU ≥ 72 °C, throttled, under-voltage or throttling has occurred since the server started, memory < 300 MB, disk < 2 GB, 5-min load over 90 % of the cores / CPU ≥ 80 °C, under-voltage now, memory < 100 MB, disk < 0.5 GB |
 

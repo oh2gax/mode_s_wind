@@ -45,6 +45,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `SITE_MOVED_HIDE_LAN` (default `True`): not shown to visitors from the local network. `SITE_MOVED_REDIRECT` (default `False`): visitors from outside the local network are redirected (302) to the same page on the new server before the login; API, static files, guides and the web-app manifest are not redirected.
 - `.gitignore`: `shared_login.json`, `venv/`, `data/*.sqb-wal` / `-shm`. `update.sh`: the detached-HEAD hint names the `master` branch. `config_local.py.example`: the old-server example. README: *Running in the cloud → 4. Pointing the users to the new server*, the new settings.
 
+### System health: magnetic declination model
+- The **Calibrations** health indicator turns amber when the magnetic declination model (`pygeomag`, WMM2025) cannot be loaded and the fixed `MAG_DECLINATION` is used, or when the model is past its validity period (`collector/declination.py`: `status()`; `web/api/health.py`). Until now this showed only as a warning line at start-up — on 27 Oct the Raspberry Pi ran 5½ h without the model after becoming a systemd service (its `/usr/bin/python3` lacked the package; installed with `pip3 install --user --break-system-packages pygeomag`).
+- README: install the packages as the service's user. Statistics user guide 1.6.
+
 ### Database snapshots: gzip and download
 - Maintenance page: a snapshot can be written gzip-compressed (`.db.gz`, about half the size), and the archive files and snapshots can be downloaded from the page; old snapshots can be deleted there (`database/archive.py`, `web/app.py`, `static/js/maintenance.js`).
 
