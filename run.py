@@ -313,11 +313,88 @@ def _windshear_sweep(
             tracker.prune_stale()
             if dep_tracker is not None:
                 dep_tracker.prune(now)
+            # ramp alerts: final confirmation by the following landings (once a minute)
+            upd = tracker.confirm_pending(now)
+            if upd:
+                _write_shear_updates(upd)
             health.beat("ws_sweep")
         except Exception as exc:
             log.debug("Windshear sweep error: %s", exc)
             health.fail("ws_sweep", "windshear sweep failed")
         time.sleep(3)
+
+
+def _write_shear_updates(upd: list) -> None:
+    """Write the windshear reports [(ts, icao, report)] whose ramp-alert
+    confirmation was completed (WindshearTracker.confirm_pending) to
+    approach_history — sweep thread, its own DB connection."""
+    from database.db import get_db
+    db = get_db()
+    try:
+        db.executemany("UPDATE approach_history SET shear_json = ? WHERE ts = ? AND icao = ?",
+                       [(json.dumps(w, separators=(",", ":")), ts, icao) for ts, icao, w in upd])
+        db.commit()
+    except Exception as exc:                              # noqa: BLE001
+        log.warning("Windshear confirmation not stored: %s", exc)
+
+
+def _shear_confirm_backfill(ws_tracker) -> None:
+    """One-off at start (after _shear_backfill, same thread): the
+    confirmation of the ramp alerts by the neighbouring landings (from
+    27 Oct 2026, collector/shear.py confirmation()) for the stored landings
+    whose report has a ramp at advisory strength but no final confirmation
+    yet — older landings, and those whose window passed while the server was
+    down.  Read in time order per runway direction; updates in one batch and
+    on the landings in RAM."""
+    from database.db import get_db
+    from collector import shear as _shear
+    sl = logging.getLogger("modes.windshear")
+    try:
+        t_start = time.time()
+        db = get_db()
+        rows = db.execute("SELECT id, ts, icao, runway, shear_json FROM approach_history "
+                          "WHERE shear_json IS NOT NULL ORDER BY ts").fetchall()
+        by_dir: dict = {}
+        for r in rows:
+            try:
+                w = json.loads(r["shear_json"])
+            except ValueError:
+                continue
+            by_dir.setdefault(_shear.rwy_dir(r["runway"]), []).append((r["ts"], r["id"], r["icao"], w))
+        cut = time.time() - _shear.CONFIRM_WINDOW_SEC - 120
+        win = _shear.CONFIRM_WINDOW_SEC
+        upd, done = [], {}
+        for lst in by_dir.values():
+            for i, (ts, rid, icao, w) in enumerate(lst):
+                if ts > cut or (w.get("cf") or {}).get("fin") or _shear.alert_ramp(w)[1] is None:
+                    continue
+                j0 = i
+                while j0 > 0 and lst[j0 - 1][0] >= ts - win:
+                    j0 -= 1
+                j1 = i
+                while j1 + 1 < len(lst) and lst[j1 + 1][0] <= ts + win:
+                    j1 += 1
+                before = [x[3] for x in lst[j0:i] if x[0] < ts]
+                after = [x[3] for x in lst[i + 1:j1 + 1] if x[0] > ts]
+                cf = _shear.confirmation(w, before, after)
+                if cf:
+                    w["cf"] = cf
+                    upd.append((json.dumps(w, separators=(",", ":")), rid))
+                    done[(int(ts), icao)] = w
+        if upd:
+            db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", upd)
+            db.commit()
+            ws_tracker.attach_shear(done)
+        sl.info("Windshear alert confirmation back-filled for %d landing(s) in %.1f s",
+                len(upd), time.time() - t_start)
+    except Exception as exc:                              # noqa: BLE001
+        sl.warning("Windshear confirmation back-fill failed: %s", exc)
+
+
+def _shear_startup(ws_tracker) -> None:
+    """Startup thread: windshear report back-fill, then the confirmation back-fill."""
+    _shear_backfill(ws_tracker)
+    _shear_confirm_backfill(ws_tracker)
 
 
 def _on_departure_committed(record: dict) -> None:
@@ -349,9 +426,10 @@ def _preload_dep_refs(ws_tracker) -> None:
     from database.db import get_db
     try:
         rows = get_db().execute(
-            "SELECT ts, prof_json FROM departure_profiles "
+            "SELECT ts, prof_json, track FROM departure_profiles "
             "WHERE ts >= ? AND ga = 0 AND prof_json IS NOT NULL", (time.time() - 2700,)).fetchall()
-        ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1])} for r in rows])
+        ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1]), "ph": "dep", "hdg": r[2]}
+                                     for r in rows])
     except Exception as exc:                              # noqa: BLE001
         log.debug("Departure windshear references not loaded: %s", exc)
 
@@ -534,7 +612,8 @@ def _shear_backfill(ws_tracker) -> None:
     kept APPROACH_SERIES_DAYS) for the ramps; a landing with an older report
     keeps its ramps and gets the new band comparison.  Departures get the band
     comparison of their climb-out profile; 4 (from 26 Oct 2026) re-levels the
-    ramp advisories against the reference profile.  In time order, so each flight is
+    ramp advisories against the reference profile; 5 (from 27 Oct 2026) redoes
+    the band comparison by flight phase.  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -589,7 +668,7 @@ def _shear_backfill(ws_tracker) -> None:
                     if kind == 0:
                         rep_old = json.loads(row["shear_json"]) if row["shear_json"] else None
                         band = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_ARR),
-                                                   refs, row["rwy_heading"])
+                                                   refs, row["rwy_heading"], phase="arr")
                         rep = None
                         if rep_old is not None:
                             rep = {k: v for k, v in rep_old.items() if k != "band"}
@@ -610,7 +689,8 @@ def _shear_backfill(ws_tracker) -> None:
                             done[(int(ts), row["icao"])] = rep
                     else:
                         rwy, hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])
-                        band = (_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg)
+                        band = (_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg,
+                                                    phase="dep")
                                 if hdg is not None and prof else None)
                         rep = {"rwy": rwy, "hdg": hdg, "band": band,
                                "lvl": (band or {}).get("lvl") or "none", "v": V}
@@ -620,7 +700,10 @@ def _shear_backfill(ws_tracker) -> None:
                     sl.debug("Windshear back-fill failed at %s: %s", ts, exc)
             bv = _shear.vec_bands(prof, 1)
             if bv:
-                hist.append({"ts": ts, "bv": bv})
+                if kind == 0:
+                    hist.append({"ts": ts, "bv": bv, "ph": "arr", "hdg": row["rwy_heading"]})
+                else:
+                    hist.append({"ts": ts, "bv": bv, "ph": "dep", "hdg": row["track"]})
             if len(b_land) >= 200:
                 db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
                 db.commit()
@@ -779,7 +862,7 @@ def main() -> None:
     # the list is immediately available without waiting for the first landing.
     _preload_approach_history(ws_tracker, cfg.DB_PATH, hours=24)
     # Windshear reports (detection v2) for stored landings that have none
-    threading.Thread(target=_shear_backfill, args=(ws_tracker,),
+    threading.Thread(target=_shear_startup, args=(ws_tracker,),
                      name="shear_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
     _seed_ws_day(ws_tracker)

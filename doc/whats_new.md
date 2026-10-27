@@ -3,6 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.27102026 — Windshear alerts confirmed or isolated; departures compared fairly
+
+- **Windshear page — confirmed or isolated**: a shear layer or a front is met by every aircraft that passes it, a turbulent eddy in strong wind by just one. Each ramp alert now shows whether the other landings on the same runway within 15 minutes saw the same: **✓2** = seen by two of them, **iso** = by none (probably turbulence), **iso?** = the landings after it are not known yet. Shown in the alert log and the Approach History *WS* view (hover for the details); the alert level itself does not change.
+- **Fairer comparison of departures**: the aircraft's airspeed reads a little differently on approach and in the climb — departures showed about 3 kt more headwind than the landings at the same height, which made many departures look like a windshear advisory with "more headwind". Departures are now compared with the other departures (and landings with landings), or the difference is removed first. Fewer false departure advisories.
+- The Windshear user guide (version 1.8) explains both, with the turbulent southerly day of 26 October as an example.
+- **New: the windshear study log** (in the *User guides* tab) — how the windshear detection has developed and why: from the six first algorithms to the Hong Kong Observatory's method and each change since, with the checks of the collected data. Written for meteorologists and scientists, and kept up to date as the study goes on.
+
 ## v.26102026 — The Radarcape receiver's own status on the Statistics page; MODE-S Wind on a phone
 
 - **MODE-S Wind on your phone: `/app`** — open the address of MODE-S Wind with `/app` at the end. One picture at a time fills the screen: the **Skew-T** (now, or any stored hour), the **Time–height** section, the live **ILS approach** — the glideslope with the aircraft on final, their trails and the wind barbs of the lowest one (tap another aircraft or its strip to follow it) — or the **approach conditions and windshear** chart with the latest landings. Everything is chosen from the **☰** menu at the top left: tap a view's tile, and its options open below as tap buttons and switches; the other views' options are one tap away. Tap the diagram for the values. Use *Add to Home Screen* in the phone's browser to get a MODE-S Wind icon that opens it full screen like an app. The small **NEW · Mobile: /app** notice in the top bar is a reminder of the address (hover it for a short explanation).

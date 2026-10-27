@@ -1079,7 +1079,7 @@ function wsEventText(e, long = false) {
   const dir = e.dir === 'loss' ? 'headwind loss' : 'headwind gain';
   if (e.kind === 'band') {
     const s = `${Math.round(kt)} kt ${dir} at ${e.b} ft vs the last 45 min`;
-    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${e.n} landings and departures)` : s;
+    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${wsRefWho(e.bph, e.ph === 'dep', e.n)})` : s;
   }
   const km = (e.L / 1000).toFixed(1);
   const s = `${Math.round(kt)} kt ${dir} over ${km} km, ${e.a1}→${e.a2} ft`;
@@ -1087,6 +1087,42 @@ function wsEventText(e, long = false) {
   const f = e.fh != null ? `  ·  F (horizontal, 1 km) ${e.fh.toFixed(2)}` : '';
   const d = (e.d1 != null && e.d2 != null) ? `  ·  ${e.d1.toFixed(1)}→${e.d2.toFixed(1)} NM` : '';
   return `${s}${d}\n1-km equivalent ${e.sc} kt${f}`;
+}
+
+// Reference flights of a band comparison (from 27 Oct 2026, report version 5): the
+// flights of the same phase when there were ≥ 5 of them in the band, else all of them
+// with the landing / departure airspeed bias removed (collector/shear.py PHASE_HW_BIAS).
+function wsRefWho(ph, dep, n) {
+  if (ph === 'same') return `${n} ${dep ? 'departures' : 'landings'}`;
+  if (ph === 'all') return `${n} landings and departures, phase bias removed`;
+  return `${n} landings and departures`;
+}
+
+// ── Confirmation of ramp alerts by the neighbouring landings (from 27 Oct 2026) ──
+// Server side (collector/shear.py confirmation()): another landing on the same
+// runway direction within ±15 min had a ramp of the same sign (≥ 7 kt per 1 km)
+// within ±300 ft.  Only a label — the alert level is not changed.
+const WS_CF_RULE = 'same runway direction ±15 min, same-sign ramp ≥ 7 kt per 1 km within ±300 ft';
+/** Short tag of a report's confirmation (cf): ' ✓2', ' iso', or '' (none). */
+function wsCfTag(cf) {
+  if (!cf) return '';
+  const n = (cf.b || 0) + (cf.a || 0);
+  return n ? ` ✓${n}` : (cf.fin ? ' iso' : ' iso?');
+}
+/** One line for a tooltip: confirmed / isolated, with the counts. */
+function wsCfText(cf) {
+  if (!cf) return '';
+  const n = (cf.b || 0) + (cf.a || 0);
+  const seen = cf.fin ? `${cf.nb + cf.na} nearby landings (${cf.nb} before, ${cf.na} after)` : `${cf.nb} earlier landings (the following ones not yet known)`;
+  return n ? `Confirmed: the same ramp was seen by ${n} of ${seen} — a shear layer or front`
+           : `Isolated: not seen by ${seen} — a single aircraft, probably turbulence` +
+             (cf.fin ? '' : ' (checked again 15 min after the landing)');
+}
+/** The same for a live alert of the log (cf / cfn / cfin). */
+function wsEvCf(e) {
+  if (e.kind !== 'ramp' || e.cfn == null) return null;
+  return e.cfin ? { b: e.cf || 0, a: 0, nb: e.cfn, na: 0, fin: true, _ev: true }
+                : { b: e.cf || 0, a: null, nb: e.cfn, na: null, fin: false };
 }
 
 // ── Windshear helpers ────────────────────────────────────────────────────────
@@ -1576,10 +1612,12 @@ function renderWsLog() {
     const trend  = e.dir === 'loss' ? '▼' : '▲';
     const where  = e.kind === 'band' ? `@${e.b}ft` : `${(e.L / 1000).toFixed(1)}km`;
     const dep = e.ph === 'dep';
-    const compact = `${e._time} ${lv.short} ${e.rwy}${dep ? ' dep' : ''} ${e.delta_kt}kt${trend} ${where} ${e.cs || e.icao}`;
+    const cfe = wsEvCf(e);
+    const compact = `${e._time} ${lv.short} ${e.rwy}${dep ? ' dep' : ''} ${e.delta_kt}kt${trend} ${where} ${e.cs || e.icao}${wsCfTag(cfe)}`;
     const how = dep ? 'climb-out compared with the earlier landings and departures'
               : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
-    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsEventText(e, true)}\n(${how})\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
+    const cfLine = cfe ? '\n' + (cfe._ev ? (cfe.b ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
+    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsEventText(e, true)}\n(${how})${cfLine}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
     return `<div class="ws-log-entry-compact${sevCls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
@@ -3080,7 +3118,8 @@ function formatWsCells(e) {
   if (!w) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>'.repeat(7);
   const lv = w.lvl && w.lvl !== 'none' ? w.lvl : null;
   const lvHtml = lv
-    ? `<span class="ws-cond-badge" style="background:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</span>`
+    ? `<span class="ws-cond-badge" style="background:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</span>` +
+      (w.cf ? `<span class="ws-aphist-nil">${wsCfTag(w.cf)}</span>` : '')
     : '<span class="ws-aphist-nil">—</span>';
   const b = w.band;
   const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';
@@ -3105,7 +3144,8 @@ function _wsTitle(w) {
     ramp(w.loss, 'Strongest loss'),
     ramp(w.gain, 'Strongest gain'),
     w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}${w.fh_a != null ? ` (at ${w.fh_a} ft)` : ''}` : '',
-    b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${b.n} landings and departures)` : 'Band change: no reference flights',
+    b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${wsRefWho(b.ph, false, b.n)})` : 'Band change: no reference flights',
+    w.cf ? `${wsCfText(w.cf)} (${WS_CF_RULE})` : '',
     w.a ? `Followed ${w.a[0]}→${w.a[1]} ft, ${w.d && w.d[0] != null ? w.d[0].toFixed(1) : '?'}→${w.d && w.d[1] != null ? w.d[1].toFixed(1) : '?'} NM · ${w.n} replies, noise ±${w.noise != null ? w.noise : '?'} kt` : '',
     'Ramps: headwind = TAS − GS of each BDS 5,0 reply · band change: the heading-calibrated band winds against all flights of the last 45 min (detection v2)',
   ].filter(Boolean).join('\n');

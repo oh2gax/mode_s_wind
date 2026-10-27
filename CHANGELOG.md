@@ -7,6 +7,26 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.27102026 — 2026-10-27 (windshear: ramp alerts confirmed / isolated by the nearby landings; band comparison by flight phase)
+
+### Windshear: confirmation of ramp alerts
+- Each ramp alert is labelled **confirmed** when another landing on the same runway direction within ±15 min had a ramp of the same sign (≥ 7 kt per 1 km) whose middle lies within ±300 ft, **isolated** when none had (`collector/shear.py`: `CONFIRM_WINDOW_SEC`, `CONFIRM_ALT_FT`, `CONFIRM_MIN_SC`, `rwy_dir`, `alert_ramp`, `confirm_count`, `confirmation`). Label only — the alert level is unchanged.
+- Live alerts carry `cf` / `cfn` (landings before; also in the log line); the stored report gets `cf` at the landing and is checked again 17 min after it with the following landings (`collector/windshear.py`: `_neighbours`, `confirm_pending`; the sweep writes the updated report to `approach_history`, `_write_shear_updates` in `run.py`); the alert-log entries get the final count. Startup: `_shear_confirm_backfill` labels the stored landings without a final confirmation (after the report back-fill, same thread).
+- Windshear page: `✓n` / `iso` / `iso?` after the level in the alert log and the Approach History *WS* view, with the explanation in the hover; the ACI + WS view (also `/app`) adds it to its hover text (`static/js/windshear.js`, `static/js/ws_cond_chart.js`).
+- Background: 26 Oct 2026, a turbulent southerly day (ACI median 4.2): one real shear layer (22L, 13:08 UTC, confirmed by 4 landings) among 12 ramp alerts, most of them single-aircraft eddies. Of 36 ramp-flagged landings since 9 Oct, 25 confirmed and 11 isolated.
+- Windshear user guide 1.7 (confirmation, the case of 26 Oct, limitations).
+
+### Windshear: band comparison by flight phase (report version 5)
+- Landings read about 1.45 kt less and departures about 1.38 kt more headwind along their own direction than MEPS at 600–1 800 ft (9–26 Oct, every runway direction, largest in steady flight) — an airspeed effect of the flight phase, not real wind. Mixed, a departure started about 3 kt high against the landings.
+- `band_anomaly(…, phase)`: each flight is compared with the flights of its own phase when a band has at least `PHASE_MIN_REF` (5) of them, otherwise with all of them, every reference and the flight itself corrected by `PHASE_HW_BIAS` along its own direction (`collector/shear.py`; `vec_refs` returns `Ref` dicts with `.ph` / `.hdg`; `REPORT_V` 5; the band in the report gets `ph` `same` / `all`). `collector/windshear.py` passes the phase (landings live and stored, departures) and keeps the departures' direction in the references; `run.py` likewise in the back-fill and when loading the departures of the last 45 min at startup. The back-fill recomputes the band comparison of all stored flights once.
+- Windshear page: the hover names the references (landings, departures, or all with the phase bias removed; `static/js/windshear.js`).
+- Replay 9–27 Oct: mean departure change +1.6 → −0.3 kt; departure flags 27 more / 9 less headwind → 19 / 16; landing levels unchanged; the five departure advisories of 26–27 Oct → 2. Windshear user guide 1.8.
+
+### Documentation: windshear study log
+- New `doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf` (version 1.0, 11 pp): a living study log of the windshear detection for aviation meteorologists and atmospheric scientists — the six browser algorithms and why they were abandoned for the Hong Kong Observatory's headwind-ramp method, then each change of v2–v5 and the confirmation label with its reason, evidence and replay, the dated log of the database checks, results so far, current parameters and next steps. Listed in `doc/guides.md` (User guides tab); updated with every later change of the method or check of the data.
+
+---
+
 ## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar; mobile view /app with the ILS approach)
 
 ### Radarcape receiver status

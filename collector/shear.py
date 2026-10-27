@@ -44,6 +44,10 @@ direction in the previous 45 minutes (land 15 / depart 22R).  Replay 9–24 Oct
 them the wind change of 17 Oct (a departure ten minutes before the landings)
 and a departure at 04:42 UTC on 24 Oct during the night-time frontal passage.
 
+confirmation() (from 27 Oct 2026) labels a ramp alert confirmed or isolated
+by the other landings on the same runway direction within ±15 min (a label
+only, see CONFIRM_WINDOW_SEC).
+
 Pure Python, no I/O.  Used live by collector/windshear.py for each aircraft on
 final (every sweep) and once per landing for the stored windshear report.
 """
@@ -97,8 +101,22 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 4                  # report version (3: band comparison on the wind vector,
-                              #     4: ramp advisories relative to the reference profile)
+REPORT_V = 5                  # report version (3: band comparison on the wind vector,
+                              #     4: ramp advisories relative to the reference profile,
+                              #     5: band comparison by flight phase, see PHASE_HW_BIAS)
+
+# Band comparison by flight phase (from 27 Oct 2026, REPORT_V 5).  Against the
+# MEPS model (area mean, model levels, 600–1 800 ft, 9–26 Oct 2026) the band
+# winds of the landings read 1.45 kt less and those of the departures 1.38 kt
+# more headwind along the flight's own direction (9 439 / 6 789 bands, every
+# runway direction, largest in steady flight) — an airspeed effect of the
+# flight phase, not a real wind difference.  So a flight is compared with the
+# flights of its own phase when there are at least PHASE_MIN_REF (5) of them in the
+# band (landings with landings, departures with departures); otherwise with
+# all of them, each reference vector and the flight's own headwind first
+# corrected by its phase's bias along its own direction.
+PHASE_HW_BIAS = {"arr": -1.45, "dep": +1.38}   # kt, measured − true headwind along the own direction
+PHASE_MIN_REF = 5             # same-phase references needed in a band to use them alone
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -374,8 +392,11 @@ def vec_bands(prof: dict | None, min_n: int = VEC_MIN_N_ARR, max_band: float = B
 
 def vec_refs(history: list, ts: float) -> list:
     """Band wind vectors ({band: (u, v, n)}) of the flights in history (records
-    with "ts" and "prof"; landings and departures, any runway) within
-    BAND_WINDOW_SEC before ts."""
+    with "ts" and "prof" or "bv"; landings and departures, any runway) within
+    BAND_WINDOW_SEC before ts.  Each is a Ref (a dict) that also carries the
+    flight's phase .ph ("arr" — the default, a record with "ph": "dep" is a
+    departure) and direction .hdg (° true: "hdg", else "rwy_heading"; None
+    when not known)."""
     out = []
     for e in history:
         t = e.get("ts") or 0
@@ -385,8 +406,19 @@ def vec_refs(history: list, ts: float) -> list:
         if bv is None:
             bv = vec_bands(e.get("prof"), 1)
         if bv:
-            out.append(bv)
+            r = Ref(bv)
+            r.ph = e.get("ph") or "arr"
+            h = e.get("hdg")
+            r.hdg = h if h is not None else e.get("rwy_heading")
+            out.append(r)
     return out
+
+
+class Ref(dict):
+    """Band wind vectors of one reference flight ({band: (u, v, n)}) with its
+    phase .ph ("arr" / "dep") and direction .hdg (° true or None)."""
+    ph = "arr"
+    hdg = None
 
 
 def _median(v: list) -> float:
@@ -395,30 +427,57 @@ def _median(v: list) -> float:
     return v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2])
 
 
-def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT) -> dict | None:
+def _ref_vec(r, b: int, corr: bool):
+    """(u, v) of reference r in band b, corrected by its phase's headwind bias
+    along its own direction when corr (w_true = w_measured + bias · d)."""
+    u, v, _n = r[b]
+    rb, rh = PHASE_HW_BIAS.get(getattr(r, "ph", None)), getattr(r, "hdg", None)
+    if corr and rb is not None and rh is not None:
+        hr = math.radians(rh)
+        u, v = u + rb * math.sin(hr), v + rb * math.cos(hr)
+    return u, v
+
+
+def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT,
+                 phase: str | None = None) -> dict | None:
     """Largest change of this flight's band wind from the median wind of the
-    reference flights (list of {band: (u, v, n)}), as the headwind component
-    along `heading` (the flight's direction, ° true; + = more headwind than
-    before).  Bands with fewer than BAND_MIN_REF references are skipped.
+    reference flights (list of {band: (u, v, n)}, Refs from vec_refs), as the
+    headwind component along `heading` (the flight's direction, ° true; + =
+    more headwind than before).  Bands with fewer than BAND_MIN_REF references
+    are skipped.  phase ("arr" / "dep", from REPORT_V 5): the flights of the
+    same phase are used when a band has at least PHASE_MIN_REF of them, else all;
+    references and the flight itself corrected by PHASE_HW_BIAS (None: all
+    references, uncorrected — as before 27 Oct 2026).
     {"b": band ft, "a": kt, "ref": the references' headwind kt, "n": references,
-     "np": wind pairs of the band, "dv": vector change kt, "lvl": level}.
+     "np": wind pairs of the band, "dv": vector change kt, "ph": "same" / "all"
+     (with phase), "lvl": level}.
     A band resting on a single wind pair gets a level only when a neighbouring
     band (± 200 ft) shows a change of at least BAND_ADVISORY the same way."""
     if heading is None:
         return None
     hr = math.radians(heading)
     ex, ey = math.sin(hr), math.cos(hr)
+    own_b = PHASE_HW_BIAS.get(phase, 0.0) if phase else 0.0
     per = {}
     for b, (u, v, n) in bands.items():
         if b > max_band:
             continue
-        rs = [r[b] for r in refs if b in r]
-        if len(rs) < BAND_MIN_REF:
+        allr = [r for r in refs if b in r]
+        use, mode = allr, "all"
+        if phase:
+            same = [r for r in allr if getattr(r, "ph", "arr") == phase]
+            if len(same) >= PHASE_MIN_REF:
+                use, mode = same, "same"
+        if len(use) < BAND_MIN_REF:
             continue
+        rs = [_ref_vec(r, b, bool(phase)) for r in use]
         mu, mv = _median([x[0] for x in rs]), _median([x[1] for x in rs])
-        hw, hw0 = -(u * ex + v * ey), -(mu * ex + mv * ey)
+        uc, vc = u + own_b * ex, v + own_b * ey          # own vector corrected the same way
+        hw, hw0 = -(uc * ex + vc * ey), -(mu * ex + mv * ey)
         per[b] = {"b": b, "a": round(hw - hw0, 1), "ref": round(hw0, 1), "n": len(rs), "np": n,
-                  "dv": round(math.hypot(u - mu, v - mv), 1)}
+                  "dv": round(math.hypot(uc - mu, vc - mv), 1)}
+        if phase:
+            per[b]["ph"] = mode
     if not per:
         return None
     best = max(per.values(), key=lambda x: abs(x["a"]))
@@ -499,6 +558,76 @@ def ramps_level(rep: dict | None, refs: list | None, heading) -> str:
         if c and c.get("zone"):
             lv = max(lv, ramp_rel_level(c, loss, ref_hw), key=LEVELS.index)
     return lv
+
+
+# ── Confirmation of ramp alerts by the neighbouring landings (from 27 Oct 2026) ──
+# A ramp alert is "confirmed" when another landing on the same runway direction
+# within ±CONFIRM_WINDOW_SEC had a ramp of the same sign (loss / gain) of at
+# least CONFIRM_MIN_SC kt per 1 km whose middle lies within ±CONFIRM_ALT_FT of
+# this one's — a shear layer or a front shows to several aircraft, a turbulent
+# eddy (strong wind over land) to one.  Only a label: the alert level is not
+# changed (the first aircraft into a new shear is always alone at that moment).
+# 26 Oct 2026, a turbulent southerly day (ACI median 4.2): of 36 ramp-flagged
+# landings since 9 Oct, 12 had no confirming neighbour; the shear layer at
+# 1 150–1 350 ft on 22L at 13:08 UTC was confirmed by 4.
+CONFIRM_WINDOW_SEC = 15 * 60
+CONFIRM_ALT_FT = 300.0
+CONFIRM_MIN_SC = 7.0
+
+
+def rwy_dir(runway) -> str:
+    """Runway direction of a designator: '04L' / '04R' → '04', '15' → '15'."""
+    s = str(runway or "")
+    return s[:2] if s[:2].isdigit() else s
+
+
+def _ramp_mid(c: dict | None):
+    if not c or c.get("a1") is None or c.get("a2") is None:
+        return None
+    return 0.5 * (c["a1"] + c["a2"])
+
+
+def alert_ramp(rep: dict | None):
+    """(kind, ramp) of the strongest ramp of a report or analysis in the
+    low-level zone at advisory strength or more, or (None, None)."""
+    best = (None, None)
+    for k in ("loss", "gain"):
+        c = (rep or {}).get(k)
+        if c and c.get("zone") and (c.get("sc") or 0) >= LEVEL_ADVISORY:
+            if best[1] is None or c["sc"] > best[1]["sc"]:
+                best = (k, c)
+    return best
+
+
+def confirm_count(kind: str, c: dict, others: list) -> int:
+    """Number of other landings (their windshear reports) with a ramp of the
+    same kind, ≥ CONFIRM_MIN_SC kt per 1 km, middle within ±CONFIRM_ALT_FT."""
+    m = _ramp_mid(c)
+    if m is None:
+        return 0
+    n = 0
+    for o in others:
+        oc = (o or {}).get(kind)
+        om = _ramp_mid(oc)
+        if om is not None and (oc.get("sc") or 0) >= CONFIRM_MIN_SC and abs(om - m) <= CONFIRM_ALT_FT:
+            n += 1
+    return n
+
+
+def confirmation(rep: dict | None, before: list, after: list | None = None) -> dict | None:
+    """Confirmation of a report's ramp alert: {"k": kind, "b": confirming
+    landings before, "nb": landings before checked, "a" / "na": the same after
+    (None until the following window has passed), "fin": final}.  before /
+    after: the reports of the landings on the same runway direction within
+    CONFIRM_WINDOW_SEC.  None when the report has no ramp at advisory level."""
+    kind, c = alert_ramp(rep)
+    if c is None:
+        return None
+    out = {"k": kind, "b": confirm_count(kind, c, before), "nb": len(before),
+           "a": None, "na": None, "fin": False}
+    if after is not None:
+        out.update({"a": confirm_count(kind, c, after), "na": len(after), "fin": True})
+    return out
 
 
 def _r0(v):

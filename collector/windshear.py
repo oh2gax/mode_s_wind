@@ -169,6 +169,8 @@ WS_CONFIRM           = 2       # found in this many consecutive analyses before 
 WS_HOLD_SEC          = 600.0   # an alert stays active this long after it was last seen
 WS_LOG_MAX           = 100     # alert log entries kept (newest first)
 WS_LOG_MAX_AGE       = 24 * 3600.0
+CONFIRM_RECHECK_SEC  = 60.0    # how often the landings' ramp alerts are checked against the following ones
+CONFIRM_DELAY_SEC    = 120.0   # … once the confirmation window (shear.CONFIRM_WINDOW_SEC) and this have passed
 DEP_RWY_TRACK_TOL    = 25.0    # ° — a climb-out's initial track vs the runway direction
 DEP_RWY_MAX_XT_NM    = 1.0     # first position at most this far from the runway's extended centreline
 
@@ -466,6 +468,7 @@ class WindshearTracker:
         self._ws_active: dict[str, dict] = {}
         self._ws_hits:   dict[str, int]  = {}
         self._ws_log:    list[dict]      = []
+        self._cf_last:   float           = 0.0   # last confirm_pending() run
         self._ws_seen_n: dict[str, int]  = {}
         # departures in the band comparison: their hit counts and the band
         # winds of the climb-outs of the last 45 min ({"ts", "prof"} records,
@@ -1304,6 +1307,11 @@ class WindshearTracker:
         }
         # Windshear report of the landing (from 2026-10-24, collector/shear.py)
         record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts)
+        if record["shear"]:
+            # confirmation of a ramp alert by the earlier landings (final after the following ones)
+            cf = _shear.confirmation(record["shear"], self._neighbours(ts, rwy, before=True))
+            if cf:
+                record["shear"]["cf"] = cf
         self._day_add("arr", record["shear"], record["callsign"], ts)
         # Raw reply series for approach_series (DB only, not kept in RAM)
         series = self._series_blob(rough, record)
@@ -1840,7 +1848,7 @@ class WindshearTracker:
                         if lv != "none":
                             found.append(("ramp", d, lv, c))
                 ba = _shear.band_anomaly(_shear.vec_bands(self._prof_record(r), _shear.VEC_MIN_N_ARR),
-                                         refs, hdg)
+                                         refs, hdg, phase="arr")
                 if ba and ba["lvl"] != "none":
                     found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
         except Exception as exc:                          # noqa: BLE001
@@ -1868,9 +1876,12 @@ class WindshearTracker:
             if kind == "ramp":
                 ev.update({k: c.get(k) for k in ("dv", "sc", "L", "a1", "a2", "d1", "d2")})
                 ev["fh"] = (a or {}).get("fh")
+                # seen by the landings of the last 15 min on this runway direction? (label only)
+                nb = self._neighbours(now, runway, before=True)
+                ev["cf"], ev["cfn"] = _shear.confirm_count(d, c, nb), len(nb)
             else:
                 ev.update({"b": c["b"], "a": c["a"], "ref": c["ref"], "n": c["n"],
-                           "np": c.get("np"), "dv": c.get("dv"),
+                           "np": c.get("np"), "dv": c.get("dv"), "bph": c.get("ph"),
                            "a1": c["b"] + 100, "a2": c["b"] - 100,
                            "sc": abs(c["a"])})
             cur = self._ws_active.get(key)
@@ -1939,7 +1950,7 @@ class WindshearTracker:
             ba = None
             if hdg is not None and prof:
                 ba = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
-                                         self._band_refs(now), hdg)
+                                         self._band_refs(now), hdg, phase="dep")
             if not final:
                 found = []
                 if ba and ba["lvl"] != "none":
@@ -1950,7 +1961,8 @@ class WindshearTracker:
             for key in [k for k in self._ws_dep_hits if k.startswith(f"{icao}:dep:")]:
                 del self._ws_dep_hits[key]
             if prof:                         # every climb-out is a reference (also off the runway axes)
-                self._dep_refs.append({"ts": now, "prof": prof})
+                self._dep_refs.append({"ts": now, "prof": prof, "ph": "dep",
+                                       "hdg": hdg if hdg is not None else st.get("track")})
             self._ws_dep_an_ts.pop(icao, None)
             rep = {"rwy": rwy, "hdg": hdg, "band": ba,
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
@@ -2083,7 +2095,8 @@ class WindshearTracker:
 
     def preload_dep_refs(self, records: list) -> None:
         """Departures of the last 45 min from the DB at startup:
-        [{"ts", "prof": prof_json}] — references of the band comparison."""
+        [{"ts", "prof": prof_json, "ph": "dep", "hdg": initial track}] —
+        references of the band comparison."""
         with self._lock:
             self._dep_refs = sorted((r for r in records if r.get("prof")), key=lambda e: e["ts"])
 
@@ -2093,13 +2106,60 @@ class WindshearTracker:
         self._ws_log.insert(0, e)
         del self._ws_log[WS_LOG_MAX:]
         if ev["kind"] == "ramp":
-            log.info("Windshear %s: %s (%s) RWY %s %+.0f kt over %d m (%.0f kt per 1 km) %s→%s ft",
+            log.info("Windshear %s: %s (%s) RWY %s %+.0f kt over %d m (%.0f kt per 1 km) %s→%s ft "
+                     "(seen by %s of %s earlier landings)",
                      ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["dv"], ev["L"],
-                     ev["sc"], ev.get("a1"), ev.get("a2"))
+                     ev["sc"], ev.get("a1"), ev.get("a2"), ev.get("cf", 0), ev.get("cfn", 0))
         else:
             log.info("Windshear %s: %s (%s) RWY %s%s headwind %+.0f kt at %d ft vs the last 45 min (%d flights)",
                      ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"],
                      " departure" if ev.get("ph") == "dep" else "", ev["a"], ev["b"], ev["n"])
+
+    def _neighbours(self, ts: float, runway: str | None, before: bool) -> list:
+        """Windshear reports of the landings on the same runway direction within
+        shear.CONFIRM_WINDOW_SEC before (or after) ts (lock held)."""
+        d = _shear.rwy_dir(runway)
+        w = _shear.CONFIRM_WINDOW_SEC
+        out = []
+        for e in self._approach_history:
+            t = e.get("ts") or 0
+            if not e.get("shear") or _shear.rwy_dir(e.get("runway")) != d:
+                continue
+            if (ts - w <= t < ts) if before else (ts < t <= ts + w):
+                out.append(e["shear"])
+        return out
+
+    def confirm_pending(self, now: float | None = None) -> list:
+        """Final confirmation of the landings' ramp alerts once the following
+        landings are known (called from the sweep; runs every
+        CONFIRM_RECHECK_SEC).  Updates the reports in RAM and the matching
+        entries of the alert log; returns [(ts, icao, report)] to be written
+        to approach_history.shear_json."""
+        now = time.time() if now is None else now
+        if now - self._cf_last < CONFIRM_RECHECK_SEC:
+            return []
+        self._cf_last = now
+        done = []
+        with self._lock:
+            for e in self._approach_history:
+                w, ts = e.get("shear"), e.get("ts") or 0
+                if not w or not w.get("cf") or w["cf"].get("fin"):
+                    continue
+                if now - ts < _shear.CONFIRM_WINDOW_SEC + CONFIRM_DELAY_SEC:
+                    continue
+                cf = _shear.confirmation(w, self._neighbours(ts, e.get("runway"), True),
+                                         self._neighbours(ts, e.get("runway"), False))
+                if not cf:
+                    continue
+                w["cf"] = cf
+                done.append((ts, e.get("icao"), w))
+                # the live alerts of this approach (logged up to 15 min before the landing)
+                for le in self._ws_log:
+                    if (le.get("icao") == e.get("icao") and le.get("kind") == "ramp"
+                            and le.get("ph", "arr") == "arr" and ts - 900 <= (le.get("ts") or 0) <= ts + 60):
+                        le["cf"], le["cfn"] = cf["b"] + cf["a"], cf["nb"] + cf["na"]
+                        le["cfin"] = True
+        return done
 
     def _shear_report(self, rough: dict | None, runway: str | None,
                       heading, ts: float) -> dict | None:
@@ -2109,7 +2169,7 @@ class WindshearTracker:
             a = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
             refs = self._band_refs(ts)
             band = _shear.band_anomaly(_shear.vec_bands(self._prof_record(rough), _shear.VEC_MIN_N_ARR),
-                                       refs, heading)
+                                       refs, heading, phase="arr")
             return _shear.report(a, band, refs, heading)
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)

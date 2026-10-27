@@ -81,6 +81,11 @@ const WsCondChart = (() => {
     if (w.gain) parts.push(`gain ramp ${w.gain.sc} kt/1 km`);
     if (w.fh != null) parts.push(`F ${w.fh.toFixed(2)}`);
     const lv = _wsStrongLv(w);
+    // confirmation of a ramp alert by the neighbouring landings (from 27 Oct 2026)
+    if (lv && w.cf) {
+      const n = (w.cf.b || 0) + (w.cf.a || 0);
+      parts.push(n ? `confirmed by ${n} landing${n > 1 ? 's' : ''}` : `isolated${w.cf.fin ? '' : ' so far'} (turbulence?)`);
+    }
     return (lv ? WS_LEVEL[lv].short + ' · ' : '') + (parts.join(' · ') || 'nothing above the noise');
   }
 
