@@ -328,6 +328,21 @@ CREATE TABLE IF NOT EXISTS approach_series (
 );
 CREATE INDEX IF NOT EXISTS idx_apser_ts ON approach_series(ts);
 
+-- ── departure_series ──────────────────────────────────────────────────────────
+-- Raw reply series of each climb-out (research data, from 2026-10-27): the
+-- BDS 5,0 / 6,0 replies, the ADS-B velocity messages and the sweeps of the
+-- climb, same format as approach_series ("sw" dthr = distance from the airport
+-- NM); for the trial headwind ramps of the departures.  Same ts / icao as the
+-- departure_profiles row.  ~1–3 kB per departure; kept APPROACH_SERIES_DAYS.
+CREATE TABLE IF NOT EXISTS departure_series (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      REAL    NOT NULL,
+    icao    TEXT    NOT NULL,
+    runway  TEXT,
+    data    BLOB    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_depser_ts ON departure_series(ts);
+
 -- ── height_series ─────────────────────────────────────────────────────────────
 -- Dense pressure-altitude / GNSS − baro series per aircraft visit (research
 -- data, from 2026-10-20; collector/height_series.py): a row whenever the

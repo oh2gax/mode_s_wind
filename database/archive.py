@@ -80,6 +80,7 @@ DAY = 86_400.0
 ARCHIVABLE = {
     "observations":       "ts",
     "approach_series":    "ts",
+    "departure_series":   "ts",
     "departure_profiles": "ts",
     "height_series":      "ts",
     "gnss_hours":         "ts",

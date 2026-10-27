@@ -66,6 +66,7 @@ async function loadStats() {
     if (d.kinematics_hours) _fill('stat-kinh', d.kinematics_hours);
     if (d.gnss_hours) _fill('stat-gnssh', d.gnss_hours);
     if (d.departure_profiles) _fill('stat-depprof', d.departure_profiles);
+    if (d.departure_series) _fill('stat-depseries', d.departure_series);
     if (d.height_series) _fill('stat-hseries', d.height_series);
     if (d.msg_stats_hours) _fill('stat-msgstats', d.msg_stats_hours);
     const sizeEl = document.getElementById('stat-dbsize-val');

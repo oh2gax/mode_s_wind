@@ -134,7 +134,8 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         2026-10-11, for the Sounding page's ground line and parcel analysis).
         At startup hours missing within the observations still in the
         database are back-filled (slowly, in the background).
-      • Retention: approach_series rows older than APPROACH_SERIES_DAYS,
+      • Retention: approach_series and departure_series (from 2026-10-27)
+        rows older than APPROACH_SERIES_DAYS,
         departure_profiles rows older than DEPARTURE_PROFILE_DAYS (default 90
         each) and height_series rows older than HEIGHT_SERIES_DAYS (default
         30) are deleted once a day — archived first when "Archive before
@@ -236,6 +237,7 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 # first copied to the monthly archive files (skipped on error)
                 from database import archive as _arc
                 for table, days in (("approach_series", series_days),
+                                    ("departure_series", series_days),
                                     ("departure_profiles", dep_days),
                                     ("height_series", hser_days),
                                     ("gnss_hours", gnss_days)):
@@ -418,6 +420,11 @@ def _on_departure_committed(record: dict) -> None:
              1 if record.get("ga") else 0,
              json.dumps(record["prof"], separators=(",", ":")),
              json.dumps(record["shear"], separators=(",", ":")) if record.get("shear") else None))
+        # raw climb-out series (research data, from 2026-10-27; retention
+        # APPROACH_SERIES_DAYS like the approach series) — same transaction
+        if record.get("series"):
+            db.execute("INSERT INTO departure_series (ts, icao, runway, data) VALUES (?,?,?,?)",
+                       (record["ts"], record["icao"], record.get("runway"), record["series"]))
         db.commit()
     except Exception as exc:
         log.warning("departure_profiles DB write failed: %s", exc)
@@ -699,6 +706,12 @@ def _shear_backfill(ws_tracker) -> None:
                                 if hdg is not None and prof else None)
                         rep = {"rwy": rwy, "hdg": hdg, "band": band,
                                "lvl": (band or {}).get("lvl") or "none", "v": V}
+                        try:            # keep the trial ramps of the climb (from 27 Oct 2026)
+                            tr = (json.loads(row["shear_json"]) or {}).get("trial") if row["shear_json"] else None
+                        except ValueError:
+                            tr = None
+                        if tr:
+                            rep["trial"] = tr
                         b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                         n_dep += 1
                 except Exception as exc:            # noqa: BLE001
@@ -906,6 +919,8 @@ def main() -> None:
             mag_declination=cfg.MAG_DECLINATION,
             # windshear band comparison of the climb-outs (detection v2)
             shear_fn=ws_tracker.dep_shear,
+            # ADS-B ground speed for the raw climb-out series (from 2026-10-27)
+            vel_sample_fn=get_vel_samples,
         )
 
     ws_thread = threading.Thread(

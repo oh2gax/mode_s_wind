@@ -1471,7 +1471,7 @@ document.getElementById('ws-windrose-btn').addEventListener('click', () => {
     // Re-sync the server windrose buffer immediately on open so the panel
     // always shows the freshest available data (mirrors the periodic 60 s poll).
     fetchWindroseObs().then(drawWindrose);
-    if (wrView === 'cond' || wrView === 'ws') fetchCondData();
+    if (wrIsChart()) fetchCondData();
   }
 });
 
@@ -1860,10 +1860,12 @@ const WINDROSE_MAX_AGE_MS    = 30 * 60 * 1000;     // 30-minute window for main 
 const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist trend arrows
 
 let windroseEnabled      = true;   // shown by default
-let wrView               = ['cond', 'ws'].includes(localStorage.getItem('ms_ws_wr_view'))
+let wrView               = ['cond', 'ws', 'st'].includes(localStorage.getItem('ms_ws_wr_view'))
                            ? localStorage.getItem('ms_ws_wr_view')
                            : (localStorage.getItem('ms_ws_wr_view') === 'rose' ? 'rose' : 'cond');
-                           // 'rose' | 'cond' | 'ws' (ACI + windshear); first visit: ACI (from 27 Oct 2026)
+                           // 'rose' | 'cond' | 'ws' (ACI + windshear) | 'st' (space–time, from 27 Oct 2026); first visit: ACI
+const wrIsChart = () => wrView === 'cond' || wrView === 'ws' || wrView === 'st';   // the views with the range button
+let wrStData             = null;   // /api/windshear/spacetime answer (ST view)
 const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
 let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
                            ? Number(localStorage.getItem('ms_ws_wr_cond_h')) : 12;   // Cond chart range (first visit 12 h)
@@ -1921,7 +1923,7 @@ function drawWindrose() {
   const readout = document.getElementById('ws-windrose-readout');
   if (!canvas || !windroseEnabled) return;
   sizeWindroseCanvas();
-  if (wrView === 'cond' || wrView === 'ws') { drawCondChart(); return; }
+  if (wrIsChart()) { drawCondChart(); return; }
 
   const ctx = canvas.getContext('2d');
   const W   = canvas.width;
@@ -2217,7 +2219,7 @@ function sizeWindroseCanvas() {
   if (!canvas) return;
   let w = WR_ROSE_SIZE;
   let h = WR_ROSE_SIZE;
-  if (wrView === 'ws') {
+  if (wrView === 'ws' || wrView === 'st') {
     // room between the panel and the map's bottom edge (map attribution: 22 px)
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
@@ -2227,7 +2229,7 @@ function sizeWindroseCanvas() {
     }
   }
   if (Math.abs(canvas.height - h) > 4 || h === WR_ROSE_SIZE) { if (canvas.height !== h) canvas.height = h; }
-  if (wrView === 'cond' || wrView === 'ws') {
+  if (wrIsChart()) {
     const ctrl = document.querySelector('.ws-map-controls');
     // panel = canvas + 2 × 5 px padding + 2 × 1 px border
     if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, ctrl.offsetWidth - 12);
@@ -2240,6 +2242,7 @@ window.addEventListener('resize', () => { if (windroseEnabled) drawWindrose(); }
 const wrRangeLabel = h => (h === 24 ? '1d' : `${h}h`);
 
 async function fetchCondData() {
+  if (wrView === 'st') return fetchSpaceTime();
   try {
     const win = wrCondHours * 3600;
     const [r, rd] = await Promise.all([
@@ -2251,7 +2254,7 @@ async function fetchCondData() {
     wrCondEntries   = rows.filter(e => e.cond && e.cond.idx != null);
     if (rd && rd.ok) wrDepEntries = await rd.json();
     wrCondFetchedMs = Date.now();
-    if (windroseEnabled && (wrView === 'cond' || wrView === 'ws')) drawWindrose();
+    if (windroseEnabled && wrIsChart()) drawWindrose();
   } catch (_) { /* silent */ }
 }
 
@@ -2260,9 +2263,25 @@ async function fetchCondData() {
  * (static/js/ws_cond_chart.js, shared with the mobile view /app from
  * 2026-10-26); the dots it returns feed the hover tooltip.
  */
+// ST view (from 27 Oct 2026): the space–time diagram of the band changes
+async function fetchSpaceTime() {
+  try {
+    const r = await fetch(`/api/windshear/spacetime?hours=${wrCondHours}`);
+    if (!r.ok) return;
+    wrStData = await r.json();
+    wrCondFetchedMs = Date.now();
+    if (windroseEnabled && wrView === 'st') drawWindrose();
+  } catch (_) { /* silent */ }
+}
+
 function drawCondChart() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
+  if (wrView === 'st') {
+    wrHistDots = WsCondChart.drawSpaceTime(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
+      st: wrStData, hours: wrCondHours, fetchedMs: wrStData ? wrCondFetchedMs : 0 });
+    return;
+  }
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
     aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
     hours: wrCondHours, withWs: wrView === 'ws', fetchedMs: wrCondFetchedMs });
@@ -2274,7 +2293,7 @@ function _syncWrViewBtns() {
   const histBtn  = document.getElementById('ws-windrose-hist-btn');
   const histBdg  = document.getElementById('ws-windrose-hist-badge');
   const rangeBtn = document.getElementById('ws-wr-range-btn');
-  const chart = wrView === 'cond' || wrView === 'ws';
+  const chart = wrIsChart();
   if (histBtn)  histBtn.style.display  = chart ? 'none' : '';
   if (histBdg)  histBdg.style.display  = chart ? 'none' : '';
   if (rangeBtn) {
@@ -2287,7 +2306,7 @@ document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
     wrView = btn.dataset.view;
     localStorage.setItem('ms_ws_wr_view', wrView);
     _syncWrViewBtns();
-    if (wrView === 'cond' || wrView === 'ws') fetchCondData();
+    if (wrIsChart()) fetchCondData();
     drawWindrose();
   });
 });
@@ -2836,6 +2855,9 @@ let approachHistoryEnabled = (() => {
 })();
 let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond' | 'ws'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
+// Landings or departures (from 27 Oct 2026; remembered per browser)
+let aphKind                = (() => { try { return localStorage.getItem('ms_ws_aphist_kind') === 'dep' ? 'dep' : 'arr'; }
+                                      catch (_) { return 'arr'; } })();
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
 let aphHistDateMode        = false;   // true when a specific date is selected
 let aphHistDate            = '';      // YYYY-MM-DD selected by the user
@@ -2912,6 +2934,26 @@ document.getElementById('ws-aphist-btn').addEventListener('click', () => {
 // Restore the panel on page load
 document.getElementById('ws-aphist-btn').classList.toggle('active', approachHistoryEnabled);
 document.getElementById('ws-aphist-panel').classList.toggle('ws-aphist-hidden', !approachHistoryEnabled);
+
+// Landings / Departures (from 27 Oct 2026): the departures with their band winds
+// and windshear report — band comparison, and the trial ramps along the climb
+function _syncAphKindBtns() {
+  document.querySelectorAll('.ws-aphist-kind-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.kind === aphKind));
+}
+document.querySelectorAll('.ws-aphist-kind-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (aphKind === btn.dataset.kind) return;
+    aphKind = btn.dataset.kind;
+    try { localStorage.setItem('ms_ws_aphist_kind', aphKind); } catch (_) {}
+    _syncAphKindBtns();
+    _aphLastEntries = null;
+    const tbody = document.getElementById('ws-aphist-table-body');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">Loading…</td></tr>`;
+    if (approachHistoryEnabled) fetchApproachHistory();
+  });
+});
+_syncAphKindBtns();
 
 document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
   approachHistoryMode = e.target.value;
@@ -3176,6 +3218,7 @@ function _wsRamp(r, loss) {
                  r.zone ? _wsLvOfSc(r.sc, loss) : null);
 }
 function formatWsCells(e) {
+  if (aphKind === 'dep') return formatDepWsCells(e);
   const w = e.shear;
   if (!w) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>'.repeat(7);
   const lv = w.lvl && w.lvl !== 'none' ? w.lvl : null;
@@ -3192,6 +3235,56 @@ function formatWsCells(e) {
     `<td class="ws-aphist-cell">${w.a && w.a[1] != null ? w.a[1] : '—'}</td>` +
     `<td class="ws-aphist-cell">${w.n}${w.noise != null ? `<span class="ws-aphist-nil"> ±${w.noise.toFixed(1)}</span>` : ''}</td>`;
 }
+/** WS columns of a departure (from 27 Oct 2026): the level of the band
+ *  comparison, the TRIAL ramps along the climb (italic; their colour is the
+ *  level they would have — no alert is raised), F, band change, lowest height
+ *  followed and the replies of the trial analysis. */
+function formatDepWsCells(e) {
+  const w = e.shear;
+  if (!w) return '<td class="ws-aphist-cell ws-aphist-nil">—</td>'.repeat(7);
+  const lv = w.lvl && w.lvl !== 'none' ? w.lvl : null;
+  const t = w.trial || null;
+  const tl = t && t.lvl && t.lvl !== 'none' ? t.lvl : null;
+  const lvHtml = (lv ? `<span class="ws-cond-badge" style="background:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</span>`
+                     : '<span class="ws-aphist-nil">—</span>') +
+                 (tl ? ` <span class="ws-aphist-trial" style="color:${WS_LV_COLOR[tl]}">(${WS_LEVEL[tl].short} trial)</span>` : '');
+  const ramp = (r, loss) => !r ? _wsCell('<span class="ws-aphist-nil">—</span>')
+    : `<td class="ws-aphist-cell ws-aphist-trial"${r.zone && _wsLvOfSc(r.sc, loss) ? ` style="color:${WS_LV_COLOR[_wsLvOfSc(r.sc, loss)]}"` : ''}>` +
+      `${Math.abs(r.dv).toFixed(0)}<span class="ws-aphist-nil"> kt/</span>${(r.L / 1000).toFixed(1)}</td>`;
+  const b = w.band;
+  const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';
+  return `<td class="ws-aphist-cell">${lvHtml}</td>` +
+    ramp(t && t.loss, true) + ramp(t && t.gain, false) +
+    `<td class="ws-aphist-cell ws-aphist-trial">${t && t.fh != null ? t.fh.toFixed(2) : '—'}</td>` +
+    _wsCell(bHtml, b && b.lvl !== 'none' ? b.lvl : null) +
+    `<td class="ws-aphist-cell">${t && t.a && t.a[1] != null ? t.a[1] : '—'}</td>` +
+    `<td class="ws-aphist-cell">${t ? `${t.n}${t.noise != null ? `<span class="ws-aphist-nil"> ±${t.noise.toFixed(1)}</span>` : ''}` : '—'}</td>`;
+}
+/** Multi-line tooltip for one departure's windshear report. */
+function _wsDepTitle(e) {
+  const w = e.shear;
+  if (!w) return 'No windshear report (climb-out not on a runway direction, or too few wind pairs)';
+  const t = w.trial || null;
+  const ramp = (r, lbl) => r
+    ? `${lbl}: ${Math.abs(r.dv).toFixed(0)} kt over ${(r.L / 1000).toFixed(1)} km, ${r.a1}→${r.a2} ft` +
+      (r.d1 != null && r.d2 != null ? ` (${r.d1.toFixed(1)}→${r.d2.toFixed(1)} NM from the airport)` : '') +
+      ` = ${r.sc} kt per 1 km${r.zone ? '' : ' (outside the low-level zone)'}`
+    : `${lbl}: none above the noise`;
+  const b = w.band;
+  return [
+    `Departure windshear report — ${w.lvl && w.lvl !== 'none' ? WS_LEVEL[w.lvl].name : 'no alert'} (band comparison)`,
+    b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${wsRefWho(b.ph, true, b.n)})` +
+        (b.thr ? `\nTurboprop climb-out: limits ${b.thr} / ${+(b.thr * 1.5).toFixed(1)} kt` : '')
+      : 'Band change: no reference flights',
+    t ? `TRIAL — headwind ramps along the climb (no alert yet${t.lvl && t.lvl !== 'none' ? `; would be ${WS_LEVEL[t.lvl].short}` : ''}):` : 'Trial ramps: no climb-out series (departures before 27 Oct 2026, or too few replies)',
+    t ? '  ' + ramp(t.loss, 'Strongest loss') : '',
+    t ? '  ' + ramp(t.gain, 'Strongest gain') : '',
+    t && t.fh != null ? `  Horizontal F-factor over 1 km: ${t.fh.toFixed(3)}${t.fh_a != null ? ` (at ${t.fh_a} ft)` : ''}` : '',
+    t && t.a ? `  Followed ${t.a[1]}→${t.a[0]} ft · ${t.n} replies, noise ±${t.noise != null ? t.noise : '?'} kt` : '',
+    e.ga ? 'Climb-out of a go-around' : '',
+  ].filter(Boolean).join('\n');
+}
+
 /** Multi-line tooltip for one landing's windshear report. */
 function _wsTitle(w) {
   if (!w) return 'No windshear report (too few replies on final, or landed before 24 Oct 2026 without stored replies)';
@@ -3244,16 +3337,22 @@ function renderApproachHistory(entries) {
 
   // Landing count for the selected window/date on the panel title line
   const countEl = document.getElementById('ws-aphist-count');
+  const what = aphKind === 'dep' ? 'departure' : 'landing';
   if (countEl) {
     const n = entries ? entries.length : 0;
     countEl.textContent = _aphRegFilter
-      ? `–  ${n} of ${total} landing${total === 1 ? '' : 's'}`
-      : `–  ${n} landing${n === 1 ? '' : 's'}`;
+      ? `–  ${n} of ${total} ${what}${total === 1 ? '' : 's'}`
+      : `–  ${n} ${what}${n === 1 ? '' : 's'}`;
+  }
+  if (aphKind === 'dep' && approachHistoryMode === 'cond') {
+    tbody.innerHTML = `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">` +
+      'The approach conditions index (ACI) is computed for landings only — choose Wind, HW, XW or WS for the departures</td></tr>';
+    return;
   }
   if (!entries || entries.length === 0) {
     const msg = (_aphRegFilter && total > 0)
-      ? 'No landings match the registration filter'
-      : 'No approaches logged yet';
+      ? `No ${what}s match the registration filter`
+      : aphKind === 'dep' ? 'No departures stored in this range' : 'No approaches logged yet';
     tbody.innerHTML =
       `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">${msg}</td></tr>`;
     return;
@@ -3287,11 +3386,12 @@ function renderApproachHistory(entries) {
       : bands
       .map(b => formatBandCell(e.bands ? e.bands[String(b)] : null, rwyHdg))
       .join('');
-    const rowTitle = (condMode ? _condTitle(e.cond, e.rough) : wsMode ? _wsTitle(e.shear) : '').replace(/"/g, '&quot;');
+    const rowTitle = (condMode ? _condTitle(e.cond, e.rough)
+                      : wsMode ? (aphKind === 'dep' ? _wsDepTitle(e) : _wsTitle(e.shear)) : '').replace(/"/g, '&quot;');
 
     return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
-  <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around"` : ''}>${e.callsign || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 || e.ga ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around"` : e.ga ? ' title="Climb-out of a go-around"' : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-rwy">${e.runway       || '—'}</td>
@@ -3331,9 +3431,8 @@ async function fetchWindroseObs() {
 async function fetchApproachHistory() {
   if (!approachHistoryEnabled) return;
   try {
-    const url = aphHistDateMode
-      ? `/api/windshear/approach-history?date=${aphHistDate}`
-      : `/api/windshear/approach-history?window=${aphHistWindow}`;
+    const base = aphKind === 'dep' ? '/api/windshear/departures?full=1&' : '/api/windshear/approach-history?';
+    const url = aphHistDateMode ? `${base}date=${aphHistDate}` : `${base}window=${aphHistWindow}`;
     const r = await fetch(url);
     if (!r.ok) return;
     renderApproachHistory(await r.json());
@@ -3420,10 +3519,10 @@ if (_wrCanvas && _wrHistTip) {
     const rect = _wrCanvas.getBoundingClientRect();
     const mx   = e.clientX - rect.left;
     const my   = e.clientY - rect.top;
-    let hit = null;
+    let hit = null, best = Infinity;          // the nearest dot within its radius
     for (const dot of wrHistDots) {
-      const dx = mx - dot.x, dy = my - dot.y;
-      if (Math.sqrt(dx*dx + dy*dy) <= dot.dotR + 6) { hit = dot; break; }
+      const dx = mx - dot.x, dy = my - dot.y, dd = Math.sqrt(dx*dx + dy*dy);
+      if (dd <= dot.dotR + 6 && dd < best) { hit = dot; best = dd; }
     }
     if (hit) {
       _wrHistTip.textContent  = hit.label;
@@ -3457,7 +3556,7 @@ setInterval(fetchApproachHistory, 15_000);
 setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s
 // Approach-conditions chart data (only while the Cond view is shown)
 fetchCondData();
-setInterval(() => { if (windroseEnabled && (wrView === 'cond' || wrView === 'ws')) fetchCondData(); }, 60_000);
+setInterval(() => { if (windroseEnabled && wrIsChart()) fetchCondData(); }, 60_000);
 setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 5 min
 
 // ── Page Light / Dark theme (navbar button) ─────────────────────────────────

@@ -94,6 +94,10 @@ def get_stats(conn, db_path: str) -> dict:
         depp = _table_stats("departure_profiles", "ts", "date(ts, 'unixepoch')")
     except Exception:
         depp = dict(empty)
+    try:
+        depser = _table_stats("departure_series", "ts", "date(ts, 'unixepoch')")   # from 2026-10-27
+    except Exception:
+        depser = dict(empty)
 
     try:
         hser = _table_stats("height_series", "ts", "date(ts, 'unixepoch')")
@@ -128,6 +132,7 @@ def get_stats(conn, db_path: str) -> dict:
         "approach_series":       aps,
         "profile_hours":         prof,
         "departure_profiles":    depp,
+        "departure_series":      depser,
         "height_series":         hser,
         "kinematics_hours":      kinh,
         "gnss_hours":            gnsh,

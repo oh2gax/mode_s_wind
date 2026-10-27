@@ -1968,8 +1968,34 @@ class WindshearTracker:
             self._ws_dep_an_ts.pop(icao, None)
             rep = {"rwy": rwy, "hdg": hdg, "band": ba,
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
+            trial = self._dep_trial_ramps(st, rwy, hdg, now)
+            if trial:
+                rep["trial"] = trial
             self._day_add("dep", rep, st.get("callsign") or icao, now)
         return rep
+
+    def _dep_trial_ramps(self, st: dict, rwy, hdg, now: float) -> dict | None:
+        """Headwind ramps along a climb-out (from 2026-10-27, TRIAL — stored in
+        the departure report as "trial", no alert): the analysis of the landings
+        (collector/shear.analyze) on the climb's BDS 5,0 replies, the zone being
+        the first 1 600 ft above the airport or 5 NM from it; "lvl" is the level
+        the ramps would have (advisories relative to the reference flights)."""
+        raw5 = st.get("raw5") or []
+        if len(raw5) < 8:
+            return None
+        try:
+            a = _shear.analyze(raw5, st.get("sw") or [], self._thr_ft(rwy))
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Departure trial ramps failed: %s", exc)
+            return None
+        if not a:
+            return None
+        out = {k: a.get(k) for k in ("n", "drop", "noise", "len", "a", "d", "fh", "fh_a")}
+        for k in ("loss", "gain"):
+            if a.get(k):
+                out[k] = {kk: vv for kk, vv in a[k].items() if kk != "t2"}
+        out["lvl"] = _shear.ramps_level(out, self._band_refs(now), hdg)
+        return out
 
     # ── ILS-profile wind barbs (server side from 2026-10-24) ──────────────────
 

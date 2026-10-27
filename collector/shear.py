@@ -464,28 +464,19 @@ def _ref_vec(r, b: int, corr: bool):
     return u, v
 
 
-def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT,
-                 phase: str | None = None, aircraft_type: str | None = None) -> dict | None:
-    """Largest change of this flight's band wind from the median wind of the
-    reference flights (list of {band: (u, v, n)}, Refs from vec_refs), as the
-    headwind component along `heading` (the flight's direction, ° true; + =
-    more headwind than before).  Bands with fewer than BAND_MIN_REF references
-    are skipped.  phase ("arr" / "dep", from REPORT_V 5): the flights of the
-    same phase are used when a band has at least PHASE_MIN_REF of them, else all;
-    references and the flight itself corrected by PHASE_HW_BIAS (None: all
-    references, uncorrected — as before 27 Oct 2026).
-    {"b": band ft, "a": kt, "ref": the references' headwind kt, "n": references,
-     "np": wind pairs of the band, "dv": vector change kt, "ph": "same" / "all"
-     (with phase), "lvl": level, "thr": the advisory limit kt when it is not
-     BAND_ADVISORY (a turboprop's departure, REPORT_V 6)}.
-    A band resting on a single wind pair gets a level only when a neighbouring
-    band (± 200 ft) shows a change of at least the advisory limit the same way."""
+def band_changes(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT,
+                 phase: str | None = None) -> dict:
+    """The change of every band of this flight from the median of the reference
+    flights, as in band_anomaly (same references, phase correction and sign):
+    {band ft: {"b", "a", "ref", "n", "np", "dv"(, "ph")}}; empty when nothing can
+    be compared.  Used by band_anomaly (the largest one) and by the space–time
+    diagram of the Windshear page (every band, from 27 Oct 2026)."""
+    per: dict = {}
     if heading is None:
-        return None
+        return per
     hr = math.radians(heading)
     ex, ey = math.sin(hr), math.cos(hr)
     own_b = PHASE_HW_BIAS.get(phase, 0.0) if phase else 0.0
-    per = {}
     for b, (u, v, n) in bands.items():
         if b > max_band:
             continue
@@ -505,6 +496,26 @@ def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND
                   "dv": round(math.hypot(uc - mu, vc - mv), 1)}
         if phase:
             per[b]["ph"] = mode
+    return per
+
+
+def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT,
+                 phase: str | None = None, aircraft_type: str | None = None) -> dict | None:
+    """Largest change of this flight's band wind from the median wind of the
+    reference flights (list of {band: (u, v, n)}, Refs from vec_refs), as the
+    headwind component along `heading` (the flight's direction, ° true; + =
+    more headwind than before).  Bands with fewer than BAND_MIN_REF references
+    are skipped.  phase ("arr" / "dep", from REPORT_V 5): the flights of the
+    same phase are used when a band has at least PHASE_MIN_REF of them, else all;
+    references and the flight itself corrected by PHASE_HW_BIAS (None: all
+    references, uncorrected — as before 27 Oct 2026).
+    {"b": band ft, "a": kt, "ref": the references' headwind kt, "n": references,
+     "np": wind pairs of the band, "dv": vector change kt, "ph": "same" / "all"
+     (with phase), "lvl": level, "thr": the advisory limit kt when it is not
+     BAND_ADVISORY (a turboprop's departure, REPORT_V 6)}.
+    A band resting on a single wind pair gets a level only when a neighbouring
+    band (± 200 ft) shows a change of at least the advisory limit the same way."""
+    per = band_changes(bands, refs, heading, max_band, phase) if heading is not None else {}
     if not per:
         return None
     best = max(per.values(), key=lambda x: abs(x["a"]))

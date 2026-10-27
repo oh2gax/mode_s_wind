@@ -36,7 +36,19 @@ pairs and once more at the end, the climb-out's band winds are handed to
 shear_fn (WindshearTracker.dep_shear) and compared with all landings and
 departures of the previous 45 minutes as the headwind along its runway
 direction; the result is stored with the profile (shear_json).
+
+Raw climb-out series and trial ramps (from 2026-10-27): every BDS 5,0 and 6,0
+reply of the climb (with the height interpolated to its time), the ADS-B
+airborne velocity messages (TC 19) and one row per sweep (height, distance
+from the airport, position) are kept and stored in departure_series in the
+format of approach_series (WindshearTracker._series_blob; "sw" column dthr =
+distance from the airport reference point, NM).  The headwind-ramp analysis of
+the landings (collector/shear.analyze) is run on it at the end of the climb as
+a TRIAL: the result goes into the report as "trial" and raises no alert, until
+enough climb-outs have been checked (acceleration and the few replies of a
+fast climb are the open questions).
 """
+
 
 from __future__ import annotations
 
@@ -62,6 +74,7 @@ DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
 MAX_ROLL         = 5.0
+SERIES_MAX_ROWS  = 600         # per list per climb-out (≈ 10 min at 1 reply/s)
 
 
 def _dist_nm(lat1, lon1, lat2, lon2):
@@ -95,7 +108,8 @@ def prof_summary(prof: dict) -> dict | None:
 class DepartureTracker:
     def __init__(self, airport_lat: float, airport_lon: float, bds_sample_fn,
                  qnh_fn, on_commit=None, approach_state_fn=None,
-                 mag_declination: float | None = None, shear_fn=None) -> None:
+                 mag_declination: float | None = None, shear_fn=None,
+                 vel_sample_fn=None) -> None:
         """qnh_fn() → (qnh_hpa or None, pressure-alt − MSL correction ft);
         approach_state_fn(icao) → True if the windshear tracker is following
         the aircraft on an approach (go-around flag);
@@ -108,6 +122,8 @@ class DepartureTracker:
         self._on_app = approach_state_fn
         self._decl = mag_declination
         self._shear = shear_fn
+        # optional callable(icao, since_ts) → ADS-B ground-speed samples (series "v19")
+        self._vel = vel_sample_fn
         self._state: dict[str, dict] = {}
         self._lock = threading.Lock()
         self.n_committed = 0
@@ -134,11 +150,18 @@ class DepartureTracker:
                     "last": now, "prof": {}, "qnh": qnh,
                     "track": ac.get("track"), "lat": lat, "lon": lon,
                     "ga": bool(self._on_app and self._on_app(icao)),
+                    "raw5": [], "raw6": [], "raw19": [], "sw": [],
                 }
             else:
                 return
         n_w = sum(len(P["u"]) for P in st["prof"].values())
         self._collect(icao, ac, st, now, alt_msl)
+        if len(st["sw"]) < SERIES_MAX_ROWS:                # sweep row of the series
+            def _f(v, nd):
+                return None if v is None else round(v, nd)
+            st["sw"].append([round(now, 1), int(round(alt_msl)), alt, round(dist, 2), None,
+                             _f(lat, 5), _f(lon, 5), ac.get("groundspeed"), _f(ac.get("track"), 1),
+                             None, None])
         st["last"] = now
         for k in ("callsign", "registration", "aircraft_type"):
             if ac.get(k):
@@ -177,6 +200,28 @@ class DepartureTracker:
         excluded = hsrc == "X"
         gs = ac.get("groundspeed")
         since = st["since"]
+
+        def _rd(v, nd):
+            return None if v is None else (int(round(v)) if nd == 0 else round(v, nd))
+        # raw series (every reply since the previous sweep, height at its time)
+        for t5, roll5, trate5, trk5, gs5, tas5 in b50:
+            if t5 > since and len(st["raw5"]) < SERIES_MAX_ROWS:
+                st["raw5"].append([round(t5, 2), _rd(roll5, 2), _rd(trate5, 3), _rd(trk5, 2),
+                                   gs5, tas5, int(round(alt_at(t5)))])
+        for smp in b60:
+            if smp[0] > since and len(st["raw6"]) < SERIES_MAX_ROWS:
+                st["raw6"].append([round(smp[0], 2), smp[1], _rd(smp[2], 2), _rd(smp[3], 0),
+                                   _rd(smp[4], 0), _rd(smp[5] if len(smp) > 5 else None, 3),
+                                   int(round(alt_at(smp[0])))])
+        if self._vel is not None:
+            try:
+                for tv, vgs, vtrk, vvr in self._vel(icao, st.get("vlast", since)):
+                    st["vlast"] = tv
+                    if len(st["raw19"]) < SERIES_MAX_ROWS:
+                        st["raw19"].append([round(tv, 2), vgs, _rd(vtrk, 1), vvr,
+                                            int(round(alt_at(tv)))])
+            except Exception as exc:                      # noqa: BLE001
+                log.debug("Velocity sample fetch failed for %s: %s", icao, exc)
         for smp in b60:
             ts, _ias, mhdg = smp[0], smp[1], smp[2]
             mach = smp[5] if len(smp) > 5 else None
@@ -225,11 +270,20 @@ class DepartureTracker:
         if n_b < DEP_MIN_BANDS:
             return
         prof = prof_summary(st["prof"])
+        series = None
+        try:
+            from collector.windshear import WindshearTracker
+            series = WindshearTracker._series_blob(
+                st, {"icao": icao, "aircraft_type": st.get("aircraft_type"),
+                     "runway": (st.get("ws_rwy") or (None, None))[0]})
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Departure series failed: %s", exc)
         rec = {"ts": now, "t_start": st["t0"], "icao": icao,
                "callsign": st.get("callsign"), "registration": st.get("registration"),
                "aircraft_type": st.get("aircraft_type"), "qnh_hpa": st["qnh"],
                "track": st["track"], "lat": st["lat"], "lon": st["lon"],
-               "ga": st["ga"], "prof": prof, "shear": shear}
+               "ga": st["ga"], "prof": prof, "shear": shear, "series": series,
+               "runway": (st.get("ws_rwy") or (None, None))[0]}
         self.n_committed += 1
         if self._on_commit:
             try:

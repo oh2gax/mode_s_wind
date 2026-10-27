@@ -17,6 +17,9 @@
  * W / H are in the context's units (the caller may scale the context for a
  * high-density screen).  The colours and levels are the same as in
  * windshear.js (WS_LEVEL, WS_LV_COLOR, COND_* — keep them in step).
+ *
+ * WsCondChart.drawSpaceTime(ctx, W, H, readoutEl, { st, hours, fetchedMs })
+ * draws the space–time diagram of the ST view (from 2026-10-27, see below).
  */
 'use strict';
 
@@ -354,6 +357,144 @@ const WsCondChart = (() => {
     return sum;
   }
 
+  /**
+   * ST view (space–time diagram, from 2026-10-27): the headwind change of every
+   * 200-ft band (400–1 800 ft) of every landing and departure against the flights
+   * of the previous 45 min (/api/windshear/spacetime), as a time–height picture.
+   * Time cells of 5–30 min (about 6 px or more): the median change of the
+   * landings and departures in the cell, per band; colour blue = less headwind
+   * than before, red = more (from 3 kt, full colour at 15 kt; smaller changes are
+   * the normal scatter and stay background); a band without reference flights is
+   * a thin grey tick.  A cell with a flight at or beyond its advisory limit gets a
+   * small dot; flights with a windshear level get a marker in its colour above
+   * the plot.  The hover lists the flights of the cell.  A front or a
+   * shear layer shows as a streak through successive flights.
+   *   d = { st: the API answer, hours, fetchedMs, nowMs }
+   * → [{x, y, dotR, label, color}] for the hover read-out
+   */
+  const ST_FULL = 15, ST_FAINT = 3;
+  /** Cell colour of a change a (kt); null below ST_FAINT (left as background). */
+  function _stColor(a, light) {
+    if (Math.abs(a) < ST_FAINT) return null;
+    const k = Math.min(1, (Math.abs(a) - ST_FAINT) / (ST_FULL - ST_FAINT));
+    const c = a < 0 ? (light ? [37, 99, 235] : [59, 130, 246]) : (light ? [220, 38, 38] : [239, 68, 68]);
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.22 + 0.78 * k).toFixed(3)})`;
+  }
+  function drawSpaceTime(ctx, W, H, readout, d) {
+    const st = d.st || null, hours = d.hours || 12, fetchedMs = d.fetchedMs || 0;
+    const CT = theme(), light = isLight();
+    const dots = [];
+    const nowMs = d.nowMs || Date.now();
+    const spanMs = hours * 3_600_000, t0 = nowMs - spanMs;
+    const L = 34, R = 8, T = 26, B = 30;
+    const PW = W - L - R, PH = H - T - B;
+    const bands = (st && st.bands) || [400, 600, 800, 1000, 1200, 1400, 1600, 1800];
+    const rowH = PH / bands.length;
+    const xOf = ms => L + (ms - t0) / spanMs * PW;
+    const yRow = b => T + PH - (bands.indexOf(b) + 1) * rowH;          // top of the band's row
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = CT.roseBg; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = CT.roseRing; ctx.lineWidth = 1;
+    ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
+    // band labels and row lines
+    ctx.font = '9px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    bands.forEach((b, i) => {
+      const y = T + PH - (i + 0.5) * rowH;
+      if (i % (rowH < 14 ? 2 : 1) === 0) ctx.fillText(String(b), L - 4, y);
+      if (i) { ctx.strokeStyle = CT.roseOuter; ctx.beginPath(); ctx.moveTo(L, T + PH - i * rowH); ctx.lineTo(L + PW, T + PH - i * rowH); ctx.stroke(); }
+    });
+    // hourly x ticks
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const tickH = hours <= 6 ? 1 : hours <= 12 ? 2 : 3, tickMs = tickH * 3_600_000;
+    for (let h = Math.ceil(t0 / tickMs) * tickMs; h <= nowMs; h += tickMs) {
+      const x = xOf(h);
+      ctx.strokeStyle = CT.roseOuter; ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + PH); ctx.stroke();
+      ctx.fillStyle = CT.roseLabel;
+      ctx.fillText(String(new Date(h).getUTCHours()).padStart(2, '0') + 'Z', x, T + PH + 3);
+    }
+    // title, range, colour key
+    ctx.font = '10px "Courier New",monospace'; ctx.textBaseline = 'top';
+    ctx.textAlign = 'left'; ctx.fillStyle = CT.roseLabel;
+    ctx.fillText('Headwind change vs previous 45 min (ft MSL)', 5, 5);
+    ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5, 5);
+    const kx = L + PW - 190, ky = H - 11;
+    for (let i = 0; i <= 30; i++) {
+      const a = -ST_FULL + i, c = _stColor(a, light);
+      ctx.fillStyle = CT.roseBg; ctx.fillRect(kx + i * 4, ky, 4, 7);
+      if (c) { ctx.fillStyle = c; ctx.fillRect(kx + i * 4, ky, 4, 7); }
+    }
+    ctx.strokeStyle = CT.roseRing; ctx.strokeRect(kx + 0.5, ky + 0.5, 31 * 4 - 1, 6);
+    ctx.font = '8px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel; ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right'; ctx.fillText('less −15', kx - 3, ky + 4);
+    ctx.textAlign = 'left';  ctx.fillText('+15 more kt', kx + 31 * 4 + 3, ky + 4);
+    ctx.textAlign = 'left';  ctx.fillText(`median of the flights per ${[5, 10, 15, 20, 30].find(m => m * 60_000 / spanMs * PW >= 6) || 30} min`, L, ky + 4);
 
-  return { draw, rangeLabel: wrRangeLabel };
+    const fl = ((st && st.flights) || []).filter(f => f.ts * 1000 >= t0 && f.ts * 1000 <= nowMs);
+    if (!fl.length) {
+      ctx.fillStyle = CT.noTraffic; ctx.font = '10px "Courier New",monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(fetchedMs ? 'No flights with band winds in the range' : 'Loading…', L + PW / 2, T + PH / 2);
+      if (readout) readout.textContent = '';
+      return dots;
+    }
+    // Time cells of 5–30 min (at least ~6 px wide): the median change of the flights
+    // in the cell, per band — successive flights that agree build a coloured area, a
+    // single flight's eddy is damped when others in the same cell disagree.
+    const binMin = [5, 10, 15, 20, 30].find(m => m * 60_000 / spanMs * PW >= 6) || 30;
+    const binMs = binMin * 60_000;
+    const lvCol = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
+    const edge = light ? 'rgba(15,23,42,0.75)' : 'rgba(226,232,240,0.8)';
+    const cells = new Map();                         // "bin|band" → [{f, a, n, np, wd, ws}]
+    let nArr = 0, nDep = 0, strong = 0;
+    for (const f of fl) {
+      f.ph === 'dep' ? nDep++ : nArr++;
+      const bin = Math.floor(f.ts * 1000 / binMs);
+      for (const [bk, v] of Object.entries(f.b)) {
+        const b = Number(bk); if (!bands.includes(b)) continue;
+        const k = bin + '|' + b;
+        if (!cells.has(k)) cells.set(k, []);
+        cells.get(k).push({ f, a: v[0], n: v[1], np: v[2], wd: v[3], ws: v[4] });
+      }
+      if (f.lvl && f.lvl !== 'none' && lvCol[f.lvl]) {      // level marker at the flight's time
+        const x = xOf(f.ts * 1000);
+        ctx.fillStyle = lvCol[f.lvl];
+        ctx.beginPath(); ctx.moveTo(x - 3.5, T - 8); ctx.lineTo(x + 3.5, T - 8); ctx.lineTo(x, T - 2); ctx.closePath(); ctx.fill();
+      }
+    }
+    const fmtA = a => a == null ? 'n/a' : `${a > 0 ? '+' : ''}${a.toFixed(1)}`;
+    for (const [k, list] of cells) {
+      const [bin, b] = k.split('|').map(Number);
+      const xa = Math.max(L, xOf(bin * binMs)), xb = Math.min(L + PW, xOf((bin + 1) * binMs));
+      if (xb <= xa) continue;
+      const y = yRow(b) + 1, h = rowH - 2;
+      const vals = list.filter(e => e.a != null).map(e => e.a);
+      const med = vals.length ? Math.round(_median(vals) * 10) / 10 : null;
+      if (med == null) {                                 // no reference flights yet
+        ctx.fillStyle = CT.roseLabel; ctx.globalAlpha = 0.25;
+        ctx.fillRect((xa + xb) / 2 - 0.5, y + h * 0.3, 1, h * 0.4); ctx.globalAlpha = 1;
+      } else {
+        const c = _stColor(med, light);
+        if (c) { ctx.fillStyle = c; ctx.fillRect(xa, y, xb - xa - (xb - xa > 3 ? 1 : 0), h); }
+      }
+      // a flight at or beyond its advisory limit: dot in the cell
+      const over = list.filter(e => e.a != null && Math.abs(e.a) >= (e.f.thr || (st.limits ? st.limits[0] : 10)));
+      if (over.length) {
+        strong += over.length;
+        ctx.fillStyle = edge; ctx.beginPath();
+        ctx.arc((xa + xb) / 2, y + h / 2, Math.max(1.2, Math.min(2.2, (xb - xa) / 3)), 0, 2 * Math.PI); ctx.fill();
+      }
+      const t1 = new Date(bin * binMs).toISOString().slice(11, 16), t2 = new Date((bin + 1) * binMs).toISOString().slice(11, 16);
+      const lines = list.slice(0, 6).map(e => `${new Date(e.f.ts * 1000).toISOString().slice(11, 16)} ${(e.f.cs || '?').padEnd(8)} ${(e.f.type || '').padEnd(4)} ` +
+        `${e.f.ph === 'dep' ? 'dep' : 'ldg'} ${String(e.f.rwy || '').padEnd(3)} ${fmtA(e.a).padStart(5)} kt  ${String(e.wd).padStart(3, '0')}°/${e.ws} kt`);
+      dots.push({ x: (xa + xb) / 2, y: y + h / 2, dotR: Math.max(1, Math.min(xb - xa, h) / 2 - 4),
+        color: med == null ? CT.roseLabel : (med < 0 ? (light ? '#2563eb' : '#60a5fa') : (light ? '#dc2626' : '#f87171')),
+        label: `${t1}–${t2} UTC · ${b} ft: ${med == null ? 'no earlier flights to compare' : `median ${fmtA(med)} kt headwind vs the previous 45 min`}` +
+               `\n${lines.join('\n')}${list.length > 6 ? `\n… ${list.length - 6} more` : ''}` });
+    }
+    if (readout) readout.textContent = `${nArr} landings · ${nDep} departures · ${strong} band${strong === 1 ? '' : 's'} beyond the advisory limit`;
+    return dots;
+  }
+
+  return { draw, drawSpaceTime, rangeLabel: wrRangeLabel };
 })();

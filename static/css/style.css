@@ -1207,6 +1207,12 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   margin-left: 6px;
 }
 .ws-aphist-count:empty { display: none; }
+/* Landings / Departures selector (from 2026-10-27) */
+.ws-aphist-kind { margin-left: auto; padding-left: 10px; display: inline-flex; }
+.ws-aphist-kind .ws-aphist-kind-btn { border-radius: 0; }
+.ws-aphist-kind .ws-aphist-kind-btn:first-child { border-radius: 3px 0 0 3px; }
+.ws-aphist-kind .ws-aphist-kind-btn:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+.ws-aphist-trial { font-style: italic; opacity: 0.85; }
 .ws-aphist-ctrl-btn {
   font-size: 10px;
   padding: 1px 7px;

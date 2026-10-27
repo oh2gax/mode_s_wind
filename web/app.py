@@ -1397,30 +1397,73 @@ def create_app(
 
     @app.route("/api/windshear/departures")
     def windshear_departures_api():
-        """Departures of the last ?window= seconds (60 s – 1 d, default 3 h)
-        with their windshear report (band comparison of the climb-out,
-        departure_profiles.shear_json, from 2026-10-24), newest first:
-        [{ts, icao, callsign, aircraft_type, ga, shear: {rwy, hdg, band, lvl}}]
-        — for the ACI + WS view of the Windshear page."""
+        """Departures of the last ?window= seconds (60 s – 1 d, default 3 h) or of
+        one UTC ?date=YYYY-MM-DD, with their windshear report (band comparison of
+        the climb-out, departure_profiles.shear_json, from 2026-10-24; from
+        2026-10-27 also the trial headwind ramps "trial"), newest first:
+        [{ts, icao, callsign, aircraft_type, ga, shear: {rwy, hdg, band, lvl,
+        trial}}] — for the ACI + WS view of the Windshear page.  ?full=1 (the
+        departures view of the Approach History, from 2026-10-27) adds
+        registration, time_utc, runway, rwy_heading (the runway direction, else
+        the initial track) and the band winds "bands" {ft: {dir, spd, n}} in
+        the format of the landings."""
         import json as _json
-        window = max(60, min(request.args.get("window", 10800, type=int), 86400))
+        import re as _re
+        full = request.args.get("full") == "1"
+        date = request.args.get("date")
         try:
-            rows = get_db().execute(
-                """SELECT ts, icao, callsign, aircraft_type, ga, shear_json
-                   FROM departure_profiles
-                   WHERE ts > ? AND shear_json IS NOT NULL
-                   ORDER BY ts DESC""", (time.time() - window,)).fetchall()
+            if date:
+                if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                    return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+                rows = get_db().execute(
+                    """SELECT ts, icao, callsign, registration, aircraft_type, ga, track,
+                              prof_json, shear_json
+                       FROM departure_profiles
+                       WHERE date(ts, 'unixepoch') = ? ORDER BY ts DESC""", (date,)).fetchall()
+            else:
+                window = max(60, min(request.args.get("window", 10800, type=int), 86400))
+                rows = get_db().execute(
+                    """SELECT ts, icao, callsign, registration, aircraft_type, ga, track,
+                              prof_json, shear_json
+                       FROM departure_profiles
+                       WHERE ts > ? ORDER BY ts DESC""", (time.time() - window,)).fetchall()
         except Exception:                              # noqa: BLE001  (older database)
             return jsonify([])
         out = []
         for r in rows:
             try:
-                sh = _json.loads(r["shear_json"])
+                sh = _json.loads(r["shear_json"]) if r["shear_json"] else None
             except (TypeError, ValueError):
+                sh = None
+            if sh is None and not full:
                 continue
-            out.append({"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
-                        "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh})
-        return jsonify(out)
+            e = {"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
+                 "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh}
+            if full:
+                try:
+                    prof = _json.loads(r["prof_json"]) if r["prof_json"] else {}
+                except (TypeError, ValueError):
+                    prof = {}
+                e.update({
+                    "registration": r["registration"],
+                    "time_utc": time.strftime("%H:%M", time.gmtime(r["ts"])),
+                    "runway": (sh or {}).get("rwy"),
+                    "rwy_heading": (sh or {}).get("hdg") if (sh or {}).get("hdg") is not None else r["track"],
+                    "bands": {b: {"dir": v["wd"], "spd": v["ws"], "n": v.get("n")}
+                              for b, v in (prof or {}).items()
+                              if isinstance(v, dict) and v.get("ws") is not None and v.get("wd") is not None},
+                })
+            out.append(e)
+        return _gzip_json(out) if full else jsonify(out)
+
+    @app.route("/api/windshear/spacetime")
+    def windshear_spacetime_api():
+        """Space–time diagram of the Windshear page (ST view, from 2026-10-27):
+        the headwind change of every 200-ft band of every landing and departure
+        of the last ?hours= (3 / 6 / 12 / 24, default 12) against the flights of
+        the previous 45 min (web/api/spacetime.py); gzip-compressed."""
+        from web.api import spacetime as _st
+        return _gzip_json(_st.build(get_db(), request.args.get("hours", 12, type=int)))
 
     @app.route("/api/windshear/approach-history/clear", methods=["POST"])
     def windshear_approach_history_clear_api():

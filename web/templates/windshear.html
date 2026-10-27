@@ -57,9 +57,10 @@
             <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="rose" title="Wind rose — METAR surface wind vs MODE-S approach wind">WR</button>
             <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="cond" title="Approach Conditions Index (ACI) — roughness index of each landing (provisional)">ACI</button>
             <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="ws" title="ACI + windshear on one time axis — above the roughness index of each landing, below the windshear of each landing and departure in knots (ramps, band changes, ADV / WSA / MBA lines) and the go-arounds">WS</button>
+            <button class="ws-windrose-hist-btn ws-wr-view-btn" data-view="st" title="Space–time diagram — the headwind change of every 200-ft band (400–1800 ft) of every landing and departure against the flights of the previous 45 min: blue = less headwind, red = more. A front or a shear layer is a streak through successive flights; a single turbulent aircraft a lone column">ST</button>
             <span class="ws-wr-view-sep"></span>
             <button id="ws-windrose-hist-btn" class="ws-windrose-hist-btn" title="Show historical wind trend — cycles Off → 3h → 6h">Hist</button>
-            <button id="ws-wr-range-btn" class="ws-windrose-hist-btn" style="display:none" title="Chart range (ACI / WS) — cycles 3h → 6h → 12h → 1d">3h</button>
+            <button id="ws-wr-range-btn" class="ws-windrose-hist-btn" style="display:none" title="Chart range (ACI / WS / ST) — cycles 3h → 6h → 12h → 1d">3h</button>
             <span id="ws-windrose-hist-badge" class="ws-windrose-hist-badge"></span>
           </div>
           <div id="ws-windrose-readout" class="ws-windrose-readout"></div>
@@ -71,7 +72,10 @@
         <div class="ws-aphist-panel ws-aphist-hidden" id="ws-aphist-panel">
           <div class="ws-aphist-header">
             <span class="ws-aphist-title">Approach History</span>
-            <span class="ws-aphist-count" id="ws-aphist-count" title="Landings in the selected time window or date"></span>
+            <span class="ws-aphist-count" id="ws-aphist-count" title="Flights in the selected time window or date"></span>
+            <span class="ws-aphist-kind">
+              <button class="ws-aphist-ctrl-btn ws-aphist-kind-btn active" data-kind="arr" title="Landings: the wind on final, approach conditions (ACI) and the windshear report of each landing">Landings</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="dep" title="Departures: the wind of each climb-out per band and its windshear report — the band comparison, and the headwind ramps along the climb as a TRIAL (no alerts yet)">Departures</button>
+            </span>
           </div>
           <div class="ws-aphist-timerow">
             <button class="ws-aphist-time-btn" data-window="3600">1h</button>
