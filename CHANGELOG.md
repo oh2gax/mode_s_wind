@@ -24,6 +24,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documentation: windshear study log
 - New `doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf` (version 1.0, 11 pp): a living study log of the windshear detection for aviation meteorologists and atmospheric scientists — the six browser algorithms and why they were abandoned for the Hong Kong Observatory's headwind-ramp method, then each change of v2–v5 and the confirmation label with its reason, evidence and replay, the dated log of the database checks, results so far, current parameters and next steps. Listed in `doc/guides.md` (User guides tab); updated with every later change of the method or check of the data.
+- `doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf` (the A4 receiving-station overview, now 3 pages): new page 3 on the windshear detection (headwind ramps, band comparison by flight phase, ADV / WSA / MBA, confirmed / isolated) and the ongoing study (phases, results 9–27 Oct, next steps); pages 1–2 unchanged apart from the version and page numbers. Listed in `doc/guides.md` (User guides tab) and linked from the README hardware section.
 
 ---
 

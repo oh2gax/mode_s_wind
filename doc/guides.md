@@ -7,6 +7,19 @@ The user guides listed in the **User guides** tab of the What's new window
 opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats; `windmap@30` opens it at PDF page 30)
 — then a blank line and the description (bullets, **bold**, `code`).
 
+## The receiving station (A4 overview)
+file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
+version: 1.1
+date: 2026-10-27
+pages: 3
+
+A three-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
+
+- The hardware: the 1090 MHz antenna, the Jetvision Radarcape and the Raspberry Pi 4, and the signal chain from the aircraft's transponder to the browser
+- What the aircraft send: Mode S EHS, the Comm-B registers (BDS 5,0, 6,0 …), ADS-B and the quality gates
+- From replies to weather: the formulas for wind, temperature and the heights of the pressure surfaces; the self-correction and calibration against the soundings and the MEPS model; data storage and the pages
+- **Windshear detection and the ongoing study** (page 3): headwind ramps and the band comparison, the alert levels, the study phases so far and the results
+
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
 version: 4.8

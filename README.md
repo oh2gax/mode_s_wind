@@ -76,6 +76,8 @@ All measurements come from the aircraft alone. The MEPS model (MET Norway open d
 
 The system was developed and tested with a Radarcape receiver and Raspberry Pi 4 near EFHK (Helsinki-Vantaa Airport, Finland). Any receiver that outputs Beast binary format over TCP will work, though the JSON/MLAT feed integration is specific to the Radarcape.
 
+A three-page A4 overview of the receiving station — the hardware with photos, the Mode S registers used, the formulas, calibration, storage, the pages, and the windshear detection with the ongoing study — is in [`doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf`](doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf) (also in the *User guides* tab).
+
 ---
 
 ## Software Architecture
@@ -2072,7 +2074,8 @@ mode_s_wind/
 │                              # (Windshear_User_Guide.pdf), Mode S & ADS-B / Statistics page guide
 │                              # (Statistics_User_Guide.pdf), mobile view guide (Mobile_User_Guide.pdf), retired windshear algorithms
 │                              # (Windshear_Algorithms_v1_Legacy.pdf), windshear study log
-│                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), whats_new.md (user notes of the
+│                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), receiving station overview
+│                              # (MODE_S_Wind_Receiving_Station_OH2GAX.pdf), whats_new.md (user notes of the
 │                              # latest versions) and guides.md (the guides of the User guides tab) for the What's new window
 ├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb; soundings/ (radiosondes)
 ├── logs/                      # Log files (created at runtime)

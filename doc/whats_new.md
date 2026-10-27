@@ -9,6 +9,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Fairer comparison of departures**: the aircraft's airspeed reads a little differently on approach and in the climb — departures showed about 3 kt more headwind than the landings at the same height, which made many departures look like a windshear advisory with "more headwind". Departures are now compared with the other departures (and landings with landings), or the difference is removed first. Fewer false departure advisories.
 - The Windshear user guide (version 1.8) explains both, with the turbulent southerly day of 26 October as an example.
 - **New: the windshear study log** (in the *User guides* tab) — how the windshear detection has developed and why: from the six first algorithms to the Hong Kong Observatory's method and each change since, with the checks of the collected data. Written for meteorologists and scientists, and kept up to date as the study goes on.
+- **The receiving station** overview (in the *User guides* tab): three A4 pages with photos of the antenna, receiver and workstation, how the aircraft's replies become wind and temperature, the calibrations and the pages — and now also a page on the windshear detection and the ongoing study.
 
 ## v.26102026 — The Radarcape receiver's own status on the Statistics page; MODE-S Wind on a phone
 
