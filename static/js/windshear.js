@@ -1079,7 +1079,9 @@ function wsEventText(e, long = false) {
   const dir = e.dir === 'loss' ? 'headwind loss' : 'headwind gain';
   if (e.kind === 'band') {
     const s = `${Math.round(kt)} kt ${dir} at ${e.b} ft vs the last 45 min`;
-    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${wsRefWho(e.bph, e.ph === 'dep', e.n)})` : s;
+    // a turboprop's climb-out has higher limits (from 27 Oct 2026, report version 6)
+    const thr = e.bthr ? `\nTurboprop climb-out: limits ${e.bthr} / ${+(e.bthr * 1.5).toFixed(1)} kt (more scatter than the jets)` : '';
+    return long ? `${s} (${e.ref >= 0 ? '+' : ''}${e.ref} kt before, ${wsRefWho(e.bph, e.ph === 'dep', e.n)})${thr}` : s;
   }
   const km = (e.L / 1000).toFixed(1);
   const s = `${Math.round(kt)} kt ${dir} over ${km} km, ${e.a1}→${e.a2} ft`;
@@ -1859,10 +1861,12 @@ const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist t
 
 let windroseEnabled      = true;   // shown by default
 let wrView               = ['cond', 'ws'].includes(localStorage.getItem('ms_ws_wr_view'))
-                           ? localStorage.getItem('ms_ws_wr_view') : 'rose';   // 'rose' | 'cond' | 'ws' (ACI + windshear)
+                           ? localStorage.getItem('ms_ws_wr_view')
+                           : (localStorage.getItem('ms_ws_wr_view') === 'rose' ? 'rose' : 'cond');
+                           // 'rose' | 'cond' | 'ws' (ACI + windshear); first visit: ACI (from 27 Oct 2026)
 const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
 let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
-                           ? Number(localStorage.getItem('ms_ws_wr_cond_h')) : 3;    // Cond chart range
+                           ? Number(localStorage.getItem('ms_ws_wr_cond_h')) : 12;   // Cond chart range (first visit 12 h)
 let wrCondEntries        = [];     // landings with a conditions index (last 6 h), newest first
 let wrCondFetchedMs      = 0;
 let wrAphEntries         = [];     // all landings of the chart range (ACI + WS view: also those without an index)
@@ -2635,6 +2639,7 @@ document.getElementById('ws-barb-btn').addEventListener('click', () => {
     document.getElementById('ws-barb-val-btn').classList.remove('ws-barb-val-off');
     // Dcl stays greyed until HW/XW mode is active (and Val is on)
   }
+  saveBarbPrefs();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });
@@ -2658,6 +2663,7 @@ document.getElementById('ws-barb-hw-btn').addEventListener('click', () => {
   // Dcl available when any component mode is active
   if (barbHwMode === 'off') barbDclActive = false;
   updateDclButton();
+  saveBarbPrefs();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
@@ -2668,6 +2674,7 @@ document.getElementById('ws-barb-dcl-btn').addEventListener('click', () => {
   if (!barbLayerActive || barbHwMode === 'off' || !barbValActive) return;
   barbDclActive = !barbDclActive;
   document.getElementById('ws-barb-dcl-btn').classList.toggle('active', barbDclActive);
+  saveBarbPrefs();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
@@ -2725,6 +2732,7 @@ document.getElementById('ws-barb-hi-btn').addEventListener('click', () => {
   if (!barbLayerActive) return;   // button is visually disabled when barbs are off
   barbHiResActive = !barbHiResActive;
   document.getElementById('ws-barb-hi-btn').classList.toggle('active', barbHiResActive);
+  saveBarbPrefs();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
 });
 
@@ -2748,6 +2756,7 @@ document.getElementById('ws-barb-auto-btn').addEventListener('click', () => {
     // Run a selection immediately so barbs appear without waiting for the next poll
     runAutoBarbSelection(lastAircraft.filter(ac => ac.in_corridor), lastAircraft);
   }
+  saveBarbPrefs();
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
 });
@@ -2765,6 +2774,7 @@ document.getElementById('ws-strips').addEventListener('click', e => {
     barbAutoActive = false;
     barbAutoTarget = null;
     document.getElementById('ws-barb-auto-btn').classList.remove('active');
+    saveBarbPrefs();
   }
 
   // Toggle: clicking the same strip again deselects
@@ -2774,8 +2784,56 @@ document.getElementById('ws-strips').addEventListener('click', e => {
 });
 
 
+// ── Barb settings remembered per browser (from 27 Oct 2026) ──────────────────
+// Barbs / Hi / Auto / HW-XW / Dcl are saved whenever they change; on the first
+// visit (nothing saved) the profile opens with Barbs, Hi, Auto and HW on.
+const BARB_PREFS_KEY = 'ms_ws_barb_prefs';
+const BARB_PREFS_DEFAULT = { on: true, hi: true, auto: true, hw: 'hw', dcl: false };
+function saveBarbPrefs() {
+  try {
+    localStorage.setItem(BARB_PREFS_KEY, JSON.stringify({
+      on: barbLayerActive, hi: barbHiResActive, auto: barbAutoActive,
+      hw: barbHwMode, dcl: barbDclActive }));
+  } catch (_) {}
+}
+function loadBarbPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(BARB_PREFS_KEY) || 'null');
+    if (p && typeof p === 'object') return { ...BARB_PREFS_DEFAULT, ...p };
+  } catch (_) {}
+  return { ...BARB_PREFS_DEFAULT };
+}
+/** Buttons of the barb row from the state variables. */
+function applyBarbButtons() {
+  const on = barbLayerActive, el = id => document.getElementById(id);
+  el('ws-barb-btn').classList.toggle('active', on);
+  el('ws-barb-auto-btn').classList.toggle('active', on && barbAutoActive);
+  el('ws-barb-hi-btn').classList.toggle('active', on && barbHiResActive);
+  el('ws-barb-hi-btn').classList.toggle('ws-barb-hi-off', !on);
+  const hw = el('ws-barb-hw-btn');
+  hw.textContent = barbHwMode === 'xw' ? 'XW' : 'HW';
+  hw.classList.toggle('active', on && barbHwMode !== 'off');
+  hw.classList.toggle('ws-hw-xw-mode', on && barbHwMode === 'xw');
+  hw.classList.toggle('ws-barb-hw-off', !on);
+  el('ws-barb-val-btn').classList.toggle('ws-barb-val-off', !on);
+  el('ws-barb-val-btn').classList.toggle('active', barbValActive);
+  updateDclButton();
+}
+(function restoreBarbPrefs() {
+  const p = loadBarbPrefs();
+  barbLayerActive = !!p.on;
+  barbHiResActive = barbLayerActive && !!p.hi;
+  barbAutoActive  = barbLayerActive && !!p.auto;
+  barbHwMode      = barbLayerActive && ['hw', 'xw'].includes(p.hw) ? p.hw : 'off';
+  barbDclActive   = barbHwMode !== 'off' && !!p.dcl;
+  applyBarbButtons();     // the auto selection runs with the first poll
+})();
+
 // ── Approach History panel ────────────────────────────────────────────────────
-let approachHistoryEnabled = false;
+// Open or closed as last left (remembered per browser); open on the first visit (from 27 Oct 2026).
+let approachHistoryEnabled = (() => {
+  try { return localStorage.getItem('ms_ws_aphist_open') !== 'false'; } catch (_) { return true; }
+})();
 let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond' | 'ws'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
@@ -2846,10 +2904,14 @@ renderApproachHistoryHeader();
 
 document.getElementById('ws-aphist-btn').addEventListener('click', () => {
   approachHistoryEnabled = !approachHistoryEnabled;
+  try { localStorage.setItem('ms_ws_aphist_open', String(approachHistoryEnabled)); } catch (_) {}
   document.getElementById('ws-aphist-btn').classList.toggle('active', approachHistoryEnabled);
   document.getElementById('ws-aphist-panel').classList.toggle('ws-aphist-hidden', !approachHistoryEnabled);
   if (approachHistoryEnabled) fetchApproachHistory();
 });
+// Restore the panel on page load
+document.getElementById('ws-aphist-btn').classList.toggle('active', approachHistoryEnabled);
+document.getElementById('ws-aphist-panel').classList.toggle('ws-aphist-hidden', !approachHistoryEnabled);
 
 document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
   approachHistoryMode = e.target.value;

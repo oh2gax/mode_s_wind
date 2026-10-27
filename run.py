@@ -617,7 +617,8 @@ def _shear_backfill(ws_tracker) -> None:
     keeps its ramps and gets the new band comparison.  Departures get the band
     comparison of their climb-out profile; 4 (from 26 Oct 2026) re-levels the
     ramp advisories against the reference profile; 5 (from 27 Oct 2026) redoes
-    the band comparison by flight phase.  In time order, so each flight is
+    the band comparison by flight phase; 6 (27 Oct 2026, evening) with the
+    higher band limits of turboprop departures (TP_DEP_SCALE).  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -647,7 +648,7 @@ def _shear_backfill(ws_tracker) -> None:
                FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
                WHERE h.ts >= ? ORDER BY h.ts""", (t_from,)).fetchall()
         dep = db.execute(
-            """SELECT id, ts, track, lat, lon, prof_json, shear_json FROM departure_profiles
+            """SELECT id, ts, track, lat, lon, prof_json, shear_json, aircraft_type FROM departure_profiles
                WHERE ts >= ? AND ga = 0 ORDER BY ts""", (t_from,)).fetchall()
         events = sorted([(r["ts"], 0, r) for r in land] + [(r["ts"], 1, r) for r in dep],
                         key=lambda e: (e[0], e[1]))
@@ -694,7 +695,7 @@ def _shear_backfill(ws_tracker) -> None:
                     else:
                         rwy, hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])
                         band = (_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg,
-                                                    phase="dep")
+                                                    phase="dep", aircraft_type=row["aircraft_type"])
                                 if hdg is not None and prof else None)
                         rep = {"rwy": rwy, "hdg": hdg, "band": band,
                                "lvl": (band or {}).get("lvl") or "none", "v": V}

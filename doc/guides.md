@@ -53,14 +53,14 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 1.8
+version: 1.9
 date: 2026-10-27
 pages: 17
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
 
-- The method step by step: headwind TAS − GS from each BDS 5,0 reply, **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with the landings and departures of the last 45 minutes (each flight with its own phase)
+- The method step by step: headwind TAS − GS from each BDS 5,0 reply, **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with the landings and departures of the last 45 minutes (each flight with its own phase; higher limits for turboprop departures)
 - The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile), ramp alerts **confirmed** or **isolated** by the nearby landings, how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view, ACI and the new **ACI + windshear** view on one time axis, wind rose
@@ -96,14 +96,14 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.0
+version: 1.1
 date: 2026-10-27
-pages: 11
+pages: 13
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
 - Phase 0: the six browser algorithms (May – 24 October 2026) and why they were abandoned; the move to the Hong Kong Observatory's headwind-ramp method
-- Phases 1–4: detection v2/v3 (ramps and the band comparison on the wind vector), the relative rule for weak ramp advisories, the **confirmed / isolated** label and the band comparison by flight phase — each with its evidence and replay
+- Phases 1–5: detection v2/v3 (ramps and the band comparison on the wind vector), the relative rule for weak ramp advisories, the **confirmed / isolated** label, the band comparison by flight phase and the higher limits for turboprop departures — each with its evidence and replay
 - The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (ADS-B ground speed, the convective season, validation)
 
 ## Windshear detection v1 — retired algorithms (legacy)

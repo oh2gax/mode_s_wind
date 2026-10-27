@@ -1882,6 +1882,7 @@ class WindshearTracker:
             else:
                 ev.update({"b": c["b"], "a": c["a"], "ref": c["ref"], "n": c["n"],
                            "np": c.get("np"), "dv": c.get("dv"), "bph": c.get("ph"),
+                           "bthr": c.get("thr"),
                            "a1": c["b"] + 100, "a2": c["b"] - 100,
                            "sc": abs(c["a"])})
             cur = self._ws_active.get(key)
@@ -1950,7 +1951,8 @@ class WindshearTracker:
             ba = None
             if hdg is not None and prof:
                 ba = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
-                                         self._band_refs(now), hdg, phase="dep")
+                                         self._band_refs(now), hdg, phase="dep",
+                                         aircraft_type=st.get("aircraft_type"))
             if not final:
                 found = []
                 if ba and ba["lvl"] != "none":

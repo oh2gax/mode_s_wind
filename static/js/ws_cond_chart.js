@@ -325,7 +325,8 @@ const WsCondChart = (() => {
       wrHistDots.push({ x, y, dotR: 4, color: lvCol(w.band.lvl) === grey ? CT.roseLabel : lvCol(w.band.lvl),
         label: `${tm} ${e.callsign || e.icao} ${e.aircraft_type || ''} ${w.rwy || ''} (departure${e.ga ? ', go-around climb-out' : ''})` +
                `\nWindshear: ${lv ? WS_LEVEL[lv].short + ' · ' : ''}band ${w.band.b} ft ${w.band.a > 0 ? '+' : ''}${Math.round(w.band.a)} kt ` +
-               `against ${w.band.ref} kt (${w.band.n} flights in 45 min)` });
+               `against ${w.band.ref} kt (${w.band.n} flights in 45 min)` +
+               (w.band.thr ? `\nTurboprop climb-out: limits ${w.band.thr} / ${+(w.band.thr * 1.5).toFixed(1)} kt` : '') });
     }
     // go-arounds: triangle on the time axis, dotted line through both parts
     const gaCol = light ? '#a21caf' : '#e879f9';

@@ -101,9 +101,10 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 5                  # report version (3: band comparison on the wind vector,
+REPORT_V = 6                  # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
-                              #     5: band comparison by flight phase, see PHASE_HW_BIAS)
+                              #     5: band comparison by flight phase, see PHASE_HW_BIAS,
+                              #     6: higher band limits for turboprop departures, see TP_DEP_SCALE)
 
 # Band comparison by flight phase (from 27 Oct 2026, REPORT_V 5).  Against the
 # MEPS model (area mean, model levels, 600–1 800 ft, 9–26 Oct 2026) the band
@@ -117,6 +118,31 @@ REPORT_V = 5                  # report version (3: band comparison on the wind v
 # corrected by its phase's bias along its own direction.
 PHASE_HW_BIAS = {"arr": -1.45, "dep": +1.38}   # kt, measured − true headwind along the own direction
 PHASE_MIN_REF = 5             # same-phase references needed in a band to use them alone
+
+# Turboprop departures (from 27 Oct 2026, REPORT_V 6).  The band winds of the
+# ATR 72 climb-outs scatter more than those of the jets: replay 13–27 Oct 2026,
+# every band, SD 3.2–3.8 kt at 1 200–1 800 ft against 2.7–2.9 kt (ratio ≈ 1.3),
+# although they have more wind pairs per band (slow climb; acceleration, flap
+# retraction and the first turn there).  With the jets' limits 2.9 % of the
+# turboprop departures got a band alert (jets 0.6 %).  A real per-type offset
+# exists but is small (≤ 1.4 kt, E190 / A220 / A330) and removing it barely
+# changed the alerts, so the limits are scaled by the scatter instead: band
+# advisory / windshear alert 13 / 19.5 kt for a turboprop's departure (test
+# 19–27 Oct: 3.3 % → 1.4 % flagged; jets and all landings unchanged).
+TURBOPROP_TYPES = frozenset((
+    "AT43", "AT44", "AT45", "AT46", "AT72", "AT73", "AT75", "AT76",   # ATR 42 / 72
+    "DH8A", "DH8B", "DH8C", "DH8D",                                   # Dash 8 / Q400
+    "SF34", "SB20", "F50", "D328", "JS31", "JS32", "JS41", "B190",
+    "BE20", "BE30", "BE35", "B350", "PC12", "C208", "L410", "E120", "SW4",
+))
+TP_DEP_SCALE = 1.3            # band limits × this for a turboprop's departure
+
+
+def band_scale(phase: str | None, aircraft_type: str | None) -> float:
+    """Factor of the band limits (BAND_ADVISORY / BAND_WSA) for this flight."""
+    if phase == "dep" and aircraft_type and aircraft_type.upper() in TURBOPROP_TYPES:
+        return TP_DEP_SCALE
+    return 1.0
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -134,11 +160,11 @@ def level_of(sc_kt: float | None, loss: bool) -> str:
     return "none"
 
 
-def band_level(a_kt: float | None) -> str:
+def band_level(a_kt: float | None, scale: float = 1.0) -> str:
     if a_kt is None:
         return "none"
     a = abs(a_kt)
-    return "wsa" if a >= BAND_WSA else "adv" if a >= BAND_ADVISORY else "none"
+    return "wsa" if a >= BAND_WSA * scale else "adv" if a >= BAND_ADVISORY * scale else "none"
 
 
 def _interp(ts: list, vs: list, t: float):
@@ -439,7 +465,7 @@ def _ref_vec(r, b: int, corr: bool):
 
 
 def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND_MAX_FT,
-                 phase: str | None = None) -> dict | None:
+                 phase: str | None = None, aircraft_type: str | None = None) -> dict | None:
     """Largest change of this flight's band wind from the median wind of the
     reference flights (list of {band: (u, v, n)}, Refs from vec_refs), as the
     headwind component along `heading` (the flight's direction, ° true; + =
@@ -450,9 +476,10 @@ def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND
     references, uncorrected — as before 27 Oct 2026).
     {"b": band ft, "a": kt, "ref": the references' headwind kt, "n": references,
      "np": wind pairs of the band, "dv": vector change kt, "ph": "same" / "all"
-     (with phase), "lvl": level}.
+     (with phase), "lvl": level, "thr": the advisory limit kt when it is not
+     BAND_ADVISORY (a turboprop's departure, REPORT_V 6)}.
     A band resting on a single wind pair gets a level only when a neighbouring
-    band (± 200 ft) shows a change of at least BAND_ADVISORY the same way."""
+    band (± 200 ft) shows a change of at least the advisory limit the same way."""
     if heading is None:
         return None
     hr = math.radians(heading)
@@ -482,12 +509,15 @@ def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND
         return None
     best = max(per.values(), key=lambda x: abs(x["a"]))
     best = dict(best)
-    lvl = band_level(best["a"])
+    scale = band_scale(phase, aircraft_type)
+    lvl = band_level(best["a"], scale)
     if lvl != "none" and best["np"] < 2:
         nb = [per.get(best["b"] + d) for d in (-200, 200)]
-        if not any(x and x["a"] * best["a"] > 0 and abs(x["a"]) >= BAND_ADVISORY for x in nb):
+        if not any(x and x["a"] * best["a"] > 0 and abs(x["a"]) >= BAND_ADVISORY * scale for x in nb):
             lvl = "none"
     best["lvl"] = lvl
+    if scale != 1.0:
+        best["thr"] = round(BAND_ADVISORY * scale, 1)
     return best
 
 
