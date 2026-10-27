@@ -39,13 +39,26 @@ Snapshot
 --------
 create_snapshot() writes a compact copy of the whole running database
 (VACUUM INTO) as ``modes_meteo_snapshot_YYYYMMDD_HHMM.db`` in the same folder,
-e.g. for an analysis copy; it runs in a background thread.
+e.g. for an analysis copy; it runs in a background thread.  With
+compress=True (from 2026-10-27) the copy is gzip-compressed into
+``modes_meteo_snapshot_YYYYMMDD_HHMM.db.gz`` (about 45 % of the size; open
+with ``gunzip`` or 7-Zip) and the uncompressed copy is removed.  Unfinished
+files carry a ``.part`` ending and are never listed.
+
+Downloads and deleting (from 2026-10-27)
+----------------------------------------
+resolve_file() checks a file name given by the Maintenance page (only the
+archive / snapshot name patterns, only in the archive folder) before the page
+offers it for download; delete_snapshot() removes a snapshot.  The monthly
+archive files cannot be deleted here — they are the only copy of the purged
+data.
 """
 
 from __future__ import annotations
 
 import datetime
 import glob
+import gzip
 import logging
 import os
 import re
@@ -58,6 +71,7 @@ log = logging.getLogger("modes.archive")
 
 ARCHIVE_PREFIX   = "modes_meteo_archive_"
 SNAPSHOT_PREFIX  = "modes_meteo_snapshot_"
+FILE_RE = re.compile(r"^modes_meteo_(archive|snapshot)_[A-Za-z0-9_-]+\.db(\.gz)?$")
 FREE_MARGIN_MB   = 200          # keep at least this much free after archiving
 BYTES_PER_ROW    = 260          # observations row in an archive file incl. ts index (measured ~220)
 DAY = 86_400.0
@@ -297,46 +311,71 @@ _list_cache: dict[str, tuple[float, dict]] = {}
 def list_archives(conn) -> list[dict]:
     d = archive_dir(conn)
     out = []
-    for path in sorted(glob.glob(os.path.join(d, "modes_meteo_*.db"))):
+    for path in sorted(glob.glob(os.path.join(d, "modes_meteo_*.db*"))):
         name = os.path.basename(path)
-        st = os.stat(path)
+        if not FILE_RE.match(name):
+            continue                                  # .part files, other names
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        gz = name.endswith(".gz")
         info = {"file": name, "size_mb": round(st.st_size / 1e6, 1),
                 "kind": "snapshot" if name.startswith(SNAPSHOT_PREFIX) else "archive",
-                "modified": st.st_mtime}
+                "gzip": gz, "modified": st.st_mtime}
         cached = _list_cache.get(path)
         if cached and cached[0] == st.st_mtime:
             info.update(cached[1])
+        elif gz:
+            pass                                      # contents known only when this process wrote it
         else:
-            extra = {}
-            try:
-                c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
-                try:
-                    r = c.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM observations").fetchone()
-                    extra.update(obs_rows=r[0], first=r[1], last=r[2])
-                except sqlite3.Error:
-                    pass
-                for t in ("approach_series", "departure_profiles", "height_series"):
-                    try:
-                        extra[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                    except sqlite3.Error:
-                        pass
-                c.close()
-            except sqlite3.Error as exc:
-                extra["error"] = str(exc)
+            extra = _contents(path)
             _list_cache[path] = (st.st_mtime, extra)
             info.update(extra)
         out.append(info)
     return out
 
 
-# ── Snapshot (VACUUM INTO) ───────────────────────────────────────────────────
+# ── Snapshot (VACUUM INTO, optionally gzip) ──────────────────────────────────
 _snapshot_state: dict = {"running": False, "file": None, "started": None,
-                         "finished": None, "error": None, "size_mb": None}
+                         "finished": None, "error": None, "size_mb": None,
+                         "phase": None}
 _snapshot_lock = threading.Lock()
 
 
-def create_snapshot(db_path: str) -> dict:
-    """Start a compact copy of the whole database in a background thread."""
+def _contents(path: str) -> dict:
+    """Row counts and time span of a database file (for the list)."""
+    extra = {}
+    try:
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            r = c.execute("SELECT COUNT(*), MIN(ts), MAX(ts) FROM observations").fetchone()
+            extra.update(obs_rows=r[0], first=r[1], last=r[2])
+        except sqlite3.Error:
+            pass
+        for t in ("approach_series", "departure_profiles", "height_series"):
+            try:
+                extra[t] = c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            except sqlite3.Error:
+                pass
+        c.close()
+    except sqlite3.Error as exc:
+        extra["error"] = str(exc)
+    return extra
+
+
+def _remove_quietly(*paths: str) -> None:
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def create_snapshot(db_path: str, compress: bool = False) -> dict:
+    """Start a compact copy of the whole database in a background thread;
+    compress=True gzips it into .db.gz and removes the uncompressed copy."""
     with _snapshot_lock:
         if _snapshot_state["running"]:
             return dict(_snapshot_state)
@@ -344,34 +383,81 @@ def create_snapshot(db_path: str) -> dict:
         d = archive_dir(c0)
         c0.close()
         os.makedirs(d, exist_ok=True)
-        need = os.path.getsize(db_path)
+        # leftovers of an interrupted snapshot (power cut, restart)
+        for p in glob.glob(os.path.join(d, SNAPSHOT_PREFIX + "*.part")):
+            _remove_quietly(p)
+        size = os.path.getsize(db_path)
+        need = int(size * 1.5) if compress else size     # the copy + its gzip (~45 %)
         free = shutil.disk_usage(d).free
         if free - need < FREE_MARGIN_MB * 1e6:
             _snapshot_state.update(error=f"not enough free space: {free / 1e6:.0f} MB free, "
                                          f"up to {need / 1e6:.0f} MB needed")
             return dict(_snapshot_state)
-        name = f"{SNAPSHOT_PREFIX}{datetime.datetime.now(datetime.timezone.utc):%Y%m%d_%H%M}.db"
+        base = f"{SNAPSHOT_PREFIX}{datetime.datetime.now(datetime.timezone.utc):%Y%m%d_%H%M}.db"
+        name = base + (".gz" if compress else "")
         _snapshot_state.update(running=True, file=name, started=time.time(),
-                               finished=None, error=None, size_mb=None)
+                               finished=None, error=None, size_mb=None,
+                               phase="copy")
 
     def _run():
-        path = os.path.join(d, name)
+        final = os.path.join(d, name)
+        tmp_db = os.path.join(d, base + ".part")
+        tmp_gz = final + ".part"
         try:
             c = sqlite3.connect(db_path, timeout=30)
-            c.execute("VACUUM INTO ?", (path,))
+            c.execute("VACUUM INTO ?", (tmp_db,))
             c.close()
-            _snapshot_state.update(size_mb=round(os.path.getsize(path) / 1e6, 1))
-            log.info("Snapshot written: %s (%.0f MB)", path, os.path.getsize(path) / 1e6)
+            extra = _contents(tmp_db)
+            if compress:
+                _snapshot_state.update(phase="gzip")
+                with open(tmp_db, "rb") as src, open(tmp_gz, "wb") as raw, \
+                        gzip.GzipFile(filename=base, mode="wb", fileobj=raw,
+                                      compresslevel=6) as dst:
+                    shutil.copyfileobj(src, dst, 1 << 20)
+                os.replace(tmp_gz, final)
+                _remove_quietly(tmp_db)
+            else:
+                os.replace(tmp_db, final)
+            st = os.stat(final)
+            _list_cache[final] = (st.st_mtime, extra)
+            _snapshot_state.update(size_mb=round(st.st_size / 1e6, 1))
+            log.info("Snapshot written: %s (%.0f MB)", final, st.st_size / 1e6)
         except Exception as exc:
             _snapshot_state.update(error=str(exc))
             log.error("Snapshot failed: %s", exc)
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except OSError:
-                pass
+            _remove_quietly(tmp_db, tmp_gz)
         finally:
-            _snapshot_state.update(running=False, finished=time.time())
+            _snapshot_state.update(running=False, finished=time.time(), phase=None)
 
     threading.Thread(target=_run, name="db_snapshot", daemon=True).start()
     return dict(_snapshot_state)
+
+
+# ── Downloads and deleting (Maintenance page) ────────────────────────────────
+
+def resolve_file(conn, name: str) -> str | None:
+    """Full path of an archive / snapshot file in the archive folder, or None
+    (unknown name pattern, a path, a file being written, not found)."""
+    if not isinstance(name, str) or not FILE_RE.match(name):
+        return None
+    if _snapshot_state["running"] and _snapshot_state["file"] == name:
+        return None
+    d = archive_dir(conn)
+    path = os.path.join(d, name)
+    if os.path.dirname(os.path.abspath(path)) != d or not os.path.isfile(path):
+        return None
+    return path
+
+
+def delete_snapshot(conn, name: str) -> dict:
+    """Delete one snapshot file.  Monthly archive files are refused."""
+    if not isinstance(name, str) or not name.startswith(SNAPSHOT_PREFIX):
+        return {"ok": False, "error": "only snapshots can be deleted"}
+    path = resolve_file(conn, name)
+    if not path:
+        return {"ok": False, "error": "file not found"}
+    size = os.path.getsize(path)
+    os.remove(path)
+    _list_cache.pop(path, None)
+    log.info("Snapshot deleted: %s (%.0f MB)", path, size / 1e6)
+    return {"ok": True, "file": name, "size_mb": round(size / 1e6, 1)}

@@ -45,6 +45,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `SITE_MOVED_HIDE_LAN` (default `True`): not shown to visitors from the local network. `SITE_MOVED_REDIRECT` (default `False`): visitors from outside the local network are redirected (302) to the same page on the new server before the login; API, static files, guides and the web-app manifest are not redirected.
 - `.gitignore`: `shared_login.json`, `venv/`, `data/*.sqb-wal` / `-shm`. `update.sh`: the detached-HEAD hint names the `master` branch. `config_local.py.example`: the old-server example. README: *Running in the cloud → 4. Pointing the users to the new server*, the new settings.
 
+### Database snapshots: gzip and download
+- Maintenance page: a snapshot can be written gzip-compressed (`.db.gz`, about half the size), and the archive files and snapshots can be downloaded from the page; old snapshots can be deleted there (`database/archive.py`, `web/app.py`, `static/js/maintenance.js`).
+
 ---
 
 ## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar; mobile view /app with the ILS approach)

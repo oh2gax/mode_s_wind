@@ -111,18 +111,33 @@ async function loadArchives() {
                      f.departure_profiles ? `${_fmt(f.departure_profiles)} dep. profiles` : '',
                      f.height_series ? `${_fmt(f.height_series)} height series` : '']
                     .filter(Boolean).join(', ');
+      const obs = f.obs_rows != null ? _fmt(f.obs_rows) : (f.gzip ? 'gzip' : '—');
       row.innerHTML = `<span title="${f.kind}">${esc(f.file)}</span><span>${f.size_mb} MB</span>` +
-        `<span>${f.obs_rows != null ? _fmt(f.obs_rows) : '—'}${extra ? ' · ' + esc(extra) : ''}</span>` +
-        `<span>${_utc(f.first)}</span><span>${_utc(f.last)}</span>`;
+        `<span>${obs}${extra ? ' · ' + esc(extra) : ''}</span>` +
+        `<span>${_utc(f.first)}</span><span>${_utc(f.last)}</span><span class="maint-arc-act"></span>`;
+      const act = row.querySelector('.maint-arc-act');
+      const dl = document.createElement('button');
+      dl.className = 'maint-btn maint-btn-sm';
+      dl.textContent = 'Download';
+      dl.title = `Download ${f.file} (${f.size_mb} MB)`;
+      dl.addEventListener('click', () => downloadArchive(f.file));
+      act.appendChild(dl);
+      if (f.kind === 'snapshot') {
+        const del = document.createElement('button');
+        del.className = 'maint-btn maint-btn-sm maint-btn-danger';
+        del.textContent = 'Delete';
+        del.addEventListener('click', () => deleteSnapshot(f.file, f.size_mb));
+        act.appendChild(del);
+      }
       list.appendChild(row);
     }
     const sn = s.snapshot || {};
     if (sn.running) {
-      _setStatus('snapshot-status', `Writing ${sn.file}…`);
+      _setStatus('snapshot-status', sn.phase === 'gzip' ? `Compressing ${sn.file}…` : `Writing ${sn.file}…`);
       clearTimeout(_snapTimer); _snapTimer = setTimeout(loadArchives, 3000);
     } else if (sn.error) {
       _setStatus('snapshot-status', `Snapshot failed: ${sn.error}`, true);
-    } else if (sn.file && sn.finished) {
+    } else if (sn.file && sn.finished && (d.files || []).some(f => f.file === sn.file)) {
       _setStatus('snapshot-status', `Snapshot ${sn.file} written (${sn.size_mb} MB)`);
     }
   } catch (e) {
@@ -130,12 +145,43 @@ async function loadArchives() {
   }
 }
 
+async function downloadArchive(file) {
+  try {
+    const d = await _api('/api/maintenance/archive/download-link', { file });
+    if (!d.url) throw new Error(d.error || 'no link');
+    const a = document.createElement('a');           // the browser saves it (Content-Disposition)
+    a.href = d.url;
+    a.download = file;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    _setStatus('snapshot-status', `Download of ${file} started`);
+  } catch (e) {
+    _setStatus('snapshot-status', `Download failed: ${e.message}`, true);
+  }
+}
+
+async function deleteSnapshot(file, sizeMb) {
+  if (!confirm(`Delete snapshot ${file} (${sizeMb} MB)? This cannot be undone.`)) return;
+  try {
+    const d = await _api('/api/maintenance/archive/delete', { file });
+    if (!d.ok) throw new Error(d.error || 'failed');
+    _setStatus('snapshot-status', `Deleted ${file} (${d.size_mb} MB)`);
+    loadArchives();
+  } catch (e) {
+    _setStatus('snapshot-status', `Delete failed: ${e.message}`, true);
+  }
+}
+
 document.getElementById('archive-refresh-btn').addEventListener('click', loadArchives);
 document.getElementById('snapshot-btn').addEventListener('click', async () => {
-  if (!confirm('Write a compact copy of the whole database to the archive folder now? ' +
-               'This takes a while and needs free space up to the database size.')) return;
+  const compress = document.getElementById('snapshot-gzip').checked;
+  if (!confirm('Write a compact copy of the whole database to the archive folder now' +
+               (compress ? ', gzip-compressed' : '') + '? ' +
+               'This takes a while and needs free space up to ' +
+               (compress ? '1.5 × ' : '') + 'the database size.')) return;
   try {
-    const d = await _api('/api/maintenance/archive/snapshot');
+    const d = await _api('/api/maintenance/archive/snapshot', { compress });
     if (d.error && !d.running) throw new Error(d.error);
     _setStatus('snapshot-status', `Writing ${d.file}…`);
     clearTimeout(_snapTimer); _snapTimer = setTimeout(loadArchives, 3000);

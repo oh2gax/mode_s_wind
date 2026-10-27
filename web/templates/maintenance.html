@@ -138,16 +138,17 @@
           <span class="maint-label" id="archive-free"></span>
           <button id="archive-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
           <button id="snapshot-btn" class="maint-btn">Create snapshot now</button>
+          <label class="maint-label maint-check"><input type="checkbox" id="snapshot-gzip" checked> Compressed (gzip)</label>
           <span id="snapshot-status" class="maint-op-status"></span>
         </div>
         <div id="archive-error" class="maint-op-status maint-status-error"></div>
         <div class="maint-stats-grid">
           <div class="maint-stat-row maint-stat-hdr maint-arc-row">
-            <span>File</span><span>Size</span><span>Observations</span><span>First</span><span>Last</span>
+            <span>File</span><span>Size</span><span>Observations</span><span>First</span><span>Last</span><span></span>
           </div>
           <div id="archive-list"><div class="maint-stat-row maint-arc-row"><span>—</span></div></div>
         </div>
-        <div class="maint-hint">Monthly archive files hold the purged observations (all columns, same ids) with their flights, and the archived approach series and departure profiles. A <b>snapshot</b> is a compact copy of the whole running database (all tables) at that moment, e.g. for analysis on another computer. Both are ordinary SQLite files; <code>tools/archive_query.py</code> combines the archive files with the running database.</div>
+        <div class="maint-hint">Monthly archive files hold the purged observations (all columns, same ids) with their flights, and the archived approach series and departure profiles. A <b>snapshot</b> is a compact copy of the whole running database (all tables) at that moment, e.g. for analysis on another computer. Both are ordinary SQLite files; <code>tools/archive_query.py</code> combines the archive files with the running database. <b>Compressed (gzip)</b> makes the snapshot about half the size (<code>.db.gz</code>, open with <code>gunzip</code> or 7-Zip) — quicker to download. <b>Download</b> saves a file in your browser; <b>Delete</b> is offered for snapshots only — the monthly archive files are the only copy of the purged data.</div>
       </div>
 
       <!-- Manual purge -->

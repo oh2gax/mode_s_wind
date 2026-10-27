@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import queue
+import secrets
 import threading
 import time
 import urllib.request
@@ -20,6 +21,7 @@ from functools import wraps
 from flask import (
     Flask, Response, g, render_template, request, url_for,
     jsonify, stream_with_context, send_from_directory, abort, redirect,
+    send_file,
 )
 
 from config import Config
@@ -1743,7 +1745,58 @@ def create_app(
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
         from database import archive as _arc
-        return jsonify(_arc.create_snapshot(cfg.DB_PATH))
+        return jsonify(_arc.create_snapshot(cfg.DB_PATH, compress=bool(data.get("compress"))))
+
+    # Downloads: the page first asks for a short-lived link with the maintenance
+    # login (POST), then the browser fetches the file with a plain GET — the
+    # maintenance password never goes into a URL.  The GET still needs the web
+    # login (before_request) and comes from the same address.
+    _dl_tokens: dict = {}                      # token -> (path, ip, expires)
+    _dl_lock = threading.Lock()
+    DL_TOKEN_S = 300
+
+    @app.route("/api/maintenance/archive/download-link", methods=["POST"])
+    def maintenance_archive_download_link():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from database import archive as _arc
+        path = _arc.resolve_file(get_db(), data.get("file"))
+        if not path:
+            return jsonify({"error": "file not found"}), 404
+        tok = secrets.token_urlsafe(24)
+        now = time.time()
+        with _dl_lock:
+            for k in [k for k, v in _dl_tokens.items() if v[2] < now]:
+                _dl_tokens.pop(k, None)
+            _dl_tokens[tok] = (path, request.remote_addr or "", now + DL_TOKEN_S)
+        return jsonify({"url": url_for("maintenance_archive_download", token=tok)})
+
+    @app.route("/api/maintenance/archive/download/<token>")
+    def maintenance_archive_download(token):
+        with _dl_lock:
+            ent = _dl_tokens.get(token)
+        if not ent or ent[2] < time.time() or ent[1] != (request.remote_addr or ""):
+            abort(404)
+        path = ent[0]
+        if not os.path.isfile(path):
+            abort(404)
+        log.info("Maintenance download: %s (%.0f MB)",
+                 os.path.basename(path), os.path.getsize(path) / 1e6)
+        mime = "application/gzip" if path.endswith(".gz") else "application/vnd.sqlite3"
+        resp = send_file(path, mimetype=mime, as_attachment=True,
+                         download_name=os.path.basename(path), conditional=True,
+                         max_age=0)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/api/maintenance/archive/delete", methods=["POST"])
+    def maintenance_archive_delete():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from database import archive as _arc
+        return jsonify(_arc.delete_snapshot(get_db(), data.get("file")))
 
     @app.route("/api/maintenance/gps/preview", methods=["POST"])
     def maintenance_gps_preview():
