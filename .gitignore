@@ -8,11 +8,17 @@ api_keys.py
 # This machine's own settings (config_local.py.example is the template)
 config_local.py
 
+# Runtime state of the shared-login phase-out (next to the users file) and a local virtual environment
+shared_login.json
+venv/
+
 # Local database (keep data/.gitkeep so the folder exists in the repo)
 data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.sqb
+data/*.sqb-wal
+data/*.sqb-shm
 
 # Monthly archive files and snapshots (Maintenance page)
 data/archive/

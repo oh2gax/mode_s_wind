@@ -34,6 +34,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `deploy/`: examples for a cloud server — nginx site (`nginx-mode-s-wind.conf`), systemd services for MODE-S Wind in a virtual environment (`modes-wind.service`) and for the reverse SSH tunnel from the home station (`modes-tunnel.service`).
 - README: new sections *8. This machine's own settings*, *9. Updating with git* and *Running in the cloud (AWS) behind HTTPS* (tunnel, installation, nginx and Let's Encrypt), the new settings and the project structure.
 
+### Pointing the users of the old server to the new address
+- Optional `SITE_MOVED_URL` (set in `config_local.py` of the old server, here the home Raspberry Pi): every page shows a notice floating under the navbar — *MODE-S Wind has moved to …*, the phone address `…/app`, *log in there with your personal user name and password* — with **Open this page there** (same page and query on the new server) and **×** (hidden in that browser until the next day); the mobile view `/app` shows it under its top bar with the hint to use *Add to Home Screen* again (new `web/templates/_moved_notice.html`, included by `base.html` and `app.html`; `.mv-note` styles in `static/css/style.css`; `site_moved` in the template context, `web/app.py`).
+- `SITE_MOVED_HIDE_LAN` (default `True`): not shown to visitors from the local network. `SITE_MOVED_REDIRECT` (default `False`): visitors from outside the local network are redirected (302) to the same page on the new server before the login; API, static files, guides and the web-app manifest are not redirected.
+- `.gitignore`: `shared_login.json`, `venv/`, `data/*.sqb-wal` / `-shm`. `update.sh`: the detached-HEAD hint names the `master` branch. `config_local.py.example`: the old-server example. README: *Running in the cloud → 4. Pointing the users to the new server*, the new settings.
+
 ---
 
 ## v.26102026 — 2026-10-26 (Radarcape receiver status on the Statistics page; MEPS profile gap shown; model rain outlined under the radar; mobile view /app with the ILS approach)

@@ -1,0 +1,32 @@
+{#- "MODE-S Wind has moved" notice (from 2026-10-27): shown when SITE_MOVED_URL is
+    set (config_local.py of the old server) — by base.html on every page and by
+    app.html (mv_app) in the mobile view.  Closable for the day (per browser);
+    "Open this page there" keeps the page and its query.  Not shown to the local
+    network unless SITE_MOVED_HIDE_LAN = False. -#}
+<div id="mv-note" class="mv-note{{ ' mv-app' if mv_app else '' }}" role="status" hidden data-url="{{ site_moved.url }}">
+  <span class="mv-ico" aria-hidden="true">&#10148;</span>
+  <div class="mv-text">
+    <b>MODE-S Wind has moved to <a href="{{ site_moved.url }}/{{ 'app' if mv_app else '' }}">{{ site_moved.host }}{{ '/app' if mv_app else '' }}</a></b>
+    {%- if mv_app %} — open it in your phone's browser and use <i>Add to Home Screen</i> again: the old icon keeps opening this old address.
+    {%- else %} — please update your bookmark. On a phone: <a href="{{ site_moved.url }}/app">{{ site_moved.host }}/app</a>.{% endif %}
+    <span class="mv-sub">Log in there with your personal user name and password (the shared test login does not work there).</span>
+  </div>
+  {% if not mv_app %}<a id="mv-open" class="mv-btn" href="{{ site_moved.url }}/">Open this page there</a>{% endif %}
+  <button id="mv-close" class="mv-close" type="button" title="Hide until tomorrow" aria-label="Hide until tomorrow">&times;</button>
+</div>
+<script>
+(function () {
+  var el = document.getElementById('mv-note');
+  if (!el) return;
+  var key = 'ms_moved_hide', d = new Date(),
+      today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  try { if (localStorage.getItem(key) === today) return; } catch (e) {}
+  var open = document.getElementById('mv-open');
+  if (open) open.href = el.dataset.url + location.pathname + location.search + location.hash;
+  el.hidden = false;
+  document.getElementById('mv-close').addEventListener('click', function () {
+    el.hidden = true;
+    try { localStorage.setItem(key, today); } catch (e) {}
+  });
+})();
+</script>

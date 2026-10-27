@@ -403,6 +403,7 @@ Key values to change for your installation:
 - `ANTENNA_LAT` / `ANTENNA_LON` (optional) — the antenna's position, the **fallback** centre of the Statistics page range rings: the Radarcape's own GPS position from its status page comes first while it is good (live GPS fix, not a privacy-alias position, antenna OK, 3 or more satellites, status read within 15 min; from 26 Oct 2026), then these, and without them `RECEIVER_LAT` / `RECEIVER_LON`, which is often the map centre or the airport
 - `RADARCAPE_STATUS` (optional, default `True`) — read the Radarcape's status page (`systemstatus.json`) once a minute for the Statistics page panel and health indicator
 - `RADARCAPE_STATUS_URL` (optional, from 27 Oct 2026) — the status page's address when it is not `http://<RADARCAPE_HOST>/systemstatus.json`, e.g. through a tunnel on another port (`http://127.0.0.1:8080/systemstatus.json`, see *Running in the cloud*)
+- `SITE_MOVED_URL`, `SITE_MOVED_HIDE_LAN`, `SITE_MOVED_REDIRECT` (optional, from 27 Oct 2026) — on an old server whose users should move to a new address: see *Pointing the users to the new server* under *Running in the cloud*
 - `WEB_BEHIND_PROXY` (optional, default `False`, from 27 Oct 2026) — the web server runs behind an HTTPS reverse proxy on the same machine; the visitor's address is then taken from the proxy's `X-Forwarded-For` header (login protection, access log). Used only together with `WEB_HOST = "127.0.0.1"` (otherwise ignored with a warning), so that nobody can reach the server past the proxy and send that header themselves
 - `MAG_DECLINATION` — magnetic declination at your receiver in degrees East. With `pygeomag` installed and `USE_WMM_DECLINATION = True` (default) the declination at each aircraft's own position is calculated automatically and this value is only a fallback (aircraft without a known position, or pygeomag missing — a warning is logged at startup). Find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); WMM2025 is valid until 2030, after which it is extrapolated with a warning — upgrade pygeomag then
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
@@ -644,6 +645,22 @@ sudo certbot --nginx -d YOUR.DOMAIN             # certificate, HTTPS server and 
 Certbot renews the certificate automatically (`systemctl list-timers | grep certbot`; test with `sudo certbot renew --dry-run`). nginx passes every request to `127.0.0.1:8000` and sets `X-Forwarded-For` to the visitor's address (set, not appended, so a visitor cannot add its own). With `WEB_HOST = "127.0.0.1"` and `WEB_BEHIND_PROXY = True` in `config_local.py`, MODE-S Wind is reachable only through nginx and the login protection, the *new address* warning and the access log see the real visitor addresses — without it every visitor would look like `127.0.0.1`, a local address, which the login lockout does not apply to. The Live Map's live stream works through nginx unchanged (it sends `X-Accel-Buffering: no` itself). When everything works, close the temporary direct port (e.g. 8000) in the Lightsail firewall and add HSTS (the commented `Strict-Transport-Security` line in `deploy/nginx-mode-s-wind.conf`, inside the HTTPS server block certbot wrote).
 
 **Logins on the public server.** The built-in `config.py` login is off behind the proxy while `WEB_PASS` is a default one (see `WEB_USER` / `WEB_PASS` above); the personal users of the users file and the maintenance user work as at home — over HTTPS their passwords are encrypted. The Maintenance page is reachable with the maintenance login; to allow it only from certain addresses, add to the nginx server block e.g. `location /maintenance { allow 203.0.113.10; deny all; proxy_pass http://127.0.0.1:8000; … }` (and the same for `/api/maintenance/`).
+
+### 4. Pointing the users to the new server
+
+On the old server (here the home Raspberry Pi), a setting in its `config_local.py` makes every page and the mobile view show a notice with the new address (from 27 Oct 2026):
+
+```python
+SITE_MOVED_URL = "https://mode-s-wind.oh2gax.org"
+# SITE_MOVED_HIDE_LAN = True     # default: no notice for visitors from the local network
+# SITE_MOVED_REDIRECT = False    # True: visitors from outside are sent straight to the new server
+```
+
+- **Desktop pages** (`web/templates/_moved_notice.html`, included by `base.html`): a strip floating under the navbar — *MODE-S Wind has moved to …, please update your bookmark; on a phone …/app; log in there with your personal user name and password* — with **Open this page there** (the same page and query on the new server) and **×**, which hides it in that browser until the next day (`localStorage` `ms_moved_hide`). It floats over the page instead of pushing the layout down (the pages use the full window height) and stays below the What's new / About windows.
+- **Mobile view `/app`**: the same notice under the top bar, with the new `/app` address and the hint to use *Add to Home Screen* again (the old home-screen icon keeps opening the old address).
+- **`SITE_MOVED_HIDE_LAN`** (default `True`): visitors from the local network (private, loopback and link-local addresses) do not see it — the station's own use at home goes on undisturbed.
+- **`SITE_MOVED_REDIRECT`** (default `False`): visitors from outside the local network get an HTTP 302 to the same page on the new server before any login; only pages — `/api/…`, `/static/…`, `/doc/…` and the web-app manifest answer as before, so pages left open keep working until they are reloaded. Behind a router that forwards the port with the visitor's own address (the usual port forward), the outside addresses are seen correctly.
+- The new server does not set these, so it never shows the notice. Logins are separate on each server: users added on one are not known on the other (`webusers.txt`), and the built-in `config.py` login does not work on a server behind the proxy — give the moving users personal accounts on the new server first.
 
 **Web server.** MODE-S Wind keeps Flask's built-in threaded server: the collector runs in the same process, so it must stay one process (an app server with several worker processes would start several collectors). nginx in front handles TLS, slow clients and the connections.
 
@@ -2164,6 +2181,7 @@ mode_s_wind/
 │       ├── _about.html        # The About window (author, receiver site, MODE-S Wind in a nutshell), included by base.html
 │       ├── _contact.html      # The author's contact rows (About window and the shared-login notices)
 │       ├── _shared_notice.html # Notice window of the shared test login (grace period)
+│       ├── _moved_notice.html # "MODE-S Wind has moved" notice of an old server (SITE_MOVED_URL), pages and /app
 │       ├── shared_ended.html  # Page shown to the shared test login after its end date
 │       ├── live.html          # Live map page
 │       ├── flights.html       # Flights browser page

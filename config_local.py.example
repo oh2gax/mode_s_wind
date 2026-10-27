@@ -26,6 +26,14 @@ WEB_HOST = "127.0.0.1"       # reachable only through nginx on this machine
 WEB_PORT = 8000
 WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 127.0.0.1)
 
+# ── Example: the old server after the move (the home Raspberry Pi) ──────────
+# A notice on every page and in /app points the users to the new address,
+# closable for the day; visitors from the home network do not see it.
+# SITE_MOVED_URL = "https://mode-s-wind.example.org"
+# SITE_MOVED_HIDE_LAN = True     # default: no notice for the local network
+# SITE_MOVED_REDIRECT = False    # True: visitors from outside are sent straight
+#                                # to the same page on the new server (pages only)
+
 # Other settings can be overridden the same way, e.g.
 # DB_PATH = "/mnt/ssd/modes_meteo.db"
 # WEB_PASS = "…"             # keep passwords out of git: here, not in config.py

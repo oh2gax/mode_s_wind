@@ -142,7 +142,7 @@ PYEOF
     # ── what is new ─────────────────────────────────────────────────────────
     local branch
     branch="$(git symbolic-ref --short -q HEAD)" \
-        || fail "Not on a branch (detached HEAD) — git checkout main first."
+        || fail "Not on a branch (detached HEAD) — git checkout master (the repository's branch) first."
     git rev-parse -q --verify '@{u}' >/dev/null \
         || fail "Branch $branch has no upstream — git branch --set-upstream-to=origin/$branch"
     say "MODE-S Wind $(version) — checking GitHub"

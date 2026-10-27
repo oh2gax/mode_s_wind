@@ -7,6 +7,7 @@ file managed on the Maintenance page (web/users.py).  Logins, refused
 requests and misuse are written to logs/access.log (web/access_log.py).
 """
 
+import ipaddress
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ from functools import wraps
 
 from flask import (
     Flask, Response, g, render_template, request, url_for,
-    jsonify, stream_with_context, send_from_directory, abort,
+    jsonify, stream_with_context, send_from_directory, abort, redirect,
 )
 
 from config import Config
@@ -276,6 +277,40 @@ def create_app(
     )
     app.config["SECRET_KEY"] = "modes-meteo-secret"
 
+    # ── "MODE-S Wind has moved" (from 2026-10-27) ─────────────────────────
+    # SITE_MOVED_URL (config_local.py of the old server, e.g. the home Raspberry
+    # Pi): every page and the mobile view /app show a notice pointing to the new
+    # address, closable for the day.  SITE_MOVED_HIDE_LAN (default True): not
+    # for visitors from the local network (the station's own users at home).
+    # SITE_MOVED_REDIRECT (default False): visitors from outside the local
+    # network are sent straight to the same page on the new server (pages
+    # only — API, static files and the guides answer as before).
+    _moved_url = str(getattr(cfg, "SITE_MOVED_URL", "") or "").strip().rstrip("/")
+    _moved_host = _moved_url.split("://", 1)[-1]
+
+    def _home_addr(ip: str) -> bool:
+        try:
+            a = ipaddress.ip_address(ip or "")
+            return a.is_private or a.is_loopback or a.is_link_local
+        except ValueError:
+            return False
+
+    def _site_moved():
+        if not _moved_url:
+            return None
+        if getattr(cfg, "SITE_MOVED_HIDE_LAN", True) and _home_addr(request.remote_addr):
+            return None
+        return {"url": _moved_url, "host": _moved_host}
+
+    @app.before_request
+    def site_moved_redirect():
+        if (not _moved_url or not getattr(cfg, "SITE_MOVED_REDIRECT", False)
+                or request.method not in ("GET", "HEAD")
+                or request.path.startswith(("/api/", "/static/", "/doc/", "/app/manifest"))
+                or _home_addr(request.remote_addr)):
+            return None
+        return redirect(_moved_url + request.full_path.rstrip("?"), code=302)
+
     # ── Template globals — config badges shown in every page's navbar ─────
 
     @app.context_processor
@@ -290,6 +325,8 @@ def create_app(
             # the shared test login is being phased out (web/shared_login.py):
             # its state for the navbar chip / notice, None for everyone else
             "shared_login":      g.get("shared_state"),
+            # SITE_MOVED_URL: the "moved to …" notice, None when not shown
+            "site_moved":        _site_moved(),
         }
 
     # ── Authentication ────────────────────────────────────────────────────

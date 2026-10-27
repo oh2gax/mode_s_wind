@@ -3076,3 +3076,34 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .nav-mobile-chip .mob-txt b { color: var(--text-1); font-family: 'Courier New', monospace; font-weight: 700; }
 @media (max-width: 1800px) { .nav-mobile-chip .mob-txt { display: none; } .nav-mobile-chip { padding: 2px 6px; } }
 @media (max-width: 1500px) { .nav-mobile-chip .mob-new { display: none; } .nav-mobile-chip { padding: 2px 5px; margin-right: 2px; } }
+
+/* ── "MODE-S Wind has moved" notice (from 27 Oct 2026, SITE_MOVED_URL; web/templates/_moved_notice.html) ──
+   Floats under the navbar (the pages use the full window height), above the maps
+   and panels but below the What's new / About windows.  Same colours in both themes. */
+.mv-note {
+  position: fixed; top: calc(var(--navbar-h) + 8px); left: 50%; transform: translateX(-50%);
+  z-index: 1500; display: flex; align-items: center; gap: 12px;
+  width: max-content; max-width: min(1040px, 94vw);
+  padding: 9px 10px 9px 14px; border-radius: 8px;
+  background: #7c2d12; color: #fff7ed; border: 1px solid #fb923c;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); font-size: 13.5px; line-height: 1.4;
+}
+.mv-note[hidden] { display: none; }
+.mv-note a { color: #fed7aa; font-weight: 700; text-decoration: underline; white-space: nowrap; }
+.mv-note .mv-ico { flex: none; font-size: 18px; color: #fdba74; }
+.mv-note .mv-sub { display: block; color: #fde6d2; font-size: 12px; margin-top: 2px; }
+.mv-note .mv-btn {
+  flex: none; background: #fb923c; color: #1c1006; text-decoration: none; padding: 6px 11px;
+  border-radius: 6px; font-weight: 700; white-space: nowrap;
+}
+.mv-note .mv-btn:hover { background: #fdba74; }
+.mv-note .mv-close {
+  flex: none; align-self: flex-start; background: none; border: none; color: #fed7aa;
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.mv-note .mv-close:hover { color: #fff; }
+/* the mobile view /app: full width under its top bar */
+.mv-note.mv-app {
+  top: calc(47px + env(safe-area-inset-top) + 6px); left: 8px; right: 8px; transform: none;
+  width: auto; max-width: none; font-size: 13px; gap: 8px; padding: 8px 8px 8px 10px;
+}

@@ -32,6 +32,7 @@
   <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
   <span id="app-health" class="app-health" title="System health"></span>
 </header>
+{% if site_moved %}{% with mv_app=true %}{% include "_moved_notice.html" %}{% endwith %}{% endif %}
 
 <div class="app-main" role="main">
   <!-- Skew-T (Area · now / Area · hour) -->
