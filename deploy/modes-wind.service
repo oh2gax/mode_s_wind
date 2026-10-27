@@ -1,0 +1,23 @@
+# systemd service for MODE-S Wind installed with a Python virtual environment
+# (README: Run as a systemd service; Running in the cloud)
+#
+#   sudo cp deploy/modes-wind.service /etc/systemd/system/
+#   (change User and the two paths if the user is not ubuntu)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now modes-wind
+
+[Unit]
+Description=MODE-S Wind System
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mode_s_wind
+ExecStart=/home/ubuntu/mode_s_wind/venv/bin/python run.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

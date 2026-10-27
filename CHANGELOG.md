@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.27102026 — 2026-10-27 (windshear: ramp alerts confirmed / isolated by the nearby landings; band comparison by flight phase)
+## v.27102026 — 2026-10-27 (windshear: ramp alerts confirmed / isolated by the nearby landings; band comparison by flight phase; running in the cloud behind HTTPS)
 
 ### Windshear: confirmation of ramp alerts
 - Each ramp alert is labelled **confirmed** when another landing on the same runway direction within ±15 min had a ramp of the same sign (≥ 7 kt per 1 km) whose middle lies within ±300 ft, **isolated** when none had (`collector/shear.py`: `CONFIRM_WINDOW_SEC`, `CONFIRM_ALT_FT`, `CONFIRM_MIN_SC`, `rwy_dir`, `alert_ramp`, `confirm_count`, `confirmation`). Label only — the alert level is unchanged.
@@ -25,6 +25,14 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Documentation: windshear study log
 - New `doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf` (version 1.0, 11 pp): a living study log of the windshear detection for aviation meteorologists and atmospheric scientists — the six browser algorithms and why they were abandoned for the Hong Kong Observatory's headwind-ramp method, then each change of v2–v5 and the confirmation label with its reason, evidence and replay, the dated log of the database checks, results so far, current parameters and next steps. Listed in `doc/guides.md` (User guides tab); updated with every later change of the method or check of the data.
 - `doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf` (the A4 receiving-station overview, now 3 pages): new page 3 on the windshear detection (headwind ramps, band comparison by flight phase, ADV / WSA / MBA, confirmed / isolated) and the ongoing study (phases, results 9–27 Oct, next steps); pages 1–2 unchanged apart from the version and page numbers. Listed in `doc/guides.md` (User guides tab) and linked from the README hardware section.
+
+### Deployment: per-machine settings, updates from git, running behind HTTPS
+- **`config_local.py`** (optional, gitignored): this machine's own settings. Every UPPERCASE name in it replaces the setting of the same name in `config.py`, which then stays exactly as in git on every machine, so updates never reset local values. Read once at start-up by `run.py` (new `config_override.py`); the log lists the names taken from it. Template: `config_local.py.example`. `.gitignore`: `config_local.py`.
+- **`update.sh`**: updates a `git clone` installation in one command — lists the new commits, refuses local edits of tracked files, backs up the database (SQLite backup API, newest 3 kept, `--no-backup` to skip), `git merge --ff-only`, `pip install` when `requirements.txt` changed, compiles the changed Python files (goes back at once if one fails), restarts the service and shows the log; `--check` and `--rollback`.
+- **Radarcape status address**: optional `RADARCAPE_STATUS_URL` (`collector/radarcape_status.py`), e.g. through a tunnel on another port; without it the address is `http://<RADARCAPE_HOST>/systemstatus.json` as before.
+- **Running behind an HTTPS reverse proxy**: optional `WEB_BEHIND_PROXY` (`run.py`; used only with `WEB_HOST = "127.0.0.1"`). Login protection improved.
+- `deploy/`: examples for a cloud server — nginx site (`nginx-mode-s-wind.conf`), systemd services for MODE-S Wind in a virtual environment (`modes-wind.service`) and for the reverse SSH tunnel from the home station (`modes-tunnel.service`).
+- README: new sections *8. This machine's own settings*, *9. Updating with git* and *Running in the cloud (AWS) behind HTTPS* (tunnel, installation, nginx and Let's Encrypt), the new settings and the project structure.
 
 ---
 

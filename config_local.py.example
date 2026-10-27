@@ -1,0 +1,31 @@
+# config_local.py — this machine's own settings (optional; from 2026-10-27)
+#
+# Copy this file to config_local.py and keep only the lines you need:
+#     cp config_local.py.example config_local.py
+#
+# config_local.py is listed in .gitignore: it is never committed and `git pull`
+# (bash update.sh) never changes it.  Every UPPERCASE name here replaces the
+# setting of the same name in config.py (class Config) — config.py itself stays
+# exactly as in git.  Without this file everything works as before.
+#
+# The start-up log lists the names taken from here (not their values):
+#     Local config: config_local.py (RADARCAPE_HOST, WEB_PORT, …)
+#
+# ── Example: the cloud server (AWS) ─────────────────────────────────────────
+# The Radarcape is reached through a reverse SSH tunnel from the home station
+# (README: Running in the cloud), its Beast port on 127.0.0.1:10003 and its
+# web server (aircraft list, status page) on 127.0.0.1:8080; the pages are
+# served by nginx with HTTPS in front of MODE-S Wind.
+
+RADARCAPE_HOST = "127.0.0.1"
+RADARCAPE_PORT = 10003
+RADARCAPE_JSON_URL = "http://127.0.0.1:8080/aircraftlist.json"
+RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
+
+WEB_HOST = "127.0.0.1"       # reachable only through nginx on this machine
+WEB_PORT = 8000
+WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 127.0.0.1)
+
+# Other settings can be overridden the same way, e.g.
+# DB_PATH = "/mnt/ssd/modes_meteo.db"
+# WEB_PASS = "…"             # keep passwords out of git: here, not in config.py

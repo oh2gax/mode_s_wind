@@ -36,6 +36,10 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from config import Config
+import config_override
+# this machine's own settings (optional, gitignored config_local.py; from
+# 2026-10-27) — applied before any other module reads the settings
+config_override.apply(Config)
 from database.db import init_db
 from collector.receiver import run_collector, prune_bds_cache, get_bds_samples, get_vel_samples
 from collector.radarcape_json import run_json_poller
@@ -762,6 +766,10 @@ def main() -> None:
     log.info("  Web         : http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)
     log.info("  Source mode : %s", cfg.METEO_SOURCE_MODE)
     log.info("  Storage mode: %s", cfg.STORAGE_MODE)
+    _local = config_override.apply(Config)
+    if _local:
+        # only the names: the file may hold passwords
+        log.info("  Local config: %s (%s)", config_override.LOCAL_FILE, ", ".join(_local))
     log.info("=" * 60)
 
     # ── Initialise database ───────────────────────────────────────────────
@@ -985,16 +993,37 @@ def main() -> None:
     # ── Create Flask app ──────────────────────────────────────────────────
     app = create_app(cfg, live_state, live_lock, ws_tracker, gps_tracker)
 
+    # ── Behind an HTTPS reverse proxy (nginx; from 2026-10-27) ────────────
+    # Every request then comes from the proxy (127.0.0.1); the visitor's own
+    # address — for the login protection and the access log — is taken from
+    # the X-Forwarded-For header the proxy sets (one proxy trusted).  Only
+    # safe when this server is reachable through the proxy alone, so it is
+    # used only with WEB_HOST on the loopback address; otherwise anyone could
+    # send that header.
+    if getattr(cfg, "WEB_BEHIND_PROXY", False):
+        if str(cfg.WEB_HOST).strip() in ("127.0.0.1", "localhost", "::1"):
+            from werkzeug.middleware.proxy_fix import ProxyFix
+            app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+            log.info("Web: behind a reverse proxy (visitor address from X-Forwarded-For)")
+        else:
+            log.warning("WEB_BEHIND_PROXY ignored: WEB_HOST is %s — set WEB_HOST = \"127.0.0.1\" "
+                        "so that the web server is reachable only through the proxy", cfg.WEB_HOST)
+
     # ── Start background WX (METAR / TAF) polling thread ─────────────────
     start_wx_poll_thread(cfg.AIRPORT_ICAO.upper(), on_qnh=ws_tracker.set_qnh,
                          on_metar=ws_tracker.set_metar)
     log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3)",
              cfg.AIRPORT_ICAO.upper())
 
-    log.info("Web interface starting on http://0.0.0.0:%d", cfg.WEB_PORT)
+    log.info("Web interface starting on http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)
     log.info("Username: %s  Password: %s (set in config.py)", cfg.WEB_USER, "*" * 8)
-    if cfg.WEB_PASS in ("admin123", "admin", "password", "") or cfg.WEB_PASS == cfg.WEB_USER:
+    from web import users as _wu
+    if not _wu.cfg_login_allowed(cfg):
+        log.info("Built-in config.py login off (%s) — personal users and the maintenance "
+                 "user only", "empty WEB_PASS" if not cfg.WEB_PASS else
+                 "default password behind the public proxy")
+    elif cfg.WEB_PASS in ("admin123", "admin", "password", "") or cfg.WEB_PASS == cfg.WEB_USER:
         log.warning("WEB_PASS is still a default / trivial password — change WEB_USER and "
                     "WEB_PASS in config.py, the web interface is reachable from the internet")
     log.info("Access log  : %s", os.path.join(ROOT, "logs", "access.log"))

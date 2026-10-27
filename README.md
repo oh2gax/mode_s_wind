@@ -332,6 +332,8 @@ class Config:
     # ANTENNA_LAT = 60.317            # optional: antenna position for the Statistics page range rings
     # ANTENNA_LON = 24.963            #           (fallback when the Radarcape's GPS position is not good; else RECEIVER_LAT / RECEIVER_LON)
     # RADARCAPE_STATUS = True         # optional: read the Radarcape's systemstatus.json every 60 s (Statistics page, health)
+    # RADARCAPE_STATUS_URL = ""       # optional: another address for it, e.g. through a tunnel "http://127.0.0.1:8080/systemstatus.json"
+    # WEB_BEHIND_PROXY = False        # optional: behind an HTTPS reverse proxy (nginx) — only with WEB_HOST = "127.0.0.1" (Running in the cloud)
     # MSG_STATS_SIGNAL = True         # optional: read the Beast signal byte for the Statistics page signal histogram
     # MSG_STATS_DAYS = 7              # optional: days of Statistics page history kept in msg_stats_hours
     # HEADING_CAL_MODE = "apply"      # optional: per-airframe heading calibration "apply" | "learn" | "off"
@@ -392,15 +394,19 @@ class Config:
 
 > **Keep a note of your local edits.** `config.py` is part of the repository, so replacing it with a newer version (e.g. copying the updated file from GitHub to the Pi) resets any values you changed locally — such as `MAINTENANCE_AUTH_FILE`, `WEB_USER` / `WEB_PASS` or IP addresses. Re-apply them after updating `config.py`. Optional settings added later are read with safe defaults (e.g. `USE_WMM_DECLINATION`, `GPS_EPISODE_RADIUS_NM`, `APPROACH_SERIES_DAYS`, `HEADING_CAL_*`, `WRITE_ON_LAYER_CHANGE`, `ARCHIVE_DIR`, `DEPARTURE_PROFILE*`, `HEIGHT_SERIES*`, `KINEMATICS_RADIUS_KM`, `GNSS_HOURS_DAYS`, `GNSS_CAL_SLOPE`, `WIND_MAX_AGE_SEC`, `ANTENNA_LAT` / `ANTENNA_LON`, `RADARCAPE_STATUS`, `MSG_STATS_SIGNAL`, `MSG_STATS_DAYS`, `WEB_USER_EXPIRES`, `SONDE_*`, `MEPS_*`, `TEMP_CORRECTION*`, `MOIST_MEPS_OFFSETS`, `BASESTATION_DB_PATH`, `WEB_USERS_FILE`, `GPS_EPISODE_EDGE_NM`, `GPS_NIC_THRESHOLD` — most shown as commented lines in the block above; `ACCESS_*` and `LOG_*` are described under *Running in the background*), so an update of the code does not require updating `config.py` unless the change notes say so. The other settings in the block above — including the `WINDSHEAR_GA_*` go-around keys — must exist in `config.py`.
 
+> **From 27 Oct 2026: keep your own values in `config_local.py` instead.** Any setting can be overridden in an optional file `config_local.py` next to `config.py` (gitignored, never committed) — then `config.py` stays exactly as in git and updates never reset your values. See [8. This machine's own settings](#8-this-machines-own-settings--config_localpy).
+
 Key values to change for your installation:
 
-- `RADARCAPE_HOST` and `RADARCAPE_JSON_URL` — IP address of your Radarcape on the local network (the JSON URL carries the address separately; the Beast feed and the status page `systemstatus.json` use `RADARCAPE_HOST`)
+- `RADARCAPE_HOST` and `RADARCAPE_JSON_URL` — IP address of your Radarcape on the local network (the JSON URL carries the address separately; the Beast feed and the status page `systemstatus.json` use `RADARCAPE_HOST`, the status page `RADARCAPE_STATUS_URL` when it is set)
 - `RECEIVER_LAT` / `RECEIVER_LON` — your receiver's location (used for CPR position decoding and sounding radius)
 - `ANTENNA_LAT` / `ANTENNA_LON` (optional) — the antenna's position, the **fallback** centre of the Statistics page range rings: the Radarcape's own GPS position from its status page comes first while it is good (live GPS fix, not a privacy-alias position, antenna OK, 3 or more satellites, status read within 15 min; from 26 Oct 2026), then these, and without them `RECEIVER_LAT` / `RECEIVER_LON`, which is often the map centre or the airport
 - `RADARCAPE_STATUS` (optional, default `True`) — read the Radarcape's status page (`systemstatus.json`) once a minute for the Statistics page panel and health indicator
+- `RADARCAPE_STATUS_URL` (optional, from 27 Oct 2026) — the status page's address when it is not `http://<RADARCAPE_HOST>/systemstatus.json`, e.g. through a tunnel on another port (`http://127.0.0.1:8080/systemstatus.json`, see *Running in the cloud*)
+- `WEB_BEHIND_PROXY` (optional, default `False`, from 27 Oct 2026) — the web server runs behind an HTTPS reverse proxy on the same machine; the visitor's address is then taken from the proxy's `X-Forwarded-For` header (login protection, access log). Used only together with `WEB_HOST = "127.0.0.1"` (otherwise ignored with a warning), so that nobody can reach the server past the proxy and send that header themselves
 - `MAG_DECLINATION` — magnetic declination at your receiver in degrees East. With `pygeomag` installed and `USE_WMM_DECLINATION = True` (default) the declination at each aircraft's own position is calculated automatically and this value is only a fallback (aircraft without a known position, or pygeomag missing — a warning is logged at startup). Find your value at [NOAA magnetic declination calculator](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml); WMM2025 is valid until 2030, after which it is extrapolated with a warning — upgrade pygeomag then
 - `AIRPORT_ICAO` — ICAO code of your nearest airport (used for METAR/TAF display on the Live Map bottom strip and as the QNH source for Wind Map low-altitude corrections)
-- `WEB_USER` / `WEB_PASS` — the built-in user of the web interface (further users: **Web Users** on the Maintenance page); when it has been shared with testers it can be phased out with an end date (see *Shared test login* under Maintenance)
+- `WEB_USER` / `WEB_PASS` — the built-in user of the web interface (further users: **Web Users** on the Maintenance page); when it has been shared with testers it can be phased out with an end date (see *Shared test login* under Maintenance). From 27 Oct 2026 this login is **off** when `WEB_PASS` is empty, and on a server behind a public reverse proxy (`WEB_BEHIND_PROXY = True`) also when `WEB_PASS` is a default one (`admin123`, `admin`, `password` or the same as `WEB_USER`) — `config.py` is public in git, so its default login must not open a server on the internet; the start-up log says *Built-in config.py login off*. The personal users and the maintenance user always work
 - `MAINTENANCE_AUTH_FILE` — full path to the maintenance credential file (see [Maintenance](#maintenance--maintenance)); empty by default, which keeps the maintenance operations locked
 - `METEO_SOURCE_MODE`, `STORAGE_MODE`, and `WRITE_MIN_INTERVAL_SEC` — see the [Operational Modes](#operational-modes) section below
 - `WINDSHEAR_AIRPORT_LAT` / `WINDSHEAR_AIRPORT_LON` — reference point for the 15 NM outer tracking circle on the Windshear page (set to your monitoring airport coordinates)
@@ -476,7 +482,7 @@ The log `logs/modes_meteo.log` is rotated: at 10 MB it is renamed `modes_meteo.l
 
 At most 20 lines per address and kind are written per clock hour; the rest are counted in one summary line (`… 190 more in the last hour not listed (e.g. /.env, /phpinfo.php …)`), so a path scanner costs a few lines. The log rotates at 1 MB with 5 old files. The addresses that have logged in are kept in `logs/access_known.json` (written only when a session starts). The startup log no longer prints the web password, and warns while `WEB_PASS` is still a default value. Optional `config.py` keys: `ACCESS_LOG` (default `True`), `ACCESS_SESSION_IDLE_MIN` (`30`), `ACCESS_LOG_PER_IP_HOUR` (`20`), `ACCESS_LOCKOUT_FAILS` (`10`; `0` = no blocking), `ACCESS_LOCKOUT_MIN` (`15`), `ACCESS_LOG_MAX_MB` (`1`), `ACCESS_LOG_BACKUPS` (`5`).
 
-> **Exposing the web interface to the internet.** The interface uses HTTP Basic authentication over plain HTTP, so the password is sent readable with every request — anyone on the network path (public Wi-Fi, a company proxy) could see it. Use a password that is not used anywhere else, and preferably put an HTTPS reverse proxy (e.g. Caddy with a Let's Encrypt certificate) or a VPN (WireGuard, Tailscale) in front instead of forwarding the port directly.
+> **Exposing the web interface to the internet.** The interface uses HTTP Basic authentication over plain HTTP, so the password is sent readable with every request — anyone on the network path (public Wi-Fi, a company proxy) could see it. Use a password that is not used anywhere else, and preferably put an HTTPS reverse proxy (e.g. nginx or Caddy with a Let's Encrypt certificate; see [Running in the cloud](#running-in-the-cloud-aws-behind-https) for a complete nginx setup) or a VPN (WireGuard, Tailscale) in front instead of forwarding the port directly.
 
 To stop:
 
@@ -513,6 +519,133 @@ sudo systemctl enable modes-wind
 sudo systemctl start modes-wind
 sudo systemctl status modes-wind
 ```
+
+With a Python virtual environment (`venv/`), use its Python in `ExecStart` — `deploy/modes-wind.service` is a ready example (user `ubuntu`, `ExecStart=/home/ubuntu/mode_s_wind/venv/bin/python run.py`, `Restart=always`, `PYTHONUNBUFFERED=1` so that the log lines reach `journalctl -u modes-wind` at once).
+
+### 8. This machine's own settings — `config_local.py`
+
+From 27 Oct 2026 the settings in which one machine differs from the others go into an optional file **`config_local.py`** next to `config.py`, not into `config.py` itself:
+
+```bash
+cp config_local.py.example config_local.py
+nano config_local.py        # keep only the lines this machine needs
+```
+
+Every UPPERCASE name in it replaces the setting of the same name in `config.py` (or adds an optional one), e.g.
+
+```python
+RADARCAPE_HOST = "192.168.1.50"
+WEB_PORT = 8000
+WEB_PASS = "…"              # passwords belong here, not in the public config.py
+```
+
+`config_local.py` is listed in `.gitignore`, so it is never committed and `git pull` never touches it; `config.py` stays exactly as in git on every machine. Without the file everything works as before. It is read once at start-up by `run.py` (`config_override.py`), before any other part of the system reads the settings; the log lists the names taken from it (`Local config: config_local.py (RADARCAPE_HOST, WEB_PORT)` — never the values). A mistake in the file (a Python syntax error) stops the start with the error message instead of running with wrong settings.
+
+### 9. Updating with git — `update.sh`
+
+On a machine installed with `git clone` (the cloud server, and the recommended way for a new home station), one command updates MODE-S Wind:
+
+```bash
+cd ~/mode_s_wind
+bash update.sh              # show the new commits, ask, back up, update, restart, show the log
+bash update.sh --check      # only show what an update would bring
+bash update.sh --rollback   # back to the version before the last update
+```
+
+What it does, in this order:
+
+1. `git fetch`, then lists the new commits and the files they change; it notes when the database code or the start-up changes (the first start may then migrate or recompute stored data).
+2. Refuses when a tracked file has local edits — this machine's own settings belong in `config_local.py`; restore an edited file with `git checkout -- <file>`.
+3. A consistent copy of the database to `data/archive/pre_update_<UTC time>.db` (the SQLite backup API, safe while MODE-S Wind runs; the newest 3 are kept, and it checks the free disk first). `--no-backup` skips it — on a Raspberry Pi this saves writing the whole database to the SD card.
+4. `git merge --ff-only` — never mixes in local commits.
+5. `pip install -r requirements.txt` when that file changed (with `venv/`).
+6. Compiles the changed Python files; when one does not compile, it goes back to the previous version at once and restarts nothing.
+7. `sudo systemctl restart modes-wind` (`--service NAME` or `MODES_SERVICE` for another name) and shows the first log lines, with a warning when error lines appear.
+
+`-y` answers yes to the questions. The previous version and the backup are recorded in `data/archive/update_state.txt`; `--rollback` returns to that version and restarts, and prints — but does not run — the commands to restore the database copy (that would lose the data collected since the update, so it is left to you). Run it as the user that owns the folder (`ubuntu` on AWS).
+
+---
+
+## Running in the cloud (AWS) behind HTTPS
+
+From 27 Oct 2026 MODE-S Wind also runs on a cloud server (AWS Lightsail, Ubuntu 24.04 LTS, 2 vCPU, 4 GB, 80 GB SSD) for public use, while the home station keeps running on its own — the off-grid station. Both get the same receiver data: the home station reads the Radarcape on the local network as before, and an outbound **reverse SSH tunnel** from the home station gives the cloud server the Radarcape's Beast port and web server on its own `127.0.0.1`. The cloud server runs an unchanged MODE-S Wind with its own database (started from a snapshot of the home database), behind **nginx** with a **Let's Encrypt** certificate.
+
+```
+Radarcape ──LAN── home station ══ reverse SSH tunnel (outbound) ══▶ cloud: 127.0.0.1:10003 (Beast)
+                                                                      127.0.0.1:8080  (aircraft list, status)
+browser ══ https (443) ══▶ nginx ──▶ 127.0.0.1:8000 MODE-S Wind ──┘
+```
+
+**Data volume.** The Beast stream is about 130 messages a second, roughly 10–30 GB a month; the aircraft list every 2 s adds about 40–80 GB — a small part of a 4 TB transfer allowance, and nothing for a fibre line. No port is opened at home, and the Radarcape is never reachable from the internet.
+
+**Timing.** The decoder stamps each message with its arrival time (refined with the Radarcape's own clock within a burst), so the tunnel must deliver the stream live: SSH does. A relay that stored messages during a break and sent them later would give them wrong times.
+
+**The two databases.** Each machine stores and learns on its own (heading calibration, temperature correction); they stay close but not identical. The home database remains the reference of the data checks and the windshear study.
+
+### 1. The tunnel (home station → cloud)
+
+On the **home station**, a key used only for the tunnel:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/modes_tunnel -N "" -C "modes-tunnel"
+cat ~/.ssh/modes_tunnel.pub
+```
+
+On the **cloud server**, a user that may do nothing but open the two forwards (paste the key after `ssh-ed25519` — the line must hold `ssh-ed25519` once):
+
+```bash
+sudo adduser --disabled-password --gecos "" tunnel
+sudo mkdir -p /home/tunnel/.ssh
+KEY='ssh-ed25519 AAAA… modes-tunnel'
+echo "restrict,port-forwarding,permitlisten=\"127.0.0.1:10003\",permitlisten=\"127.0.0.1:8080\" $KEY" | sudo tee /home/tunnel/.ssh/authorized_keys
+sudo chown -R tunnel:tunnel /home/tunnel/.ssh
+sudo chmod 700 /home/tunnel/.ssh && sudo chmod 600 /home/tunnel/.ssh/authorized_keys
+# drop a dead tunnel within ~45 s, so that a reconnect can take the ports again
+printf 'Match User tunnel\n  ClientAliveInterval 15\n  ClientAliveCountMax 3\n' | sudo tee /etc/ssh/sshd_config.d/tunnel.conf
+sudo systemctl reload ssh
+```
+
+Test from the home station (answer *yes* to the server's key once; `RADARCAPE_IP` is the receiver's address on the home network, `SERVER` the cloud server's name or IP — use the same form later in the service):
+
+```bash
+ssh -i ~/.ssh/modes_tunnel -N -o ExitOnForwardFailure=yes \
+  -R 127.0.0.1:10003:RADARCAPE_IP:10003 -R 127.0.0.1:8080:RADARCAPE_IP:80 tunnel@SERVER
+```
+
+and on the cloud server: `timeout 3 nc 127.0.0.1 10003 | head -c 64 | xxd` shows Beast frames (`1a 32`, `1a 33`), `curl -s http://127.0.0.1:8080/aircraftlist.json | head -c 200` the aircraft list. Then make it permanent on the home station with `deploy/modes-tunnel.service` (fill in `USER`, `RADARCAPE_IP`, `SERVER`; `Restart=always` reconnects by itself, `StrictHostKeyChecking=yes` refuses a server whose key has changed).
+
+### 2. Installing MODE-S Wind on the cloud server
+
+```bash
+sudo apt update && sudo apt install -y git python3-venv sqlite3
+git clone https://github.com/oh2gax/mode_s_wind.git && cd mode_s_wind
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+cp config_local.py.example config_local.py      # the cloud settings: tunnel, 127.0.0.1:8000, proxy
+```
+
+Copy from the home station (not in git): a **consistent snapshot** of the database (Maintenance page snapshot, or `sqlite3 data/modes_meteo.db ".backup snap.db"`) as `data/modes_meteo.db` — before the first start, otherwise an empty database is created —, the folder `data/soundings/`, and `api_keys.py`, `webusers.txt` and `dbauth.txt` (then `chmod 600` them). Check the copy with `sqlite3 data/modes_meteo.db "pragma quick_check;"`. The cloud database lacks only the time between the snapshot and the first start.
+
+Run once in the foreground (`venv/bin/python run.py`): the log shows `Local config: config_local.py (…)`, `Connected to Radarcape at 127.0.0.1:10003` and `Radarcape status reader started (http://127.0.0.1:8080/systemstatus.json …)`. Then install the service: `sudo cp deploy/modes-wind.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now modes-wind`. Updates later: `bash update.sh`.
+
+### 3. HTTPS with nginx and Let's Encrypt
+
+The domain's A record must point to the server's static IP first, and the Lightsail firewall must allow HTTP (80, for the certificate) and HTTPS (443).
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+sudo cp deploy/nginx-mode-s-wind.conf /etc/nginx/sites-available/mode-s-wind
+sudo sed -i 's/mode-s-wind.example.org/YOUR.DOMAIN/' /etc/nginx/sites-available/mode-s-wind
+sudo ln -s /etc/nginx/sites-available/mode-s-wind /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d YOUR.DOMAIN             # certificate, HTTPS server and http → https redirect
+```
+
+Certbot renews the certificate automatically (`systemctl list-timers | grep certbot`; test with `sudo certbot renew --dry-run`). nginx passes every request to `127.0.0.1:8000` and sets `X-Forwarded-For` to the visitor's address (set, not appended, so a visitor cannot add its own). With `WEB_HOST = "127.0.0.1"` and `WEB_BEHIND_PROXY = True` in `config_local.py`, MODE-S Wind is reachable only through nginx and the login protection, the *new address* warning and the access log see the real visitor addresses — without it every visitor would look like `127.0.0.1`, a local address, which the login lockout does not apply to. The Live Map's live stream works through nginx unchanged (it sends `X-Accel-Buffering: no` itself). When everything works, close the temporary direct port (e.g. 8000) in the Lightsail firewall and add HSTS (the commented `Strict-Transport-Security` line in `deploy/nginx-mode-s-wind.conf`, inside the HTTPS server block certbot wrote).
+
+**Logins on the public server.** The built-in `config.py` login is off behind the proxy while `WEB_PASS` is a default one (see `WEB_USER` / `WEB_PASS` above); the personal users of the users file and the maintenance user work as at home — over HTTPS their passwords are encrypted. The Maintenance page is reachable with the maintenance login; to allow it only from certain addresses, add to the nginx server block e.g. `location /maintenance { allow 203.0.113.10; deny all; proxy_pass http://127.0.0.1:8000; … }` (and the same for `/api/maintenance/`).
+
+**Web server.** MODE-S Wind keeps Flask's built-in threaded server: the collector runs in the same process, so it must stay one process (an app server with several worker processes would start several collectors). nginx in front handles TLS, slow clients and the connections.
 
 ---
 
@@ -1966,12 +2099,18 @@ mode_s_wind/
 ├── LICENSE                    # GNU GPL v3
 ├── CITATION.cff               # How to cite / credit the project (GitHub "Cite this repository")
 ├── config.py                  # All configuration settings
+├── config_local.py            # This machine's own settings (optional, gitignored — not committed)
+├── config_local.py.example    # Template for config_local.py (the cloud-server case)
+├── config_override.py         # Reads config_local.py into Config at start-up
 ├── api_keys.py                # Local API keys (gitignored — not committed)
 ├── api_keys.py.example        # Template for api_keys.py (safe to commit)
 ├── run.py                     # Main entry point; starts collector, JSON poller, Radarcape status, windshear / GPS sweeps,
 │                              # housekeeping, hourly-jobs, radiosonde, MEPS and autopurge threads, then Flask
 ├── requirements.txt           # Python dependencies (pyModeS, flask, pygeomag)
 ├── install.sh                 # Raspberry Pi install script (venv + dependencies)
+├── update.sh                  # Update from GitHub: backup, git pull, checks, restart, rollback
+├── deploy/                    # Examples for the cloud server: nginx-mode-s-wind.conf (HTTPS proxy),
+│                              # modes-wind.service (venv), modes-tunnel.service (home → cloud tunnel)
 ├── tools/
 │   └── archive_query.py       # Combine monthly archive files + running DB into one analysis DB / CSV query
 ├── database/

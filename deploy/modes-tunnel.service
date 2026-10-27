@@ -1,0 +1,31 @@
+# systemd service on the HOME station: a reverse SSH tunnel that gives the cloud
+# server the Radarcape's Beast port and web server on its own 127.0.0.1
+# (README: Running in the cloud).  Outbound only — no port is opened at home.
+#
+#   RADARCAPE_IP  the Radarcape's address on the home network
+#   SERVER        the cloud server (name or IP); user "tunnel" there may only
+#                 open these two forwards (see README)
+#   USER          your user on the home station
+#
+#   sudo cp deploy/modes-tunnel.service /etc/systemd/system/   (edit the values first)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now modes-tunnel
+#   journalctl -u modes-tunnel -f
+
+[Unit]
+Description=MODE-S Wind Beast + JSON tunnel to the cloud server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=USER
+ExecStart=/usr/bin/ssh -N -i /home/USER/.ssh/modes_tunnel \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes \
+  -R 127.0.0.1:10003:RADARCAPE_IP:10003 \
+  -R 127.0.0.1:8080:RADARCAPE_IP:80 \
+  tunnel@SERVER
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

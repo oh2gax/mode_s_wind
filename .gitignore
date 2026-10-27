@@ -5,6 +5,9 @@ webusers.txt
 .webusers.txt.tmp
 api_keys.py
 
+# This machine's own settings (config_local.py.example is the template)
+config_local.py
+
 # Local database (keep data/.gitkeep so the folder exists in the repo)
 data/*.db
 data/*.db-wal

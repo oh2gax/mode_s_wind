@@ -7,6 +7,8 @@ the GPS flags of the receiver (antenna, tracking, satellites, UTC, timestamp
 sync, 1PPS, GNSS module data), the GPS module temperature, the uptimes, the
 time sources, the receiver position and its FPGA settings and versions.  RAM
 only, nothing is written.  Off with RADARCAPE_STATUS = False in config.py.
+RADARCAPE_STATUS_URL (optional, from 2026-10-27) gives another address, e.g.
+through a tunnel on another port: "http://127.0.0.1:8080/systemstatus.json".
 
 Kept for the page: the fields above and the feeders; left out on purpose: the
 network details (MAC and IP addresses), the MLAT nickname, the kernel string
@@ -71,9 +73,10 @@ FPGA_NEED = (("BIN", "AVR", "Beast binary output"),
 
 
 class RadarcapeStatus:
-    def __init__(self, host: str, enabled: bool = True) -> None:
+    def __init__(self, host: str, enabled: bool = True, url: str = "") -> None:
         self.host = host
-        self.enabled = enabled and bool(host)
+        self.status_url = (url or "").strip()     # RADARCAPE_STATUS_URL, optional
+        self.enabled = enabled and bool(host or self.status_url)
         self._lock = threading.Lock()
         self.data: dict | None = None
         self.ok_ts: float | None = None
@@ -85,7 +88,9 @@ class RadarcapeStatus:
 
     @property
     def url(self) -> str:
-        return f"http://{self.host}/systemstatus.json"
+        # RADARCAPE_STATUS_URL when set (e.g. through a tunnel on another port:
+        # "http://127.0.0.1:8080/systemstatus.json"), else the receiver's own
+        return self.status_url or f"http://{self.host}/systemstatus.json"
 
     def poll_once(self) -> bool:
         now = time.time()
@@ -241,7 +246,8 @@ _instance: RadarcapeStatus | None = None
 def init(cfg) -> RadarcapeStatus:
     global _instance
     _instance = RadarcapeStatus(getattr(cfg, "RADARCAPE_HOST", ""),
-                                enabled=bool(getattr(cfg, "RADARCAPE_STATUS", True)))
+                                enabled=bool(getattr(cfg, "RADARCAPE_STATUS", True)),
+                                url=str(getattr(cfg, "RADARCAPE_STATUS_URL", "") or ""))
     return _instance
 
 

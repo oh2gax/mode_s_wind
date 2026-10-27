@@ -3,7 +3,9 @@ web/users.py — web page users (from 2026-10-23).
 
 Who may open the web pages:
   * the built-in user of config.py (WEB_USER / WEB_PASS) — fixed, not editable
-    from the pages;
+    from the pages; off when WEB_PASS is empty, and on a server behind a public
+    reverse proxy (WEB_BEHIND_PROXY) also when WEB_PASS is a default one
+    (cfg_login_allowed, from 2026-10-27);
   * the maintenance user of MAINTENANCE_AUTH_FILE (the dbadmin login) — also
     the only user of the Maintenance page; its password can be changed on the
     Maintenance page (it is then stored hashed);
@@ -175,10 +177,31 @@ def _cached_check(user: str, password: str, stored: str) -> bool:
 
 # ── Checks ──────────────────────────────────────────────────────────────────
 
+# Passwords that make the built-in config.py user unusable on a public server
+TRIVIAL_PASSWORDS = ("admin123", "admin", "password")
+
+
+def cfg_login_allowed(cfg) -> bool:
+    """Whether the built-in user of config.py (WEB_USER / WEB_PASS) may log in
+    (from 2026-10-27): never with an empty WEB_PASS, and not with a default /
+    trivial one when the server runs behind a public reverse proxy
+    (WEB_BEHIND_PROXY) — config.py is public in git, so its default login must
+    not open a server on the internet.  The personal users and the
+    maintenance user are not affected."""
+    pw = str(getattr(cfg, "WEB_PASS", "") or "")
+    if not pw:
+        return False
+    if getattr(cfg, "WEB_BEHIND_PROXY", False) and (
+            pw in TRIVIAL_PASSWORDS or pw == str(getattr(cfg, "WEB_USER", ""))):
+        return False
+    return True
+
+
 def check_web(cfg, username: str, password: str) -> bool:
     """Web pages: the config.py user, the maintenance user or a user of the users file."""
     username, password = username or "", password or ""
-    cfg_ok = (hmac.compare_digest(username.encode(), str(cfg.WEB_USER).encode())
+    cfg_ok = (cfg_login_allowed(cfg)
+              & hmac.compare_digest(username.encode(), str(cfg.WEB_USER).encode())
               & hmac.compare_digest(password.encode(), str(cfg.WEB_PASS).encode()))
     if cfg_ok:
         return True
