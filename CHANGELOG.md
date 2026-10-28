@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search; map view remembered; health dot Pi / Server)
+## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search; map view remembered; health dot Pi / Server; signal histogram range)
 
 ### Mobile view /app: History and space–time
 - **History** view (new tile): the landings (`/api/windshear/approach-history?lite=1`) or departures (`/api/windshear/departures?full=1`) of 1 h – 1 day (default 3 h) or of one UTC date (‹ › day steppers, Live), as cards — time, callsign, type, runway, chips (ACI, windshear level, trial, GA) and a band strip (headwind / crosswind / wind, Lo 8 or Hi 13 bands) or an ACI / windshear summary; a tap opens all bands, the approach conditions and the windshear report. Sticky search (callsign, registration, type, ICAO anywhere). `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`.
@@ -27,6 +27,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Statistics page: health dot "Pi" or "Server"
 - The last health dot always had the readings of the computer the server runs on, but was labelled *Pi* also on the cloud server. It is now labelled **Pi** only on a Raspberry Pi (board model from `/proc/device-tree/model`, `MODEL` / `IS_PI` in `web/api/health.py`) and **Server** elsewhere, with its own hover title; the first detail line is the board model, or *this server's own readings (not the receiving station's Pi)*. Key `pi` and the limits unchanged.
 - Statistics user guide 1.7 (the Pi / Server dot).
+
+### Statistics page: signal-strength histogram scales itself
+- The x-axis was fixed at −50 … 0 dBFS (the Beast byte's range), but this receiver reports nothing weaker than about −26 dBFS, so half the chart was empty. It now starts one 2-dB bin below the weakest bin holding at least 0.05 % of all frames (`SIG_MIN_SHARE`) and ends at 0 dBFS; the range comes from *all frames*, so it does not change with the class. Stray frames below it are counted in the note, which now gives the receiver's weakest level instead of the fixed −48 dBFS. Browser only (`static/js/stats.js`); the collector's bins and the stored history are unchanged.
+- Statistics user guide 1.8 (the automatic range; Fig. 9 now the receiver's own 24 h).
 
 ---
 

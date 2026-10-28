@@ -283,6 +283,7 @@
   }
 
   // ── signal strength ───────────────────────────────────────────────────────
+  const SIG_MIN_SHARE = 0.0005;      // a bin with at least 0.05 % of all frames is inside the receiver's range
   const SIG_NAME = { all: 'All frames', adsb: 'ADS-B (DF17/18)', reply: 'Replies (DF4/5, DF20/21)', df11: 'All-call (DF11)', acas: 'ACAS (DF0/16)', other: 'Other formats' };
   function renderSig(d) {
     const sg = d.signal || {}, cats = sg.cats || {};
@@ -309,19 +310,33 @@
       ['p90', '90 % of the frames are weaker (dBFS)', 'num'], ['≥ −3 dB', 'Share of frames within 3 dB of the top of the receiver range (strong, possibly clipped)', 'num']], rows);
     $('mst-sig').querySelectorAll('tr[data-cat]').forEach(tr => tr.addEventListener('click', () => setSigCat(tr.dataset.cat)));
     $('mst-sig-note').textContent = `median ${fmt(all.median, 1)} dBFS`;
+    // Automatic range (from 2026-10-28): the byte allows −48 … 0 dBFS, but a receiver
+    // reports only what passes its detection threshold (the Radarcape about −26 dBFS),
+    // so the axis starts one bin below the weakest bin holding at least SIG_MIN_SHARE
+    // of all frames and ends at 0 dBFS — the same range for every class, so the axis
+    // does not jump when another class is chosen.
+    const nAll = all.hist.reduce((a, b) => a + b, 0) || 1;
+    let iw = all.hist.findIndex(v => v >= nAll * SIG_MIN_SHARE);
+    if (iw < 0) iw = 0;
+    const i0 = Math.max(0, iw - 1);
+    const weakDb = sg.lo_db + sg.step_db * iw;
+    const below = all.hist.slice(0, i0).reduce((a, b) => a + b, 0);
+    const dbs = v => String(v).replace('-', '−');
     $('mst-sig-foot').innerHTML = 'The level is the Beast signal byte of each frame, the receiver\'s peak amplitude of the reply, '
-      + 'shown as dBFS = 20·log₁₀(byte / 255): 0 dBFS is the top of its range, about −48 dBFS the weakest reply it reports. '
+      + `shown as dBFS = 20·log₁₀(byte / 255): 0 dBFS is the top of its range; the weakest replies this receiver reports are about ${dbs(weakDb)} dBFS `
+      + '(its detection threshold), and the chart starts just below them. '
       + 'It is not calibrated in dBm, but it is consistent for this receiver, so the shape and its changes are what count: '
       + 'the weak tail is the edge of the coverage (distant aircraft, low-elevation shadows), the strong end nearby aircraft '
       + 'and ground traffic; a strong-end share that grows can mean an overloaded front end. Replies to the ground interrogators '
       + '(DF4/5/20/21, DF11) and ADS-B come from the same transponder, so the classes differ mainly through where the aircraft are when they send.'
+      + (below ? ` ${below.toLocaleString('en')} stray frame${below === 1 ? '' : 's'} below ${dbs(sg.lo_db + sg.step_db * i0)} dBFS not shown.` : '')
       + (sg.zero ? ` Frames with no level: ${sg.zero}.` : '')
       + (sg.parser && (sg.parser.skipped || sg.parser.misaligned) ? ` Bursts without levels (parser check): ${(sg.parser.skipped || 0) + (sg.parser.misaligned || 0)}.` : '');
     // chart
     if (typeof Chart === 'undefined') return;
     const c = cats[sigCat] && cats[sigCat].n ? cats[sigCat] : all;
-    const lbl = c.hist.map((_, i) => String(sg.lo_db + sg.step_db * i).replace('-', '−'));
-    const share = h => { const n = h.reduce((a, b) => a + b, 0) || 1; return h.map(v => +(100 * v / n).toFixed(2)); };
+    const lbl = c.hist.slice(i0).map((_, i) => dbs(sg.lo_db + sg.step_db * (i0 + i)));
+    const share = h => { const n = h.reduce((a, b) => a + b, 0) || 1; return h.slice(i0).map(v => +(100 * v / n).toFixed(2)); };
     const sets = [{ type: 'bar', label: SIG_NAME[cats[sigCat] && cats[sigCat].n ? sigCat : 'all'], data: share(c.hist), backgroundColor: css('--accent'), borderWidth: 0, barPercentage: 1, categoryPercentage: 0.92 }];
     if (c !== all) sets.push({ type: 'line', label: 'All frames', data: share(all.hist), borderColor: css('--text-3'), borderWidth: 1.2, pointRadius: 0, tension: 0.25 });
     const grid = css('--border'), txt = css('--text-2');
@@ -329,7 +344,7 @@
       type: 'bar', data: { labels: lbl, datasets: sets },
       options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: sets.length > 1, labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-          tooltip: { callbacks: { title: it => `${lbl[it[0].dataIndex]} … ${String(sg.lo_db + sg.step_db * (it[0].dataIndex + 1)).replace('-', '−')} dBFS`,
+          tooltip: { callbacks: { title: it => `${lbl[it[0].dataIndex]} … ${dbs(sg.lo_db + sg.step_db * (i0 + it[0].dataIndex + 1))} dBFS`,
             label: x => `${x.dataset.label}: ${x.parsed.y} %` } } },
         scales: { x: { title: { display: true, text: 'dBFS', color: txt, font: { size: 10 } }, ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 13, font: { size: 10 } }, grid: { display: false } },
                   y: { beginAtZero: true, title: { display: true, text: '% of frames', color: txt, font: { size: 10 } }, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid } } } },
