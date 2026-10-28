@@ -32,9 +32,13 @@ on a fallback) / red (fault: stopped, failing or very old) / grey (off):
                                       magnetic declination model (pygeomag) is
                                       missing or out of date (from 27 Oct 2026)
   metar     METAR / QNH               observation ≤ 75 min / 3 h
-  pi        Raspberry Pi              CPU temperature (amber from 72 °C, back
+  pi        Raspberry Pi / Server     CPU temperature (amber from 72 °C, back
                                       to green below 68 °C), under-voltage /
-                                      throttling, free memory, disk, load
+                                      throttling, free memory, disk, load —
+                                      always of the computer this server runs
+                                      on: labelled "Pi" on a Raspberry Pi,
+                                      "Server" elsewhere (e.g. the cloud
+                                      server; from 28 Oct 2026)
 
 Plus: a background thread of the server that has stopped turns its indicator
 red.  The reasons are plain language for all users; error details stay in the
@@ -143,6 +147,18 @@ def _read(path: str) -> str | None:
         return None
 
 
+# The machine this server runs on: the readings of the "pi" indicator are always
+# its own, so it is labelled "Pi" only on a Raspberry Pi (board model from the
+# device tree) and "Server" elsewhere — on the cloud server it is not the
+# receiving station's Pi (from 28 Oct 2026).
+MODEL = (_read("/proc/device-tree/model") or "").strip("\x00 \n")
+IS_PI = "raspberry pi" in MODEL.lower()
+if not IS_PI:
+    LABEL["pi"] = "Server"
+    TITLE["pi"] = ("This server — the computer the page runs on, not the receiving station's Pi "
+                   "(memory, disk, load; temperature and power when the machine reports them)")
+
+
 def _cpu_temp():
     v = _read("/sys/class/thermal/thermal_zone0/temp")
     return round(int(v) / 1000.0, 1) if v and v.lstrip("-").isdigit() else None
@@ -249,6 +265,8 @@ def _pi(cfg, now) -> dict:
     up = _read("/proc/uptime")
     if up:
         det.append(f"up {_ago(float(up.split()[0]))}, server {_ago(now - hb.STARTED)}")
+    if det:
+        det.insert(0, MODEL if IS_PI else "this server's own readings (not the receiving station's Pi)")
     if not det:
         return _item("pi", "off", "No system readings on this computer")
     text = "; ".join(notes) if notes else (f"Normal — CPU {temp:.0f} °C" if temp is not None else "Normal")
@@ -608,7 +626,7 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
     # Radarcape receiver (systemstatus.json, collector/radarcape_status.py)
     items["rc"] = _rc_item(now, up)
 
-    # Raspberry Pi
+    # Raspberry Pi (or, on another computer, this server)
     items["pi"] = _pi(cfg, now)
 
     # stopped threads
