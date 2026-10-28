@@ -43,6 +43,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - The x-axis was fixed at −50 … 0 dBFS (the Beast byte's range), but this receiver reports nothing weaker than about −26 dBFS, so half the chart was empty. It now starts one 2-dB bin below the weakest bin holding at least 0.05 % of all frames (`SIG_MIN_SHARE`) and ends at 0 dBFS; the range comes from *all frames*, so it does not change with the class. Stray frames below it are counted in the note, which now gives the receiver's weakest level instead of the fixed −48 dBFS. Browser only (`static/js/stats.js`); the collector's bins and the stored history are unchanged.
 - Statistics user guide 1.8 (the automatic range; Fig. 9 now the receiver's own 24 h).
 
+### Mobile view: What's new
+- **What's new** in the menu's *General* section (user request): the notes of `doc/whats_new.md` (`/api/whatsnew` `entries`) in the full-screen sheet, newest version open with *current*, older versions folded; a red dot on ☰ and on the button until the current version is opened (`ms_seen_version`, shared with the desktop window). `web/templates/app.html` (button, `#app-sheet-news`, `#app-menu-dot`, `APP_VERSION`), `static/js/app.js` (`loadNews`, `newsDots`, `loadWn`), `static/css/app.css` (`.app-news*`). Mobile user guide 1.10.
+
 ### User guides: always the newest PDF
 - Chrome on Android kept opening the old 4-page receiving-station overview after the update: the guide PDFs had no cache rule and an unchanging address. `/doc/<file>` is now sent with `Cache-Control: no-cache` (checked every time, 304 when unchanged) and every guide link carries `?v=<file time>` — the What's new / User guides window, the mobile view's *User guides* sheet and guide link, the pages' ? buttons (`web/whats_new.py`: `guides()`, new `guide_url()`; `web/app.py`: `guide_pdf`, `app_page`; `web/templates/app.html`).
 

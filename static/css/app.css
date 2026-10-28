@@ -279,6 +279,24 @@ body.app-body {
 .app-guide-more ul { padding-left: 18px; margin: 4px 0; }
 .app-guide-btns { display: flex; gap: 8px; margin-top: 8px; }
 .app-guide-btns .app-btn { text-decoration: none; display: inline-flex; align-items: center; }
+.app-news-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-left: 6px; vertical-align: middle; }
+.app-news-dot[hidden] { display: none; }
+#app-menu-btn { position: relative; }
+.app-menu-dot { position: absolute; top: 7px; right: 5px; margin: 0; }
+.app-news-entry { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.app-news-entry h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 4px; font-size: 15px; }
+.app-news-entry summary { cursor: pointer; list-style: none; }
+.app-news-entry summary::-webkit-details-marker { display: none; }
+.app-news-entry summary h3::before { content: '▸'; color: var(--accent); font-size: 12px; }
+.app-news-entry[open] summary h3::before { content: '▾'; }
+.app-news-ver { font-weight: 700; }
+.app-news-date { font-size: 12px; color: var(--text-2); font-weight: 400; }
+.app-news-cur { font-size: 11px; font-weight: 600; color: #fff; background: var(--accent); border-radius: 8px; padding: 1px 7px; }
+.app-news-title { font-weight: 600; margin: 2px 0 4px; }
+.app-news ul { padding-left: 18px; margin: 4px 0; }
+.app-news li { margin: 5px 0; }
+.app-news p { margin: 6px 0; }
+.app-news code { font-size: 12.5px; }
 .app-btn.app-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ── Statistics view (from 2026-10-28): the Statistics page's panels in one column ── */

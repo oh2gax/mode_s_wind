@@ -16,7 +16,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Light, dark or automatic on the phone**: the theme button at the top right of `/app` has three settings — **Dark** (moon), **Light** (sun) and **Auto** (half circle), which follows your phone's own dark / light setting, also when it changes in the evening. Each tap steps to the next one. Auto is used until you choose one.
 - **About** now also tells about the two sites: the cloud server that serves you, and the Raspberry Pi station at the receiver that keeps observing even without the internet.
 - **About and all the user guides on the phone**: the menu's *General* section now has **About** (the same as on the full site) and **User guides** — every guide, e.g. the Windshear guide or the windshear study log, opens as PDF on the phone.
-- The *MODE-S Wind on a phone* user guide (version 1.9) has the new views.
+- The *MODE-S Wind on a phone* user guide (version 1.10) has the new views.
+- **What's new on the phone**: these notes are now also in `/app` — menu › *General* › **What's new**. A small red dot on the ☰ button tells when there is something new to read.
 - **User guides always up to date**: a guide opened from the *User guides* list (also on the phone) is now always its newest version — before, a phone could keep showing a copy it had saved earlier.
 - **The receiving station overview** (in the *User guides* tab) has a fifth page: **MODE-S Wind on your phone** — how to open `/app` (with a QR code to scan), pictures of the Skew-T, the ILS approach, the approach conditions and windshear chart and the Statistics on a phone, and what each view shows.
 - **Windshear study log (version 1.3)**: the first night of the trial ramps along the climb-outs — a night-time low-level jet over Helsinki-Vantaa, which the departures climbed straight into, and what that means before the departure ramps may give alerts.

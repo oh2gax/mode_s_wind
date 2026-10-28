@@ -36,7 +36,7 @@
 <body class="app-body">
 
 <header class="app-bar">
-  <button id="app-menu-btn" class="app-icon-btn" type="button" aria-label="Menu" aria-controls="app-drawer" aria-expanded="false">☰</button>
+  <button id="app-menu-btn" class="app-icon-btn" type="button" aria-label="Menu" aria-controls="app-drawer" aria-expanded="false">☰<span id="app-menu-dot" class="app-news-dot app-menu-dot" hidden></span></button>
   <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
   <!-- the current UTC time (from 2026-10-28): all times of MODE-S Wind are UTC -->
   <div id="app-utc" class="app-utc" title="Current time, UTC" aria-label="Current time, UTC"><b id="app-utc-t">--:--</b><small>UTC</small></div>
@@ -306,6 +306,7 @@
     <div class="app-small">Theme: the button at the top right — a tap steps Dark (☾) → Light (☀) → Auto (◐, follows the phone's setting).</div>
     <div id="app-health-txt" class="app-small"></div>
     <div class="app-gen-btns">
+      <button type="button" class="app-btn" id="app-news-btn">What's new<span id="app-news-dot" class="app-news-dot" hidden></span></button>
       <button type="button" class="app-btn" id="app-about-btn">About</button>
       <button type="button" class="app-btn" id="app-guides-btn">User guides</button>
     </div>
@@ -328,6 +329,7 @@
       {% with about_app=true %}{% include "_about_body.html" %}{% endwith %}
     </div>
     <div id="app-sheet-guides" class="app-guides" hidden></div>
+    <div id="app-sheet-news" class="app-news" hidden></div>
   </div>
 </div>
 
@@ -342,6 +344,8 @@
   const CARTO_API_KEY = {{ carto_api_key | tojson }};
   const APP_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
   const APP_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+  // the version of doc/whats_new.md / CHANGELOG.md (What's new, from 2026-10-28)
+  const APP_VERSION = {{ app_version | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>

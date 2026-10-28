@@ -1134,8 +1134,19 @@
   // A full-screen sheet over the view: the desktop About text (in the page) or
   // the PDF guides of doc/guides.md (/api/whatsnew).  × / Esc / Back closes it
   // (a history entry is pushed while it is open).
+  // What's new (from 2026-10-28 evening): the notes of doc/whats_new.md, the
+  // same as the desktop window; a red dot on ☰ and the button until the
+  // current version has been opened (ms_seen_version, shared with the site).
   const sheet = $('app-sheet');
-  let sheetHist = false, guidesLoaded = false;
+  let sheetHist = false, guidesLoaded = false, newsLoaded = false, wnData = null;
+  const loadWn = () => wnData || (wnData = fetch('/api/whatsnew', { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .catch(e => { wnData = null; throw e; }));
+  function newsDots() {
+    const unseen = !!APP_VERSION && lsGet('ms_seen_version', null) !== APP_VERSION;
+    $('app-menu-dot').hidden = !unseen; $('app-news-dot').hidden = !unseen;
+  }
+  newsDots();
   const escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const inlineMd = t => escH(t).replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>');
@@ -1158,10 +1169,27 @@
     return html;
   }
   const isoFi = d => { const p = (d || '').split('-'); return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : (d || ''); };
+  const fmtVer = v => { const d = String(v || '').slice(2); return d.length === 8 ? `${d.slice(0, 2)}.${d.slice(2, 4)}.${d.slice(4)}` : ''; };
+  async function loadNews() {
+    const el = $('app-sheet-news');
+    try {
+      const es = (await loadWn()).entries || [];
+      el.innerHTML = es.length
+        ? es.map((e, i) => {
+            const head = `<span class="app-news-ver">${escH(e.version)}</span><span class="app-news-date">${fmtVer(e.version)}</span>` +
+                         (e.version === APP_VERSION ? '<span class="app-news-cur">current</span>' : '');
+            const body = (e.title ? `<div class="app-news-title">${inlineMd(e.title)}</div>` : '') + renderMd(e.lines);
+            return i === 0 ? `<section class="app-news-entry"><h3>${head}</h3>${body}</section>`
+                           : `<details class="app-news-entry"><summary><h3>${head}</h3></summary>${body}</details>`;
+          }).join('') + '<p class="app-small">Older versions are folded — tap to open. The full history: CHANGELOG.md in the project.</p>'
+        : '<p class="app-small">No notes found.</p>';
+      newsLoaded = true;
+    } catch (_) { el.innerHTML = '<p class="app-small">Could not load the notes.</p>'; }
+  }
   async function loadGuides() {
     const el = $('app-sheet-guides');
     try {
-      const d = await fetch('/api/whatsnew', { cache: 'no-store' }).then(r => r.json());
+      const d = await loadWn();
       const gs = d.guides || [];
       el.innerHTML = gs.length
         ? '<p class="app-small">The guides open as PDF (large files: the first opening can take a while on a slow connection).</p>' +
@@ -1178,10 +1206,16 @@
     } catch (_) { el.innerHTML = '<p class="app-small">Could not load the guides.</p>'; }
   }
   function openSheet(kind) {
-    $('app-sheet-title').textContent = kind === 'about' ? 'About' : 'User guides';
+    $('app-sheet-title').textContent = { about: 'About', guides: 'User guides', news: "What's new" }[kind];
     $('app-sheet-about').hidden = kind !== 'about';
     $('app-sheet-guides').hidden = kind !== 'guides';
+    $('app-sheet-news').hidden = kind !== 'news';
     if (kind === 'guides' && !guidesLoaded) { $('app-sheet-guides').innerHTML = '<p class="app-small">Loading…</p>'; loadGuides(); }
+    if (kind === 'news') {
+      if (!newsLoaded) { $('app-sheet-news').innerHTML = '<p class="app-small">Loading…</p>'; loadNews(); }
+      if (APP_VERSION) lsSet('ms_seen_version', APP_VERSION);
+      newsDots();
+    }
     sheet.hidden = false;
     $('app-sheet-body').scrollTop = 0;
     menu(false);
@@ -1193,6 +1227,7 @@
     if (sheetHist && !fromPop) { sheetHist = false; try { history.back(); } catch (_) { /* */ } }
     sheetHist = false;
   }
+  $('app-news-btn').addEventListener('click', () => openSheet('news'));
   $('app-about-btn').addEventListener('click', () => openSheet('about'));
   $('app-guides-btn').addEventListener('click', () => openSheet('guides'));
   $('app-sheet-close').addEventListener('click', () => closeSheet(false));
