@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.28102026 — History and space–time on the phone; a better search
 
-- **MODE-S Wind on your phone (`/app`): History** — a new tile shows the landings or the departures of the last hour to a day, or of any date, as cards: time, flight, type, runway, the ACI and windshear level, and a strip with the headwind (or crosswind, or wind) in each height band. Tap a card for all its bands and its reports. The search field on top finds a callsign, registration or aircraft type, e.g. *FIN7*, *OH-LX* or *AT75*.
+- **MODE-S Wind on your phone (`/app`): History** — a new tile shows the landings or the departures of the last hour to a day, or of any date, as cards: time, flight, type, runway, the ACI and windshear level, and a strip with the headwind (or crosswind, or wind) in each height band. The runway is shown in a small frame, lined up from card to card. Tap a card for all its bands and its reports. The search field on top finds a callsign, registration or aircraft type, e.g. *FIN7*, *OH-LX* or *AT75*.
 - **Space–time on the phone**: the *ACI · WS · ST* tile (until now *ACI & WS*) has a third choice, **Space–time** — the same diagram as on the Windshear page, showing how the wind changes move through the successive flights. Tap a cell for its flights.
 - **Approach History search** on the Windshear page: the box now finds a callsign, registration, aircraft type or ICAO address anywhere in the text (before only the beginning of a registration).
 - Lighter on mobile data: the landings list now comes compressed and, for the phone, without the details it does not show.

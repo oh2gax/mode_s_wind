@@ -14,6 +14,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **ACI · WS · ST** (renamed tile): third *Show* choice **Space–time** with the Windshear page's diagram (`/api/windshear/spacetime`), tap a cell for its flights; the chart's landings now from `?lite=1`.
 - `static/js/ws_cond_chart.js`: the space–time key and cell label shorten on canvases narrower than 520 px (no overlap on a phone or the desktop panel).
 - `/api/windshear/approach-history`: gzip-compressed (24 h: about 770 kB → 130 kB) and `?lite=1` without `gnss` / `rough` / `prof` / `shear.bd` (about 40 kB) (`web/app.py`).
+- History cards: the runway in a thin grey frame (landings and departures alike), callsign and type with fixed minimum widths so the frames line up (`static/css/app.css`).
 - Mobile user guide 1.2 (History, space–time, six views).
 
 ### Windshear page: Approach History search

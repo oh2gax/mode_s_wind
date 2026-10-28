@@ -177,9 +177,13 @@ body.app-body {
                 background: none; border: 0; color: var(--text-1); font: inherit; cursor: pointer; }
 .app-card .l1 { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 13px; }
 .app-card .l1 .t { flex: none; font-family: 'Courier New', monospace; font-size: 12px; color: var(--text-2); }
-.app-card .l1 b { font-size: 13.5px; white-space: nowrap; }
+.app-card .l1 b { flex: none; min-width: 8.2ch; font-size: 13.5px; white-space: nowrap; }   /* room for 8 characters: the columns line up */
 .app-card .l1 .ty, .app-card .l1 .rw { flex: none; font-size: 11.5px; color: var(--text-2); }
-.app-card .l1 .rw { font-weight: 700; }
+.app-card .l1 .ty { min-width: 4.4ch; }
+/* the runway in a thin frame (from 2026-10-28), the same for landings and departures */
+.app-card .l1 .rw { font-weight: 700; font-size: 11px; color: var(--text-1); min-width: 2.9em; text-align: center;
+                    padding: 0 4px; border: 1px solid var(--text-3); border-radius: 4px; line-height: 1.35; }
+.app-card .l1 .rw:empty { visibility: hidden; }    /* no runway (a climb off the runway axes): the place is kept */
 .app-card .chs { margin-left: auto; display: flex; gap: 4px; align-items: baseline; flex: none; }
 .app-card .ch { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 9px; background: var(--bg-3); white-space: nowrap; }
 .app-card .ch.lv { color: #fff; }
