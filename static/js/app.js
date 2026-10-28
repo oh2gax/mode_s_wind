@@ -45,6 +45,7 @@
     ils:          { title: 'ILS approach', sec: 'ils', el: 'v-ils' },
     aci:          { title: 'ACI · WS · ST', sec: 'aci', el: 'v-aci' },
     hist:         { title: 'History', sec: 'hist', el: 'v-hist' },
+    stats:        { title: 'Statistics', sec: 'stats', el: 'v-stats' },
   };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
@@ -114,6 +115,7 @@
   themeBtn.addEventListener('click', () => {
     setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
     layout(true);
+    if (typeof window.onThemeChange === 'function') window.onThemeChange();   // the Statistics charts
   });
 
   // ── system health (the Statistics page's indicators, /api/health) ────────
@@ -844,6 +846,7 @@
     else if (view === 'ils') drawIls();
     else if (view === 'aci') drawAci();
     else if (view === 'hist') drawHist();
+    else if (view === 'stats' && window.MsStats) window.MsStats.redraw();
     markScroll();
   }
   function refresh() {
@@ -857,11 +860,12 @@
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3 }[view];
+                    hist: H.date ? 0 : 60e3, stats: 0 }[view];          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
     view = VIEWS[v] ? v : 'skewt-now';
+    if (view !== 'stats' && window.MsStats) window.MsStats.stop();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -887,6 +891,7 @@
     else if (view === 'ils') { I.fetched = 0; fetchWx(); loadIls(); }
     else if (view === 'aci') loadAci();
     else if (view === 'hist') loadHist();
+    else if (view === 'stats') openStats();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
@@ -897,6 +902,66 @@
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) { refresh(); pollHealth(); fetchWx(); }
   });
+
+  // ══ Statistics (from 2026-10-28) ═════════════════════════════════════════
+  // The Statistics page's panels (stats.js, reused) in one column.  Chart.js and
+  // stats.js are loaded on the first visit only (they are not needed elsewhere
+  // on the phone); stats.js polls every 30 s, only while this view is shown.
+  const ST_SECS = ['rate', 'df', 'meteo', 'rng', 'sig', 'bds', 'tc', 'cad', 'rc', 'iid', 'health'];
+  const ST_DEFAULT = ['rate', 'df', 'meteo', 'rng'];
+  const ST = { win: parseInt(lsGet('ms_app_stats_win', '1440'), 10), on: null, loading: null };
+  if (![10, 60, 1440, 10080].includes(ST.win)) ST.win = 1440;
+  try { ST.on = JSON.parse(lsGet('ms_app_stats_secs', 'null')); } catch (_) { ST.on = null; }
+  if (!Array.isArray(ST.on)) ST.on = ST_DEFAULT.slice();
+  const stWinTxt = w => ({ 10: '10 min', 60: '1 h', 1440: '24 h', 10080: '7 days' }[w]);
+  function applyStatsSecs() {
+    document.querySelectorAll('#v-stats .app-st-sec').forEach(el => { el.hidden = !ST.on.includes(el.dataset.sec); });
+    document.querySelectorAll('#app-st-secs input[data-sec]').forEach(cb => { cb.checked = ST.on.includes(cb.dataset.sec); });
+    $('app-st-none').hidden = ST.on.length > 0;
+    if (view === 'stats') { if (window.MsStats) window.MsStats.redraw(); markScroll(); }
+  }
+  document.querySelectorAll('#app-st-secs input[data-sec]').forEach(cb => cb.addEventListener('change', () => {
+    ST.on = ST_SECS.filter(k => k === cb.dataset.sec ? cb.checked : ST.on.includes(k));
+    lsSet('ms_app_stats_secs', JSON.stringify(ST.on));
+    applyStatsSecs();
+  }));
+  $('app-st-win').value = String(ST.win);
+  syncChip($('app-st-win'));
+  $('app-st-win').addEventListener('change', e => {
+    ST.win = parseInt(e.target.value, 10); lsSet('ms_app_stats_win', ST.win);
+    if (view === 'stats') $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;
+    if (window.MsStats) window.MsStats.setWindow(ST.win);
+  });
+  applyStatsSecs();
+  const loadScript = src => new Promise((ok, fail) => {
+    const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = fail; document.head.appendChild(sc);
+  });
+  async function openStats() {
+    $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;
+    if (!window.MsStats) {
+      if (!ST.loading) {
+        window.MST_EMBED = { win: ST.win };
+        ST.loading = (typeof Chart === 'undefined' ? loadScript(APP_CHART_JS).catch(() => null) : Promise.resolve())
+          .then(() => loadScript(APP_STATS_JS));
+      }
+      try { await ST.loading; } catch (_) { $('mst-updated').textContent = 'Could not load the statistics.'; return; }
+    }
+    if (view === 'stats' && window.MsStats) { window.MsStats.setWindow(ST.win); window.MsStats.start(); markScroll(); }
+  }
+
+  // ══ UTC clock of the top bar (from 2026-10-28) ═══════════════════════════
+  // hours and minutes in UTC, set on each minute change (and when the page
+  // becomes visible again: timers sleep in a background tab)
+  function tickUtc() {
+    const d = new Date();
+    $('app-utc-t').textContent = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  }
+  function scheduleUtc() {
+    tickUtc();
+    setTimeout(scheduleUtc, 60_000 - (Date.now() % 60_000) + 50);
+  }
+  scheduleUtc();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tickUtc(); });
 
   // ══ About and User guides (from 2026-10-28) ══════════════════════════════
   // A full-screen sheet over the view: the desktop About text (in the page) or

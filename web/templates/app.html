@@ -30,6 +30,8 @@
 <header class="app-bar">
   <button id="app-menu-btn" class="app-icon-btn" type="button" aria-label="Menu" aria-controls="app-drawer" aria-expanded="false">☰</button>
   <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
+  <!-- the current UTC time (from 2026-10-28): all times of MODE-S Wind are UTC -->
+  <div id="app-utc" class="app-utc" title="Current time, UTC" aria-label="Current time, UTC"><b id="app-utc-t">--:--</b><small>UTC</small></div>
   <!-- light / dark theme (from 2026-10-28): the icon shows the theme a tap switches to -->
   <button id="app-theme-btn" class="app-icon-btn app-theme-btn" type="button" aria-label="Light theme" title="Light theme">
     <svg class="ic-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -84,6 +86,36 @@
     <div id="app-hist-head" class="app-hist-head"></div>
     <div id="app-hist-list" class="app-hist-list"></div>
   </section>
+
+  <!-- Statistics (from 2026-10-28): the Statistics page's panels (_stats_panels.html,
+       filled by static/js/stats.js, loaded with Chart.js on the first visit) in one
+       column; the sections and the window are chosen in the menu -->
+  {% import "_stats_panels.html" as sp %}
+  <section id="v-stats" class="app-view app-stats" hidden>
+    <div class="app-st-sum">
+      <div><span>Messages/s</span><b id="mst-k-rate">—</b></div>
+      <div><span>Aircraft</span><b id="mst-k-ac">—</b></div>
+      <div><span>ADS-B</span><b id="mst-k-adsb">—</b></div>
+      <div><span>EHS</span><b id="mst-k-ehs">—</b></div>
+      <div><span>MLAT / ADS-B pos</span><b id="mst-k-mlat">—</b></div>
+      <div><span>Feed</span><b id="mst-k-feed" class="gps-summary-val">—</b></div>
+      <small id="mst-updated" class="app-st-upd">Waiting…</small>
+    </div>
+    <div class="app-st-sec" data-sec="rate">{{ sp.rate(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="df">{{ sp.df(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="meteo">{{ sp.meteo(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="rng">{{ sp.rng(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="sig">{{ sp.sig(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="bds">{{ sp.bds(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="tc">{{ sp.tc(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="cad">{{ sp.cad(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="rc">{{ sp.rc(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="iid">{{ sp.iid(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="health">
+      <div class="mst-panel"><div class="mst-hl-panel app-st-health" id="mst-hl-panel"><div class="mst-hl-foot">Loading…</div></div></div>
+    </div>
+    <div id="app-st-none" class="app-small app-st-none" hidden>No sections chosen — switch them on in the menu under <i>Statistics options</i>.</div>
+  </section>
 </div>
 
 <div id="app-backdrop" class="app-backdrop" hidden></div>
@@ -101,6 +133,7 @@
     <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
     <button type="button" class="app-tile" data-view="aci"><b>ACI · WS · ST</b><small>conditions · windshear</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
+    <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -227,6 +260,27 @@
     <div class="app-small">Tap a flight for all its bands and its reports. The search matches the callsign, registration and aircraft type anywhere (e.g. FIN7, OH-LX, AT75).</div>
   </details>
 
+  <details class="app-sec" data-for="stats">
+    <summary>Statistics options</summary>
+    <div class="app-field"><span>Window</span>
+      <select id="app-st-win" data-chips><option value="10">10 min</option><option value="60">1 h</option><option value="1440">24 h</option><option value="10080">7 d</option></select></div>
+    <div class="app-field"><span>Sections</span></div>
+    <div class="app-switches" id="app-st-secs">
+      <label class="app-switch"><span>Message rate</span><input type="checkbox" data-sec="rate"></label>
+      <label class="app-switch"><span>Downlink formats</span><input type="checkbox" data-sec="df"></label>
+      <label class="app-switch"><span>Meteo yield</span><input type="checkbox" data-sec="meteo"></label>
+      <label class="app-switch"><span>Range rings</span><input type="checkbox" data-sec="rng"></label>
+      <label class="app-switch"><span>Signal strength</span><input type="checkbox" data-sec="sig"></label>
+      <label class="app-switch"><span>Comm-B registers</span><input type="checkbox" data-sec="bds"></label>
+      <label class="app-switch"><span>ADS-B type codes</span><input type="checkbox" data-sec="tc"></label>
+      <label class="app-switch"><span>Reply cadence</span><input type="checkbox" data-sec="cad"></label>
+      <label class="app-switch"><span>Radarcape receiver</span><input type="checkbox" data-sec="rc"></label>
+      <label class="app-switch"><span>Interrogators</span><input type="checkbox" data-sec="iid"></label>
+      <label class="app-switch"><span>System health</span><input type="checkbox" data-sec="health"></label>
+    </div>
+    <div class="app-small">Shown in this order; the data transfer is the second tab of Message rate. Remembered on the phone.</div>
+  </details>
+
   <details class="app-sec app-sec-gen">
     <summary>General</summary>
     <div class="app-small">Theme: the ☀ / ☾ button at the top right.</div>
@@ -268,6 +322,11 @@
 <script src="{{ url_for('static', filename='js/timeheight.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ws_cond_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ils_profile.js') }}"></script>
+<script>
+  // loaded on the first visit of the Statistics view (app.js)
+  const APP_STATS_JS = "{{ url_for('static', filename='js/stats.js') }}";
+  const APP_CHART_JS = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js";
+</script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

@@ -25,6 +25,11 @@ body.app-body {
   background: transparent; color: var(--text-1); border: 1px solid transparent; cursor: pointer;
 }
 .app-icon-btn:active { background: var(--bg-3); }
+/* UTC clock (from 2026-10-28): the time over a small "UTC", left of the theme button */
+.app-utc { flex: none; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1;
+           color: var(--text-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.app-utc b { font-size: 14px; font-weight: 600; }
+.app-utc small { font-size: 10px; color: var(--text-2); }
 /* ☀ / ☾ theme button (from 2026-10-28): the icon of the theme a tap switches to */
 .app-theme-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); margin-right: 2px; }
 .app-theme-btn svg { display: block; }
@@ -244,3 +249,31 @@ body.app-body {
 .app-guide-btns { display: flex; gap: 8px; margin-top: 8px; }
 .app-guide-btns .app-btn { text-decoration: none; display: inline-flex; align-items: center; }
 .app-btn.app-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Statistics view (from 2026-10-28): the Statistics page's panels in one column ── */
+.app-stats { padding: 0 0 16px; gap: 8px; }
+.app-st-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 8px; padding: 8px 10px 6px;
+              background: var(--bg-1); border-bottom: 1px solid var(--border); }
+.app-st-sum > div { display: flex; flex-direction: column; min-width: 0; }
+.app-st-sum span { font-size: 10.5px; color: var(--text-2); white-space: nowrap; }
+.app-st-sum b { font-size: 15px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.app-st-upd { grid-column: 1 / -1; font-size: 10.5px; color: var(--text-3); }
+.app-st-sec { padding: 0 6px; }
+.app-st-sec[hidden] { display: none; }
+.app-st-none { padding: 16px; }
+.app-stats .mst-panel { overflow: visible; }
+.app-stats .mst-chart-wrap { height: 220px; }
+.app-stats .mst-table { font-size: 12px; }
+.app-stats .mst-table th, .app-stats .mst-table td { padding-left: 5px; padding-right: 5px; }
+.app-stats .mst-table td { white-space: nowrap; }
+.app-stats .mst-bar-cell { width: 44px; }
+.app-stats .mst-scroll { max-height: none !important; }
+.app-stats .gps-panel-hdr { padding: 6px 8px; }
+.app-stats .mst-polar-wrap canvas { max-width: 360px; }
+/* the long explanations folded behind "About this panel" */
+.app-stats .mst-fold { border-top: 1px solid var(--border); }
+.app-stats .mst-fold > summary { padding: 6px 10px; font-size: 12px; color: var(--accent); cursor: pointer; }
+.app-stats .mst-fold .mst-foot { border-top: none; padding-top: 0; }
+/* system health: the panel inline (a pop-up on the desktop) */
+.app-stats .app-st-health { position: static; width: auto; max-height: none; box-shadow: none; border: none; z-index: auto; }
+.app-stats .app-st-health td { font-size: 12px; }

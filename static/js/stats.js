@@ -17,15 +17,24 @@
  * coloured dots right of the Window buttons (one chip on narrower screens);
  * a click opens the detail panel (state, reason, details, time in that state,
  * the recent state changes).
+ *
+ * Mobile view (from 2026-10-28): app.html loads this file for its Statistics
+ * view with window.MST_EMBED = {win} set — the same panels (_stats_panels.html)
+ * in one column, the window chosen in the app's menu, polling only while the
+ * view is shown (window.MsStats.start / stop / setWindow / redraw), short
+ * format names, a narrower range table and the health panel shown inline.
  */
 (function () {
   'use strict';
-  const POLL_MS = 10000;
   let win = 10, range = '1h', series = 'rate', cadKind = '5,0', sigCat = 'all';
   // Message rate / Data transfer tabs of the chart panel (from 2026-10-27)
   let tab = 'msgs', trView = 'app', trData = null, chartType = null;
+  const EMBED = window.MST_EMBED || null;      // the mobile view (from 2026-10-28)
+  // every 10 s; on the phone every 30 s (one answer is about 55 kB compressed: ~6.6 MB an hour instead of ~20)
+  const POLL_MS = EMBED ? 30000 : 10000;
+  let active = !EMBED;
   try {
-    win = parseInt(localStorage.getItem('ms_statsWindow') || '10', 10) || 10;
+    win = EMBED ? (+EMBED.win || 1440) : parseInt(localStorage.getItem('ms_statsWindow') || '10', 10) || 10;
     series = localStorage.getItem('ms_statsSeries') || 'rate';
     tab = localStorage.getItem('ms_statsTab') === 'traffic' ? 'traffic' : 'msgs';
     trView = localStorage.getItem('ms_statsTrView') === 'net' ? 'net' : 'app';
@@ -33,6 +42,7 @@
     sigCat = localStorage.getItem('ms_statsSig') || 'all';
   } catch (e) { /* private mode */ }
   if (![1, 10, 60, 1440, 10080].includes(win)) win = 10;
+  if (EMBED) range = '24h';
   let data = null, chart = null, sigChart = null, timer = null, health = null;
 
   const $ = id => document.getElementById(id);
@@ -48,6 +58,11 @@
     11: 'All-call reply / acquisition squitter', 16: 'Long air–air surveillance (ACAS)',
     17: 'Extended squitter (ADS-B)', 18: 'Extended squitter, non-transponder (TIS-B / ADS-R)', 19: 'Military extended squitter',
     20: 'Comm-B reply, altitude', 21: 'Comm-B reply, identity', 24: 'Comm-D extended length message',
+  };
+  // the phone: one line each (from 2026-10-28)
+  const DF_SHORT = {
+    0: 'ACAS, short', 4: 'Surveillance, altitude', 5: 'Surveillance, squawk', 11: 'All-call / acquisition', 16: 'ACAS, long',
+    17: 'ADS-B', 18: 'TIS-B / ADS-R', 19: 'Military ES', 20: 'Comm-B, altitude', 21: 'Comm-B, squawk', 24: 'Comm-D',
   };
   const BDS_NAME = {
     '1,0': 'Data link capability', '1,7': 'Common-usage GICB capability', '2,0': 'Aircraft identification (callsign)',
@@ -77,7 +92,7 @@
     $('mst-k-ac').textContent = d.totals.aircraft;
     $('mst-k-adsb').textContent = d.totals.adsb;
     $('mst-k-ehs').textContent = d.totals.ehs;
-    $('mst-k-ehsnow').textContent = `${d.totals.ehs_now} / ${d.totals.ehs_silent}`;
+    if ($('mst-k-ehsnow')) $('mst-k-ehsnow').textContent = `${d.totals.ehs_now} / ${d.totals.ehs_silent}`;
     const j = d.json || {};
     $('mst-k-mlat').textContent = j.ts ? `${j.mlat} / ${j.adsb}` : '—';
     const f = d.feed;
@@ -101,7 +116,7 @@
 
   function renderDf(d) {
     const tot = d.totals.msgs - d.totals.err - d.totals.dec_err - d.totals.blocked;
-    const rows = d.df.map(r => `<tr><td class="mst-code">DF${r.df}</td><td>${esc(DF_NAME[r.df] || '')}</td>`
+    const rows = d.df.map(r => `<tr><td class="mst-code">DF${r.df}</td><td>${esc((EMBED ? DF_SHORT[r.df] || DF_NAME[r.df] : DF_NAME[r.df]) || '')}</td>`
       + `<td class="num">${fmtRate(r.rate)}</td><td class="num">${pct(r.n, tot)}</td><td>${bar(tot ? r.n / tot : 0)}</td><td class="num">${r.ac}</td></tr>`);
     table('mst-df', [['DF', 'Downlink format'], ['Meaning'], ['/s', 'Messages per second in the window', 'num'],
       ['Share', 'Of the decoded messages', 'num'], [''], ['Aircraft', 'Distinct aircraft in the window', 'num']], rows);
@@ -419,10 +434,15 @@
     // table
     const rows = (rg.rows || []);
     const tot = rows.reduce((a, r) => a + r.pos, 0);
-    const out = rows.map(r => `<tr><td>${r.lo}–${r.hi == null ? '' : r.hi} NM${r.hi == null ? '+' : ''}</td><td class="num">${r.pos.toLocaleString('en')}</td>`
+    const out = EMBED
+      ? rows.map(r => `<tr><td class="num">${r.lo}–${r.hi == null ? '' : r.hi}${r.hi == null ? '+' : ''}</td><td class="num">${r.pos.toLocaleString('en')}</td>`
+          + `<td class="num">${pct(r.pos, tot)}</td><td class="num">${r.ac}</td><td class="num">${fmt(r.sig_median, 1)}</td></tr>`)
+      : rows.map(r => `<tr><td>${r.lo}–${r.hi == null ? '' : r.hi} NM${r.hi == null ? '+' : ''}</td><td class="num">${r.pos.toLocaleString('en')}</td>`
       + `<td class="num">${pct(r.pos, tot)}</td><td>${bar(tot ? r.pos / tot : 0, 'mst-fill-b')}</td><td class="num">${r.ac}</td>`
       + `<td class="num">${fmt(r.sig_median, 1)}</td><td class="num">${fmt(r.sig_p10, 1)}</td></tr>`);
-    table('mst-rng', [['Range', 'Distance from the antenna'], ['Positions', 'Accepted ADS-B airborne positions', 'num'], ['Share', '', 'num'], [''],
+    if (EMBED) table('mst-rng', [['NM', 'Distance from the antenna', 'num'], ['Positions', 'Accepted ADS-B airborne positions', 'num'], ['Share', '', 'num'],
+      ['Aircraft', 'Distinct aircraft with a position in the band', 'num'], ['Signal', 'Median signal level of those position messages, dBFS', 'num']], out);
+    else table('mst-rng', [['Range', 'Distance from the antenna'], ['Positions', 'Accepted ADS-B airborne positions', 'num'], ['Share', '', 'num'], [''],
       ['Aircraft', 'Distinct aircraft with a position in the band', 'num'], ['Signal', 'Median signal level of those position messages, dBFS', 'num'],
       ['p10', '10 % of them are weaker (dBFS)', 'num']], out);
     const f = rg.farthest;
@@ -437,7 +457,7 @@
              centre: 'the map centre — the Radarcape\'s GPS position not available; ANTENNA_LAT / ANTENNA_LON in config.py would be the fallback' }[rg.site_src] || 'ANTENNA_LAT / ANTENNA_LON in config.py'}); `
       + `rings every ${step} NM. Only positions decoded from our own reception count, and only when they fit the aircraft's previous position, `
       + 'so a single bad decode cannot make a record. The shape shows the horizon (higher aircraft are seen farther) and the shadows of nearby terrain and buildings; '
-      + 'a sector that shrinks at all levels suggests the antenna or its cable. Hover a sector for its values.'
+      + `a sector that shrinks at all levels suggests the antenna or its cable. ${EMBED ? 'Tap' : 'Hover'} a sector for its values.`
       + ` Positions ${(rg.n || 0).toLocaleString('en')} · rejected jumps ${rg.jumps || 0} · beyond ${rg.max_nm || 400} NM ${rg.far_rejected || 0}.`;
   }
   function polarHover(ev) {
@@ -469,6 +489,7 @@
   const forDur = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 86400)} d`;
   function renderHealth(h) {
     if (!h) return;
+    if (EMBED) { if ($('mst-hl-panel')) renderHealthPanel(); return; }   // the phone: the panel inline
     $('mst-hl-dots').innerHTML = h.items.map(i => `<span class="mst-hl" title="${esc(i.label + ' — ' + ST_NAME[i.state] + ': ' + i.text)}">${dot(i.state)}${esc(i.label)}</span>`).join('');
     const c = h.counts, act = h.items.length - c.off;
     const txt = h.overall === 'err' ? `${c.err} fault${c.err > 1 ? 's' : ''}`
@@ -493,6 +514,7 @@
       + '<div class="mst-hl-foot">Green: working normally · amber: working but late, retrying or on a fallback (e.g. the stored calibration when there is no new model data) · '
       + 'red: stopped, failing or out of date · grey ring: switched off in config.py. MEPS is optional, so it is never red. '
       + 'Checked every 10 s while the page is open and every minute in the background; the details of errors are in the server log.</div>';
+    if (EMBED) { const x = p.querySelector('.mst-hl-x'); if (x) x.remove(); return; }
     p.querySelector('.mst-hl-x').addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(false); });
   }
   function toggleHealth(open) {
@@ -679,7 +701,7 @@
   }
   async function poll() {
     clearTimeout(timer);
-    if (document.hidden) return;
+    if (document.hidden || !active) return;
     pollHealth();
     try {
       const wk = range === '7d' && tab === 'msgs';
@@ -688,7 +710,7 @@
       if (tab === 'traffic') await pollTraffic(false);
       renderAll();
     } catch (e) {
-      $('mst-updated').textContent = 'Update failed — retrying';
+      if ($('mst-updated')) $('mst-updated').textContent = 'Update failed — retrying';
     }
     timer = setTimeout(poll, POLL_MS);
   }
@@ -722,6 +744,7 @@
         poll();
       });
     });
+    document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === range));
     document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(b => b.addEventListener('click', () => {
       range = b.dataset.range;
       document.querySelectorAll('#mst-chart-range .gps-range-btn').forEach(x => x.classList.toggle('active', x === b));
@@ -739,14 +762,18 @@
     sc.value = sigCat;
     sc.addEventListener('change', () => setSigCat(sc.value));
     const hl = $('mst-health');
-    hl.addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(); });
-    hl.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleHealth(); } });
-    $('mst-hl-panel').addEventListener('click', ev => ev.stopPropagation());
-    document.addEventListener('click', () => { if (!$('mst-hl-panel').hidden) toggleHealth(false); });
-    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('mst-hl-panel').hidden) toggleHealth(false); });
+    if (hl && !EMBED) {
+      hl.addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(); });
+      hl.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleHealth(); } });
+      $('mst-hl-panel').addEventListener('click', ev => ev.stopPropagation());
+      document.addEventListener('click', () => { if (!$('mst-hl-panel').hidden) toggleHealth(false); });
+      document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('mst-hl-panel').hidden) toggleHealth(false); });
+    }
     const pv = $('mst-polar');
-    pv.addEventListener('mousemove', polarHover);
-    pv.addEventListener('mouseleave', () => { $('mst-polar-tip').style.display = 'none'; });
+    let tapTip = false;                                      // a tap on a phone keeps its read-out
+    pv.addEventListener('mousemove', ev => { if (!tapTip) polarHover(ev); });
+    pv.addEventListener('pointerdown', ev => { tapTip = ev.pointerType !== 'mouse'; polarHover(ev); });
+    pv.addEventListener('mouseleave', () => { if (!tapTip) $('mst-polar-tip').style.display = 'none'; });
     let rt = null;
     window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (data) { renderRange(data); fitIid(); } }, 150); });
   }
@@ -756,7 +783,15 @@
     if (sigChart) { sigChart.destroy(); sigChart = null; }
     if (data) { renderChart(data); renderSig(data); renderRange(data); }
   };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && active) poll(); });
   initButtons();
-  poll();
+  if (EMBED) {
+    // the mobile view drives the polling: only while its Statistics view is shown
+    window.MsStats = {
+      start() { active = true; poll(); },
+      stop() { active = false; clearTimeout(timer); },
+      setWindow(w) { win = +w; if (active) poll(); },
+      redraw() { if (data) { renderRange(data); renderChart(data); renderSig(data); } },
+    };
+  } else poll();
 })();

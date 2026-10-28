@@ -2,6 +2,7 @@
 {% block title %}Statistics – MODE-S Wind{% endblock %}
 
 {% block content %}
+{% import "_stats_panels.html" as sp %}
 <div class="mst-page">
 
   <!-- ── Summary bar ──────────────────────────────────────────────────────── -->
@@ -58,123 +59,31 @@
 
     <!-- ── Column 1 ─────────────────────────────────────────────────────── -->
     <div class="mst-col">
-      <div class="mst-panel">
-        <div class="gps-panel-hdr">
-          <span class="mst-tabs" id="mst-chart-tabs" role="tablist">
-            <button class="mst-tab active" type="button" role="tab" data-tab="msgs" title="Messages per second and the other message series">Message rate</button>
-            <button class="mst-tab" type="button" role="tab" data-tab="traffic" title="How many bytes this server receives from the receiver, serves to the users and moves through its network interface (from 27 Oct 2026)">Data transfer</button>
-          </span>
-          <span class="gps-heatmap-range-btns" id="mst-chart-range">
-            <button class="gps-range-btn active" data-range="1h" title="Messages: per second, every 10 s · Data transfer: per minute">1 h</button>
-            <button class="gps-range-btn" data-range="24h" title="Messages: per minute over the last 24 h · Data transfer: per hour (kept over restarts; the time the server was down is a gap)">24 h</button>
-            <button class="gps-range-btn" data-range="7d" title="Messages: per 10 minutes over the last 7 days · Data transfer: per hour — from the stored hourly records; the time the server was down is a gap">7 d</button>
-            <button class="gps-range-btn mst-tr-only" data-range="30d" title="Data transfer: per day (UTC) over the last 30 days" hidden>30 d</button>
-          </span>
-          <select id="mst-tr-view" class="gpe-input" title="What the data transfer chart shows" hidden>
-            <option value="app">Received and served by MODE-S Wind</option>
-            <option value="net">Network interface, in / out</option>
-          </select>
-          <select id="mst-chart-series" class="gpe-input" title="Series of the 24 h and 7 d charts">
-            <option value="rate">Messages/s</option>
-            <option value="formats">DF4/5 · DF11 · DF17 · DF20/21 (/s)</option>
-            <option value="regs">BDS 5,0 · 6,0 · 4,0 · 2,0 (/s)</option>
-            <option value="aircraft">Aircraft · EHS aircraft (per min)</option>
-            <option value="cad">BDS 5,0 interval, median (s)</option>
-            <option value="iid">Interrogators heard (per min)</option>
-          </select>
-        </div>
-        <div class="mst-tr-sum" id="mst-tr-sum" hidden></div>
-        <div class="mst-chart-wrap"><canvas id="mst-chart"></canvas></div>
-      </div>
+      {{ sp.rate() }}
 
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Downlink formats</span>
-          <span class="mst-hdr-note" id="mst-df-note"></span></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-df"></table></div>
-      </div>
+      {{ sp.df() }}
 
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Signal strength</span>
-          <select id="mst-sig-cat" class="gpe-input" title="Message class">
-            <option value="all">All frames</option>
-            <option value="adsb">ADS-B (DF17/18)</option>
-            <option value="reply">Replies (DF4/5, DF20/21)</option>
-            <option value="df11">All-call (DF11)</option>
-            <option value="acas">ACAS (DF0/16)</option>
-          </select>
-          <span class="mst-hdr-note" id="mst-sig-note"></span></div>
-        <div class="mst-chart-wrap mst-sig-wrap"><canvas id="mst-sig-chart"></canvas></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-sig"></table></div>
-        <div class="mst-foot" id="mst-sig-foot"></div>
-      </div>
+      {{ sp.sig() }}
 
-      <div class="mst-panel" id="mst-meteo-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Meteo yield · Radarcape aircraft list</span></div>
-        <div class="mst-table-wrap" id="mst-meteo"></div>
-      </div>
+      {{ sp.meteo() }}
     </div>
 
     <!-- ── Column 2 ─────────────────────────────────────────────────────── -->
     <div class="mst-col">
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Comm-B registers (EHS / ELS replies, DF20/21)</span></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-bds"></table></div>
-        <div class="mst-foot" id="mst-bds-foot"></div>
-      </div>
+      {{ sp.bds() }}
 
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">ADS-B extended squitter (DF17)</span></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-tc"></table></div>
-        <div class="mst-foot" id="mst-tc-foot"></div>
-      </div>
+      {{ sp.tc() }}
 
-      <div class="mst-panel" id="mst-iid-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Interrogators (DF11 all-call replies)</span></div>
-        <!-- bottom kept level with the Meteo yield panel; the rest scrolls (stats.js fitIid) -->
-        <div class="mst-scroll" id="mst-iid-scroll">
-          <div class="mst-table-wrap"><table class="mst-table" id="mst-iid"></table></div>
-          <div class="mst-foot" id="mst-iid-foot"></div>
-        </div>
-      </div>
+      {{ sp.iid() }}
     </div>
 
     <!-- ── Column 3 ─────────────────────────────────────────────────────── -->
     <div class="mst-col">
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Reply cadence per aircraft (WAM / radar)</span>
-          <select id="mst-cad-kind" class="gpe-input" title="Register or message type">
-            <option value="5,0">BDS 5,0</option>
-            <option value="6,0">BDS 6,0</option>
-            <option value="4,0">BDS 4,0</option>
-            <option value="2,0">BDS 2,0</option>
-            <option value="surv">DF4/5 surveillance</option>
-            <option value="es_pos">ADS-B position</option>
-            <option value="es_vel">ADS-B velocity</option>
-          </select>
-        </div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-cad"></table></div>
-        <div class="mst-foot">Time between successive replies of the same aircraft as heard here.
-          <b>Final</b>: below 5 000 ft within 25 NM of EFHK; <b>terminal</b>: below 10 000 ft within 60 NM;
-          <b>en route</b>: the rest. Replies closer than 0.5 s (ADS-B squitters: 0.15 s) are counted as near-duplicates (the same
-          register answered twice, e.g. to two interrogators), gaps over 60 s are not intervals. The
-          receiver hears the aircraft's replies (1090 MHz), not the interrogations (1030 MHz): a longer
-          interval can also be a reply that did not reach Tuusula.</div>
-      </div>
+      {{ sp.cad() }}
 
-      <div class="mst-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Range rings (ADS-B positions)</span>
-          <span class="mst-hdr-note" id="mst-rng-note"></span></div>
-        <div class="mst-polar-wrap"><canvas id="mst-polar"></canvas><div class="mst-polar-tip" id="mst-polar-tip"></div></div>
-        <div class="mst-table-wrap"><table class="mst-table" id="mst-rng"></table></div>
-        <div class="mst-foot" id="mst-rng-foot"></div>
-      </div>
+      {{ sp.rng() }}
 
-      <div class="mst-panel" id="mst-rc-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Radarcape receiver</span>
-          <span class="mst-hdr-note" id="mst-rc-note"></span></div>
-        <div class="mst-table-wrap"><table class="mst-table mst-kv" id="mst-rc"></table></div>
-        <div class="mst-foot" id="mst-rc-foot"></div>
-      </div>
+      {{ sp.rc() }}
     </div>
   </div>
 </div>

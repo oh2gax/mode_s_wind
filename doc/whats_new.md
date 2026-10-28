@@ -3,17 +3,19 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.28102026 — History and space–time on the phone; a better search; maps remember their view; Pi or Server; signal chart
+## v.28102026 — History, space–time and Statistics on the phone; a better search; maps remember their view; Pi or Server; signal chart
 
 - **MODE-S Wind on your phone (`/app`): History** — a new tile shows the landings or the departures of the last hour to a day, or of any date, as cards: time, flight, type, runway, the ACI and windshear level, and a strip with the headwind (or crosswind, or wind) in each height band. The runway is shown in a small frame, lined up from card to card. Tap a card for all its bands and its reports. The search field on top finds a callsign, registration or aircraft type, e.g. *FIN7*, *OH-LX* or *AT75*.
 - **Space–time on the phone**: the *ACI · WS · ST* tile (until now *ACI & WS*) has a third choice, **Space–time** — the same diagram as on the Windshear page, showing how the wind changes move through the successive flights. Tap a cell for its flights.
 - **ACI · WS · ST — the list under the chart follows your choice**: it now lists the flights of the chosen period (before, always the latest 15 landings) — with *ACI + windshear* the departures too, with *Space–time* the flights of the diagram, or of the cell you tap. 15 rows, **Show all** for the rest, and **Landings / Departures in History** open the History view with the same period.
 - **Approach History search** on the Windshear page: the box now finds a callsign, registration, aircraft type or ICAO address anywhere in the text (before only the beginning of a registration).
 - Lighter on mobile data: the landings list now comes compressed and, for the phone, without the details it does not show.
+- **Statistics on the phone**: a new **Statistics** tile in `/app` shows what the receiver hears — the message rate (and the data transfer), the downlink formats, the meteo yield and the range rings, for the last 24 hours (or 10 min, 1 h, 7 d). In the menu's *Statistics options* you choose which sections are shown: signal strength, Comm-B registers, ADS-B type codes, reply cadence, the Radarcape receiver, the interrogators and the system health can be switched on. Each panel's explanation is folded under *About this panel*; tap the range rings for the farthest aircraft in that direction.
+- **The time in UTC on the phone**: all times in MODE-S Wind are UTC (two hours behind Finnish time in winter), so `/app` now shows the current UTC time at the top right.
 - **Light or dark on the phone with one tap**: the **☀ / ☾** button at the top right of `/app` switches the theme (the sun takes you to light, the moon back to dark); it used to be hidden in the menu.
 - **About** now also tells about the two sites: the cloud server that serves you, and the Raspberry Pi station at the receiver that keeps observing even without the internet.
 - **About and all the user guides on the phone**: the menu's *General* section now has **About** (the same as on the full site) and **User guides** — every guide, e.g. the Windshear guide or the windshear study log, opens as PDF on the phone.
-- The *MODE-S Wind on a phone* user guide (version 1.4) has the new views.
+- The *MODE-S Wind on a phone* user guide (version 1.7) has the new views.
 - **Windshear study log (version 1.3)**: the first night of the trial ramps along the climb-outs — a night-time low-level jet over Helsinki-Vantaa, which the departures climbed straight into, and what that means before the departure ramps may give alerts.
 - **Live Map, Wind Map and Weather remember where you were**: the map now opens with the same zoom and position you left it at. The new **⌂** button under the + / − buttons takes you back to the receiver.
 - **Statistics page — Pi or Server**: the last health dot shows the computer the page runs on. On the cloud server it is now called **Server** (it never showed the receiving station's Pi there); on the Raspberry Pi it is still **Pi**. The Statistics user guide (version 1.7) explains it.
