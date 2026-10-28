@@ -491,7 +491,9 @@ def create_app(
         """Mobile view (from 2026-10-26): Skew-T (Area now / hour), Time–height,
         ILS approach and ACI & WS, one at a time, all choices in a ☰ menu
         (static/js/app.js)."""
+        from web import whats_new
         return render_template("app.html", receiver_lat=cfg.RECEIVER_LAT,
+                               mobile_guide_url=whats_new.guide_url("Mobile_User_Guide.pdf"),
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
                                airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
                                radius_nm=cfg.WINDSHEAR_RADIUS_NM,
@@ -972,8 +974,13 @@ def create_app(
         path = whats_new.guide_file(name)
         if not path:
             abort(404)
-        return send_from_directory(os.path.dirname(path), os.path.basename(path),
-                                   mimetype="application/pdf")
+        # no-cache (from 2026-10-28): the browser asks every time whether the
+        # PDF has changed (a 304 answer when not) — a new version of a guide is
+        # never served from an old cached copy; the links also carry ?v=
+        resp = send_from_directory(os.path.dirname(path), os.path.basename(path),
+                                   mimetype="application/pdf", max_age=0)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
     # ── Sounding API ──────────────────────────────────────────────────────
 

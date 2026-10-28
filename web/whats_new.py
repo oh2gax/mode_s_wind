@@ -144,16 +144,27 @@ def _parse_guides(text: str) -> list:
 
 def guides() -> list:
     """The guides of doc/guides.md that exist:
-    [{"title", "file", "url", "version", "date", "pages", "size", "lines", "open"}]."""
+    [{"title", "file", "url", "version", "date", "pages", "size", "lines", "open"}].
+    The url carries ?v=<file time> (from 2026-10-28): a new version of a PDF
+    gets a new address, so a phone or browser that saved the old one (Chrome
+    on Android keeps a downloaded PDF) fetches the new one."""
     out = []
     for g in _cached(GUIDES, _parse_guides) or []:
         path = os.path.join(DOC_DIR, g["file"])
         try:
-            size = os.path.getsize(path)
+            st = os.stat(path)
         except OSError:
             continue                                   # listed but not on this device
-        out.append(dict(g, url="/doc/" + g["file"], size=size))
+        out.append(dict(g, url=f"/doc/{g['file']}?v={int(st.st_mtime)}", size=st.st_size))
     return out
+
+
+def guide_url(name: str) -> str:
+    """The versioned URL of a listed guide (plain /doc/<name> when not listed)."""
+    for g in guides():
+        if g["file"] == name:
+            return g["url"]
+    return "/doc/" + name
 
 
 def guide_file(name: str):
