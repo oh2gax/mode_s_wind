@@ -885,17 +885,19 @@
       const sel = onA && a.icao === I.sel && I.barbs !== 'off';
       if (onA && I.trails && Array.isArray(a.trail) && a.trail.length > 1)
         L.polyline(a.trail, { interactive: false, color: light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: 0.6 }).addTo(IM.ac);
-      const c = IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 18 : onA ? 14 : 11;
-      const icon = L.divIcon({ className: '', iconSize: [s, s], iconAnchor: [s / 2, s / 2],
-        html: `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true"><rect x="1" y="1" width="${s - 2}" height="${s - 2}" rx="2" fill="${c}"` +
-              ` fill-opacity="${onA ? 1 : 0.6}" stroke="${sel ? (light ? '#0f172a' : '#fff') : '#000'}" stroke-width="${sel ? 2.5 : 1}"/></svg>` });
+      // the square: 12 px selected, 9 px on the approach, 7 px others (smaller from 28 Oct 2026 evening);
+      // drawn in a 24-px icon so that it stays easy to tap
+      const c = IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 9 : 7, H = 24, o = (H - s) / 2;
+      const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
+        html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1.5" fill="${c}"` +
+              ` fill-opacity="${onA ? 1 : 0.6}" stroke="${sel ? (light ? '#0f172a' : '#fff') : '#000'}" stroke-width="${sel ? 2 : 0.8}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
       const alt = a.altitude == null ? '' : a.altitude >= 10000 ? 'FL' + String(Math.round(a.altitude / 100)).padStart(3, '0')
                                                                 : `${Math.round(a.altitude / 100) * 100} ft`;
       const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
-        icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [10, 6] : [-10, 6],
+        icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
           html: `<div class="ils-ac-lbl${onA ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
                 `<small>${sel ? `${esc(a.approach_runway)} · ${a.dist_thr_nm.toFixed(1)} NM · ` : ''}${alt}</small></div>` }) }).addTo(IM.ac);
     }
