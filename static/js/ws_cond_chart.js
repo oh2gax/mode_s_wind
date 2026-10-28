@@ -500,7 +500,10 @@ const WsCondChart = (() => {
       dots.push({ x: (xa + xb) / 2, y: y + h / 2, dotR: Math.max(1, Math.min(xb - xa, h) / 2 - 4),
         color: med == null ? CT.roseLabel : (med < 0 ? (light ? '#2563eb' : '#60a5fa') : (light ? '#dc2626' : '#f87171')),
         label: `${t1}–${t2} UTC · ${b} ft: ${med == null ? 'no earlier flights to compare' : `median ${fmtA(med)} kt headwind vs the previous 45 min`}` +
-               `\n${lines.join('\n')}${list.length > 6 ? `\n… ${list.length - 6} more` : ''}` });
+               `\n${lines.join('\n')}${list.length > 6 ? `\n… ${list.length - 6} more` : ''}`,
+        // the cell's flights, for a list beside the diagram (the phone view, from 2026-10-28)
+        cell: { t1, t2, b, med, items: list.map(e => ({ ts: e.f.ts, cs: e.f.cs, type: e.f.type, ph: e.f.ph, rwy: e.f.rwy,
+                                                        lvl: e.f.lvl, a: e.a, wd: e.wd, ws: e.ws })) } });
     }
     if (readout) readout.textContent = `${nArr} landings · ${nDep} departures · ${strong} band${strong === 1 ? '' : 's'} beyond the advisory limit`;
     return dots;

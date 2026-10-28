@@ -358,15 +358,16 @@
 
   // ══ ACI & WS ═════════════════════════════════════════════════════════════
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
-              aph: [], dep: [], ga: [], st: null, fetched: 0, dots: [] };
+              aph: [], dep: [], ga: [], st: null, fetched: 0, dots: [], all: false, cell: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
   if (!['ws', 'cond', 'st'].includes(A.mode)) A.mode = 'ws';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
   if (A.mode === 'st') $('app-aci-pick').textContent = 'Tap a cell for its flights.';
-  $('app-aci-hours').addEventListener('change', e => { A.hours = parseInt(e.target.value, 10); lsSet('ms_app_aci_h', A.hours); loadAci(); });
+  $('app-aci-hours').addEventListener('change', e => { A.hours = parseInt(e.target.value, 10); lsSet('ms_app_aci_h', A.hours);
+    A.all = false; A.cell = null; loadAci(); });
   $('app-aci-ws').addEventListener('change', e => {
-    A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode);
+    A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode); A.all = false; A.cell = null;
     $('app-aci-pick').textContent = A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
     loadAci(); });
   const WS_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
@@ -390,18 +391,88 @@
       ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
       : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
           aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched });
-    // the latest landings as a short list
-    const rows = A.aph.slice().sort((a, b) => b.ts - a.ts).slice(0, 15).map(e => {
-      const c = e.cond && e.cond.idx != null ? e.cond.idx : null;
-      const lv = e.shear && e.shear.lvl && e.shear.lvl !== 'none' ? e.shear.lvl : null;
-      return `<tr><td>${esc(e.time_utc || hhmm(e.ts))}</td><td>${esc(e.callsign || e.icao)}</td><td>${esc(e.aircraft_type || '')}</td>` +
-             `<td>${esc(e.runway || '')}</td><td class="num"${c != null ? ` style="color:${(document.documentElement.dataset.theme === 'light' ? ACI_COL_L : ACI_COL_D)[aciLvl(c)]};font-weight:600"` : ''}>${c != null ? c.toFixed(1) : '—'}</td>` +
-             `<td${lv ? ` style="color:${WS_COL[lv]};font-weight:600"` : ''}>${lv ? lv.toUpperCase() : '—'}</td></tr>`;
-    });
-    $('app-aci-list').innerHTML = rows.length
-      ? `<table><thead><tr><th>UTC</th><th>Flight</th><th>Type</th><th>Rwy</th><th class="num">ACI</th><th>WS</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
-      : '';
+    drawAciList();
   }
+
+  // The list under the chart (from 2026-10-28): the flights of the chosen range,
+  // newest first, as the chart shows them — ACI only: the landings; ACI +
+  // windshear: landings and departures; Space–time: the flights of the diagram,
+  // or of the tapped cell.  15 rows, the rest behind "Show all"; the buttons open
+  // the History view with the same range.
+  const ACI_LIST_N = 15;
+  const rangeTxt = h => h === 24 ? '24 h' : h + ' h';
+  const wsCell = lv => lv && lv !== 'none' && WS_COL[lv] ? `<td style="color:${WS_COL[lv]};font-weight:600">${lv.toUpperCase()}</td>` : '<td>—</td>';
+  const phCell = dep => `<td class="ph" title="${dep ? 'departure' : 'landing'}">${dep ? '↑' : '↓'}</td>`;
+  const kts = a => a == null ? '—' : (a > 0 ? '+' : a < 0 ? '−' : '') + Math.abs(Math.round(a));
+  function aciFlights() {
+    const t0 = Date.now() / 1000 - A.hours * 3600;
+    if (A.mode === 'st') {
+      return ((A.st && A.st.flights) || []).filter(f => f.ts >= t0).map(f => {
+        let d = null;                                    // the largest band change of the flight
+        for (const [b, v] of Object.entries(f.b || {})) if (v[0] != null && (!d || Math.abs(v[0]) > Math.abs(d[1]))) d = [+b, v[0]];
+        return { ts: f.ts, dep: f.ph === 'dep', cs: f.cs, type: f.type, rwy: f.rwy, lvl: f.lvl, d };
+      });
+    }
+    const out = A.aph.map(e => ({ ts: e.ts, dep: false, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.runway,
+      aci: e.cond && e.cond.idx != null ? e.cond.idx : null, lvl: e.shear && e.shear.lvl }));
+    if (A.mode === 'ws') for (const e of A.dep) {
+      out.push({ ts: e.ts, dep: true, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.shear && e.shear.rwy, aci: null, lvl: e.shear && e.shear.lvl });
+    }
+    return out;
+  }
+  function drawAciList() {
+    const el = $('app-aci-list');
+    const both = A.mode !== 'cond';
+    const histBtns = `<div class="app-list-act"><button type="button" class="app-btn" data-hist="arr">Landings in History ›</button>` +
+      (both ? `<button type="button" class="app-btn" data-hist="dep">Departures in History ›</button>` : '') + '</div>';
+    // a tapped space–time cell: its flights
+    if (A.mode === 'st' && A.cell) {
+      const c = A.cell;
+      const rows = c.items.slice().sort((a, b) => b.ts - a.ts).map(f =>
+        `<tr><td>${hhmm(f.ts)}</td>${phCell(f.ph === 'dep')}<td>${esc(f.cs || '?')}</td><td>${esc(f.type || '')}</td><td>${esc(f.rwy || '')}</td>` +
+        `<td class="num">${kts(f.a)}</td><td class="num">${f.wd != null ? String(f.wd).padStart(3, '0') + '°/' + f.ws : '—'}</td>${wsCell(f.lvl)}</tr>`);
+      el.innerHTML = `<div class="app-list-hd"><span>${c.t1}–${c.t2} UTC · ${c.b} ft · ${c.items.length} flight${c.items.length === 1 ? '' : 's'}` +
+        `${c.med != null ? ` · median ${kts(c.med)} kt` : ''}</span><button type="button" class="app-list-x" data-cell="clear">All flights ×</button></div>` +
+        `<table><thead><tr><th>UTC</th><th></th><th>Flight</th><th>Type</th><th>Rwy</th><th class="num">Δ kt</th><th class="num">Wind</th><th>WS</th></tr></thead><tbody>${rows.join('')}</tbody></table>` + histBtns;
+      return;
+    }
+    const fl = aciFlights().sort((a, b) => b.ts - a.ts);
+    const nDep = fl.filter(f => f.dep).length, nArr = fl.length - nDep;
+    const noun = both ? `flight${fl.length === 1 ? '' : 's'}` : `landing${fl.length === 1 ? '' : 's'}`;
+    const split = both ? ` (${nArr} landing${nArr === 1 ? '' : 's'} · ${nDep} departure${nDep === 1 ? '' : 's'})` : '';
+    const cut = !A.all && fl.length > ACI_LIST_N;
+    const hd = fl.length
+      ? `${cut ? `Latest ${ACI_LIST_N} of ` : ''}${fl.length} ${noun}${split} · last ${rangeTxt(A.hours)}`
+      : `No ${both ? 'flights' : 'landings'} in the last ${rangeTxt(A.hours)}`;
+    const rows = (cut ? fl.slice(0, ACI_LIST_N) : fl).map(f =>
+      `<tr><td>${hhmm(f.ts)}</td>${both ? phCell(f.dep) : ''}<td>${esc(f.cs || '')}</td><td>${esc(f.type || '')}</td><td>${esc(f.rwy || '')}</td>` +
+      (A.mode === 'st'
+        ? `<td class="num">${f.d ? `${kts(f.d[1])} <span class="dim">@${f.d[0]}</span>` : '—'}</td>`
+        : `<td class="num"${f.aci != null ? ` style="color:${(document.documentElement.dataset.theme === 'light' ? ACI_COL_L : ACI_COL_D)[aciLvl(f.aci)]};font-weight:600"` : ''}>${f.aci != null ? f.aci.toFixed(1) : '—'}</td>`) +
+      `${wsCell(f.lvl)}</tr>`);
+    const more = fl.length > ACI_LIST_N
+      ? `<button type="button" class="app-btn" data-more="1">${A.all ? `Show the latest ${ACI_LIST_N}` : `Show all ${fl.length}`}</button>` : '';
+    el.innerHTML = `<div class="app-list-hd"><span>${hd}</span></div>` +
+      (fl.length ? `<table><thead><tr><th>UTC</th>${both ? '<th></th>' : ''}<th>Flight</th><th>Type</th><th>Rwy</th>` +
+        `${A.mode === 'st' ? '<th class="num" title="the largest band change of the flight and its band (ft)">Δ max kt</th>' : '<th class="num">ACI</th>'}<th>WS</th></tr></thead>` +
+        `<tbody>${rows.join('')}</tbody></table>` : '') +
+      histBtns.replace('<div class="app-list-act">', `<div class="app-list-act">${more}`);
+  }
+  function openHist(kind) {
+    H.kind = kind; H.hours = A.hours; H.date = ''; H.q = ''; H.rows = []; H.open.clear();
+    lsSet('ms_app_hist_kind', kind); lsSet('ms_app_hist_h', A.hours);
+    $('app-hist-kind').value = kind; $('app-hist-hours').value = String(A.hours);
+    $('app-hist-date').value = ''; $('app-hist-q').value = '';
+    syncChips();
+    setView('hist');
+  }
+  $('app-aci-list').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.more) { A.all = !A.all; drawAciList(); markScroll(); }
+    else if (b.dataset.cell) { A.cell = null; $('app-aci-pick').textContent = 'Tap a cell for its flights.'; drawAciList(); markScroll(); }
+    else if (b.dataset.hist) openHist(b.dataset.hist);
+  });
   async function loadAci() {
     const win = A.hours * 3600;
     try {
@@ -430,6 +501,10 @@
       if (dd < bd) { bd = dd; best = d; }
     }
     $('app-aci-pick').textContent = best ? best.label : A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
+    if (A.mode === 'st') {                     // the list follows the tapped cell
+      const c = best && best.cell ? best.cell : null;
+      if (c !== A.cell && (c || e.type === 'pointerdown')) { A.cell = c; drawAciList(); markScroll(); }
+    }
   }
   $('app-aci').addEventListener('pointerdown', pickAci);
   $('app-aci').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickAci(e); });

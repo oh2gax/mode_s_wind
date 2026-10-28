@@ -58,6 +58,15 @@ body.app-body {
 .app-list th { text-align: left; font-weight: 600; font-size: 10.5px; color: var(--text-3); padding: 3px 4px; border-bottom: 1px solid var(--border); }
 .app-list td { padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); white-space: nowrap; }
 .app-list .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* ACI · WS · ST list (from 2026-10-28): heading, landing ↓ / departure ↑, Show all and History buttons */
+.app-list-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px;
+               color: var(--text-2); padding: 4px 4px 5px; }
+.app-list-x { flex: none; font: inherit; font-size: 11.5px; color: var(--accent); background: none; border: 1px solid var(--border);
+              border-radius: 8px; padding: 3px 8px; cursor: pointer; }
+.app-list .ph { color: var(--text-3); padding-left: 0; padding-right: 0; text-align: center; }
+.app-list .dim { color: var(--text-3); font-size: 10.5px; }
+.app-list-act { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.app-list-act .app-btn { font-size: 13px; min-height: 36px; padding: 5px 12px; }
 
 /* ── ILS approach: strips under the profile ── */
 .app-ils-pick { display: flex; align-items: center; gap: 8px; min-height: 0; white-space: normal; }
