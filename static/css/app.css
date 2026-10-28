@@ -100,13 +100,17 @@ body.app-body {
 #app-ils-map .leaflet-control-attribution { font-size: 9px; background: rgba(15,25,35,.8); color: var(--text-3); }
 #app-ils-map .leaflet-control-attribution a { color: var(--text-2); }
 [data-theme="light"] #app-ils-map .leaflet-control-attribution { background: rgba(232,237,244,.88); }
-.ils-ac-lbl { font: 600 11px/1 'Courier New', monospace; color: #e2e8f0; text-shadow: 0 0 3px #000, 0 0 3px #000; white-space: nowrap; }
+/* map labels: a bold sans-serif (Courier New is too thin on phones, especially iPhones);
+   dark theme with a tight black outline, light theme on a small white plate (28 Oct 2026) */
+.ils-ac-lbl { font: 700 12px/1.15 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; color: #f8fafc; display: inline-block;
+              text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000; white-space: nowrap; }
 .ils-ac-lbl.left { position: absolute; right: 0; top: 0; text-align: right; }
-.ils-ac-lbl.dim { color: #94a3b8; font-weight: 400; }
-.ils-ac-lbl small { display: block; font-weight: 400; color: #cbd5e1; font-size: 10px; margin-top: 1px; }
-[data-theme="light"] .ils-ac-lbl { color: #0f172a; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
-[data-theme="light"] .ils-ac-lbl small { color: #334155; }
-[data-theme="light"] .ils-ac-lbl.dim { color: #64748b; }
+.ils-ac-lbl.dim { color: #cbd5e1; font-weight: 600; }
+.ils-ac-lbl small { display: block; font-weight: 600; color: #e2e8f0; font-size: 10.5px; margin-top: 1px; }
+[data-theme="light"] .ils-ac-lbl { color: #0b1220; text-shadow: none; background: rgba(255,255,255,.85);
+                                   padding: 1px 4px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15,23,42,.18); }
+[data-theme="light"] .ils-ac-lbl small { color: #1e293b; }
+[data-theme="light"] .ils-ac-lbl.dim { color: #334155; background: rgba(255,255,255,.7); }
 .app-ils-pick { display: flex; align-items: center; gap: 8px; min-height: 0; white-space: normal; }
 .app-ils-pick .txt { flex: 1; min-width: 0; font-family: 'Courier New', monospace; font-size: 11.5px; line-height: 1.4; }
 .app-strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; margin: 6px 2px 10px; }
