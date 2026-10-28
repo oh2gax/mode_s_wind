@@ -30,6 +30,11 @@
 <header class="app-bar">
   <button id="app-menu-btn" class="app-icon-btn" type="button" aria-label="Menu" aria-controls="app-drawer" aria-expanded="false">☰</button>
   <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
+  <!-- light / dark theme (from 2026-10-28): the icon shows the theme a tap switches to -->
+  <button id="app-theme-btn" class="app-icon-btn app-theme-btn" type="button" aria-label="Light theme" title="Light theme">
+    <svg class="ic-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <svg class="ic-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20.2 14.6A8.3 8.3 0 0 1 9.4 3.8a8.3 8.3 0 1 0 10.8 10.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </button>
   <span id="app-health" class="app-health" title="System health"></span>
 </header>
 {% if site_moved %}{% with mv_app=true %}{% include "_moved_notice.html" %}{% endwith %}{% endif %}
@@ -224,8 +229,7 @@
 
   <details class="app-sec app-sec-gen">
     <summary>General</summary>
-    <div class="app-field"><span>Theme</span>
-      <select id="app-theme" data-chips><option value="dark">Dark</option><option value="light">Light</option></select></div>
+    <div class="app-small">Theme: the ☀ / ☾ button at the top right.</div>
     <div id="app-health-txt" class="app-small"></div>
     <div class="app-gen-btns">
       <button type="button" class="app-btn" id="app-about-btn">About</button>

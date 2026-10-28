@@ -10,6 +10,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **ACI · WS · ST — the list under the chart follows your choice**: it now lists the flights of the chosen period (before, always the latest 15 landings) — with *ACI + windshear* the departures too, with *Space–time* the flights of the diagram, or of the cell you tap. 15 rows, **Show all** for the rest, and **Landings / Departures in History** open the History view with the same period.
 - **Approach History search** on the Windshear page: the box now finds a callsign, registration, aircraft type or ICAO address anywhere in the text (before only the beginning of a registration).
 - Lighter on mobile data: the landings list now comes compressed and, for the phone, without the details it does not show.
+- **Light or dark on the phone with one tap**: the **☀ / ☾** button at the top right of `/app` switches the theme (the sun takes you to light, the moon back to dark); it used to be hidden in the menu.
 - **About** now also tells about the two sites: the cloud server that serves you, and the Raspberry Pi station at the receiver that keeps observing even without the internet.
 - **About and all the user guides on the phone**: the menu's *General* section now has **About** (the same as on the full site) and **User guides** — every guide, e.g. the Windshear guide or the windshear study log, opens as PDF on the phone.
 - The *MODE-S Wind on a phone* user guide (version 1.4) has the new views.

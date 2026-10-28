@@ -98,14 +98,21 @@
   document.querySelectorAll('select[data-chips]').forEach(chipify);
 
   // ── theme ────────────────────────────────────────────────────────────────
-  const themeSel = $('app-theme');
-  themeSel.value = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
-  themeSel.addEventListener('change', () => {
-    if (themeSel.value === 'light') document.documentElement.dataset.theme = 'light';
+  // the ☀ / ☾ button of the top bar (from 2026-10-28; was a selector in General):
+  // the icon shows the theme a tap switches to; remembered as before (ms_theme)
+  const themeBtn = $('app-theme-btn');
+  function setTheme(t) {
+    if (t === 'light') document.documentElement.dataset.theme = 'light';
     else delete document.documentElement.dataset.theme;
-    lsSet('ms_theme', themeSel.value);
+    lsSet('ms_theme', t);
     const tc = document.querySelector('meta[name="theme-color"]');
-    if (tc) tc.content = themeSel.value === 'light' ? '#e8edf3' : '#0f1923';
+    if (tc) tc.content = t === 'light' ? '#e8edf3' : '#0f1923';
+    const lbl = t === 'light' ? 'Dark theme' : 'Light theme';
+    themeBtn.title = lbl; themeBtn.setAttribute('aria-label', lbl);
+  }
+  setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  themeBtn.addEventListener('click', () => {
+    setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
     layout(true);
   });
 
