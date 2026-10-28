@@ -1736,7 +1736,7 @@ def create_app(
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
-        out = web_users.list_users(cfg)
+        out = web_users.list_users(cfg, data.get("password", ""))
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
         return jsonify(out)
 
@@ -1753,7 +1753,7 @@ def create_app(
         except OSError as exc:
             log.warning("Shared login file not written: %s", exc)
             return jsonify({"ok": False, "error": "the file could not be written (permissions? MAINTENANCE_AUTH_FILE set?)"}), 500
-        out = web_users.list_users(cfg)
+        out = web_users.list_users(cfg, data.get("password", ""))
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
         out["ok"] = True
         return jsonify(out)
@@ -1765,12 +1765,22 @@ def create_app(
             return jsonify({"error": "Unauthorized"}), 401
         target = str(data.get("target", ""))
         pw = data.get("new_password", "")
+        mpw = data.get("password", "")              # the maintenance password: the key of the users' names
+        new_mpw = None
         try:
             if action == "add":
-                web_users.add_user(cfg, target, pw)
+                web_users.add_user(cfg, target, pw, data.get("first"), data.get("last"), mpw)
                 kind = "user"
             elif action == "password":
-                kind = web_users.set_password(cfg, target, pw)
+                kind = web_users.set_password(cfg, target, pw, mpw)
+                if kind == "maintenance":
+                    new_mpw = pw
+            elif action == "name":
+                web_users.set_name(cfg, target, data.get("first"), data.get("last"), mpw)
+                kind = "user"
+            elif action == "names-reset":
+                web_users.reset_names(cfg)
+                kind = "user"
             elif action == "remove":
                 web_users.remove_user(cfg, target)
                 kind = "user"
@@ -1781,7 +1791,7 @@ def create_app(
         except OSError as exc:
             log.warning("Users file not written: %s", exc)
             return jsonify({"ok": False, "error": "the file could not be written (permissions?)"}), 500
-        out = web_users.list_users(cfg)
+        out = web_users.list_users(cfg, new_mpw or mpw)
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
         out.update(ok=True, kind=kind)
         return jsonify(out)

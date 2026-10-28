@@ -299,17 +299,44 @@ function _esc(t) {
   return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Users' first and last names (from 2026-10-28): sent only to the maintenance
+// login, decrypted by the server with the maintenance password for that answer.
+let _usersData = null;
+const _normQ = t => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]/g, '');
+
 function renderUsers(d) {
+  _usersData = d;
   const list = document.getElementById('users-list');
   document.getElementById('users-file').textContent = d.file || '(no file: MAINTENANCE_AUTH_FILE not set)';
-  list.innerHTML = (d.users || []).map(u => {
+  document.getElementById('users-names-locked').style.display = d.names === 'locked' ? '' : 'none';
+  const q = _normQ(document.getElementById('users-filter').value);
+  const sortBy = document.getElementById('users-sort').value;
+  let rows = (d.users || []).filter(u => !q || _normQ(u.user).includes(q) || _normQ(`${u.first || ''}${u.last || ''}`).includes(q)
+                                      || _normQ(`${u.last || ''}${u.first || ''}`).includes(q));
+  if (sortBy === 'last') {
+    // the built-in and maintenance users first, then by last name (users without a name last)
+    const grp = u => u.kind !== 'user' ? 0 : u.last ? 1 : 2;
+    const key = u => u.kind !== 'user' ? u.user : `${u.last || ''} ${u.first || ''} ${u.user}`;
+    rows = rows.slice().sort((a, b) => grp(a) - grp(b) || key(a).localeCompare(key(b), 'fi'));
+  }
+  const nUsers = (d.users || []).filter(u => u.kind === 'user').length;
+  const nNoName = (d.users || []).filter(u => u.kind === 'user' && !u.first).length;
+  document.getElementById('users-count').textContent =
+    `${nUsers} personal user${nUsers === 1 ? '' : 's'}${nNoName && d.names !== 'locked' ? ` · ${nNoName} without a name` : ''}` +
+    (q ? ` · ${rows.length} shown` : '');
+  list.innerHTML = rows.map(u => {
+    const nm = u.kind !== 'user' ? '<span class="maint-user-name none">—</span>'
+      : u.first ? `<span class="maint-user-name" title="${_esc(u.first + ' ' + u.last)}">${_esc(u.first)} ${_esc(u.last)}</span>`
+      : `<span class="maint-user-name none">${d.names === 'locked' ? 'cannot be read' : 'no name yet'}</span>`;
+    const nameBtn = u.kind === 'user' && d.names !== 'locked'
+      ? `<button class="maint-btn maint-btn-sm" data-act="name" data-user="${_esc(u.user)}">Name</button>` : '';
     const edit = u.kind !== 'config'
       ? `<button class="maint-btn maint-btn-sm" data-act="pw" data-user="${_esc(u.user)}">New password</button>` : '';
     const del = u.kind === 'user'
       ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
-    return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>` +
+    return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>${nm}` +
       `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}${u.kind === 'config' && d.shared && d.shared.phase !== 'none' ? (d.shared.phase === 'ended' ? ' · shared, ended' : ` · shared, until ${_esc(d.shared.expires)}`) : ''}</span>` +
-      `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${edit}${del}</span></div>`;
+      `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${nameBtn}${edit}${del}</span></div>`;
   }).join('');
   if (!d.writable) _setStatus('users-status', 'The folder of the users file is not writable — users cannot be changed.', true);
   if (d.shared) renderShared(d.shared);
@@ -348,10 +375,10 @@ async function loadUsers() {
   catch (e) { _setStatus('users-status', `Error: ${e.message}`, true); }
 }
 
-async function _usersCall(action, target, pw) {
+async function _usersCall(action, target, pw, extra) {
   const r = await fetch(`/api/maintenance/users/${action}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: _user, password: _pass, target, new_password: pw }),
+    body: JSON.stringify({ username: _user, password: _pass, target, new_password: pw, ...(extra || {}) }),
   });
   if (r.status === 401) throw new Error('Unauthorized');
   const d = await r.json().catch(() => ({}));
@@ -365,12 +392,53 @@ function _closeEdit() {
   document.getElementById('users-edit-pass').value = document.getElementById('users-edit-pass2').value = '';
 }
 
+function _closeName() {
+  _nameUser = null;
+  document.getElementById('users-name-row').style.display = 'none';
+  document.getElementById('users-name-first').value = document.getElementById('users-name-last').value = '';
+}
+let _nameUser = null;
+
 document.getElementById('users-refresh-btn').addEventListener('click', loadUsers);
+document.getElementById('users-filter').addEventListener('input', () => { if (_usersData) renderUsers(_usersData); });
+try { document.getElementById('users-sort').value = localStorage.getItem('ms_maintUserSort') || 'user'; } catch (e) { /* */ }
+document.getElementById('users-sort').addEventListener('change', e => {
+  try { localStorage.setItem('ms_maintUserSort', e.target.value); } catch (err) { /* */ }
+  if (_usersData) renderUsers(_usersData);
+});
+document.getElementById('users-names-reset-btn').addEventListener('click', async () => {
+  if (!confirm('Start the names again? The stored names cannot be read with the current maintenance password and will be discarded; the users stay and their names can be entered again.')) return;
+  try { renderUsers(await _usersCall('names-reset', '')); _setStatus('users-status', '✓ The names were started again — add them with Name'); }
+  catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
+document.getElementById('users-name-cancel-btn').addEventListener('click', _closeName);
+document.getElementById('users-name-save-btn').addEventListener('click', async () => {
+  if (!_nameUser) return;
+  const first = document.getElementById('users-name-first').value.trim(), last = document.getElementById('users-name-last').value.trim();
+  if (!first || !last) { _setStatus('users-status', 'Enter the first and the last name.', true); return; }
+  try {
+    renderUsers(await _usersCall('name', _nameUser, '', { first, last }));
+    _setStatus('users-status', `✓ Name saved for ${_nameUser}`);
+    _closeName();
+  } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
 document.getElementById('users-list').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const name = b.dataset.user;
+  if (b.dataset.act === 'name') {
+    _closeEdit();
+    _nameUser = name;
+    const u = (_usersData && _usersData.users || []).find(x => x.user === name) || {};
+    document.getElementById('users-name-user').textContent = name;
+    document.getElementById('users-name-first').value = u.first || '';
+    document.getElementById('users-name-last').value = u.last || '';
+    document.getElementById('users-name-row').style.display = '';
+    document.getElementById('users-name-first').focus();
+    return;
+  }
   if (b.dataset.act === 'pw') {
+    _closeName();
     _editUser = name;
     document.getElementById('users-edit-name').textContent = name;
     document.getElementById('users-edit-row').style.display = '';
@@ -382,6 +450,7 @@ document.getElementById('users-list').addEventListener('click', async e => {
     renderUsers(await _usersCall('remove', name));
     _setStatus('users-status', `✓ ${name} removed`);
     if (_editUser === name) _closeEdit();
+    if (_nameUser === name) _closeName();
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
 });
 document.getElementById('users-edit-cancel-btn').addEventListener('click', _closeEdit);
@@ -402,13 +471,15 @@ document.getElementById('users-edit-save-btn').addEventListener('click', async (
 });
 document.getElementById('users-add-btn').addEventListener('click', async () => {
   const name = document.getElementById('users-add-name').value.trim();
+  const first = document.getElementById('users-add-first').value.trim(), last = document.getElementById('users-add-last').value.trim();
   const p1 = document.getElementById('users-add-pass').value, p2 = document.getElementById('users-add-pass2').value;
   if (!name) { _setStatus('users-status', 'Enter a username.', true); return; }
+  if (!first || !last) { _setStatus('users-status', 'Enter the first and the last name.', true); return; }
   if (p1 !== p2) { _setStatus('users-status', 'The passwords do not match.', true); return; }
   try {
-    renderUsers(await _usersCall('add', name, p1));
+    renderUsers(await _usersCall('add', name, p1, { first, last }));
     _setStatus('users-status', `✓ ${name} added`);
-    ['users-add-name', 'users-add-pass', 'users-add-pass2'].forEach(id => { document.getElementById(id).value = ''; });
+    ['users-add-name', 'users-add-first', 'users-add-last', 'users-add-pass', 'users-add-pass2'].forEach(id => { document.getElementById(id).value = ''; });
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
 });
 

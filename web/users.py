@@ -23,6 +23,10 @@ is added, changed or removed (atomic replace, mode 600).
 The maintenance file keeps its format  username:password ; the password may
 be in clear (as before) or a pbkdf2_sha256$… hash.
 
+First and last names of the users (from 2026-10-28) are kept encrypted in
+webnames.txt next to the users file, with a key from the maintenance password
+(web/user_names.py): shown only on the Maintenance page.
+
 Basic authentication sends the password with every request, so a checked
 username / password pair is remembered in memory (as a salted digest, for the
 current file contents) and the slow hash is computed only once per pair.
@@ -38,6 +42,8 @@ import re
 import threading
 import time
 from typing import Optional
+
+from web import user_names
 
 log = logging.getLogger("modes.web")
 
@@ -232,9 +238,16 @@ def _valid_password(pw: str) -> Optional[str]:
     return None
 
 
-def list_users(cfg) -> dict:
+def names_file(cfg) -> Optional[str]:
+    return user_names.names_path(users_path(cfg))
+
+
+def list_users(cfg, maint_password: Optional[str] = None) -> dict:
+    """The users for the Maintenance page; with the maintenance password also
+    the users' names (decrypted for this answer only) and "names": state."""
     st = _load(cfg, force=True)
     up = users_path(cfg)
+    nm = user_names.read_all(names_file(cfg), maint_password) if maint_password else {"state": "none", "names": {}}
     rows = [{"user": str(cfg.WEB_USER), "kind": "config", "changed": None}]
     if st["maint"]:
         mp = getattr(cfg, "MAINTENANCE_AUTH_FILE", "")
@@ -245,9 +258,13 @@ def list_users(cfg) -> dict:
         rows.append({"user": st["maint"][0], "kind": "maintenance", "changed": mch,
                      "hashed": st["maint"][1].startswith(HASH_PREFIX)})
     for name in sorted(st["users"], key=str.lower):
-        rows.append({"user": name, "kind": "user", "changed": st["users"][name]["changed"]})
+        row = {"user": name, "kind": "user", "changed": st["users"][name]["changed"]}
+        n = nm["names"].get(name)
+        if n:
+            row.update(first=n["first"], last=n["last"])
+        rows.append(row)
     d = os.path.dirname(os.path.abspath(up)) if up else None
-    return {"file": up, "writable": bool(d and os.access(d, os.W_OK)), "users": rows}
+    return {"file": up, "writable": bool(d and os.access(d, os.W_OK)), "users": rows, "names": nm["state"]}
 
 
 def _save_users(cfg, users: dict) -> None:
@@ -261,13 +278,20 @@ def _save_users(cfg, users: dict) -> None:
     _write_atomic(up, "\n".join(lines) + "\n")
 
 
-def add_user(cfg, username: str, password: str) -> None:
+def add_user(cfg, username: str, password: str, first: Optional[str] = None, last: Optional[str] = None,
+             maint_password: Optional[str] = None) -> None:
+    """A new user of the users file; with the maintenance password also its
+    first and last name (both required then)."""
     username = (username or "").strip()
     if not USER_RE.match(username):
         raise ValueError("the username may have 1–32 letters, digits and . _ @ - (no spaces)")
     err = _valid_password(password)
     if err:
         raise ValueError(err)
+    if maint_password is not None:
+        first, last = user_names.clean(first, last)
+        if user_names.read_all(names_file(cfg), maint_password)["state"] == "locked":
+            raise ValueError("the stored names were written with another maintenance password — start the names again first")
     st = _load(cfg, force=True)
     taken = {str(cfg.WEB_USER).lower()} | ({st["maint"][0].lower()} if st["maint"] else set())
     if username.lower() in taken or username.lower() in {u.lower() for u in st["users"]}:
@@ -277,10 +301,30 @@ def add_user(cfg, username: str, password: str) -> None:
     _save_users(cfg, users)
     _load(cfg, force=True)
     log.info("Web user added: %s", username)
+    if maint_password is not None:
+        user_names.set_name(names_file(cfg), maint_password, username, first, last, _write_atomic)
 
 
-def set_password(cfg, username: str, password: str) -> str:
-    """New password for a user of the users file or the maintenance user; returns its kind."""
+def set_name(cfg, username: str, first: str, last: str, maint_password: str) -> None:
+    """First and last name of a user of the users file (encrypted; never logged)."""
+    st = _load(cfg, force=True)
+    if username not in st["users"]:
+        raise ValueError(f"no user {username}")
+    try:
+        user_names.set_name(names_file(cfg), maint_password, username, first, last, _write_atomic)
+    except user_names.Locked:
+        raise ValueError("the stored names were written with another maintenance password — start the names again first")
+    log.info("Web user name changed: %s", username)
+
+
+def reset_names(cfg) -> None:
+    user_names.reset(names_file(cfg), _write_atomic)
+    log.info("Web user names started again")
+
+
+def set_password(cfg, username: str, password: str, old_maint_password: Optional[str] = None) -> str:
+    """New password for a user of the users file or the maintenance user; returns its kind.
+    A new maintenance password re-encrypts the users' names (old_maint_password)."""
     err = _valid_password(password)
     if err:
         raise ValueError(err)
@@ -289,7 +333,11 @@ def set_password(cfg, username: str, password: str) -> str:
         raise ValueError("the built-in user is set in config.py (WEB_USER / WEB_PASS)")
     if st["maint"] and username == st["maint"][0]:
         mp = getattr(cfg, "MAINTENANCE_AUTH_FILE", "")
+        nf = names_file(cfg)
+        renamed = user_names.rekey(nf, old_maint_password, password) if old_maint_password else None
         _write_atomic(mp, f"{username}:{hash_password(password)}\n")
+        if renamed is not None:
+            _write_atomic(nf, renamed)
         _load(cfg, force=True)
         log.info("Maintenance password changed")
         return "maintenance"
@@ -314,4 +362,5 @@ def remove_user(cfg, username: str) -> None:
     users = {k: v for k, v in st["users"].items() if k != username}
     _save_users(cfg, users)
     _load(cfg, force=True)
+    user_names.remove(names_file(cfg), username, _write_atomic)
     log.info("Web user removed: %s", username)

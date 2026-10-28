@@ -59,8 +59,18 @@
       </div>
       <div class="maint-panel">
         <div class="maint-stats-grid">
+          <div class="maint-row maint-user-tools">
+            <input type="search" id="users-filter" class="maint-input maint-input-sm" placeholder="Search username or name" autocomplete="off">
+            <label class="maint-label" for="users-sort">Sort</label>
+            <select id="users-sort" class="maint-input maint-input-sm"><option value="user">by username</option><option value="last">by last name</option></select>
+            <span id="users-count" class="maint-user-kind"></span>
+          </div>
+          <div id="users-names-locked" class="maint-op-status maint-names-locked" style="display:none">
+            The users' names were stored with another maintenance password (it was replaced by hand) and cannot be read.
+            <button id="users-names-reset-btn" class="maint-btn maint-btn-sm maint-btn-danger">Start the names again</button>
+          </div>
           <div class="maint-stat-row maint-stat-hdr maint-user-row">
-            <span>User</span><span>Type</span><span>Password changed (UTC)</span><span></span>
+            <span>User</span><span>Name</span><span>Type</span><span>Password changed (UTC)</span><span></span>
           </div>
           <div id="users-list"><div class="maint-stat-row maint-user-row"><span>—</span></div></div>
         </div>
@@ -70,6 +80,13 @@
           <input type="password" id="users-edit-pass2" class="maint-input maint-input-sm" placeholder="Repeat" autocomplete="new-password">
           <button id="users-edit-save-btn" class="maint-btn maint-btn-primary">Save</button>
           <button id="users-edit-cancel-btn" class="maint-btn">Cancel</button>
+        </div>
+        <div class="maint-row" id="users-name-row" style="display:none">
+          <span class="maint-label">Name of <b id="users-name-user"></b></span>
+          <input type="text" id="users-name-first" class="maint-input maint-input-sm" placeholder="First name" maxlength="40" autocomplete="off">
+          <input type="text" id="users-name-last"  class="maint-input maint-input-sm" placeholder="Last name" maxlength="40" autocomplete="off">
+          <button id="users-name-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="users-name-cancel-btn" class="maint-btn">Cancel</button>
         </div>
       </div>
       <div class="maint-panel">
@@ -90,13 +107,16 @@
         <div class="maint-row">
           <label class="maint-label">User</label>
           <input type="text"     id="users-add-name"  class="maint-input maint-input-sm" placeholder="Username" autocomplete="off">
+          <label class="maint-label">Name</label>
+          <input type="text"     id="users-add-first" class="maint-input maint-input-sm" placeholder="First name" maxlength="40" autocomplete="off">
+          <input type="text"     id="users-add-last"  class="maint-input maint-input-sm" placeholder="Last name" maxlength="40" autocomplete="off">
           <label class="maint-label">Password</label>
           <input type="password" id="users-add-pass"  class="maint-input maint-input-sm" placeholder="Password" autocomplete="new-password">
           <input type="password" id="users-add-pass2" class="maint-input maint-input-sm" placeholder="Repeat" autocomplete="new-password">
           <button id="users-add-btn" class="maint-btn maint-btn-primary">Add</button>
         </div>
         <div id="users-status" class="maint-op-status"></div>
-        <div class="maint-hint">Usernames: 1–32 letters, digits and <code>. _ @ -</code>; passwords 8–128 characters. A new user can log in at once; a removed user, or one whose password was changed, is asked to log in again at the next page load. Passwords are stored only as hashes and never shown. The users are kept in <code id="users-file">webusers.txt</code> next to the maintenance login file (outside the database). The <b>built-in</b> user is set in <code>config.py</code> (<code>WEB_USER</code> / <code>WEB_PASS</code>) and cannot be changed here; the <b>maintenance</b> user can also open the web pages, and changing its password here also changes the Maintenance login.</div>
+        <div class="maint-hint">Usernames: 1–32 letters, digits and <code>. _ @ -</code>; passwords 8–128 characters. A new user can log in at once; a removed user, or one whose password was changed, is asked to log in again at the next page load. Passwords are stored only as hashes and never shown. First and last names (required for a new user; <b>Name</b> adds or corrects them) are shown only here: they are stored encrypted in <code>webnames.txt</code> beside the users file, with a key made from the maintenance password — changing that password here re-encrypts them; if it is ever replaced by hand in the maintenance login file, the names cannot be read any more and must be entered again. The users are kept in <code id="users-file">webusers.txt</code> next to the maintenance login file (outside the database). The <b>built-in</b> user is set in <code>config.py</code> (<code>WEB_USER</code> / <code>WEB_PASS</code>) and cannot be changed here; the <b>maintenance</b> user can also open the web pages, and changing its password here also changes the Maintenance login.</div>
       </div>
     </div>
 

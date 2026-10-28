@@ -3,6 +3,8 @@ aircraftlist.json
 dbauth.txt
 webusers.txt
 .webusers.txt.tmp
+webnames.txt
+.webnames.txt.tmp
 api_keys.py
 
 # This machine's own settings (config_local.py.example is the template)
