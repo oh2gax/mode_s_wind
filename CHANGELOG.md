@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search; map view remembered; health dot Pi / Server; signal histogram range)
+## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search; map view remembered; health dot Pi / Server; signal histogram range; study log 1.3)
 
 ### Mobile view /app: History and space–time
 - **History** view (new tile): the landings (`/api/windshear/approach-history?lite=1`) or departures (`/api/windshear/departures?full=1`) of 1 h – 1 day (default 3 h) or of one UTC date (‹ › day steppers, Live), as cards — time, callsign, type, runway, chips (ACI, windshear level, trial, GA) and a band strip (headwind / crosswind / wind, Lo 8 or Hi 13 bands) or an ACI / windshear summary; a tap opens all bands, the approach conditions and the windshear report. Sticky search (callsign, registration, type, ICAO anywhere). `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`.
@@ -32,6 +32,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Statistics page: signal-strength histogram scales itself
 - The x-axis was fixed at −50 … 0 dBFS (the Beast byte's range), but this receiver reports nothing weaker than about −26 dBFS, so half the chart was empty. It now starts one 2-dB bin below the weakest bin holding at least 0.05 % of all frames (`SIG_MIN_SHARE`) and ends at 0 dBFS; the range comes from *all frames*, so it does not change with the class. Stray frames below it are counted in the note, which now gives the receiver's weakest level instead of the fixed −48 dBFS. Browser only (`static/js/stats.js`); the collector's bins and the stored history are unchanged.
 - Statistics user guide 1.8 (the automatic range; Fig. 9 now the receiver's own 24 h).
+
+### Documentation: windshear study log 1.3
+- `doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf` 1.3 (15 pp): new Section 9, the first night of the departure trial (27–28 Oct 2026) — a nocturnal south-westerly low-level jet (Jokioinen 00 UTC: 12 kt at the ground, 43 kt at 3 100 ft); 4 of 57 climb-outs would have flagged in the trial, two of them the jet profile itself (the expectation check cannot run above the 1 800-ft reference profile); the two departure band advisories at 04:28 / 04:42 UTC during the weakening of the jet; new figure (departure profiles against the sounding, the 1 400-ft headwind of landings and departures); data check of 28 Oct; two questions for the departure-ramp evaluation.
 
 ---
 

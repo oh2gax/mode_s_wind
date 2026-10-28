@@ -96,14 +96,14 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.2
-date: 2026-10-27
-pages: 14
+version: 1.3
+date: 2026-10-28
+pages: 15
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
 - Phase 0: the six browser algorithms (May – 24 October 2026) and why they were abandoned; the move to the Hong Kong Observatory's headwind-ramp method
-- Phases 1–5: detection v2/v3 (ramps and the band comparison on the wind vector), the relative rule for weak ramp advisories, the **confirmed / isolated** label, the band comparison by flight phase and the higher limits for turboprop departures — each with its evidence and replay; the new tools (space–time diagram, trial ramps along the climb-out)
+- Phases 1–5: detection v2/v3 (ramps and the band comparison on the wind vector), the relative rule for weak ramp advisories, the **confirmed / isolated** label, the band comparison by flight phase and the higher limits for turboprop departures — each with its evidence and replay; the new tools (space–time diagram, trial ramps along the climb-out); the first night of the departure trial — a **nocturnal low-level jet**, the climb into it and two departure advisories during its weakening
 - The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (ADS-B ground speed, the convective season, validation)
 
 ## Windshear detection v1 — retired algorithms (legacy)
