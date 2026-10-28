@@ -219,6 +219,22 @@ def check_web(cfg, username: str, password: str) -> bool:
     return bool(u) and _cached_check(username, password, u["hash"])
 
 
+def login_fingerprint(cfg, username: str) -> Optional[str]:
+    """For the remembered login (web/session_cookie.py, from 2026-10-28): the
+    stored password hash of a user of the users file — it changes with the
+    password, so a new password ends the user's remembered logins.  None for
+    the maintenance user, the built-in config.py user and unknown names."""
+    username = username or ""
+    if not USER_RE.match(username) or username == str(getattr(cfg, "WEB_USER", "")):
+        return None
+    st = _load(cfg)
+    m = st["maint"]
+    if m and hmac.compare_digest(username.encode(), m[0].encode()):
+        return None
+    u = st["users"].get(username)
+    return u["hash"] if u else None
+
+
 def check_maint(cfg, username: str, password: str) -> bool:
     """Maintenance page: the maintenance user only."""
     m = _load(cfg)["maint"]

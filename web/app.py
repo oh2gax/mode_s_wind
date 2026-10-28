@@ -2,7 +2,8 @@
 Flask application factory and SSE live-stream endpoint.
 
 Basic HTTP authentication is enforced on every request via a before_request
-hook.  Users: Config.WEB_USER / WEB_PASS, the maintenance user and the users
+hook; after a login a signed cookie remembers it for 30 days (from 2026-10-28,
+web/session_cookie.py), since a phone's browser forgets Basic credentials.  Users: Config.WEB_USER / WEB_PASS, the maintenance user and the users
 file managed on the Maintenance page (web/users.py).  Logins, refused
 requests and misuse are written to logs/access.log (web/access_log.py).
 """
@@ -31,6 +32,7 @@ from collector.approach_cond import approach_index
 from web import access_log
 from web import users as web_users
 from web import shared_login
+from web import session_cookie
 from collector import traffic as _traffic
 
 log = logging.getLogger("modes.web")
@@ -372,13 +374,27 @@ def create_app(
             g.auth_state = "public"
             return None
         auth = request.authorization
+        ck = request.cookies.get(session_cookie.COOKIE)
         if not auth:
+            # the remembered login (from 2026-10-28): a valid cookie lets the
+            # browser in without the Basic credentials it may have forgotten
+            cu = session_cookie.check(cfg, ck) if ck else None
+            if cu:
+                g.auth_state, g.auth_user = "ok", cu[0]
+                if session_cookie.needs_renewal(cu[1]):
+                    g.login_cookie = cu[0]
+                return None
+            if ck:
+                g.login_cookie_drop = True
             g.auth_state = "none"
             return _require_auth()
         if not _check_auth(auth.username, auth.password, cfg):
             g.auth_state, g.auth_user = "bad", auth.username
             return _require_auth()
         g.auth_state, g.auth_user = "ok", auth.username
+        cu = session_cookie.check(cfg, ck) if ck else None
+        if not cu or cu[0] != auth.username or session_cookie.needs_renewal(cu[1]):
+            g.login_cookie = auth.username              # set / renewed in _login_cookie (users-file users only)
         # The shared test login (config.py WEB_USER) is phased out: a notice
         # during the grace period, no data after the end date
         if shared_login.is_shared(cfg, auth.username):
@@ -396,6 +412,23 @@ def create_app(
                     shared_login.note_page(cfg)
                 except Exception as exc:                  # noqa: BLE001
                     log.debug("shared login usage: %s", exc)
+
+    @app.after_request
+    def _login_cookie(resp):
+        """Sets or renews the remembered-login cookie (web/session_cookie.py)."""
+        try:
+            user = g.get("login_cookie")
+            if user:
+                val = session_cookie.issue(cfg, user)
+                if val:
+                    resp.set_cookie(session_cookie.COOKIE, val, max_age=session_cookie.MAX_AGE, path="/",
+                                    httponly=True, samesite="Lax", secure=request.is_secure)
+            elif g.get("login_cookie_drop"):
+                resp.delete_cookie(session_cookie.COOKIE, path="/", httponly=True, samesite="Lax",
+                                   secure=request.is_secure)
+        except Exception as exc:                      # noqa: BLE001
+            log.debug("login cookie: %s", exc)
+        return resp
 
     _PAGE_ENDPOINTS = {"index", "flights_page", "sounding_page", "windmap_page", "weather_page",
                        "windshear_page", "gps_page", "gps_episodes_page", "msgstats_page",

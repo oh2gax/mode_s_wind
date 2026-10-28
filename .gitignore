@@ -5,6 +5,7 @@ webusers.txt
 .webusers.txt.tmp
 webnames.txt
 .webnames.txt.tmp
+websession.key
 api_keys.py
 
 # This machine's own settings (config_local.py.example is the template)
