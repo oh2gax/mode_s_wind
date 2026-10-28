@@ -19,7 +19,15 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <script>
     (function(){
-      try { if (localStorage.getItem('ms_theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}
+      // theme (from 2026-10-28): Auto follows the phone's setting — also for whoever never chose a theme;
+      // a chosen Light / Dark is kept in ms_theme as before (shared with the full site)
+      try {
+        var a = localStorage.getItem('ms_app_theme_auto'), t = localStorage.getItem('ms_theme');
+        var auto = a === '1' || (a == null && t == null);
+        var light = auto ? !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) : t === 'light';
+        if (light) document.documentElement.dataset.theme = 'light';
+        document.documentElement.dataset.themeMode = auto ? 'auto' : (t === 'light' ? 'light' : 'dark');
+      } catch (e) {}
       // Time–height: one day by default on a phone (read by timeheight.js when it loads)
       try { if (localStorage.getItem('ms_th_hours') == null) localStorage.setItem('ms_th_hours', '24'); } catch (e) {}
     })();
@@ -32,11 +40,14 @@
   <div class="app-title"><span id="app-title">MODE-S Wind</span><small id="app-sub"></small></div>
   <!-- the current UTC time (from 2026-10-28): all times of MODE-S Wind are UTC -->
   <div id="app-utc" class="app-utc" title="Current time, UTC" aria-label="Current time, UTC"><b id="app-utc-t">--:--</b><small>UTC</small></div>
-  <!-- light / dark theme (from 2026-10-28): the icon shows the theme a tap switches to -->
-  <button id="app-theme-btn" class="app-icon-btn app-theme-btn" type="button" aria-label="Light theme" title="Light theme">
+  <!-- theme (from 2026-10-28): the icon shows the setting in use — moon Dark, sun Light, half circle Auto
+       (follows the phone); a tap steps Dark → Light → Auto → Dark -->
+  <button id="app-theme-btn" class="app-icon-btn app-theme-btn" type="button" aria-label="Theme" title="Theme">
     <svg class="ic-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
     <svg class="ic-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20.2 14.6A8.3 8.3 0 0 1 9.4 3.8a8.3 8.3 0 1 0 10.8 10.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    <svg class="ic-auto" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.8a8.2 8.2 0 0 0 0 16.4z" fill="currentColor"/></svg>
   </button>
+  <div id="app-theme-note" class="app-theme-note" role="status" aria-live="polite" hidden></div>
   <span id="app-health" class="app-health" title="System health"></span>
 </header>
 {% if site_moved %}{% with mv_app=true %}{% include "_moved_notice.html" %}{% endwith %}{% endif %}
@@ -283,7 +294,7 @@
 
   <details class="app-sec app-sec-gen">
     <summary>General</summary>
-    <div class="app-small">Theme: the ☀ / ☾ button at the top right.</div>
+    <div class="app-small">Theme: the button at the top right — a tap steps Dark (☾) → Light (☀) → Auto (◐, follows the phone's setting).</div>
     <div id="app-health-txt" class="app-small"></div>
     <div class="app-gen-btns">
       <button type="button" class="app-btn" id="app-about-btn">About</button>

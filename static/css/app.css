@@ -30,12 +30,18 @@ body.app-body {
            color: var(--text-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .app-utc b { font-size: 14px; font-weight: 600; }
 .app-utc small { font-size: 10px; color: var(--text-2); }
-/* ☀ / ☾ theme button (from 2026-10-28): the icon of the theme a tap switches to */
+/* theme button (from 2026-10-28): the icon of the setting in use — moon Dark, sun Light, half circle Auto */
 .app-theme-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); margin-right: 2px; }
-.app-theme-btn svg { display: block; }
-.app-theme-btn .ic-moon { display: none; }
-[data-theme="light"] .app-theme-btn .ic-sun { display: none; }
-[data-theme="light"] .app-theme-btn .ic-moon { display: block; }
+.app-theme-btn svg { display: none; }
+:root[data-theme-mode="dark"] .app-theme-btn .ic-moon,
+:root[data-theme-mode="light"] .app-theme-btn .ic-sun,
+:root[data-theme-mode="auto"] .app-theme-btn .ic-auto { display: block; }
+/* the short note after a tap ("Auto — follows the phone") under the button */
+.app-theme-note { position: fixed; z-index: 60; right: 10px; top: calc(52px + env(safe-area-inset-top));
+                  padding: 5px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap;
+                  background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border);
+                  box-shadow: 0 2px 10px rgba(0,0,0,.35); pointer-events: none; transition: opacity .3s; }
+.app-theme-note.fade { opacity: 0; }
 .app-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
 .app-title span { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-title small { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

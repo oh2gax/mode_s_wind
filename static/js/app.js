@@ -99,24 +99,53 @@
   document.querySelectorAll('select[data-chips]').forEach(chipify);
 
   // ── theme ────────────────────────────────────────────────────────────────
-  // the ☀ / ☾ button of the top bar (from 2026-10-28; was a selector in General):
-  // the icon shows the theme a tap switches to; remembered as before (ms_theme)
+  // the button of the top bar (from 2026-10-28; was a selector in General): Dark,
+  // Light or Auto — Auto follows the phone's setting (prefers-color-scheme) and
+  // switches with it while the page is open.  The icon shows the setting in use;
+  // a tap steps Dark → Light → Auto → Dark.  Auto is ms_app_theme_auto = 1 (also
+  // the default when no theme was ever chosen); a chosen Light / Dark stays in
+  // ms_theme as before, shared with the full site, which has no Auto.
   const themeBtn = $('app-theme-btn');
-  function setTheme(t) {
-    if (t === 'light') document.documentElement.dataset.theme = 'light';
-    else delete document.documentElement.dataset.theme;
-    lsSet('ms_theme', t);
+  const themeMq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  const THEME_LBL = { dark: 'Dark', light: 'Light', auto: 'Auto — follows the phone' };
+  let themeMode = (() => {
+    const a = lsGet('ms_app_theme_auto', null), t = lsGet('ms_theme', null);
+    return a === '1' || (a == null && t == null) ? 'auto' : (t === 'light' ? 'light' : 'dark');
+  })();
+  function applyTheme(redraw) {
+    const root = document.documentElement;
+    const was = root.dataset.theme === 'light';
+    const light = themeMode === 'auto' ? !!(themeMq && themeMq.matches) : themeMode === 'light';
+    if (light) root.dataset.theme = 'light'; else delete root.dataset.theme;
+    root.dataset.themeMode = themeMode;
     const tc = document.querySelector('meta[name="theme-color"]');
-    if (tc) tc.content = t === 'light' ? '#e8edf3' : '#0f1923';
-    const lbl = t === 'light' ? 'Dark theme' : 'Light theme';
+    if (tc) tc.content = light ? '#e8edf3' : '#0f1923';
+    const lbl = `Theme: ${THEME_LBL[themeMode]}${themeMode === 'auto' ? ` (now ${light ? 'light' : 'dark'})` : ''} — tap to change`;
     themeBtn.title = lbl; themeBtn.setAttribute('aria-label', lbl);
+    if (redraw && was !== light) {
+      layout(true);
+      if (typeof window.onThemeChange === 'function') window.onThemeChange();   // the Statistics charts
+    }
   }
-  setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  let themeNoteT = null;
+  function themeNote(txt) {
+    const n = $('app-theme-note');
+    n.textContent = txt; n.hidden = false; n.classList.remove('fade');
+    clearTimeout(themeNoteT);
+    themeNoteT = setTimeout(() => { n.classList.add('fade'); themeNoteT = setTimeout(() => { n.hidden = true; }, 300); }, 1600);
+  }
+  applyTheme(false);
   themeBtn.addEventListener('click', () => {
-    setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
-    layout(true);
-    if (typeof window.onThemeChange === 'function') window.onThemeChange();   // the Statistics charts
+    themeMode = { dark: 'light', light: 'auto', auto: 'dark' }[themeMode];
+    lsSet('ms_app_theme_auto', themeMode === 'auto' ? '1' : '0');
+    if (themeMode !== 'auto') lsSet('ms_theme', themeMode);
+    applyTheme(true);
+    themeNote(`Theme: ${THEME_LBL[themeMode]}`);
   });
+  if (themeMq) {
+    const onMq = () => { if (themeMode === 'auto') applyTheme(true); };
+    if (themeMq.addEventListener) themeMq.addEventListener('change', onMq); else if (themeMq.addListener) themeMq.addListener(onMq);
+  }
 
   // ── system health (the Statistics page's indicators, /api/health) ────────
   async function pollHealth() {
