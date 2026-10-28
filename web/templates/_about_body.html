@@ -12,6 +12,8 @@
   {% include "_contact.html" %}
   <dt>Receiver site</dt>
   <dd>Radarcape receiver by Jetvision (<a href="https://jetvision.de/" target="_blank" rel="noopener">jetvision.de</a>) · Tuusula, Finland · locator KP20MJ</dd>
+  <dt>Servers</dt>
+  <dd>Cloud server (Amazon Web Services, Stockholm) for the users · Raspberry Pi 4 station at the receiver site, off-grid capable</dd>
 </dl>
 
 <section class="ab-sec">
@@ -23,7 +25,14 @@
     BDS 6,0 (magnetic heading, IAS, Mach), BDS 4,4 meteorological reports where available — and the
     ADS-B broadcasts (position, 2-Hz velocity, GNSS − barometric height difference). From these it derives
     <b>wind and temperature profiles</b> from the surface to about FL400, several thousand observations an
-    hour within a few hundred kilometres, continuously, on a Raspberry Pi 4.</p>
+    hour within a few hundred kilometres, continuously.</p>
+  <p><b>One system, two sites.</b> The same software runs in two places. A <b>Raspberry Pi 4</b> next to the
+    receiver is the original station: with power and the local network alone the receiver's data flows into
+    its own database, so it keeps observing even without the internet (only the model, sounding and METAR
+    downloads wait for it). A <b>cloud server</b> at Amazon Web Services is the production system that serves
+    all users at <a href="https://mode-s-wind.oh2gax.org" target="_blank" rel="noopener">mode-s-wind.oh2gax.org</a>:
+    it receives the same live data from the receiver through an encrypted tunnel and runs its own analyses
+    and database. A change is tried on the station first and reaches the cloud when it runs well.</p>
   <p>The observations themselves need no model input. A few small calibrations are learnt continuously and
     stored locally: the per-airframe heading offsets from the fleet itself (each aircraft against the others),
     the GNSS heights of the pressure surfaces against the Jokioinen soundings, and the upper-level
@@ -133,11 +142,11 @@
       surveillance data and a novel meteo-particle model. <i>PLOS ONE</i>, 13(10), e0205029.
       <a href="https://doi.org/10.1371/journal.pone.0205029" target="_blank" rel="noopener">doi:10.1371/journal.pone.0205029</a></li>
   </ul>
-  <p class="ab-thanks">I would like to thank my wife, <b>Dr Marjukka Ikonen</b>, for her support of this project
-    all over the years and for reviewing my work.</p>
-  <p class="ab-thanks ab-thanks2">I would also like to thank all the friends and colleagues who have helped this
-    project over the years, especially <b>Matti, OH7SV</b> and <b>John, OH2GBA</b>, and the numerous beta
-    testers who have given user reports and technical hints.</p>
+  <p class="ab-thanks">I would also like to thank my wife, <b>Dr Marjukka Ikonen</b>, for supporting this project
+    all these years and for reviewing my work.</p>
+  <p class="ab-thanks ab-thanks2">My thanks go as well to the friends and colleagues who have helped along the way,
+    especially <b>Matti, OH7SV</b> and <b>John, OH2GBA</b>, and to the many beta testers for their user reports
+    and technical hints.</p>
 </section>
 
 <section class="ab-sec">
