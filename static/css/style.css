@@ -830,6 +830,23 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   font-size: 10px;
   background: rgba(255,255,255,0.12);
 }
+/* light theme: darker text on a pale tint (the dark theme's yellow was hard to read) */
+[data-theme="light"] .ws-alert-moderate { background: #fef3c7; color: #92400e; }
+[data-theme="light"] .ws-alert-severe   { background: #fee2e2; color: #991b1b; }
+[data-theme="light"] .ws-alert-tag      { background: rgba(255,255,255,0.7); }
+/* ICAO-style message ("15A WSA 15K+ 2MF") and the research marker (28 Oct 2026) */
+.ws-alert-msg { font-size: 11px; letter-spacing: .06em; }
+.ws-research-tag {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: .75;
+  cursor: help;
+}
 
 .ws-no-traffic {
   color: var(--text-3);

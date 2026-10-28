@@ -951,17 +951,19 @@
       ? Math.round(IlsProfile.hwKt(a.best_wind_spd, a.best_wind_dir, hdgOf(a))) : null;
     const hwTxt = v => v == null ? '' : v >= 0 ? ` · HW +${v}` : ` · TW ${-v}`;
     const pick = $('app-ils-pick');
+    const wsOf = icao => evs.filter(e => e.icao === icao).sort((a, b) => LV_RANK[b.lvl] - LV_RANK[a.lvl])[0];
+    const selWs = sel && wsOf(sel.icao);
     if (I.barbs === 'off' || !sel) {
       pick.innerHTML = `<span class="txt">${list.length ? 'Tap an aircraft or a strip for its wind barbs.' : 'No aircraft on the approach' + (I.rwy ? ' to ' + esc(I.rwy) : '') + '.'}</span>`;
     } else {
       pick.innerHTML = `<span class="txt"><b>${esc(sel.callsign || sel.icao)}</b> ${esc(sel.aircraft_type || '')} · RWY ${esc(sel.approach_runway || '?')} · ` +
         `${sel.dist_thr_nm != null ? sel.dist_thr_nm.toFixed(1) : '—'} NM · ${sel.altitude != null ? Math.round(sel.altitude) : '—'} ft · ` +
-        `wind ${fmtWind(sel.best_wind_spd, sel.best_wind_dir)}${hwTxt(hw(sel))} · ${I.manual ? 'chosen' : 'auto: lowest'}</span>` +
+        `wind ${fmtWind(sel.best_wind_spd, sel.best_wind_dir)}${hwTxt(hw(sel))} · ${I.manual ? 'chosen' : 'auto: lowest'}` +
+        (selWs && selWs.msg ? ` · <b>⚠ ${esc(selWs.msg)}</b> <small>(research)</small>` : '') + `</span>` +
         (I.manual ? '<button type="button" class="app-btn" id="app-ils-auto">Auto</button>' : '');
       const b = $('app-ils-auto');
       if (b) b.addEventListener('click', () => selectIls(null));
     }
-    const wsOf = icao => evs.filter(e => e.icao === icao).sort((a, b) => LV_RANK[b.lvl] - LV_RANK[a.lvl])[0];
     const WSC = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
     $('app-ils-list').innerHTML = list.length ? list.map(a => {
       const gs = IlsProfile.gsStatus(a, base), w = wsOf(a.icao);
@@ -969,11 +971,12 @@
       return `<button type="button" class="app-strip${a.icao === I.sel && I.barbs !== 'off' ? ' sel' : ''}" data-icao="${esc(a.icao)}"` +
              ` style="--src:${ILS_SRC[a.meteo_source] || 'var(--border)'}">` +
              `<span class="rwy">${esc(a.approach_runway || '?')}</span><span class="cs">${esc(a.callsign || a.icao)}${a.ap ? ' <small>AP</small>' : ''}</span>` +
-             `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}">${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${pal[gs]}">${gs}</span></span>` +
+             `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}"${w.msg ? ` title="${esc(w.msg + (w.say ? ' · ' + w.say : '') + ' (research)')}"` : ''}>${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${pal[gs]}">${gs}</span></span>` +
              `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${a.altitude != null ? Math.round(a.altitude) + ' ft' : '—'}${vs ? ' · ' + vs : ''}</span>` +
              `<span class="row">wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}</span></button>`;
     }).join('') : '';
-    const alert = evs.length ? ' · ⚠ ' + [...new Set(evs.map(e => `${e.lvl.toUpperCase()} ${e.rwy}`))].join(', ') : '';
+    // ICAO-style messages ("15A WSA 15K+ 2MF", from 28 Oct 2026) — research, not operational
+    const alert = evs.length ? ' · ⚠ ' + [...new Set(evs.map(e => e.msg || `${e.lvl.toUpperCase()} ${e.rwy}`))].join(', ') + ' (research)' : '';
     $('app-sub').textContent = I.fetched
       ? `${list.length} on approach · QNH ${wxQnh != null ? Math.round(wxQnh) : '—'}${alert} · ${new Date(I.fetched).toISOString().slice(11, 19)} UTC`
       : 'Loading…';

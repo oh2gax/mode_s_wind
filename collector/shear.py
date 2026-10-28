@@ -28,7 +28,11 @@ Shun & Chan 2008, and the 2026-10-24 restudy of 3 084 EFHK landings):
    term of the F-factor cannot be observed).
 6. Levels (1-km equivalent, loss or gain; ramps below 1 600 ft above the
    threshold or within 5 NM):  advisory ≥ 10 kt · WSA (windshear alert)
-   ≥ 15 kt · MBA (microburst alert) ≥ 30 kt loss.
+   ≥ 15 kt · MBA (microburst alert) ≥ 30 kt loss.  From v7 (28 Oct 2026) a
+   WSA or MBA also needs the headwind change itself to be ≥ 14 kt
+   (RAMP_WSA_MIN_DV, as the HKO lidar alerting); a shorter change stays an
+   advisory.  Only ramps under 1 km are affected: from 1 km up the 1-km
+   equivalent is never larger than the change itself.
 
 band_anomaly() adds the change in time: the aircraft's wind in each 200-ft
 band (400–1 800 ft MSL) against the median wind of all landings and
@@ -78,6 +82,15 @@ ZONE_NM = 5.0                 # … or within this distance of the threshold
 LEVEL_ADVISORY = 10.0         # kt, 1-km equivalent
 LEVEL_WSA = 15.0
 LEVEL_MBA = 30.0              # loss only
+# WSA / MBA from a ramp need |ΔV| ≥ this as well (from 28 Oct 2026, REPORT_V 7).
+# The HKO lidar system (GLYGA; Shun & Chan 2008, Hon & Chan 2021) alerts on the
+# headwind change itself (≥ 14 kt) and uses ΔV/L^⅓ only to rank ramps.  Here
+# the 1-km scaling lifts a 400-m ramp by 1.36, so changes of 11 kt measured by
+# three or four replies at each end became WSAs (26 Oct 2026: FIN7SM, FIN9EJ).
+# Replay 9–28 Oct 2026 (4 155 landings): ramp WSAs 3 → 1, advisories 83 → 85;
+# limits of 12–15 kt give the same.  14 rather than 15: the 400-m running mean
+# flattens short, sharp changes a little.  See the study log, Phase 6.
+RAMP_WSA_MIN_DV = 14.0
 # Advisory from a ramp (from 26 Oct 2026, REPORT_V 4): a ramp of 10–12 kt per
 # km is an advisory only when it is also LEVEL_ADVISORY beyond the change the
 # other flights of the last 45 min had over the same altitudes (their median
@@ -101,10 +114,11 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 6                  # report version (3: band comparison on the wind vector,
+REPORT_V = 7                  # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
-                              #     6: higher band limits for turboprop departures, see TP_DEP_SCALE)
+                              #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
+                              #     7: WSA / MBA from a ramp only with |ΔV| ≥ RAMP_WSA_MIN_DV)
 
 # Band comparison by flight phase (from 27 Oct 2026, REPORT_V 5).  Against the
 # MEPS model (area mean, model levels, 600–1 800 ft, 9–26 Oct 2026) the band
@@ -147,10 +161,13 @@ def band_scale(phase: str | None, aircraft_type: str | None) -> float:
 LEVELS = ("none", "adv", "wsa", "mba")
 
 
-def level_of(sc_kt: float | None, loss: bool) -> str:
-    """Level of a 1-km-equivalent ramp (kt, magnitude)."""
+def level_of(sc_kt: float | None, loss: bool, dv_kt: float | None = None) -> str:
+    """Level of a 1-km-equivalent ramp (kt, magnitude); with its headwind
+    change dv_kt a WSA / MBA also needs |ΔV| ≥ RAMP_WSA_MIN_DV (v7)."""
     if sc_kt is None:
         return "none"
+    if sc_kt >= LEVEL_WSA and dv_kt is not None and abs(dv_kt) < RAMP_WSA_MIN_DV:
+        return "adv"
     if loss and sc_kt >= LEVEL_MBA:
         return "mba"
     if sc_kt >= LEVEL_WSA:
@@ -341,6 +358,9 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
             sc = abs(dv) * scale
             kind = "loss" if dv < 0 else "gain"
             p1, p2 = prof[i], prof[i + k]
+            # the ramp that sets the level is kept (v7: a WSA needs |ΔV| ≥ 14 kt,
+            # so the strongest by the 1-km equivalent need not be the one alerting)
+            rank = (LEVELS.index(level_of(round(sc, 1), kind == "loss", round(dv, 1))), round(sc, 1))
             cand = {"dv": round(dv, 1), "sc": round(sc, 1), "L": int(L),
                     "a1": None if p1[2] is None else int(round(p1[2])),
                     "a2": None if p2[2] is None else int(round(p2[2])),
@@ -349,12 +369,13 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
                     "t2": None if p2[4] is None else round(p2[4], 1)}
             zone = _in_zone(p2[2], p2[3], thr_ft) or _in_zone(p1[2], p1[3], thr_ft)
             cand["zone"] = zone
+            cand["_rank"] = rank
             cur = best_any[kind]
-            if cur is None or sc > cur["sc"]:
+            if cur is None or rank > cur["_rank"]:
                 best_any[kind] = cand
             if zone:
                 cur = best[kind]
-                if cur is None or sc > cur["sc"]:
+                if cur is None or rank > cur["_rank"]:
                     best[kind] = cand
     # horizontal F-factor over 1 km (loss positive)
     fh, fh_a = None, None
@@ -388,9 +409,10 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
            "fh": None if fh is None else round(fh, 3),
            "fh_a": _r0(fh_a), "bd": bands}
     for kind in ("loss", "gain"):
-        out[kind] = best[kind] or best_any[kind]
-    lv_loss = level_of(best["loss"]["sc"], True) if best["loss"] else "none"
-    lv_gain = level_of(best["gain"]["sc"], False) if best["gain"] else "none"
+        c = best[kind] or best_any[kind]
+        out[kind] = {k: v for k, v in c.items() if k != "_rank"} if c else None
+    lv_loss = level_of(best["loss"]["sc"], True, best["loss"]["dv"]) if best["loss"] else "none"
+    lv_gain = level_of(best["gain"]["sc"], False, best["gain"]["dv"]) if best["gain"] else "none"
     out["lvl"] = max(lv_loss, lv_gain, key=LEVELS.index)
     return out
 
@@ -574,7 +596,7 @@ def ramp_rel_level(c: dict | None, loss: bool, ref_hw: dict | None) -> str:
     it, 1-km equivalent kt) when they could be computed."""
     if not c or c.get("sc") is None:
         return "none"
-    lv = level_of(c["sc"], loss)
+    lv = level_of(c["sc"], loss, c.get("dv"))
     if lv != "adv" or c["sc"] >= RAMP_ADV_ABS or not ref_hw:
         return lv
     e1, e2 = _at_alt(ref_hw, c.get("a1")), _at_alt(ref_hw, c.get("a2"))
@@ -707,5 +729,68 @@ def ramp_level(rep: dict | None) -> str:
     for k, loss in (("loss", True), ("gain", False)):
         c = (rep or {}).get(k)
         if c and c.get("zone"):
-            lv = max(lv, level_of(c.get("sc"), loss), key=LEVELS.index)
+            lv = max(lv, level_of(c.get("sc"), loss, c.get("dv")), key=LEVELS.index)
     return lv
+
+
+# ── ICAO-style alert message (from 28 Oct 2026) ──────────────────────────────
+# The short form that the airport windshear systems (US LLWAS / TDWR, Hong Kong
+# WTWS) give to the controllers, e.g. "15A WSA 15K+ 2MF":
+#   runway + A (arrival) / D (departure) · level · headwind change in kt with
+#   "-" loss / "+" gain · where it is first met: RWY (on the runway, < 0.5 NM),
+#   <n>MF (n-mile final).  The controllers read it out as "Runway one five
+#   arrival, windshear alert, one five knot gain, two mile final".
+# Our own additions: ADV (advisory, not a standard level) and, for climb-outs,
+# the altitude (e.g. 1400FT) instead of a distance — the departures' alerts
+# come from the band comparison, which has no along-track position.
+# Research messages from Mode S data, not operational alerts.
+
+MSG_LEVEL = {"adv": ("ADV", "windshear advisory"), "wsa": ("WSA", "windshear alert"),
+             "mba": ("MBA", "microburst alert")}
+GS_FT_PER_NM = 318.0           # 3° glide path: ft per NM
+_DIGIT = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "niner")
+_SIDE = {"L": "left", "R": "right", "C": "centre"}
+
+
+def _say_digits(s) -> str:
+    return " ".join(_DIGIT[int(ch)] for ch in str(s) if ch.isdigit())
+
+
+def _say_rwy(rwy: str) -> str:
+    side = _SIDE.get(rwy[-1:].upper())
+    return _say_digits(rwy) + (f" {side}" if side else "")
+
+
+def _say_ft(ft: int) -> str:
+    th, hu = divmod(int(ft), 1000)
+    parts = ([f"{_say_digits(th)} thousand"] if th else []) + ([f"{_DIGIT[hu // 100]} hundred"] if hu // 100 else [])
+    return " ".join(parts) or "zero"
+
+
+def alert_msg(ev: dict, thr_ft: float = 0.0) -> tuple:
+    """(message, spoken) of a live alert (ws_events / ws_log entry)."""
+    lvl = ev.get("lvl") or "adv"
+    code, word = MSG_LEVEL.get(lvl, MSG_LEVEL["adv"])
+    dep = ev.get("ph") == "dep"
+    rwy = ev.get("rwy") or ""
+    band = ev.get("kind") == "band"
+    kt = int(round(abs((ev.get("a") if band else ev.get("dv")) or 0)))
+    loss = ev.get("dir") == "loss"
+    alt = ev.get("b") if band else ev.get("a1")
+    if dep:
+        ft = int(round((alt or 0) / 100.0)) * 100
+        where, where_s = f"{ft}FT", f"at {_say_ft(ft)} feet"
+    else:
+        d = None if band else ev.get("d1")
+        if d is None and alt is not None:
+            d = max(0.0, (alt - thr_ft) / GS_FT_PER_NM)
+        if d is None or d < 0.5:
+            where, where_s = "RWY", "on the runway"
+        else:
+            n = max(1, int(round(d)))
+            where, where_s = f"{n}MF", f"{_say_digits(n)} mile final"
+    msg = f"{rwy or '??'}{'D' if dep else 'A'} {code} {kt}K{'-' if loss else '+'} {where}"
+    say = (f"Runway {_say_rwy(rwy)} {'departure' if dep else 'arrival'}, " if rwy else
+           f"{'Departure' if dep else 'Arrival'}, ") + \
+          f"{word}, {_say_digits(kt)} knot {'loss' if loss else 'gain'}, {where_s}"
+    return msg, say

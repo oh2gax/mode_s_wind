@@ -1885,6 +1885,8 @@ class WindshearTracker:
                            "bthr": c.get("thr"),
                            "a1": c["b"] + 100, "a2": c["b"] - 100,
                            "sc": abs(c["a"])})
+            # ICAO-style message ("15A WSA 15K+ 2MF") and its spoken form (from 28 Oct 2026)
+            ev["msg"], ev["say"] = _shear.alert_msg(ev, self._thr_ft(runway))
             cur = self._ws_active.get(key)
             if cur is None:
                 ev["ts"] = now
@@ -2134,13 +2136,13 @@ class WindshearTracker:
         self._ws_log.insert(0, e)
         del self._ws_log[WS_LOG_MAX:]
         if ev["kind"] == "ramp":
-            log.info("Windshear %s: %s (%s) RWY %s %+.0f kt over %d m (%.0f kt per 1 km) %s→%s ft "
+            log.info("Windshear %s: %s — %s (%s) RWY %s %+.0f kt over %d m (%.0f kt per 1 km) %s→%s ft "
                      "(seen by %s of %s earlier landings)",
-                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"], ev["dv"], ev["L"],
+                     ev["lvl"].upper(), ev.get("msg"), ev["cs"], ev["icao"], ev["rwy"], ev["dv"], ev["L"],
                      ev["sc"], ev.get("a1"), ev.get("a2"), ev.get("cf", 0), ev.get("cfn", 0))
         else:
-            log.info("Windshear %s: %s (%s) RWY %s%s headwind %+.0f kt at %d ft vs the last 45 min (%d flights)",
-                     ev["lvl"].upper(), ev["cs"], ev["icao"], ev["rwy"],
+            log.info("Windshear %s: %s — %s (%s) RWY %s%s headwind %+.0f kt at %d ft vs the last 45 min (%d flights)",
+                     ev["lvl"].upper(), ev.get("msg"), ev["cs"], ev["icao"], ev["rwy"],
                      " departure" if ev.get("ph") == "dep" else "", ev["a"], ev["b"], ev["n"])
 
     def _neighbours(self, ts: float, runway: str | None, before: bool) -> list:

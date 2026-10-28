@@ -711,6 +711,8 @@ def _shear_backfill(ws_tracker) -> None:
                         except ValueError:
                             tr = None
                         if tr:
+                            tr = dict(tr)               # re-levelled with the current rules (v7)
+                            tr["lvl"] = _shear.ramps_level(tr, refs, hdg)
                             rep["trial"] = tr
                         b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                         n_dep += 1

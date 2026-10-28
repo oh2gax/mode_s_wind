@@ -37,8 +37,10 @@ const WsCondChart = (() => {
     if (l == null) return null;
     return isLight() ? COND_LVL_TEXT_LIGHT[l] : COND_LVL_COLORS[l];
   }
-  function _wsLvOfSc(sc, loss) {
+  // v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt
+  function _wsLvOfSc(sc, loss, dv) {
     if (sc == null) return null;
+    if (sc >= 15 && dv != null && Math.abs(dv) < 14) return 'adv';
     if (loss && sc >= 30) return 'mba';
     return sc >= 15 ? 'wsa' : sc >= 10 ? 'adv' : null;
   }
@@ -304,7 +306,7 @@ const WsCondChart = (() => {
       for (const [k, sign, loss] of [['loss', -1, true], ['gain', 1, false]]) {
         const r = w[k];
         if (!r || r.sc == null) continue;
-        const rl = r.zone ? _wsLvOfSc(r.sc, loss) : null;
+        const rl = r.zone ? _wsLvOfSc(r.sc, loss, r.dv) : null;
         const y = yW(sign * r.sc);
         ctx.strokeStyle = lvCol(rl);
         ctx.lineWidth = rl ? 2.5 : 1.5;

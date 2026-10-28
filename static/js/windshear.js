@@ -523,8 +523,7 @@ function drawIlsProfile(aircraft, shearEvents = []) {
       ilsCtx.fillStyle  = color;
       ilsCtx.font       = '10px "Courier New", monospace';
       ilsCtx.textAlign  = 'right';
-      const trendArrow = ev.hw_trend === 'loss' ? '▼' : ev.hw_trend === 'gain' ? '▲' : '';
-      const label = `${(WS_LEVEL[ev.lvl] || WS_LEVEL.adv).short}${ev.ph === 'dep' ? ' DEP' : ''} ${ev.delta_kt}kt${trendArrow}`;
+      const label = wsMsg(ev);
       ilsCtx.fillText(label, M.left + PW - 4, yTop + zoneH / 2 + 4);
     }
   }
@@ -1073,6 +1072,24 @@ function mapWsEvent(e) {
            hw_trend: e.dir };
 }
 
+// ── ICAO-style alert message (from 28 Oct 2026, collector/shear.py alert_msg) ──
+// "15A WSA 15K+ 2MF": runway + A arrival / D departure · level · headwind change
+// in kt (- loss, + gain) · where first met: RWY, <n>MF (n-mile final) or, on a
+// climb-out, the altitude (1400FT).  The form of the airport windshear systems
+// (LLWAS / TDWR, Hong Kong); ADV is our own advisory level.  Research messages
+// from Mode S data, not operational alerts.
+const WS_MSG_NOTE = 'Research message from Mode S data — not an operational windshear alert';
+/** The alert's ICAO-style message (server field msg; a short fallback without it). */
+function wsMsg(e) {
+  if (e.msg) return e.msg;
+  const kt = Math.round(Math.abs(e.kind === 'band' ? e.a : e.dv) || 0);
+  return `${e.rwy || '??'}${e.ph === 'dep' ? 'D' : 'A'} ${(WS_LEVEL[e.lvl] || WS_LEVEL.adv).short} ${kt}K${e.dir === 'loss' ? '-' : '+'}`;
+}
+/** Message + spoken form for a tooltip. */
+function wsMsgTip(e) {
+  return `${wsMsg(e)}${e.say ? `  ·  “${e.say}”` : ''}\n(${WS_MSG_NOTE})`;
+}
+
 /** One-line description of an alert (banner / log tooltip). */
 function wsEventText(e, long = false) {
   const kt  = e.kind === 'band' ? Math.abs(e.a) : Math.abs(e.dv);
@@ -1185,12 +1202,11 @@ function updateAlertBanner(events) {
   const icon = hasMba ? '🔴' : '⚠';
   const head = hasMba ? 'MICROBURST ALERT' : hasWsa ? 'WINDSHEAR ALERT' : 'WINDSHEAR ADVISORY';
   const tags = active.map(e => {
-    const lv = WS_LEVEL[e.lvl] || WS_LEVEL.adv;
-    const trendTag = e.dir === 'loss' ? ' ▼LOSS' : ' ▲GAIN';
-    return `<span class="ws-alert-tag">${lv.short} · RWY ${e.rwy}${e.ph === 'dep' ? ' departure' : ''} · ${e.delta_kt} kt${trendTag} · ${wsEventText(e).replace(/^\d+ kt headwind (loss|gain) /, '')}  [${e.cs || e.icao}]</span>`;
+    const tip = wsMsgTip(e).replace(/\n/g, ' ').replace(/"/g, '&quot;');
+    return `<span class="ws-alert-tag" title="${tip}"><span class="ws-alert-msg">${wsMsg(e)}</span> · ${wsEventText(e).replace(/^\d+ kt headwind (loss|gain) /, '')}  [${e.cs || e.icao}]</span>`;
   }).join(' ');
   banner.className = `ws-alert-banner ${cls}`;
-  banner.innerHTML = `${icon} ${head} &nbsp; ${tags}`;
+  banner.innerHTML = `${icon} ${head} <span class="ws-research-tag" title="${WS_MSG_NOTE}">research</span> &nbsp; ${tags}`;
 }
 
 // ── Emergency squawk alarm banner ─────────────────────────────────────────────
@@ -1239,7 +1255,7 @@ function updateSqkAlarm(aircraft) {
   });
 })();
 
-function buildStrip(ac, wsSeverity = null) {
+function buildStrip(ac, wsSeverity = null, wsTip = '') {
   const vs     = fmtVs(ac.vert_rate);
   const wind   = fmtWind(ac.best_wind_spd, ac.best_wind_dir);
   const temp   = fmtTemp(ac.best_temp);
@@ -1248,7 +1264,7 @@ function buildStrip(ac, wsSeverity = null) {
   const rwyClass = ac.approach_runway ? '' : 'rwy-none';
 
   const wsBadge = wsSeverity
-    ? `<div class="ws-ws-badge ws-${wsSeverity}">${(WS_LEVEL[SEV_LV[wsSeverity]] || WS_LEVEL.adv).short}</div>`
+    ? `<div class="ws-ws-badge ws-${wsSeverity}"${wsTip ? ` title="${wsTip.replace(/\n/g, ' ').replace(/"/g, '&quot;')}"` : ''}>${(WS_LEVEL[SEV_LV[wsSeverity]] || WS_LEVEL.adv).short}</div>`
     : '';
 
   // Squawk badge
@@ -1347,13 +1363,13 @@ function renderStrips(aircraft, shearEvents = []) {
   // Build a map of icao → highest shear severity for badge rendering.
   // Only events at or above the active alert level get a strip badge.
   // Pairwise events carry icao_low / icao_high; single-aircraft carry icao.
-  const wsMap = new Map();
+  const wsMap = new Map(), wsMsgMap = new Map();
   for (const ev of shearEvents) {
     if (!levelShown(ev.lvl)) continue;
     const bump = (icao) => {
       if (!icao) return;
       const cur = wsMap.get(icao);
-      if (!cur || SEV_ORDER[ev.severity] > SEV_ORDER[cur]) wsMap.set(icao, ev.severity);
+      if (!cur || SEV_ORDER[ev.severity] > SEV_ORDER[cur]) { wsMap.set(icao, ev.severity); wsMsgMap.set(icao, wsMsgTip(ev)); }
     };
     bump(ev.icao_low);
     bump(ev.icao_high);
@@ -1362,7 +1378,7 @@ function renderStrips(aircraft, shearEvents = []) {
 
   // Preserve scroll position
   const scrollTop = container.scrollTop;
-  container.innerHTML = onApproach.map(ac => buildStrip(ac, wsMap.get(ac.icao) || null)).join('');
+  container.innerHTML = onApproach.map(ac => buildStrip(ac, wsMap.get(ac.icao) || null, wsMsgMap.get(ac.icao))).join('');
   container.scrollTop = scrollTop;
 }
 
@@ -1611,15 +1627,14 @@ function renderWsLog() {
     // ── Windshear alert (compact) ─────────────────────────────────────────
     const lv     = WS_LEVEL[e.lvl] || WS_LEVEL.adv;
     const sevCls = e.lvl === 'mba' ? ' ws-log-alarm' : e.lvl === 'wsa' ? ' ws-log-warning' : ' ws-log-monitor';
-    const trend  = e.dir === 'loss' ? '▼' : '▲';
-    const where  = e.kind === 'band' ? `@${e.b}ft` : `${(e.L / 1000).toFixed(1)}km`;
     const dep = e.ph === 'dep';
     const cfe = wsEvCf(e);
-    const compact = `${e._time} ${lv.short} ${e.rwy}${dep ? ' dep' : ''} ${e.delta_kt}kt${trend} ${where} ${e.cs || e.icao}${wsCfTag(cfe)}`;
+    // HH:MM so that the message fits the narrow column (the seconds are in the hover)
+    const compact = `${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}`;
     const how = dep ? 'climb-out compared with the earlier landings and departures'
               : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
     const cfLine = cfe ? '\n' + (cfe._ev ? (cfe.b ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
-    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsEventText(e, true)}\n(${how})${cfLine}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
+    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
     return `<div class="ws-log-entry-compact${sevCls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
@@ -3203,8 +3218,10 @@ function formatCondCells(e) {
 
 // ── Windshear report columns ('ws' mode) ─────────────────────────────────────
 const WS_LV_COLOR = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
-function _wsLvOfSc(sc, loss) {
+// v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt
+function _wsLvOfSc(sc, loss, dv) {
   if (sc == null) return null;
+  if (sc >= 15 && dv != null && Math.abs(dv) < 14) return 'adv';
   if (loss && sc >= 30) return 'mba';
   return sc >= 15 ? 'wsa' : sc >= 10 ? 'adv' : null;
 }
@@ -3215,7 +3232,7 @@ function _wsCell(html, lvl) {
 function _wsRamp(r, loss) {
   if (!r) return _wsCell('<span class="ws-aphist-nil">—</span>');
   return _wsCell(`${Math.abs(r.dv).toFixed(0)}<span class="ws-aphist-nil"> kt/</span>${(r.L / 1000).toFixed(1)}`,
-                 r.zone ? _wsLvOfSc(r.sc, loss) : null);
+                 r.zone ? _wsLvOfSc(r.sc, loss, r.dv) : null);
 }
 function formatWsCells(e) {
   if (aphKind === 'dep') return formatDepWsCells(e);
@@ -3249,7 +3266,7 @@ function formatDepWsCells(e) {
                      : '<span class="ws-aphist-nil">—</span>') +
                  (tl ? ` <span class="ws-aphist-trial" style="color:${WS_LV_COLOR[tl]}">(${WS_LEVEL[tl].short} trial)</span>` : '');
   const ramp = (r, loss) => !r ? _wsCell('<span class="ws-aphist-nil">—</span>')
-    : `<td class="ws-aphist-cell ws-aphist-trial"${r.zone && _wsLvOfSc(r.sc, loss) ? ` style="color:${WS_LV_COLOR[_wsLvOfSc(r.sc, loss)]}"` : ''}>` +
+    : `<td class="ws-aphist-cell ws-aphist-trial"${r.zone && _wsLvOfSc(r.sc, loss, r.dv) ? ` style="color:${WS_LV_COLOR[_wsLvOfSc(r.sc, loss, r.dv)]}"` : ''}>` +
       `${Math.abs(r.dv).toFixed(0)}<span class="ws-aphist-nil"> kt/</span>${(r.L / 1000).toFixed(1)}</td>`;
   const b = w.band;
   const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';

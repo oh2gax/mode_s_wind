@@ -129,7 +129,8 @@ const IlsProfile = (() => {
       ctx.setLineDash([]);
       const kt = Math.round(e.kind === 'band' ? Math.abs(e.a) : Math.abs(e.dv));
       ctx.fillStyle = lv.col; ctx.font = mono(10); ctx.textAlign = 'right';
-      ctx.fillText(`${lv.short}${e.ph === 'dep' ? ' DEP' : ''} ${kt}kt${e.dir === 'loss' ? '▼' : e.dir === 'gain' ? '▲' : ''}`, M.left + PW - 4, (yt + yb) / 2 + 4);
+      // ICAO-style message from the server ("15A WSA 15K+ 2MF", from 28 Oct 2026)
+      ctx.fillText(e.msg || `${lv.short}${e.ph === 'dep' ? ' DEP' : ''} ${kt}kt${e.dir === 'loss' ? '▼' : e.dir === 'gain' ? '▲' : ''}`, M.left + PW - 4, (yt + yb) / 2 + 4);
     }
 
     const acs = (o.aircraft || []).filter(a => a.in_corridor && a.dist_thr_nm != null && rwyMatch(a.approach_runway, o.rwy));
