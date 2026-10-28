@@ -61,6 +61,14 @@ _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
                  "best_wind_spd", "best_wind_dir", "meteo_source", "ap",
                  "in_corridor", "approach_runway", "dist_thr_nm", "last_seen",
                  "barbs", "barbs_hi", "none_hist")
+# ?lite=1&map=1 (the map of the mobile ILS view, from 2026-10-28): also the
+# position and track and a short trail (the last TRAIL_SEC, every 2nd point);
+# &near=1 also the other tracked aircraft (outside the approach corridors)
+# with the fields of their map square and label only.
+_WS_MAP_KEYS = ("lat", "lon", "track")
+_WS_NEAR_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "meteo_source",
+                 "in_corridor", "lat", "lon", "track", "last_seen")
+_WS_TRAIL_SEC = 120
 _GZIP_MIN_BYTES = 1024
 
 
@@ -484,6 +492,9 @@ def create_app(
         ILS approach and ACI & WS, one at a time, all choices in a ☰ menu
         (static/js/app.js)."""
         return render_template("app.html", receiver_lat=cfg.RECEIVER_LAT,
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
+                               radius_nm=cfg.WINDSHEAR_RADIUS_NM,
                                thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
                                gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
 
@@ -1277,19 +1288,34 @@ def create_app(
         corridor with the fields of the strips / profile, their history as
         {ts, altitude, dist_thr} only, and the active alerts (ws_events) —
         no ws_log, ga_events or ws_engine (about 2 kB gzipped with two
-        aircraft on the approach).
+        aircraft on the approach).  From 2026-10-28 &map=1 adds each one's
+        position, track and `trail` ([lat, lon] of the last 2 min) for the
+        mobile view's approach map, and &near=1 the other tracked aircraft
+        (within WINDSHEAR_RADIUS_NM) with only the fields of their map square.
         """
         if ws_tracker is None:
             return jsonify([])
         state = ws_tracker.get_state()
         if request.args.get("lite", "0") in ("1", "true", "yes") and isinstance(state, dict):
+            want_map = request.args.get("map") == "1"
+            want_near = want_map and request.args.get("near") == "1"
+            t_trail = time.time() - _WS_TRAIL_SEC
             acs = []
             for a in state.get("aircraft") or []:
                 if not a.get("in_corridor") or a.get("dist_thr_nm") is None:
+                    if want_near and a.get("lat") is not None and a.get("lon") is not None:
+                        x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a}
+                        x["in_corridor"] = False
+                        acs.append(x)
                     continue
                 x = {k: a.get(k) for k in _WS_LITE_KEYS if k in a}
                 x["history"] = [{k: h.get(k) for k in ("ts", "altitude", "dist_thr")}
                                 for h in a.get("history") or []]
+                if want_map:
+                    x.update({k: a.get(k) for k in _WS_MAP_KEYS})
+                    tr = [h for h in a.get("history") or []
+                          if (h.get("ts") or 0) >= t_trail and h.get("lat") is not None]
+                    x["trail"] = [[round(h["lat"], 4), round(h["lon"], 4)] for h in tr[::-2][::-1]]
                 acs.append(x)
             state = {"aircraft": acs, "ws_events": state.get("ws_events") or [], "lite": 1}
         return _gzip_json(state)

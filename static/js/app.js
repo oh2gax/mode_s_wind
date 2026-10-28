@@ -745,18 +745,26 @@
   const I = { rwy: lsGet('ms_app_ils_rwy', ''), range: lsGet('ms_app_ils_range', '15'),
               barbs: lsGet('ms_app_ils_barbs', 'lo'), comp: lsGet('ms_app_ils_comp', 'hw'),
               lvl: lsGet('ms_ws_alert_lvl', 'wsa'), trails: lsGet('ms_app_ils_trails', 'true') !== 'false',
-              ac: [], ev: [], sel: null, manual: false, dots: [], fetched: 0 };
+              ac: [], ev: [], sel: null, manual: false, dots: [], fetched: 0,
+              // Show: profile / map / both, aircraft on the map: app / all (from 2026-10-28)
+              show: lsGet('ms_app_ils_show', 'both'), mapac: lsGet('ms_app_ils_mapac', 'app') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
   if (!['hw', 'xw', 'off'].includes(I.comp)) I.comp = 'hw';
   if (!['adv', 'wsa', 'mba', 'off'].includes(I.lvl)) I.lvl = 'wsa';
+  if (!['profile', 'map', 'both'].includes(I.show)) I.show = 'both';
+  if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
-                  ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl']];
+                  ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
-    $(id).addEventListener('change', e => { I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls(); });
+    $(id).addEventListener('change', e => {
+      I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
+      if (key === 'show' || key === 'mapac') loadIls();         // the map needs positions (map=1 / near=1)
+    });
   }
   $('app-ils-trails').checked = I.trails;
   $('app-ils-trails').addEventListener('change', e => { I.trails = e.target.checked; lsSet('ms_app_ils_trails', I.trails); drawIls(); });
@@ -782,13 +790,140 @@
     if (icao) { I.sel = icao; I.manual = true; } else { I.manual = false; autoSel(); }
     drawIls();
   }
+  // ── the approach map (from 2026-10-28) ──────────────────────────────────
+  // The aircraft as on the Windshear page's map: a square in the colour of
+  // the meteo source, callsign and altitude (the selected one larger, framed,
+  // with runway and distance; 22R traffic labelled to the left, 22L to the
+  // right), the ILS / RNP centrelines, the airport layout and the tracking
+  // radius; tiles Dark / Grey with the theme.  A tap on an aircraft on the
+  // approach follows it (as on the profile).  Leaflet is loaded the first time
+  // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
+  const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null };
+  const IM_KEY = 'ms_app_ilsMapView', IM_HOME_ZOOM = 9;
+  const IM_SRC = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', NONE: '#6b7280' };
+  const isLight = () => document.documentElement.dataset.theme === 'light';
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (!IM.loading) {
+      const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = APP_LEAFLET_CSS; document.head.appendChild(css);
+      IM.loading = new Promise((ok, fail) => {
+        const sc = document.createElement('script'); sc.src = APP_LEAFLET_JS; sc.onload = ok;
+        sc.onerror = () => { IM.loading = null; fail(); }; document.head.appendChild(sc);
+      });
+    }
+    return IM.loading;
+  }
+  function imSavedView() {
+    try {
+      const v = JSON.parse(lsGet(IM_KEY, 'null'));
+      if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && Number.isFinite(v.z)
+          && Math.abs(v.lat) <= 85 && Math.abs(v.lon) <= 180 && v.z >= 5 && v.z <= 16) return v;
+    } catch (_) { /* broken value: the default view */ }
+    return null;
+  }
+  function initIlsMap() {
+    if (IM.map || !window.L) return;
+    const sv = imSavedView();
+    const m = L.map('app-ils-map', { zoomControl: true, attributionControl: true })
+               .setView(sv ? [sv.lat, sv.lon] : [WS_AIRPORT_LAT, WS_AIRPORT_LON], sv ? sv.z : IM_HOME_ZOOM);
+    m.attributionControl.setPrefix(false);
+    m.on('moveend', () => {
+      if (!m.getSize().x) return;
+      const c = m.getCenter();
+      lsSet(IM_KEY, JSON.stringify({ lat: +c.lat.toFixed(4), lon: +c.lng.toFixed(4), z: m.getZoom() }));
+    });
+    const Home = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const box = L.DomUtil.create('div', 'leaflet-bar ms-map-home');
+        const a = L.DomUtil.create('a', '', box);
+        a.href = '#'; a.title = 'Back to the airport (default view)';
+        a.setAttribute('role', 'button'); a.setAttribute('aria-label', a.title);
+        a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">'
+          + '<path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" '
+          + 'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); m.setView([WS_AIRPORT_LAT, WS_AIRPORT_LON], IM_HOME_ZOOM); });
+        return box;
+      },
+    });
+    new Home().addTo(m);
+    IM.map = m; IM.ovl = L.layerGroup().addTo(m); IM.ac = L.layerGroup().addTo(m);
+    Promise.all(['efhk_ils.geojson', 'efhk_apt.geojson'].map(f => fetch('/overlays/' + f).then(r => r.ok ? r.json() : null).catch(() => null)))
+      .then(([ils, apt]) => { IM.geo = { ils, apt }; IM.theme = null; drawIlsMap(); });
+  }
+  // tiles and overlays in the colours of the theme (the Windshear page's Dark / Grey)
+  function imTheme() {
+    const light = isLight(), t = light ? 'light' : 'dark';
+    if (IM.theme === t) return;
+    IM.theme = t;
+    if (IM.tiles) IM.map.removeLayer(IM.tiles);
+    const key = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+    IM.tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${light ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png${key}`,
+      { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 16 }).addTo(IM.map);
+    IM.ovl.clearLayers();
+    const g = IM.geo || {};
+    if (g.apt) L.geoJSON(g.apt, { interactive: false, style: { color: light ? '#475569' : '#94a3b8', weight: 1, opacity: light ? 0.5 : 0.5, fillOpacity: 0 } }).addTo(IM.ovl);
+    if (g.ils) L.geoJSON({ type: 'FeatureCollection', features: (g.ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK') }, {
+      interactive: false,
+      style: f => f.properties?.approach_type === 'RNP'
+        ? { color: light ? '#a8a29e' : '#f59e0b', weight: 1.5, opacity: 0.7, dashArray: '10 5', fillOpacity: 0 }
+        : { color: light ? '#64748b' : '#38bdf8', weight: 1.5, opacity: light ? 0.7 : 0.6, dashArray: '6 5', fillOpacity: 0 } }).addTo(IM.ovl);
+    L.circle([WS_AIRPORT_LAT, WS_AIRPORT_LON], { interactive: false, radius: WS_RADIUS_NM * 1852, color: light ? '#94a3b8' : '#334155',
+      weight: 1, fill: false, dashArray: '4 6' }).addTo(IM.ovl);
+    L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], { interactive: false, radius: 5, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2 }).addTo(IM.ovl);
+  }
+  function drawIlsMap() {
+    if (!IM.map) return;
+    imTheme();
+    IM.ac.clearLayers();
+    const light = isLight();
+    for (const a of I.ac) {
+      if (a.lat == null || a.lon == null) continue;
+      const onA = a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway);
+      if (!onA && (I.mapac !== 'all' || a.in_corridor)) continue;      // another runway's approach: not shown
+      const sel = onA && a.icao === I.sel && I.barbs !== 'off';
+      if (onA && I.trails && Array.isArray(a.trail) && a.trail.length > 1)
+        L.polyline(a.trail, { interactive: false, color: light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: 0.6 }).addTo(IM.ac);
+      const c = IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 18 : onA ? 14 : 11;
+      const icon = L.divIcon({ className: '', iconSize: [s, s], iconAnchor: [s / 2, s / 2],
+        html: `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true"><rect x="1" y="1" width="${s - 2}" height="${s - 2}" rx="2" fill="${c}"` +
+              ` fill-opacity="${onA ? 1 : 0.6}" stroke="${sel ? (light ? '#0f172a' : '#fff') : '#000'}" stroke-width="${sel ? 2.5 : 1}"/></svg>` });
+      const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
+      if (onA) mk.on('click', () => selectIls(a.icao));
+      const alt = a.altitude == null ? '' : a.altitude >= 10000 ? 'FL' + String(Math.round(a.altitude / 100)).padStart(3, '0')
+                                                                : `${Math.round(a.altitude / 100) * 100} ft`;
+      const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
+      L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
+        icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [10, 6] : [-10, 6],
+          html: `<div class="ils-ac-lbl${onA ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
+                `<small>${sel ? `${esc(a.approach_runway)} · ${a.dist_thr_nm.toFixed(1)} NM · ` : ''}${alt}</small></div>` }) }).addTo(IM.ac);
+    }
+  }
   function drawIls() {
     const v = $('v-ils');
     if (v.hidden) return;
     const cv = $('app-ils'), box = $('app-ils-box');
-    const W = Math.max(280, v.clientWidth - 8);
     const portrait = v.clientHeight >= v.clientWidth;
-    const H = portrait ? Math.round(Math.max(260, Math.min(W * 1.3, v.clientHeight - 200)))
+    const showMap = I.show !== 'profile', showProf = I.show !== 'map';
+    const side = !portrait && I.show === 'both';
+    const full = Math.max(280, v.clientWidth - 8);
+    $('app-ils-wrap').classList.toggle('side', side);
+    $('app-ils-mapbox').hidden = !showMap; box.hidden = !showProf;
+    if (showMap) {
+      const mb = $('app-ils-mapbox');
+      mb.style.width = (side ? Math.round(full * 0.45) : full) + 'px';
+      mb.style.height = (!portrait ? Math.max(230, v.clientHeight - 64)
+        : I.show === 'map' ? Math.round(Math.max(300, v.clientHeight - 150))
+        : Math.round(Math.max(220, v.clientHeight * 0.42))) + 'px';
+      if (IM.map) { IM.map.invalidateSize(); drawIlsMap(); }
+      else loadLeaflet().then(() => { initIlsMap(); drawIlsMap(); }).catch(() => {
+        $('app-ils-map').textContent = 'The map could not be loaded.'; });
+    }
+    if (!showProf) { ilsInfo(); markScroll(); return; }
+    const W = side ? full - Math.round(full * 0.45) - 6 : full;
+    const H = portrait ? (I.show === 'both' ? Math.round(Math.max(230, v.clientHeight * 0.42))
+                                            : Math.round(Math.max(260, Math.min(W * 1.3, v.clientHeight - 200))))
                        : Math.max(230, v.clientHeight - 64);
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
@@ -843,7 +978,8 @@
   }
   async function loadIls() {
     try {
-      const st = await (await fetch('/api/windshear/state?lite=1', { cache: 'no-store' })).json();
+      const q = I.show === 'profile' ? '' : I.mapac === 'all' ? '&map=1&near=1' : '&map=1';
+      const st = await (await fetch('/api/windshear/state?lite=1' + q, { cache: 'no-store' })).json();
       I.ac = st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : [];
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];
       I.fetched = Date.now();

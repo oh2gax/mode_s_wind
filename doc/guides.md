@@ -82,16 +82,16 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.8
+version: 1.9
 date: 2026-10-28
-pages: 15
+pages: 16
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips), **ACI · WS · ST** with the space–time diagram and the list of the period's flights, the **History** of landings and departures with its search, and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
+- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips, and the **approach map**), **ACI · WS · ST** with the space–time diagram and the list of the period's flights, the **History** of landings and departures with its search, and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

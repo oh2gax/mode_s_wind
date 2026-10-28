@@ -74,7 +74,12 @@
 
   <!-- ILS approach (ils_profile.js, the Windshear page's ILS profile) -->
   <section id="v-ils" class="app-view" hidden>
-    <div id="app-ils-box" class="app-aci-box"><canvas id="app-ils"></canvas></div>
+    <!-- Show: Profile / Map / Both (from 2026-10-28): the approach map (Leaflet, loaded when first
+         shown) above the profile, or beside it in landscape -->
+    <div id="app-ils-wrap" class="app-ils-wrap">
+      <div id="app-ils-mapbox" class="app-ils-mapbox" hidden><div id="app-ils-map"></div></div>
+      <div id="app-ils-box" class="app-aci-box"><canvas id="app-ils"></canvas></div>
+    </div>
     <div id="app-ils-pick" class="app-pick app-ils-pick"></div>
     <div id="app-ils-list" class="app-strips"></div>
   </section>
@@ -222,6 +227,10 @@
 
   <details class="app-sec" data-for="ils">
     <summary>ILS approach options</summary>
+    <div class="app-field"><span>Show</span>
+      <select id="app-ils-show" data-chips><option value="profile">Profile</option><option value="map">Map</option><option value="both">Both</option></select></div>
+    <div class="app-field"><span>Aircraft on the map</span>
+      <select id="app-ils-mapac" data-chips><option value="app">On the approach</option><option value="all">All tracked ({{ radius_nm|round|int }} NM)</option></select></div>
     <div class="app-field"><span>Runway</span>
       <select id="app-ils-rwy" data-chips>
         <option value="">All</option><option value="04L&amp;R">04L+R</option><option value="22L&amp;R">22L+R</option>
@@ -239,7 +248,7 @@
     <div class="app-switches">
       <label class="app-switch"><span>Trails</span><input type="checkbox" id="app-ils-trails"></label>
     </div>
-    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft or its strip to follow another one.</div>
+    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft (on the profile or the map) or its strip to follow another one. The map keeps the place and zoom you leave it at; ⌂ goes back to the airport.</div>
   </details>
 
   <details class="app-sec" data-for="aci">
@@ -326,6 +335,13 @@
   const RECEIVER_LAT = {{ receiver_lat }};
   const WS_THR_ELEVATION_FT = {{ thr_elevation_ft }};
   const WS_GS_OFFSET_FT = {{ gs_offset_ft }};
+  // the approach map of the ILS view (from 2026-10-28)
+  const WS_AIRPORT_LAT = {{ airport_lat }};
+  const WS_AIRPORT_LON = {{ airport_lon }};
+  const WS_RADIUS_NM = {{ radius_nm }};
+  const CARTO_API_KEY = {{ carto_api_key | tojson }};
+  const APP_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+  const APP_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 </script>
 <script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
