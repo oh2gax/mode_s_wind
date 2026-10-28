@@ -7,6 +7,20 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search)
+
+### Mobile view /app: History and space–time
+- **History** view (new tile): the landings (`/api/windshear/approach-history?lite=1`) or departures (`/api/windshear/departures?full=1`) of 1 h – 1 day (default 3 h) or of one UTC date (‹ › day steppers, Live), as cards — time, callsign, type, runway, chips (ACI, windshear level, trial, GA) and a band strip (headwind / crosswind / wind, Lo 8 or Hi 13 bands) or an ACI / windshear summary; a tap opens all bands, the approach conditions and the windshear report. Sticky search (callsign, registration, type, ICAO anywhere). `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`.
+- **ACI · WS · ST** (renamed tile): third *Show* choice **Space–time** with the Windshear page's diagram (`/api/windshear/spacetime`), tap a cell for its flights; the chart's landings now from `?lite=1`.
+- `static/js/ws_cond_chart.js`: the space–time key and cell label shorten on canvases narrower than 520 px (no overlap on a phone or the desktop panel).
+- `/api/windshear/approach-history`: gzip-compressed (24 h: about 770 kB → 130 kB) and `?lite=1` without `gnss` / `rough` / `prof` / `shear.bd` (about 40 kB) (`web/app.py`).
+- Mobile user guide 1.2 (History, space–time, six views).
+
+### Windshear page: Approach History search
+- The registration filter is now a search: callsign, registration, aircraft type or ICAO address anywhere in the text, case / spaces / hyphens ignored — the same as the mobile History (`static/js/windshear.js`, `web/templates/windshear.html`).
+
+---
+
 ## v.27102026 — 2026-10-27 (windshear: ramp alerts confirmed / isolated by the nearby landings; band comparison by flight phase; running in the cloud behind HTTPS)
 
 ### Windshear: confirmation of ramp alerts

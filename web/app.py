@@ -1321,8 +1321,23 @@ def create_app(
         temperature; null for older rows), and "shear" (from 2026-10-24: the
         windshear report of the landing, collector/shear.py; null when the
         landing had too few replies or no raw series is left).
+        The answer is gzip-compressed when the browser accepts it; ?lite=1
+        leaves out gnss / rough / prof and shear.bd (from 2026-10-28).
         """
         import json as _json
+
+        def _aph_out(result):
+            """gzip-compressed (from 2026-10-28); ?lite=1 (the mobile view /app):
+            without the large per-landing details gnss / rough / prof and the
+            report's band means — about a third of the size."""
+            if request.args.get("lite") == "1":
+                for r in result:
+                    for k in ("gnss", "rough", "prof"):
+                        r.pop(k, None)
+                    if isinstance(r.get("shear"), dict):
+                        r["shear"] = {k: v for k, v in r["shear"].items() if k != "bd"}
+            return _gzip_json(result)
+
         window = request.args.get("window", type=int)
         date   = request.args.get("date", type=str)   # YYYY-MM-DD or None
         if window is not None:
@@ -1355,7 +1370,7 @@ def create_app(
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
-            return jsonify(result)
+            return _aph_out(result)
         if date is not None:
             # Validate format loosely: expect YYYY-MM-DD
             import re as _re
@@ -1386,7 +1401,7 @@ def create_app(
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
-            return jsonify(result)
+            return _aph_out(result)
         # No window or date param — serve from RAM (backward compat / internal use)
         if ws_tracker is None:
             return jsonify([])

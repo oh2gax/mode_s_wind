@@ -418,17 +418,27 @@ const WsCondChart = (() => {
     ctx.textAlign = 'left'; ctx.fillStyle = CT.roseLabel;
     ctx.fillText('Headwind change vs previous 45 min (ft MSL)', 5, 5);
     ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5, 5);
-    const kx = L + PW - 190, ky = H - 11;
+    // colour key at the right, the cell length at the left — shortened on a
+    // narrow canvas (a phone, from 2026-10-28) so the two never overlap
+    const binMinK = [5, 10, 15, 20, 30].find(m => m * 60_000 / spanMs * PW >= 6) || 30;
+    ctx.font = '8px "Courier New",monospace';
+    const narrow = W < 520;
+    const rTxt = narrow ? '+15 kt' : '+15 more kt';
+    const lK = narrow ? '−15' : 'less −15';
+    const kx = Math.round(W - 4 - ctx.measureText(rTxt).width - 3 - 31 * 4), ky = H - 11;
     for (let i = 0; i <= 30; i++) {
       const a = -ST_FULL + i, c = _stColor(a, light);
       ctx.fillStyle = CT.roseBg; ctx.fillRect(kx + i * 4, ky, 4, 7);
       if (c) { ctx.fillStyle = c; ctx.fillRect(kx + i * 4, ky, 4, 7); }
     }
     ctx.strokeStyle = CT.roseRing; ctx.strokeRect(kx + 0.5, ky + 0.5, 31 * 4 - 1, 6);
-    ctx.font = '8px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel; ctx.textBaseline = 'middle';
-    ctx.textAlign = 'right'; ctx.fillText('less −15', kx - 3, ky + 4);
-    ctx.textAlign = 'left';  ctx.fillText('+15 more kt', kx + 31 * 4 + 3, ky + 4);
-    ctx.textAlign = 'left';  ctx.fillText(`median of the flights per ${[5, 10, 15, 20, 30].find(m => m * 60_000 / spanMs * PW >= 6) || 30} min`, L, ky + 4);
+    ctx.fillStyle = CT.roseLabel; ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right'; ctx.fillText(lK, kx - 3, ky + 4);
+    ctx.textAlign = 'left';  ctx.fillText(rTxt, kx + 31 * 4 + 3, ky + 4);
+    const room = kx - 3 - ctx.measureText(lK).width - 8 - L;
+    const cellTxt = [`median of the flights per ${binMinK} min`, `median per ${binMinK} min`, `${binMinK} min`]
+      .find(t => ctx.measureText(t).width <= room);
+    if (cellTxt) { ctx.textAlign = 'left'; ctx.fillText(cellTxt, L, ky + 4); }
 
     const fl = ((st && st.flights) || []).filter(f => f.ts * 1000 >= t0 && f.ts * 1000 <= nowMs);
     if (!fl.length) {

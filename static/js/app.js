@@ -11,8 +11,14 @@
  *                       /api/windshear/state?lite=1 every 5 s (only the
  *                       corridor aircraft and the alerts, gzipped), with
  *                       the strips below
- *   ACI & WS            ws_cond_chart.js (the Windshear page's chart) with
- *                       the landings, departures and go-arounds of 3 h … 1 d
+ *   ACI · WS · ST       ws_cond_chart.js (the Windshear page's chart) with
+ *                       the landings, departures and go-arounds of 3 h … 1 d;
+ *                       Space–time: drawSpaceTime of /api/windshear/spacetime
+ *                       (from 2026-10-28)
+ *   History             the Approach History as cards (from 2026-10-28):
+ *                       landings (/api/windshear/approach-history?lite=1) or
+ *                       departures (/api/windshear/departures?full=1), with a
+ *                       search; a tap opens a flight's bands and reports
  * The Skew-T options are the same settings as on the Live Map and the
  * Sounding page (shared localStorage keys).  Only the shown view is
  * refreshed, and nothing while the page is hidden (phone screen off, another
@@ -37,7 +43,8 @@
     'skewt-hour': { title: 'Skew-T · Area hour', sec: 'skewt', el: 'v-skewt' },
     th:           { title: 'Time–height', sec: 'th', el: 'v-th' },
     ils:          { title: 'ILS approach', sec: 'ils', el: 'v-ils' },
-    aci:          { title: 'ACI & WS', sec: 'aci', el: 'v-aci' },
+    aci:          { title: 'ACI · WS · ST', sec: 'aci', el: 'v-aci' },
+    hist:         { title: 'History', sec: 'hist', el: 'v-hist' },
   };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
@@ -351,13 +358,17 @@
 
   // ══ ACI & WS ═════════════════════════════════════════════════════════════
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
-              aph: [], dep: [], ga: [], fetched: 0, dots: [] };
+              aph: [], dep: [], ga: [], st: null, fetched: 0, dots: [] };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
-  if (!['ws', 'cond'].includes(A.mode)) A.mode = 'ws';
+  if (!['ws', 'cond', 'st'].includes(A.mode)) A.mode = 'ws';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
+  if (A.mode === 'st') $('app-aci-pick').textContent = 'Tap a cell for its flights.';
   $('app-aci-hours').addEventListener('change', e => { A.hours = parseInt(e.target.value, 10); lsSet('ms_app_aci_h', A.hours); loadAci(); });
-  $('app-aci-ws').addEventListener('change', e => { A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode); loadAci(); });
+  $('app-aci-ws').addEventListener('change', e => {
+    A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode);
+    $('app-aci-pick').textContent = A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
+    loadAci(); });
   const WS_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
   const ACI_COL_D = ['#34d399', '#a3e635', '#facc15', '#fb923c', '#f87171'];
   const ACI_COL_L = ['#047857', '#4d7c0f', '#a16207', '#c2410c', '#b91c1c'];     // darker on the light theme
@@ -368,15 +379,17 @@
     if (v.hidden) return;
     const cv = $('app-aci'), box = $('app-aci-box');
     const W = Math.max(280, v.clientWidth - 8);
-    const H = Math.max(220, Math.min(Math.round(W * (A.mode === 'ws' ? 0.95 : 0.65)), v.clientHeight - 150));
+    const H = Math.max(220, Math.min(Math.round(W * (A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     box.style.width = W + 'px';
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    A.dots = WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
-      aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched });
+    A.dots = A.mode === 'st'
+      ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
+      : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
+          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched });
     // the latest landings as a short list
     const rows = A.aph.slice().sort((a, b) => b.ts - a.ts).slice(0, 15).map(e => {
       const c = e.cond && e.cond.idx != null ? e.cond.idx : null;
@@ -392,11 +405,14 @@
   async function loadAci() {
     const win = A.hours * 3600;
     try {
-      const [aph, dep, st] = await Promise.all([
-        fetch(`/api/windshear/approach-history?window=${win}`, { cache: 'no-store' }).then(r => r.json()),
+      // landings lite (no per-landing details, gzipped: about an eighth of the full answer)
+      const [aph, dep, st, sp] = await Promise.all([
+        fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
         A.mode === 'ws' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
-        fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        A.mode === 'st' ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        A.mode === 'st' ? fetch(`/api/windshear/spacetime?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
       ]);
+      A.st = sp;
       A.aph = Array.isArray(aph) ? aph : [];
       A.dep = Array.isArray(dep) ? dep : [];
       A.ga = st && !Array.isArray(st) ? st.ga_events || [] : [];
@@ -413,10 +429,204 @@
       const dd = (d.x - x) ** 2 + (d.y - y) ** 2;
       if (dd < bd) { bd = dd; best = d; }
     }
-    $('app-aci-pick').textContent = best ? best.label : 'Tap a dot for the landing.';
+    $('app-aci-pick').textContent = best ? best.label : A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
   }
   $('app-aci').addEventListener('pointerdown', pickAci);
   $('app-aci').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickAci(e); });
+
+  // ══ History (from 2026-10-28) ════════════════════════════════════════════
+  // The Windshear page's Approach History for a phone: the landings or the
+  // departures of 1 h … 1 day or of one UTC date as cards, newest first, with a
+  // search (callsign, registration, type — anywhere, case and hyphens ignored).
+  // Line 1: time, callsign, type, runway and chips (ACI, windshear level,
+  // trial, go-around); line 2: one cell per height band (headwind, crosswind
+  // or wind) or a one-line ACI / windshear summary.  A tap opens all the bands
+  // and the reports (the texts the desktop shows on hover).
+  const HB_LO = [600, 800, 1000, 1400, 1800, 2200, 2600, 3000];
+  const HB_HI = [600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
+  const HB_ALL = [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
+  const H = { kind: lsGet('ms_app_hist_kind', 'arr'), hours: parseInt(lsGet('ms_app_hist_h', '3'), 10),
+              show: lsGet('ms_app_hist_show', 'hw'), res: lsGet('ms_app_hist_res', 'lo'),
+              date: '', q: '', rows: [], open: new Set(), fetched: 0, req: 0 };
+  if (!['arr', 'dep'].includes(H.kind)) H.kind = 'arr';
+  if (![1, 3, 6, 12, 24].includes(H.hours)) H.hours = 3;
+  if (!['hw', 'xw', 'wind', 'aci', 'ws'].includes(H.show)) H.show = 'hw';
+  if (!['lo', 'hi'].includes(H.res)) H.res = 'lo';
+  const histCtl = [['app-hist-kind', 'kind', 'ms_app_hist_kind'], ['app-hist-hours', 'hours', 'ms_app_hist_h'],
+                   ['app-hist-show', 'show', 'ms_app_hist_show'], ['app-hist-res', 'res', 'ms_app_hist_res']];
+  for (const [id, key, ls] of histCtl) {
+    $(id).value = String(H[key]);
+    $(id).addEventListener('change', e => {
+      H[key] = key === 'hours' ? parseInt(e.target.value, 10) : e.target.value;
+      lsSet(ls, H[key]);
+      if (key === 'hours' && H.date) { H.date = ''; $('app-hist-date').value = ''; }
+      if (key === 'kind' || key === 'hours') { H.rows = []; H.open.clear(); loadHist(); } else drawHist();
+    });
+  }
+  const isoDay = t => `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+  function histDate(v) {
+    H.date = v || ''; $('app-hist-date').value = H.date;
+    H.rows = []; H.open.clear(); loadHist(); startTimer();
+  }
+  $('app-hist-date').addEventListener('change', e => histDate(e.target.value));
+  $('app-hist-live').addEventListener('click', () => histDate(''));
+  function histStep(days) {
+    const t = H.date ? new Date(H.date + 'T00:00:00Z') : new Date();
+    if (H.date) t.setUTCDate(t.getUTCDate() + days);
+    if (t.getTime() > Date.now()) { histDate(''); return; }
+    histDate(isoDay(t));
+  }
+  $('app-hist-prev').addEventListener('click', () => histStep(-1));
+  $('app-hist-next').addEventListener('click', () => histStep(1));
+  const normQ = s => String(s || '').toUpperCase().replace(/[\s-]/g, '');
+  $('app-hist-q').addEventListener('input', e => { H.q = normQ(e.target.value); drawHist(); });
+
+  const hwOf = (b, h) => b && h != null ? Math.round(b.spd * Math.cos((b.dir - h) * Math.PI / 180)) : null;
+  const xwOf = (b, h) => b && h != null ? Math.round(b.spd * Math.sin((b.dir - h) * Math.PI / 180)) : null;
+  const sgn = v => (v > 0 ? '+' : '') + v;
+  const hwCls = v => v >= 5 ? 'ws-aphist-hw-pos' : v <= -5 ? 'ws-aphist-hw-neg' : 'ws-aphist-hw-zero';
+  const xwCls = v => Math.abs(v) >= 10 ? 'ws-aphist-xw-strong' : Math.abs(v) >= 5 ? 'ws-aphist-xw-mod' : 'ws-aphist-xw-light';
+  const LV_TXT = { adv: 'ADV', wsa: 'WSA', mba: 'MBA' };
+  const LV_NAME = { adv: 'windshear advisory', wsa: 'windshear alert', mba: 'microburst alert' };
+  const aciCol = c => (document.documentElement.dataset.theme === 'light' ? ACI_COL_L : ACI_COL_D)[aciLvl(c)];
+  const rampTxt = r => r ? `${Math.abs(r.dv).toFixed(0)} kt over ${(r.L / 1000).toFixed(1)} km, ${r.a1}→${r.a2} ft` +
+    (r.d1 != null && r.d2 != null ? ` (${r.d1.toFixed(1)}→${r.d2.toFixed(1)} NM)` : '') + ` = ${r.sc} kt per 1 km${r.zone ? '' : ' (outside the low-level zone)'}` : 'none above the noise';
+  const refWho = (b, dep) => b.ph === 'same' ? `${b.n} ${dep ? 'departures' : 'landings'}`
+    : b.ph === 'all' ? `${b.n} landings and departures, phase bias removed` : `${b.n} flights`;
+  const cfTxt = cf => { if (!cf) return ''; const n = (cf.b || 0) + (cf.a || 0);
+    return n ? `Confirmed: the same ramp was seen by ${n} of ${(cf.nb || 0) + (cf.na || 0)} nearby landings`
+             : `Isolated${cf.fin ? '' : ' so far'}: not seen by the nearby landings — probably turbulence`; };
+
+  function histChips(e) {
+    const dep = H.kind === 'dep', w = e.shear || null, out = [];
+    const c = !dep && e.cond && e.cond.idx != null ? e.cond.idx : null;
+    if (c != null) out.push(`<span class="ch" style="color:${aciCol(c)}">ACI ${c.toFixed(1)}</span>`);
+    const lv = w && w.lvl && w.lvl !== 'none' ? w.lvl : null;
+    if (lv) out.push(`<span class="ch lv" style="background:${WS_COL[lv]}">${LV_TXT[lv]}</span>`);
+    const tl = dep && w && w.trial && w.trial.lvl && w.trial.lvl !== 'none' ? w.trial.lvl : null;
+    if (tl) out.push(`<span class="ch trial" style="color:${WS_COL[tl]}">${LV_TXT[tl]} trial</span>`);
+    if (e.go_arounds > 0 || e.ga) out.push('<span class="ch ga">GA</span>');
+    return out.join('');
+  }
+  function histLine2(e) {
+    const dep = H.kind === 'dep', hdg = e.rwy_heading;
+    if (H.show === 'aci') {
+      const c = e.cond;
+      if (dep) return '<span class="dim">ACI is computed for landings only</span>';
+      if (!c || c.idx == null) return `<span class="dim">no index${c && c.metar ? ' · METAR ' + esc(c.metar) : ''}</span>`;
+      return `<b style="color:${aciCol(c.idx)}">${c.idx.toFixed(1)} ${esc(c.lbl || '')}</b>` +
+             ` · hi ${c.hi ? c.hi.idx.toFixed(1) : '–'} · lo ${c.lo ? c.lo.idx.toFixed(1) : '–'}${c.metar ? ' · ' + esc(c.metar) : ''}`;
+    }
+    if (H.show === 'ws') {
+      const w = e.shear;
+      if (!w) return '<span class="dim">no windshear report</span>';
+      const t = dep ? w.trial : w, b = w.band, parts = [];
+      const strong = t ? [t.loss, t.gain].filter(Boolean).sort((x, y) => y.sc - x.sc)[0] : null;
+      if (strong) parts.push(`<span${dep ? ' class="trial"' : ''}>${strong.dv < 0 ? 'loss' : 'gain'} ${Math.abs(strong.dv).toFixed(0)} kt/${(strong.L / 1000).toFixed(1)} km${dep ? ' (trial)' : ''}</span>`);
+      if (b) parts.push(`band ${sgn(Math.round(b.a))} @${b.b}`);
+      if (!dep && w.cf && w.lvl && w.lvl !== 'none') { const n = (w.cf.b || 0) + (w.cf.a || 0); parts.push(n ? `✓${n}` : 'iso'); }
+      return parts.length ? parts.join(' · ') : '<span class="dim">nothing above the noise</span>';
+    }
+    const bands = H.res === 'hi' ? HB_HI : HB_LO;
+    return `<span class="strip" style="--n:${bands.length}">` + bands.map(bb => {
+      const b = e.bands ? e.bands[String(bb)] : null;
+      if (!b) return '<i class="nil">·</i>';
+      if (H.show === 'wind') return `<i><span class="arr" style="transform:rotate(${(b.dir + 180) % 360}deg)">↑</span>${Math.round(b.spd)}</i>`;
+      const v = H.show === 'xw' ? xwOf(b, hdg) : hwOf(b, hdg);
+      return v == null ? '<i class="nil">·</i>' : `<i class="${H.show === 'xw' ? xwCls(v) : hwCls(v)}">${sgn(v)}</i>`;
+    }).join('') + '</span>';
+  }
+  function histBody(e) {
+    const dep = H.kind === 'dep', hdg = e.rwy_heading, rows = [];
+    for (const bb of HB_ALL) {
+      const b = e.bands ? e.bands[String(bb)] : null;
+      if (!b) continue;
+      const hw = hwOf(b, hdg), xw = xwOf(b, hdg);
+      rows.push(`<tr><td>${bb}</td><td>${String(Math.round(b.dir)).padStart(3, '0')}°/${Math.round(b.spd)}</td>` +
+                `<td class="num ${hw != null ? hwCls(hw) : ''}">${hw != null ? sgn(hw) : '—'}</td>` +
+                `<td class="num ${xw != null ? xwCls(xw) : ''}">${xw != null ? sgn(xw) : '—'}</td></tr>`);
+    }
+    const tbl = rows.length ? `<table><thead><tr><th>ft</th><th>Wind</th><th class="num">HW</th><th class="num">XW</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+                            : '<div class="dim">No band winds stored.</div>';
+    const txt = [];
+    if (!dep && e.cond && e.cond.idx != null) {
+      const c = e.cond, seg = (s, l) => s ? `${l}: ${s.idx.toFixed(1)} (${[s.roll != null ? `bank ${s.roll}°` : '', s.ias != null ? `IAS ${s.ias} kt` : '',
+        s.vr != null ? `VS ${s.vr} fpm` : '', s.crab != null ? `crab sd ${s.crab}°` : ''].filter(Boolean).join(', ')}; ${s.n} replies)` : `${l}: no data`;
+      txt.push(`Approach conditions ${c.idx.toFixed(1)} – ${c.lbl}`, seg(c.hi, '3000–1000 ft'), seg(c.lo, '1000–200 ft'), c.metar ? `METAR ${c.metar}` : '');
+    }
+    const w = e.shear;
+    if (w) {
+      const b = w.band;
+      txt.push('', `Windshear — ${w.lvl && w.lvl !== 'none' ? LV_NAME[w.lvl] : 'no alert'}${dep ? ' (band comparison)' : ''}`);
+      if (!dep) txt.push(`Strongest loss: ${rampTxt(w.loss)}`, `Strongest gain: ${rampTxt(w.gain)}`,
+                         w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}` : '');
+      txt.push(b ? `Band ${b.b} ft: ${sgn(b.a)} kt against ${b.ref} kt in the last 45 min (${refWho(b, dep)})` : 'Band change: no reference flights');
+      if (b && b.thr) txt.push(`Turboprop climb-out: limits ${b.thr} / ${+(b.thr * 1.5).toFixed(1)} kt`);
+      if (!dep && w.cf) txt.push(cfTxt(w.cf));
+      if (!dep && w.a) txt.push(`Followed ${w.a[0]}→${w.a[1]} ft · ${w.n} replies, noise ±${w.noise != null ? w.noise : '?'} kt`);
+      if (dep) {
+        const t = w.trial;
+        if (t) txt.push(`TRIAL — ramps along the climb (no alert${t.lvl && t.lvl !== 'none' ? '; would be ' + LV_TXT[t.lvl] : ''}):`,
+                        `  loss: ${rampTxt(t.loss)}`, `  gain: ${rampTxt(t.gain)}`,
+                        t.a ? `  followed ${t.a[1]}→${t.a[0]} ft · ${t.n} replies, noise ±${t.noise != null ? t.noise : '?'} kt` : '');
+        else txt.push('Trial ramps: no climb-out series (before 27 Oct 2026 or too few replies)');
+      }
+    }
+    if (e.registration) txt.unshift(`${e.registration}${e.icao ? ' · ' + e.icao.toUpperCase() : ''}`);
+    return tbl + `<div class="txt">${esc(txt.filter((x, i, a) => x !== '' || (i && a[i - 1] !== '')).join('\n'))}</div>`;
+  }
+  function drawHist() {
+    if ($('v-hist').hidden) return;
+    const dep = H.kind === 'dep', all = H.rows;
+    const list = H.q ? all.filter(e => [e.callsign, e.registration, e.aircraft_type, e.icao].some(x => normQ(x).includes(H.q))) : all;
+    const what = dep ? 'departure' : 'landing';
+    const unit = { hw: 'HW kt', xw: 'XW kt', wind: 'wind kt' }[H.show];
+    $('app-hist-n').textContent = (H.q ? `${list.length} / ${all.length}` : `${all.length}`) + (unit ? ` · ${unit}` : '');
+    const range = H.date ? H.date.split('-').reverse().join('.') : `last ${H.hours === 24 ? '24 h' : H.hours + ' h'}`;
+    $('app-sub').textContent = H.fetched
+      ? `${dep ? 'Departures' : 'Landings'} · ${range} · ${all.length} ${what}${all.length === 1 ? '' : 's'}` +
+        (H.date ? '' : ` · ${new Date(H.fetched).toISOString().slice(11, 16)} UTC`)
+      : 'Loading…';
+    const bandsShown = ['hw', 'xw', 'wind'].includes(H.show);
+    const bands = H.res === 'hi' ? HB_HI : HB_LO;
+    $('app-hist-head').innerHTML = bandsShown
+      ? `<span class="strip" style="--n:${bands.length}">` +
+        bands.map(b => `<i>${H.res === 'hi' ? (b % 1000 === 0 ? b / 1000 + 'k' : String(b / 100)) : b}</i>`).join('') + '</span>'
+      : '';
+    $('app-hist-head').hidden = !bandsShown;
+    const today = isoDay(new Date());
+    $('app-hist-list').innerHTML = list.length ? list.map(e => {
+      const k = `${Math.round(e.ts)}|${e.icao}`, open = H.open.has(k);
+      const d = new Date(e.ts * 1000), day = isoDay(d);
+      const tm = (day !== today && !H.date ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + (e.time_utc || hhmm(e.ts));
+      return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
+        `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw">${esc(e.runway || '')}</span><span class="chs">${histChips(e)}</span></span>` +
+        `<span class="l2">${histLine2(e)}</span></button>` +
+        (open ? `<div class="bd">${histBody(e)}</div>` : '') + '</div>';
+    }).join('') : `<div class="app-empty">${H.fetched ? (H.q && all.length ? `No ${what}s match “${esc($('app-hist-q').value)}”.` : `No ${what}s in this range.`) : 'Loading…'}</div>`;
+    markScroll();
+  }
+  $('app-hist-list').addEventListener('click', ev => {
+    const hd = ev.target.closest('.hd');
+    if (!hd) return;
+    const k = hd.parentElement.dataset.k;
+    H.open.has(k) ? H.open.delete(k) : H.open.add(k);
+    drawHist();
+  });
+  async function loadHist() {
+    const n = ++H.req, dep = H.kind === 'dep';
+    const q = H.date ? `date=${H.date}` : `window=${H.hours * 3600}`;
+    const url = dep ? `/api/windshear/departures?full=1&${q}` : `/api/windshear/approach-history?lite=1&${q}`;
+    if (!H.rows.length) { H.fetched = 0; drawHist(); }
+    try {
+      const d = await (await fetch(url, { cache: 'no-store' })).json();
+      if (n !== H.req) return;
+      H.rows = Array.isArray(d) ? d.slice().sort((a, b) => b.ts - a.ts) : [];
+      H.fetched = Date.now();
+    } catch (_) { if (n === H.req) $('app-sub').textContent = 'Could not load the history.'; return; }
+    drawHist();
+  }
 
   // ══ ILS approach ═════════════════════════════════════════════════════════
   const I = { rwy: lsGet('ms_app_ils_rwy', ''), range: lsGet('ms_app_ils_range', '15'),
@@ -551,6 +761,7 @@
     else if (view === 'th') sizeTh();
     else if (view === 'ils') drawIls();
     else if (view === 'aci') drawAci();
+    else if (view === 'hist') drawHist();
     markScroll();
   }
   function refresh() {
@@ -559,10 +770,12 @@
     else if (view === 'th') loadTh();
     else if (view === 'ils') loadIls();
     else if (view === 'aci') loadAci();
+    else if (view === 'hist' && !H.date) loadHist();
   }
   function startTimer() {
     clearInterval(timer);
-    const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3 }[view];
+    const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
+                    hist: H.date ? 0 : 60e3 }[view];
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
@@ -591,6 +804,7 @@
     else if (view === 'th') { $('app-sub').textContent = 'hourly area profiles'; loadTh(); }
     else if (view === 'ils') { I.fetched = 0; fetchWx(); loadIls(); }
     else if (view === 'aci') loadAci();
+    else if (view === 'hist') loadHist();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }

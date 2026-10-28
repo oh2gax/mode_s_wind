@@ -68,6 +68,17 @@
     <div id="app-aci-readout" class="app-meta app-aci-readout"></div>
     <div id="app-aci-list" class="app-list"></div>
   </section>
+
+  <!-- History: landings / departures as cards (from 2026-10-28) -->
+  <section id="v-hist" class="app-view app-hist" hidden>
+    <div class="app-hist-bar">
+      <input type="search" id="app-hist-q" class="app-hist-q" placeholder="Search: callsign, registration, type"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search">
+      <span id="app-hist-n" class="app-hist-n"></span>
+    </div>
+    <div id="app-hist-head" class="app-hist-head"></div>
+    <div id="app-hist-list" class="app-hist-list"></div>
+  </section>
 </div>
 
 <div id="app-backdrop" class="app-backdrop" hidden></div>
@@ -83,7 +94,8 @@
     <button type="button" class="app-tile" data-view="skewt-hour"><b>Skew-T</b><small>Area · hour</small></button>
     <button type="button" class="app-tile" data-view="th"><b>Time–height</b><small>hourly profiles</small></button>
     <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
-    <button type="button" class="app-tile" data-view="aci"><b>ACI &amp; WS</b><small>landings</small></button>
+    <button type="button" class="app-tile" data-view="aci"><b>ACI · WS · ST</b><small>conditions · windshear</small></button>
+    <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -182,11 +194,32 @@
   </details>
 
   <details class="app-sec" data-for="aci">
-    <summary>ACI &amp; WS options</summary>
+    <summary>ACI · WS · ST options</summary>
     <div class="app-field"><span>Range</span>
       <select id="app-aci-hours" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
     <div class="app-field"><span>Show</span>
-      <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option></select></div>
+      <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option><option value="st">Space–time</option></select></div>
+    <div class="app-small">Space–time: the headwind change of every height band of the landings and departures against the flights before them — blue less, red more. A front is a streak through the flights. Tap a cell for its flights.</div>
+  </details>
+
+  <details class="app-sec" data-for="hist">
+    <summary>History options</summary>
+    <div class="app-field"><span>Flights</span>
+      <select id="app-hist-kind" data-chips><option value="arr">Landings</option><option value="dep">Departures</option></select></div>
+    <div class="app-field"><span>Range</span>
+      <select id="app-hist-hours" data-chips><option value="1">1 h</option><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
+    <div class="app-field"><span>Or a date (UTC)</span>
+      <div class="app-stepper">
+        <button type="button" class="app-step" id="app-hist-prev" aria-label="Previous day">‹</button>
+        <input type="date" id="app-hist-date">
+        <button type="button" class="app-step" id="app-hist-next" aria-label="Next day">›</button>
+        <button type="button" class="app-btn" id="app-hist-live">Live</button>
+      </div></div>
+    <div class="app-field"><span>Show</span>
+      <select id="app-hist-show" data-chips><option value="hw">Headwind</option><option value="xw">Crosswind</option><option value="wind">Wind</option><option value="aci">ACI</option><option value="ws">Windshear</option></select></div>
+    <div class="app-field"><span>Height bands</span>
+      <select id="app-hist-res" data-chips><option value="lo">Lo · 8</option><option value="hi">Hi · 13</option></select></div>
+    <div class="app-small">Tap a flight for all its bands and its reports. The search matches the callsign, registration and aircraft type anywhere (e.g. FIN7, OH-LX, AT75).</div>
   </details>
 
   <details class="app-sec app-sec-gen">

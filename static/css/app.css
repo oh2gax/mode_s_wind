@@ -158,3 +158,47 @@ body.app-body {
 .app-small { font-size: 12px; color: var(--text-2); margin: 6px 0; line-height: 1.45; }
 .app-link { display: inline-block; margin-top: 6px; font-size: 14px; color: var(--accent); text-decoration: none; }
 .app-foot { padding: 12px 16px; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
+
+/* ── History view (from 2026-10-28): search, band header, cards ── */
+.app-hist { padding-top: 0; }
+.app-hist-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px;
+                padding: 6px 2px 4px; background: var(--bg-0); }
+.app-hist-q { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 18px; font: inherit; font-size: 14px;
+              background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); color-scheme: dark; }
+:root[data-theme="light"] .app-hist-q { color-scheme: light; }
+.app-hist-n { flex: none; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.app-hist-head { position: sticky; top: 46px; z-index: 2; display: flex; align-items: center; gap: 6px;
+                 padding: 2px 10px 3px; background: var(--bg-0); font-size: 10px; color: var(--text-3); }
+.app-hist-head[hidden] { display: none; }
+.app-hist-list { display: flex; flex-direction: column; gap: 5px; margin: 2px 2px 12px; }
+.app-card { border-radius: 8px; background: var(--bg-1); border: 1px solid var(--border); }
+.app-card.open { border-color: var(--accent); }
+.app-card .hd { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 6px 9px; text-align: left;
+                background: none; border: 0; color: var(--text-1); font: inherit; cursor: pointer; }
+.app-card .l1 { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 13px; }
+.app-card .l1 .t { flex: none; font-family: 'Courier New', monospace; font-size: 12px; color: var(--text-2); }
+.app-card .l1 b { font-size: 13.5px; white-space: nowrap; }
+.app-card .l1 .ty, .app-card .l1 .rw { flex: none; font-size: 11.5px; color: var(--text-2); }
+.app-card .l1 .rw { font-weight: 700; }
+.app-card .chs { margin-left: auto; display: flex; gap: 4px; align-items: baseline; flex: none; }
+.app-card .ch { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 9px; background: var(--bg-3); white-space: nowrap; }
+.app-card .ch.lv { color: #fff; }
+.app-card .ch.trial { font-style: italic; background: none; border: 1px dashed currentColor; }
+.app-card .ch.ga { color: var(--amber); }
+.app-card .l2 { display: flex; align-items: center; min-width: 0; font-size: 11.5px; color: var(--text-2);
+                font-family: 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-card .l2 .trial { font-style: italic; }
+.app-card .dim, .app-card .bd .dim { color: var(--text-3); }
+/* one cell per height band (the header uses the same grid, so the columns line up) */
+.app-hist .strip { flex: 1; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; }
+.app-hist .strip i { font-style: normal; text-align: center; font-size: 11px; padding: 1px 0; border-radius: 3px;
+                     background: var(--bg-2); overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.app-hist-head .strip i { background: none; font-size: 9.5px; }
+.app-hist .strip i.nil { color: var(--text-3); }
+.app-hist .strip .arr { display: inline-block; font-size: 9px; margin-right: 1px; }
+.app-card .bd { padding: 0 9px 9px; font-size: 12px; }
+.app-card .bd table { width: 100%; border-collapse: collapse; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
+.app-card .bd th { text-align: left; font-size: 10.5px; color: var(--text-3); font-weight: 600; padding: 2px 4px; border-bottom: 1px solid var(--border); }
+.app-card .bd td { padding: 2px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.app-card .bd .num { text-align: right; }
+.app-card .bd .txt { white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.45; color: var(--text-2); }

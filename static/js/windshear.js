@@ -3306,8 +3306,10 @@ function _wsTitle(w) {
   ].filter(Boolean).join('\n');
 }
 
-// Registration filter (prefix, case and hyphen / space ignored).  The last
-// fetched list is kept so typing re-filters at once without a new request.
+// Search (from 2026-10-28: callsign, registration, type or ICAO address,
+// anywhere in the text — before only a registration prefix; case and hyphen /
+// space ignored, as in the mobile view's History).  The last fetched list is
+// kept so typing re-filters at once without a new request.
 let _aphLastEntries = null;
 let _aphRegFilter   = '';
 const _aphNormReg = s => (s || '').toUpperCase().replace(/[\s-]/g, '');
@@ -3332,7 +3334,8 @@ function renderApproachHistory(entries) {
   _aphLastEntries = entries || [];
   const total = _aphLastEntries.length;
   if (_aphRegFilter) {
-    entries = _aphLastEntries.filter(e => _aphNormReg(e.registration).startsWith(_aphRegFilter));
+    entries = _aphLastEntries.filter(e => [e.callsign, e.registration, e.aircraft_type, e.icao]
+      .some(x => _aphNormReg(x).includes(_aphRegFilter)));
   }
 
   // Landing count for the selected window/date on the panel title line
@@ -3351,7 +3354,7 @@ function renderApproachHistory(entries) {
   }
   if (!entries || entries.length === 0) {
     const msg = (_aphRegFilter && total > 0)
-      ? `No ${what}s match the registration filter`
+      ? `No ${what}s match the search`
       : aphKind === 'dep' ? 'No departures stored in this range' : 'No approaches logged yet';
     tbody.innerHTML =
       `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">${msg}</td></tr>`;
