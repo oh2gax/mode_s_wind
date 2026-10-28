@@ -10,7 +10,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **ACI · WS · ST — the list under the chart follows your choice**: it now lists the flights of the chosen period (before, always the latest 15 landings) — with *ACI + windshear* the departures too, with *Space–time* the flights of the diagram, or of the cell you tap. 15 rows, **Show all** for the rest, and **Landings / Departures in History** open the History view with the same period.
 - **Approach History search** on the Windshear page: the box now finds a callsign, registration, aircraft type or ICAO address anywhere in the text (before only the beginning of a registration).
 - Lighter on mobile data: the landings list now comes compressed and, for the phone, without the details it does not show.
-- The *MODE-S Wind on a phone* user guide (version 1.3) has the new views.
+- **About and all the user guides on the phone**: the menu's *General* section now has **About** (the same as on the full site) and **User guides** — every guide, e.g. the Windshear guide or the windshear study log, opens as PDF on the phone.
+- The *MODE-S Wind on a phone* user guide (version 1.4) has the new views.
 - **Windshear study log (version 1.3)**: the first night of the trial ramps along the climb-outs — a night-time low-level jet over Helsinki-Vantaa, which the departures climbed straight into, and what that means before the departure ramps may give alerts.
 - **Live Map, Wind Map and Weather remember where you were**: the map now opens with the same zoom and position you left it at. The new **⌂** button under the + / − buttons takes you back to the receiver.
 - **Statistics page — Pi or Server**: the last health dot shows the computer the page runs on. On the cloud server it is now called **Server** (it never showed the receiving station's Pi there); on the Raspberry Pi it is still **Pi**. The Statistics user guide (version 1.7) explains it.

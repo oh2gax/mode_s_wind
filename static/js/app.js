@@ -891,6 +891,75 @@
     if (!document.hidden) { refresh(); pollHealth(); fetchWx(); }
   });
 
+  // ══ About and User guides (from 2026-10-28) ══════════════════════════════
+  // A full-screen sheet over the view: the desktop About text (in the page) or
+  // the PDF guides of doc/guides.md (/api/whatsnew).  × / Esc / Back closes it
+  // (a history entry is pushed while it is open).
+  const sheet = $('app-sheet');
+  let sheetHist = false, guidesLoaded = false;
+  const escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const inlineMd = t => escH(t).replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>');
+  function renderMd(lines) {                       // the notes' small Markdown subset (as the desktop)
+    let html = '', depth = 0, para = [];
+    const flush = () => { if (para.length) { html += '<p>' + inlineMd(para.join(' ')) + '</p>'; para = []; } };
+    const close = to => { while (depth > to) { html += '</ul>'; depth--; } };
+    for (const l of lines || []) {
+      const m = l.match(/^(\s*)[-*]\s+(.*)$/);
+      if (m) {
+        flush();
+        const d = m[1].length >= 2 ? 2 : 1;
+        while (depth < d) { html += '<ul>'; depth++; }
+        close(d);
+        html += '<li>' + inlineMd(m[2]) + '</li>';
+      } else if (!l.trim()) { flush(); close(0); }
+      else { close(0); para.push(l.trim()); }
+    }
+    flush(); close(0);
+    return html;
+  }
+  const isoFi = d => { const p = (d || '').split('-'); return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : (d || ''); };
+  async function loadGuides() {
+    const el = $('app-sheet-guides');
+    try {
+      const d = await fetch('/api/whatsnew', { cache: 'no-store' }).then(r => r.json());
+      const gs = d.guides || [];
+      el.innerHTML = gs.length
+        ? '<p class="app-small">The guides open as PDF (large files: the first opening can take a while on a slow connection).</p>' +
+          gs.map(g => {
+            const meta = [g.version ? 'Version ' + escH(g.version) : '', g.date ? isoFi(g.date) : '',
+                          g.pages ? escH(g.pages) + ' pages' : '', (g.size / 1e6).toFixed(1) + ' MB'].filter(Boolean).join(' · ');
+            return `<section class="app-guide"><h3>${escH(g.title)}</h3><div class="app-guide-meta">${meta}</div>` +
+              `<details class="app-guide-more"><summary>Contents</summary>${renderMd(g.lines)}</details>` +
+              `<div class="app-guide-btns"><a class="app-btn app-btn-primary" href="${escH(g.url)}" target="_blank" rel="noopener">Open PDF</a>` +
+              `<a class="app-btn" href="${escH(g.url)}" download>Download</a></div></section>`;
+          }).join('')
+        : '<p class="app-small">No user guides on this system.</p>';
+      guidesLoaded = true;
+    } catch (_) { el.innerHTML = '<p class="app-small">Could not load the guides.</p>'; }
+  }
+  function openSheet(kind) {
+    $('app-sheet-title').textContent = kind === 'about' ? 'About' : 'User guides';
+    $('app-sheet-about').hidden = kind !== 'about';
+    $('app-sheet-guides').hidden = kind !== 'guides';
+    if (kind === 'guides' && !guidesLoaded) { $('app-sheet-guides').innerHTML = '<p class="app-small">Loading…</p>'; loadGuides(); }
+    sheet.hidden = false;
+    $('app-sheet-body').scrollTop = 0;
+    menu(false);
+    if (!sheetHist) { try { history.pushState({ appSheet: kind }, ''); sheetHist = true; } catch (_) { /* */ } }
+  }
+  function closeSheet(fromPop) {
+    if (sheet.hidden) return;
+    sheet.hidden = true;
+    if (sheetHist && !fromPop) { sheetHist = false; try { history.back(); } catch (_) { /* */ } }
+    sheetHist = false;
+  }
+  $('app-about-btn').addEventListener('click', () => openSheet('about'));
+  $('app-guides-btn').addEventListener('click', () => openSheet('guides'));
+  $('app-sheet-close').addEventListener('click', () => closeSheet(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(false); });
+  window.addEventListener('popstate', () => closeSheet(true));
+
   fetchWx();
   setInterval(() => { if (!document.hidden) fetchWx(); }, 600e3);
   pollHealth();

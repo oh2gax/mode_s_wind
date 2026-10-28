@@ -227,10 +227,30 @@
     <div class="app-field"><span>Theme</span>
       <select id="app-theme" data-chips><option value="dark">Dark</option><option value="light">Light</option></select></div>
     <div id="app-health-txt" class="app-small"></div>
+    <div class="app-gen-btns">
+      <button type="button" class="app-btn" id="app-about-btn">About</button>
+      <button type="button" class="app-btn" id="app-guides-btn">User guides</button>
+    </div>
     <a class="app-link" href="/">Full site ↗</a><br>
-    <a class="app-link" href="/doc/Mobile_User_Guide.pdf" target="_blank" rel="noopener">User guide (PDF) ↗</a>
+    <a class="app-link" href="/doc/Mobile_User_Guide.pdf" target="_blank" rel="noopener">This view's guide (PDF) ↗</a>
   </details>
   <div class="app-foot">{{ app_version }} · Mode S data: own receiver · MEPS: MET Norway, sondes: FMI open data (CC BY 4.0)</div>
+</div>
+
+<!-- About and User guides (from 2026-10-28): a full-screen sheet over the view;
+     × / Esc / the phone's Back closes it.  The About text is the desktop one
+     (_about_body.html); the guides come from /api/whatsnew (doc/guides.md). -->
+<div id="app-sheet" class="app-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="app-sheet-title">
+  <div class="app-sheet-head">
+    <span id="app-sheet-title" class="app-sheet-title">About</span>
+    <button id="app-sheet-close" class="app-icon-btn" type="button" aria-label="Close">×</button>
+  </div>
+  <div class="app-sheet-body" id="app-sheet-body">
+    <div id="app-sheet-about" class="ab-body app-about" hidden>
+      {% with about_app=true %}{% include "_about_body.html" %}{% endwith %}
+    </div>
+    <div id="app-sheet-guides" class="app-guides" hidden></div>
+  </div>
 </div>
 
 <script>

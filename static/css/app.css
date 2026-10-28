@@ -215,3 +215,26 @@ body.app-body {
 .app-card .bd td { padding: 2px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
 .app-card .bd .num { text-align: right; }
 .app-card .bd .txt { white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.45; color: var(--text-2); }
+
+/* ── About and User guides sheet (from 2026-10-28) ── */
+.app-gen-btns { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+.app-sheet { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg-0, var(--bg-1));
+             padding-top: env(safe-area-inset-top); }
+.app-sheet[hidden] { display: none; }
+.app-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 16px;
+                  border-bottom: 1px solid var(--border); background: var(--bg-1); flex: none; }
+.app-sheet-title { font-size: 16px; font-weight: 600; color: var(--text-1); }
+.app-sheet-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 16px calc(24px + env(safe-area-inset-bottom));
+                  font-size: 14px; line-height: 1.5; color: var(--text-1); }
+.app-about ul { padding-left: 18px; }
+.app-about li { margin: 4px 0; }
+.app-about p { margin: 6px 0; }
+.app-guide { border-bottom: 1px solid var(--border); padding: 12px 0; }
+.app-guide h3 { margin: 0 0 2px; font-size: 15px; }
+.app-guide-meta { font-size: 12px; color: var(--text-2); }
+.app-guide-more { margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+.app-guide-more summary { cursor: pointer; color: var(--accent); }
+.app-guide-more ul { padding-left: 18px; margin: 4px 0; }
+.app-guide-btns { display: flex; gap: 8px; margin-top: 8px; }
+.app-guide-btns .app-btn { text-decoration: none; display: inline-flex; align-items: center; }
+.app-btn.app-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }

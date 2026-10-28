@@ -1,0 +1,153 @@
+{#- The About text (from 2026-10-28 its own file): shown in the desktop About
+    window (_about.html) and in the mobile view's About sheet (app.html, with
+    about_app set) — one text for both. -#}
+
+<div class="ab-hero">
+  <div class="ab-name">MODE-S Wind</div>
+  <div class="ab-tag">Upper-air observations from the aircraft overhead — Mode S EHS and ADS-B</div>
+  {% if app_version %}<div class="ab-ver">Version <span class="wn-ver">{{ app_version }}</span></div>{% endif %}
+</div>
+
+<dl class="ab-info">
+  {% include "_contact.html" %}
+  <dt>Receiver site</dt>
+  <dd>Radarcape receiver by Jetvision (<a href="https://jetvision.de/" target="_blank" rel="noopener">jetvision.de</a>) · Tuusula, Finland · locator KP20MJ</dd>
+</dl>
+
+<section class="ab-sec">
+  <h3>What is MODE-S Wind?</h3>
+  <p>An upper-air observing system built on aircraft as sensors. A single Mode S / ADS-B receiver
+    (Jetvision Radarcape) near Helsinki-Vantaa (EFHK) records the transponder replies that the ground
+    radars and Fintraffic's wide-area multilateration (WAM) network interrogate from every aircraft —
+    Mode S Enhanced Surveillance registers BDS 5,0 (true track, ground speed, true airspeed, roll) and
+    BDS 6,0 (magnetic heading, IAS, Mach), BDS 4,4 meteorological reports where available — and the
+    ADS-B broadcasts (position, 2-Hz velocity, GNSS − barometric height difference). From these it derives
+    <b>wind and temperature profiles</b> from the surface to about FL400, several thousand observations an
+    hour within a few hundred kilometres, continuously, on a Raspberry Pi 4.</p>
+  <p>The observations themselves need no model input. A few small calibrations are learnt continuously and
+    stored locally: the per-airframe heading offsets from the fleet itself (each aircraft against the others),
+    the GNSS heights of the pressure surfaces against the Jokioinen soundings, and the upper-level
+    temperature bias and the humidity-trial offsets against the MEPS model (or the soundings). If the soundings
+    or the model are not available, the system keeps running on the last learnt calibrations, and without any
+    of them on the aircraft data alone.</p>
+</section>
+
+<section class="ab-sec">
+  <h3>How the observations are made</h3>
+  <ul>
+    <li><b>Wind</b> — the ground-velocity vector (BDS 5,0) minus the air-velocity vector (TAS along the true
+      heading: BDS 6,0 magnetic heading + WMM2025 declination + a per-airframe heading calibration).</li>
+    <li><b>Temperature</b> — static air temperature from the Mach number and the true airspeed,
+      T = TAS² / (γR·M²); a small upper-level warm bias (≈ +0.7 K at 300–200 hPa) is corrected.</li>
+    <li><b>Heights of the pressure surfaces</b> — pressure altitude + the GNSS − baro difference of ADS-B,
+      calibrated against the radiosondes: D-values, geopotential height tendencies and layer thickness.</li>
+    <li><b>Verification</b> — every Jokioinen sounding and every MEPS hour is compared automatically. Typical
+      numbers: wind 3–4 kt vector RMS against MEPS at 925–500 hPa, temperature about 1 K RMS against the
+      sondes, pressure-surface heights within 3–10 m of MEPS (hourly correlation 0.996–0.998).</li>
+  </ul>
+</section>
+
+<section class="ab-sec">
+  <h3>Derived products</h3>
+  <ul>
+    <li><b>Soundings</b> — Skew-T log-p of the area (now and an hourly archive) and of single climbs /
+      descents, with an automatic analysis — surface-parcel LCL, LFC, CAPE / CIN and Lifted Index (METAR
+      dewpoint), inversions, Richardson-number turbulence layers, thermal advection from the veering /
+      backing wind, low-level jet, tropopause, freezing level and Schmidt–Appleman contrail levels — side by
+      side with the radiosonde and the MEPS model.</li>
+    <li><b>Time–height sections</b> over the airport — temperature anomaly, 3-h temperature change
+      (advection), wind speed, <b>lapse rate</b> with inversions and the tropopause, jet-core height,
+      <b>vertical motion</b> (adiabatic method, cm/s, FL050–FL200), relative <b>vorticity</b> (plane fit of the
+      aircraft winds over 200 km), D-values and 6-h <b>height change</b>, and a thickness-temperature check
+      (virtual temperature from GNSS heights against the Mach/TAS temperature).</li>
+    <li><b>Constant-level analyses</b> (Wind Map) — gridded wind and temperature at any flight level,
+      isotachs and streamlines, jet axis, temperature anomaly (fronts, air masses), height contours with the
+      geostrophic wind, and differences against an earlier period, another level or the MEPS model.</li>
+    <li><b>Boundary layer at the airport</b> — every landing and take-off is a 200-ft-resolution profile of
+      the lowest 3 000 ft (wind, headwind, temperature): low-level jets, night inversions, frontal shear.</li>
+    <li><b>Humidity (trial)</b> — moisture from the virtual-temperature excess Tv − T of the thickness, the
+      principle of the ADS-B humidity study at Amsterdam Schiphol; still being evaluated.</li>
+  </ul>
+</section>
+
+<section class="ab-sec">
+  <h3>Windshear detection v2</h3>
+  <p>Runs on the server for every aircraft on final at EFHK, whether the page is open or not. Along each
+    approach path the headwind (TAS − GS, straight from the aircraft's replies, every 2–3 s) is searched for
+    ramps of 0.4–4 km, scaled to a 1-km equivalent and tested against the replies' own noise, after the ramp
+    method of the Hong Kong Observatory's LIDAR windshear alerting (Shun &amp; Chan 2008; Hon &amp; Chan 2021);
+    the F-factor (Proctor, Hinton &amp; Bowles 2000) is computed over 1 km. A second, independent check
+    compares each landing's and departure's wind vector in 200-ft bands with the median of all landings and
+    departures of the previous 45 minutes, catching sudden wind changes between flights (gust fronts,
+    frontal passages). Alert levels follow the airport alerting practice (Cole &amp; Todd 1996):
+    <b>WS advisory</b> 10 kt, <b>windshear alert</b> 15 kt (loss or gain), <b>microburst alert</b> 30 kt
+    headwind loss. Every landing and departure gets a stored windshear report. Experimental research
+    output.</p>
+</section>
+
+<section class="ab-sec">
+  <h3>Why it is interesting</h3>
+  <ul>
+    <li><b>Independent of models</b> — everything is measured by the aircraft; the MEPS model and the
+      radiosondes are optional, for verification and two small calibrations, and the system falls back to the
+      aircraft alone without them.</li>
+    <li><b>Resolution</b> — an updated profile every few minutes right over the airport, where the nearest
+      radiosonde (Jokioinen, about 100 km away) gives three a day; dense sampling of the boundary layer on
+      final and climb-out.</li>
+    <li><b>Open and reproducible</b> — commodity hardware, open data (FMI, MET Norway), free software
+      (GPLv3); the hourly products and the raw reply series of every approach are stored for re-analysis.</li>
+  </ul>
+</section>
+
+<section class="ab-sec ab-credits">
+  <h3>Special credits</h3>
+  <p>MODE-S Wind stands on the work of two researchers in the Netherlands.</p>
+  <p><b>Siebren de Haan</b> (KNMI, the Royal Netherlands Meteorological Institute) showed that wind and
+    temperature derived from Mode S EHS radar replies are accurate and dense enough for meteorology, and
+    brought them into numerical weather prediction. The author's own interest in the subject began in
+    2009 with de Haan's KNMI report below; his first ADS-B receiver had been running since 2006, when all
+    of this was still new.</p>
+  <ul class="ab-refs">
+    <li>de Haan, S., 2009: <i>Quality assessment of high resolution wind and temperature observation from
+      ModeS.</i> KNMI Scientific Report WR 2009-07 (revised 2010), De Bilt.
+      <a href="https://www.knmi.nl/research/publications/quality-assessment-of-high-resolution-wind-and-temperature-observation-from-modes" target="_blank" rel="noopener">KNMI</a></li>
+    <li>de Haan, S., 2011: High-resolution wind and temperature observations from aircraft tracked by
+      Mode-S air traffic control radar. <i>J. Geophys. Res.</i>, 116, D10111.
+      <a href="https://doi.org/10.1029/2010JD015264" target="_blank" rel="noopener">doi:10.1029/2010JD015264</a></li>
+    <li>de Haan, S. and A. Stoffelen, 2012: Assimilation of high-resolution Mode-S wind and temperature
+      observations in a regional NWP model. <i>Wea. Forecasting</i>, 27, 918–937.
+      <a href="https://doi.org/10.1175/WAF-D-11-00088.1" target="_blank" rel="noopener">doi:10.1175/WAF-D-11-00088.1</a></li>
+  </ul>
+  <p><b>Junzi Sun</b> (TU Delft, Faculty of Aerospace Engineering) wrote <b>pyModeS</b>, the open-source
+    Mode S / ADS-B decoder that this system is built on, the open book that explains the signals, and
+    research on reconstructing the weather from aircraft surveillance data.</p>
+  <ul class="ab-refs">
+    <li>Sun, J., H. Vû, J. Ellerbroek and J. M. Hoekstra, 2020: pyModeS: Decoding Mode-S surveillance data
+      for open air transportation research. <i>IEEE Trans. Intell. Transp. Syst.</i>, 21(7), 2777–2786.
+      <a href="https://doi.org/10.1109/TITS.2019.2914770" target="_blank" rel="noopener">doi:10.1109/TITS.2019.2914770</a> ·
+      <a href="https://github.com/junzis/pyModeS" target="_blank" rel="noopener">github.com/junzis/pyModeS</a></li>
+    <li>Sun, J., 2021: <i>The 1090 Megahertz Riddle: A Guide to Decoding Mode S and ADS-B Signals.</i>
+      TU Delft OPEN Books.
+      <a href="https://doi.org/10.34641/mg.11" target="_blank" rel="noopener">doi:10.34641/mg.11</a></li>
+    <li>Sun, J., H. Vû, J. Ellerbroek and J. M. Hoekstra, 2018: Weather field reconstruction using aircraft
+      surveillance data and a novel meteo-particle model. <i>PLOS ONE</i>, 13(10), e0205029.
+      <a href="https://doi.org/10.1371/journal.pone.0205029" target="_blank" rel="noopener">doi:10.1371/journal.pone.0205029</a></li>
+  </ul>
+  <p class="ab-thanks">I would like to thank my wife, <b>Dr Marjukka Ikonen</b>, for her support of this project
+    all over the years and for reviewing my work.</p>
+  <p class="ab-thanks ab-thanks2">I would also like to thank all the friends and colleagues who have helped this
+    project over the years, especially <b>Matti, OH7SV</b> and <b>John, OH2GBA</b>, and the numerous beta
+    testers who have given user reports and technical hints.</p>
+</section>
+
+<section class="ab-sec">
+  <h3>Pages</h3>
+  <p class="ab-pages"><b>Live Map</b> · <b>Flights</b> · <b>Sounding</b> (Skew-T, time–height, sonde and MEPS checks) ·
+    <b>Wind Map</b> · <b>Weather</b> (MEPS) · <b>Windshear</b> · <b>GPS</b> (Quality and Episodes:
+    GNSS interference monitoring) · <b>Statistics</b> (what the receiver hears: message formats, registers,
+    the reply cadence of the WAM / radar interrogations, the active interrogators). {% if about_app %}The user guides are in the menu under <i>General · User guides</i>.{% else %}The user guides are under <i>What's new · Guides</i>.{% endif %}</p>
+</section>
+
+<p class="ab-foot">Copyright © 2026 Otso Laakso (OH2GAX) · GNU GPL v3 ·
+  <a href="https://github.com/oh2gax/mode_s_wind" target="_blank" rel="noopener">github.com/oh2gax/mode_s_wind</a><br>
+  Research system — not an operational meteorological or air-traffic service.</p>
