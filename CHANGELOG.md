@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search)
+## v.28102026 — 2026-10-28 (mobile view: History of landings and departures, space–time diagram; Approach History search; map view remembered)
 
 ### Mobile view /app: History and space–time
 - **History** view (new tile): the landings (`/api/windshear/approach-history?lite=1`) or departures (`/api/windshear/departures?full=1`) of 1 h – 1 day (default 3 h) or of one UTC date (‹ › day steppers, Live), as cards — time, callsign, type, runway, chips (ACI, windshear level, trial, GA) and a band strip (headwind / crosswind / wind, Lo 8 or Hi 13 bands) or an ACI / windshear summary; a tap opens all bands, the approach conditions and the windshear report. Sticky search (callsign, registration, type, ICAO anywhere). `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`.
@@ -19,6 +19,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Windshear page: Approach History search
 - The registration filter is now a search: callsign, registration, aircraft type or ICAO address anywhere in the text, case / spaces / hyphens ignored — the same as the mobile History (`static/js/windshear.js`, `web/templates/windshear.html`).
+
+### Live Map and Wind Map: map view remembered
+- The map opens with the centre and zoom it was left at: saved in the browser on every `moveend` (`ms_liveMapView` / `ms_windMapView`, rounded to 4 decimals; skipped while the map has no size, e.g. the Live Map hidden on a portrait tablet), checked on load (finite, |lat| ≤ 85, zoom 3–18; otherwise the default view).
+- **⌂** button under the zoom buttons (Leaflet control, same look as the zoom buttons in both themes): back to the receiver at the default zoom (Live Map 8, Wind Map 7). `static/js/live_map.js`, `static/js/windmap.js` (`msSavedView`, `msRememberView`), `static/css/style.css` (`.ms-map-home`).
 
 ---
 
