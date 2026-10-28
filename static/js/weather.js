@@ -21,7 +21,54 @@
 'use strict';
 
 // ── Map ───────────────────────────────────────────────────────────────────
-const map = L.map('wx-map', { zoomControl: true }).setView([RECEIVER_LAT, RECEIVER_LON], 5);
+// The map view (centre and zoom) is remembered in this browser (from
+// 2026-10-28) and the page opens where it was left; the ⌂ button under the
+// zoom buttons goes back to the receiver at the default zoom.
+function msSavedView(key) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && Number.isFinite(v.z)
+        && Math.abs(v.lat) <= 85 && Math.abs(v.lon) <= 180 && v.z >= 3 && v.z <= 18) return v;
+  } catch (e) { /* private mode / broken value: the default view */ }
+  return null;
+}
+function msRememberView(map, key, homeZoom) {
+  map.on('moveend', () => {
+    if (!map.getSize().x) return;                 // hidden map (portrait tablet): nothing to keep
+    const c = map.getCenter();
+    try {
+      localStorage.setItem(key, JSON.stringify({ lat: +c.lat.toFixed(4), lon: +c.lng.toFixed(4), z: map.getZoom() }));
+    } catch (e) { /* private mode */ }
+  });
+  const Home = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar ms-map-home');
+      const a = L.DomUtil.create('a', '', box);
+      a.href = '#';
+      a.title = 'Back to the receiver (default view)';
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', a.title);
+      a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">'
+        + '<path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" '
+        + 'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(a, 'click', e => {
+        L.DomEvent.preventDefault(e);
+        map.setView([RECEIVER_LAT, RECEIVER_LON], homeZoom);
+      });
+      return box;
+    },
+  });
+  new Home().addTo(map);
+}
+const MAP_HOME_ZOOM = 5;
+const MAP_VIEW_KEY = 'ms_weatherMapView';
+const _savedView = msSavedView(MAP_VIEW_KEY);
+const map = L.map('wx-map', { zoomControl: true })
+             .setView(_savedView ? [_savedView.lat, _savedView.lon] : [RECEIVER_LAT, RECEIVER_LON],
+                      _savedView ? _savedView.z : MAP_HOME_ZOOM);
+msRememberView(map, MAP_VIEW_KEY, MAP_HOME_ZOOM);
 const _cartoKeyQs = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
 const TILES = {
   dark:  L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,

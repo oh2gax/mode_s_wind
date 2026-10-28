@@ -11,7 +11,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Approach History search** on the Windshear page: the box now finds a callsign, registration, aircraft type or ICAO address anywhere in the text (before only the beginning of a registration).
 - Lighter on mobile data: the landings list now comes compressed and, for the phone, without the details it does not show.
 - The *MODE-S Wind on a phone* user guide (version 1.3) has the new views.
-- **Live Map and Wind Map remember where you were**: the map now opens with the same zoom and position you left it at. The new **⌂** button under the + / − buttons takes you back to the receiver.
+- **Live Map, Wind Map and Weather remember where you were**: the map now opens with the same zoom and position you left it at. The new **⌂** button under the + / − buttons takes you back to the receiver.
 - **Statistics page — Pi or Server**: the last health dot shows the computer the page runs on. On the cloud server it is now called **Server** (it never showed the receiving station's Pi there); on the Raspberry Pi it is still **Pi**. The Statistics user guide (version 1.7) explains it.
 - **Statistics page — signal strength chart**: the chart now spans only the levels the receiver actually reports (here about −28 to 0 dBFS instead of −50 to 0), so the bars fill the chart and the scale is readable. The Statistics user guide (version 1.8) has the new picture.
 

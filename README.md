@@ -29,7 +29,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark theme toggle** — a **Dark / Light** button in the navbar switches all pages between the default dark theme and a blue-grey paper-toned light theme; preference is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette. In the dark theme the diagrams (Skew-T, ILS profile, Wind Rose and Approach Conditions chart) and the Windshear map overlays (Wind Rose / ACI, Approach History) use the same blue-grey as the panels (`--bg-1`)
 - **About, What's new and User guides windows** — the navbar's version button opens the notes of the latest versions and the user guides (PDF); **About** tells who made the system, where the receiver is and how the measurements are made
-- **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, aircraft list order, wind history density, theme) are remembered across browser sessions via localStorage; the Live Map and the Wind Map also remember their map view (centre and zoom), and a **⌂** button under the zoom buttons returns to the receiver at the default zoom (from 2026-10-28)
+- **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, aircraft list order, wind history density, theme) are remembered across browser sessions via localStorage; the Live Map, the Wind Map and the Weather page also remember their map view (centre and zoom), and a **⌂** button under the zoom buttons returns to the receiver at the default zoom (from 2026-10-28)
 - **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority for the live view (stored observations always come from pyModeS decoding); active mode shown as a read-only badge in the navbar on every page
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
@@ -1210,6 +1210,8 @@ For example, if QNH is 998 hPa, a request for the 2 000 ft layer queries pressur
 ### Weather  `/weather`
 
 A weather map of the **MEPS** model (MET Norway open data, CC BY 4.0) over the whole MEPS area — Scandinavia, Finland, the Baltic and part of the Norwegian Sea — with a time slider from the past into the forecast, to follow weather systems as they move (`web/templates/weather.html`, `static/js/weather.js`, `web/api/weather.py`). It is a model, not a radar: for the last hours the rain areas are usually close to reality, but a shower can be tens of kilometres and an hour off.
+
+**Map view** — the map opens where it was left: its centre and zoom are saved in the browser after every pan or zoom (`localStorage` `ms_weatherMapView`); the **⌂** button under the + / − zoom buttons goes back to the receiver at zoom 5, the view of a first visit (from 2026-10-28, `static/js/weather.js`).
 
 | Control | Options | Description |
 |---|---|---|

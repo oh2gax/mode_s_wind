@@ -21,9 +21,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Windshear page: Approach History search
 - The registration filter is now a search: callsign, registration, aircraft type or ICAO address anywhere in the text, case / spaces / hyphens ignored — the same as the mobile History (`static/js/windshear.js`, `web/templates/windshear.html`).
 
-### Live Map and Wind Map: map view remembered
-- The map opens with the centre and zoom it was left at: saved in the browser on every `moveend` (`ms_liveMapView` / `ms_windMapView`, rounded to 4 decimals; skipped while the map has no size, e.g. the Live Map hidden on a portrait tablet), checked on load (finite, |lat| ≤ 85, zoom 3–18; otherwise the default view).
-- **⌂** button under the zoom buttons (Leaflet control, same look as the zoom buttons in both themes): back to the receiver at the default zoom (Live Map 8, Wind Map 7). `static/js/live_map.js`, `static/js/windmap.js` (`msSavedView`, `msRememberView`), `static/css/style.css` (`.ms-map-home`).
+### Live Map, Wind Map and Weather: map view remembered
+- The map opens with the centre and zoom it was left at: saved in the browser on every `moveend` (`ms_liveMapView` / `ms_windMapView` / `ms_weatherMapView`, rounded to 4 decimals; skipped while the map has no size, e.g. the Live Map hidden on a portrait tablet), checked on load (finite, |lat| ≤ 85, zoom 3–18; otherwise the default view).
+- **⌂** button under the zoom buttons (Leaflet control, same look as the zoom buttons in both themes): back to the receiver at the default zoom (Live Map 8, Wind Map 7, Weather 5). `static/js/live_map.js`, `static/js/windmap.js`, `static/js/weather.js` (`msSavedView`, `msRememberView`), `static/css/style.css` (`.ms-map-home`).
 
 ### Statistics page: health dot "Pi" or "Server"
 - The last health dot always had the readings of the computer the server runs on, but was labelled *Pi* also on the cloud server. It is now labelled **Pi** only on a Raspberry Pi (board model from `/proc/device-tree/model`, `MODEL` / `IS_PI` in `web/api/health.py`) and **Server** elsewhere, with its own hover title; the first detail line is the board model, or *this server's own readings (not the receiving station's Pi)*. Key `pi` and the limits unchanged.
