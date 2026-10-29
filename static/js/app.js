@@ -751,7 +751,9 @@
               // WS + ACI chart under the profile / map: off / 3 / 6 h (from 2026-10-29)
               wsaci: lsGet('ms_app_ils_wsaci', 'off'),
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
-              vec: lsGet('ms_app_ils_vec', 'off') };
+              vec: lsGet('ms_app_ils_vec', 'off'),
+              // departures on the map: hide (default) / show (from 2026-10-29)
+              deps: lsGet('ms_app_ils_deps', 'hide') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -761,16 +763,17 @@
   if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
   if (!['off', '3', '6'].includes(I.wsaci)) I.wsaci = 'off';
   if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
+  if (!['hide', 'show'].includes(I.deps)) I.deps = 'hide';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci'],
-                  ['app-ils-vec', 'vec', 'ms_app_ils_vec']];
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
-      if (key === 'show' || key === 'mapac') loadIls();         // the map needs positions (map=1 / near=1)
+      if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
       if (key === 'wsaci') { IW.at = 0; loadIlsWs(); }
     });
   }
@@ -909,7 +912,11 @@
     for (const a of I.ac) {
       if (a.lat == null || a.lon == null) continue;
       const onA = a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway);
-      if (!onA && (I.mapac !== 'all' || a.in_corridor)) continue;      // another runway's approach: not shown
+      if (!onA) {
+        if (a.in_corridor) continue;                                 // another runway's approach: not shown
+        if (a.dep) { if (I.deps !== 'show') continue; }               // a departure: only when chosen (2026-10-29)
+        else if (I.mapac !== 'all') continue;
+      }
       const sel = onA && a.icao === I.sel && I.barbs !== 'off';
       if (onA && I.trails && Array.isArray(a.trail) && a.trail.length > 1)
         L.polyline(a.trail, { interactive: false, color: light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: 0.6 }).addTo(IM.ac);
@@ -935,7 +942,7 @@
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
           html: `<div class="ils-ac-lbl${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
-                `<small>${alt}${a.landed ? ' · landed' : ''}</small></div>` }) }).addTo(IM.ac);
+                `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
   // ── WS + ACI chart under the profile or the map (from 2026-10-29) ────────
@@ -1058,7 +1065,7 @@
   }
   async function loadIls() {
     try {
-      const q = I.show === 'profile' ? '' : I.mapac === 'all' ? '&map=1&near=1' : '&map=1';
+      const q = I.show === 'profile' ? '' : I.mapac === 'all' || I.deps === 'show' ? '&map=1&near=1' : '&map=1';
       const st = await (await fetch('/api/windshear/state?lite=1' + q, { cache: 'no-store' })).json();
       I.ac = IlsProfile.landedFilter(st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : []);
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];

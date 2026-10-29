@@ -924,6 +924,8 @@ def main() -> None:
             # ADS-B ground speed for the raw climb-out series (from 2026-10-27)
             vel_sample_fn=get_vel_samples,
         )
+        # the maps mark (and by default hide) the climb-outs it follows (2026-10-29)
+        ws_tracker.departures_fn = dep_tracker.following
 
     ws_thread = threading.Thread(
         target=_windshear_sweep,

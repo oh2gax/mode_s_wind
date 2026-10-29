@@ -483,6 +483,10 @@ class WindshearTracker:
         self._ws_dep_an_ts: dict[str, float] = {}
         self._ws_day:       dict | None      = None
         self._ws_start:     float            = time.time()
+        # callable() → {icao: runway} of the departures followed by the climb-out
+        # capture (collector/departures.py, set by run.py); get_state() marks those
+        # aircraft with "dep" / "dep_rwy" so the maps can hide them (2026-10-29)
+        self.departures_fn = None
         self._lock  = threading.RLock()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
@@ -2236,6 +2240,17 @@ class WindshearTracker:
         with self._lock:
             items     = list(self._state.values())
             cut = time.time() - GA_EVENTS_MAX_AGE
+        deps = {}
+        if self.departures_fn is not None:
+            try:
+                deps = self.departures_fn() or {}
+            except Exception:                              # noqa: BLE001
+                deps = {}
+        if deps:
+            # a climb-out (not on an approach): marked, not changed in the state
+            items = [dict(a, dep=True, dep_rwy=deps[a.get("icao")])
+                     if a.get("icao") in deps and not a.get("in_corridor") else a for a in items]
+        with self._lock:
             ga_events = [dict(e) for e in self._ga_events if e["ts"] >= cut]   # last 24 h
             ws_events = [dict(e) for e in self._ws_active.values()]
             ws_log    = [dict(e) for e in self._ws_log]

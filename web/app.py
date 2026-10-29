@@ -69,7 +69,8 @@ _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
 # with the fields of their map square and label only.
 _WS_MAP_KEYS = ("lat", "lon", "track", "groundspeed")      # groundspeed: speed vectors (2026-10-29)
 _WS_NEAR_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "meteo_source",
-                 "in_corridor", "lat", "lon", "track", "groundspeed", "last_seen")
+                 "in_corridor", "lat", "lon", "track", "groundspeed", "last_seen",
+                 "dep", "dep_rwy")          # dep: a departure (climb-out), from 2026-10-29
 _WS_TRAIL_SEC = 120
 _GZIP_MIN_BYTES = 1024
 

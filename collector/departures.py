@@ -293,3 +293,14 @@ class DepartureTracker:
 
     def active(self) -> int:
         return len(self._state)
+
+    def following(self) -> dict:
+        """{icao: departure runway or None} of the climb-outs being followed now,
+        go-arounds excluded (from 2026-10-29).  The windshear tracker also holds
+        departures heard on the runway or before their climb rate was known; its
+        state marks them (``dep``) so that the maps can hide or show them."""
+        try:
+            items = list(self._state.items())          # the sweep thread may add one meanwhile
+        except RuntimeError:
+            return {}
+        return {k: (st.get("ws_rwy") or (None, None))[0] for k, st in items if not st.get("ga")}

@@ -301,8 +301,9 @@ function updateMapMarkers(aircraft) {
   for (const ac of aircraft) {
     if (ac.lat == null || ac.lon == null) continue;
 
-    // When ILS filter is active, hide non-corridor aircraft
-    if (ilsFilterActive && !ac.in_corridor) {
+    // When ILS filter is active, hide non-corridor aircraft; departures
+    // (climb-outs, marked by the server from 29 Oct 2026) are never shown here
+    if ((ilsFilterActive && !ac.in_corridor) || (ac.dep && !ac.in_corridor)) {
       // Remove existing marker if present so it disappears immediately
       if (acMarkers[ac.icao]) {
         map.removeLayer(acMarkers[ac.icao].marker);
