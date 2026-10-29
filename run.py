@@ -151,6 +151,9 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
         height calibration is refitted after each new sounding, and the
         raw hourly D-value / thickness cells are stored 4 h after the hour
         (gnss_hours; back-filled at the first start).
+      • Boundary layer (from 2026-10-29, collector/boundary.py): the wind
+        profile up to 5 000 ft, the low-level jet and the surface inversion
+        of the hour that ended (bl_hours; back-filled at the first start).
       • Radiosonde verification (collector/sonde_verif.py): the area profile
         around each stored sounding's launch and every archived hourly
         profile are compared with the sounding (table sonde_verification).
@@ -202,6 +205,17 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                     hj_log.info("GNSS heights: stored %d hour(s)", n_g)
             except Exception as exc:
                 hj_log.warning("GNSS heights failed: %s", exc)
+            # The boundary layer of the hour (collector/boundary.py, from
+            # 2026-10-29): wind profile, low-level jet, surface inversion;
+            # the first run back-fills from the observations still stored
+            try:
+                from collector import boundary as _bl
+                n_b = _bl.store_missing(db, max_hours=31 * 24 if first else 48,
+                                        pause_sec=0.2 if first else 0.0)
+                if n_b > 1:
+                    hj_log.info("Boundary layer: stored %d hour(s)", n_b)
+            except Exception as exc:
+                hj_log.warning("Boundary layer failed: %s", exc)
             first = False
             _ss = sondes.get()
             if _ss is not None:
@@ -950,6 +964,8 @@ def main() -> None:
     # Turbulence (EDR) of the stored landings / departures without one (from 2026-10-29)
     from collector import edr as _edr_mod
     _edr_mod.ELEV_FT = float(cfg.WINDSHEAR_THR_ELEVATION_FT)
+    from collector import boundary as _bl_mod
+    _bl_mod.init(cfg)
     threading.Thread(target=_edr_backfill, name="edr_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
     _seed_ws_day(ws_tracker)

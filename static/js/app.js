@@ -398,15 +398,17 @@
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
               aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
-  if (!['ws', 'cond', 'st', 'edr'].includes(A.mode)) A.mode = 'ws';
+  if (!['ws', 'cond', 'st', 'edr', 'bl', 'blt'].includes(A.mode)) A.mode = 'ws';
+  const isBl = () => A.mode === 'bl' || A.mode === 'blt';     // boundary layer (from 2026-10-29)
+  const pickHint = () => A.mode === 'st' ? 'Tap a cell for its flights.' : isBl() ? 'Tap a cell, a jet ◆ or the inversion bar.' : 'Tap a dot for the landing.';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
-  if (A.mode === 'st') $('app-aci-pick').textContent = 'Tap a cell for its flights.';
+  $('app-aci-pick').textContent = pickHint();
   $('app-aci-hours').addEventListener('change', e => { A.hours = parseInt(e.target.value, 10); lsSet('ms_app_aci_h', A.hours);
     A.all = false; A.cell = null; loadAci(); });
   $('app-aci-ws').addEventListener('change', e => {
     A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode); A.all = false; A.cell = null;
-    $('app-aci-pick').textContent = A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
+    $('app-aci-pick').textContent = pickHint();
     loadAci(); });
   const WS_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
   const ACI_COL_D = ['#34d399', '#a3e635', '#facc15', '#fb923c', '#f87171'];
@@ -418,13 +420,19 @@
     if (v.hidden) return;
     const cv = $('app-aci'), box = $('app-aci-box');
     const W = Math.max(280, v.clientWidth - 8);
-    const H = Math.max(220, Math.min(Math.round(W * (A.mode === 'edr' ? 1.25 : A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
+    const H = Math.max(220, Math.min(Math.round(W * (isBl() ? 1.0 : A.mode === 'edr' ? 1.25 : A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     box.style.width = W + 'px';
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (isBl()) {                    // boundary layer: no flight list under it
+      A.dots = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-aci-readout'), {
+        bl: A.bl, hours: A.hours, field: A.mode === 'blt' ? 'temp' : 'wind', fetchedMs: A.bl ? A.fetched : 0 });
+      $('app-aci-list').innerHTML = '';
+      return;
+    }
     A.dots = A.mode === 'st'
       ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
       : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
@@ -520,12 +528,13 @@
       const [aph, dep, st, sp, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
         A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
-        A.mode === 'st' ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        A.mode === 'st' || isBl() ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         A.mode === 'st' ? fetch(`/api/windshear/spacetime?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
         // METAR windshear groups and pilot reports near the airport (from 2026-10-29)
         A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
       ]);
       A.st = sp;
+      A.bl = isBl() ? await (await fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' })).json() : null;
       A.wx = wx;
       A.aph = Array.isArray(aph) ? aph : [];
       A.dep = Array.isArray(dep) ? dep : [];
@@ -543,7 +552,7 @@
       const dd = (d.x - x) ** 2 + (d.y - y) ** 2;
       if (dd < bd) { bd = dd; best = d; }
     }
-    $('app-aci-pick').textContent = best ? best.label : A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
+    $('app-aci-pick').textContent = best ? best.label : pickHint();
     if (A.mode === 'edr' && best && best.ms && best.ms !== A.selMs) { A.selMs = best.ms; drawAci(); }
     if (A.mode === 'st') {                     // the list follows the tapped cell
       const c = best && best.cell ? best.cell : null;
@@ -975,6 +984,34 @@
       weight: 1, fill: false, dashArray: '4 6' }).addTo(IM.ovl);
     L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], { interactive: false, radius: 5, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2 }).addTo(IM.ovl);
   }
+  // Boundary layer line under the aircraft (from 2026-10-29; always shown): the
+  // low-level jet and the surface inversion of the last hour (/api/boundary,
+  // fetched at most every 5 min while the ILS view is open) as chips, grey text
+  // when there is neither, "no recent flights" without data.
+  const IB = { rec: null, at: 0 };
+  async function loadBlNow() {
+    if (Date.now() - IB.at < 300000) return;
+    IB.at = Date.now();
+    try {
+      const d = await (await fetch('/api/boundary?hours=2', { cache: 'no-store' })).json();
+      const rows = Array.isArray(d) ? d.filter(r => (r.w && r.w.length >= 5) || (r.t && r.t.length >= 3)) : [];
+      // the hour in progress once it has enough data, else the last full hour
+      IB.rec = rows.length ? rows[rows.length - 1] : null;
+    } catch (_) { IB.at = 0; return; }
+    drawBlLine();
+  }
+  function drawBlLine() {
+    const el = $('app-ils-bl');
+    if (!el) return;
+    const r = IB.rec, red = isLight() ? '#b91c1c' : '#f87171';
+    if (!r) { el.innerHTML = `<b>Boundary layer</b> · <span class="dim">${IB.at ? 'no recent flights' : 'loading…'}</span>`; return; }
+    el.innerHTML = `<b>Boundary layer</b>, ${r.partial ? 'this hour' : 'last hour'} · ` +
+      (r.llj ? `<span class="app-bl-chip" title="low-level jet: ${r.llj.drop} m/s weaker within 1500 ft above">LLJ ${r.llj.ft} ft · ${r.llj.kt} kt ${String(r.llj.dir).padStart(3, '0')}°</span> `
+             : '<span class="dim">no jet</span> · ') +
+      (r.inv ? `<span class="app-bl-chip" style="color:${red};border-color:${red}" title="600–1000 ft against the METAR ${r.tt} °C">surface INV +${Math.round(r.inv.dT)} K</span> `
+             : (r.tt != null && r.t && r.t.length ? '<span class="dim">no inversion</span> ' : '<span class="dim">temperature: too few flights</span> ')) +
+      '<span class="ws-research-tag">research</span>';
+  }
   // EDR pieces of the map, fetched at most once a minute while the option is on
   const IE = { tracks: [], at: 0, min: 0 };
   async function loadEdrTracks() {
@@ -1096,6 +1133,7 @@
     $('app-ils-wspick').textContent = best ? best.label : 'Tap a dot for the landing.';
   });
   function drawIls() {
+    drawBlLine();
     const v = $('v-ils');
     if (v.hidden) return;
     const cv = $('app-ils'), box = $('app-ils-box');
@@ -1186,6 +1224,7 @@
       drawIls();
       if (I.wsaci !== 'off') loadIlsWs();
       if (I.edrmap !== 'off') loadEdrTracks();
+      loadBlNow();
     } catch (_) { $('app-sub').textContent = 'Could not load the approach traffic.'; }
   }
   $('app-ils').addEventListener('pointerdown', e => {

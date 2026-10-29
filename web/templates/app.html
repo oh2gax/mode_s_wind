@@ -86,6 +86,7 @@
       <div id="app-ils-wsro" class="app-meta app-aci-readout"></div>
     </div>
     <div id="app-ils-pick" class="app-pick app-ils-pick"></div>
+    <div id="app-ils-bl" class="app-meta app-ils-edr"></div>
     <div id="app-ils-edr" class="app-meta app-ils-edr" hidden></div>
     <div id="app-ils-list" class="app-strips"></div>
   </section>
@@ -262,7 +263,7 @@
     <div class="app-switches">
       <label class="app-switch"><span>Trails</span><input type="checkbox" id="app-ils-trails"></label>
     </div>
-    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft (on the profile or the map) or its strip to follow another one. The map keeps the place and zoom you leave it at; ⌂ goes back to the airport. Departures (climb-outs) are hidden unless you choose to show them; they are marked with their runway and ↑. A speed vector shows where the aircraft will be after 30 s (1 or 2 min) at its ground speed. Altitudes are shown as on a controller's radar label: A023 = 2 300 ft on the QNH, FL061 above 5 000 ft. A landed aircraft fades 15 s after its last position and goes after 30 s. The WS + ACI chart is the chart of the ACI · WS · ST view. Turbulence on the map (research): the straight pieces of the landings' and departures' paths of the last 30 min or 1 h coloured by their EDR — green smooth, yellow light (0.10), orange moderate (0.20), red severe (0.45); the strongest on top; a line under the aircraft gives the maximum and the median below and above 1000 ft.</div>
+    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft (on the profile or the map) or its strip to follow another one. The map keeps the place and zoom you leave it at; ⌂ goes back to the airport. Departures (climb-outs) are hidden unless you choose to show them; they are marked with their runway and ↑. A speed vector shows where the aircraft will be after 30 s (1 or 2 min) at its ground speed. Altitudes are shown as on a controller's radar label: A023 = 2 300 ft on the QNH, FL061 above 5 000 ft. A landed aircraft fades 15 s after its last position and goes after 30 s. The WS + ACI chart is the chart of the ACI · WS · ST view. Turbulence on the map (research): the straight pieces of the landings' and departures' paths of the last 30 min or 1 h coloured by their EDR — green smooth, yellow light (0.10), orange moderate (0.20), red severe (0.45); the strongest on top; a line under the aircraft gives the maximum and the median below and above 1000 ft. The boundary-layer line shows the low-level jet (LLJ) and a surface inversion (INV) of the last hour, when there is one.</div>
   </details>
 
   <details class="app-sec" data-for="aci">
@@ -270,8 +271,8 @@
     <div class="app-field"><span>Range</span>
       <select id="app-aci-hours" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
     <div class="app-field"><span>Show</span>
-      <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option><option value="edr">ACI + EDR + WS</option><option value="st">Space–time</option></select></div>
-    <div class="app-small">ACI + EDR + WS (research): between the ACI and the windshear the turbulence (EDR) of each landing (dot) and departure (ring) from its own Mode S replies, with the ICAO lines light 0.10, moderate 0.20 and severe 0.45; tap a flight to mark it in all three. Space–time: the headwind change of every height band of the landings and departures against the flights before them — blue less, red more. A front is a streak through the flights. Tap a cell for its flights.</div>
+      <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option><option value="edr">ACI + EDR + WS</option><option value="st">Space–time</option><option value="bl">Boundary layer · wind</option><option value="blt">Boundary layer · temperature</option></select></div>
+    <div class="app-small">ACI + EDR + WS (research): between the ACI and the windshear the turbulence (EDR) of each landing (dot) and departure (ring) from its own Mode S replies, with the ICAO lines light 0.10, moderate 0.20 and severe 0.45; tap a flight to mark it in all three. Boundary layer (research): the wind (or the temperature against the surface) from 0 to 5000 ft hour by hour, the low-level jet (◆ its nose and speed, joined hour to hour) and the surface inversion (red bar along the bottom); hatched where there were no flights. Space–time: the headwind change of every height band of the landings and departures against the flights before them — blue less, red more. A front is a streak through the flights. Tap a cell for its flights.</div>
   </details>
 
   <details class="app-sec" data-for="hist">

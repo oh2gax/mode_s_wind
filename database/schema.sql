@@ -541,3 +541,15 @@ CREATE TABLE IF NOT EXISTS pilot_reports (
     UNIQUE(src, ts, raw)
 );
 CREATE INDEX IF NOT EXISTS idx_pilot_reports_ts ON pilot_reports(ts);
+
+-- ── bl_hours ─────────────────────────────────────────────────────────────────
+-- The boundary layer at the airport per UTC hour (collector/boundary.py, from
+-- 2026-10-29; hourly jobs thread, back-filled at the first start): data = JSON
+-- {"w": [[ft MSL, kt, dir, n]] wind 250–5000 ft, "t": [[ft MSL, °C, flights]]
+-- low-level temperatures 400–3000 ft, "tt" / "q" METAR temperature / QNH,
+-- "llj" low-level jet {ft, kt, dir, drop, sh} or null, "inv" surface inversion
+-- {dT, top} or null}.  About 1–1.5 kB a row; never purged.
+CREATE TABLE IF NOT EXISTS bl_hours (
+    ts   INTEGER PRIMARY KEY,   -- hour start (UTC, Unix s)
+    data TEXT    NOT NULL
+);

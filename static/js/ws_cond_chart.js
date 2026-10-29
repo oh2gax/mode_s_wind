@@ -24,6 +24,9 @@
  *
  * WsCondChart.drawSpaceTime(ctx, W, H, readoutEl, { st, hours, fetchedMs })
  * draws the space–time diagram of the ST view (from 2026-10-27, see below).
+ *
+ * WsCondChart.drawBoundaryLayer(ctx, W, H, readoutEl, { bl, hours, field, fetchedMs })
+ * draws the boundary layer (BL view, from 2026-10-29, see below).
  */
 'use strict';
 
@@ -668,5 +671,126 @@ const WsCondChart = (() => {
     return dots;
   }
 
-  return { draw, drawSpaceTime, rangeLabel: wrRangeLabel };
+
+  // ── Boundary layer (BL view, from 2026-10-29; RESEARCH) ─────────────────────
+  // Time × height 0–5000 ft MSL from /api/boundary (collector/boundary.py), one
+  // column per UTC hour (the hour in progress included): field 'wind' — the wind
+  // speed of the 250-ft bins (kt colours), or 'temp' — the temperature of the
+  // 200-ft bands 400–3000 ft against the METAR temperature (red warmer = inversion,
+  // blue colder); hatched where there were no flights.  The low-level jet's nose as
+  // a diamond with its speed, joined hour to hour (the jet core); a surface
+  // inversion as a red bar along the bottom.  Hover / tap: the cell, the jet, the
+  // inversion.
+  // d = { bl: [{ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, llj: {ft, kt, dir, drop, sh}, inv: {dT, top}, partial}],
+  //       hours, field: 'wind' | 'temp', fetchedMs, nowMs }
+  const BL_TOP = 5000;
+  function _spdCol(v) {           // kt → colour (blue … green … yellow … red)
+    const stops = [[0, [30, 58, 138]], [10, [14, 116, 144]], [20, [16, 185, 129]], [30, [234, 179, 8]], [40, [249, 115, 22]], [55, [220, 38, 38]]];
+    let i = 0; while (i < stops.length - 2 && v > stops[i + 1][0]) i++;
+    const [a, ca] = stops[i], [b, cb] = stops[i + 1], f = Math.max(0, Math.min(1, (v - a) / (b - a)));
+    return `rgb(${ca.map((c, k) => Math.round(c + (cb[k] - c) * f)).join(',')})`;
+  }
+  function _dtCol(v, light) {     // T − T_surface: blue colder … white … red warmer (inversion)
+    const f = Math.max(-1, Math.min(1, v / 8));
+    const w = light ? [248, 250, 252] : [226, 232, 240];
+    const t = f >= 0 ? [220, 38, 38] : [37, 99, 235];
+    const g = Math.abs(f);
+    return `rgb(${w.map((c, k) => Math.round(c + (t[k] - c) * g)).join(',')})`;
+  }
+  function drawBoundaryLayer(ctx, W, H, readout, d) {
+    const CT = theme(), light = isLight(), dots = [];
+    const hours = d.hours || 24, nowMs = d.nowMs || Date.now(), t0 = nowMs - hours * 3_600_000;
+    const L = 34, R = 8, T = 22, B = 18, PW = W - L - R, PH = H - T - B;
+    const xOf = ms => L + (ms - t0) / (hours * 3_600_000) * PW;
+    const yOf = ft => T + PH - Math.max(0, Math.min(BL_TOP, ft)) / BL_TOP * PH;
+    const field = d.field || 'wind';
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = CT.roseBg; ctx.fillRect(0, 0, W, H);
+    // hatch for no data
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+    ctx.strokeStyle = light ? 'rgba(100,116,139,.18)' : 'rgba(148,163,184,.12)'; ctx.lineWidth = 1;
+    for (let x = L - PH; x < L + PW; x += 7) { ctx.beginPath(); ctx.moveTo(x, T + PH); ctx.lineTo(x + PH, T); ctx.stroke(); }
+    ctx.restore();
+    const rows = (d.bl || []).filter(r => r.ts * 1000 >= t0 - 3_600_000 && r.ts * 1000 <= nowMs);
+    const cw = PW / hours;
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+    for (const r of rows) {
+      const x = xOf(r.ts * 1000), x1 = xOf(r.ts * 1000 + 3_600_000);
+      if (field === 'wind') for (const [ft, kt, dir, n] of r.w || []) {
+        const ya = yOf(ft + 125), yb = yOf(ft - 125);
+        ctx.fillStyle = _spdCol(kt); ctx.fillRect(x, ya, x1 - x + 0.5, yb - ya + 0.5);
+        dots.push({ x: (x + x1) / 2, y: (ya + yb) / 2, dotR: Math.max(4, Math.min(cw, yb - ya) / 2),
+          color: CT.roseLabel, label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z${r.partial ? ' (so far)' : ''} ${ft} ft: ${String(dir).padStart(3, '0')}°/${kt} kt` + (n ? ` (${n} obs)` : '') });
+      }
+      if (field === 'temp' && r.tt != null) for (const [ft, tc] of r.t || []) {
+        const ya = yOf(ft + 100), yb = yOf(ft - 100), v = tc - r.tt;
+        ctx.fillStyle = _dtCol(v, light); ctx.fillRect(x, ya, x1 - x + 0.5, yb - ya + 0.5);
+        dots.push({ x: (x + x1) / 2, y: (ya + yb) / 2, dotR: Math.max(4, Math.min(cw, yb - ya) / 2), color: CT.roseLabel,
+          label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z ${ft} ft: ${tc.toFixed(1)} °C, ${v >= 0 ? '+' : ''}${v.toFixed(1)} K against the surface (METAR ${r.tt} °C)` });
+      }
+    }
+    ctx.restore();
+    // axes
+    ctx.strokeStyle = CT.roseRing; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
+    ctx.font = '9px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let ft = 0; ft <= BL_TOP; ft += 1000) {
+      ctx.fillText(ft ? `${ft / 1000}k` : '0', L - 4, yOf(ft));
+      ctx.strokeStyle = CT.roseOuter; ctx.beginPath(); ctx.moveTo(L, Math.round(yOf(ft)) + 0.5); ctx.lineTo(L + PW, Math.round(yOf(ft)) + 0.5); ctx.stroke();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const tickH = hours <= 6 ? 1 : hours <= 12 ? 2 : 3, tickMs = tickH * 3_600_000;
+    for (let h = Math.ceil(t0 / tickMs) * tickMs; h <= nowMs; h += tickMs) {
+      ctx.fillText(String(new Date(h).getUTCHours()).padStart(2, '0') + 'Z', xOf(h), T + PH + 4);
+    }
+    // inversion: a red bar along the bottom (clipped to the plot, like the cells)
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+    for (const r of rows) {
+      if (!r.inv) continue;
+      const x = xOf(r.ts * 1000), x1 = xOf(r.ts * 1000 + 3_600_000);
+      ctx.save(); ctx.globalAlpha = 0.9;
+      ctx.fillStyle = light ? '#b91c1c' : '#f87171'; ctx.fillRect(x + 1, T + PH - 5, x1 - x - 2, 5);
+      ctx.restore();
+      dots.push({ x: (x + x1) / 2, y: T + PH - 3, dotR: 5, color: light ? '#b91c1c' : '#f87171',
+        label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z surface inversion: the air at 600–1000 ft ${r.inv.dT.toFixed(1)} K warmer than at the surface (METAR ${r.tt} °C), warmer than the surface up to about ${r.inv.top} ft` });
+    }
+    ctx.restore();
+    // low-level jet: diamonds at the nose, joined hour to hour (the jet core)
+    const jc = light ? '#0f172a' : '#ffffff';
+    let prev = null;
+    ctx.save();
+    for (const r of rows.slice().sort((a, b) => a.ts - b.ts)) {
+      if (!r.llj) { prev = null; continue; }
+      const x = (xOf(r.ts * 1000) + xOf(r.ts * 1000 + 3_600_000)) / 2, y = yOf(r.llj.ft);
+      if (prev && r.ts - prev.ts <= 3600) { ctx.strokeStyle = jc; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(x, y); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath();
+      ctx.fillStyle = jc; ctx.fill(); ctx.strokeStyle = light ? '#fff' : '#0f172a'; ctx.lineWidth = 1; ctx.stroke();
+      if (cw > 14) { ctx.font = 'bold 8px "Courier New",monospace'; ctx.fillStyle = jc; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(String(r.llj.kt), x, y - 6); }
+      dots.push({ x, y, dotR: 6, color: jc,
+        label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z low-level jet: ${r.llj.kt} kt from ${String(r.llj.dir).padStart(3, '0')}° at ${r.llj.ft} ft` +
+               `\n${r.llj.drop} m/s weaker within 1500 ft above` + (r.llj.sh != null ? ` · shear below ${r.llj.sh} kt per 1000 ft` : '') });
+      prev = { ts: r.ts, x, y };
+    }
+    ctx.restore();
+    if (!rows.length) {
+      ctx.fillStyle = CT.noTraffic; ctx.font = '10px "Courier New",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(d.fetchedMs ? 'No boundary-layer data in the range' : 'Loading…', L + PW / 2, T + PH / 2);
+    }
+    // title
+    ctx.font = '10px "Courier New",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = CT.roseLabel;
+    ctx.fillText(field === 'wind' ? 'Boundary layer · wind speed' : 'Boundary layer · temperature against the surface', 5, 5);
+    ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5, 5);
+    if (readout) {
+      const last = rows.filter(r => nowMs - r.ts * 1000 <= 2 * 3_600_000).sort((a, b) => b.ts - a.ts)[0];
+      const nj = rows.filter(r => r.llj).length, ni = rows.filter(r => r.inv).length;
+      const now = last ? [last.llj ? `<b>low-level jet ${last.llj.ft} ft ${last.llj.kt} kt</b> from ${String(last.llj.dir).padStart(3, '0')}°` : 'no low-level jet',
+                          last.inv ? `<b style="color:${light ? '#b91c1c' : '#f87171'}">surface inversion +${last.inv.dT.toFixed(0)} K</b> (600–1000 ft against the surface)` : 'no surface inversion'].join(' · ') : 'no data in the last hours';
+      const key = field === 'wind'
+        ? ['0', '10', '20', '30', '40', '55'].map(v => `<span style="color:${_spdCol(+v)}">■</span>${v}`).join(' ') + ' kt'
+        : `<span style="color:${_dtCol(-6, light)}">■</span>−6 <span style="color:${_dtCol(0, light)}">■</span>0 <span style="color:${_dtCol(6, light)}">■</span>+6 K`;
+      readout.innerHTML = `Last hour: ${now}<br>${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h <span class="ws-research-tag">research</span>` +
+        `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key} · ▨ no flights</span>`;
+    }
+    return dots;
+  }
+
+  return { draw, drawBoundaryLayer, drawSpaceTime, rangeLabel: wrRangeLabel };
 })();

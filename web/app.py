@@ -1553,6 +1553,18 @@ def create_app(
             out.append(e)
         return _gzip_json(out) if full else jsonify(out)
 
+    @app.route("/api/boundary")
+    def boundary_api():
+        """The boundary layer at the airport (collector/boundary.py, from
+        2026-10-29): the hours of the last ?hours= (1–168, default 24) from
+        bl_hours, oldest first, and the hour in progress ("partial": 1) —
+        [{ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv}]."""
+        from collector import boundary as _bl
+        try:
+            return _gzip_json(_bl.query(get_db(), request.args.get("hours", 24, type=float)))
+        except Exception:                              # noqa: BLE001  (older database)
+            return jsonify([])
+
     @app.route("/api/windshear/edr-tracks")
     def windshear_edr_tracks_api():
         """Turbulence (EDR) along the paths of the landings and departures of the

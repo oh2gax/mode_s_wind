@@ -1919,12 +1919,12 @@ const WINDROSE_MAX_AGE_MS    = 30 * 60 * 1000;     // 30-minute window for main 
 const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist trend arrows
 
 let windroseEnabled      = true;   // shown by default
-let wrView               = ['cond', 'ws', 'st', 'edr'].includes(   // 'edr': ACI + EDR + WS (from 2026-10-29)
+let wrView               = ['cond', 'ws', 'st', 'edr', 'bl'].includes(   // 'edr': ACI + EDR + WS, 'bl': boundary layer (from 2026-10-29)
                              localStorage.getItem('ms_ws_wr_view'))
                            ? localStorage.getItem('ms_ws_wr_view')
                            : (localStorage.getItem('ms_ws_wr_view') === 'rose' ? 'rose' : 'cond');
                            // 'rose' | 'cond' | 'ws' (ACI + windshear) | 'st' (space–time, from 27 Oct 2026); first visit: ACI
-const wrIsChart = () => wrView === 'cond' || wrView === 'ws' || wrView === 'st' || wrView === 'edr';   // the views with the range button
+const wrIsChart = () => wrView === 'cond' || wrView === 'ws' || wrView === 'st' || wrView === 'edr' || wrView === 'bl';   // the views with the range button
 let wrStData             = null;   // /api/windshear/spacetime answer (ST view)
 const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
 let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
@@ -1934,6 +1934,9 @@ let wrCondFetchedMs      = 0;
 let wrAphEntries         = [];     // all landings of the chart range (ACI + WS view: also those without an index)
 let wrDepEntries         = [];     // departures with a windshear report (ACI + WS view)
 let wrWxRep              = null;   // METAR WS groups + pilot reports near the airport (ACI + WS view, from 2026-10-29)
+let wrBl                 = null;   // boundary layer hours (BL view, /api/boundary, from 2026-10-29)
+let wrBlField            = (() => { try { return localStorage.getItem('ms_ws_bl_field') === 'temp' ? 'temp' : 'wind'; }
+                                      catch (_) { return 'wind'; } })();   // BL view: wind / temperature
 let wrGaEvents           = [];     // go-arounds of the last 24 h (from /api/windshear/state)
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
@@ -2280,13 +2283,13 @@ function sizeWindroseCanvas() {
   if (!canvas) return;
   let w = WR_ROSE_SIZE;
   let h = WR_ROSE_SIZE;
-  if (wrView === 'ws' || wrView === 'st' || wrView === 'edr') {
+  if (wrView === 'ws' || wrView === 'st' || wrView === 'edr' || wrView === 'bl') {
     // room between the panel and the map's bottom edge (map attribution: 22 px)
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
       const rest = panel.offsetHeight - canvas.height;          // buttons + readout + padding
       // EDR view (three strips, from 2026-10-29): down to the map's bottom edge (over the attribution), up to +320 px
-      const edrV = wrView === 'edr';
+      const edrV = wrView === 'edr' || wrView === 'bl';
       const room = box.clientHeight - panel.offsetTop - rest - (edrV ? 4 : 22);
       h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + (edrV ? 320 : WR_WS_EXTRA), Math.floor(room)));
     }
@@ -2306,6 +2309,16 @@ const wrRangeLabel = h => (h === 24 ? '1d' : `${h}h`);
 
 async function fetchCondData() {
   if (wrView === 'st') return fetchSpaceTime();
+  if (wrView === 'bl') {
+    try {
+      const r = await fetch(`/api/boundary?hours=${wrCondHours}`);
+      if (!r.ok) return;
+      wrBl = await r.json();
+      wrCondFetchedMs = Date.now();
+      if (windroseEnabled && wrView === 'bl') drawWindrose();
+    } catch (_) { /* silent */ }
+    return;
+  }
   try {
     const win = wrCondHours * 3600;
     const [r, rd, rw] = await Promise.all([
@@ -2342,6 +2355,11 @@ async function fetchSpaceTime() {
 function drawCondChart() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
+  if (wrView === 'bl') {
+    wrHistDots = WsCondChart.drawBoundaryLayer(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
+      bl: wrBl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0 });
+    return;
+  }
   if (wrView === 'st') {
     wrHistDots = WsCondChart.drawSpaceTime(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
       st: wrStData, hours: wrCondHours, fetchedMs: wrStData ? wrCondFetchedMs : 0 });
@@ -2366,6 +2384,11 @@ function _syncWrViewBtns() {
     rangeBtn.style.display = chart ? '' : 'none';
     rangeBtn.textContent   = wrRangeLabel(wrCondHours);
   }
+  const blBtn = document.getElementById('ws-bl-field-btn');
+  if (blBtn) {
+    blBtn.style.display = wrView === 'bl' ? '' : 'none';
+    blBtn.textContent   = wrBlField === 'temp' ? 'T' : 'Wind';
+  }
 }
 document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2376,6 +2399,16 @@ document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
     drawWindrose();
   });
 });
+// BL view: wind speed ↔ temperature against the surface (from 2026-10-29)
+const _blFieldBtn = document.getElementById('ws-bl-field-btn');
+if (_blFieldBtn) {
+  _blFieldBtn.addEventListener('click', () => {
+    wrBlField = wrBlField === 'wind' ? 'temp' : 'wind';
+    try { localStorage.setItem('ms_ws_bl_field', wrBlField); } catch (_) {}
+    _syncWrViewBtns();
+    drawWindrose();
+  });
+}
 const _wrRangeBtn = document.getElementById('ws-wr-range-btn');
 if (_wrRangeBtn) {
   _wrRangeBtn.addEventListener('click', () => {
