@@ -749,7 +749,9 @@
               // Show: profile / map / both, aircraft on the map: app / all (from 2026-10-28)
               show: lsGet('ms_app_ils_show', 'both'), mapac: lsGet('ms_app_ils_mapac', 'app'),
               // WS + ACI chart under the profile / map: off / 3 / 6 h (from 2026-10-29)
-              wsaci: lsGet('ms_app_ils_wsaci', 'off') };
+              wsaci: lsGet('ms_app_ils_wsaci', 'off'),
+              // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
+              vec: lsGet('ms_app_ils_vec', 'off') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -758,10 +760,12 @@
   if (!['profile', 'map', 'both'].includes(I.show)) I.show = 'both';
   if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
   if (!['off', '3', '6'].includes(I.wsaci)) I.wsaci = 'off';
+  if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
-                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci']];
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci'],
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
@@ -805,6 +809,15 @@
   function selectIls(icao) {
     if (icao) { I.sel = icao; I.manual = true; } else { I.manual = false; autoSel(); }
     drawIls();
+  }
+  // The point an aircraft reaches after sec seconds at its ground speed (kt) along its
+  // track (great circle; the end of a speed vector, from 29 Oct 2026).
+  function vecEnd(lat, lon, trackDeg, gsKt, sec) {
+    const d = gsKt * sec / 3600 * 1852 / 6371000, br = trackDeg * Math.PI / 180;
+    const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+    const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(br));
+    const lo2 = lo + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+    return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
   }
   // ── the approach map (from 2026-10-28) ──────────────────────────────────
   // The aircraft as on a radar screen: an open square in the colour of the
@@ -907,6 +920,11 @@
       // source, the selected one in white (dark theme) / near-black (light theme, white would vanish
       // on the light tiles); 12 px selected, 10 px on the approach, 8 px others, in a 24-px tap area
       const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 10 : 8, H = 24, o = (H - s) / 2;
+      // speed vector (from 2026-10-29): to where the aircraft will be after 30 s / 1 / 2 min at its
+      // ground speed along its track, in map distance; not for a landed aircraft
+      if (I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null)
+        L.polyline([[a.lat, a.lon], vecEnd(a.lat, a.lon, a.track, a.groundspeed, +I.vec)], { interactive: false,
+          color: sel ? (light ? '#0f172a' : '#fff') : c, weight: sel ? 2 : 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
               ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 2.4 : onA ? 2 : 1.5}"/></svg>` });

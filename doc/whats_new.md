@@ -3,14 +3,15 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.29102026 — Altitudes as ATC sees them on the phone, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner
+## v.29102026 — Altitudes as ATC sees them on the phone, speed vectors, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner
 
 - **Altitudes as a controller sees them** (ILS approach on the phone): the map, the strips and the selected aircraft show the altitude as on a radar label — **A023** is 2 300 ft above sea level on today's QNH, above 5 000 ft the flight level (**FL061**). The map's altitudes are now corrected for the air pressure, as the Windshear page's profile already was.
 - **The approach map looks like a radar screen**: each aircraft is an open square in the colour of its wind source, the selected one framed in white, with just its callsign and altitude.
+- **Speed vectors** (phone and Windshear page): as on a radar screen, a line from each aircraft to where it will be in 30 seconds, 1 or 2 minutes — the faster it flies, the longer the line. On the phone: menu › ILS approach options › *Speed vectors*; on the Windshear page the **Vec** button above the map. Off by default.
 - **More room for the flight strips**: with *Show: Both* the profile is lower and with *Show: Map* the map is smaller, so three or four strips fit under them on a phone.
 - **WS + ACI chart in the ILS approach view**: the menu has a new option *WS + ACI chart* (Off, 3 h, 6 h). Switched on, the approach conditions and windshear chart of the last hours is shown under the profile or the map, before the strips.
 - **Landed aircraft leave sooner** (Windshear page and phone): an aircraft that has landed used to stay on the map and in the strips for about a minute and a half. Now it fades 15 seconds after its last position near the runway (**LANDED?**) and goes after 30 seconds.
-- The *MODE-S Wind on a phone* guide (version 1.12) and the Windshear guide (version 2.3) explain them.
+- The *MODE-S Wind on a phone* guide (version 1.14) and the Windshear guide (version 2.4) explain them.
 
 ## v.28102026 — History, space–time, Statistics and an approach map on the phone; a better search; maps remember their view; Pi or Server; signal chart
 

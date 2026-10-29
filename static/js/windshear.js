@@ -279,6 +279,22 @@ function makeAcIcon(src) {
   });
 }
 
+// The point an aircraft reaches after sec seconds at its ground speed (kt) along its
+// track (great circle; the end of a speed vector, from 29 Oct 2026).
+function wsVecEnd(lat, lon, trackDeg, gsKt, sec) {
+  const d = gsKt * sec / 3600 * 1852 / 6371000, br = trackDeg * Math.PI / 180;
+  const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(br));
+  const lo2 = lo + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
+}
+
+// Speed vectors on the map (from 29 Oct 2026): the button cycles Off → 30 s →
+// 1 min → 2 min (ms_ws_vec); each aircraft gets a line to where it will be after
+// that time at its ground speed along its track, in the colour of its square.
+const WS_VEC_STEPS = [0, 30, 60, 120];
+let wsVecSec = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_vec'), 10); return WS_VEC_STEPS.includes(v) ? v : 0; } catch (_) { return 0; } })();
+
 function updateMapMarkers(aircraft) {
   const seen = new Set();
 
@@ -291,6 +307,7 @@ function updateMapMarkers(aircraft) {
       if (acMarkers[ac.icao]) {
         map.removeLayer(acMarkers[ac.icao].marker);
         map.removeLayer(acMarkers[ac.icao].label);
+        if (acMarkers[ac.icao].vec) map.removeLayer(acMarkers[ac.icao].vec);
         delete acMarkers[ac.icao];
       }
       continue;
@@ -337,6 +354,14 @@ function updateMapMarkers(aircraft) {
 
       acMarkers[ac.icao] = { marker, label };
     }
+    // speed vector (not for a landed aircraft)
+    const m = acMarkers[ac.icao];
+    if (m.vec) { map.removeLayer(m.vec); m.vec = null; }
+    if (wsVecSec && !ac.landed && ac.groundspeed > 30 && ac.track != null) {
+      m.vec = L.polyline([[ac.lat, ac.lon], wsVecEnd(ac.lat, ac.lon, ac.track, ac.groundspeed, wsVecSec)], {
+        interactive: false, color: acColor(ac.meteo_source), weight: ac.in_corridor ? 1.8 : 1.4,
+        opacity: ac.in_corridor ? 0.95 : 0.6 }).addTo(map);
+    }
   }
 
   // Remove stale markers
@@ -344,6 +369,7 @@ function updateMapMarkers(aircraft) {
     if (!seen.has(icao)) {
       map.removeLayer(acMarkers[icao].marker);
       map.removeLayer(acMarkers[icao].label);
+      if (acMarkers[icao].vec) map.removeLayer(acMarkers[icao].vec);
       delete acMarkers[icao];
     }
   }
@@ -1477,6 +1503,23 @@ ilsFilterBtn.addEventListener('click', () => {
   ilsFilterBtn.classList.toggle('active', ilsFilterActive);
   updateMapMarkers(lastAircraft);
 });
+
+// ── Speed vectors button (from 29 Oct 2026) ───────────────────────────────────
+(function () {
+  const btn = document.getElementById('ws-vec-btn');
+  if (!btn) return;
+  const show = () => {
+    btn.textContent = wsVecSec ? `Vec ${wsVecSec < 60 ? wsVecSec + ' s' : wsVecSec / 60 + ' min'}` : 'Vec';
+    btn.classList.toggle('active', !!wsVecSec);
+  };
+  show();
+  btn.addEventListener('click', () => {
+    wsVecSec = WS_VEC_STEPS[(WS_VEC_STEPS.indexOf(wsVecSec) + 1) % WS_VEC_STEPS.length];
+    try { localStorage.setItem('ms_ws_vec', String(wsVecSec)); } catch (_) {}
+    show();
+    updateMapMarkers(lastAircraft);
+  });
+})();
 
 // ── Wind Rose toggle ──────────────────────────────────────────────────────────
 document.getElementById('ws-windrose-btn').addEventListener('click', () => {

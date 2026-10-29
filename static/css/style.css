@@ -917,6 +917,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-ils-filter-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-ils-filter-btn.active { background: #d97706; color: #fff; border-color: #d97706; }
+.ws-vec-btn.active        { background: #0e7490; border-color: #0e7490; }   /* speed vectors on (29 Oct 2026) */
 
 /* Wind barb split button group  [ 🌬 Barbs | Auto ] */
 .ws-barb-group {

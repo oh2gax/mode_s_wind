@@ -7,18 +7,22 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.29102026 — 2026-10-29 (mobile ILS view: ATC-style altitudes, more room for the strips, WS + ACI chart; landed aircraft leave the windshear views sooner)
+## v.29102026 — 2026-10-29 (mobile ILS view: ATC-style altitudes, more room for the strips, WS + ACI chart; landed aircraft leave the windshear views sooner; speed vectors)
 
 ### Mobile view /app: ILS approach
 - **ATC-style altitudes** (user request): on the approach map, the selected aircraft's label, the line under the profile and the strips the altitude reads as on a controller's radar label — up to the transition altitude 5 000 ft `A` + hundreds of feet on the METAR QNH (`A023`), above it the flight level from the pressure altitude (`FL061`). The map labels were not QNH-corrected before (pressure altitude rounded to 100 ft; at QNH 1003 about 270 ft too high), the strips gave the exact pressure altitude. `atcAlt` in `static/js/app.js`.
 - **More room for the strips** (portrait): *Show: Both* — map 40 % and profile 26 % of the view height (were 42 % each); *Show: Map* — map 58 % (was the height minus 150 px). On a 390 × 844 phone three or four strips are visible under them instead of one or none.
 - **WS + ACI chart** (user request): new option *WS + ACI chart* Off (default) / 3 h / 6 h — the ACI + windshear chart of the ACI · WS · ST view under the profile (or under the map with *Show: Map*), before the strips; tap a dot for the flight, one line with the last hour's ACI and the period's windshear alerts. Landings and departures fetched at most once a minute. `web/templates/app.html`, `static/js/app.js` (`loadIlsWs`, `drawIlsWs`), `static/css/app.css`.
 - **Approach map as on a radar screen** (user request): the aircraft are open squares framed in the meteo-source colour (8 / 10 / 12 px: others / on the approach / selected) instead of filled ones; the selected aircraft's square is framed in white (near-black in the light theme, where white would vanish on the light tiles), and its label gives only the callsign and altitude (`A004`) — no more runway and distance.
-- Mobile user guide 1.12 (17 pp); 1.13 with the open squares.
+- **Speed vectors** (user request): option *Speed vectors* Off (default) / 30 s / 1 min / 2 min — a line from each aircraft to where it will be after that time at its ground speed along its track, as on a radar screen (in map distance, so it grows with the speed; below 5 000 ft 30 s is 1.2–2.1 NM, 1 min 2.3–4.2 NM); white for the selected aircraft, none for a landed one. `/api/windshear/state?lite=1&map=1` (and `&near=1`) now includes `groundspeed` (`_WS_MAP_KEYS`, `_WS_NEAR_KEYS` in `web/app.py`). `static/js/app.js` (`vecEnd`), `web/templates/app.html`.
+- Mobile user guide 1.12 (17 pp); 1.13 with the open squares; 1.14 with the speed vectors.
 
 ### Windshear page and /app: a landed aircraft leaves sooner
 - After touchdown an aircraft stayed on the map, the ILS profile and the strips for about 95 s at its last position (about 0.6 NM, 385 ft): the receiver's aircraft list and later ground replies keep it "heard", so the server's 30-s timeout starts late. Within 2 NM of the threshold and below 1 000 ft the time since the aircraft's position last changed now decides: from 15 s it is shown faded as landed (grey square with *landed*, grey profile dot, dimmed strip with *LANDED?*), from 30 s it is no longer shown, and the automatic barb selection moves on to the next aircraft. Display only — the landing records and the windshear detection are unchanged. `static/js/windshear.js` (`wsLandedFilter`), `static/js/ils_profile.js` (`IlsProfile.landedFilter`), `static/css/style.css`, `static/css/app.css`.
 - Windshear user guide 2.3.
+
+### Windshear page: speed vectors on the map
+- New **Vec** button above the map: Off → 30 s → 1 min → 2 min (remembered in the browser): the same speed vectors as on the phone, in the colour of each aircraft's square, none for a landed aircraft. `static/js/windshear.js` (`wsVecEnd`, `updateMapMarkers`), `web/templates/windshear.html`, `static/css/style.css`. Windshear user guide 2.4.
 
 ---
 

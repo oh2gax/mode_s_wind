@@ -236,6 +236,8 @@
       <select id="app-ils-show" data-chips><option value="profile">Profile</option><option value="map">Map</option><option value="both">Both</option></select></div>
     <div class="app-field"><span>Aircraft on the map</span>
       <select id="app-ils-mapac" data-chips><option value="app">On the approach</option><option value="all">All tracked ({{ radius_nm|round|int }} NM)</option></select></div>
+    <div class="app-field"><span>Speed vectors</span>
+      <select id="app-ils-vec" data-chips><option value="off">Off</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></div>
     <div class="app-field"><span>Runway</span>
       <select id="app-ils-rwy" data-chips>
         <option value="">All</option><option value="04L&amp;R">04L+R</option><option value="22L&amp;R">22L+R</option>
@@ -255,7 +257,7 @@
     <div class="app-switches">
       <label class="app-switch"><span>Trails</span><input type="checkbox" id="app-ils-trails"></label>
     </div>
-    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft (on the profile or the map) or its strip to follow another one. The map keeps the place and zoom you leave it at; ⌂ goes back to the airport. Altitudes are shown as on a controller's radar label: A023 = 2 300 ft on the QNH, FL061 above 5 000 ft. A landed aircraft fades 15 s after its last position and goes after 30 s. The WS + ACI chart is the chart of the ACI · WS · ST view.</div>
+    <div class="app-small">Barbs are drawn for the lowest aircraft on the approach; tap an aircraft (on the profile or the map) or its strip to follow another one. The map keeps the place and zoom you leave it at; ⌂ goes back to the airport. A speed vector shows where the aircraft will be after 30 s (1 or 2 min) at its ground speed. Altitudes are shown as on a controller's radar label: A023 = 2 300 ft on the QNH, FL061 above 5 000 ft. A landed aircraft fades 15 s after its last position and goes after 30 s. The WS + ACI chart is the chart of the ACI · WS · ST view.</div>
   </details>
 
   <details class="app-sec" data-for="aci">
