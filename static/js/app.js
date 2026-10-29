@@ -747,7 +747,9 @@
               lvl: lsGet('ms_ws_alert_lvl', 'wsa'), trails: lsGet('ms_app_ils_trails', 'true') !== 'false',
               ac: [], ev: [], sel: null, manual: false, dots: [], fetched: 0,
               // Show: profile / map / both, aircraft on the map: app / all (from 2026-10-28)
-              show: lsGet('ms_app_ils_show', 'both'), mapac: lsGet('ms_app_ils_mapac', 'app') };
+              show: lsGet('ms_app_ils_show', 'both'), mapac: lsGet('ms_app_ils_mapac', 'app'),
+              // WS + ACI chart under the profile / map: off / 3 / 6 h (from 2026-10-29)
+              wsaci: lsGet('ms_app_ils_wsaci', 'off') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -755,15 +757,17 @@
   if (!['adv', 'wsa', 'mba', 'off'].includes(I.lvl)) I.lvl = 'wsa';
   if (!['profile', 'map', 'both'].includes(I.show)) I.show = 'both';
   if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
+  if (!['off', '3', '6'].includes(I.wsaci)) I.wsaci = 'off';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
-                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac']];
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
       if (key === 'show' || key === 'mapac') loadIls();         // the map needs positions (map=1 / near=1)
+      if (key === 'wsaci') { IW.at = 0; loadIlsWs(); }
     });
   }
   $('app-ils-trails').checked = I.trails;
@@ -777,6 +781,17 @@
   const onApp = () => I.ac.filter(a => a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway))
                           .sort((a, b) => a.dist_thr_nm - b.dist_thr_nm);
   const ilsBase = () => WS_THR_ELEVATION_FT + WS_GS_OFFSET_FT + (1013.25 - (wxQnh || 1013.25)) * 27;
+  // ATC-style altitude (from 2026-10-29): up to the transition altitude 5000 ft
+  // the altitude on the METAR QNH in hundreds of feet (A023), above it the flight
+  // level from the pressure altitude (FL061) — as on a controller's radar label.
+  // The transponder reports pressure altitude (1013.25 hPa); without a QNH it is used as it is.
+  const ATC_TA_FT = 5000;
+  function atcAlt(pa) {
+    if (pa == null) return '—';
+    const alt = pa - (1013.25 - (wxQnh || 1013.25)) * 27;
+    return alt <= ATC_TA_FT ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
+                            : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
+  }
   const shownEv = () => I.lvl === 'off' ? [] : I.ev.filter(e => (LV_RANK[e.lvl] ?? 0) >= LV_RANK[I.lvl] && rwyOk(e.rwy));
   // Auto: the barbs of the lowest aircraft on the approach (the closest to the
   // threshold); a tap on an aircraft follows that one while it is on the approach
@@ -784,7 +799,8 @@
     const list = onApp();
     if (I.manual && list.some(a => a.icao === I.sel)) return;
     I.manual = false;
-    I.sel = list.length ? list[0].icao : null;
+    const live = list.filter(a => !a.landed);           // a landed (fading) one is not followed by Auto
+    I.sel = live.length ? live[0].icao : list.length ? list[0].icao : null;
   }
   function selectIls(icao) {
     if (icao) { I.sel = icao; I.manual = true; } else { I.manual = false; autoSel(); }
@@ -887,21 +903,59 @@
         L.polyline(a.trail, { interactive: false, color: light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: 0.6 }).addTo(IM.ac);
       // the square: 12 px selected, 9 px on the approach, 7 px others (smaller from 28 Oct 2026 evening);
       // drawn in a 24-px icon so that it stays easy to tap
-      const c = IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 9 : 7, H = 24, o = (H - s) / 2;
+      // a landed aircraft (no new position for 15 s near the threshold): grey, "landed" (from 2026-10-29)
+      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 9 : 7, H = 24, o = (H - s) / 2;
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1.5" fill="${c}"` +
               ` fill-opacity="${onA ? 1 : 0.6}" stroke="${sel ? (light ? '#0f172a' : '#fff') : '#000'}" stroke-width="${sel ? 2 : 0.8}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
-      const alt = a.altitude == null ? '' : a.altitude >= 10000 ? 'FL' + String(Math.round(a.altitude / 100)).padStart(3, '0')
-                                                                : `${Math.round(a.altitude / 100) * 100} ft`;
+      const alt = a.altitude == null ? '' : atcAlt(a.altitude);
       const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
-          html: `<div class="ils-ac-lbl${onA ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
-                `<small>${sel ? `${esc(a.approach_runway)} · ${a.dist_thr_nm.toFixed(1)} NM · ` : ''}${alt}</small></div>` }) }).addTo(IM.ac);
+          html: `<div class="ils-ac-lbl${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
+                `<small>${sel ? `${esc(a.approach_runway)} · ${a.dist_thr_nm.toFixed(1)} NM · ` : ''}${alt}${a.landed ? ' · landed' : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
+  // ── WS + ACI chart under the profile or the map (from 2026-10-29) ────────
+  // The ACI + windshear chart of the ACI · WS · ST view (ws_cond_chart.js)
+  // for the last 3 or 6 h, off by default; its landings and departures are
+  // fetched at most once a minute while the ILS view is open.
+  const IW = { aph: [], dep: [], fetched: 0, at: 0, hours: 3, dots: [] };
+  async function loadIlsWs() {
+    if (I.wsaci === 'off' || Date.now() - IW.at < 60000) return;
+    IW.at = Date.now();
+    const hours = parseInt(I.wsaci, 10) || 3, win = hours * 3600;
+    try {
+      const [aph, dep] = await Promise.all([
+        fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
+        fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json())]);
+      IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : [];
+      IW.hours = hours; IW.fetched = Date.now();
+    } catch (_) { IW.at = 0; return; }
+    drawIls();
+  }
+  function drawIlsWs(W) {
+    const box = $('app-ils-ws');
+    box.hidden = I.wsaci === 'off';
+    if (box.hidden || !IW.fetched) return;
+    const cv = $('app-ils-wscv'), H = Math.round(Math.max(200, W * 0.62)), dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const ro = document.createElement('div');                       // the chart's own read-out, shortened below
+    IW.dots = WsCondChart.draw(ctx, W, H, ro, { aph: IW.aph, dep: IW.dep, ga: [], hours: IW.hours, withWs: true, fetchedMs: IW.fetched });
+    const parts = ro.innerHTML.split('<br>').map(t => t.trim());                 // its own lines (ws_cond_chart.js)
+    $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last')), parts.find(t => t.startsWith('WS '))].filter(Boolean).join(' · ');
+  }
+  $('app-ils-wscv').addEventListener('pointerdown', e => {
+    const r = $('app-ils-wscv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    let best = null, bd = 18 * 18;
+    for (const d of IW.dots || []) { const dd = (d.x - x) ** 2 + (d.y - y) ** 2; if (dd < bd) { bd = dd; best = d; } }
+    $('app-ils-wspick').textContent = best ? best.label : 'Tap a dot for the landing.';
+  });
   function drawIls() {
     const v = $('v-ils');
     if (v.hidden) return;
@@ -916,15 +970,16 @@
       const mb = $('app-ils-mapbox');
       mb.style.width = (side ? Math.round(full * 0.45) : full) + 'px';
       mb.style.height = (!portrait ? Math.max(230, v.clientHeight - 64)
-        : I.show === 'map' ? Math.round(Math.max(300, v.clientHeight - 150))
-        : Math.round(Math.max(220, v.clientHeight * 0.42))) + 'px';
+        : I.show === 'map' ? Math.round(Math.max(300, v.clientHeight * 0.58))     // room for the strips (2026-10-29)
+        : Math.round(Math.max(220, v.clientHeight * 0.40))) + 'px';
       if (IM.map) { IM.map.invalidateSize(); drawIlsMap(); }
       else loadLeaflet().then(() => { initIlsMap(); drawIlsMap(); }).catch(() => {
         $('app-ils-map').textContent = 'The map could not be loaded.'; });
     }
+    drawIlsWs(full);
     if (!showProf) { ilsInfo(); markScroll(); return; }
     const W = side ? full - Math.round(full * 0.45) - 6 : full;
-    const H = portrait ? (I.show === 'both' ? Math.round(Math.max(230, v.clientHeight * 0.42))
+    const H = portrait ? (I.show === 'both' ? Math.round(Math.max(190, v.clientHeight * 0.26))
                                             : Math.round(Math.max(260, Math.min(W * 1.3, v.clientHeight - 200))))
                        : Math.max(230, v.clientHeight - 64);
     const dpr = window.devicePixelRatio || 1;
@@ -957,7 +1012,7 @@
       pick.innerHTML = `<span class="txt">${list.length ? 'Tap an aircraft or a strip for its wind barbs.' : 'No aircraft on the approach' + (I.rwy ? ' to ' + esc(I.rwy) : '') + '.'}</span>`;
     } else {
       pick.innerHTML = `<span class="txt"><b>${esc(sel.callsign || sel.icao)}</b> ${esc(sel.aircraft_type || '')} · RWY ${esc(sel.approach_runway || '?')} · ` +
-        `${sel.dist_thr_nm != null ? sel.dist_thr_nm.toFixed(1) : '—'} NM · ${sel.altitude != null ? Math.round(sel.altitude) : '—'} ft · ` +
+        `${sel.dist_thr_nm != null ? sel.dist_thr_nm.toFixed(1) : '—'} NM · ${atcAlt(sel.altitude)} · ` +
         `wind ${fmtWind(sel.best_wind_spd, sel.best_wind_dir)}${hwTxt(hw(sel))} · ${I.manual ? 'chosen' : 'auto: lowest'}` +
         (selWs && selWs.msg ? ` · <b>⚠ ${esc(selWs.msg)}</b> <small>(research)</small>` : '') + `</span>` +
         (I.manual ? '<button type="button" class="app-btn" id="app-ils-auto">Auto</button>' : '');
@@ -968,12 +1023,12 @@
     $('app-ils-list').innerHTML = list.length ? list.map(a => {
       const gs = IlsProfile.gsStatus(a, base), w = wsOf(a.icao);
       const vs = a.vert_rate != null ? `${a.vert_rate > 0 ? '+' : ''}${Math.round(a.vert_rate / 10) * 10} fpm` : '';
-      return `<button type="button" class="app-strip${a.icao === I.sel && I.barbs !== 'off' ? ' sel' : ''}" data-icao="${esc(a.icao)}"` +
+      return `<button type="button" class="app-strip${a.icao === I.sel && I.barbs !== 'off' ? ' sel' : ''}${a.landed ? ' landed' : ''}" data-icao="${esc(a.icao)}"` +
              ` style="--src:${ILS_SRC[a.meteo_source] || 'var(--border)'}">` +
              `<span class="rwy">${esc(a.approach_runway || '?')}</span><span class="cs">${esc(a.callsign || a.icao)}${a.ap ? ' <small>AP</small>' : ''}</span>` +
-             `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}"${w.msg ? ` title="${esc(w.msg + (w.say ? ' · ' + w.say : '') + ' (research)')}"` : ''}>${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${pal[gs]}">${gs}</span></span>` +
-             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${a.altitude != null ? Math.round(a.altitude) + ' ft' : '—'}${vs ? ' · ' + vs : ''}</span>` +
-             `<span class="row">wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}</span></button>`;
+             `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}"${w.msg ? ` title="${esc(w.msg + (w.say ? ' · ' + w.say : '') + ' (research)')}"` : ''}>${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${a.landed ? 'var(--text-3)' : pal[gs]}">${a.landed ? 'LANDED?' : gs}</span></span>` +
+             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${atcAlt(a.altitude)}${vs ? ' · ' + vs : ''}</span>` +
+             `<span class="row">${a.landed ? `no new position for ${a.landed} s` : `wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}`}</span></button>`;
     }).join('') : '';
     // ICAO-style messages ("15A WSA 15K+ 2MF", from 28 Oct 2026) — research, not operational
     const alert = evs.length ? ' · ⚠ ' + [...new Set(evs.map(e => e.msg || `${e.lvl.toUpperCase()} ${e.rwy}`))].join(', ') + ' (research)' : '';
@@ -985,11 +1040,12 @@
     try {
       const q = I.show === 'profile' ? '' : I.mapac === 'all' ? '&map=1&near=1' : '&map=1';
       const st = await (await fetch('/api/windshear/state?lite=1' + q, { cache: 'no-store' })).json();
-      I.ac = st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : [];
+      I.ac = IlsProfile.landedFilter(st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : []);
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];
       I.fetched = Date.now();
       autoSel();
       drawIls();
+      if (I.wsaci !== 'off') loadIlsWs();
     } catch (_) { $('app-sub').textContent = 'Could not load the approach traffic.'; }
   }
   $('app-ils').addEventListener('pointerdown', e => {

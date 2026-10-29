@@ -3,6 +3,14 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.29102026 — Altitudes as ATC sees them on the phone, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner
+
+- **Altitudes as a controller sees them** (ILS approach on the phone): the map, the strips and the selected aircraft show the altitude as on a radar label — **A023** is 2 300 ft above sea level on today's QNH, above 5 000 ft the flight level (**FL061**). The map's altitudes are now corrected for the air pressure, as the Windshear page's profile already was.
+- **More room for the flight strips**: with *Show: Both* the profile is lower and with *Show: Map* the map is smaller, so three or four strips fit under them on a phone.
+- **WS + ACI chart in the ILS approach view**: the menu has a new option *WS + ACI chart* (Off, 3 h, 6 h). Switched on, the approach conditions and windshear chart of the last hours is shown under the profile or the map, before the strips.
+- **Landed aircraft leave sooner** (Windshear page and phone): an aircraft that has landed used to stay on the map and in the strips for about a minute and a half. Now it fades 15 seconds after its last position near the runway (**LANDED?**) and goes after 30 seconds.
+- The *MODE-S Wind on a phone* guide (version 1.12) and the Windshear guide (version 2.3) explain them.
+
 ## v.28102026 — History, space–time, Statistics and an approach map on the phone; a better search; maps remember their view; Pi or Server; signal chart
 
 - **MODE-S Wind on your phone (`/app`): History** — a new tile shows the landings or the departures of the last hour to a day, or of any date, as cards: time, flight, type, runway, the ACI and windshear level, and a strip with the headwind (or crosswind, or wind) in each height band. The runway is shown in a small frame, lined up from card to card. Tap a card for all its bands and its reports. The search field on top finds a callsign, registration or aircraft type, e.g. *FIN7*, *OH-LX* or *AT75*.

@@ -234,5 +234,36 @@ const IlsProfile = (() => {
     return dots;
   }
 
-  return { draw, gsStatus, RWY_HEADINGS, hwKt };
+  // ── Landed aircraft (from 2026-10-29) ──────────────────────────────────────
+  // After touchdown an aircraft stays in the server's list for about 1.5 min:
+  // the receiver's aircraft list and its ground replies keep it "heard", so the
+  // server's 30-s timeout starts late (about 95 s after the last position, at
+  // about 0.6 NM / 385 ft, in 600 landings of Oct 2026).  Its position no longer
+  // changes, so on the approach (≤ 2 NM, below 1000 ft) the time since the
+  // position last changed decides: from 15 s it is shown faded as landed
+  // (a.landed = seconds), from 30 s it is not shown.  The age is taken from the
+  // aircraft's own history (server time; the newest last_seen of the list as
+  // "now"), so a phone clock that is off does not matter.  Display only — the
+  // server and the recording of the landings are unchanged.  The same rule is in
+  // static/js/windshear.js (wsLandedFilter).
+  const LANDED_NM = 2, LANDED_FT = 1000, LANDED_FADE_S = 15, LANDED_GONE_S = 30;
+  function landedFilter(list) {
+    const srvNow = Math.max(0, ...list.map(a => a.last_seen || 0));
+    const nowS = Date.now() / 1000;
+    return list.filter(a => {
+      a.landed = 0;
+      const h = a.history;
+      if (!(a.in_corridor && a.dist_thr_nm != null && a.dist_thr_nm <= LANDED_NM && a.altitude != null
+            && a.altitude < LANDED_FT && Array.isArray(h) && h.length)) return true;
+      const last = h[h.length - 1];
+      let t = last.ts;                                   // the start of the unchanged tail
+      for (let i = h.length - 2; i >= 0 && h[i].altitude === last.altitude && h[i].dist_thr === last.dist_thr; i--) t = h[i].ts;
+      const age = srvNow - t;
+      if (age >= LANDED_GONE_S) return false;
+      if (age >= LANDED_FADE_S) { a.landed = Math.round(age); a.last_seen = nowS - age; }  // the profile greys it
+      return true;
+    });
+  }
+
+  return { draw, gsStatus, RWY_HEADINGS, hwKt, landedFilter };
 })();

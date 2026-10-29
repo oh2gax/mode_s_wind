@@ -834,6 +834,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .ws-alert-moderate { background: #fef3c7; color: #92400e; }
 [data-theme="light"] .ws-alert-severe   { background: #fee2e2; color: #991b1b; }
 [data-theme="light"] .ws-alert-tag      { background: rgba(255,255,255,0.7); }
+/* a landed aircraft: no new position for 15 s near the threshold (29 Oct 2026) */
+.ws-strip.ws-strip-landed { opacity: .5; }
+.ws-gs-badge.ws-gs-landed { background: transparent; color: var(--text-3); border: 1px solid var(--border); }
 /* ICAO-style message ("15A WSA 15K+ 2MF") and the research marker (28 Oct 2026) */
 .ws-alert-msg { font-size: 11px; letter-spacing: .06em; }
 .ws-research-tag {

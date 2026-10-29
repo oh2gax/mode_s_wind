@@ -309,25 +309,25 @@ function updateMapMarkers(aircraft) {
 
     if (acMarkers[ac.icao]) {
       acMarkers[ac.icao].marker.setLatLng([ac.lat, ac.lon]);
-      acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.meteo_source));
+      acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source));
       acMarkers[ac.icao].marker.setTooltipContent(tip);
       acMarkers[ac.icao].label.setLatLng([ac.lat, ac.lon]);
       // Refresh label text so callsign appears as soon as the server provides it,
       // rather than staying frozen as ICAO24 from the first poll.
       acMarkers[ac.icao].label.setIcon(L.divIcon({
-        html: `<div class="ws-ac-label${ac.in_corridor ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}</div>`,
+        html: `<div class="ws-ac-label${ac.in_corridor && !ac.landed ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}${ac.landed ? ' · landed' : ''}</div>`,
         className: '',
         iconAnchor: [-10, 5],
       }));
     } else {
       const marker = L.marker([ac.lat, ac.lon], {
-        icon: makeAcIcon(ac.meteo_source),
+        icon: makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source),
         zIndexOffset: ac.in_corridor ? 100 : 50,
       }).bindTooltip(tip, { direction: 'top', offset: [0, -12] }).addTo(map);
 
       const label = L.marker([ac.lat, ac.lon], {
         icon: L.divIcon({
-          html: `<div class="ws-ac-label${ac.in_corridor ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}</div>`,
+          html: `<div class="ws-ac-label${ac.in_corridor && !ac.landed ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}${ac.landed ? ' · landed' : ''}</div>`,
           className: '',
           iconAnchor: [-10, 5],
         }),
@@ -1312,12 +1312,12 @@ function buildStrip(ac, wsSeverity = null, wsTip = '') {
   const barbSelClass = (barbLayerActive && ac.icao === barbSelectedIcao) ? ' ws-strip-barb-sel' : '';
 
   return `
-<div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}${barbSelClass}" data-icao="${ac.icao}">
+<div class="ws-strip ${srcClass(ac.meteo_source)}${wsSeverity ? ' ws-strip-shear' : ''}${barbSelClass}${ac.landed ? ' ws-strip-landed' : ''}" data-icao="${ac.icao}"${ac.landed ? ` title="Landed? No new position for ${ac.landed} s — goes after 30 s"` : ''}>
   <div class="ws-strip-top">
     <div class="ws-strip-rwy ${rwyClass}">${rwyTxt}</div>
     <div class="ws-strip-vs ${vs.cls}">${vs.text} fpm</div>
     ${ac.ap ? `<div class="ws-ap-badge" title="Autopilot engaged${ac.ap_app ? ', approach mode' : ''} (ADS-B target state, version 2 transponders only)">AP</div>` : ''}
-    <div class="ws-gs-badge ${gsClass(gs)}">${gs}</div>
+    <div class="ws-gs-badge ${ac.landed ? 'ws-gs-landed' : gsClass(gs)}">${ac.landed ? 'LANDED?' : gs}</div>
     ${sqkBadge}${wsBadge}
   </div>
   ${(sqkFlash || gaFlash) ? `<div class="ws-strip-flash-row">${sqkFlash}${gaFlash}</div>` : ''}
@@ -2340,13 +2340,44 @@ _syncWrViewBtns();
 // ── Main poll loop ────────────────────────────────────────────────────────────
 let lastAircraft = [];
 
+// ── Landed aircraft (from 29 Oct 2026) ───────────────────────────────────────
+// After touchdown an aircraft stayed in the list for about 1.5 min: the
+// receiver's aircraft list and its ground replies keep it "heard", so the
+// server's 30-s timeout starts late (about 95 s after the last position, at
+// about 0.6 NM / 385 ft, in 600 landings of Oct 2026).  Its position no longer
+// changes, so on the approach (≤ 2 NM, below 1000 ft) the time since its
+// position last changed decides: from 15 s it is shown faded as landed
+// (ac.landed = seconds: grey square, "landed" label, dimmed strip, grey dot
+// on the profile), from 30 s it is not shown.  The age comes from the
+// aircraft's own history (server time; the newest last_seen of the list as
+// "now").  Display only — the server and the recording of the landings are
+// unchanged.  The same rule is in static/js/ils_profile.js (landedFilter, /app).
+const WS_LANDED_NM = 2, WS_LANDED_FT = 1000, WS_LANDED_FADE_S = 15, WS_LANDED_GONE_S = 30;
+function wsLandedFilter(list) {
+  const srvNow = Math.max(0, ...list.map(a => a.last_seen || 0));
+  const nowS = Date.now() / 1000;
+  return list.filter(a => {
+    a.landed = 0;
+    const h = a.history;
+    if (!(a.in_corridor && a.dist_thr_nm != null && a.dist_thr_nm <= WS_LANDED_NM && a.altitude != null
+          && a.altitude < WS_LANDED_FT && Array.isArray(h) && h.length)) return true;
+    const last = h[h.length - 1];
+    let t = last.ts;                                   // the start of the unchanged tail
+    for (let i = h.length - 2; i >= 0 && h[i].altitude === last.altitude && h[i].dist_thr === last.dist_thr; i--) t = h[i].ts;
+    const age = srvNow - t;
+    if (age >= WS_LANDED_GONE_S) return false;
+    if (age >= WS_LANDED_FADE_S) { a.landed = Math.round(age); a.last_seen = nowS - age; }   // the profile greys it
+    return true;
+  });
+}
+
 async function fetchApproachState() {
   try {
     const r = await fetch('/api/windshear/state');
     if (!r.ok) return;
     const data     = await r.json();
     // API returns {aircraft, ga_events}; fall back to plain list for compat
-    const aircraft = Array.isArray(data) ? data : (data.aircraft || []);
+    const aircraft = wsLandedFilter(Array.isArray(data) ? data : (data.aircraft || []));
     const gaEvents = Array.isArray(data) ? [] : (data.ga_events  || []);
     wrGaEvents     = gaEvents;
     lastAircraft   = aircraft;
@@ -2614,7 +2645,8 @@ function runAutoBarbSelection(corridor, allAircraft = []) {
   if (!barbLayerActive || !barbAutoActive) return;
 
   // Keep existing target if it is still inside the corridor.
-  if (barbAutoTarget && corridor.some(ac => ac.icao === barbAutoTarget)) {
+  // (a landed aircraft — faded, from 29 Oct 2026 — is left for the next one)
+  if (barbAutoTarget && corridor.some(ac => ac.icao === barbAutoTarget && !ac.landed)) {
     barbSelectedIcao = barbAutoTarget;
     return;
   }
@@ -2627,13 +2659,13 @@ function runAutoBarbSelection(corridor, allAircraft = []) {
   // corridor on a climb-out; those will have strongly positive vert_rate
   // and fall through so the selection switches to the next corridor aircraft.
   if (barbAutoTarget && allAircraft.some(
-        ac => ac.icao === barbAutoTarget && (ac.vert_rate ?? 0) < 400)) {
+        ac => ac.icao === barbAutoTarget && !ac.landed && (ac.vert_rate ?? 0) < 400)) {
     barbSelectedIcao = barbAutoTarget;
     return;
   }
 
   // Target truly gone (pruned by server) — pick lowest corridor aircraft.
-  const candidates = corridor.filter(ac => ac.dist_thr_nm != null);
+  const candidates = corridor.filter(ac => ac.dist_thr_nm != null && !ac.landed);
   if (candidates.length === 0) {
     barbAutoTarget   = null;
     barbSelectedIcao = null;
