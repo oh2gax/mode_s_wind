@@ -785,6 +785,8 @@ Aircraft are drawn in an ATC-style display:
 | 🟣 Purple | JSON | Temperature/wind injected from the Radarcape JSON feed (MLAT positions themselves are not marked by colour) |
 | ⚫ Grey | NONE | Aircraft visible but no meteo data decoded yet |
 
+**Landed aircraft** (from 29 Oct 2026, as on the Windshear page and the phone) — after touchdown the receiver keeps hearing an aircraft (ground replies, the receiver's aircraft list) at its last airborne position, so it stayed on the map until its transponder was switched off, and 5 minutes after that. Within 3 NM of the airport (`WINDSHEAR_AIRPORT_LAT` / `LON`) and below 1 500 ft pressure altitude, the time since the aircraft's position last changed (`pos_ts` in the live stream, from `last_pos_update_ts`) now decides: from 15 s it is drawn faded and its list entry reads *Landed? — no new position for N s*; from 30 s it is no longer shown. Display only — nothing else changes.
+
 **Wind vectors:** every aircraft with a wind reading also gets a short light-blue line pointing downwind (the direction the air moves; longer for stronger wind), so the wind field over the map is visible at a glance.
 
 #### Trail dots

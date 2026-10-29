@@ -447,6 +447,10 @@ function upsertMarker(ac) {
   updateTrail(ac.icao, ac.lat, ac.lon, color);
   updateLabel(ac.icao, ac.lat, ac.lon, label);
   drawWindArrow(ac.icao, ac.lat, ac.lon, ac.best_wind_spd, ac.best_wind_dir);
+  // landed (no new position near the airport for 15 s): faded
+  const op = ac.landed ? 0.4 : 1;
+  markers[ac.icao].setOpacity(op);
+  if (labelMarkers[ac.icao]) labelMarkers[ac.icao].setOpacity(op);
 }
 
 // ── Remove stale markers ──────────────────────────────────────────────────
@@ -544,7 +548,7 @@ function renderList(data) {
   const frag = document.createDocumentFragment();
   for (const ac of visible) {
     const div   = document.createElement('div');
-    div.className = 'ac-item' + (ac.icao === selectedIcao ? ' selected' : '');
+    div.className = 'ac-item' + (ac.icao === selectedIcao ? ' selected' : '') + (ac.landed ? ' ac-landed' : '');
     div.dataset.icao = ac.icao;
     const color = acColor(ac);
 
@@ -571,7 +575,7 @@ function renderList(data) {
       </div>
       <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${listAlt(ac.altitude)}${vsText}
         ${ac.groundspeed != null ? ' · ' + ac.groundspeed + ' kt' : ''}</div>
-      <div class="ac-meteo">${meteoLine}</div>
+      <div class="ac-meteo">${ac.landed ? `Landed? — no new position for ${ac.landed} s` : meteoLine}</div>
     `;
     div.onclick = () => selectAircraft(ac.icao);
     frag.appendChild(div);
@@ -782,6 +786,34 @@ function closeDetail() {
 }
 
 // ── SSE connection ─────────────────────────────────────────────────────────
+// ── A landed aircraft leaves sooner (from 2026-10-29, as on the Windshear page
+// and the phone) ─────────────────────────────────────────────────────────────
+// After touchdown the receiver keeps hearing the aircraft (ground replies, the
+// receiver's aircraft list) at its last airborne position, so it stayed on the
+// map until its transponder was switched off and 5 min after that.  Within
+// 3 NM of the airport and below 1 500 ft (pressure altitude) the time since
+// its position last changed now decides: from 15 s it is shown faded
+// ("landed?"), from 30 s it is no longer shown.  Display only.
+const LANDED_NM = 3, LANDED_FT = 1500, LANDED_FADE_S = 15, LANDED_GONE_S = 30;
+function nmFromAirport(lat, lon) {
+  const r = Math.PI / 180, dLat = (lat - AIRPORT_LAT) * r, dLon = (lon - AIRPORT_LON) * r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(AIRPORT_LAT * r) * Math.cos(lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * 3440.065 * Math.asin(Math.sqrt(a));
+}
+function landedFilter(list) {
+  const srvNow = Math.max(0, ...list.map(a => a.last_seen || 0));
+  return list.filter(a => {
+    a.landed = 0;
+    if (a.pos_ts == null || a.lat == null || a.lon == null) return true;
+    if (a.altitude != null && a.altitude >= LANDED_FT) return true;
+    if (nmFromAirport(a.lat, a.lon) > LANDED_NM) return true;
+    const age = srvNow - a.pos_ts;
+    if (age >= LANDED_GONE_S) return false;
+    if (age >= LANDED_FADE_S) a.landed = Math.round(age);
+    return true;
+  });
+}
+
 let evtSource = null;
 const statusDot  = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
@@ -802,7 +834,7 @@ function connectSSE() {
   };
 
   evtSource.onmessage = (e) => {
-    const data     = JSON.parse(e.data);
+    const data     = landedFilter(JSON.parse(e.data));
     const liveIcaos = new Set(data.map(d => d.icao));
 
     for (const ac of data) {

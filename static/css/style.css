@@ -115,6 +115,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ac-item { padding: 8px 10px; border-bottom: 1px solid var(--border);
            cursor: pointer; transition: background .1s; }
 .ac-item:hover, .ac-item.selected { background: var(--bg-3); }
+.ac-item.ac-landed { opacity: .5; }   /* landed: no new position near the airport (from 2026-10-29) */
 .ac-callsign { font-weight: 700; font-size: 13px; }
 .ac-icao     { font-size: 11px; color: var(--text-3); margin-left: 6px; }
 .ac-reg      { font-size: 11px; color: var(--text-2); margin-left: 6px; font-weight: 600; }

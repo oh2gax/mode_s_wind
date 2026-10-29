@@ -464,7 +464,10 @@ def create_app(
         return render_template("live.html",
                                receiver_lat=cfg.RECEIVER_LAT,
                                receiver_lon=cfg.RECEIVER_LON,
-                               airport_icao=cfg.AIRPORT_ICAO)
+                               airport_icao=cfg.AIRPORT_ICAO,
+                               # a landed aircraft leaves the map sooner (from 2026-10-29)
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON)
 
     @app.route("/flights")
     def flights_page():
@@ -687,6 +690,10 @@ def create_app(
                                                and ac.get("wind_ts") is not None
                                                and now - ac["wind_ts"] > wind_max_age),
                             "last_seen": ac.get("last_seen"),
+                            # when the position last changed (from 2026-10-29):
+                            # a landed aircraft keeps being heard, at its
+                            # last position, until its transponder is off
+                            "pos_ts":    ac.get("last_pos_update_ts"),
                         })
 
                     chunk = f"data: {json.dumps(slim)}\n\n"
