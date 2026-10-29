@@ -82,6 +82,7 @@ CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach h
 CORRIDOR_GS_FLOOR_FT      = 1000.0 # reject corridor match when aircraft is more than
                                     # this many ft below the theoretical 3° glidepath;
                                     # filters overflying traffic vectored to other runways
+CORRIDOR_CLIMB_FPM        = 500.0  # climbing faster without having been on an approach: not in a corridor (2026-10-29)
 
 # ── Go-around detection defaults ──────────────────────────────────────────────
 GA_MIN_DESCENT_POLLS = 5       # sweeps descending before 'APPROACHING' is set
@@ -675,6 +676,18 @@ class WindshearTracker:
                 runway = dist_thr = cross_track = along_track = None
 
         in_corridor = runway is not None
+        # A climbing aircraft that is not on an approach (no descent on final yet:
+        # go-around phase NONE, no threshold crossing) is not taken for one even
+        # when it passes a corridor's gates — a climb-out turning across another
+        # runway's final, e.g. a 22R departure turning north through the 04L
+        # final (from 2026-10-29): no strips, profile, band capture or windshear
+        # analysis for it, and the maps show it as a departure.  A go-around
+        # keeps its corridor (phase APPROACHING / GO_AROUND).
+        if in_corridor and (aircraft.get("vert_rate") or 0) > CORRIDOR_CLIMB_FPM:
+            _p = self._state.get(icao) or {}
+            if _p.get("ga_phase", "NONE") == "NONE" and _p.get("landing_rwy") is None:
+                runway = dist_thr = cross_track = along_track = None
+                in_corridor = False
 
         vert_rate   = aircraft.get("vert_rate") or 0
         wind_spd    = aircraft.get("best_wind_spd")

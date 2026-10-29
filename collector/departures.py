@@ -81,6 +81,7 @@ DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
 MAX_ROLL         = 5.0
 SERIES_MAX_ROWS  = 600         # per list per climb-out (≈ 10 min at 1 reply/s)
+DEP_MARK_SEC     = 900.0       # a finished climb-out stays marked as a departure for the maps (2026-10-29)
 
 
 def _dist_nm(lat1, lon1, lat2, lon2):
@@ -131,6 +132,7 @@ class DepartureTracker:
         # optional callable(icao, since_ts) → ADS-B ground-speed samples (series "v19")
         self._vel = vel_sample_fn
         self._state: dict[str, dict] = {}
+        self._recent: dict[str, tuple] = {}     # icao → (until, runway) of finished climb-outs
         self._lock = threading.Lock()
         self.n_committed = 0
 
@@ -279,6 +281,8 @@ class DepartureTracker:
         st = self._state.pop(icao, None)
         if not st:
             return
+        if not st["ga"]:                     # still a departure for the maps for a while
+            self._recent[icao] = (now + DEP_MARK_SEC, (st.get("ws_rwy") or (None, None))[0])
         shear = st.get("shear_res") if st.get("top_done") else self._final_shear(icao, st, now)
         # bands with a temperature or a wind (turboprops report no Mach, so
         # their climbs give winds only — kept, as on the approach profiles)
@@ -310,15 +314,26 @@ class DepartureTracker:
     def active(self) -> int:
         return len(self._state)
 
-    def following(self) -> dict:
-        """{icao: departure runway or None} of the climb-outs being followed now,
-        go-arounds excluded (from 2026-10-29).  The windshear tracker also holds
-        departures heard on the runway or before their climb rate was known; its
-        state marks them (``dep``) so that the maps can hide or show them."""
+    def following(self, now: float | None = None) -> dict:
+        """{icao: departure runway or None} of the departures, go-arounds
+        excluded (from 2026-10-29): the climb-outs being followed now (up to
+        5 300 ft) and, for DEP_MARK_SEC (15 min) after, the finished ones — so
+        that the maps hide a departure for its whole climb through the
+        windshear area (up to 5 000 ft and 15 NM), not only to 3 300 ft, and
+        the windshear tracker does not take a climb-out that turns into
+        another runway's approach corridor for an approach.  The windshear
+        state marks them (``dep``)."""
+        now = time.time() if now is None else now
         try:
             items = list(self._state.items())          # the sweep thread may add one meanwhile
+            recent = list(self._recent.items())
         except RuntimeError:
             return {}
-        # above the band profile (3 300 ft) a climb is followed only for its series (EDR)
-        return {k: (st.get("ws_rwy") or (None, None))[0] for k, st in items
-                if not st.get("ga") and not st.get("top_done")}
+        out = {k: r for k, (until, r) in recent if until > now}
+        if len(out) != len(recent):
+            try:
+                self._recent = {k: v for k, v in self._recent.items() if v[0] > now}
+            except RuntimeError:
+                pass
+        out.update({k: (st.get("ws_rwy") or (None, None))[0] for k, st in items if not st.get("ga")})
+        return out
