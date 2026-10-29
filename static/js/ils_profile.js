@@ -153,11 +153,13 @@ const IlsProfile = (() => {
       if (ac.dist_thr_nm > range || ac.altitude > MAX_FT) continue;
       const x = X(ac.dist_thr_nm), y = Y(ac.altitude);
       const stale = ac.altitude < 1000 && now - (ac.last_seen || now) > 10;
-      ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fillStyle = col + '22'; ctx.fill();
-      ctx.beginPath(); ctx.arc(x, y, ac.icao === o.selIcao ? 6 : 5, 0, Math.PI * 2);
+      // the selected aircraft: a smaller dot with its white / dark ring (29 Oct 2026; was 6 px + 2 px ring)
+      const isSel = ac.icao === o.selIcao;
+      ctx.beginPath(); ctx.arc(x, y, isSel ? 7 : 8, 0, Math.PI * 2); ctx.fillStyle = col + '22'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, isSel ? 4.5 : 5, 0, Math.PI * 2);
       ctx.fillStyle = stale ? T.axis : col; ctx.fill();
       ctx.strokeStyle = ac.icao === o.selIcao ? (light ? '#0f172a' : '#f8fafc') : '#000';
-      ctx.lineWidth = ac.icao === o.selIcao ? 2 : 1; ctx.stroke();
+      ctx.lineWidth = isSel ? 1.8 : 1; ctx.stroke();
       dots.push({ x, y, icao: ac.icao });
       if (!stale) labels.push({ text: (ac.callsign || ac.icao) + (ac.ap ? '*' : ''), x, y, col, right: x > M.left + PW * 0.7 });
     }

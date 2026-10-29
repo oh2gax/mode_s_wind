@@ -9,6 +9,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **The approach map looks like a radar screen**: each aircraft is an open square in the colour of its wind source, the selected one framed in white, with just its callsign and altitude.
 - **Speed vectors** (phone and Windshear page): as on a radar screen, a line from each aircraft to where it will be in 30 seconds, 1 or 2 minutes — the faster it flies, the longer the line. On the phone: menu › ILS approach options › *Speed vectors*; on the Windshear page the **Vec** button above the map. Off by default.
 - **Departures on the phone's map if you want them**: menu › ILS approach options › *Departures on the map* — Hidden (default) or Shown, marked with their runway and an arrow (`22R↑`). On the Windshear page the map shows no departures.
+- **A smaller dot for the chosen aircraft** on the phone's ILS profile — the same size as the others, marked by its ring.
 - **Lighter labels on the phone's approach map**: the callsigns are no longer bold (only the selected aircraft's is), and in the light theme the label plates are see-through, so the map under them stays visible.
 - **More room for the flight strips**: with *Show: Both* the profile is lower and with *Show: Map* the map is smaller, so three or four strips fit under them on a phone.
 - **WS + ACI chart in the ILS approach view**: the menu has a new option *WS + ACI chart* (Off, 3 h, 6 h). Switched on, the approach conditions and windshear chart of the last hours is shown under the profile or the map, before the strips.
