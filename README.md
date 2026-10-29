@@ -79,7 +79,7 @@ All measurements come from the aircraft alone. The MEPS model (MET Norway open d
 
 The system was developed and tested with a Radarcape receiver and Raspberry Pi 4 near EFHK (Helsinki-Vantaa Airport, Finland). Any receiver that outputs Beast binary format over TCP will work, though the JSON/MLAT feed integration is specific to the Radarcape.
 
-A five-page A4 overview of the receiving station — the hardware with photos, the Mode S registers used, the formulas, calibration, storage, the pages, the windshear detection with the ongoing study, the two sites (the off-grid capable local station and the cloud server that serves the users) and, from 28 Oct 2026, the phone view `/app` (light-theme screens of the Skew-T, ILS approach, ACI + windshear and Statistics, the seven views, a QR code of the address) — is in [`doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf`](doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf) (also in the *User guides* tab).
+A six-page A4 overview of the receiving station — the hardware with photos, the Mode S registers used, the formulas, calibration, storage, the pages, the windshear detection with the ongoing study, the two sites (the off-grid capable local station and the cloud server that serves the users) and, from 28 Oct 2026, the phone view `/app` (light-theme screens of the Skew-T, ILS approach, ACI + windshear and Statistics, the seven views, a QR code of the address) and, from 29 Oct 2026, turbulence (EDR) and the boundary layer (low-level jet, surface inversion) — is in [`doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf`](doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf) (also in the *User guides* tab).
 
 ---
 
