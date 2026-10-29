@@ -807,10 +807,9 @@
     drawIls();
   }
   // ── the approach map (from 2026-10-28) ──────────────────────────────────
-  // The aircraft as on the Windshear page's map: a square in the colour of
-  // the meteo source, callsign and altitude (the selected one larger, framed,
-  // with runway and distance; 22R traffic labelled to the left, 22L to the
-  // right), the ILS / RNP centrelines, the airport layout and the tracking
+  // The aircraft as on a radar screen: an open square in the colour of the
+  // meteo source with callsign and ATC-style altitude (the selected one larger,
+  // framed in white; 22R traffic labelled to the left, 22L to the right), the ILS / RNP centrelines, the airport layout and the tracking
   // radius; tiles Dark / Grey with the theme.  A tap on an aircraft on the
   // approach follows it (as on the profile).  Leaflet is loaded the first time
   // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
@@ -904,10 +903,13 @@
       // the square: 12 px selected, 9 px on the approach, 7 px others (smaller from 28 Oct 2026 evening);
       // drawn in a 24-px icon so that it stays easy to tap
       // a landed aircraft (no new position for 15 s near the threshold): grey, "landed" (from 2026-10-29)
-      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 9 : 7, H = 24, o = (H - s) / 2;
+      // An open square as on a radar screen (from 2026-10-29): framed in the colour of the meteo
+      // source, the selected one in white (dark theme) / near-black (light theme, white would vanish
+      // on the light tiles); 12 px selected, 10 px on the approach, 8 px others, in a 24-px tap area
+      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 10 : 8, H = 24, o = (H - s) / 2;
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
-        html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1.5" fill="${c}"` +
-              ` fill-opacity="${onA ? 1 : 0.6}" stroke="${sel ? (light ? '#0f172a' : '#fff') : '#000'}" stroke-width="${sel ? 2 : 0.8}"/></svg>` });
+        html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
+              ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 2.4 : onA ? 2 : 1.5}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
       const alt = a.altitude == null ? '' : atcAlt(a.altitude);
@@ -915,7 +917,7 @@
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
           html: `<div class="ils-ac-lbl${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
-                `<small>${sel ? `${esc(a.approach_runway)} · ${a.dist_thr_nm.toFixed(1)} NM · ` : ''}${alt}${a.landed ? ' · landed' : ''}</small></div>` }) }).addTo(IM.ac);
+                `<small>${alt}${a.landed ? ' · landed' : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
   // ── WS + ACI chart under the profile or the map (from 2026-10-29) ────────
