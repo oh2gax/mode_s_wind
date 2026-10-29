@@ -8,6 +8,8 @@
  *     cond,       // optional: the landings with a conditions index (default: from aph)
  *     dep,        // /api/windshear/departures?window= rows
  *     ga,         // go-arounds (ga_events of /api/windshear/state)
+ *     met,        // optional: METARs with a windshear group (/api/wx/reports?ws=1 "metars")
+ *     rep,        // optional: pilot reports near the airport (/api/wx/reports?near=1 "reports")
  *     hours,      // range 3 / 6 / 12 / 24
  *     withWs,     // false: ACI only; true: ACI + the windshear strip
  *     fetchedMs,  // when the data arrived (0 = still loading)
@@ -96,6 +98,7 @@ const WsCondChart = (() => {
 
   function draw(ctx, W, H, readout, d) {
     const wrAphEntries = d.aph || [], wrDepEntries = d.dep || [], wrGaEvents = d.ga || [];
+    const wxMet = d.met || [], wxRep = d.rep || [];
     const wrCondEntries = d.cond || wrAphEntries.filter(e => e.cond && e.cond.idx != null);
     const wrCondHours = d.hours || 3, wrCondFetchedMs = d.fetchedMs || 0;
     const CT    = theme();
@@ -207,6 +210,7 @@ const WsCondChart = (() => {
     let wsSum = null;
     if (withWs) wsSum = _drawWsStrip(ctx, { L, PW, WT, WH, t0, nowMs, xOf, CT, light, grey, T, PH,
                                              wrAphEntries, wrDepEntries, wrGaEvents, wrCondFetchedMs, wrHistDots });
+    if (withWs && wsSum) _drawOfficial(ctx, { L, PW, WT, WH, t0, nowMs, xOf, light, T, wxMet, wxRep, wrHistDots }, wsSum);
 
     // ── Readout ────────────────────────────────────────────────────────────────
     if (!readout) return wrHistDots;
@@ -230,10 +234,80 @@ const WsCondChart = (() => {
         `<span style="color:${WS_LV_COLOR[k]};font-weight:600">${wsSum[k]} ${WS_LEVEL[k].short}</span>`);
       line3 = `<br>WS ${wrRangeLabel(wrCondHours)}: ${cnt.length ? cnt.join(' ') : 'no alerts'} · ` +
         `${wsSum.arr} ldg, ${wsSum.dep} dep` + (wsSum.ga ? ` · ${wsSum.ga} GA` : '') +
-        `<br><span class="ws-cond-legend">│ ramp (1 km) · ◆ band landing · ◇ band departure · ▲ go-around</span>`;
+        (wsSum.met || wsSum.rep ? '<br>' +
+          [wsSum.met ? `<span style="color:${MET_WS_COL(light)};font-weight:600">METAR WS ${wsSum.metRwy}</span>` : '',
+           wsSum.rep ? `<span style="color:${REP_COL(light)};font-weight:600">${wsSum.rep} pilot report${wsSum.rep === 1 ? '' : 's'} near</span>` : '']
+            .filter(Boolean).join(' · ') : '') +
+        `<br><span class="ws-cond-legend">│ ramp (1 km) · ◆ band landing · ◇ band departure · ▲ go-around · ` +
+        `<span style="color:${MET_WS_COL(light)}">▬ METAR WS</span> · <span style="color:${REP_COL(light)}">P pilot report</span></span>`;
     }
     readout.innerHTML = `${line1}<br>${line2}${line3}<br><span class="ws-cond-legend">${legend}${met}</span>`;
     return wrHistDots;
+  }
+
+  // Official reports on the WS strip (from 2026-10-29): the METARs with a
+  // windshear group ("WS R22L", manual METARs only, reported by pilots / ATC
+  // below 1600 ft) as a bar along the top of the strip from the METAR until the
+  // next one (30 min), and the pilot reports (ARS / WXREP) near the airport as
+  // a "P" marker with a dotted line — so they can be compared with what the
+  // Mode S landings and departures showed at the same time.
+  const MET_WS_COL = light => light ? '#b45309' : '#fbbf24';
+  const REP_COL    = light => light ? '#0f766e' : '#2dd4bf';
+  const _hm = t => new Date(t * 1000).toISOString().slice(11, 16);
+  function _drawOfficial(ctx, g, sum) {
+    const { L, PW, WT, WH, t0, nowMs, xOf, light, T, wxMet, wxRep, wrHistDots } = g;
+    const met = wxMet.filter(m => m.ws && m.ts * 1000 <= nowMs && m.ts * 1000 + 1_800_000 >= t0)
+                     .sort((a, b) => a.ts - b.ts);
+    const rep = wxRep.filter(r => { const t = (r.obs_ts || r.ts) * 1000; return t >= t0 && t <= nowMs; });
+    const rwys = new Set();
+    const mc = MET_WS_COL(light), rc = REP_COL(light);
+    const yb = WT + 1;                                  // just inside the top of the strip
+    ctx.save();
+    for (const m of met) {
+      const xa = Math.max(L, xOf(m.ts * 1000)), xb = Math.min(L + PW, xOf(m.ts * 1000 + 1_800_000));
+      if (xb <= xa) continue;
+      ctx.fillStyle = mc;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(xa, yb, Math.max(2, xb - xa - 1), 4);
+      ctx.globalAlpha = 1;
+      String(m.ws).split(' ').forEach(r => rwys.add(r === 'ALL' ? 'ALL RWY' : r));
+      const tip = `METAR ${_hm(m.ts)}Z — windshear reported: ${m.ws === 'ALL' ? 'all runways' : m.ws}` +
+                  `\n${m.raw}\n(manual METAR: windshear reported by aircraft / ATC between the surface and 1600 ft)`;
+      wrHistDots.push({ x: (xa + xb) / 2, y: yb + 2, dotR: Math.max(4, (xb - xa) / 2), label: tip, color: mc });
+    }
+    // runway text once at the start of each run of consecutive METARs
+    ctx.font = 'bold 8px "Courier New",monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    let prevEnd = -1e15;
+    for (const m of met) {
+      if (m.ts * 1000 - prevEnd > 60_000) {
+        const x = Math.max(L + 2, xOf(m.ts * 1000));
+        if (x < L + PW - 30) {
+          ctx.fillStyle = mc;
+          ctx.fillText(`WS ${m.ws === 'ALL' ? 'ALL' : m.ws}`, x, yb + 6);
+        }
+      }
+      prevEnd = m.ts * 1000 + 1_800_000;
+    }
+    for (const r of rep) {
+      const t = (r.obs_ts || r.ts) * 1000, x = xOf(t), y = yb + 22;
+      ctx.strokeStyle = rc; ctx.globalAlpha = 0.5; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, WT + WH); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+      ctx.fillStyle = rc; ctx.fill();
+      ctx.fillStyle = light ? '#ffffff' : '#0f172a';
+      ctx.font = 'bold 8px "Courier New",monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('P', x, y + 0.5);
+      const h = r.lo_ft != null ? (r.lo_ft === r.hi_ft ? ` at ${r.lo_ft} ft` : ` ${r.lo_ft}–${r.hi_ft} ft`) : '';
+      wrHistDots.push({ x, y, dotR: 6, color: rc,
+        label: `${r.kind} ${_hm(r.obs_ts || r.ts)}Z${r.ident ? ' ' + r.ident : ''}: ${r.phen || 'report'}${h}\n${r.raw}` });
+    }
+    ctx.restore();
+    sum.met = met.length;
+    sum.metRwy = [...rwys].join(' ');
+    sum.rep = rep.length;
   }
 
   /** The windshear strip of the ACI + WS view; returns the counts for the readout. */

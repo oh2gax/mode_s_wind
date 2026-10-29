@@ -64,6 +64,7 @@ import threading
 import time
 
 from collector import health as hb
+from collector import wx_reports as _wxr
 
 log = logging.getLogger("modes.health")
 
@@ -88,11 +89,13 @@ RANK = {"off": 0, "ok": 1, "warn": 2, "err": 3}
 # thread name → indicator (threads started in run.py / web/app.py)
 THREADS = {"collector": "feed", "json_poller": "json", "ws_sweep": "ws", "gps_sweep": "gps",
            "housekeeping": "db", "hourly_jobs": "db", "autopurge": "db",
-           "sondes": "sondes", "meps": "meps", "wx_poll": "metar", "rc_status": "rc"}
+           "sondes": "sondes", "meps": "meps", "wx_poll": "metar", "rc_status": "rc",
+           "pilot_reports": "metar"}
 TASK = {"collector": "Feed reader", "json_poller": "Aircraft list poller", "ws_sweep": "Windshear sweep",
         "gps_sweep": "GPS sweep", "housekeeping": "Memory clean-up", "hourly_jobs": "Hourly jobs",
         "autopurge": "Purge check", "sondes": "Sounding fetcher", "meps": "MEPS fetcher",
-        "wx_poll": "METAR fetcher", "rc_status": "Radarcape status reader"}
+        "wx_poll": "METAR fetcher", "rc_status": "Radarcape status reader",
+        "pilot_reports": "Pilot report fetcher"}
 
 _slow: dict = {}             # cached slow readings: key → (time, value)
 _last: dict = {}             # indicator → (state, since)
@@ -610,6 +613,17 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         fa = wx.get("fetched_at") or 0
         det = [f"QNH {wx['qnh_hpa']:.0f} hPa" if wx.get("qnh_hpa") else "no QNH",
                f"last fetch {_ago(now - fa)} ago" if fa else "not fetched yet"]
+        # pilot reports (ilmailusaa.fi, from 2026-10-29): information only
+        pr = _wxr.poller()
+        if pr is not None and pr.enabled:
+            st = pr.status
+            if st["last_ok"]:
+                det.append(f"pilot reports: last fetch {_ago(now - st['last_ok'])} ago, "
+                           f"{st['got']} in the 24 h list" + (f" (later attempt failed: {st['err']})" if st["err"] else ""))
+            elif st["err"]:
+                det.append(f"pilot reports: fetch failed ({st['err']})")
+            else:
+                det.append("pilot reports: not fetched yet")
         if mt is None:
             items["metar"] = _item("metar", "warn" if up < 120 else "err",
                                    "Starting" if up < 120 else f"No METAR for {icao}", det)
@@ -639,6 +653,8 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         if tname == "meps" and (meps.get() is None or not meps.get().enabled):
             continue
         if tname == "wx_poll" and not icao:
+            continue
+        if tname == "pilot_reports" and (_wxr.poller() is None or not _wxr.poller().enabled):
             continue
         if tname == "rc_status" and items["rc"]["state"] == "off":
             continue

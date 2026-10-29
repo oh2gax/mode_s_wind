@@ -54,9 +54,9 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.4
+version: 2.5
 date: 2026-10-29
-pages: 19
+pages: 20
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
@@ -66,6 +66,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The **alert message** in the controllers' short form (e.g. `15A WSA 15K+ 2MF` — runway one five arrival, windshear alert, 15-kt gain, two-mile final), marked as research
 - The page: banner, flight-strip badges, ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view with **landings and departures**, ACI, the **ACI + windshear** view on one time axis and the **space–time diagram (ST)**, wind rose
+- **METAR and pilot reports**: the METAR windshear groups (`WS R22L`) and the pilot reports (ARS, WXREP) near the airport on the ACI + windshear view, and the Approach History's **Reports** list with the archive of windshear METARs
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October, turbulence on 26 October), first results and the limitations
 
 ## Mode S & ADS-B and the Statistics page
@@ -84,16 +85,16 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.15
+version: 1.16
 date: 2026-10-29
-pages: 17
+pages: 18
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors and departures on request, and the optional **WS + ACI chart**), **ACI · WS · ST** with the space–time diagram and the list of the period's flights, the **History** of landings and departures with its search, and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
+- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors and departures on request, and the optional **WS + ACI chart**), **ACI · WS · ST** with the space–time diagram and the list of the period's flights, the **History** of landings and departures with its search, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

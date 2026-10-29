@@ -485,3 +485,57 @@ CREATE TABLE IF NOT EXISTS t_correction (
     ts   INTEGER PRIMARY KEY,
     data TEXT    NOT NULL
 );
+
+-- ── metar_reports ────────────────────────────────────────────────────────────
+-- Every METAR of the airport, stored once (collector/wx_reports.py, from
+-- 2026-10-29): the live METARs of the WX poll thread (src 'live', NOAA) and the
+-- history loaded with tools/load_metar_history.py (src 'iem', Iowa Environmental
+-- Mesonet).  Full text plus the parsed values; ws = the windshear group of a
+-- manual METAR ("R22L", "R22L R22R" or "ALL"; NULL = none).  Never purged
+-- (about 17 500 rows a year).
+CREATE TABLE IF NOT EXISTS metar_reports (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    station  TEXT    NOT NULL,
+    ts       INTEGER NOT NULL,              -- observation time (UTC, Unix s)
+    kind     TEXT    NOT NULL DEFAULT 'METAR',   -- METAR | SPECI
+    cor      INTEGER NOT NULL DEFAULT 0,    -- 1 = corrected (COR)
+    auto     INTEGER NOT NULL DEFAULT 0,    -- 1 = AUTO METAR
+    raw      TEXT    NOT NULL,
+    src      TEXT,                          -- live | iem
+    fetched  REAL,                          -- when stored
+    wdir     INTEGER, wspd INTEGER, wgst INTEGER,   -- wind ° / kt / gust kt (dir NULL = VRB)
+    wvar     TEXT,                          -- "200V260"
+    vis      INTEGER,                       -- m (9999 = 10 km or more)
+    wx       TEXT,                          -- present weather groups ("-SHRA BR")
+    cld      TEXT,                          -- lowest cloud group / CAVOK / NSC …
+    tt       REAL, td REAL,                 -- °C
+    qnh      REAL,                          -- hPa
+    ws       TEXT,                          -- windshear group
+    UNIQUE(station, ts, cor)
+);
+CREATE INDEX IF NOT EXISTS idx_metar_reports_ws ON metar_reports(ws) WHERE ws IS NOT NULL;
+
+-- ── pilot_reports ────────────────────────────────────────────────────────────
+-- ARS, WXREP and SIGMET messages of the FMI aviation weather page ilmailusaa.fi
+-- (collector/wx_reports.py, polled every PILOT_REPORTS_INTERVAL_MIN, from
+-- 2026-10-29), each stored once with the parsed kind, callsign / aircraft type,
+-- phenomena, position, heights and near = 1 for reports within
+-- PILOT_REPORTS_NEAR_NM of the airport (or naming it) at or below 10 000 ft.
+-- Never purged (a few rows a day).
+CREATE TABLE IF NOT EXISTS pilot_reports (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       INTEGER NOT NULL,              -- message time (UTC, Unix s)
+    obs_ts   INTEGER,                       -- observed at (OBS AT / REP hhmm), if given
+    kind     TEXT    NOT NULL,              -- ARS | WXREP | SIGMET | AIRMET | AIREP | OTHER
+    raw      TEXT    NOT NULL,
+    src      TEXT    NOT NULL,              -- ilmailusaa
+    fetched  REAL,
+    ident    TEXT,                          -- callsign (ARS) / aircraft type (WXREP)
+    phen     TEXT,                          -- "MOD ICE", "FBL TURB, INV" …
+    place    TEXT,                          -- WXREP place text ("S OF EFTP")
+    lat      REAL, lon REAL,                -- reported position (ARS)
+    lo_ft    INTEGER, hi_ft INTEGER,        -- height range (ft; FL × 100)
+    near     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(src, ts, raw)
+);
+CREATE INDEX IF NOT EXISTS idx_pilot_reports_ts ON pilot_reports(ts);

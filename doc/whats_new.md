@@ -3,8 +3,9 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.29102026 — Altitudes as ATC sees them on the phone, speed vectors, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner
+## v.29102026 — METARs and pilot reports, altitudes as ATC sees them on the phone, speed vectors, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner
 
+- **METARs and pilot reports**: MODE-S Wind now keeps every METAR of Helsinki-Vantaa, and the pilot reports (ARS, WXREP) and SIGMETs of the FMI aviation weather service. When a METAR reports windshear (**WS R22L**) or a pilot reports windshear, turbulence or an inversion near the airport, the *ACI + windshear* chart shows it — an amber bar for the METAR, a **P** for the pilot report — so you can compare it with what the landings and departures showed. The messages themselves: on the Windshear page **Apch Hist › Reports**, on the phone **History › METAR & reports**; *WS & near* keeps only the windshear METARs and the pilot reports near the airport, *WS archive* the same for every date stored (also years back once the history has been loaded).
 - **Altitudes as a controller sees them** (ILS approach on the phone): the map, the strips and the selected aircraft show the altitude as on a radar label — **A023** is 2 300 ft above sea level on today's QNH, above 5 000 ft the flight level (**FL061**). The map's altitudes are now corrected for the air pressure, as the Windshear page's profile already was.
 - **The approach map looks like a radar screen**: each aircraft is an open square in the colour of its wind source, the selected one framed in white, with just its callsign and altitude.
 - **Speed vectors** (phone and Windshear page): as on a radar screen, a line from each aircraft to where it will be in 30 seconds, 1 or 2 minutes — the faster it flies, the longer the line. On the phone: menu › ILS approach options › *Speed vectors*; on the Windshear page the **Vec** button above the map. Off by default.

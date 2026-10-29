@@ -75,7 +75,7 @@
             <span class="ws-aphist-title">Approach History</span>
             <span class="ws-aphist-count" id="ws-aphist-count" title="Flights in the selected time window or date"></span>
             <span class="ws-aphist-kind">
-              <button class="ws-aphist-ctrl-btn ws-aphist-kind-btn active" data-kind="arr" title="Landings: the wind on final, approach conditions (ACI) and the windshear report of each landing">Landings</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="dep" title="Departures: the wind of each climb-out per band and its windshear report — the band comparison, and the headwind ramps along the climb as a TRIAL (no alerts yet)">Departures</button>
+              <button class="ws-aphist-ctrl-btn ws-aphist-kind-btn active" data-kind="arr" title="Landings: the wind on final, approach conditions (ACI) and the windshear report of each landing">Landings</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="dep" title="Departures: the wind of each climb-out per band and its windshear report — the band comparison, and the headwind ramps along the climb as a TRIAL (no alerts yet)">Departures</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="rep" title="METAR & pilot reports: the stored METARs of the airport (windshear group WS R22L highlighted) and the ARS / WXREP pilot reports and SIGMETs of the FMI aviation weather service (ilmailusaa.fi) — for comparing with what the landings and departures showed">Reports</button>
             </span>
           </div>
           <div class="ws-aphist-timerow">
@@ -101,6 +101,11 @@
               <option value="hwxw">HW+XW</option>
               <option value="cond">ACI</option>
               <option value="ws">WS</option>
+            </select>
+            <select id="ws-aphist-rep-sel" class="ws-aphist-mode-sel" style="display:none" title="Which messages: all METARs and reports of the range · only the METARs with a windshear group and the pilot reports near the airport · the same over the whole archive (any date)">
+              <option value="all">All</option>
+              <option value="ws">WS &amp; near</option>
+              <option value="arch">WS archive</option>
             </select>
             <button class="ws-aphist-ctrl-btn" id="ws-aphist-hi-btn" title="Toggle Hi resolution (13 bands, 600–3000 ft every 200 ft) vs Lo resolution (8 bands)">Lo</button>
           </div>

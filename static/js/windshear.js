@@ -1932,6 +1932,7 @@ let wrCondEntries        = [];     // landings with a conditions index (last 6 h
 let wrCondFetchedMs      = 0;
 let wrAphEntries         = [];     // all landings of the chart range (ACI + WS view: also those without an index)
 let wrDepEntries         = [];     // departures with a windshear report (ACI + WS view)
+let wrWxRep              = null;   // METAR WS groups + pilot reports near the airport (ACI + WS view, from 2026-10-29)
 let wrGaEvents           = [];     // go-arounds of the last 24 h (from /api/windshear/state)
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
@@ -2304,14 +2305,16 @@ async function fetchCondData() {
   if (wrView === 'st') return fetchSpaceTime();
   try {
     const win = wrCondHours * 3600;
-    const [r, rd] = await Promise.all([
+    const [r, rd, rw] = await Promise.all([
       fetch(`/api/windshear/approach-history?window=${win}`),
-      wrView === 'ws' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null)]);
+      wrView === 'ws' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
+      wrView === 'ws' ? fetch(`/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null)]);
     if (!r.ok) return;
     const rows = await r.json();
     wrAphEntries    = rows;
     wrCondEntries   = rows.filter(e => e.cond && e.cond.idx != null);
     if (rd && rd.ok) wrDepEntries = await rd.json();
+    if (rw && rw.ok) wrWxRep = await rw.json();
     wrCondFetchedMs = Date.now();
     if (windroseEnabled && wrIsChart()) drawWindrose();
   } catch (_) { /* silent */ }
@@ -2343,6 +2346,7 @@ function drawCondChart() {
   }
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
     aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
+    met: wrWxRep ? wrWxRep.metars : [], rep: wrWxRep ? wrWxRep.reports : [],
     hours: wrCondHours, withWs: wrView === 'ws', fetchedMs: wrCondFetchedMs });
 }
 
@@ -2947,8 +2951,15 @@ let approachHistoryEnabled = (() => {
 let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond' | 'ws'
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 // Landings or departures (from 27 Oct 2026; remembered per browser)
-let aphKind                = (() => { try { return localStorage.getItem('ms_ws_aphist_kind') === 'dep' ? 'dep' : 'arr'; }
+// … or the stored METARs and pilot reports (kind 'rep', from 2026-10-29)
+let aphKind                = (() => { try { const k = localStorage.getItem('ms_ws_aphist_kind');
+                                            return k === 'dep' || k === 'rep' ? k : 'arr'; }
                                       catch (_) { return 'arr'; } })();
+// Reports filter: 'all' · 'ws' (METARs with a windshear group, pilot reports near
+// the airport) · 'arch' (the same over the whole archive)
+let aphRepFilter           = (() => { try { const v = localStorage.getItem('ms_ws_aphist_rep');
+                                            return v === 'ws' || v === 'arch' ? v : 'all'; }
+                                      catch (_) { return 'all'; } })();
 let aphHistWindow          = 3 * 3600; // active time window in seconds (default 3 h)
 let aphHistDateMode        = false;   // true when a specific date is selected
 let aphHistDate            = '';      // YYYY-MM-DD selected by the user
@@ -2968,6 +2979,7 @@ function aphBands() { return aphHistHiMode ? APHIST_BANDS_HI : APHIST_BANDS_LO; 
  *  (or the 9 approach-conditions columns in 'cond' mode, 7 windshear-report
  *  columns in 'ws' mode). */
 function aphColspan() {
+  if (aphKind === 'rep') return 3;
   return 5 + (approachHistoryMode === 'cond' ? 9 : approachHistoryMode === 'ws' ? 7 : aphBands().length);
 }
 /** Views with their own fixed column set (no Lo / Hi bands). */
@@ -2977,6 +2989,12 @@ const aphFixedMode = () => approachHistoryMode === 'cond' || approachHistoryMode
 function renderApproachHistoryHeader() {
   const thead = document.getElementById('ws-aphist-thead');
   if (!thead) return;
+  if (aphKind === 'rep') {
+    thead.innerHTML = `<tr><th class="ws-aphist-th">UTC</th>
+      <th class="ws-aphist-th" title="METAR (AUTO = automatic, no windshear groups) · ARS special air-report · WXREP pilot report below the ARS criteria · SIGMET">Kind</th>
+      <th class="ws-aphist-th ws-rep-th" title="The message as published; the windshear group of a METAR and the phenomena of a pilot report highlighted">Message</th></tr>`;
+    return;
+  }
   const bandThs = approachHistoryMode === 'cond'
     ? [
         ['Index', 'Approach-conditions index 0–10 (provisional) and level'],
@@ -3031,6 +3049,24 @@ document.getElementById('ws-aphist-panel').classList.toggle('ws-aphist-hidden', 
 function _syncAphKindBtns() {
   document.querySelectorAll('.ws-aphist-kind-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.kind === aphKind));
+  // Reports: their own filter instead of the column mode and Lo / Hi
+  const rep = aphKind === 'rep';
+  const modeSel = document.getElementById('ws-aphist-mode-sel');
+  const repSel  = document.getElementById('ws-aphist-rep-sel');
+  const hiBtn   = document.getElementById('ws-aphist-hi-btn');
+  if (modeSel) modeSel.style.display = rep ? 'none' : '';
+  if (repSel)  { repSel.style.display = rep ? '' : 'none'; repSel.value = aphRepFilter; }
+  if (hiBtn)   { hiBtn.style.display = rep ? 'none' : ''; hiBtn.disabled = aphFixedMode(); }
+  const title = document.querySelector('.ws-aphist-title');
+  if (title) title.textContent = rep ? 'METAR & pilot reports' : 'Approach History';
+  const inp = document.getElementById('ws-aphist-reg-filter');
+  if (inp) inp.title = rep
+    ? 'Search the message text, e.g. WS, R22L, TURB, WXREP or a callsign (case and spaces ignored). Esc clears.'
+    : 'Search the callsign, registration, aircraft type or ICAO address anywhere, e.g. FIN7, OH-LX or AT75 (case and hyphen ignored). Esc clears.';
+  const panel = document.getElementById('ws-aphist-panel');
+  panel.classList.toggle('ws-aphist-hi', !rep && (aphHistHiMode || aphFixedMode()));
+  panel.classList.toggle('ws-aphist-rep', rep);
+  renderApproachHistoryHeader();
 }
 document.querySelectorAll('.ws-aphist-kind-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -3039,12 +3075,19 @@ document.querySelectorAll('.ws-aphist-kind-btn').forEach(btn => {
     try { localStorage.setItem('ms_ws_aphist_kind', aphKind); } catch (_) {}
     _syncAphKindBtns();
     _aphLastEntries = null;
+    _aphRepFetched  = 0;
     const tbody = document.getElementById('ws-aphist-table-body');
     if (tbody) tbody.innerHTML = `<tr><td colspan="${aphColspan()}" class="ws-aphist-empty">Loading…</td></tr>`;
     if (approachHistoryEnabled) fetchApproachHistory();
   });
 });
 _syncAphKindBtns();
+document.getElementById('ws-aphist-rep-sel').addEventListener('change', e => {
+  aphRepFilter = e.target.value;
+  try { localStorage.setItem('ms_ws_aphist_rep', aphRepFilter); } catch (_) {}
+  _aphRepFetched = 0;
+  if (approachHistoryEnabled) fetchApproachHistory();
+});
 
 document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
   approachHistoryMode = e.target.value;
@@ -3422,6 +3465,7 @@ const _aphNormReg = s => (s || '').toUpperCase().replace(/[\s-]/g, '');
 })();
 
 function renderApproachHistory(entries) {
+  if (aphKind === 'rep') return renderReports(entries);
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!tbody) return;
   _aphLastEntries = entries || [];
@@ -3498,6 +3542,71 @@ function renderApproachHistory(entries) {
 
 
 
+// ── METAR & pilot reports in the Approach History panel (from 2026-10-29) ────
+// The stored METARs (metar_reports: the live ones every 30 min and the loaded
+// history) and the pilot reports of ilmailusaa.fi (ARS, WXREP, SIGMET) of the
+// chosen range or date, newest first, in one list.  Filter: all · windshear
+// (the METARs with a WS group and the pilot reports near the airport) · the
+// same over the whole archive.  The search matches the text.
+const _REP_KIND_CLS = { METAR: 'ws-rep-k-met', ARS: 'ws-rep-k-ars', WXREP: 'ws-rep-k-wxrep', SIGMET: 'ws-rep-k-sig', AIRMET: 'ws-rep-k-sig' };
+const _repEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function _repHighlight(raw, isMetar) {
+  let h = _repEsc(raw);
+  if (isMetar) return h.replace(/\bWS\s+(ALL\s+RWY|(?:R(?:WY)?\s?\d{2}[LRC]?\s*)+)/g, m => `<span class="ws-rep-ws">${m.trim()}</span> `);
+  return h.replace(/\b((?:FBL|LGT|MOD|SEV|HVY)\s+)?(TURB|ICE|ICG|MTW|LLWS|WS|INVERSION|INV|TSGR|TS|VA|CB)\b/g, m => `<span class="ws-rep-ph">${m}</span>`);
+}
+let _aphRepFetched = 0;
+function renderReports(d) {
+  const tbody = document.getElementById('ws-aphist-table-body');
+  if (!tbody) return;
+  _aphLastEntries = d || {};
+  const items = [];
+  for (const m of (d && d.metars) || []) items.push({ ts: m.ts, met: true, kind: 'METAR', sub: m.auto ? 'AUTO' : m.cor ? 'COR' : '', raw: m.raw, ws: m.ws });
+  for (const r of (d && d.reports) || []) items.push({ ts: r.obs_ts || r.ts, met: false, kind: r.kind, raw: r.raw, near: r.near, r });
+  items.sort((a, b) => b.ts - a.ts);
+  const list = _aphRegFilter ? items.filter(i => _aphNormReg(i.raw).includes(_aphRegFilter)) : items;
+  const nMet = list.filter(i => i.met).length, nRep = list.length - nMet, nWs = list.filter(i => i.ws).length;
+  const countEl = document.getElementById('ws-aphist-count');
+  if (countEl) {
+    countEl.textContent = `–  ${nMet} METAR${nMet === 1 ? '' : 's'}${nWs ? ` (${nWs} with WS)` : ''} · ${nRep} report${nRep === 1 ? '' : 's'}` +
+      (_aphRegFilter ? ` (search: ${list.length} of ${items.length})` : '');
+    const a = d && d.archive, p = d && d.poll;
+    const fmtD = t => { const x = new Date(t * 1000); return `${x.getUTCDate()}.${x.getUTCMonth() + 1}.${x.getUTCFullYear()}`; };
+    countEl.title = (a && a.n ? `METAR archive: ${a.n} METARs ${fmtD(a.first)}–${fmtD(a.last)}, ${a.ws} with a windshear group` : 'METAR archive: empty so far') +
+      (p ? `\nPilot reports (ilmailusaa.fi): ${!p.enabled ? 'fetching off' : p.last_ok ? 'last fetch ' + new Date(p.last_ok * 1000).toISOString().slice(11, 16) + ' UTC' : 'not fetched yet'}` +
+           (p.err ? ` — last attempt failed: ${p.err}` : '') : '');
+  }
+  if (!list.length) {
+    const msg = _aphRegFilter && items.length ? 'No messages match the search'
+      : aphRepFilter === 'arch' ? 'No METAR windshear groups or pilot reports near the airport stored yet'
+      : aphRepFilter === 'ws' ? 'No METAR windshear groups or pilot reports near the airport in this range'
+      : 'No METARs or pilot reports stored in this range';
+    tbody.innerHTML = `<tr><td colspan="3" class="ws-aphist-empty">${msg}</td></tr>`;
+    return;
+  }
+  const todayMid = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const thisYear = new Date().getUTCFullYear();
+  tbody.innerHTML = list.slice(0, 1500).map(i => {
+    const dt = new Date(i.ts * 1000), hm = dt.toISOString().slice(11, 16);
+    const tm = i.ts * 1000 >= todayMid ? hm
+      : `${dt.getUTCDate()}.${dt.getUTCMonth() + 1}${dt.getUTCFullYear() !== thisYear ? '.' + String(dt.getUTCFullYear()).slice(2) : ''} ${hm}`;
+    const r = i.r;
+    const tip = i.met
+      ? (i.ws ? `Windshear reported (${i.ws === 'ALL' ? 'all runways' : i.ws}) — manual METAR: windshear met during a landing or take-off between the surface and 1600 ft` : '')
+      : [r.ident ? (r.kind === 'ARS' ? 'Aircraft ' : 'Reported by ') + r.ident : '',
+         r.phen ? 'Phenomena: ' + r.phen : '',
+         r.lo_ft != null ? `Height: ${r.lo_ft === r.hi_ft ? r.lo_ft + ' ft' : r.lo_ft + '–' + r.hi_ft + ' ft'}` : '',
+         r.lat != null ? `Position ${r.lat.toFixed(2)}N ${r.lon.toFixed(2)}E` : '',
+         r.obs_ts && r.obs_ts !== r.ts ? `Message ${new Date(r.ts * 1000).toISOString().slice(11, 16)} UTC` : '',
+         r.near ? 'Near the airport (within the set distance, at or below 10 000 ft)' : ''].filter(Boolean).join('\n');
+    return `<tr${tip ? ` title="${tip.replace(/"/g, '&quot;')}"` : ''}${i.ws || i.near ? ' class="ws-rep-hit"' : ''}>
+  <td class="ws-aphist-cell ws-aphist-time">${tm}</td>
+  <td class="ws-aphist-cell ws-rep-kind ${_REP_KIND_CLS[i.kind] || ''}">${i.kind}${i.sub ? ` <span class="ws-rep-sub">${i.sub}</span>` : ''}${i.near ? ' <span class="ws-rep-near">●</span>' : ''}</td>
+  <td class="ws-aphist-cell ws-rep-txt">${_repHighlight(i.raw, i.met)}</td>
+</tr>`;
+  }).join('');
+}
+
 // ── Windrose server buffer fetch ─────────────────────────────────────────────
 async function fetchWindroseObs() {
   try {
@@ -3524,8 +3633,23 @@ async function fetchWindroseObs() {
 }
 
 // ── Approach history fetch ────────────────────────────────────────────────────
-async function fetchApproachHistory() {
+async function fetchApproachHistory(auto) {
   if (!approachHistoryEnabled) return;
+  if (aphKind === 'rep') {
+    // the reports change at most every few minutes: the 15-s refresh asks at most once a minute
+    if (auto === true && Date.now() - _aphRepFetched < 55_000) return;
+    try {
+      const q = aphRepFilter === 'arch' ? 'hours=0&ws=1&near=1&limit=5000'
+        : (aphHistDateMode ? `date=${aphHistDate}` : `hours=${aphHistWindow / 3600}`) + (aphRepFilter === 'ws' ? '&ws=1&near=1' : '');
+      const r = await fetch(`/api/wx/reports?${q}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (aphKind !== 'rep') return;
+      _aphRepFetched = Date.now();
+      renderReports(d);
+    } catch (_) {}
+    return;
+  }
   try {
     const base = aphKind === 'dep' ? '/api/windshear/departures?full=1&' : '/api/windshear/approach-history?';
     const url = aphHistDateMode ? `${base}date=${aphHistDate}` : `${base}window=${aphHistWindow}`;
@@ -3648,7 +3772,7 @@ fetchApproachHistory();
 fetchWindroseObs();
 fetchTodayStats();
 setInterval(fetchApproachState,   3_000);
-setInterval(fetchApproachHistory, 15_000);
+setInterval(() => fetchApproachHistory(true), 15_000);
 setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s
 // Approach-conditions chart data (only while the Cond view is shown)
 fetchCondData();

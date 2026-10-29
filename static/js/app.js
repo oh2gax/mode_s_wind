@@ -396,7 +396,7 @@
 
   // ══ ACI & WS ═════════════════════════════════════════════════════════════
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
-              aph: [], dep: [], ga: [], st: null, fetched: 0, dots: [], all: false, cell: null };
+              aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
   if (!['ws', 'cond', 'st'].includes(A.mode)) A.mode = 'ws';
   $('app-aci-hours').value = String(A.hours);
@@ -428,7 +428,8 @@
     A.dots = A.mode === 'st'
       ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
       : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
-          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched });
+          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched,
+          met: A.wx ? A.wx.metars : [], rep: A.wx ? A.wx.reports : [] });
     drawAciList();
   }
 
@@ -501,6 +502,7 @@
     lsSet('ms_app_hist_kind', kind); lsSet('ms_app_hist_h', A.hours);
     $('app-hist-kind').value = kind; $('app-hist-hours').value = String(A.hours);
     $('app-hist-date').value = ''; $('app-hist-q').value = '';
+    histFields();
     syncChips();
     setView('hist');
   }
@@ -515,13 +517,16 @@
     const win = A.hours * 3600;
     try {
       // landings lite (no per-landing details, gzipped: about an eighth of the full answer)
-      const [aph, dep, st, sp] = await Promise.all([
+      const [aph, dep, st, sp, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
         A.mode === 'ws' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
         A.mode === 'st' ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         A.mode === 'st' ? fetch(`/api/windshear/spacetime?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
+        // METAR windshear groups and pilot reports near the airport (from 2026-10-29)
+        A.mode === 'ws' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
       ]);
       A.st = sp;
+      A.wx = wx;
       A.aph = Array.isArray(aph) ? aph : [];
       A.dep = Array.isArray(dep) ? dep : [];
       A.ga = st && !Array.isArray(st) ? st.ga_events || [] : [];
@@ -560,22 +565,35 @@
   const HB_ALL = [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000];
   const H = { kind: lsGet('ms_app_hist_kind', 'arr'), hours: parseInt(lsGet('ms_app_hist_h', '3'), 10),
               show: lsGet('ms_app_hist_show', 'hw'), res: lsGet('ms_app_hist_res', 'lo'),
+              rep: lsGet('ms_app_hist_rep', 'all'), wx: null,
               date: '', q: '', rows: [], open: new Set(), fetched: 0, req: 0 };
-  if (!['arr', 'dep'].includes(H.kind)) H.kind = 'arr';
+  // kind 'rep' (from 2026-10-29): the stored METARs and pilot reports, filter all / ws / arch
+  if (!['arr', 'dep', 'rep'].includes(H.kind)) H.kind = 'arr';
+  if (!['all', 'ws', 'arch'].includes(H.rep)) H.rep = 'all';
   if (![1, 3, 6, 12, 24].includes(H.hours)) H.hours = 3;
   if (!['hw', 'xw', 'wind', 'aci', 'ws'].includes(H.show)) H.show = 'hw';
   if (!['lo', 'hi'].includes(H.res)) H.res = 'lo';
   const histCtl = [['app-hist-kind', 'kind', 'ms_app_hist_kind'], ['app-hist-hours', 'hours', 'ms_app_hist_h'],
-                   ['app-hist-show', 'show', 'ms_app_hist_show'], ['app-hist-res', 'res', 'ms_app_hist_res']];
+                   ['app-hist-show', 'show', 'ms_app_hist_show'], ['app-hist-res', 'res', 'ms_app_hist_res'],
+                   ['app-hist-rep', 'rep', 'ms_app_hist_rep']];
   for (const [id, key, ls] of histCtl) {
     $(id).value = String(H[key]);
     $(id).addEventListener('change', e => {
       H[key] = key === 'hours' ? parseInt(e.target.value, 10) : e.target.value;
       lsSet(ls, H[key]);
       if (key === 'hours' && H.date) { H.date = ''; $('app-hist-date').value = ''; }
-      if (key === 'kind' || key === 'hours') { H.rows = []; H.open.clear(); loadHist(); } else drawHist();
+      if (key === 'kind') histFields();
+      if (key === 'kind' || key === 'hours' || key === 'rep') { H.rows = []; H.open.clear(); loadHist(); } else drawHist();
     });
   }
+  // the reports have their own filter instead of the band display
+  function histFields() {
+    const rep = H.kind === 'rep';
+    for (const id of ['app-hist-show', 'app-hist-res']) $(id).closest('.app-field').hidden = rep;
+    $('app-hist-rep').closest('.app-field').hidden = !rep;
+    $('app-hist-q').placeholder = rep ? 'Search the text: WS, R22L, TURB, WXREP' : 'Search: callsign, registration, type';
+  }
+  histFields();
   const isoDay = t => `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
   function histDate(v) {
     H.date = v || ''; $('app-hist-date').value = H.date;
@@ -688,8 +706,43 @@
     if (e.registration) txt.unshift(`${e.registration}${e.icao ? ' · ' + e.icao.toUpperCase() : ''}`);
     return tbl + `<div class="txt">${esc(txt.filter((x, i, a) => x !== '' || (i && a[i - 1] !== '')).join('\n'))}</div>`;
   }
+  // ── METAR & pilot reports as cards (from 2026-10-29) ──
+  const REP_KCOL_D = { ARS: '#f87171', WXREP: '#2dd4bf', SIGMET: '#c084fc', AIRMET: '#c084fc' };
+  const REP_KCOL_L = { ARS: '#b91c1c', WXREP: '#0f766e', SIGMET: '#7e22ce', AIRMET: '#7e22ce' };
+  function repHighlight(raw, met) {
+    const h = esc(raw);
+    return met ? h.replace(/\bWS\s+(ALL\s+RWY|(?:R(?:WY)?\s?\d{2}[LRC]?\s*)+)/g, m => `<b class="wsg">${m.trim()}</b> `)
+               : h.replace(/\b((?:FBL|LGT|MOD|SEV|HVY)\s+)?(TURB|ICE|ICG|MTW|LLWS|WS|INVERSION|INV|TSGR|TS|VA|CB)\b/g, m => `<b class="ph">${m}</b>`);
+  }
+  function drawRep() {
+    const all = H.rows;
+    const list = H.q ? all.filter(i => normQ(i.raw).includes(H.q)) : all;
+    const nMet = all.filter(i => i.met).length, nRep = all.length - nMet;
+    $('app-hist-n').textContent = H.q ? `${list.length} / ${all.length}` : `${all.length}`;
+    const range = H.rep === 'arch' ? 'WS & near, whole archive' : H.date ? H.date.split('-').reverse().join('.') : `last ${H.hours === 24 ? '24 h' : H.hours + ' h'}`;
+    $('app-sub').textContent = H.fetched ? `METAR & reports · ${range} · ${nMet} METAR${nMet === 1 ? '' : 's'} · ${nRep} report${nRep === 1 ? '' : 's'}` : 'Loading…';
+    $('app-hist-head').hidden = true;
+    const today = isoDay(new Date()), year = new Date().getUTCFullYear();
+    const REP_KCOL = document.documentElement.dataset.theme === 'light' ? REP_KCOL_L : REP_KCOL_D;
+    $('app-hist-list').innerHTML = list.length ? list.slice(0, 600).map(i => {
+      const d = new Date(i.ts * 1000);
+      const tm = (isoDay(d) !== today ? `${d.getUTCDate()}.${d.getUTCMonth() + 1}${d.getUTCFullYear() !== year ? '.' + String(d.getUTCFullYear()).slice(2) : ''} ` : '') + hhmm(i.ts);
+      const chips = [i.ws ? `<span class="ch lv" style="background:${WS_COL.wsa}">WS ${esc(i.ws === 'ALL' ? 'ALL' : i.ws)}</span>` : '',
+                     i.near ? `<span class="ch" style="color:${REP_KCOL.WXREP}">near</span>` : '',
+                     i.sub ? `<span class="ch dim">${i.sub}</span>` : ''].join('');
+      const r = i.r, extra = r ? [r.ident, r.phen, r.lo_ft != null ? (r.lo_ft === r.hi_ft ? r.lo_ft + ' ft' : `${r.lo_ft}–${r.hi_ft} ft`) : ''].filter(Boolean).join(' · ') : '';
+      return `<div class="app-card rep${i.ws || i.near ? ' hit' : ''}"><div class="hd"><span class="l1"><span class="t">${esc(tm)}</span>` +
+        `<b style="${REP_KCOL[i.kind] ? 'color:' + REP_KCOL[i.kind] : ''}">${esc(i.kind)}</b><span class="ty">${esc(extra)}</span><span class="chs">${chips}</span></span>` +
+        `<span class="rtxt">${repHighlight(i.raw, i.met)}</span></div></div>`;
+    }).join('') : `<div class="app-empty">${H.fetched ? (H.q && all.length ? 'No messages match the search.'
+        : H.rep === 'arch' ? 'No METAR windshear groups or pilot reports near the airport stored yet.'
+        : H.rep === 'ws' ? 'No METAR windshear groups or pilot reports near the airport in this range.'
+        : 'No METARs or pilot reports stored in this range.') : 'Loading…'}</div>`;
+    markScroll();
+  }
   function drawHist() {
     if ($('v-hist').hidden) return;
+    if (H.kind === 'rep') return drawRep();
     const dep = H.kind === 'dep', all = H.rows;
     const list = H.q ? all.filter(e => [e.callsign, e.registration, e.aircraft_type, e.icao].some(x => normQ(x).includes(H.q))) : all;
     const what = dep ? 'departure' : 'landing';
@@ -729,6 +782,21 @@
   });
   async function loadHist() {
     const n = ++H.req, dep = H.kind === 'dep';
+    if (H.kind === 'rep') {
+      const q = H.rep === 'arch' ? 'hours=0&ws=1&near=1&limit=5000'
+        : (H.date ? `date=${H.date}` : `hours=${H.hours}`) + (H.rep === 'ws' ? '&ws=1&near=1' : '');
+      if (!H.rows.length) { H.fetched = 0; drawHist(); }
+      try {
+        const d = await (await fetch(`/api/wx/reports?${q}`, { cache: 'no-store' })).json();
+        if (n !== H.req) return;
+        const items = [];
+        for (const m of d.metars || []) items.push({ ts: m.ts, met: true, kind: 'METAR', sub: m.auto ? 'AUTO' : m.cor ? 'COR' : '', raw: m.raw, ws: m.ws });
+        for (const r of d.reports || []) items.push({ ts: r.obs_ts || r.ts, met: false, kind: r.kind, raw: r.raw, near: r.near, r });
+        H.rows = items.sort((a, b) => b.ts - a.ts); H.wx = d; H.fetched = Date.now();
+      } catch (_) { if (n === H.req) $('app-sub').textContent = 'Could not load the reports.'; return; }
+      drawHist();
+      return;
+    }
     const q = H.date ? `date=${H.date}` : `window=${H.hours * 3600}`;
     const url = dep ? `/api/windshear/departures?full=1&${q}` : `/api/windshear/approach-history?lite=1&${q}`;
     if (!H.rows.length) { H.fetched = 0; drawHist(); }
@@ -949,16 +1017,17 @@
   // The ACI + windshear chart of the ACI · WS · ST view (ws_cond_chart.js)
   // for the last 3 or 6 h, off by default; its landings and departures are
   // fetched at most once a minute while the ILS view is open.
-  const IW = { aph: [], dep: [], fetched: 0, at: 0, hours: 3, dots: [] };
+  const IW = { aph: [], dep: [], wx: null, fetched: 0, at: 0, hours: 3, dots: [] };
   async function loadIlsWs() {
     if (I.wsaci === 'off' || Date.now() - IW.at < 60000) return;
     IW.at = Date.now();
     const hours = parseInt(I.wsaci, 10) || 3, win = hours * 3600;
     try {
-      const [aph, dep] = await Promise.all([
+      const [aph, dep, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
-        fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json())]);
-      IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : [];
+        fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()),
+        fetch(`/api/wx/reports?hours=${hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null)]);
+      IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : []; IW.wx = wx;
       IW.hours = hours; IW.fetched = Date.now();
     } catch (_) { IW.at = 0; return; }
     drawIls();
@@ -973,9 +1042,11 @@
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const ro = document.createElement('div');                       // the chart's own read-out, shortened below
-    IW.dots = WsCondChart.draw(ctx, W, H, ro, { aph: IW.aph, dep: IW.dep, ga: [], hours: IW.hours, withWs: true, fetchedMs: IW.fetched });
+    IW.dots = WsCondChart.draw(ctx, W, H, ro, { aph: IW.aph, dep: IW.dep, ga: [], hours: IW.hours, withWs: true, fetchedMs: IW.fetched,
+      met: IW.wx ? IW.wx.metars : [], rep: IW.wx ? IW.wx.reports : [] });
     const parts = ro.innerHTML.split('<br>').map(t => t.trim());                 // its own lines (ws_cond_chart.js)
-    $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last')), parts.find(t => t.startsWith('WS '))].filter(Boolean).join(' · ');
+    $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last')), parts.find(t => t.startsWith('WS ')),
+      parts.find(t => t.startsWith('<span style='))].filter(Boolean).join(' · ');   // + METAR WS / pilot reports
   }
   $('app-ils-wscv').addEventListener('pointerdown', e => {
     const r = $('app-ils-wscv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;

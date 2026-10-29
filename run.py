@@ -1040,10 +1040,25 @@ def main() -> None:
                         "so that the web server is reachable only through the proxy", cfg.WEB_HOST)
 
     # ── Start background WX (METAR / TAF) polling thread ─────────────────
-    start_wx_poll_thread(cfg.AIRPORT_ICAO.upper(), on_qnh=ws_tracker.set_qnh,
-                         on_metar=ws_tracker.set_metar)
-    log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3)",
-             cfg.AIRPORT_ICAO.upper())
+    # (from 2026-10-29 every new METAR is also stored in metar_reports)
+    from collector import wx_reports as _wxr
+    _icao = cfg.AIRPORT_ICAO.upper()
+
+    def _on_metar(txt):
+        ws_tracker.set_metar(txt)
+        _wxr.store_live_metar(txt, _icao)
+
+    start_wx_poll_thread(_icao, on_qnh=ws_tracker.set_qnh, on_metar=_on_metar)
+    log.info("WX poll thread started (ICAO=%s, interval=600s, retries=3; METARs stored)", _icao)
+
+    # ── Pilot reports: SIGMET + ARS + WXREP of ilmailusaa.fi (from 2026-10-29) ──
+    _pr = _wxr.init_poller(cfg)
+    if _pr.enabled:
+        threading.Thread(target=_pr.run, name="pilot_reports", daemon=True).start()
+        log.info("Pilot report fetcher started (ilmailusaa.fi every %g min, near = %g NM)",
+                 _pr.interval / 60, _pr.near_nm)
+    else:
+        log.info("Pilot report fetcher off (PILOT_REPORTS_FETCH = False); stored reports still shown")
 
     log.info("Web interface starting on http://%s:%d", cfg.WEB_HOST, cfg.WEB_PORT)
     log.info("Access at  http://192.168.0.114:%d  (local network)", cfg.WEB_PORT)

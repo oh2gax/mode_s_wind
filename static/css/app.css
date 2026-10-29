@@ -248,6 +248,17 @@ body.app-body {
 .app-card .l2 { display: flex; align-items: center; min-width: 0; font-size: 11.5px; color: var(--text-2);
                 font-family: 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-card .l2 .trial { font-style: italic; }
+/* METAR & pilot report cards (from 2026-10-29): the whole message, wrapped */
+.app-card.rep .hd { cursor: default; }
+.app-card.rep .rtxt { font-family: 'Courier New', monospace; font-size: 11.5px; line-height: 1.4; color: var(--text-2);
+                      white-space: normal; word-break: break-word; }
+.app-card.rep.hit { border-color: color-mix(in srgb, #d97706 55%, var(--border)); }
+.app-card.rep.hit .rtxt { color: var(--text-1); }
+.app-card.rep .rtxt .wsg { color: #fbbf24; white-space: nowrap; }
+.app-card.rep .rtxt .ph { color: #2dd4bf; }
+.app-card.rep .l1 .ty { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+[data-theme="light"] .app-card.rep .rtxt .wsg { color: #b45309; }
+[data-theme="light"] .app-card.rep .rtxt .ph { color: #0f766e; }
 .app-card .dim, .app-card .bd .dim { color: var(--text-3); }
 /* one cell per height band (the header uses the same grid, so the columns line up) */
 .app-hist .strip { flex: 1; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; }

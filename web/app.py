@@ -1719,6 +1719,29 @@ def create_app(
 
         return jsonify(data)
 
+    @app.route("/api/wx/reports")
+    def wx_reports_api():
+        """Stored METARs and pilot reports (collector/wx_reports.py, from 2026-10-29).
+
+        ?hours=24 (max 744) or ?date=YYYY-MM-DD (UTC day); ?ws=1 only the METARs
+        with a windshear group (with hours=0 and no date: the whole archive);
+        ?near=1 only the pilot reports near the airport; ?limit (default 2000).
+        """
+        import re as _re
+        from collector import wx_reports as _wxr
+        date = request.args.get("date") or None
+        if date and not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+        try:
+            out = _wxr.query(get_db(), (cfg.AIRPORT_ICAO or "").upper(),
+                             hours=request.args.get("hours", 24, type=float),
+                             date=date, ws_only=request.args.get("ws") == "1",
+                             near_only=request.args.get("near") == "1",
+                             limit=request.args.get("limit", 2000, type=int))
+        except ValueError:
+            return jsonify({"error": "bad date"}), 400
+        return _gzip_json(out)
+
     # ── Maintenance page ──────────────────────────────────────────────────
 
     def _check_maint_auth(username: str, password: str) -> bool:

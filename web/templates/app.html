@@ -273,8 +273,10 @@
 
   <details class="app-sec" data-for="hist">
     <summary>History options</summary>
-    <div class="app-field"><span>Flights</span>
-      <select id="app-hist-kind" data-chips><option value="arr">Landings</option><option value="dep">Departures</option></select></div>
+    <div class="app-field"><span>List</span>
+      <select id="app-hist-kind" data-chips><option value="arr">Landings</option><option value="dep">Departures</option><option value="rep">METAR &amp; reports</option></select></div>
+    <div class="app-field" hidden><span>Messages</span>
+      <select id="app-hist-rep" data-chips><option value="all">All</option><option value="ws">WS &amp; near</option><option value="arch">WS archive</option></select></div>
     <div class="app-field"><span>Range</span>
       <select id="app-hist-hours" data-chips><option value="1">1 h</option><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
     <div class="app-field"><span>Or a date (UTC)</span>
@@ -288,7 +290,7 @@
       <select id="app-hist-show" data-chips><option value="hw">Headwind</option><option value="xw">Crosswind</option><option value="wind">Wind</option><option value="aci">ACI</option><option value="ws">Windshear</option></select></div>
     <div class="app-field"><span>Height bands</span>
       <select id="app-hist-res" data-chips><option value="lo">Lo · 8</option><option value="hi">Hi · 13</option></select></div>
-    <div class="app-small">Tap a flight for all its bands and its reports. The search matches the callsign, registration and aircraft type anywhere (e.g. FIN7, OH-LX, AT75).</div>
+    <div class="app-small">Tap a flight for all its bands and its reports. The search matches the callsign, registration and aircraft type anywhere (e.g. FIN7, OH-LX, AT75). METAR &amp; reports: the airport's METARs (a windshear group such as WS R22L highlighted) and the pilot reports (ARS, WXREP) and SIGMETs of the FMI aviation weather service; "WS &amp; near" keeps the METARs with a windshear group and the pilot reports near the airport, "WS archive" the same over the whole archive (any date).</div>
   </details>
 
   <details class="app-sec" data-for="stats">

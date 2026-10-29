@@ -1209,6 +1209,26 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   width: max-content;
 }
 .ws-aphist-panel.ws-aphist-hidden { display: none; }
+/* METAR & pilot reports (from 2026-10-29): a fixed width, the messages wrap */
+.ws-aphist-panel.ws-aphist-rep { width: 640px; max-width: calc(100% - 300px); }
+.ws-aphist-th.ws-rep-th { text-align: left; }
+.ws-aphist-cell.ws-rep-kind { white-space: nowrap; text-align: left; font-weight: 600; color: var(--text-2); }
+.ws-rep-sub  { font-weight: 400; color: var(--text-3); font-size: 10px; }
+.ws-aphist-cell.ws-rep-txt { text-align: left; font-family: 'Courier New', monospace; font-size: 11px; white-space: normal;
+               word-break: break-word; color: var(--text-2); }
+.ws-rep-hit .ws-aphist-cell.ws-rep-txt { color: var(--text-1); }
+.ws-rep-ws   { color: #fbbf24; font-weight: 700; white-space: nowrap; }
+.ws-rep-ph   { color: #2dd4bf; font-weight: 700; }
+.ws-rep-near { color: #2dd4bf; font-size: 9px; }
+.ws-aphist-cell.ws-rep-k-ars   { color: #f87171; }
+.ws-aphist-cell.ws-rep-k-wxrep { color: #2dd4bf; }
+.ws-aphist-cell.ws-rep-k-sig   { color: #c084fc; }
+[data-theme="light"] .ws-rep-ws   { color: #b45309; }
+[data-theme="light"] .ws-rep-ph,
+[data-theme="light"] .ws-rep-near,
+[data-theme="light"] .ws-aphist-cell.ws-rep-k-wxrep { color: #0f766e; }
+[data-theme="light"] .ws-aphist-cell.ws-rep-k-ars   { color: #b91c1c; }
+[data-theme="light"] .ws-aphist-cell.ws-rep-k-sig   { color: #7e22ce; }
 
 .ws-aphist-header {
   display: flex;
