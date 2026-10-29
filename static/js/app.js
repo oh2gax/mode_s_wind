@@ -398,7 +398,7 @@
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
               aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
-  if (!['ws', 'cond', 'st'].includes(A.mode)) A.mode = 'ws';
+  if (!['ws', 'cond', 'st', 'edr'].includes(A.mode)) A.mode = 'ws';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
   if (A.mode === 'st') $('app-aci-pick').textContent = 'Tap a cell for its flights.';
@@ -418,7 +418,7 @@
     if (v.hidden) return;
     const cv = $('app-aci'), box = $('app-aci-box');
     const W = Math.max(280, v.clientWidth - 8);
-    const H = Math.max(220, Math.min(Math.round(W * (A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
+    const H = Math.max(220, Math.min(Math.round(W * (A.mode === 'edr' ? 1.25 : A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -428,7 +428,7 @@
     A.dots = A.mode === 'st'
       ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
       : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
-          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws', fetchedMs: A.fetched,
+          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws' || A.mode === 'edr', withEdr: A.mode === 'edr', selMs: A.selMs, fetchedMs: A.fetched,
           met: A.wx ? A.wx.metars : [], rep: A.wx ? A.wx.reports : [] });
     drawAciList();
   }
@@ -454,7 +454,7 @@
     }
     const out = A.aph.map(e => ({ ts: e.ts, dep: false, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.runway,
       aci: e.cond && e.cond.idx != null ? e.cond.idx : null, lvl: e.shear && e.shear.lvl }));
-    if (A.mode === 'ws') for (const e of A.dep) {
+    if (A.mode === 'ws' || A.mode === 'edr') for (const e of A.dep) {
       out.push({ ts: e.ts, dep: true, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.shear && e.shear.rwy, aci: null, lvl: e.shear && e.shear.lvl });
     }
     return out;
@@ -519,11 +519,11 @@
       // landings lite (no per-landing details, gzipped: about an eighth of the full answer)
       const [aph, dep, st, sp, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
-        A.mode === 'ws' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
+        A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
         A.mode === 'st' ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         A.mode === 'st' ? fetch(`/api/windshear/spacetime?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
         // METAR windshear groups and pilot reports near the airport (from 2026-10-29)
-        A.mode === 'ws' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+        A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
       ]);
       A.st = sp;
       A.wx = wx;
@@ -544,6 +544,7 @@
       if (dd < bd) { bd = dd; best = d; }
     }
     $('app-aci-pick').textContent = best ? best.label : A.mode === 'st' ? 'Tap a cell for its flights.' : 'Tap a dot for the landing.';
+    if (A.mode === 'edr' && best && best.ms && best.ms !== A.selMs) { A.selMs = best.ms; drawAci(); }
     if (A.mode === 'st') {                     // the list follows the tapped cell
       const c = best && best.cell ? best.cell : null;
       if (c !== A.cell && (c || e.type === 'pointerdown')) { A.cell = c; drawAciList(); markScroll(); }
@@ -821,7 +822,7 @@
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
               vec: lsGet('ms_app_ils_vec', 'off'),
               // departures on the map: hide (default) / show (from 2026-10-29)
-              deps: lsGet('ms_app_ils_deps', 'hide') };
+              deps: lsGet('ms_app_ils_deps', 'hide'), edrmap: lsGet('ms_app_ils_edrmap', 'off') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -832,17 +833,19 @@
   if (!['off', '3', '6'].includes(I.wsaci)) I.wsaci = 'off';
   if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
   if (!['hide', 'show'].includes(I.deps)) I.deps = 'hide';
+  if (!['off', '30', '60'].includes(I.edrmap)) I.edrmap = 'off';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci'],
-                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps']];
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
       if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
       if (key === 'wsaci') { IW.at = 0; loadIlsWs(); }
+      if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
     });
   }
   $('app-ils-trails').checked = I.trails;
@@ -972,11 +975,49 @@
       weight: 1, fill: false, dashArray: '4 6' }).addTo(IM.ovl);
     L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], { interactive: false, radius: 5, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2 }).addTo(IM.ovl);
   }
+  // EDR pieces of the map, fetched at most once a minute while the option is on
+  const IE = { tracks: [], at: 0, min: 0 };
+  async function loadEdrTracks() {
+    const min = I.edrmap === 'off' ? 0 : parseInt(I.edrmap, 10) || 0;
+    if (!min || (Date.now() - IE.at < 60000 && IE.min === min)) return;
+    IE.at = Date.now(); IE.min = min;
+    try {
+      const d = await (await fetch(`/api/windshear/edr-tracks?minutes=${min}`, { cache: 'no-store' })).json();
+      IE.tracks = Array.isArray(d) ? d : [];
+    } catch (_) { IE.at = 0; return; }
+    drawIls();
+  }
   function drawIlsMap() {
     if (!IM.map) return;
     imTheme();
     IM.ac.clearLayers();
     const light = isLight();
+    // Turbulence on the map (from 2026-10-29; RESEARCH, option Off / 30 min / 1 h): the
+    // straight 2-km pieces of the paths of the landings and departures of the period
+    // coloured by their EDR (collector/edr.py, /api/windshear/edr-tracks), the strongest
+    // drawn last so that the colour shows the worst piece; and a summary line
+    const EMIN = I.edrmap === 'off' ? 0 : parseInt(I.edrmap, 10) || 0;
+    const ET = EMIN ? IE.tracks.filter(t => Date.now() / 1000 - t.ts < EMIN * 60) : [];
+    const ecol = v => v >= 0.45 ? '#ef4444' : v >= 0.20 ? '#fb923c' : v >= 0.10 ? '#facc15' : (light ? '#059669' : '#34d399');
+    // the strongest on top: the colour shows the worst piece of the period
+    const SG = []; for (const t of ET) for (const g of t.seg) if (g.p.length > 1) SG.push(g);
+    SG.sort((x, y) => x.e - y.e);
+    for (const g of SG) {
+      L.polyline(g.p, { interactive: false, color: light ? '#ffffff' : '#0b1220', weight: 8, opacity: 0.9 }).addTo(IM.ac);
+      L.polyline(g.p, { interactive: false, color: ecol(g.e), weight: 5, opacity: 0.95 }).addTo(IM.ac);
+    }
+    const el = $('app-ils-edr');
+    if (el) el.hidden = !EMIN;
+    if (el && EMIN) {
+      let mx = null, n = 0, nd = 0; const lay = { lo: [], hi: [] };
+      for (const t of ET) { if (t.ph === 'dep') nd++; else n++; for (const g of t.seg) { const h = (g.a[0] + g.a[1]) / 2 - WS_THR_ELEVATION_FT; (h < 1000 ? lay.lo : lay.hi).push(g.e);
+        if (!mx || g.e > mx.e) mx = { e: g.e, h: Math.round(h / 100) * 100, cs: t.cs, rwy: t.rwy }; } }
+      const nm = v => v >= 0.45 ? 'severe' : v >= 0.20 ? 'moderate' : v >= 0.10 ? 'light' : 'smooth';
+      const md = a => { a = a.slice().sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
+      el.innerHTML = mx ? `<b>Turbulence (EDR), last ${EMIN} min</b> · ${n} landings, ${nd} departures · max <b style="color:${ecol(mx.e)}">${mx.e.toFixed(2)} ${nm(mx.e)}</b> at ${mx.h} ft (${esc(mx.cs || '')} ${esc(mx.rwy || '')})` +
+        ` · median below 1000 ft ${md(lay.lo) != null ? md(lay.lo).toFixed(2) : '—'}, 1000–3000 ft ${md(lay.hi) != null ? md(lay.hi).toFixed(2) : '—'} <span class="ws-research-tag">research</span>`
+        : `Turbulence (EDR): no flights in the last ${EMIN} min`;
+    }
     for (const a of I.ac) {
       if (a.lat == null || a.lon == null) continue;
       const onA = a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway);
@@ -1144,6 +1185,7 @@
       autoSel();
       drawIls();
       if (I.wsaci !== 'off') loadIlsWs();
+      if (I.edrmap !== 'off') loadEdrTracks();
     } catch (_) { $('app-sub').textContent = 'Could not load the approach traffic.'; }
   }
   $('app-ils').addEventListener('pointerdown', e => {

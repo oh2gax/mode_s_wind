@@ -12,6 +12,8 @@
  *     rep,        // optional: pilot reports near the airport (/api/wx/reports?near=1 "reports")
  *     hours,      // range 3 / 6 / 12 / 24
  *     withWs,     // false: ACI only; true: ACI + the windshear strip
+ *     withEdr,    // with withWs: ACI + turbulence (EDR) + windshear, three strips (from 2026-10-29)
+ *     selMs,      // optional: the tapped flight's time — a line through all the strips
  *     fetchedMs,  // when the data arrived (0 = still loading)
  *     nowMs });   // optional, default Date.now()
  *   → [{x, y, dotR, label, color}] for the hover / tap read-out
@@ -106,14 +108,16 @@ const WsCondChart = (() => {
     const light = document.documentElement.dataset.theme === 'light';
     const CLS_COL = light ? COND_CLASS_COLORS_LIGHT : COND_CLASS_COLORS_DARK;
     const withWs = !!d.withWs;
+    const withEdr = !!d.withEdr && withWs;          // ACI + EDR + WS (from 2026-10-29)
     const nowMs = d.nowMs || Date.now();
     const spanMs = wrCondHours * 3_600_000;
     const t0 = nowMs - spanMs;
     const L = 24, R = 8, T = 22, B = 18;          // plot margins
     const GAP = 6;                                // between the ACI and the WS part
     const PW = W - L - R;
-    const PH = withWs ? Math.round((H - T - B - GAP) * 0.56) : H - T - B;   // ACI part
-    const WT = T + PH + GAP, WH = H - B - WT;                               // WS strip
+    const PH = withEdr ? Math.round((H - T - B - 2 * GAP) * 0.31) : withWs ? Math.round((H - T - B - GAP) * 0.56) : H - T - B;   // ACI part
+    const ET = T + PH + GAP, EH = withEdr ? Math.round((H - T - B - 2 * GAP) * 0.33) : 0;   // EDR strip
+    const WT = withEdr ? ET + EH + GAP : T + PH + GAP, WH = H - B - WT;     // WS strip
     const xOf = ms  => L + (ms - t0) / spanMs * PW;
     const yOf = idx => T + PH - Math.max(0, Math.min(10, idx)) / 10 * PH;
     const grey = light ? '#94a3b8' : '#64748b';
@@ -135,6 +139,7 @@ const WsCondChart = (() => {
     ctx.lineWidth = 1;
     ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
     if (withWs) ctx.strokeRect(L + 0.5, WT + 0.5, PW, WH);
+    if (withEdr) ctx.strokeRect(L + 0.5, ET + 0.5, PW, EH);
     ctx.font = '9px "Courier New",monospace';
     ctx.fillStyle = CT.roseLabel;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -149,6 +154,7 @@ const WsCondChart = (() => {
       ctx.strokeStyle = CT.roseOuter;
       ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + PH); ctx.stroke();
       if (withWs) { ctx.beginPath(); ctx.moveTo(x, WT); ctx.lineTo(x, WT + WH); ctx.stroke(); }
+      if (withEdr) { ctx.beginPath(); ctx.moveTo(x, ET); ctx.lineTo(x, ET + EH); ctx.stroke(); }
       ctx.fillText(String(new Date(h).getUTCHours()).padStart(2, '0') + 'Z', x, yBottom + 4);
     }
 
@@ -156,7 +162,7 @@ const WsCondChart = (() => {
     ctx.font = '10px "Courier New",monospace';
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';  ctx.fillStyle = CT.roseLabel;
-    ctx.fillText(withWs ? 'Approach conditions + windshear' : 'Approach conditions', 5, 5);
+    ctx.fillText(withEdr ? 'Approach conditions + turbulence (EDR) + windshear' : withWs ? 'Approach conditions + windshear' : 'Approach conditions', 5, 5);
     ctx.textAlign = 'right';
     ctx.fillText(wrRangeLabel(wrCondHours), W - 5, 5);
 
@@ -207,6 +213,13 @@ const WsCondChart = (() => {
     }
 
     // ── Windshear strip (ACI + WS view) ─────────────────────────────────────────
+    let edrSum = null;
+    if (withEdr) edrSum = _drawEdrStrip(ctx, { L, PW, ET, EH, t0, nowMs, xOf, CT, light, CLS_COL, wrAphEntries, wrDepEntries, wrHistDots, sel: d.selMs });
+    if (d.selMs) {                                     // the tapped flight, through all the strips
+      const x = xOf(d.selMs);
+      ctx.save(); ctx.strokeStyle = light ? '#0f172a' : '#ffffff'; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, H - B); ctx.stroke(); ctx.restore();
+    }
     let wsSum = null;
     if (withWs) wsSum = _drawWsStrip(ctx, { L, PW, WT, WH, t0, nowMs, xOf, CT, light, grey, T, PH,
                                              wrAphEntries, wrDepEntries, wrGaEvents, wrCondFetchedMs, wrHistDots });
@@ -240,6 +253,11 @@ const WsCondChart = (() => {
             .filter(Boolean).join(' · ') : '') +
         `<br><span class="ws-cond-legend">│ ramp (1 km) · ◆ band landing · ◇ band departure · ▲ go-around · ` +
         `<span style="color:${MET_WS_COL(light)}">▬ METAR WS</span> · <span style="color:${REP_COL(light)}">P pilot report</span></span>`;
+    }
+    if (edrSum) {                     // a compact read-out in the three-strip view (more room for the chart)
+      const ws = line3.split('<br>').filter(Boolean)[0] || '';
+      readout.innerHTML = `${line1} · ${line2}${edrSum.line}<br>${ws}<br><span class="ws-cond-legend">● landing ○ departure · ◆◇ band change · │ ramp</span>`;
+      return wrHistDots;
     }
     readout.innerHTML = `${line1}<br>${line2}${line3}<br><span class="ws-cond-legend">${legend}${met}</span>`;
     return wrHistDots;
@@ -308,6 +326,71 @@ const WsCondChart = (() => {
     sum.met = met.length;
     sum.metRwy = [...rwys].join(' ');
     sum.rep = rep.length;
+  }
+
+  // EDR strip (from 2026-10-29; RESEARCH): the turbulence of each landing (dot) and
+  // departure (ring) from collector/edr.py on a log scale 0.02–0.6 with the ICAO
+  // Annex 3 peak-EDR limits of a medium aircraft — light 0.10, moderate 0.20,
+  // severe 0.45 — and the running median (±30 min, ≥ 3 flights)
+  const EDR_LIM = [[0.10, 'LGT', '#facc15', '#a16207'], [0.20, 'MOD', '#fb923c', '#c2410c'], [0.45, 'SEV', '#ef4444', '#b91c1c']];
+  const edrCls = v => v >= 0.45 ? 3 : v >= 0.20 ? 2 : v >= 0.10 ? 1 : 0;
+  const EDR_NAME = ['smooth', 'light', 'moderate', 'severe'];
+  function edrCol(v, light) { const c = edrCls(v); return c === 0 ? (light ? '#047857' : '#34d399') : EDR_LIM[c - 1][light ? 3 : 2]; }
+  function _drawEdrStrip(ctx, g) {
+    const { L, PW, ET, EH, t0, nowMs, xOf, CT, light, wrAphEntries, wrDepEntries, wrHistDots } = g;
+    const LO = 0.02, HI = 0.6;
+    const yE = v => ET + EH - (Math.log(Math.max(LO, Math.min(HI, v)) / LO) / Math.log(HI / LO)) * (EH - 4) - 2;
+    ctx.save();
+    // class bands
+    for (let i = 0; i < 3; i++) {
+      const y1 = yE(EDR_LIM[i][0]), y2 = i < 2 ? yE(EDR_LIM[i + 1][0]) : ET;
+      ctx.globalAlpha = light ? 0.12 : 0.10; ctx.fillStyle = EDR_LIM[i][2];
+      ctx.fillRect(L, y2, PW, y1 - y2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = '8px "Courier New",monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    for (const [v, n, cd, cl] of EDR_LIM) {
+      const y = Math.round(yE(v)) + 0.5;
+      ctx.strokeStyle = light ? cl : cd; ctx.globalAlpha = 0.7; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + PW, y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = 1; ctx.fillStyle = light ? cl : cd; ctx.fillText(n, L + PW - 2, y - 1);
+    }
+    ctx.fillStyle = CT.roseLabel; ctx.font = '9px "Courier New",monospace'; ctx.textBaseline = 'middle';
+    for (const v of (EH > 90 ? [0.05, 0.1, 0.2, 0.45] : [0.1, 0.2, 0.45])) ctx.fillText(String(v).replace('0.', '.'), L - 2, yE(v));
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('EDR m⅔/s', L + 3, ET + EH - 2);
+    const inR = e => e.edr && e.ts * 1000 >= t0 && e.ts * 1000 <= nowMs;
+    const pts = wrAphEntries.filter(inR).map(e => ({ ms: e.ts * 1000, v: e.edr.m, e }))
+      .concat((wrDepEntries || []).filter(inR).map(e => ({ ms: e.ts * 1000, v: e.edr.m, e, dep: true })))
+      .sort((a, b) => a.ms - b.ms);
+    // running median ±30 min
+    ctx.strokeStyle = light ? '#7c3aed' : '#c4b5fd'; ctx.lineWidth = 2; ctx.beginPath(); let pen = false;
+    for (let t = t0; t <= nowMs; t += 300_000) {
+      const w = pts.filter(p => Math.abs(p.ms - t) <= 1_800_000).map(p => p.v).sort((a, b) => a - b);
+      if (w.length < 3) { pen = false; continue; }
+      const m = w[w.length >> 1];
+      if (!pen) { ctx.moveTo(xOf(t), yE(m)); pen = true; } else ctx.lineTo(xOf(t), yE(m));
+    }
+    ctx.stroke();
+    for (const p of pts) {
+      const x = xOf(p.ms), y = yE(p.v), col = edrCol(p.v, light), sel = g.sel && Math.abs(g.sel - p.ms) < 1000;
+      ctx.beginPath(); ctx.arc(x, y, sel ? 4.5 : p.dep ? 2.6 : 2.8, 0, Math.PI * 2);
+      if (p.dep) { ctx.lineWidth = 1.6; ctx.strokeStyle = col; ctx.stroke(); }          // departure: hollow
+      else { ctx.fillStyle = col; ctx.fill(); }
+      if (sel) { ctx.lineWidth = 1.8; ctx.strokeStyle = light ? '#0f172a' : '#fff'; ctx.stroke(); }
+      const ee = p.e.edr;
+      const tm = p.e.time_utc || new Date(p.ms).toISOString().slice(11, 16);
+      wrHistDots.push({ x, y, dotR: 3, color: col, ms: p.ms,
+        label: `${tm} ${p.e.callsign || p.e.icao} ${p.e.aircraft_type || ''} ${p.e.runway || (p.e.shear && p.e.shear.rwy) || ''}${p.dep ? ' (departure)' : ''}: EDR ${ee.m.toFixed(2)} (${EDR_NAME[edrCls(ee.m)]})` +
+               `\n200–1000 ft ${ee.lo != null ? ee.lo.toFixed(2) : '—'} · 1000–3000 ft ${ee.hi != null ? ee.hi.toFixed(2) : '—'} · strongest 2-km piece ${ee.pk.toFixed(2)}` });
+    }
+    ctx.restore();
+    if (!pts.length) return null;
+    const all = pts.map(p => p.v).sort((a, b) => a - b), med = all[all.length >> 1];
+    const mx = pts.reduce((a, p) => (!a || p.v > a.v ? p : a), null);
+    const last = pts.filter(p => nowMs - p.ms <= 3_600_000).map(p => p.v).sort((a, b) => a - b);
+    const lm = last.length ? last[last.length >> 1] : null;
+    return { line: `<br>EDR: last 1h ${lm != null ? `<span style="color:${edrCol(lm, light)}">${lm.toFixed(2)} ${EDR_NAME[edrCls(lm)]}</span>` : '—'} · ` +
+      `median ${med.toFixed(2)} · max <span style="color:${edrCol(mx.v, light)}">${mx.v.toFixed(2)}</span> ${mx.e.callsign || ''} <span class="ws-research-tag">research</span>` };
   }
 
   /** The windshear strip of the ACI + WS view; returns the counts for the readout. */

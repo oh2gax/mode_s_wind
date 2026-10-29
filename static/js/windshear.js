@@ -1919,11 +1919,12 @@ const WINDROSE_MAX_AGE_MS    = 30 * 60 * 1000;     // 30-minute window for main 
 const WINDROSE_HIST_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6-hour buffer for Hist trend arrows
 
 let windroseEnabled      = true;   // shown by default
-let wrView               = ['cond', 'ws', 'st'].includes(localStorage.getItem('ms_ws_wr_view'))
+let wrView               = ['cond', 'ws', 'st', 'edr'].includes(   // 'edr': ACI + EDR + WS (from 2026-10-29)
+                             localStorage.getItem('ms_ws_wr_view'))
                            ? localStorage.getItem('ms_ws_wr_view')
                            : (localStorage.getItem('ms_ws_wr_view') === 'rose' ? 'rose' : 'cond');
                            // 'rose' | 'cond' | 'ws' (ACI + windshear) | 'st' (space–time, from 27 Oct 2026); first visit: ACI
-const wrIsChart = () => wrView === 'cond' || wrView === 'ws' || wrView === 'st';   // the views with the range button
+const wrIsChart = () => wrView === 'cond' || wrView === 'ws' || wrView === 'st' || wrView === 'edr';   // the views with the range button
 let wrStData             = null;   // /api/windshear/spacetime answer (ST view)
 const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
 let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
@@ -2279,13 +2280,15 @@ function sizeWindroseCanvas() {
   if (!canvas) return;
   let w = WR_ROSE_SIZE;
   let h = WR_ROSE_SIZE;
-  if (wrView === 'ws' || wrView === 'st') {
+  if (wrView === 'ws' || wrView === 'st' || wrView === 'edr') {
     // room between the panel and the map's bottom edge (map attribution: 22 px)
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
       const rest = panel.offsetHeight - canvas.height;          // buttons + readout + padding
-      const room = box.clientHeight - panel.offsetTop - rest - 22;
-      h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + WR_WS_EXTRA, Math.floor(room)));
+      // EDR view (three strips, from 2026-10-29): down to the map's bottom edge (over the attribution), up to +320 px
+      const edrV = wrView === 'edr';
+      const room = box.clientHeight - panel.offsetTop - rest - (edrV ? 4 : 22);
+      h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + (edrV ? 320 : WR_WS_EXTRA), Math.floor(room)));
     }
   }
   if (Math.abs(canvas.height - h) > 4 || h === WR_ROSE_SIZE) { if (canvas.height !== h) canvas.height = h; }
@@ -2307,8 +2310,8 @@ async function fetchCondData() {
     const win = wrCondHours * 3600;
     const [r, rd, rw] = await Promise.all([
       fetch(`/api/windshear/approach-history?window=${win}`),
-      wrView === 'ws' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
-      wrView === 'ws' ? fetch(`/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null)]);
+      wrView === 'ws' || wrView === 'edr' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
+      wrView === 'ws' || wrView === 'edr' ? fetch(`/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null)]);
     if (!r.ok) return;
     const rows = await r.json();
     wrAphEntries    = rows;
@@ -2347,7 +2350,7 @@ function drawCondChart() {
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
     aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
     met: wrWxRep ? wrWxRep.metars : [], rep: wrWxRep ? wrWxRep.reports : [],
-    hours: wrCondHours, withWs: wrView === 'ws', fetchedMs: wrCondFetchedMs });
+    hours: wrCondHours, withWs: wrView === 'ws' || wrView === 'edr', withEdr: wrView === 'edr', fetchedMs: wrCondFetchedMs });
 }
 
 function _syncWrViewBtns() {

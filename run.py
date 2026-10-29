@@ -403,6 +403,52 @@ def _shear_startup(ws_tracker) -> None:
     _shear_confirm_backfill(ws_tracker)
 
 
+def _edr_json(series_blob) -> str | None:
+    """Turbulence (EDR) record of a flight from its raw reply series
+    (collector/edr.py, from 2026-10-29) as JSON, or None."""
+    from collector import edr as _edr
+    rec = _edr.from_blob(series_blob)
+    return json.dumps(rec, separators=(",", ":")) if rec else None
+
+
+def _edr_backfill() -> None:
+    """Startup thread (from 2026-10-29): the turbulence (EDR) of the stored
+    landings and departures that have a raw reply series but no EDR yet (or
+    one of an older method version) — the series are kept
+    APPROACH_SERIES_DAYS, so after an update the last 90 days are filled in.
+    Small batches with short pauses, so the Pi's collector is not disturbed."""
+    from database.db import get_db
+    from collector import edr as _edr
+    el = logging.getLogger("modes.edr")
+    try:
+        time.sleep(60)
+        t0 = time.time()
+        db = get_db()
+        n_done = 0
+        for main, ser in (("approach_history", "approach_series"), ("departure_profiles", "departure_series")):
+            # ids first, the blobs (about 10 kB each) batch by batch
+            todo = db.execute(
+                f"SELECT m.id, m.ts, m.icao FROM {main} m "
+                f"WHERE (m.edr_json IS NULL OR instr(m.edr_json, '\"v\":{_edr.VERSION},') = 0) "
+                f"AND EXISTS (SELECT 1 FROM {ser} s WHERE s.ts = m.ts AND s.icao = m.icao) "
+                f"ORDER BY m.ts DESC").fetchall()
+            for i in range(0, len(todo), 50):
+                upd = []
+                for rid, ts, icao in todo[i:i + 50]:
+                    b = db.execute(f"SELECT data FROM {ser} WHERE ts = ? AND icao = ?", (ts, icao)).fetchone()
+                    # no value (too few straight replies): a marker, so it is not tried again
+                    upd.append((_edr_json(b[0] if b else None) or '{"v":%d,"m":null}' % _edr.VERSION, rid))
+                db.executemany(f"UPDATE {main} SET edr_json = ? WHERE id = ?", upd)
+                db.commit()
+                n_done += len(upd)
+                time.sleep(0.5)
+        if n_done:
+            el.info("Turbulence (EDR) back-filled for %d landing(s) / departure(s) in %.0f s",
+                    n_done, time.time() - t0)
+    except Exception as exc:                              # noqa: BLE001
+        el.warning("EDR back-fill failed: %s", exc)
+
+
 def _on_departure_committed(record: dict) -> None:
     """Write one departure climb-out profile (collector/departures.py) to
     departure_profiles — called from the windshear sweep thread."""
@@ -412,14 +458,15 @@ def _on_departure_committed(record: dict) -> None:
         db.execute(
             """INSERT INTO departure_profiles
                (ts, t_start, icao, callsign, registration, aircraft_type, qnh_hpa,
-                track, lat, lon, ga, prof_json, shear_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                track, lat, lon, ga, prof_json, shear_json, edr_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (record["ts"], record.get("t_start"), record["icao"], record.get("callsign"),
              record.get("registration"), record.get("aircraft_type"), record.get("qnh_hpa"),
              record.get("track"), record.get("lat"), record.get("lon"),
              1 if record.get("ga") else 0,
              json.dumps(record["prof"], separators=(",", ":")),
-             json.dumps(record["shear"], separators=(",", ":")) if record.get("shear") else None))
+             json.dumps(record["shear"], separators=(",", ":")) if record.get("shear") else None,
+             _edr_json(record.get("series"))))
         # raw climb-out series (research data, from 2026-10-27; retention
         # APPROACH_SERIES_DAYS like the approach series) — same transaction
         if record.get("series"):
@@ -514,8 +561,8 @@ def _on_approach_committed(record: dict) -> None:
             """INSERT INTO approach_history
                (ts, date_utc, time_utc, icao, callsign, registration,
                 aircraft_type, runway, rwy_heading, bands_json, go_arounds, qnh_hpa,
-                gnss_json, rough_json, prof_json, shear_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                gnss_json, rough_json, prof_json, shear_json, edr_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 ts,
                 date,
@@ -537,6 +584,8 @@ def _on_approach_committed(record: dict) -> None:
                  if record.get("prof") else None),
                 (json.dumps(record["shear"], separators=(",", ":"))
                  if record.get("shear") else None),
+                # turbulence (EDR) from the raw reply series (from 2026-10-29)
+                _edr_json(record.get("series")),
             ),
         )
         # Raw reply series (research data, retention APPROACH_SERIES_DAYS) —
@@ -898,6 +947,10 @@ def main() -> None:
     # Windshear reports (detection v2) for stored landings that have none
     threading.Thread(target=_shear_startup, args=(ws_tracker,),
                      name="shear_backfill", daemon=True).start()
+    # Turbulence (EDR) of the stored landings / departures without one (from 2026-10-29)
+    from collector import edr as _edr_mod
+    _edr_mod.ELEV_FT = float(cfg.WINDSHEAR_THR_ELEVATION_FT)
+    threading.Thread(target=_edr_backfill, name="edr_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
     _seed_ws_day(ws_tracker)
     _preload_ga_events(ws_tracker)

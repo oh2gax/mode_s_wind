@@ -77,6 +77,9 @@ def init_db(db_path: str) -> None:
         "ALTER TABLE approach_history ADD COLUMN shear_json TEXT",
         # Windshear band comparison of each departure (2026-10-24)
         "ALTER TABLE departure_profiles ADD COLUMN shear_json TEXT",
+        # Turbulence (EDR) of each landing / departure (collector/edr.py, 2026-10-29)
+        "ALTER TABLE approach_history ADD COLUMN edr_json TEXT",
+        "ALTER TABLE departure_profiles ADD COLUMN edr_json TEXT",
     ]
     for sql in _migrations:
         try:

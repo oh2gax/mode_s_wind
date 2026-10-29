@@ -1393,6 +1393,14 @@ def create_app(
         """
         import json as _json
 
+        def _edr_sum(txt):
+            """Turbulence (EDR) of the landing without its pieces (from 2026-10-29)."""
+            try:
+                e = _json.loads(txt) if txt else None
+            except ValueError:
+                return None
+            return {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n")} if e and e.get("m") is not None else None
+
         def _aph_out(result):
             """gzip-compressed (from 2026-10-28); ?lite=1 (the mobile view /app):
             without the large per-landing details gnss / rough / prof and the
@@ -1416,7 +1424,7 @@ def create_app(
             rows   = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json, prof_json, shear_json
+                          gnss_json, rough_json, prof_json, shear_json, edr_json
                    FROM approach_history
                    WHERE ts > ?
                    ORDER BY ts DESC""",
@@ -1434,6 +1442,7 @@ def create_app(
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 sh_txt = r.pop("shear_json", None)
                 r["shear"] = _json.loads(sh_txt) if sh_txt else None
+                r["edr"]   = _edr_sum(r.pop("edr_json", None))
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
@@ -1447,7 +1456,7 @@ def create_app(
             rows = db.execute(
                 """SELECT ts, time_utc, icao, callsign, registration,
                           aircraft_type, runway, rwy_heading, bands_json, go_arounds,
-                          gnss_json, rough_json, prof_json, shear_json
+                          gnss_json, rough_json, prof_json, shear_json, edr_json
                    FROM approach_history
                    WHERE date_utc = ?
                    ORDER BY ts DESC""",
@@ -1465,6 +1474,7 @@ def create_app(
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 sh_txt = r.pop("shear_json", None)
                 r["shear"] = _json.loads(sh_txt) if sh_txt else None
+                r["edr"]   = _edr_sum(r.pop("edr_json", None))
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
@@ -1499,14 +1509,14 @@ def create_app(
                     return jsonify({"error": "date must be YYYY-MM-DD"}), 400
                 rows = get_db().execute(
                     """SELECT ts, icao, callsign, registration, aircraft_type, ga, track,
-                              prof_json, shear_json
+                              prof_json, shear_json, edr_json
                        FROM departure_profiles
                        WHERE date(ts, 'unixepoch') = ? ORDER BY ts DESC""", (date,)).fetchall()
             else:
                 window = max(60, min(request.args.get("window", 10800, type=int), 86400))
                 rows = get_db().execute(
                     """SELECT ts, icao, callsign, registration, aircraft_type, ga, track,
-                              prof_json, shear_json
+                              prof_json, shear_json, edr_json
                        FROM departure_profiles
                        WHERE ts > ? ORDER BY ts DESC""", (time.time() - window,)).fetchall()
         except Exception:                              # noqa: BLE001  (older database)
@@ -1517,10 +1527,15 @@ def create_app(
                 sh = _json.loads(r["shear_json"]) if r["shear_json"] else None
             except (TypeError, ValueError):
                 sh = None
-            if sh is None and not full:
+            try:
+                ed = _json.loads(r["edr_json"]) if r["edr_json"] else None
+            except (TypeError, ValueError):
+                ed = None
+            ed = {k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n")} if ed and ed.get("m") is not None else None
+            if sh is None and ed is None and not full:
                 continue
             e = {"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
-                 "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh}
+                 "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh, "edr": ed}
             if full:
                 try:
                     prof = _json.loads(r["prof_json"]) if r["prof_json"] else {}
@@ -1537,6 +1552,42 @@ def create_app(
                 })
             out.append(e)
         return _gzip_json(out) if full else jsonify(out)
+
+    @app.route("/api/windshear/edr-tracks")
+    def windshear_edr_tracks_api():
+        """Turbulence (EDR) along the paths of the landings and departures of the
+        last ?minutes= (5–180, default 30; from 2026-10-29, collector/edr.py) for
+        the mobile ILS map: [{ts, ph ("arr" / "dep"), icao, cs, rwy, m, seg:
+        [{e, a: [alt0, alt1], p: [[lat, lon], …]}]}], newest first."""
+        import json as _json
+        mins = max(5, min(request.args.get("minutes", 30, type=int), 180))
+        t0 = time.time() - mins * 60
+        out = []
+        try:
+            db = get_db()
+            for ph, sql in (("arr", "SELECT ts, icao, callsign, runway, edr_json FROM approach_history "
+                                    "WHERE ts > ? AND edr_json IS NOT NULL"),
+                            ("dep", "SELECT ts, icao, callsign, NULL AS runway, edr_json, shear_json "
+                                    "FROM departure_profiles WHERE ts > ? AND edr_json IS NOT NULL")):
+                for r in db.execute(sql, (t0,)).fetchall():
+                    try:
+                        e = _json.loads(r["edr_json"])
+                    except ValueError:
+                        continue
+                    if not e or e.get("m") is None:
+                        continue
+                    rwy = r["runway"]
+                    if ph == "dep" and r["shear_json"]:
+                        try:
+                            rwy = (_json.loads(r["shear_json"]) or {}).get("rwy")
+                        except ValueError:
+                            pass
+                    out.append({"ts": r["ts"], "ph": ph, "icao": r["icao"], "cs": r["callsign"], "rwy": rwy,
+                                "m": e.get("m"), "seg": e.get("seg") or []})
+        except Exception:                              # noqa: BLE001  (older database)
+            return jsonify([])
+        out.sort(key=lambda x: -x["ts"])
+        return _gzip_json(out)
 
     @app.route("/api/windshear/spacetime")
     def windshear_spacetime_api():
