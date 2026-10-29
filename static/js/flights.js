@@ -37,12 +37,14 @@ function durTxt(sec) {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ── Colours ────────────────────────────────────────────────────────────────
-// Altitude: amber near the ground → green → cyan → blue → violet at FL400+
-const ALT_STOPS = [[0, [245, 158, 11]], [5000, [132, 204, 22]], [10000, [16, 185, 129]],
-                   [20000, [6, 182, 212]], [30000, [59, 130, 246]], [40000, [168, 85, 247]]];
+// Altitude (calmer, 29 Oct 2026): soft teal near the ground → sky → blue → lavender at FL400+
+const ALT_STOPS = {
+  dark:  [[0, [94, 234, 212]], [10000, [125, 211, 252]], [25000, [147, 197, 253]], [40000, [196, 181, 253]]],
+  light: [[0, [15, 118, 110]], [10000, [3, 105, 161]], [25000, [29, 78, 216]], [40000, [109, 40, 217]]],
+};
 function altCol(ft) {
   if (ft == null) return '#64748b';
-  const s = ALT_STOPS;
+  const s = ALT_STOPS[isLight() ? 'light' : 'dark'];
   if (ft <= s[0][0]) return `rgb(${s[0][1]})`;
   for (let i = 1; i < s.length; i++) {
     if (ft <= s[i][0]) {
@@ -52,6 +54,12 @@ function altCol(ft) {
     }
   }
   return `rgb(${s[s.length - 1][1]})`;
+}
+// Text and chart colours (calmer, 29 Oct 2026; as the Windshear page's Approach History)
+function pal() {
+  return isLight()
+    ? { wind: '#0369a1', dir: '#64748b', temp: '#b91c1c', alt: '#475569', altFill: 'rgba(71,85,105,.12)' }
+    : { wind: '#7dd3fc', dir: '#94a3b8', temp: '#fca5a5', alt: '#94a3b8', altFill: 'rgba(148,163,184,.12)' };
 }
 // The meteo source, as on the Live Map
 const SRC_COL = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', MLAT: '#a855f7' };
@@ -97,21 +105,20 @@ function altBar(f) {
   const top = 45000;
   const lo = Math.max(0, Math.min(top, f.min_altitude ?? 0)), hi = Math.max(0, Math.min(top, f.max_altitude ?? 0));
   const l = lo / top * 100, w = Math.max(1.5, (hi - lo) / top * 100);
-  const arrow = f.arr ? '<i class="fl-arr-dn">↓</i>' : f.dep ? '<i class="fl-arr-up">↑</i>' : '';
   const txt = (f.max_altitude ?? 0) - (f.min_altitude ?? 0) < 600 ? altTxt(f.max_altitude)
             : altTxt(f.min_altitude) + '–' + altTxt(f.max_altitude);
   return `<span class="fl-altwrap"><span class="fl-altbar" title="${esc(altTxt(f.min_altitude))} – ${esc(altTxt(f.max_altitude))} ft">` +
-         `<span class="fl-altbar-fill" style="left:${l}%;width:${w}%;background:linear-gradient(90deg,${altCol(lo)},${altCol(hi)})"></span></span>` +
-         `<span class="fl-alttxt">${arrow}${txt}</span></span>`;
+         `<span class="fl-altbar-fill" style="left:${l}%;width:${w}%"></span></span>` +
+         `<span class="fl-alttxt">${txt}</span></span>`;
 }
 
 function eventCell(f) {
   const out = [];
-  if (f.arr) out.push(`<span class="fl-ev fl-ev-arr" title="Landed ${hhmm(f.arr.ts)} UTC on runway ${esc(f.arr.rwy)}">ARR ${esc(f.arr.rwy)}</span>`);
-  if (f.dep) out.push(`<span class="fl-ev fl-ev-dep" title="Departed ${hhmm(f.dep.ts)} UTC${f.dep.rwy ? ' from runway ' + esc(f.dep.rwy) : ''}">DEP ${esc(f.dep.rwy || '')}</span>`);
-  if ((f.arr && f.arr.ga) || (f.dep && f.dep.ga)) out.push('<span class="fl-ev fl-ev-ga" title="Go-around">GA</span>');
+  if (f.arr) out.push(`<span class="fl-ev" title="Landed ${hhmm(f.arr.ts)} UTC on runway ${esc(f.arr.rwy)}"><i>↓</i>${esc(f.arr.rwy)}</span>`);
+  if (f.dep) out.push(`<span class="fl-ev" title="Departed ${hhmm(f.dep.ts)} UTC${f.dep.rwy ? ' from runway ' + esc(f.dep.rwy) : ''}"><i>↑</i>${esc(f.dep.rwy || 'DEP')}</span>`);
+  if ((f.arr && f.arr.ga) || (f.dep && f.dep.ga)) out.push('<span class="fl-ev-ga" title="Go-around">GA</span>');
   const ws = (f.arr && f.arr.ws) || (f.dep && f.dep.ws);
-  if (ws && ws !== 'none') out.push(`<span class="fl-ev fl-ev-ws" title="Windshear report: ${esc(WS_LBL[ws] || ws)}">WS</span>`);
+  if (ws && ws !== 'none') out.push(`<span class="fl-ev-ws" title="Windshear report: ${esc(WS_LBL[ws] || ws)}">WS</span>`);
   return out.join('');
 }
 
@@ -126,8 +133,8 @@ function renderList(now) {
     const edr = (f.arr && f.arr.edr) ?? (f.dep && f.dep.edr);
     const t = sameUtcDay(f.last_seen, today) ? hhmm(f.last_seen) : `<span class="fl-day">${dmy(f.last_seen)}</span> ${hhmm(f.last_seen)}`;
     return `<tr data-id="${f.id}" class="${f.id === flSel ? 'sel' : ''}">
-      <td class="mono">${t}</td>
-      <td class="fl-td-cs">${esc(f.callsign || f.icao)}</td>
+      <td class="mono fl-td-t">${t}</td>
+      <td class="fl-td-cs${(f.arr && f.arr.ga) || (f.dep && f.dep.ga) ? ' fl-cs-ga' : ''}">${esc(f.callsign || f.icao)}</td>
       <td class="mono dim">${esc(f.reg || '')}</td>
       <td class="mono dim">${esc(f.type || '')}</td>
       <td class="fl-td-alt">${altBar(f)}</td>
@@ -194,15 +201,15 @@ function renderHead(f, obs) {
   ];
   if (f.arr) {
     const a = f.arr;
-    facts.push(['Landing', `<span class="fl-ev fl-ev-arr">${esc(a.rwy)}</span> ${hhmm(a.ts)} UTC` +
-      (a.ga ? ' <span class="fl-ev fl-ev-ga">GA ' + a.ga + '</span>' : '') +
+    facts.push(['Landing', `<span class="fl-ev">${esc(a.rwy)}</span> ${hhmm(a.ts)} UTC` +
+      (a.ga ? ` · <span class="fl-ev-ga">${a.ga} go-around${a.ga > 1 ? 's' : ''}</span>` : '') +
       (a.aci != null ? ` · ACI <b>${a.aci.toFixed(1)}</b> <i>${esc(a.aci_lbl || '')}</i>` : '') +
       (a.edr != null ? ` · EDR <b class="${edrCls(a.edr)}">${a.edr.toFixed(2)}</b>` : '') +
       (a.ws ? ` · WS <b class="${a.ws !== 'none' ? 'fl-ws-hit' : ''}">${esc(WS_LBL[a.ws] || a.ws)}</b>` : '')]);
   }
   if (f.dep) {
     const a = f.dep;
-    facts.push(['Departure', (a.rwy ? `<span class="fl-ev fl-ev-dep">${esc(a.rwy)}</span> ` : '') + `${hhmm(a.ts)} UTC` +
+    facts.push(['Departure', (a.rwy ? `<span class="fl-ev">${esc(a.rwy)}</span> ` : '') + `${hhmm(a.ts)} UTC` +
       (a.edr != null ? ` · EDR <b class="${edrCls(a.edr)}">${a.edr.toFixed(2)}</b>` : '') +
       (a.ws ? ` · WS <b class="${a.ws !== 'none' ? 'fl-ws-hit' : ''}">${esc(WS_LBL[a.ws] || a.ws)}</b>` : '')]);
   }
@@ -264,7 +271,7 @@ function renderMap() {
                 { padding: [36, 36], maxZoom: 11, animate: false });
   drawBarbs();
   legend.innerHTML = byAlt
-    ? '<span class="fl-lg-bar"></span><span class="fl-lg-ticks"><span>0</span><span>10 000</span><span>FL200</span><span>FL300</span><span>FL400</span></span>'
+    ? `<span class="fl-lg-bar" style="background:linear-gradient(90deg,${altCol(0)},${altCol(10000)} 25%,${altCol(25000)} 62.5%,${altCol(40000)})"></span><span class="fl-lg-ticks"><span>0</span><span>10 000</span><span>FL200</span><span>FL300</span><span>FL400</span></span>`
     : Object.entries(SRC_LBL).map(([k, v]) => `<span class="fl-lg-src"><i style="background:${srcCol(k)}"></i>${v}</span>`).join('');
 }
 
@@ -358,7 +365,7 @@ function windBands(obs) {
 }
 
 function renderProfile() {
-  const th = chartTheme();
+  const th = chartTheme(), P = pal();
   const obs = flDetail.observations.filter(o => o.altitude != null);
   const wind = obs.filter(o => o.best_wind_spd != null).map(o => ({ x: o.best_wind_spd, y: o.altitude, d: o.best_wind_dir }));
   const temp = obs.filter(o => o.best_temp != null).map(o => ({ x: o.best_temp, y: o.altitude }));
@@ -366,8 +373,8 @@ function renderProfile() {
   const pc = mkChart('fl-prof', {
     type: 'scatter', plugins: [profBarbs],
     data: { datasets: [
-      { label: 'Wind kt', data: wind, xAxisID: 'xw', borderColor: '#10b981', backgroundColor: '#10b981', pointRadius: 2.2, showLine: false },
-      { label: 'Temperature °C', data: temp, xAxisID: 'xt', borderColor: '#ef4444', backgroundColor: '#ef4444', pointRadius: 2.2, showLine: false },
+      { label: 'Wind kt', data: wind, xAxisID: 'xw', borderColor: P.wind, backgroundColor: P.wind, pointRadius: 2, showLine: false },
+      { label: 'Temperature °C', data: temp, xAxisID: 'xt', borderColor: P.temp, backgroundColor: P.temp, pointRadius: 2, showLine: false },
     ] },
     options: {
       animation: false, maintainAspectRatio: false, layout: { padding: { right: 34 } },
@@ -376,8 +383,8 @@ function renderProfile() {
                    ? `${altTxt(c.raw.y)}: ${Math.round(c.raw.d)}° / ${c.raw.x.toFixed(0)} kt` : `${altTxt(c.raw.y)}: ${c.raw.x.toFixed(1)} °C` } } },
       scales: {
         y:  { title: { display: false }, ticks: { color: th.tick, font: { size: 10 }, callback: v => altTxt(v) }, grid: { color: th.grid } },
-        xw: { position: 'bottom', min: 0, title: { display: true, text: 'wind kt', color: '#10b981', font: { size: 10 } }, ticks: { color: th.tick, font: { size: 10 } }, grid: { color: th.grid } },
-        xt: { position: 'top', display: temp.length > 0, title: { display: true, text: 'temperature °C', color: '#ef4444', font: { size: 10 } }, ticks: { color: th.tick, font: { size: 10 } }, grid: { display: false } },
+        xw: { position: 'bottom', min: 0, title: { display: true, text: 'wind kt', color: P.wind, font: { size: 10 } }, ticks: { color: th.tick, font: { size: 10 } }, grid: { color: th.grid } },
+        xt: { position: 'top', display: temp.length > 0, title: { display: true, text: 'temperature °C', color: P.temp, font: { size: 10 } }, ticks: { color: th.tick, font: { size: 10 } }, grid: { display: false } },
       },
     },
   });
@@ -392,7 +399,7 @@ function padRange(vals, pad) {
 }
 
 function renderSeries() {
-  const th = chartTheme();
+  const th = chartTheme(), P = pal();
   const obs = flDetail.observations;
   const t0 = obs.length ? obs[0].ts : 0;
   const pts = (fn) => obs.map((o, i) => ({ x: o.ts, y: fn(o), i })).filter(p => p.y != null);
@@ -408,18 +415,18 @@ function renderSeries() {
     scales: Object.assign({ x, y: Object.assign({ ticks: { color: th.tick, font: { size: 10 }, maxTicksLimit: 4 }, grid: { color: th.grid } }, y) }, extra),
   });
   mkChart('fl-ts-alt', { type: 'line', plugins: [crossPlugin],
-    data: { datasets: [{ data: pts(o => o.altitude), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.15)', fill: true, pointRadius: 0, borderWidth: 1.6, tension: 0.2 }] },
+    data: { datasets: [{ data: pts(o => o.altitude), borderColor: P.alt, backgroundColor: P.altFill, fill: true, pointRadius: 0, borderWidth: 1.6, tension: 0.2 }] },
     options: common({ ticks: { color: th.tick, font: { size: 10 }, maxTicksLimit: 4, callback: v => altTxt(v) } }) });
   mkChart('fl-ts-wind', { type: 'line', plugins: [crossPlugin],
     data: { datasets: [
-      { data: pts(o => o.best_wind_spd), borderColor: '#10b981', pointRadius: 1.5, borderWidth: 1.5, tension: 0.2, yAxisID: 'y' },
-      { data: pts(o => o.best_wind_dir), borderColor: '#f59e0b', backgroundColor: '#f59e0b', pointRadius: 1.8, showLine: false, yAxisID: 'yd' },
+      { data: pts(o => o.best_wind_spd), borderColor: P.wind, pointRadius: 1.5, borderWidth: 1.5, tension: 0.2, yAxisID: 'y' },
+      { data: pts(o => o.best_wind_dir), borderColor: P.dir, backgroundColor: P.dir, pointRadius: 1.6, showLine: false, yAxisID: 'yd' },
     ] },
-    options: common({ min: 0 }, { yd: { position: 'right', min: 0, max: 360, ticks: { color: '#f59e0b', font: { size: 10 }, stepSize: 90 }, grid: { display: false } } }) });
+    options: common({ min: 0 }, { yd: { position: 'right', min: 0, max: 360, ticks: { color: P.dir, font: { size: 10 }, stepSize: 90 }, grid: { display: false } } }) });
   const hasT = obs.some(o => o.best_temp != null);
   $('fl-ts-temp').parentElement.classList.toggle('fl-ts-none', !hasT);
   mkChart('fl-ts-temp', { type: 'line', plugins: [crossPlugin],
-    data: { datasets: [{ data: pts(o => o.best_temp), borderColor: '#ef4444', pointRadius: 1.5, borderWidth: 1.5, tension: 0.2 }] },
+    data: { datasets: [{ data: pts(o => o.best_temp), borderColor: P.temp, pointRadius: 1.5, borderWidth: 1.5, tension: 0.2 }] },
     options: common(padRange(obs.map(o => o.best_temp), 3), {}, xAxis) });
   void t0;
 }
@@ -432,7 +439,7 @@ function renderObs() {
     <td class="mono">${hhmmss(o.ts)}</td>
     <td class="num mono">${o.altitude != null ? o.altitude.toLocaleString('en-US').replace(/,/g, ' ') : '–'}</td>
     <td class="num mono dim">${o.vert_rate != null ? (o.vert_rate > 0 ? '+' : '') + Math.round(o.vert_rate / 50) * 50 : ''}</td>
-    <td><span class="fl-src" style="--c:${srcCol(o.meteo_source)}" title="${esc(SRC_LBL[o.meteo_source] || '')}">${esc(SRC_SHORT[o.meteo_source] || o.meteo_source || '–')}</span></td>
+    <td><span class="fl-src" title="${esc(SRC_LBL[o.meteo_source] || '')}">${esc(SRC_SHORT[o.meteo_source] || o.meteo_source || '–')}</span></td>
     <td class="num mono">${o.best_wind_spd != null ? String(Math.round(o.best_wind_dir)).padStart(3, '0') + '° ' + Math.round(o.best_wind_spd) : '–'}</td>
     <td class="num mono">${o.best_temp != null ? o.best_temp.toFixed(1) : '–'}</td>
   </tr>`).join('') || '<tr><td colspan="6" class="fl-empty">No wind or temperature stored</td></tr>';

@@ -939,22 +939,22 @@ Browser for all flights stored in the database (redesigned 29 Oct 2026, in the s
 | Column | Description |
 |--------|-------------|
 | UTC | Last seen (the date as well when not today) |
-| Callsign | Callsign, or the ICAO24 address when none was decoded |
+| Callsign | Callsign, or the ICAO24 address when none was decoded (amber after a go-around, as in the Approach History) |
 | Reg · Type | Registration and ICAO type: of the landing / departure record, else from the optional BaseStation.sqb |
-| Altitude | The flight's altitude range as a bar on a 0 – FL450 scale (coloured by altitude), ↓ landed / ↑ departed, lowest – highest (ft below 10 000 ft, FL above) |
-| Event | **ARR 22L** landing / **DEP 22R** departure and the runway; **GA** go-around; **WS** a windshear report |
-| EDR | Turbulence (EDR) of the landing or climb-out: light from 0.10, moderate from 0.20 |
+| Altitude | The flight's altitude range as a grey bar on a 0 – FL450 scale, lowest – highest (ft below 10 000 ft, FL above) |
+| Event | **↓ 22L** landed / **↑ 22R** departed and the runway (in the Approach History's runway colour); **GA** go-around; **WS** a windshear report |
+| EDR | Turbulence (EDR) of the landing or climb-out: yellow from 0.10 (light), red from 0.20 (moderate) |
 | Obs | Stored observations with meteo data |
 | Skew-T | Opens the Sounding page with this flight's climb or descent |
 
-Newest first, 50 a page (*‹ Newer* / *Older ›*). Click a row to show the flight; ↑ / ↓ step through the list. On the first page of a period the list follows the newest flights every minute. A link `/flights?id=N` (the **Link** button) opens a given flight.
+The list uses the plain colours of the Windshear page's Approach History (calmer colours from 29 Oct 2026 evening): grey time, light-blue callsign, yellow runway. Newest first, 50 a page (*‹ Newer* / *Older ›*). Click a row to show the flight; ↑ / ↓ step through the list. On the first page of a period the list follows the newest flights every minute. A link `/flights?id=N` (the **Link** button) opens a given flight.
 
 #### The selected flight (right)
 
 - **Header** — callsign, registration · type · ICAO24, the time seen and duration, the altitude range, the number of observations, and the **landing** (runway, time, go-arounds, approach conditions ACI, EDR, windshear report) or the **departure** (runway, time, EDR, windshear report); buttons **Skew-T** and **Link**
-- **Map** — the track coloured by **Altitude** (amber near the ground → green → cyan → blue → violet at FL400) or by meteo **Source**; dashed where the stored rows are more than 2 min apart (in `METEO_ONLY` mode only the rows with meteo are stored); wind **Barbs** along the track (at least 34 px apart, redrawn on zoom); start and end with time and altitude; the airport
-- **Vertical profile** — wind speed (green, bottom axis) and temperature (red, top axis) of each observation against altitude, with the mean wind per band (1 000 ft below FL100, 2 000 ft above) as barbs at the right edge
-- **Along the flight** — altitude, wind speed and direction (orange, right axis), and temperature against time; hovering marks the point on the map (ring) and in the table
+- **Map** — the track coloured by **Altitude** (soft teal near the ground → sky blue → blue → lavender at FL400) or by meteo **Source**; dashed where the stored rows are more than 2 min apart (in `METEO_ONLY` mode only the rows with meteo are stored); wind **Barbs** along the track (at least 34 px apart, redrawn on zoom); start and end with time and altitude; the airport
+- **Vertical profile** — wind speed (light blue, bottom axis) and temperature (soft red, top axis) of each observation against altitude, with the mean wind per band (1 000 ft below FL100, 2 000 ft above) as barbs at the right edge
+- **Along the flight** — altitude (grey), wind speed (light blue) and direction (grey dots, right axis), and temperature (soft red) against time; hovering marks the point on the map (ring) and in the table
 - **Observations** — the rows with wind or temperature: UTC, altitude, vertical rate, source, wind, temperature; hovering a row marks it on the map and the charts
 
 The temperature is the measured (MRAR) or the Mach / TAS temperature, as on the other pages (until 29 Oct 2026 the flight view showed only the measured one, which most aircraft do not report). An aircraft that gave no Mach replies (e.g. most ATRs) has no temperature.
