@@ -941,7 +941,7 @@
       const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
-          html: `<div class="ils-ac-lbl${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
+          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
                 `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
