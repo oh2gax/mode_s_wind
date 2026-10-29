@@ -265,18 +265,50 @@ updateThemeButtons();   // initial style may be Grey (light page theme)
 // ── Aircraft markers on map ───────────────────────────────────────────────────
 const acMarkers = {};   // icao → { marker, label }
 
-function makeAcIcon(src) {
-  const color = acColor(src);
+// The aircraft symbol as on a radar screen (from 2026-10-29, as the mobile view's
+// approach map): an open square framed in the colour of the wind source — 10 px on
+// the approach, 8 px others, 12 px and white (near-black in the light theme) for
+// the aircraft whose barbs the profile shows; drawn in a 22-px icon.
+function makeAcIcon(src, ac) {
+  const sel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao);
+  const onA = !!(ac && ac.in_corridor);
+  const color = sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
+  const s = sel ? 12 : onA ? 10 : 8, H = 22, o = (H - s) / 2;
   return L.divIcon({
-    html: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
-               viewBox="0 0 14 14">
-             <rect x="1" y="1" width="12" height="12"
-                   fill="${color}" stroke="#000" stroke-width="1" rx="2"/>
-           </svg>`,
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">` +
+          `<rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none" stroke="${color}"` +
+          ` stroke-opacity="${onA || sel ? 1 : 0.7}" stroke-width="${sel ? 2.4 : onA ? 2 : 1.5}"/></svg>`,
     className:  '',
-    iconSize:   [14, 14],
-    iconAnchor: [7, 7],
+    iconSize:   [H, H],
+    iconAnchor: [H / 2, H / 2],
   });
+}
+// The altitude as on a controller's radar label: up to the transition altitude
+// (5 000 ft) A + hundreds of feet on the METAR QNH (A023), above it the flight
+// level (FL061), and the trend ↑ / ↓ when climbing or descending 300 fpm or more.
+const WS_ATC_TA_FT = 5000;
+function wsAtcAlt(pa) {
+  if (pa == null) return '—';
+  const alt = pa - (1013.25 - (currentQnh || 1013.25)) * 27;
+  return alt <= WS_ATC_TA_FT ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
+                             : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
+}
+function wsAcLabelHtml(ac) {
+  const sel = barbLayerActive && ac.icao === barbSelectedIcao;
+  const dim = !(ac.in_corridor && !ac.landed);
+  const vr = ac.vert_rate, tr = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '';
+  const l2 = ac.landed ? 'landed' : wsAtcAlt(ac.altitude) + tr;
+  // the right-hand runway's traffic labelled to the left of its square, as on the phone
+  const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
+  return `<div class="ws-ac-label${dim ? ' ws-ac-label-dim' : ''}${sel ? ' ws-ac-label-sel' : ''}${left ? ' ws-ac-label-left' : ''}">` +
+         `${ac.callsign || ac.icao}<small>${l2}</small></div>`;
+}
+function wsAcLabelIcon(ac) {
+  const sel = barbLayerActive && ac.icao === barbSelectedIcao;
+  const s = sel ? 12 : ac.in_corridor ? 10 : 8;
+  const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
+  return L.divIcon({ html: wsAcLabelHtml(ac), className: '', iconSize: [0, 0],
+                     iconAnchor: left ? [s / 2 + 4, 7] : [-(s / 2 + 4), 7] });
 }
 
 // The point an aircraft reaches after sec seconds at its ground speed (kt) along its
@@ -293,7 +325,8 @@ function wsVecEnd(lat, lon, trackDeg, gsKt, sec) {
 // 1 min → 2 min (ms_ws_vec); each aircraft gets a line to where it will be after
 // that time at its ground speed along its track, in the colour of its square.
 const WS_VEC_STEPS = [0, 30, 60, 120];
-let wsVecSec = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_vec'), 10); return WS_VEC_STEPS.includes(v) ? v : 0; } catch (_) { return 0; } })();
+// 30 s by default (from 2026-10-29, ATC style); the choice is remembered
+let wsVecSec = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_vec') ?? '30', 10); return WS_VEC_STEPS.includes(v) ? v : 30; } catch (_) { return 30; } })();
 
 function updateMapMarkers(aircraft) {
   const seen = new Set();
@@ -327,28 +360,20 @@ function updateMapMarkers(aircraft) {
 
     if (acMarkers[ac.icao]) {
       acMarkers[ac.icao].marker.setLatLng([ac.lat, ac.lon]);
-      acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source));
+      acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source, ac));
       acMarkers[ac.icao].marker.setTooltipContent(tip);
       acMarkers[ac.icao].label.setLatLng([ac.lat, ac.lon]);
       // Refresh label text so callsign appears as soon as the server provides it,
       // rather than staying frozen as ICAO24 from the first poll.
-      acMarkers[ac.icao].label.setIcon(L.divIcon({
-        html: `<div class="ws-ac-label${ac.in_corridor && !ac.landed ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}${ac.landed ? ' · landed' : ''}</div>`,
-        className: '',
-        iconAnchor: [-10, 5],
-      }));
+      acMarkers[ac.icao].label.setIcon(wsAcLabelIcon(ac));
     } else {
       const marker = L.marker([ac.lat, ac.lon], {
-        icon: makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source),
+        icon: makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source, ac),
         zIndexOffset: ac.in_corridor ? 100 : 50,
       }).bindTooltip(tip, { direction: 'top', offset: [0, -12] }).addTo(map);
 
       const label = L.marker([ac.lat, ac.lon], {
-        icon: L.divIcon({
-          html: `<div class="ws-ac-label${ac.in_corridor && !ac.landed ? '' : ' ws-ac-label-dim'}">${ac.callsign || ac.icao}${ac.landed ? ' · landed' : ''}</div>`,
-          className: '',
-          iconAnchor: [-10, 5],
-        }),
+        icon: wsAcLabelIcon(ac),
         interactive: false,
         zIndexOffset: ac.in_corridor ? 50 : 10,
       }).addTo(map);
@@ -360,7 +385,7 @@ function updateMapMarkers(aircraft) {
     if (m.vec) { map.removeLayer(m.vec); m.vec = null; }
     if (wsVecSec && !ac.landed && ac.groundspeed > 30 && ac.track != null) {
       m.vec = L.polyline([[ac.lat, ac.lon], wsVecEnd(ac.lat, ac.lon, ac.track, ac.groundspeed, wsVecSec)], {
-        interactive: false, color: acColor(ac.meteo_source), weight: ac.in_corridor ? 1.8 : 1.4,
+        interactive: false, color: ac.landed ? acColor('NONE') : acColor(ac.meteo_source), weight: ac.in_corridor ? 1.8 : 1.4,
         opacity: ac.in_corridor ? 0.95 : 0.6 }).addTo(map);
     }
   }

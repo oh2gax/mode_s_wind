@@ -1970,21 +1970,21 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 
 /* ── Map aircraft marker labels ─────────────────────────────────────────── */
 .ws-ac-label {
-  color: #e2e8f0;
-  font-size: 11px;
-  font-family: 'Courier New', monospace;
-  font-weight: 700;
-  text-shadow: 0 0 3px #000, 0 0 6px #000;
+  /* ATC radar-label style (from 2026-10-29): callsign over the altitude (A023 / FL061),
+     and the trend, in a monospaced face with a tight black outline */
+  color: #f1f5f9;
+  font: 700 12px/1.15 Consolas, 'Cascadia Mono', 'Roboto Mono', 'DejaVu Sans Mono', ui-monospace, monospace;
+  letter-spacing: .2px;
+  text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000;
   white-space: nowrap;
+  display: inline-block;
   pointer-events: none;
-  user-select: none;
 }
-/* Non-corridor aircraft shown on map with reduced prominence */
-.ws-ac-label-dim {
-  color: #94a3b8;
-  font-weight: 400;
-  opacity: 0.7;
-}
+.ws-ac-label small { display: block; font-size: 11px; font-weight: 600; color: #e2e8f0; margin-top: 1px; }
+.ws-ac-label-dim { color: #cbd5e1; font-weight: 600; opacity: .8; }
+.ws-ac-label-dim small { font-weight: 400; }
+.ws-ac-label-sel { color: #fff; }
+.ws-ac-label-left { position: absolute; right: 0; top: 0; text-align: right; }
 
 /* ── Leaflet map theme overrides ────────────────────────────────────────── */
 .ws-theme-black .leaflet-container {
@@ -2103,10 +2103,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   text-shadow: 0 0 3px #fff, 0 0 6px #fff, 1px 1px 0 #fff;
 }
 [data-theme="light"] .ws-ac-label {
-  color: #1e293b;
-  text-shadow: 0 0 3px #fff, 0 0 6px #fff;
+  color: #0b1220; text-shadow: none; background: rgba(255,255,255,.4);
+  padding: 1px 4px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15,23,42,.12);
 }
-[data-theme="light"] .ws-ac-label-dim { color: #475569; opacity: 0.8; }
+[data-theme="light"] .ws-ac-label small { color: #1e293b; }
+[data-theme="light"] .ws-ac-label-dim { color: #334155; background: rgba(255,255,255,.3); opacity: .9; }
 
 /* Navbar theme toggle button — same proportions as other navbar controls */
 .nav-theme-btn {
