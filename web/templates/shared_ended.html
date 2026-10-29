@@ -6,7 +6,12 @@
   <title>Shared test login — MODE-S Wind</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script>
-    (function () { try { if (localStorage.getItem('ms_theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {} })();
+    (function () { try {   // Dark / Light / Auto as in base.html (Auto follows the computer, from 2026-10-29)
+      var a = localStorage.getItem('ms_app_theme_auto'), t = localStorage.getItem('ms_theme');
+      var auto = a === '1' || (a == null && t == null);
+      if (auto ? !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) : t === 'light')
+        document.documentElement.dataset.theme = 'light';
+    } catch (e) {} })();
   </script>
 </head>
 <body class="sl-page">

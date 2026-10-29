@@ -2109,20 +2109,25 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 [data-theme="light"] .ws-ac-label small { color: #1e293b; }
 [data-theme="light"] .ws-ac-label-dim { color: #334155; background: rgba(255,255,255,.3); opacity: .9; }
 
-/* Navbar theme toggle button — same proportions as other navbar controls */
+/* Theme button (from 2026-10-29, as on the phone): an icon — moon Dark, sun Light, half circle
+   Auto — left of the UTC clock; the pair takes the free space of the navbar (margin-left: auto) */
+.nav-clock-grp { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.nav-clock-grp .nav-utc-clock { margin-left: 0; }
 .nav-theme-btn {
-  font-size: 11px;
-  padding: 3px 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 22px; padding: 0;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: var(--bg-3);
+  background: transparent;
   color: var(--text-2);
   cursor: pointer;
   transition: all .15s;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
-.nav-theme-btn:hover { background: var(--bg-2); color: var(--text-1); }
+.nav-theme-btn svg { display: none; }
+:root[data-theme-mode="dark"] .nav-theme-btn .ic-moon,
+:root[data-theme-mode="light"] .nav-theme-btn .ic-sun,
+:root[data-theme-mode="auto"] .nav-theme-btn .ic-auto { display: block; }
+.nav-theme-btn:hover { background: var(--bg-3); color: var(--text-1); }
 
 /* Navbar "What's new" link and its window (base.html) */
 .nav-whatsnew-btn {
@@ -2131,7 +2136,6 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit;
 }
 .nav-whatsnew-btn:hover { background: var(--bg-3); color: var(--text-1); }
-#nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.9rem; }   /* a pair with the theme button */
 @media (max-width: 1700px) { .nav-whatsnew-btn .wn-lbl { display: none; } }   /* version only; tooltip says What's new */
 .nav-whatsnew-btn.no-ver .wn-lbl { display: inline !important; }
 @media (max-width: 1500px) { .navbar { gap: 1rem; } .nav-status { margin-left: 10px; } }
@@ -2196,8 +2200,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .wn-foot { color: var(--text-2); font-size: 12px; margin-top: 10px !important; }
 /* About window (base.html / _about.html, from 2026-10-25) */
 .nav-whatsnew-btn + .nav-about-btn { margin-left: -0.9rem; }      /* next to What's new */
-@media (max-width: 1500px) { .nav-whatsnew-btn + .nav-about-btn, #nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.6rem; } }
-@media (max-width: 1300px) { .nav-whatsnew-btn + .nav-about-btn, #nav-theme-btn + .nav-whatsnew-btn { margin-left: -0.3rem; } }
+@media (max-width: 1500px) { .nav-whatsnew-btn + .nav-about-btn { margin-left: -0.6rem; } }
+@media (max-width: 1300px) { .nav-whatsnew-btn + .nav-about-btn { margin-left: -0.3rem; } }
 .nav-about-btn .ab-ico { display: none; }
 @media (max-width: 1400px) {                                        /* only an "i" on narrow screens; tooltip says About */
   .nav-about-btn { padding: 2px 5px; }

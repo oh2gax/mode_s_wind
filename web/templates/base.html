@@ -9,8 +9,16 @@
   <!-- Apply saved theme before first paint to prevent flash of wrong theme -->
   <script>
     (function(){
-      if (localStorage.getItem('ms_theme') === 'light')
-        document.documentElement.dataset.theme = 'light';
+      // Dark / Light / Auto (from 2026-10-29; the same setting as the mobile view /app in this
+      // browser): Auto = ms_app_theme_auto 1 follows the computer's setting — also for whoever
+      // never chose a theme; a chosen Light / Dark is in ms_theme.
+      try {
+        var a = localStorage.getItem('ms_app_theme_auto'), t = localStorage.getItem('ms_theme');
+        var auto = a === '1' || (a == null && t == null);
+        var light = auto ? !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) : t === 'light';
+        if (light) document.documentElement.dataset.theme = 'light';
+        document.documentElement.dataset.themeMode = auto ? 'auto' : (t === 'light' ? 'light' : 'dark');
+      } catch (e) {}
     })();
   </script>
 </head>
@@ -41,14 +49,18 @@
     <span class="config-badge badge-storage-{{ storage_mode | lower }}"
           title="Storage mode: {{ storage_mode }}">{{ storage_mode }}</span>
   </div>
-  <button id="nav-theme-btn" class="nav-theme-btn" title="Toggle display theme">Dark</button>
   <button id="nav-whatsnew-btn" class="nav-whatsnew-btn" type="button" data-version="{{ app_version }}"
           title="Version {{ app_version }} — What's new (changes of the last versions) and the user guides">{{ app_version }}<span class="wn-lbl"> · What's new · Guides</span><span id="nav-whatsnew-dot" class="nav-whatsnew-dot" hidden></span></button>
   <button id="nav-about-btn" class="nav-whatsnew-btn nav-about-btn" type="button"
           title="About MODE-S Wind — the author, the receiver site and the system in a nutshell"><span class="ab-lbl">About</span><span class="ab-ico" aria-hidden="true">i</span></button>
   {% if shared_login %}<button id="nav-shared-chip" class="nav-shared-chip{{ ' sl-last' if shared_login.phase == 'last' else '' }}" type="button"
           title="You are using the shared test login: it works until {{ shared_login.expires_txt }} (UTC). Click for how to get personal credentials."><span class="sl-chip-lbl">Shared login · </span><span class="sl-chip-ico" aria-hidden="true">⚠ </span>{{ shared_login.days_left }} d</button>{% endif %}
-  <span id="nav-utc-clock" class="nav-utc-clock"></span>
+  <span class="nav-clock-grp">
+    <!-- theme (from 2026-10-29, as on the phone): the icon shows the setting in use — moon Dark,
+         sun Light, half circle Auto (follows the computer); a click steps Dark → Light → Auto -->
+    <button id="nav-theme-btn" class="nav-theme-btn" type="button" title="Theme" aria-label="Theme"><svg class="ic-moon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20.2 14.6A8.3 8.3 0 0 1 9.4 3.8a8.3 8.3 0 1 0 10.8 10.8z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg><svg class="ic-sun" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 2.5v2.3M12 19.2v2.3M2.5 12h2.3M19.2 12h2.3M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg><svg class="ic-auto" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 3.8a8.2 8.2 0 0 0 0 16.4z" fill="currentColor"/></svg></button>
+    <span id="nav-utc-clock" class="nav-utc-clock"></span>
+  </span>
   <div class="nav-status">
     <span id="status-dot" class="status-dot status-connecting"></span>
     <span id="status-text">Connecting…</span>
@@ -91,29 +103,42 @@ const CARTO_API_KEY = {{ carto_api_key | tojson }};
 {% block scripts %}{% endblock %}
 <script>
 // ── Theme toggle ────────────────────────────────────────────────────────────
+// Dark / Light / Auto (from 2026-10-29, as the mobile view): the icon shows the setting in
+// use; a click steps Dark → Light → Auto → Dark.  Auto follows the computer's setting
+// (prefers-color-scheme) and switches with it while the page is open.  The same keys as
+// /app: ms_app_theme_auto = 1 for Auto, a chosen Light / Dark in ms_theme.
 (function () {
   var btn = document.getElementById('nav-theme-btn');
+  var root = document.documentElement;
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  var LBL = { dark: 'Dark', light: 'Light', auto: 'Auto — follows the computer' };
+  var NEXT = { dark: 'light', light: 'auto', auto: 'dark' };
+  var mode = root.dataset.themeMode || (root.dataset.theme === 'light' ? 'light' : 'dark');
 
-  function applyTheme(theme) {
-    if (theme === 'light') {
-      document.documentElement.dataset.theme = 'light';
-      btn.textContent = 'Dark';
-    } else {
-      delete document.documentElement.dataset.theme;
-      btn.textContent = 'Light';
-    }
+  function apply(redraw) {
+    var was = root.dataset.theme === 'light';
+    var light = mode === 'auto' ? !!(mq && mq.matches) : mode === 'light';
+    if (light) root.dataset.theme = 'light'; else delete root.dataset.theme;
+    root.dataset.themeMode = mode;
+    var t = 'Theme: ' + LBL[mode] + (mode === 'auto' ? ' (now ' + (light ? 'light' : 'dark') + ')' : '') +
+            ' — click for ' + LBL[NEXT[mode]].replace(' — follows the computer', ' (follows the computer)');
+    btn.title = t; btn.setAttribute('aria-label', t);
     // Let each page redraw its canvases with the new palette
-    if (typeof window.onThemeChange === 'function') window.onThemeChange();
+    if (redraw && was !== light && typeof window.onThemeChange === 'function') window.onThemeChange();
   }
-
-  // Sync button label with whatever the head script already applied
-  if (document.documentElement.dataset.theme === 'light') btn.textContent = 'Dark';
-
+  apply(false);
   btn.addEventListener('click', function () {
-    var next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-    localStorage.setItem('ms_theme', next);
-    applyTheme(next);
+    mode = NEXT[mode];
+    try {
+      localStorage.setItem('ms_app_theme_auto', mode === 'auto' ? '1' : '0');
+      if (mode !== 'auto') localStorage.setItem('ms_theme', mode);
+    } catch (e) {}
+    apply(true);
   });
+  if (mq) {
+    var onMq = function () { if (mode === 'auto') apply(true); };
+    if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+  }
 })();
 
 // ── Navigation: one browser tab per page ────────────────────────────────────
