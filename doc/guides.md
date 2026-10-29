@@ -39,15 +39,15 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.5
-date: 2026-10-26
-pages: 44
+version: 3.6
+date: 2026-10-29
+pages: 46
 open: sounding, windmap@30
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
 
 - **Area · now**, **Area · hour** and **Flight** profiles, the **Indices** panel (Mode S, MEPS and the sonde side by side) and the level table
-- The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
+- The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines, the airport's **boundary layer** (low-level jet and surface inversion, also as an overlay) — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
 - **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels, the comparison at the aircraft's own positions, and the **upper-level temperature correction** learnt from it
 - The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider
@@ -87,16 +87,16 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.18
+version: 1.19
 date: 2026-10-29
-pages: 22
+pages: 23
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height**, the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, and the optional **WS + ACI chart**), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
+- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, and the optional **WS + ACI chart**), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

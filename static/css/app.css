@@ -67,6 +67,17 @@ body.app-body {
 .app-tip { white-space: normal; max-width: calc(100% - 16px); font-size: 11px; }
 .app-meta { font-size: 11px; color: var(--text-2); padding: 4px 4px 2px; line-height: 1.45; }
 .app-th-legend { justify-content: flex-start; padding: 4px 4px 0; font-size: 10.5px; }
+/* the colour keys of the Time–height legend, as on the Sounding page (from 2026-10-29) */
+.app-th-legend { --th-sonde: #f472b6; }
+[data-theme="light"] .app-th-legend { --th-sonde: #be185d; }
+.app-th-legend .th-sw { display: inline-block; width: 11px; height: 9px; border-radius: 2px; }
+.app-th-legend .th-lt { color: var(--text-3); }
+.app-th-legend .th-bar { display: inline-block; width: 70px; height: 9px; border-radius: 2px; border: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }
+.app-th-legend .th-bar-vo { background: linear-gradient(90deg, rgba(202,138,4,.9), rgba(202,138,4,.08) 50%, rgba(147,51,234,.08) 50%, rgba(147,51,234,.9)); }
+.app-th-legend .th-bar-dv { background: linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }
+.app-th-legend .th-bar-vv { background: linear-gradient(90deg, rgba(234,88,12,.9), rgba(234,88,12,.08) 50%, rgba(16,160,110,.08) 50%, rgba(16,160,110,.9)); }
+.app-switch.th-off { opacity: .42; }
 .app-pick { font-size: 12px; color: var(--text-1); padding: 6px 6px; min-height: 2.9em; white-space: pre-line;
             background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; margin: 6px 2px 0; }
 .app-aci-readout { font-family: 'Courier New', monospace; }

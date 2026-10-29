@@ -1556,12 +1556,15 @@ def create_app(
     @app.route("/api/boundary")
     def boundary_api():
         """The boundary layer at the airport (collector/boundary.py, from
-        2026-10-29): the hours of the last ?hours= (1–168, default 24) from
+        2026-10-29): the hours of the last ?hours= (1–336, default 24) from
         bl_hours, oldest first, and the hour in progress ("partial": 1) —
-        [{ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv}]."""
+        [{ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv}].
+        ?end=<Unix s> in the past (Time–height section): the stored hours
+        before it only."""
         from collector import boundary as _bl
         try:
-            return _gzip_json(_bl.query(get_db(), request.args.get("hours", 24, type=float)))
+            return _gzip_json(_bl.query(get_db(), request.args.get("hours", 24, type=float),
+                                        end=request.args.get("end", type=float)))
         except Exception:                              # noqa: BLE001  (older database)
             return jsonify([])
 

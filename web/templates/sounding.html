@@ -59,12 +59,15 @@
           <option value="dchg">Height change 6 h</option>
           <option value="thk">Thickness temperature check</option>
           <option value="moist">Moisture (trial)</option>
+          <option value="blw">Boundary layer · wind (0–5 000 ft)</option>
+          <option value="blt">Boundary layer · temperature (0–3 500 ft)</option>
         </select>
         <label class="toggle-label"><input type="checkbox" id="th-barbs"> Barbs</label>
         <label class="toggle-label" title="0 °C (solid), −10 and −20 °C (dashed) — the lowest crossing in each hour"><input type="checkbox" id="th-iso"> Isotherms</label>
         <label class="toggle-label" title="Tropopause (magenta dashed): the lowest level above 5 km where the lapse rate falls to 2 K/km or less and stays so for 2 km (WMO), from the ±1 h smoothed layer temperatures — only where the aircraft data reach above it"><input type="checkbox" id="th-tp"> Tropopause</label>
         <label class="toggle-label" title="Height of the strongest wind above 10 000 ft in each hour (yellow), when it is at least 50 kt — the jet core"><input type="checkbox" id="th-vmax"> Max wind</label>
         <label class="toggle-label" title="Each Jokioinen sounding as its own narrow column at its launch time (pink frame), in the same colour field — temperature anomaly, wind speed, lapse rate, height of the pressure surfaces or moisture; hover for the sonde values against the aircraft"><input type="checkbox" id="th-sondecol"> Sonde</label>
+        <label class="toggle-label" title="Boundary layer at the airport on any field: the low-level jet (◆ with its speed in kt, joined hour to hour) and the surface inversion (red, from the ground to its top; red bar along the bottom) — research"><input type="checkbox" id="th-bl"> Boundary layer</label>
         <button id="th-png" class="snd-mode-btn" type="button" title="Save the picture as a PNG file">PNG</button>
       </span>
 
@@ -125,6 +128,7 @@
       <b>Height of the pressure surfaces</b>: how far each pressure surface lies above (red) or below (blue) its height in the standard atmosphere (D-value, m) — from the aircraft's GNSS height minus their pressure altitude, calibrated against the Jokioinen soundings; warm columns and highs lift the surfaces, cold air and lows lower them. <b>Height change 6 h</b>: falling surfaces (blue) ahead of a trough or front, rising (red) behind it.
       <b>Thickness temperature check</b>: the mean (virtual) temperature of 5 000 ft layers from the height gained by climbing and descending aircraft (GNSS) minus the Mach / TAS temperature of the same layers — an independent check of the measured temperatures (near 0; humid air adds a few tenths of a kelvin).
       <b>Moisture (trial)</b>, 1 000–15 000 ft: moist air is lighter, so the thickness temperature minus the Mach / TAS temperature measures the moisture of a layer; averaged over the flights of a few hours, corrected with offsets learnt against the soundings and divided by the value of saturated air, it is about the relative humidity — dry (brown, &lt; 40 %), moist (green) or humid (blue, ≥ 70 %). Experimental — a tendency, uncertain by about ±30–50 %: only where aircraft climb and descend, faint where the ± exceeds 40 %.
+      <b>Boundary layer · wind / temperature</b> (research): the lowest 5 000 ft at the airport on a linear scale (ft MSL) — the wind speed of the aircraft within 25 km in 250-ft steps, or the temperature of the landings and departures against the surface (METAR; red warmer, blue colder); the low-level jet as ◆ with its speed, the surface inversion as a red bar along the bottom and a red line at its top; hatched hours had no flights. The <b>Boundary layer</b> tick box draws the jet and the inversion on any field.
       Faint cells rest on fewer than 3 replies; night hours often have only a few aircraft (red bars in the aircraft strip).
       Hover for values; click a column to open that hour on the Skew-T.
     </div>
@@ -348,6 +352,7 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 .th-box canvas { position:absolute; left:0; top:0; display:block; border-radius:4px; cursor:crosshair; }
 .th-legend { font-size:11px; font-weight:400; color:var(--text-2); display:flex; align-items:center; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
 .th-sw { display:inline-block; width:12px; height:10px; border-radius:2px; }
+.th-off { opacity:.42; }
 .th-lt { color:var(--text-3); }
 .th-bar { display:inline-block; width:90px; height:10px; border-radius:2px; border:1px solid var(--border);
           background:linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }

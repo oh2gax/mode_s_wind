@@ -231,11 +231,23 @@ def store_missing(db, max_hours: int = 48, now: float | None = None, pause_sec: 
 _live = {"t": 0.0, "h": None, "rec": None}
 
 
-def query(db, hours: float = 24, now: float | None = None) -> list:
-    """The stored hours of the last `hours` (max 7 days) and the hour in
-    progress (computed, cached 2 min), oldest first."""
+def query(db, hours: float = 24, now: float | None = None, end: float | None = None) -> list:
+    """The stored hours of the last `hours` (max 14 days) and the hour in
+    progress (computed, cached 2 min), oldest first.  With `end` (Unix s) in
+    the past (the Time–height section's "ending" date, from 29 Oct 2026):
+    only the stored hours that start in [end − hours, end)."""
     now = time.time() if now is None else now
-    hours = max(1.0, min(float(hours), 168.0))
+    hours = max(1.0, min(float(hours), 336.0))
+    if end is not None and end < now - 3600:
+        t1 = int(end // 3600 * 3600)
+        out = []
+        for ts, data in db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
+                                   (t1 - int(hours) * 3600, t1)):
+            try:
+                out.append({"ts": ts, **json.loads(data)})
+            except ValueError:
+                pass
+        return out
     cur = int(now // 3600 * 3600)
     out = []
     for ts, data in db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts",

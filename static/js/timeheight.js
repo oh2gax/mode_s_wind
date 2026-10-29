@@ -35,12 +35,22 @@
  *            10 000–15 000 ft from the flights of ±1–2 h, minus offsets learnt
  *            against the soundings, over the value of saturated air — about
  *            the relative humidity: dry < 40, moist 40–70, humid ≥ 70 %
+ *   blw/blt  boundary layer (from 29 Oct 2026, /api/boundary → bl_hours,
+ *            collector/boundary.py): the lowest 5 000 ft on a linear axis
+ *            (ft MSL) — the wind speed of the aircraft within 25 km in
+ *            250-ft steps (blw) or the temperature against the surface
+ *            (METAR) from the landings and departures (blt), the low-level
+ *            jet (◆ with its speed, joined hour to hour) and the surface
+ *            inversion (red bar along the bottom, red line at its top);
+ *            hatched where there were no flights
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, the tropopause (WMO
  * lapse-rate definition, magenta dashed) and the height of the strongest wind
  * (≥ 50 kt, yellow), Jokioinen sonde launches (pink ▼ at the top) and — with
  * "Sonde" — each sounding drawn as its own narrow column in the same colour
  * field (temperature anomaly, wind speed, lapse rate, height, moisture), aircraft per
- * hour (strip below the plot, red where < 8: LOW data).  "PNG" saves the
+ * hour (strip below the plot, red where < 8: LOW data) and — with "Boundary
+ * layer" — the low-level jet (◆ kt) and the surface inversion (red, from the
+ * ground to its top) on any field.  "PNG" saves the
  * picture.  Hover for values; click a column to open that
  * hour on the Skew-T (Area · hour).
  *
@@ -66,9 +76,23 @@
     tp: lsGet('ms_th_tp', 'false') === 'true',
     vmax: lsGet('ms_th_vmax', 'false') === 'true',
     sondeCol: lsGet('ms_th_sondecol', 'false') === 'true',
+    bl: lsGet('ms_th_bl', 'false') === 'true',            // boundary-layer overlay (jet, inversion)
     endDate: '',                       // '' = now, else YYYY-MM-DD (period ends at 24 UTC of it)
   };
   let geo = null;                       // last drawn geometry, for hover / click
+  // boundary layer (/api/boundary): rows {ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv, partial}
+  let blRows = null, blKey = '', blAt = 0;
+  const BL_TOP = 5000;
+  const blTop = () => st.field === 'blt' ? 3500 : BL_TOP;   // the temperatures reach 3 000 ft
+  // wind speed of the boundary layer: the colours of the Windshear page's chart (blue … green … yellow … red)
+  const BL_SPD = [[0, [30, 58, 138]], [10, [14, 116, 144]], [20, [16, 185, 129]], [30, [234, 179, 8]], [40, [249, 115, 22]], [55, [220, 38, 38]]];
+  function blSpd(v) {
+    let i = 0; while (i < BL_SPD.length - 2 && v > BL_SPD[i + 1][0]) i++;
+    const [a, ca] = BL_SPD[i], [b, cb] = BL_SPD[i + 1], f = Math.max(0, Math.min(1, (v - a) / (b - a)));
+    return `rgb(${ca.map((c, k) => Math.round(c + (cb[k] - c) * f)).join(',')})`;
+  }
+  const isBL = () => st.field === 'blw' || st.field === 'blt';
+  const needBl = () => isBL() || st.bl;
 
   // ── colour scales ───────────────────────────────────────────────────────
   const DIV = { neg: [37, 99, 235], pos: [220, 38, 38] };         // blue / red
@@ -361,27 +385,35 @@
     g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
     if (!data) { g.fillStyle = C.ink2; g.font = '13px system-ui'; g.fillText('Loading…', 20, 30); return; }
     const P = prep(data);
+    const BLF = isBL();
     const ml = 62, mr = 58, mt = 30, mb = 64, stripH = 22;
     const pw = W - ml - mr, ph = H - mt - mb;
     if (pw < 100 || ph < 100) return;
-    // y: log pressure over the layers that have data (always from the ground)
-    let topL = 0;
-    for (const c of P.cols) for (let i = P.nL - 1; i > topL; i--) if (c.T[i] != null || c.WS[i] != null) { topL = i; break; }
-    topL = Math.max(topL, Math.min(P.nL - 1, 20));
-    // y: square root of the pressure altitude (+1 500 ft) — the lowest layers
-    // (1 000 ft thick: inversions, low-level jets, fronts at the ground) get
-    // about a quarter of the height instead of a tenth on a pressure scale
-    const sq = ft => Math.sqrt(Math.max(0, ft) + 1500);
-    const sBot = sq(0), sTop = sq(P.layers[topL + 1]);
-    const y = ft => mt + ph * (sTop - sq(ft)) / (sTop - sBot);
+    let topL = 0, y;
+    if (BLF) {
+      // boundary layer: 0–5 000 ft MSL on a linear axis
+      const top = blTop();
+      y = ft => mt + ph * (1 - Math.max(0, Math.min(top, ft)) / top);
+    } else {
+      // y over the layers that have data (always from the ground)
+      for (const c of P.cols) for (let i = P.nL - 1; i > topL; i--) if (c.T[i] != null || c.WS[i] != null) { topL = i; break; }
+      topL = Math.max(topL, Math.min(P.nL - 1, 20));
+      // y: square root of the pressure altitude (+1 500 ft) — the lowest layers
+      // (1 000 ft thick: inversions, low-level jets, fronts at the ground) get
+      // about a quarter of the height instead of a tenth on a pressure scale
+      const sq = ft => Math.sqrt(Math.max(0, ft) + 1500);
+      const sBot = sq(0), sTop = sq(P.layers[topL + 1]);
+      y = ft => mt + ph * (sTop - sq(ft)) / (sTop - sBot);
+    }
     const nH = Math.round((P.end - P.start) / 3600);
     const cw = pw / nH;
     const x = ts => ml + (ts - P.start) / 3600 * cw;
-    geo = { P, ml, mt, pw, ph, cw, y, x, topL, nH };
+    geo = { P, ml, mt, pw, ph, cw, y, x, topL, nH, bl: BLF };
 
     g.fillStyle = C.plot; g.fillRect(ml, mt, pw, ph);
     // cells
-    for (const c of P.cols) {
+    if (BLF) drawBlCells(g, C, L, P);
+    else for (const c of P.cols) {
       const x0 = x(c.ts), x1 = x0 + cw;
       if (x1 < ml || x0 > ml + pw) continue;
       for (let i = 0; i <= topL; i++) {
@@ -404,7 +436,7 @@
     }
     g.globalAlpha = 1;
     // the soundings as their own narrow columns (same colour field), pink frame
-    if (st.sondeCol && SONDE_FIELDS.includes(st.field)) {
+    if (!BLF && st.sondeCol && SONDE_FIELDS.includes(st.field)) {
       for (const s of P.sondes) {
         if (s.launch < P.start || s.launch > P.end) continue;
         const [sx0, sx1] = sondeStrip(P, s);
@@ -440,7 +472,17 @@
     }
     g.fillStyle = C.ink2; g.textAlign = 'right'; g.fillText('UTC', ml - 6, mt + ph + 15);
     // altitude axis (left: altitude, right: pressure)
-    const ticks = [0, 1000, 2000, 3000, 5000, 7000, 10000, 14000, 18000, 24000, 30000, 34000, 38000, 42000, 46000]
+    if (BLF) {
+      g.textAlign = 'right';
+      for (let f = 0; f <= blTop(); f += 500) {
+        const yy = y(f);
+        g.strokeStyle = C.grid; g.globalAlpha = f % 1000 ? 0.18 : 0.4; g.beginPath(); g.moveTo(ml, yy); g.lineTo(ml + pw, yy); g.stroke(); g.globalAlpha = 1;
+        if (f % 1000 === 0) { g.fillStyle = C.ink2; g.fillText(fmtFt(f), ml - 6, yy + 4); }
+      }
+      g.save(); g.translate(ml + pw + 30, mt + ph / 2); g.rotate(Math.PI / 2); g.textAlign = 'center'; g.fillStyle = C.ink2;
+      g.fillText('ft MSL (QNH) · aircraft within 25 km', 0, 0); g.restore();
+    }
+    const ticks = BLF ? [] : [0, 1000, 2000, 3000, 5000, 7000, 10000, 14000, 18000, 24000, 30000, 34000, 38000, 42000, 46000]
       .filter(f => f <= P.layers[topL + 1]);
     g.textAlign = 'right';
     for (const f of ticks) {
@@ -449,10 +491,10 @@
       g.fillStyle = C.ink2; g.fillText(fmtFt(f), ml - 6, yy + 4);
       g.textAlign = 'left'; g.fillText(`${Math.round(isaP(f))}`, ml + pw + 6, yy + 4); g.textAlign = 'right';
     }
-    g.save(); g.translate(ml + pw + 46, mt + ph / 2); g.rotate(Math.PI / 2); g.textAlign = 'center';
-    g.fillText('hPa (ISA of the pressure altitude)', 0, 0); g.restore();
+    if (!BLF) { g.save(); g.translate(ml + pw + 46, mt + ph / 2); g.rotate(Math.PI / 2); g.textAlign = 'center';
+      g.fillText('hPa (ISA of the pressure altitude)', 0, 0); g.restore(); }
     // isotherms 0 / −10 / −20 °C: lowest crossing per column
-    if (st.iso) {
+    if (st.iso && !BLF) {
       for (const [th, col, w, dash] of [[0, C.iso0, 2.2, []], [-10, C.iso, 1.3, [5, 4]], [-20, C.iso, 1.3, [2, 3]]]) {
         let prev = null, lastPt = null;
         g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash);
@@ -496,10 +538,11 @@
       if (last) { g.fillStyle = col; g.textAlign = 'left'; g.font = 'bold 10px system-ui';
         g.fillText(label, Math.min(last[0] + 4, ml + pw - 30), last[1] - 4); g.font = '11px system-ui'; }
     };
-    if (st.tp) runLine('tp', C.tp, 2.2, [7, 4], 'TP');
-    if (st.vmax) runLine('vm', C.vmax, 2.2, [], 'Vmax');
+    if (st.tp && !BLF) runLine('tp', C.tp, 2.2, [7, 4], 'TP');
+    if (st.vmax && !BLF) runLine('vm', C.vmax, 2.2, [], 'Vmax');
     // wind barbs
-    if (st.barbs) {
+    if (st.barbs && BLF) drawBlBarbs(g, L, C, P);
+    else if (st.barbs) {
       const stepC = Math.max(1, Math.ceil(36 / cw));
       let lastY = Infinity;
       const rows = [];
@@ -520,6 +563,8 @@
         }
       }
     }
+    // boundary layer: the low-level jet and the surface inversion
+    if (BLF || st.bl) drawBlMarks(g, L, P, BLF);
     // the hour in progress: hatch edge
     const last = P.cols[P.cols.length - 1];
     if (last && last.partial) {
@@ -548,6 +593,124 @@
     g.fillStyle = C.ink2; g.textAlign = 'right'; g.font = '10px system-ui';
     g.fillText('aircraft', ml - 6, sy + 10); g.fillText(`/h (max ${amax})`, ml - 6, sy + 21);
     geo.strip = [sy, stripH];
+  }
+
+  // ── boundary layer ──────────────────────────────────────────────────────
+  const blIn = P => (blRows || []).filter(r => r.ts >= P.start && r.ts < P.end).sort((a, b) => a.ts - b.ts);
+  const blRed = L => L ? '#b91c1c' : '#f87171';
+  // cells: wind speed in 250-ft bins (blw) or temperature − METAR in the 200-ft bands (blt); hatched = no flights
+  function drawBlCells(g, C, L, P) {
+    const { ml, mt, pw, ph, cw, x, y } = geo;
+    g.save(); g.beginPath(); g.rect(ml, mt, pw, ph); g.clip();
+    g.strokeStyle = L ? 'rgba(100,116,139,.22)' : 'rgba(148,163,184,.13)'; g.lineWidth = 1;
+    for (let xx = ml - ph; xx < ml + pw; xx += 7) { g.beginPath(); g.moveTo(xx, mt + ph); g.lineTo(xx + ph, mt); g.stroke(); }
+    for (const r of blIn(P)) {
+      const x0 = x(r.ts);
+      const cells = st.field === 'blw' ? (r.w || []).map(([ft, kt, , n]) => [ft, 125, blSpd(kt), n < 5])
+        : r.tt == null ? [] : (r.t || []).map(([ft, tc, n]) => [ft, 100, divFill(tc - r.tt, 6), n < 6]);
+      for (const [ft, hh, col, weak] of cells) {
+        const ya = y(ft + hh), yb = y(ft - hh);
+        g.globalAlpha = 1; g.fillStyle = C.plot; g.fillRect(x0, ya, cw + 0.5, yb - ya + 0.5);
+        g.globalAlpha = weak ? 0.55 : 1; g.fillStyle = col; g.fillRect(x0, ya, cw + 0.5, yb - ya + 0.5);
+      }
+    }
+    g.globalAlpha = 1; g.restore();
+  }
+  // barbs from the 250-ft wind bins at every 500 ft (fewer when the plot is low)
+  function drawBlBarbs(g, L, C, P) {
+    const { cw, x, y } = geo;
+    const stepC = Math.max(1, Math.ceil(36 / cw));
+    const lv = [];
+    let lastY = Infinity;
+    for (let f = 500; f <= blTop(); f += 500) { const yy = y(f); if (lastY - yy >= 30) { lv.push(f); lastY = yy; } }
+    for (const [col, lw] of [[L ? 'rgba(248,250,252,0.85)' : 'rgba(15,25,35,0.8)', 2.8], [C.barb, 1.1]]) {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw;
+      for (const r of blIn(P)) {
+        if (Math.round((r.ts - P.start) / 3600) % stepC) continue;
+        const by = new Map((r.w || []).map(b => [b[0], b]));
+        for (const f of lv) { const b = by.get(f); if (b) barb(g, x(r.ts) + cw / 2, y(f), b[2], b[1]); }
+      }
+    }
+  }
+  // the surface inversion (red bar along the bottom and a red line at its top;
+  // as an overlay also a light red fill from the ground to the top) and the
+  // low-level jet (◆ at the nose, joined hour to hour, its speed at the
+  // strongest hour of each run or at every hour when the columns are wide)
+  function drawBlMarks(g, L, P, BLF) {
+    const { ml, mt, pw, ph, cw, x, y } = geo;
+    const rows = blIn(P), red = blRed(L);
+    g.save(); g.beginPath(); g.rect(ml, mt - 1, pw, ph + 2); g.clip();
+    // runs of consecutive inversion hours: light fill (overlay) and a line along the top
+    const iruns = [];
+    let ir = null;
+    for (const r of rows) {
+      if (!r.inv) { ir = null; continue; }
+      if (!ir || r.ts - ir[ir.length - 1].ts > 3600) { ir = []; iruns.push(ir); }
+      ir.push(r);
+    }
+    const yb = y(0);
+    for (const run of iruns) {
+      const pts = [];
+      for (const r of run) { const x0 = x(r.ts), yt = y(r.inv.top || 1000); pts.push([x0, yt], [x0 + cw, yt]); }
+      if (!BLF) {
+        g.beginPath(); g.moveTo(pts[0][0], yb); for (const q of pts) g.lineTo(q[0], q[1]); g.lineTo(pts[pts.length - 1][0], yb); g.closePath();
+        g.globalAlpha = 0.16; g.fillStyle = red; g.fill(); g.globalAlpha = 1;
+      }
+      for (const [c, w] of [[L ? '#ffffff' : '#0f172a', 3.5], [red, 2]]) {
+        g.strokeStyle = c; g.lineWidth = w; g.beginPath();
+        pts.forEach((q, k) => (k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]))); g.stroke();
+      }
+      g.fillStyle = red; g.fillRect(pts[0][0], mt + ph - 5, pts[pts.length - 1][0] - pts[0][0], 5);
+    }
+    const jc = L ? '#0f172a' : '#ffffff', halo = L ? '#ffffff' : '#0f172a';
+    const ds = Math.max(3, Math.min(5.5, cw * 0.45));
+    const runs = [];
+    let prev = null, run = null;
+    for (const r of rows) {
+      if (!r.llj) { prev = null; run = null; continue; }
+      const pt = [x(r.ts) + cw / 2, y(r.llj.ft)];
+      if (prev && r.ts - prev.ts <= 3600) {
+        for (const [c, w] of [[halo, 4], [jc, 2]]) { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(prev.pt[0], prev.pt[1]); g.lineTo(pt[0], pt[1]); g.stroke(); }
+      } else { run = []; runs.push(run); }
+      run.push({ r, pt });
+      prev = { ts: r.ts, pt };
+    }
+    g.font = 'bold 10px system-ui'; g.textAlign = 'center'; g.lineJoin = 'round';
+    const boxes = [];                                    // labels drawn, so that they do not overlap
+    for (const rn of runs) {
+      const top = rn.reduce((a, b) => (b.r.llj.kt > a.r.llj.kt ? b : a));
+      for (const { r, pt } of rn) {
+        g.beginPath(); g.moveTo(pt[0], pt[1] - ds); g.lineTo(pt[0] + ds, pt[1]); g.lineTo(pt[0], pt[1] + ds); g.lineTo(pt[0] - ds, pt[1]); g.closePath();
+        g.fillStyle = jc; g.fill(); g.strokeStyle = halo; g.lineWidth = 1; g.stroke();
+        const lx = pt[0], ly = pt[1] - ds - 3;
+        if ((cw >= 16 || r === top.r) && !boxes.some(b => Math.abs(b[0] - lx) < 18 && Math.abs(b[1] - ly) < 12)) {
+          boxes.push([lx, ly]);
+          g.strokeStyle = halo; g.lineWidth = 3; g.strokeText(String(r.llj.kt), pt[0], pt[1] - ds - 3);
+          g.fillStyle = jc; g.fillText(String(r.llj.kt), pt[0], pt[1] - ds - 3);
+        }
+      }
+    }
+    g.restore();
+  }
+  // the hover text of the boundary layer of an hour; ft: the cursor height (BL field) or null (overlay)
+  function blTip(r, ft) {
+    if (!r) return null;
+    const parts = [];
+    if (ft != null) {
+      const b = (r.w || []).find(w => Math.abs(w[0] - ft) <= 125);
+      if (b) parts.push(`wind ${String(b[2]).padStart(3, '0')}° ${b[1]} kt <span class="mini-tip-dim">(${b[3]} obs, ${fmtFt(b[0])} MSL)</span>`);
+      const t = (r.t || []).find(w => Math.abs(w[0] - ft) <= 100);
+      if (t) parts.push(`T ${t[1].toFixed(1)} °C` + (r.tt != null ? ` · ${t[1] - r.tt >= 0 ? '+' : ''}${(t[1] - r.tt).toFixed(1)} K against the surface` : '') +
+        ` <span class="mini-tip-dim">(${t[2]} flights, ${fmtFt(t[0])})</span>`);
+      if (!b && !t) parts.push('<span class="mini-tip-dim">no aircraft at this height</span>');
+    }
+    const red = blRed(light());
+    if (r.llj) parts.push(`<b>low-level jet</b> ${r.llj.kt} kt from ${String(r.llj.dir).padStart(3, '0')}° at ${fmtFt(r.llj.ft)}` +
+      ` <span class="mini-tip-dim">(${r.llj.drop} m/s weaker within 1 500 ft above${r.llj.sh != null ? `; shear below ${r.llj.sh} kt / 1 000 ft` : ''})</span>`);
+    if (r.inv) parts.push(`<b style="color:${red}">surface inversion</b> +${r.inv.dT.toFixed(1)} K at 600–1 000 ft against the surface` +
+      (r.inv.top ? `, warmer up to about ${fmtFt(r.inv.top)}` : ''));
+    if (ft != null || r.llj || r.inv) parts.push(`<span class="mini-tip-dim">METAR ${r.tt != null ? r.tt + ' °C' : '–'}${r.q ? ' · QNH ' + r.q : ''}${r.partial ? ' · hour in progress' : ''} · research</span>`);
+    return parts.length ? parts.join('<br>') : null;
   }
 
   // meteorological wind barb at (cx, cy), staff pointing to where the wind comes from
@@ -587,6 +750,7 @@
     const ts = P.start + Math.floor((mx - ml) / cw) * 3600;
     const c = P.byTs.get(ts);
     if (my > mt + ph) return { mx, my, ts, c, strip: true };
+    if (geo.bl) return { mx, my, ts, c, blft: (1 - (my - mt) / ph) * blTop() };
     let li = null;
     for (let i = 0; i <= topL; i++) if (my <= y(P.layers[i]) && my >= y(P.layers[i + 1])) { li = i; break; }
     let sonde = null;
@@ -601,7 +765,11 @@
     const d = new Date(h.ts * 1000);
     const when = `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad(d.getUTCHours())}–${pad((d.getUTCHours() + 1) % 24)} UTC`;
     let html;
-    if (h.sonde && h.li != null) {
+    const blr = blRows && needBl() ? blRows.find(r => r.ts === h.ts) : null;
+    if (h.blft != null) {
+      html = `<b>${when}</b> · ${fmtFt(Math.max(0, Math.round(h.blft / 50) * 50))} MSL<br>` +
+        (blTip(blr, h.blft) || '<span class="mini-tip-dim">no boundary-layer data (no flights)</span>');
+    } else if (h.sonde && h.li != null) {
       const { P } = geo, s = h.sonde, i = h.li, c = h.c;
       const lt = new Date(s.launch * 1000);
       const parts = [`<b style="color:var(--th-sonde)">Jokioinen sonde ${lt.getUTCDate()}.${lt.getUTCMonth() + 1}. ${pad(lt.getUTCHours())}:${pad(lt.getUTCMinutes())} UTC</b> · ${fmtFt(P.layers[i])}–${fmtFt(P.layers[i + 1])}`];
@@ -659,6 +827,7 @@
       }
       if (c.tp != null || c.vm) parts.push(`<span class="mini-tip-dim">` + [c.tp != null ? `tropopause ≈ ${fmtFt(c.tp)}` : null,
         c.vm ? `strongest wind ${Math.round(c.vm.dir)}° ${Math.round(c.vm.kt)} kt at ${fmtFt(c.vm.ft)}` : null].filter(Boolean).join(' · ') + '</span>');
+      if (st.bl && blr && (blr.llj || blr.inv) && lo < BL_TOP) parts.push(blTip(blr, null));
       parts.push(`<span class="mini-tip-dim">${c.AC[i] || '–'} aircraft in the layer, ${c.a ?? '–'} in the hour${c.partial ? ' · hour in progress' : ' · click: open on the Skew-T'}</span>`);
       html = parts.join('<br>');
     }
@@ -680,6 +849,23 @@
     const [Y, M, D] = st.endDate.split('-').map(Number);
     return Date.UTC(Y, M - 1, D + 1) / 1000;
   }
+  async function loadBl() {
+    const key = `${st.hours}|${st.endDate}`;
+    if (blRows && blKey === key && (st.endDate || Date.now() - blAt < 120000)) return;
+    try {
+      const r = await fetch(`/api/boundary?hours=${st.hours}&end=${endTs()}`).then(r => r.json());
+      blRows = Array.isArray(r) ? r : [];
+    } catch (e) { blRows = []; }
+    blKey = key; blAt = Date.now();
+  }
+  function blMeta() {
+    if (!data) return;
+    const meta = $('sounding-meta');
+    if (!meta || !isBL()) return;
+    const rows = blRows ? blIn({ start: data.start_ts, end: data.end_ts }) : [];
+    meta.textContent = `Boundary layer: ${rows.filter(r => (r.w || []).length || (r.t || []).length).length} hours with flights · ` +
+      `low-level jet in ${rows.filter(r => r.llj).length} h · surface inversion in ${rows.filter(r => r.inv).length} h (research)`;
+  }
   async function load() {
     const req = ++seq;
     const meta = $('sounding-meta');
@@ -688,6 +874,7 @@
       const [d, s] = await Promise.all([
         fetch(`/api/sounding/timeheight?hours=${st.hours}&end=${endTs()}`).then(r => r.json()),
         sondes.length ? Promise.resolve(null) : fetch('/api/sondes').then(r => r.json()).catch(() => null),
+        needBl() ? loadBl() : null,
       ]);
       if (req !== seq) return;
       data = d;
@@ -696,6 +883,7 @@
       const n = d.cols.length, low = d.cols.filter(c => c.a != null && c.a < 8).length;
       if (meta) meta.textContent = `${n} hourly profiles · ${low} with < 8 aircraft` +
         (d.cols.length && d.cols[d.cols.length - 1].partial ? ' · last column: hour in progress' : '');
+      blMeta();
       render();
     } catch (e) {
       if (meta) meta.textContent = 'Error loading the time–height section.';
@@ -711,12 +899,34 @@
     $('th-tp').checked = st.tp;
     $('th-vmax').checked = st.vmax;
     $('th-sondecol').checked = st.sondeCol;
+    if ($('th-bl')) $('th-bl').checked = st.bl;
     $('th-end').value = st.endDate;
+    syncDisabled();
     renderLegend();
+  }
+  // the overlays that do not apply to the boundary-layer field are greyed out
+  function syncDisabled() {
+    for (const id of ['th-iso', 'th-tp', 'th-vmax', 'th-sondecol', 'th-bl']) {
+      const el = $(id);
+      if (!el) continue;
+      el.disabled = isBL();
+      const lab = el.closest('label');
+      if (lab) lab.classList.toggle('th-off', isBL());
+    }
   }
   function renderLegend() {
     const el = $('th-legend');
     if (!el) return;
+    const red = blRed(light());
+    const blLeg = `<b>◆</b> low-level jet (kt) · <span style="color:${red}">▬</span> surface inversion (line: its top)`;
+    if (isBL()) {
+      el.innerHTML = (st.field === 'blw'
+        ? 'Boundary layer · wind speed ' + [0, 10, 20, 30, 40, 55].map(v => `<span class="th-sw" style="background:${blSpd(v)}" title="${v} kt"></span>`).join('') +
+          ' <span class="th-lt">0 · 10 · 20 · 30 · 40 · 55 kt</span>'
+        : 'Boundary layer · temperature against the surface (METAR) <span class="th-bar"></span> <span class="th-lt">−6 · 0 · +6 K</span>') +
+        ` <span class="th-lt">· ${blLeg} · ▨ no flights · faint: few aircraft · research</span>`;
+      return;
+    }
     if (st.field === 'wind') {
       el.innerHTML = 'Wind speed ' + SPD.map((c, i) => `<span class="th-sw" style="background:${c}" title="${i * 10}–${i * 10 + 10} kt"></span>`).join('') +
         ' <span class="th-lt">0 · 50 · 100 · 130+ kt</span>';
@@ -747,6 +957,7 @@
         `<span class="th-bar"></span> <span class="th-lt">−${full} · 0 · +${full} K</span>`;
     }
     el.innerHTML += ` <span class="th-lt">· faint: &lt; 3 replies · <span style="color:var(--th-sonde)">▼</span> Jokioinen launch · dashed frame: hour in progress</span>`;
+    if (st.bl) el.innerHTML += ` <span class="th-lt">· boundary layer: ${blLeg}</span>`;
   }
 
   function tcorrLevels(tc) {
@@ -799,12 +1010,22 @@
     openHour = opts.openHour || null;
     syncControls();
     $('th-hours').addEventListener('change', e => { st.hours = parseInt(e.target.value, 10); lsSet('ms_th_hours', st.hours); load(); });
-    $('th-field').addEventListener('change', e => { st.field = e.target.value; lsSet('ms_th_field', st.field); renderLegend(); render(); });
+    $('th-field').addEventListener('change', async e => {
+      st.field = e.target.value; lsSet('ms_th_field', st.field); syncDisabled(); renderLegend();
+      if (needBl()) { await loadBl(); }
+      if (data) { const meta = $('sounding-meta'); if (isBL()) blMeta(); else if (meta && meta.textContent.startsWith('Boundary')) load(); }
+      render();
+    });
     $('th-barbs').addEventListener('change', e => { st.barbs = e.target.checked; lsSet('ms_th_barbs', st.barbs); render(); });
     $('th-iso').addEventListener('change', e => { st.iso = e.target.checked; lsSet('ms_th_iso', st.iso); render(); });
     $('th-tp').addEventListener('change', e => { st.tp = e.target.checked; lsSet('ms_th_tp', st.tp); render(); });
     $('th-vmax').addEventListener('change', e => { st.vmax = e.target.checked; lsSet('ms_th_vmax', st.vmax); render(); });
     $('th-sondecol').addEventListener('change', e => { st.sondeCol = e.target.checked; lsSet('ms_th_sondecol', st.sondeCol); render(); });
+    if ($('th-bl')) $('th-bl').addEventListener('change', async e => {
+      st.bl = e.target.checked; lsSet('ms_th_bl', st.bl); renderLegend();
+      if (st.bl) await loadBl();
+      render();
+    });
     $('th-png').addEventListener('click', savePng);
     $('th-end').addEventListener('change', e => { st.endDate = e.target.value; load(); });
     $('th-now').addEventListener('click', () => { st.endDate = ''; $('th-end').value = ''; load(); });
