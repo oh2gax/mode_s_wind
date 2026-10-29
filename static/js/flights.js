@@ -157,7 +157,7 @@ function initMap() {
   }).addTo(map);
 }
 function setTiles() {
-  const key = (typeof CARTO_API_KEY !== 'undefined' && CARTO_API_KEY) ? `?api_key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+  const key = (typeof CARTO_API_KEY !== 'undefined' && CARTO_API_KEY) ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
   if (tiles) tiles.remove();
   tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${isLight() ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png${key}`,
     { subdomains: 'abcd', maxZoom: 18, attribution: '© OSM © CARTO' }).addTo(map);
