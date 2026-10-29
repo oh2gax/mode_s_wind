@@ -2,13 +2,17 @@
 web/api/health.py — system health indicators of the Statistics page
 (from 2026-10-25).
 
-Twelve indicators, each green (healthy) / amber (degraded: late, retrying or
+Thirteen indicators, each green (healthy) / amber (degraded: late, retrying or
 on a fallback) / red (fault: stopped, failing or very old) / grey (off):
 
   feed      Radarcape Beast feed      last frame < 30 s / < 10 min / older
                                       (from 26 Oct 2026: a quiet night has
                                       pauses of several seconds)
   json      Radarcape aircraft list   last good poll < 15 s / failing / > 5 min
+  regdb     registration database     BaseStation.sqb (optional, from 29 Oct 2026):
+                                      green in use (aircraft, file date, lookups),
+                                      grey not installed, amber found but could
+                                      not be opened — never red
   rc        Radarcape receiver        its systemstatus.json (every 60 s): GPS
                                       antenna / tracking / 1PPS / timestamp
                                       sync, GPS module temperature (≥ 70 °C
@@ -68,12 +72,14 @@ from collector import wx_reports as _wxr
 
 log = logging.getLogger("modes.health")
 
-ORDER = ("feed", "json", "rc", "decode", "db", "ws", "gps", "meps", "sondes", "calib", "metar", "pi")
-LABEL = {"feed": "Feed", "json": "Aircraft list", "rc": "Radarcape", "decode": "Decoding", "db": "Database",
+ORDER = ("feed", "json", "regdb", "rc", "decode", "db", "ws", "gps", "meps", "sondes", "calib", "metar", "pi")
+LABEL = {"feed": "Feed", "json": "Aircraft list", "regdb": "Reg. DB", "rc": "Radarcape", "decode": "Decoding", "db": "Database",
          "ws": "Windshear", "gps": "GPS", "meps": "MEPS", "sondes": "Soundings",
          "calib": "Calibrations", "metar": "METAR", "pi": "Pi"}
 TITLE = {"feed": "Radarcape Beast feed (Mode S messages)",
          "json": "Radarcape aircraft list (MLAT positions, registrations)",
+         "regdb": "Aircraft registration database BaseStation.sqb (optional: registrations and types "
+                  "of the aircraft that the receiver's list has none for)",
          "rc": "Radarcape receiver (GPS, timestamps, GPS module temperature, settings)",
          "decode": "Decoding and wind computation",
          "db": "Database writes and background jobs",
@@ -326,6 +332,38 @@ def _rc_item(now: float, up: float) -> dict:
 
 
 # ── evaluation ──────────────────────────────────────────────────────────────
+
+def _regdb_item(now: float) -> dict:
+    """BaseStation.sqb (from 2026-10-29): in use / not installed / unreadable."""
+    from collector import aircraft_db
+    st = aircraft_db.status()
+    path = st.get("path")
+    where = None
+    if path:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        rel = os.path.relpath(os.path.abspath(path), root)
+        where = rel if not rel.startswith("..") else os.path.join(os.path.basename(os.path.dirname(os.path.abspath(path))), os.path.basename(path))
+    det = []
+    if st["lookups"]:
+        det.append(f"{st['lookups']} aircraft without a registration in the receiver's list looked up "
+                   f"since the start, {st['found']} found")
+    if st["open"]:
+        n = st.get("aircraft")
+        txt = f"In use — {n:,} aircraft".replace(",", " ") if n is not None else "In use"
+        if st.get("mtime"):
+            det.insert(0, f"file of {time.strftime('%Y-%m-%d', time.gmtime(st['mtime']))}")
+        if where:
+            det.insert(0, where)
+        return _item("regdb", "ok", txt, det)
+    if st["exists"]:
+        return _item("regdb", "warn", "File found but it could not be opened — registrations from the receiver's list only",
+                     ([where] if where else []) + ([f"error: {st['error']}"] if st.get("error") else []) + det)
+    if not path:
+        return _item("regdb", "off", "Not configured (optional)", det)
+    return _item("regdb", "off", "Not installed (optional) — registrations from the receiver's list only",
+                 [f"expected at {where}" if where else "expected next to the database",
+                  "it is looked for every 5 minutes, no restart needed"] + det)
+
 
 def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
     from collector import msg_stats, meps, sondes, tcorr, heading_cal
@@ -639,6 +677,9 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
 
     # Radarcape receiver (systemstatus.json, collector/radarcape_status.py)
     items["rc"] = _rc_item(now, up)
+
+    # registration database BaseStation.sqb (optional, collector/aircraft_db.py)
+    items["regdb"] = _regdb_item(now)
 
     # Raspberry Pi (or, on another computer, this server)
     items["pi"] = _pi(cfg, now)

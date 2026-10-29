@@ -512,7 +512,7 @@
       + `<table><tbody>${rows}</tbody></table>`
       + `<div class="mst-hl-sub">Recent changes</div>${ch}`
       + '<div class="mst-hl-foot">Green: working normally · amber: working but late, retrying or on a fallback (e.g. the stored calibration when there is no new model data) · '
-      + 'red: stopped, failing or out of date · grey ring: switched off in config.py. MEPS is optional, so it is never red. '
+      + 'red: stopped, failing or out of date · grey ring: switched off in config.py, or an optional file not installed. MEPS and the registration database (Reg. DB) are optional, so they are never red. '
       + 'Checked every 10 s while the page is open and every minute in the background; the details of errors are in the server log.</div>';
     if (EMBED) { const x = p.querySelector('.mst-hl-x'); if (x) x.remove(); return; }
     p.querySelector('.mst-hl-x').addEventListener('click', ev => { ev.stopPropagation(); toggleHealth(false); });

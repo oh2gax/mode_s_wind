@@ -24,6 +24,10 @@ The file is optional:
 
 The file is opened read-only.  Results (including "not found") are cached in
 RAM per ICAO; the cache is bounded and cleared when it grows too large.
+
+status() (from 2026-10-29) feeds the "Reg. DB" indicator of the Statistics
+page's system health: whether the file is in use, its size in aircraft and
+date, and how many lookups found a registration.
 """
 
 from __future__ import annotations
@@ -48,6 +52,11 @@ _mtime     = 0.0
 _last_check = 0.0
 _cache: dict[str, tuple[str | None, str | None]] = {}
 _announced_missing = False
+_n_aircraft: int | None = None     # rows of the Aircraft table when opened
+_opened = 0.0                      # wall-clock time the file was (re)opened
+_open_err: str | None = None       # why the last open failed
+_n_lookups = 0                     # file lookups (cache misses) since the start
+_n_found = 0                       # … of which gave a registration
 
 
 def init(path: str | None) -> None:
@@ -71,7 +80,7 @@ def _close_locked() -> None:
 
 def _reopen_locked(force: bool = False) -> None:
     """(Re)open the file when it appeared or changed (lock held)."""
-    global _conn, _mtime, _last_check, _announced_missing
+    global _conn, _mtime, _last_check, _announced_missing, _n_aircraft, _opened, _open_err
     now = time.monotonic()
     interval = CHECK_FILE_SEC if _conn is not None else RETRY_MISSING_SEC
     if not force and now - _last_check < interval:
@@ -101,15 +110,18 @@ def _reopen_locked(force: bool = False) -> None:
         n = conn.execute("SELECT COUNT(*) FROM Aircraft").fetchone()[0]
         _conn, _mtime = conn, mtime
         _announced_missing = False
+        _n_aircraft, _opened, _open_err = int(n), time.time(), None
         log.info("BaseStation.sqb: %d aircraft available for registration lookup (%s)", n, _path)
     except Exception as exc:
         log.warning("BaseStation.sqb could not be opened (%s): %s", _path, exc)
         _conn = None
+        _open_err = type(exc).__name__
 
 
 def lookup(icao: str) -> tuple[str | None, str | None]:
     """Return (registration, ICAO type code) for an ICAO24 address, or
     (None, None) when unknown or when no BaseStation.sqb is available."""
+    global _n_lookups, _n_found
     if not icao:
         return None, None
     key = icao.upper()
@@ -134,6 +146,9 @@ def lookup(icao: str) -> tuple[str | None, str | None]:
         if row:
             reg = (row[0] or "").strip().upper() or None
             typ = (row[1] or "").strip().upper() or None
+        _n_lookups += 1
+        if reg:
+            _n_found += 1
         if len(_cache) >= CACHE_MAX:
             _cache.clear()
         _cache[key] = (reg, typ)
@@ -141,6 +156,16 @@ def lookup(icao: str) -> tuple[str | None, str | None]:
 
 
 def status() -> dict:
-    """Small status dict for logging / diagnostics."""
+    """Status for the system health (Statistics page) and diagnostics:
+    path, exists (the file is there now), open (in use), aircraft (rows when
+    opened), mtime / opened (Unix s), error (why it could not be opened),
+    lookups / found since the start, cached."""
     with _lock:
-        return {"path": _path, "open": _conn is not None, "cached": len(_cache)}
+        _reopen_locked()                  # notices a file added or removed (at most every 1–5 min)
+        exists = bool(_path) and os.path.exists(_path)
+        return {"path": _path, "exists": exists, "open": _conn is not None,
+                "aircraft": _n_aircraft if _conn is not None else None,
+                "mtime": _mtime if _conn is not None else None,
+                "opened": _opened if _conn is not None else None,
+                "error": _open_err if exists and _conn is None else None,
+                "lookups": _n_lookups, "found": _n_found, "cached": len(_cache)}
