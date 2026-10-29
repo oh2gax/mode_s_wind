@@ -9,6 +9,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ## v.29102026 — 2026-10-29 (boundary layer: low-level jet and surface inversion, also in the Sounding page's Time–height section, the windshear reports and on the Skew-T airport profile; turbulence EDR of every landing and departure, also in the Approach History and the mobile History; departure series to 5 000 ft; METAR archive and pilot reports; mobile ILS view: ATC-style altitudes, more room for the strips, WS + ACI chart; landed aircraft leave the windshear views sooner; speed vectors; Flights page redesigned)
 
+### Windshear page map: lighter selected aircraft and labels
+- The aircraft whose barbs the profile shows: a thin white frame (1.6 px; near-black in the light theme), 10 px like the other approach traffic, instead of 12 px with a heavy frame; its label in the same place as the others. All map labels (callsign and altitude) in regular weight instead of bold. `static/js/windshear.js` (`makeAcIcon`, `wsAcLabelIcon`), `static/css/style.css`. Windshear user guide 2.10 (the map figure).
+
 ### Flights page: calmer colours
 - The flight list in the plain colours of the Windshear page's Approach History: grey time, light-blue callsign (amber after a go-around), runway as text `↓ 22L` / `↑ 22R` in the runway yellow instead of coloured ARR / DEP boxes, small red *WS*, EDR grey (yellow from 0.10, red from 0.20), a grey altitude bar, Skew-T as a text link, the selected row with a light background. Charts: wind light blue, direction grey, temperature soft red, altitude grey; the observations' source as plain text. The map's altitude colours a softer scale (teal → sky → blue → lavender); the *Source* colours unchanged. `static/js/flights.js`, `static/css/style.css`, `web/templates/flights.html`.
 
