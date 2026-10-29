@@ -393,12 +393,65 @@ function createSkewT(canvas, tip, cfg = {}) {
     ctx.fillStyle = T.anaLblBg; ctx.fillRect(ML + 9, aptY - 9, ctx.measureText(aptTxt).width + 6, 12);
     ctx.fillStyle = T.apt; ctx.fillText(aptTxt, ML + 12, aptY);
     ctx.restore();
+    drawAptBl(ctx, T);
     for (const l of lv) {
       miniHoverPts.push({ y: mskY(l.pressure), src: 'apt', alt_ft: l.altitude, alt_msl: l.alt_msl, p: l.pressure,
                           t: l.temp, t10: l.temp_p10, t90: l.temp_p90, tn: l.temp_count, tr: l.temp_replies,
                           ws: l.wind_spd, wd: l.wind_dir, wsd: l.wind_sd, wn: l.wind_count,
                           na: l.n_arr, nd: l.n_dep });
     }
+  }
+
+  // The airport's boundary layer of the period (from 2026-10-29; /api/lowlevel
+  // "bl" = collector/boundary.py): the low-level jet as a ◆ at its nose near the
+  // right edge with its speed and direction, and the surface inversion (the air
+  // at 600–1 000 ft warmer than the METAR temperature) as a red bracket from the
+  // ground to its top at the left — drawn whenever the Airport profile is on.
+  function aptPressAt(ft) {
+    const lv = (miniLow.levels || []).filter(l => l.alt_msl != null && l.pressure).sort((a, b) => a.alt_msl - b.alt_msl);
+    if (!lv.length) return altToPressHPa(ft);
+    const isa = f => Math.pow(1 - 6.8756e-6 * f, 5.2559);
+    if (ft <= lv[0].alt_msl) return lv[0].pressure * isa(ft) / isa(lv[0].alt_msl);
+    for (let i = 1; i < lv.length; i++) {
+      const a = lv[i - 1], b = lv[i];
+      if (ft <= b.alt_msl) return Math.exp(Math.log(a.pressure) + (Math.log(b.pressure) - Math.log(a.pressure)) * (ft - a.alt_msl) / (b.alt_msl - a.alt_msl));
+    }
+    const z = lv[lv.length - 1];
+    return z.pressure * isa(ft) / isa(z.alt_msl);
+  }
+  function drawAptBl(ctx, T) {
+    const bl = miniLow && miniLow.bl;
+    if (!bl) return;
+    const { ML, PW, PT, PB, MT, PH } = MSK;
+    const zoom = aptMode === 'zoom';
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+    ctx.font = 'bold 9px monospace'; ctx.lineJoin = 'round';
+    const lbl = (txt, x, y, col, align) => {
+      ctx.textAlign = align; const w = ctx.measureText(txt).width;
+      ctx.fillStyle = T.anaLblBg; ctx.fillRect(align === 'right' ? x - w - 3 : x - 3, y - 9, w + 6, 12);
+      ctx.fillStyle = col; ctx.fillText(txt, x, y);
+    };
+    if (bl.inv && bl.inv.top) {
+      const elev = bl.elev != null ? bl.elev : 179;
+      const pB = Math.min(PB, aptPressAt(elev)), pT = aptPressAt(bl.inv.top);
+      if (pT < PB && pB > PT) {
+        const yb = mskY(pB), yt = mskY(Math.max(PT, pT)), x = ML + 22;
+        const red = document.documentElement.dataset.theme === 'light' ? '#b91c1c' : '#f87171'; ctx.strokeStyle = red; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(x + 6, yb); ctx.lineTo(x, yb); ctx.lineTo(x, yt); ctx.lineTo(x + 6, yt); ctx.stroke();
+        lbl(`SFC INV +${bl.inv.dT.toFixed(1)}K → ${bl.inv.top} ft`, x + 10, yt + (zoom ? 3 : -3), red, 'left');
+      }
+    }
+    if (bl.llj) {
+      const p = aptPressAt(bl.llj.ft);
+      if (p > PT && p < PB) {
+        const y = mskY(p), x = ML + PW - 14, d = zoom ? 6 : 5;
+        ctx.beginPath(); ctx.moveTo(x, y - d); ctx.lineTo(x + d, y); ctx.lineTo(x, y + d); ctx.lineTo(x - d, y); ctx.closePath();
+        ctx.fillStyle = T.apt; ctx.fill(); ctx.strokeStyle = T.anaLblBg; ctx.lineWidth = 1.5; ctx.stroke();
+        lbl(`LLJ ${bl.llj.kt}kt ${String(bl.llj.dir).padStart(3, '0')}° ${bl.llj.ft}ft`, x + d, y - d - 4, T.apt, 'right');
+      }
+    }
+    ctx.restore();
   }
 
   // Weighted running mean of the layer temperatures over 3 (1-2-1) or 5

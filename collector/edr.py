@@ -23,8 +23,13 @@ study of 29 Oct 2026 (Kopeć et al. 2016, AMT, structure-function approach):
 
 Per flight: "m" over all pieces (the pairs pooled), "lo" 200–1 000 ft and
 "hi" 1 000–3 000 ft above the threshold, "pk" the strongest piece, "n" the
-pieces, and "seg" — each piece's EDR, height range and 4 positions for the
-map.  The 2-s reply rate only reaches the 100–200 m scale, so the r^⅔ law is
+pieces, "top" the upper limit and "seg" — each piece's EDR, height range and
+4 positions for the map.  Departures (from 29 Oct 2026) use the climb up to
+5 000 ft (top = DEP_TOP_FT, "hi" 1 000–5 000 ft): their stored climb-out
+series now reach 5 000 ft, because a climb crosses 200–3 000 ft in about 80 s
+and turns early, so only about a third of them had two straight pieces there
+(a heading-based wind vector or the turning pieces were tried on the stored
+flights and did not agree with the straight-piece values: r 0.28 / 0.33).  The 2-s reply rate only reaches the 100–200 m scale, so the r^⅔ law is
 assumed there; the values are a research estimate, an average over the
 approach (not the ICAO 1-min peak), to be calibrated against pilot reports.
 Study (4 255 landings 9–29 Oct 2026): per-landing correlation with ACI 0.66,
@@ -53,6 +58,7 @@ MIN_REPLIES = 8               # replies per piece
 MIN_PAIRS_PIECE = 3
 MIN_PAIRS = 6                 # pairs for a value (flight / layer)
 LO_FT, MID_FT, HI_FT = 200.0, 1000.0, 3000.0   # heights above the threshold
+DEP_TOP_FT = 5000.0           # departures: up to 5 000 ft above the airport (from 2026-10-29)
 
 ELEV_FT = 179.0               # threshold elevation (set from WINDSHEAR_THR_ELEVATION_FT by run.py)
 
@@ -112,16 +118,18 @@ def _pieces(rows: list) -> list:
     return out
 
 
-def compute(series: dict | None, elev_ft: float | None = None) -> dict | None:
-    """EDR record of one flight from its decoded raw series, or None."""
+def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | None = None) -> dict | None:
+    """EDR record of one flight from its decoded raw series, or None
+    (top_ft: the upper limit above the threshold, default HI_FT)."""
     if not series:
         return None
     if elev_ft is None:
         elev_ft = ELEV_FT
+    top = HI_FT if top_ft is None else float(top_ft)
     b5 = series.get("b50") or {}
     cols = [b5.get(k) or [] for k in ("t", "tas", "gs", "alt", "trk")]
     rows = sorted(r for r in zip(*cols)
-                  if None not in r and LO_FT <= r[3] - elev_ft < HI_FT and r[2] > 30)
+                  if None not in r and LO_FT <= r[3] - elev_ft < top and r[2] > 30)
     if len(rows) < MIN_REPLIES:
         return None
     pcs = _pieces(rows)
@@ -154,16 +162,16 @@ def compute(series: dict | None, elev_ft: float | None = None) -> dict | None:
     return {"v": VERSION, "m": pooled(pcs),
             "lo": pooled([p for p in pcs if mid(p) < MID_FT]),
             "hi": pooled([p for p in pcs if mid(p) >= MID_FT]),
-            "pk": max(s["e"] for s in seg), "n": len(pcs), "seg": seg}
+            "pk": max(s["e"] for s in seg), "n": len(pcs), "top": int(top), "seg": seg}
 
 
-def from_blob(blob, elev_ft: float | None = None) -> dict | None:
+def from_blob(blob, elev_ft: float | None = None, top_ft: float | None = None) -> dict | None:
     """EDR record from a stored approach_series / departure_series blob.  Never raises."""
     if not blob:
         return None
     try:
         from collector.windshear import WindshearTracker
-        return compute(WindshearTracker.decode_series(blob), elev_ft)
+        return compute(WindshearTracker.decode_series(blob), elev_ft, top_ft)
     except Exception:                         # noqa: BLE001  (a damaged blob)
         return None
 
@@ -172,4 +180,4 @@ def summary(rec: dict | None) -> dict | None:
     """The record without the pieces (for the history lists)."""
     if not rec:
         return None
-    return {k: rec.get(k) for k in ("m", "lo", "hi", "pk", "n")}
+    return {k: rec.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")}

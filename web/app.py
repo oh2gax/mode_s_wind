@@ -1037,12 +1037,20 @@ def create_app(
         """Airport low-level profile: the 200 ft band profiles of the landings
         and departures of the last ?minutes= (10–360, default 60) pooled
         (web/api/lowlevel.py); ?end=<Unix s> ends the window at that time
-        instead of now (Sounding page: hourly archive / flight)."""
+        instead of now (Sounding page: hourly archive / flight).  "bl" (from
+        2026-10-29): the airport's boundary layer of that hour — low-level jet
+        and surface inversion (collector/boundary.py at()), for the Skew-T marks."""
         from web.api.lowlevel import lowlevel_profile
         end = request.args.get("end", type=float)
         if end is not None and not (0 < end <= time.time() + 3600):
             end = None
-        return jsonify(lowlevel_profile(get_db(), request.args.get("minutes", 60, type=int), now=end))
+        out = lowlevel_profile(get_db(), request.args.get("minutes", 60, type=int), now=end)
+        try:
+            from collector import boundary as _bl
+            out["bl"] = _bl.at(get_db(), end)
+        except Exception:                              # noqa: BLE001  (older database)
+            out["bl"] = None
+        return jsonify(out)
 
     @app.route("/api/sondes")
     def sondes_api():
@@ -1399,7 +1407,7 @@ def create_app(
                 e = _json.loads(txt) if txt else None
             except ValueError:
                 return None
-            return {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n")} if e and e.get("m") is not None else None
+            return {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if e and e.get("m") is not None else None
 
         def _aph_out(result):
             """gzip-compressed (from 2026-10-28); ?lite=1 (the mobile view /app):
@@ -1531,7 +1539,7 @@ def create_app(
                 ed = _json.loads(r["edr_json"]) if r["edr_json"] else None
             except (TypeError, ValueError):
                 ed = None
-            ed = {k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n")} if ed and ed.get("m") is not None else None
+            ed = {k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if ed and ed.get("m") is not None else None
             if sh is None and ed is None and not full:
                 continue
             e = {"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],

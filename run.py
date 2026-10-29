@@ -417,11 +417,12 @@ def _shear_startup(ws_tracker) -> None:
     _shear_confirm_backfill(ws_tracker)
 
 
-def _edr_json(series_blob) -> str | None:
+def _edr_json(series_blob, dep: bool = False) -> str | None:
     """Turbulence (EDR) record of a flight from its raw reply series
-    (collector/edr.py, from 2026-10-29) as JSON, or None."""
+    (collector/edr.py, from 2026-10-29) as JSON, or None; departures use the
+    climb up to 5 000 ft (edr.DEP_TOP_FT, from 2026-10-29)."""
     from collector import edr as _edr
-    rec = _edr.from_blob(series_blob)
+    rec = _edr.from_blob(series_blob, top_ft=_edr.DEP_TOP_FT if dep else None)
     return json.dumps(rec, separators=(",", ":")) if rec else None
 
 
@@ -451,7 +452,8 @@ def _edr_backfill() -> None:
                 for rid, ts, icao in todo[i:i + 50]:
                     b = db.execute(f"SELECT data FROM {ser} WHERE ts = ? AND icao = ?", (ts, icao)).fetchone()
                     # no value (too few straight replies): a marker, so it is not tried again
-                    upd.append((_edr_json(b[0] if b else None) or '{"v":%d,"m":null}' % _edr.VERSION, rid))
+                    upd.append((_edr_json(b[0] if b else None, main == "departure_profiles")
+                                or '{"v":%d,"m":null}' % _edr.VERSION, rid))
                 db.executemany(f"UPDATE {main} SET edr_json = ? WHERE id = ?", upd)
                 db.commit()
                 n_done += len(upd)
@@ -480,7 +482,7 @@ def _on_departure_committed(record: dict) -> None:
              1 if record.get("ga") else 0,
              json.dumps(record["prof"], separators=(",", ":")),
              json.dumps(record["shear"], separators=(",", ":")) if record.get("shear") else None,
-             _edr_json(record.get("series"))))
+             _edr_json(record.get("series"), dep=True)))
         # raw climb-out series (research data, from 2026-10-27; retention
         # APPROACH_SERIES_DAYS like the approach series) — same transaction
         if record.get("series"):

@@ -1650,6 +1650,7 @@ function renderWsLog() {
   const all = ws.concat(wsLog.filter(e => e._ts / 1000 > gaCut))
     .sort((a, b) => b._ts - a._ts).slice(0, WS_LOG_MAX);
 
+  if (ws.length) loadBlAt(null).then(ch => { if (ch) renderWsLog(); });   // the boundary layer of the alerts' hours
   if (all.length === 0) {
     el.innerHTML = `<div class="ws-ws-log-empty">No windshear alerts in the last 24 h<br>`
       + `<span class="ws-ws-log-note">Detection v2 runs on the server for every landing (from 24 Oct 2026).`
@@ -1674,11 +1675,11 @@ function renderWsLog() {
     const dep = e.ph === 'dep';
     const cfe = wsEvCf(e);
     // HH:MM so that the message fits the narrow column (the seconds are in the hover)
-    const compact = `${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}`;
+    const compact = `${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}${blAtTag(e._ts / 1000)}`;
     const how = dep ? 'climb-out compared with the earlier landings and departures'
               : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
     const cfLine = cfe ? '\n' + (cfe._ev ? (cfe.b ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
-    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
+    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}${blAtLine(e._ts / 1000, '\n')}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
     return `<div class="ws-log-entry-compact${sevCls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
@@ -2984,7 +2985,10 @@ function applyBarbButtons() {
 let approachHistoryEnabled = (() => {
   try { return localStorage.getItem('ms_ws_aphist_open') !== 'false'; } catch (_) { return true; }
 })();
-let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond' | 'ws'
+let approachHistoryMode    = 'hw';    // 'wind' | 'hw' | 'xw' | 'hwxw' | 'cond' | 'ws' | 'edr'
+// EDR view filter (from 2026-10-29): show only flights with an average EDR ≥ this (0 = all)
+let aphEdrMin              = (() => { try { const v = parseFloat(localStorage.getItem('ms_ws_aphist_edrmin'));
+                                            return v === 0.1 || v === 0.2 ? v : 0; } catch (_) { return 0; } })();
 let aphHistHiMode          = false;   // false = Lo (7 bands), true = Hi (15 bands)
 // Landings or departures (from 27 Oct 2026; remembered per browser)
 // … or the stored METARs and pilot reports (kind 'rep', from 2026-10-29)
@@ -3016,10 +3020,10 @@ function aphBands() { return aphHistHiMode ? APHIST_BANDS_HI : APHIST_BANDS_LO; 
  *  columns in 'ws' mode). */
 function aphColspan() {
   if (aphKind === 'rep') return 3;
-  return 5 + (approachHistoryMode === 'cond' ? 9 : approachHistoryMode === 'ws' ? 7 : aphBands().length);
+  return 5 + (approachHistoryMode === 'cond' ? 9 : approachHistoryMode === 'ws' ? 7 : approachHistoryMode === 'edr' ? 7 : aphBands().length);
 }
 /** Views with their own fixed column set (no Lo / Hi bands). */
-const aphFixedMode = () => approachHistoryMode === 'cond' || approachHistoryMode === 'ws';
+const aphFixedMode = () => approachHistoryMode === 'cond' || approachHistoryMode === 'ws' || approachHistoryMode === 'edr';
 
 /** Rebuild the <thead> row to match the current Lo/Hi band selection. */
 function renderApproachHistoryHeader() {
@@ -3052,6 +3056,16 @@ function renderApproachHistoryHeader() {
         ['Band Δ','Largest change of the headwind in a 200-ft band (400–1800 ft) against all landings and departures of the previous 45 min (their wind vectors, any runway)'],
         ['Low',   'Lowest height (ft MSL) the receiver followed the aircraft'],
         ['n',     'BDS 5,0 replies used (and their noise, kt)'],
+      ].map(([t, tip]) => `<th class="ws-aphist-th" title="${tip}">${t}</th>`).join('')
+    : approachHistoryMode === 'edr'
+    ? [
+        ['EDR',   'Turbulence of the flight: EDR (eddy dissipation rate ε^⅓, m^⅔ s⁻¹) averaged over its straight 2-km pieces 200–3000 ft above the threshold (departures from 29 Oct 2026: 200–5000 ft), from the headwind TAS − GS of its Mode S replies (research). Colour: the ICAO Annex 3 classes of a medium aircraft — smooth < 0.10 ≤ light < 0.20 ≤ moderate < 0.45 ≤ severe'],
+        ['Lo',    'EDR 200–1000 ft above the threshold'],
+        ['Hi',    'EDR 1000–3000 ft above the threshold (departures from 29 Oct 2026: 1000–5000 ft)'],
+        ['Peak',  'EDR of the roughest 2-km piece'],
+        ['n',     'Straight 2-km pieces used (turns are left out)'],
+        ['ACI',   'Approach conditions index 0–10 of the landing, for comparison'],
+        ['METAR', 'METAR surface wind at the time'],
       ].map(([t, tip]) => `<th class="ws-aphist-th" title="${tip}">${t}</th>`).join('')
     : aphBands()
     .map(b => `<th class="ws-aphist-th">${b}</th>`)
@@ -3091,6 +3105,8 @@ function _syncAphKindBtns() {
   const repSel  = document.getElementById('ws-aphist-rep-sel');
   const hiBtn   = document.getElementById('ws-aphist-hi-btn');
   if (modeSel) modeSel.style.display = rep ? 'none' : '';
+  const edrSel = document.getElementById('ws-aphist-edr-sel');
+  if (edrSel) { edrSel.style.display = !rep && approachHistoryMode === 'edr' ? '' : 'none'; edrSel.value = String(aphEdrMin); }
   if (repSel)  { repSel.style.display = rep ? '' : 'none'; repSel.value = aphRepFilter; }
   if (hiBtn)   { hiBtn.style.display = rep ? 'none' : ''; hiBtn.disabled = aphFixedMode(); }
   const title = document.querySelector('.ws-aphist-title');
@@ -3133,8 +3149,15 @@ document.getElementById('ws-aphist-mode-sel').addEventListener('change', e => {
   // Cond / WS views have their own fixed column set — let the panel size to it (as Hi does)
   document.getElementById('ws-aphist-panel')
     .classList.toggle('ws-aphist-hi', aphHistHiMode || aphFixedMode());
+  const edrSel = document.getElementById('ws-aphist-edr-sel');
+  if (edrSel) edrSel.style.display = approachHistoryMode === 'edr' ? '' : 'none';
   renderApproachHistoryHeader();
   if (approachHistoryEnabled) fetchApproachHistory();
+});
+document.getElementById('ws-aphist-edr-sel').addEventListener('change', e => {
+  aphEdrMin = parseFloat(e.target.value) || 0;
+  try { localStorage.setItem('ms_ws_aphist_edrmin', String(aphEdrMin)); } catch (_) {}
+  if (_aphLastEntries) renderApproachHistory(_aphLastEntries);
 });
 
 document.getElementById('ws-aphist-hi-btn').addEventListener('click', () => {
@@ -3389,6 +3412,89 @@ function _wsRamp(r, loss) {
   return _wsCell(`${Math.abs(r.dv).toFixed(0)}<span class="ws-aphist-nil"> kt/</span>${(r.L / 1000).toFixed(1)}`,
                  r.zone ? _wsLvOfSc(r.sc, loss, r.dv) : null);
 }
+// ── Approach History: turbulence (EDR) view (from 2026-10-29; RESEARCH) ────
+// collector/edr.py per landing / departure; colours: the ICAO Annex 3 peak-EDR
+// classes of a medium aircraft (as the ACI + EDR + WS chart)
+const EDR_CLS_NAME = ['smooth', 'light', 'moderate', 'severe'];
+const _edrCls = v => v >= 0.45 ? 3 : v >= 0.20 ? 2 : v >= 0.10 ? 1 : 0;
+function _edrColor(v, text) {
+  const light = document.documentElement.dataset.theme === 'light';
+  const c = _edrCls(v);
+  if (!text || !light) return ['#34d399', '#facc15', '#fb923c', '#ef4444'][c];
+  return ['#047857', '#a16207', '#c2410c', '#b91c1c'][c];
+}
+const _edrFmt = v => v < 0.01 ? '<0.01' : v.toFixed(2);   // 0: below the noise floor
+function _edrVal(v) {
+  if (v == null) return '<span class="ws-aphist-nil">—</span>';
+  return `<span style="color:${_edrColor(v, true)};font-weight:600">${_edrFmt(v)}</span>`;
+}
+function formatEdrCells(e) {
+  const d = e.edr, c = e.cond;
+  const met = (c && c.metar) || (e.metar_wind) || '—';
+  const aci = c && c.idx != null ? _condIdxHtml(c.idx) : '<span class="ws-aphist-nil">—</span>';
+  if (!d || d.m == null) {
+    return '<td class="ws-aphist-cell ws-aphist-nil" title="No EDR: too few straight 2-km pieces at 200–3000 ft, departures 200–5000 ft (turning, or too few replies)">—</td>' +
+      '<td class="ws-aphist-cell ws-aphist-nil">—</td>'.repeat(4) +
+      `<td class="ws-aphist-cell">${aci}</td><td class="ws-aphist-cell ws-aphist-type">${met}</td>`;
+  }
+  return `<td class="ws-aphist-cell ws-cond-idxcell"><span class="ws-cond-badge" style="background:${_edrColor(d.m)}">${_edrFmt(d.m)}</span>` +
+    ` <span class="ws-edr-cls">${EDR_CLS_NAME[_edrCls(d.m)]}</span></td>` +
+    `<td class="ws-aphist-cell">${_edrVal(d.lo)}</td>` +
+    `<td class="ws-aphist-cell">${_edrVal(d.hi)}</td>` +
+    `<td class="ws-aphist-cell">${_edrVal(d.pk)}</td>` +
+    `<td class="ws-aphist-cell">${d.n ?? '—'}</td>` +
+    `<td class="ws-aphist-cell">${aci}</td>` +
+    `<td class="ws-aphist-cell ws-aphist-type">${met}</td>`;
+}
+function _edrTitle(e) {
+  const d = e.edr;
+  if (!d || d.m == null) return `No EDR for this flight: too few straight 2-km pieces between 200 and ${aphKind === 'dep' ? '5000' : '3000'} ft above the threshold`;
+  const f = v => v == null ? '–' : _edrFmt(v);
+  return [`Turbulence (EDR) ${f(d.m)} m⅔ s⁻¹ – ${EDR_CLS_NAME[_edrCls(d.m)]}  (research estimate)`,
+    `200–1000 ft: ${f(d.lo)}  ·  1000–${d.top || 3000} ft: ${f(d.hi)}  ·  roughest 2-km piece: ${f(d.pk)}  ·  ${d.n} pieces`,
+    'ICAO Annex 3 (peak EDR, medium aircraft): light ≥ 0.10, moderate ≥ 0.20, severe ≥ 0.45 —',
+    'here an average over the approach from replies about 2 s apart, not the 1-min peak',
+    blAtLine(e.ts, '')].filter(Boolean).join('\n');
+}
+
+// ── The boundary layer at the time of a windshear report (from 2026-10-29) ──
+// The hours of /api/boundary (collector/boundary.py) of the last 2 days, fetched
+// at most every 10 minutes when the alert log or the Approach History needs them.
+const _bl = { map: new Map(), keys: new Map(), busy: false };
+/** Fetch the boundary-layer hours of the last 2 days (endTs null) or of the
+ *  day ending at endTs; resolves true when new rows came (then re-render). */
+async function loadBlAt(endTs) {
+  const key = endTs ? String(endTs) : 'now';
+  const t = _bl.keys.get(key);
+  if (_bl.busy || (t && (endTs || Date.now() - t < 600_000))) return false;
+  _bl.busy = true;
+  try {
+    const r = await fetch(endTs ? `/api/boundary?hours=24&end=${endTs}` : '/api/boundary?hours=48');
+    for (const x of (r.ok ? await r.json() : [])) if (!x.partial) _bl.map.set(x.ts, x);
+  } catch (_) { /* keep what we have */ }
+  _bl.keys.set(key, Date.now()); _bl.busy = false;
+  return true;
+}
+function blAtRow(ts) {
+  return ts == null ? null : _bl.map.get(Math.floor(ts / 3600) * 3600) || null;
+}
+/** One line "Boundary layer then: …" for the hour of ts ('' when not known). */
+function blAtLine(ts, pre) {
+  const r = blAtRow(ts);
+  if (!r) return '';
+  const p = [];
+  if (r.llj) p.push(`low-level jet ${r.llj.ft} ft ${r.llj.kt} kt from ${String(r.llj.dir).padStart(3, '0')}°`);
+  if (r.inv) p.push(`surface inversion +${r.inv.dT.toFixed(1)} K${r.inv.top ? ` up to ${r.inv.top} ft` : ''}`);
+  if (!p.length) p.push((r.w || []).length ? 'no low-level jet, no surface inversion' : 'no flights in that hour');
+  return `${pre}Boundary layer then: ${p.join(' · ')}`;
+}
+/** Short tag for the compact alert-log line: ' LLJ' / ' INV' / ' LLJ+INV'. */
+function blAtTag(ts) {
+  const r = blAtRow(ts);
+  if (!r || (!r.llj && !r.inv)) return '';
+  return ` <span class="ws-bl-tag" title="${blAtLine(ts, '').replace(/"/g, '&quot;')}">${[r.llj ? 'LLJ' : '', r.inv ? 'INV' : ''].filter(Boolean).join('+')}</span>`;
+}
+
 function formatWsCells(e) {
   if (aphKind === 'dep') return formatDepWsCells(e);
   const w = e.shear;
@@ -3400,7 +3506,7 @@ function formatWsCells(e) {
     : '<span class="ws-aphist-nil">—</span>';
   const b = w.band;
   const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';
-  return `<td class="ws-aphist-cell">${lvHtml}</td>` +
+  return `<td class="ws-aphist-cell">${lvHtml}${lv ? blAtTag(e.ts) : ''}</td>` +
     _wsRamp(w.loss, true) + _wsRamp(w.gain, false) +
     `<td class="ws-aphist-cell">${w.fh != null ? w.fh.toFixed(2) : '—'}</td>` +
     _wsCell(bHtml, b && b.lvl !== 'none' ? b.lvl : null) +
@@ -3425,7 +3531,7 @@ function formatDepWsCells(e) {
       `${Math.abs(r.dv).toFixed(0)}<span class="ws-aphist-nil"> kt/</span>${(r.L / 1000).toFixed(1)}</td>`;
   const b = w.band;
   const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';
-  return `<td class="ws-aphist-cell">${lvHtml}</td>` +
+  return `<td class="ws-aphist-cell">${lvHtml}${lv ? blAtTag(e.ts) : ''}</td>` +
     ramp(t && t.loss, true) + ramp(t && t.gain, false) +
     `<td class="ws-aphist-cell ws-aphist-trial">${t && t.fh != null ? t.fh.toFixed(2) : '—'}</td>` +
     _wsCell(bHtml, b && b.lvl !== 'none' ? b.lvl : null) +
@@ -3510,13 +3616,15 @@ function renderApproachHistory(entries) {
     entries = _aphLastEntries.filter(e => [e.callsign, e.registration, e.aircraft_type, e.icao]
       .some(x => _aphNormReg(x).includes(_aphRegFilter)));
   }
+  const edrFilt = approachHistoryMode === 'edr' && aphEdrMin > 0;
+  if (edrFilt) entries = entries.filter(e => e.edr && e.edr.m != null && e.edr.m >= aphEdrMin);
 
   // Landing count for the selected window/date on the panel title line
   const countEl = document.getElementById('ws-aphist-count');
   const what = aphKind === 'dep' ? 'departure' : 'landing';
   if (countEl) {
     const n = entries ? entries.length : 0;
-    countEl.textContent = _aphRegFilter
+    countEl.textContent = _aphRegFilter || edrFilt
       ? `–  ${n} of ${total} ${what}${total === 1 ? '' : 's'}`
       : `–  ${n} ${what}${n === 1 ? '' : 's'}`;
   }
@@ -3526,7 +3634,8 @@ function renderApproachHistory(entries) {
     return;
   }
   if (!entries || entries.length === 0) {
-    const msg = (_aphRegFilter && total > 0)
+    const msg = (edrFilt && total > 0) ? `No ${what}s with EDR ≥ ${aphEdrMin.toFixed(2)} in this range`
+      : (_aphRegFilter && total > 0)
       ? `No ${what}s match the search`
       : aphKind === 'dep' ? 'No departures stored in this range' : 'No approaches logged yet';
     tbody.innerHTML =
@@ -3542,6 +3651,10 @@ function renderApproachHistory(entries) {
   );
 
   const bands = aphBands();
+  if (approachHistoryMode === 'ws' || approachHistoryMode === 'edr') {      // the boundary layer for the row hover
+    const endTs = aphHistDateMode && aphHistDate ? Date.parse(aphHistDate + 'T00:00:00Z') / 1000 + 86400 : null;
+    loadBlAt(endTs).then(ch => { if (ch && _aphLastEntries) renderApproachHistory(_aphLastEntries); });
+  }
 
   tbody.innerHTML = entries.map(e => {
     const tsMs    = (e.ts || 0) * 1000;
@@ -3556,14 +3669,17 @@ function renderApproachHistory(entries) {
     const rwyHdg   = e.rwy_heading ?? null;
     const condMode = approachHistoryMode === 'cond';
     const wsMode   = approachHistoryMode === 'ws';
+    const edrMode  = approachHistoryMode === 'edr';
     const bandCells = condMode
       ? formatCondCells(e)
       : wsMode ? formatWsCells(e)
+      : edrMode ? formatEdrCells(e)
       : bands
       .map(b => formatBandCell(e.bands ? e.bands[String(b)] : null, rwyHdg))
       .join('');
     const rowTitle = (condMode ? _condTitle(e.cond, e.rough)
-                      : wsMode ? (aphKind === 'dep' ? _wsDepTitle(e) : _wsTitle(e.shear)) : '').replace(/"/g, '&quot;');
+                      : wsMode ? (aphKind === 'dep' ? _wsDepTitle(e) : _wsTitle(e.shear)) + blAtLine(e.ts, '\n')
+                      : edrMode ? _edrTitle(e) : '').replace(/"/g, '&quot;');
 
     return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>

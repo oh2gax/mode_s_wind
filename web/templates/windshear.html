@@ -97,13 +97,19 @@
             </span>
             <button id="ws-aphist-live-btn" class="ws-aphist-live-btn ws-aphist-live-active" title="Back to live rolling window">Live</button>
             <span class="ws-aphist-sep"></span>
-            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both · Approach Conditions Index (ACI) · windshear report (WS)">
+            <select id="ws-aphist-mode-sel" class="ws-aphist-mode-sel" title="Column display mode: raw wind · headwind · crosswind · both · Approach Conditions Index (ACI) · windshear report (WS) · turbulence (EDR, research)">
               <option value="wind">Wind</option>
               <option value="hw" selected>HW</option>
               <option value="xw">XW</option>
               <option value="hwxw">HW+XW</option>
               <option value="cond">ACI</option>
               <option value="ws">WS</option>
+              <option value="edr">EDR</option>
+            </select>
+            <select id="ws-aphist-edr-sel" class="ws-aphist-mode-sel" style="display:none" title="Which flights: all · only those with an average EDR of at least 0.10 (light) · at least 0.20 (moderate)">
+              <option value="0">All</option>
+              <option value="0.1">≥ light</option>
+              <option value="0.2">≥ moderate</option>
             </select>
             <select id="ws-aphist-rep-sel" class="ws-aphist-mode-sel" style="display:none" title="Which messages: all METARs and reports of the range · only the METARs with a windshear group and the pilot reports near the airport · the same over the whole archive (any date)">
               <option value="all">All</option>

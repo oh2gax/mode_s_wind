@@ -581,7 +581,7 @@
   if (!['arr', 'dep', 'rep'].includes(H.kind)) H.kind = 'arr';
   if (!['all', 'ws', 'arch'].includes(H.rep)) H.rep = 'all';
   if (![1, 3, 6, 12, 24].includes(H.hours)) H.hours = 3;
-  if (!['hw', 'xw', 'wind', 'aci', 'ws'].includes(H.show)) H.show = 'hw';
+  if (!['hw', 'xw', 'wind', 'aci', 'ws', 'edr'].includes(H.show)) H.show = 'hw';
   if (!['lo', 'hi'].includes(H.res)) H.res = 'lo';
   const histCtl = [['app-hist-kind', 'kind', 'ms_app_hist_kind'], ['app-hist-hours', 'hours', 'ms_app_hist_h'],
                    ['app-hist-show', 'show', 'ms_app_hist_show'], ['app-hist-res', 'res', 'ms_app_hist_res'],
@@ -638,6 +638,36 @@
     return n ? `Confirmed: the same ramp was seen by ${n} of ${(cf.nb || 0) + (cf.na || 0)} nearby landings`
              : `Isolated${cf.fin ? '' : ' so far'}: not seen by the nearby landings — probably turbulence`; };
 
+  // turbulence (EDR, collector/edr.py; from 2026-10-29, research): the ICAO
+  // Annex 3 classes of a medium aircraft, as the ACI + EDR + WS chart
+  const EDR_NAME = ['smooth', 'light', 'moderate', 'severe'];
+  const edrCls = v => v >= 0.45 ? 3 : v >= 0.20 ? 2 : v >= 0.10 ? 1 : 0;
+  const edrCol = v => (document.documentElement.dataset.theme === 'light'
+    ? ['#047857', '#a16207', '#c2410c', '#b91c1c'] : ['#34d399', '#facc15', '#fb923c', '#ef4444'])[edrCls(v)];
+  const f2 = v => v == null ? '–' : v < 0.01 ? '<0.01' : v.toFixed(2);
+  // the boundary layer of the hours of the shown list (/api/boundary, collector/boundary.py)
+  const HB = { map: new Map(), keys: new Map(), busy: false };
+  async function loadHistBl() {
+    const endTs = H.date ? Date.parse(H.date + 'T00:00:00Z') / 1000 + 86400 : null;
+    const key = endTs ? String(endTs) : 'now', t = HB.keys.get(key);
+    if (HB.busy || (t && (endTs || Date.now() - t < 600_000))) return;
+    HB.busy = true;
+    try {
+      const d = await (await fetch(endTs ? `/api/boundary?hours=24&end=${endTs}` : `/api/boundary?hours=${Math.max(24, H.hours + 1)}`, { cache: 'no-store' })).json();
+      for (const r of Array.isArray(d) ? d : []) if (!r.partial) HB.map.set(r.ts, r);
+    } catch (_) { /* nothing */ }
+    HB.keys.set(key, Date.now()); HB.busy = false;
+    drawHist();
+  }
+  function blThen(ts) {
+    const r = HB.map.get(Math.floor(ts / 3600) * 3600);
+    if (!r) return '';
+    const p = [];
+    if (r.llj) p.push(`low-level jet ${r.llj.ft} ft ${r.llj.kt} kt from ${String(r.llj.dir).padStart(3, '0')}°`);
+    if (r.inv) p.push(`surface inversion +${r.inv.dT.toFixed(1)} K${r.inv.top ? ` up to ${r.inv.top} ft` : ''}`);
+    return `Boundary layer then: ${p.length ? p.join(' · ') : (r.w || []).length ? 'no low-level jet, no surface inversion' : 'no flights in that hour'}`;
+  }
+
   function histChips(e) {
     const dep = H.kind === 'dep', w = e.shear || null, out = [];
     const c = !dep && e.cond && e.cond.idx != null ? e.cond.idx : null;
@@ -646,6 +676,7 @@
     if (lv) out.push(`<span class="ch lv" style="background:${WS_COL[lv]}">${LV_TXT[lv]}</span>`);
     const tl = dep && w && w.trial && w.trial.lvl && w.trial.lvl !== 'none' ? w.trial.lvl : null;
     if (tl) out.push(`<span class="ch trial" style="color:${WS_COL[tl]}">${LV_TXT[tl]} trial</span>`);
+    if (e.edr && e.edr.m != null) out.push(`<span class="ch edr" style="color:${edrCol(e.edr.m)}">EDR ${f2(e.edr.m)}</span>`);
     if (e.go_arounds > 0 || e.ga) out.push('<span class="ch ga">GA</span>');
     return out.join('');
   }
@@ -657,6 +688,11 @@
       if (!c || c.idx == null) return `<span class="dim">no index${c && c.metar ? ' · METAR ' + esc(c.metar) : ''}</span>`;
       return `<b style="color:${aciCol(c.idx)}">${c.idx.toFixed(1)} ${esc(c.lbl || '')}</b>` +
              ` · hi ${c.hi ? c.hi.idx.toFixed(1) : '–'} · lo ${c.lo ? c.lo.idx.toFixed(1) : '–'}${c.metar ? ' · ' + esc(c.metar) : ''}`;
+    }
+    if (H.show === 'edr') {
+      const d = e.edr;
+      if (!d || d.m == null) return '<span class="dim">no EDR (too few straight pieces)</span>';
+      return `<span><b style="color:${edrCol(d.m)}">${f2(d.m)} ${EDR_NAME[edrCls(d.m)]}</b> · lo ${f2(d.lo)} · hi ${f2(d.hi)} · peak <b style="color:${edrCol(d.pk)}">${f2(d.pk)}</b> · ${d.n} pcs</span>`;
     }
     if (H.show === 'ws') {
       const w = e.shear;
@@ -713,6 +749,12 @@
         else txt.push('Trial ramps: no climb-out series (before 27 Oct 2026 or too few replies)');
       }
     }
+    const d = e.edr;
+    txt.push('', d && d.m != null
+      ? `Turbulence (EDR, research) ${f2(d.m)} – ${EDR_NAME[edrCls(d.m)]}: 200–1000 ft ${f2(d.lo)} · 1000–${d.top || 3000} ft ${f2(d.hi)} · roughest 2-km piece ${f2(d.pk)} · ${d.n} pieces`
+      : 'Turbulence (EDR): no value (too few straight 2-km pieces)');
+    const bl = blThen(e.ts);
+    if (bl) txt.push(bl);
     if (e.registration) txt.unshift(`${e.registration}${e.icao ? ' · ' + e.icao.toUpperCase() : ''}`);
     return tbl + `<div class="txt">${esc(txt.filter((x, i, a) => x !== '' || (i && a[i - 1] !== '')).join('\n'))}</div>`;
   }
@@ -817,6 +859,7 @@
       H.fetched = Date.now();
     } catch (_) { if (n === H.req) $('app-sub').textContent = 'Could not load the history.'; return; }
     drawHist();
+    loadHistBl();
   }
 
   // ══ ILS approach ═════════════════════════════════════════════════════════

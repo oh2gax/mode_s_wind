@@ -256,6 +256,7 @@ body.app-body {
 .app-card .ch.lv { color: #fff; }
 .app-card .ch.trial { font-style: italic; background: none; border: 1px dashed currentColor; }
 .app-card .ch.ga { color: var(--amber); }
+.app-card .ch.edr { background: none; border: 1px solid currentColor; }   /* turbulence (EDR), from 2026-10-29 */
 .app-card .l2 { display: flex; align-items: center; min-width: 0; font-size: 11.5px; color: var(--text-2);
                 font-family: 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-card .l2 .trial { font-style: italic; }

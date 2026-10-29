@@ -231,6 +231,43 @@ def store_missing(db, max_hours: int = 48, now: float | None = None, pause_sec: 
 _live = {"t": 0.0, "h": None, "rec": None}
 
 
+def _live_rec(db, now: float) -> dict:
+    """The hour in progress (computed, cached 2 min)."""
+    cur = int(now // 3600 * 3600)
+    if _live["h"] != cur or now - _live["t"] > 120:
+        _live.update(t=now, h=cur, rec=compute_hour(db, cur, now))
+    return dict(_live["rec"], partial=1)
+
+
+def at(db, end: float | None = None, now: float | None = None) -> dict | None:
+    """The boundary layer for the Skew-T airport profile (/api/lowlevel "bl",
+    from 2026-10-29): with `end` in the past the stored hour that ends the
+    window (the hour containing end − 1 s); else the hour in progress when it
+    already has at least 5 wind bins, otherwise the newest stored hour of the
+    last 2 h.  {ts, llj, inv, tt, elev[, partial]} or None.  Never computes
+    a stored hour (no extra load on the polling Live Map)."""
+    now = time.time() if now is None else now
+    r = None
+    if end is not None and end < now - 60:
+        h = int((end - 1) // 3600 * 3600)
+        row = db.execute("SELECT data FROM bl_hours WHERE ts = ?", (h,)).fetchone()
+        r = {"ts": h, **json.loads(row[0])} if row else None
+    else:
+        live = _live_rec(db, now)
+        if len(live.get("w") or []) >= 5:
+            r = live
+        else:
+            row = db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? ORDER BY ts DESC LIMIT 1",
+                             (int(now // 3600 * 3600) - 2 * 3600,)).fetchone()
+            r = {"ts": row[0], **json.loads(row[1])} if row else None
+    if not r:
+        return None
+    out = {"ts": r["ts"], "llj": r.get("llj"), "inv": r.get("inv"), "tt": r.get("tt"), "elev": round(_cfg["elev"])}
+    if r.get("partial"):
+        out["partial"] = 1
+    return out
+
+
 def query(db, hours: float = 24, now: float | None = None, end: float | None = None) -> list:
     """The stored hours of the last `hours` (max 14 days) and the hour in
     progress (computed, cached 2 min), oldest first.  With `end` (Unix s) in
@@ -260,8 +297,5 @@ def query(db, hours: float = 24, now: float | None = None, end: float | None = N
     prev = cur - 3600
     if prev not in have and now - prev < 2 * 3600:   # the last hour not stored yet (job runs a few min after)
         out.append(compute_hour(db, prev))
-    if _live["h"] != cur or now - _live["t"] > 120:
-        _live.update(t=now, h=cur, rec=compute_hour(db, cur, now))
-    rec = dict(_live["rec"], partial=1)
-    out.append(rec)
+    out.append(_live_rec(db, now))
     return out

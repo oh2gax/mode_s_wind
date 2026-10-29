@@ -3179,3 +3179,8 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-tr-table tbody th { font-weight: 600; color: var(--text-2); font-size: 11.5px; padding: 3px 8px; }
 .mst-tr-table .mst-tr-none { text-align: left; color: var(--text-3); }
 .mst-panel [hidden] { display: none !important; }
+
+/* Approach History — turbulence (EDR) view (from 2026-10-29) */
+.ws-edr-cls { font-size: 10px; color: var(--text-2); }
+/* Windshear alert log — boundary layer at the time (from 2026-10-29) */
+.ws-bl-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border: 1px solid currentColor; border-radius: 6px; opacity: .8; margin-left: 2px; }

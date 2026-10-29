@@ -18,8 +18,13 @@ Detection (every windshear sweep, ~3 s, from live_state):
            within ±100 ft.  Mach/TAS temperature always; wind only when the
            bank is ≤ 5° (departures turn early) and with the per-airframe
            heading calibration (hdg_off) applied;
-  end    — above DEP_TOP_FT + 300 ft, farther than DEP_MAX_NM, descending, or
-           not updated for 60 s.  A record with at least 3 bands with
+  end    — above DEP_SERIES_TOP_FT + 300 ft (5 300 ft MSL; until 29 Oct 2026
+           DEP_TOP_FT + 300 = 3 300 ft), farther than DEP_MAX_NM, descending,
+           or not updated for 60 s.  The 200 ft bands, the band comparison and
+           the trial ramps still end at DEP_TOP_FT + 300 ft (the final
+           windshear report is made there, as before); above it only the raw
+           series grows, for the turbulence (EDR) of the climb (collector/edr.py
+           uses 200–5 000 ft for departures).  A record with at least 3 bands with
            temperature or wind is committed (one INSERT into
            departure_profiles; turboprops report no Mach, so their climbs
            give winds only).
@@ -68,7 +73,8 @@ DEP_START_NM     = 6.0
 DEP_START_MAX_FT = 1500.0
 DEP_MIN_VR       = 300.0       # fpm
 DEP_MIN_GS       = 90.0        # kt
-DEP_TOP_FT       = 3000.0
+DEP_TOP_FT       = 3000.0      # bands, band comparison, trial ramps
+DEP_SERIES_TOP_FT = 5000.0     # raw climb-out series (EDR), from 2026-10-29
 DEP_MAX_NM       = 25.0
 DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
@@ -166,12 +172,18 @@ class DepartureTracker:
         for k in ("callsign", "registration", "aircraft_type"):
             if ac.get(k):
                 st[k] = ac[k]
-        if self._shear and not st["ga"] and sum(len(P["u"]) for P in st["prof"].values()) != n_w:
+        if (self._shear and not st["ga"] and not st.get("top_done")
+                and sum(len(P["u"]) for P in st["prof"].values()) != n_w):
             try:
                 self._shear(icao, st, now, False)
             except Exception as exc:                      # noqa: BLE001
                 log.debug("Departure windshear check failed: %s", exc)
-        if (alt_msl > DEP_TOP_FT + 300 or dist > DEP_MAX_NM
+        if alt_msl > DEP_TOP_FT + 300 and not st.get("top_done"):
+            # the end of the band profile: the final windshear report now, as before
+            st["top_done"] = True
+            st["t_top"] = now                 # the record keeps this time (as before the 5 000 ft series)
+            st["shear_res"] = self._final_shear(icao, st, now)
+        if (alt_msl > DEP_SERIES_TOP_FT + 300 or dist > DEP_MAX_NM
                 or (vr is not None and vr < -500)):
             self._finish(icao, ac, now)
 
@@ -252,18 +264,22 @@ class DepartureTracker:
                 P["v"].append(-wspd * math.cos(rd))
         st["since"] = max(since, now)
 
+    def _final_shear(self, icao, st, now):
+        # windshear band comparison: also for climbs without a stored profile
+        # (the climb-out still becomes a reference for the next 45 min)
+        if not self._shear or st["ga"]:
+            return None
+        try:
+            return self._shear(icao, st, now, True)
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Departure windshear report failed: %s", exc)
+            return None
+
     def _finish(self, icao, ac, now):
         st = self._state.pop(icao, None)
         if not st:
             return
-        # windshear band comparison: also for climbs without a stored profile
-        # (the climb-out still becomes a reference for the next 45 min)
-        shear = None
-        if self._shear and not st["ga"]:
-            try:
-                shear = self._shear(icao, st, now, True)
-            except Exception as exc:                      # noqa: BLE001
-                log.debug("Departure windshear report failed: %s", exc)
+        shear = st.get("shear_res") if st.get("top_done") else self._final_shear(icao, st, now)
         # bands with a temperature or a wind (turboprops report no Mach, so
         # their climbs give winds only — kept, as on the approach profiles)
         n_b = sum(1 for P in st["prof"].values() if P["t"] or P["u"])
@@ -278,7 +294,7 @@ class DepartureTracker:
                      "runway": (st.get("ws_rwy") or (None, None))[0]})
         except Exception as exc:                          # noqa: BLE001
             log.debug("Departure series failed: %s", exc)
-        rec = {"ts": now, "t_start": st["t0"], "icao": icao,
+        rec = {"ts": st.get("t_top") or now, "t_start": st["t0"], "icao": icao,
                "callsign": st.get("callsign"), "registration": st.get("registration"),
                "aircraft_type": st.get("aircraft_type"), "qnh_hpa": st["qnh"],
                "track": st["track"], "lat": st["lat"], "lon": st["lon"],
@@ -303,4 +319,6 @@ class DepartureTracker:
             items = list(self._state.items())          # the sweep thread may add one meanwhile
         except RuntimeError:
             return {}
-        return {k: (st.get("ws_rwy") or (None, None))[0] for k, st in items if not st.get("ga")}
+        # above the band profile (3 300 ft) a climb is followed only for its series (EDR)
+        return {k: (st.get("ws_rwy") or (None, None))[0] for k, st in items
+                if not st.get("ga") and not st.get("top_done")}
