@@ -468,7 +468,13 @@ def create_app(
 
     @app.route("/flights")
     def flights_page():
-        return render_template("flights.html")
+        # the airport and the receiver for the flight map (redesigned page, 2026-10-29)
+        return render_template("flights.html",
+                               airport_icao=cfg.AIRPORT_ICAO,
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
+                               receiver_lat=cfg.RECEIVER_LAT,
+                               receiver_lon=cfg.RECEIVER_LON)
 
     @app.route("/sounding")
     def sounding_page():
@@ -763,56 +769,161 @@ def create_app(
 
     @app.route("/api/flights")
     def flights_api():
-        """Paginated flight list with optional filters."""
+        """Paginated flight list for the Flights page (redesigned 2026-10-29).
+
+        Query params:
+          page, per   — page (1…) and rows per page (≤ 100, default 50)
+          q           — one search: callsign, ICAO24 address or registration
+                        (registrations from the stored landings / departures
+                        and the optional BaseStation.sqb)
+          hours       — period back from now (1–720); 0 or missing with no
+                        date = all stored flights
+          date        — YYYY-MM-DD (UTC day; overrides hours)
+          kind        — all · meteo (meteo data) · arr (landed at the airport)
+                        · dep (departed) · snd (a climb or descent of over
+                        5 000 ft with meteo data: a Skew-T sounding)
+          (icao / callsign / meteo=1 of the old page still work)
+        Each row has the registration and type when known, and the landing
+        ("arr": runway, time, go-arounds, ACI, EDR, windshear level) or the
+        departure ("dep") recorded for the flight."""
+        import re as _re
         db   = get_db()
-        page = max(1, int(request.args.get("page", 1)))
-        per  = min(100, int(request.args.get("per", 50)))
-        icao = request.args.get("icao", "").upper().strip()
-        call = request.args.get("callsign", "").upper().strip()
-        only_meteo = request.args.get("meteo", "0") == "1"
+        page = max(1, request.args.get("page", 1, type=int) or 1)
+        per  = max(10, min(100, request.args.get("per", 50, type=int) or 50))
+        q    = (request.args.get("q") or "").upper().strip()[:12]
+        kind = request.args.get("kind", "all")
+        if request.args.get("meteo") == "1":
+            kind = "meteo"
+        now  = time.time()
 
-        where = ["1=1"]
+        where: list = []
         params: list = []
+        date = request.args.get("date", "")
+        hours = request.args.get("hours", 0, type=int) or 0
+        if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date or ""):
+            import calendar as _cal
+            t0 = _cal.timegm(time.strptime(date, "%Y-%m-%d"))
+            where.append("flights.last_seen >= ? AND flights.first_seen < ?")
+            params += [t0, t0 + 86400]
+        elif hours > 0:
+            where.append("flights.last_seen >= ?")
+            params.append(now - min(hours, 720) * 3600)
 
-        if icao:
-            where.append("icao LIKE ?")
-            params.append(f"%{icao}%")
-        if call:
-            where.append("callsign LIKE ?")
-            params.append(f"%{call}%")
-        if only_meteo:
-            where.append("meteo_count > 0")
+        for key, col in (("icao", "icao"), ("callsign", "callsign")):
+            v = (request.args.get(key) or "").upper().strip()[:12]
+            if v:
+                where.append(f"{col} LIKE ?")
+                params.append(f"%{v}%")
+        if q:
+            # registrations: from the stored landings / departures and BaseStation.sqb
+            reg_icaos: set = set()
+            if len(q) >= 3:
+                for tbl in ("approach_history", "departure_profiles"):
+                    for r in db.execute(f"SELECT DISTINCT icao FROM {tbl} WHERE registration LIKE ? LIMIT 50",
+                                        (f"%{q}%",)):
+                        reg_icaos.add(r[0])
+                from collector import aircraft_db
+                reg_icaos.update(aircraft_db.icaos_for_reg(q))
+            cond = "(callsign LIKE ? OR icao LIKE ?"
+            params += [f"%{q}%", f"{q}%"]
+            if reg_icaos:
+                cond += f" OR icao IN ({','.join('?' * len(reg_icaos))})"
+                params += sorted(reg_icaos)
+            where.append(cond + ")")
 
-        where_sql = " AND ".join(where)
-        offset     = (page - 1) * per
+        # the landing: within the flight (its last stored row is 1–3 min
+        # before the touchdown); the departure: its climb starts with the flight
+        ARR = ("EXISTS (SELECT 1 FROM approach_history a WHERE a.ts BETWEEN flights.first_seen"
+               " AND flights.last_seen + 900 AND a.icao = flights.icao)")
+        # (d.ts — the climb's top, minutes after its start — for the index)
+        DEP = ("EXISTS (SELECT 1 FROM departure_profiles d WHERE d.ts BETWEEN flights.first_seen - 120"
+               " AND flights.last_seen + 1800 AND d.t_start BETWEEN flights.first_seen - 120"
+               " AND flights.last_seen AND d.icao = flights.icao)")
+        SND = "(meteo_count > 0 AND max_altitude - min_altitude > 5000)"
+        base_sql = " AND ".join(where) or "1=1"
+        cnt = db.execute(
+            f"""SELECT COUNT(*), SUM(meteo_count > 0), SUM({ARR}), SUM({DEP}), SUM({SND})
+                FROM flights WHERE {base_sql}""", params).fetchone()
+        counts = {"all": cnt[0] or 0, "meteo": cnt[1] or 0, "arr": cnt[2] or 0,
+                  "dep": cnt[3] or 0, "snd": cnt[4] or 0}
+        kind_sql = {"meteo": "meteo_count > 0", "arr": ARR, "dep": DEP, "snd": SND}.get(kind)
+        where_sql = base_sql + (f" AND {kind_sql}" if kind_sql else "")
+        total = counts.get(kind, counts["all"])
 
-        total = db.execute(
-            f"SELECT COUNT(*) FROM flights WHERE {where_sql}", params
-        ).fetchone()[0]
-
-        # ORDER BY flights.last_seen: a bare last_seen would mean the text
-        # alias below, which cannot use the index (every flight sorted)
         rows = db.execute(
-            f"""SELECT id, icao, callsign,
-                       datetime(first_seen, 'unixepoch') AS first_seen,
-                       datetime(last_seen,  'unixepoch') AS last_seen,
+            f"""SELECT id, icao, callsign, first_seen, last_seen,
                        max_altitude, min_altitude, obs_count, meteo_count
                 FROM flights WHERE {where_sql}
                 ORDER BY flights.last_seen DESC
                 LIMIT ? OFFSET ?""",
-            params + [per, offset],
+            params + [per, (page - 1) * per],
         ).fetchall()
-
+        flights = [_flight_links(db, dict(r)) for r in rows]
         return jsonify({
-            "total": total,
-            "page":  page,
-            "per":   per,
-            "flights": [dict(r) for r in rows],
+            "total": total, "page": page, "per": per, "kind": kind,
+            "counts": counts, "now": now,
+            "flights": flights,
         })
+
+    def _flight_links(db, f: dict, full: bool = False) -> dict:
+        """Registration / type and the landing or departure of one flight
+        (Flights page, from 2026-10-29)."""
+        a = db.execute(
+            """SELECT ts, runway, go_arounds, registration, aircraft_type, rough_json,
+                      shear_json, edr_json FROM approach_history
+               WHERE ts BETWEEN ? AND ? AND icao = ? ORDER BY ts LIMIT 1""",
+            (f["first_seen"], f["last_seen"] + 900, f["icao"])).fetchone()
+        d = db.execute(
+            """SELECT ts, t_start, ga, registration, aircraft_type, shear_json, edr_json
+               FROM departure_profiles
+               WHERE ts BETWEEN ? AND ? AND t_start BETWEEN ? AND ? AND icao = ?
+               ORDER BY t_start LIMIT 1""",
+            (f["first_seen"] - 120, f["last_seen"] + 1800, f["first_seen"] - 120, f["last_seen"],
+             f["icao"])).fetchone()
+
+        def _j(txt):
+            try:
+                return json.loads(txt) if txt else None
+            except ValueError:
+                return None
+
+        def _edr(txt):
+            e = _j(txt)
+            return round(e["m"], 3) if e and e.get("m") is not None else None
+
+        def _ws(txt):
+            sh = _j(txt)
+            return sh.get("lvl") if isinstance(sh, dict) else None
+
+        reg = typ = None
+        if a:
+            cond = approach_index(_j(a["rough_json"]), a["aircraft_type"])
+            f["arr"] = {"ts": a["ts"], "rwy": a["runway"], "ga": a["go_arounds"] or 0,
+                        "aci": cond.get("idx") if cond else None,
+                        "aci_lbl": cond.get("lbl") if cond else None,
+                        "edr": _edr(a["edr_json"]), "ws": _ws(a["shear_json"])}
+            reg, typ = a["registration"], a["aircraft_type"]
+        if d:
+            sh = _j(d["shear_json"])
+            f["dep"] = {"ts": d["t_start"], "rwy": sh.get("rwy") if isinstance(sh, dict) else None,
+                        "ga": d["ga"] or 0, "edr": _edr(d["edr_json"]), "ws": _ws(d["shear_json"])}
+            reg, typ = reg or d["registration"], typ or d["aircraft_type"]
+        if not reg or not typ:
+            from collector import aircraft_db
+            r2, t2 = aircraft_db.lookup(f["icao"])
+            reg, typ = reg or r2, typ or t2
+        f["reg"], f["type"] = reg, typ
+        f["snd"] = bool(f.get("meteo_count") and f.get("max_altitude") is not None
+                        and f.get("min_altitude") is not None
+                        and f["max_altitude"] - f["min_altitude"] > 5000)
+        return f
 
     @app.route("/api/flights/<int:flight_id>")
     def flight_detail(flight_id: int):
-        """Full observation track for one historical flight."""
+        """Full observation track for one historical flight; best_temp is the
+        measured or the Mach/TAS temperature (from 2026-10-29, as the other
+        pages), with the flight's registration, type and landing / departure."""
+        from collector.atmos import TEMP_SQL
         db = get_db()
         flight = db.execute(
             "SELECT * FROM flights WHERE id = ?", (flight_id,)
@@ -821,19 +932,20 @@ def create_app(
             return jsonify({"error": "not found"}), 404
 
         obs = db.execute(
-            """SELECT ts, lat, lon, altitude, groundspeed, track, vert_rate,
+            f"""SELECT ts, lat, lon, altitude, groundspeed, track, vert_rate,
                       meteo_source, best_wind_spd, best_wind_dir,
-                      best_temp, best_pressure,
+                      {TEMP_SQL} AS best_temp, best_pressure,
                       mrar_wind_spd, mrar_wind_dir, mrar_temp, mrar_pressure,
                       mrar_turbulence, mrar_fom,
-                      wind_spd, wind_dir, wind_qual
+                      wind_spd, wind_dir, wind_qual,
+                      bds50_true_airspeed AS tas, bds60_ias AS ias, bds60_mach AS mach
                FROM observations WHERE flight_id = ?
                ORDER BY ts ASC""",
             (flight_id,),
         ).fetchall()
 
         return jsonify({
-            "flight":       dict(flight),
+            "flight":       _flight_links(db, dict(flight)),
             "observations": [dict(r) for r in obs],
         })
 

@@ -3189,3 +3189,155 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .ws-edr-cls { font-size: 10px; color: var(--text-2); }
 /* Windshear alert log — boundary layer at the time (from 2026-10-29) */
 .ws-bl-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border: 1px solid currentColor; border-radius: 6px; opacity: .8; margin-left: 2px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Flights page (flights.html / flights.js, redesigned 2026-10-29): the flight
+   list on the left, the selected flight on the right
+   ═══════════════════════════════════════════════════════════════════════════ */
+.fl-page { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+
+/* toolbar */
+.fl-bar { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; padding: 0.35rem 1rem;
+          background: var(--bg-1); border-bottom: 1px solid var(--border); min-height: 38px; }
+.fl-bar-grp { display: inline-flex; align-items: center; gap: 8px; }
+.fl-bar-lbl { color: var(--text-3); font-size: 11px; }
+.fl-search-wrap { position: relative; display: inline-flex; }
+.fl-search { width: 230px; background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1);
+             border-radius: 4px; padding: 4px 24px 4px 9px; font-size: 12px; }
+.fl-search::placeholder { color: var(--text-3); }
+.fl-search:focus { outline: none; border-color: var(--accent); }
+.fl-search-clear { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); background: none; border: 0;
+                   color: var(--text-3); font-size: 15px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.fl-seg { display: inline-flex; gap: 2px; }
+.fl-seg button, .fl-toggle, .fl-pager button, .fl-cal-btn {
+  background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 8px; font-size: 11px; font-weight: 600; line-height: 1.6; cursor: pointer; white-space: nowrap; }
+.fl-seg button:hover, .fl-toggle:hover, .fl-pager button:hover:not(:disabled) { color: var(--text-1); }
+.fl-seg button.active, .fl-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fl-kind button b { font-weight: 600; opacity: .7; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.fl-date-wrap { position: relative; display: inline-flex; gap: 2px; }
+.fl-date { width: 84px; background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1);
+           border-radius: 4px; padding: 2px 6px; font-size: 11px; font-family: monospace; }
+.fl-date::placeholder { color: var(--text-3); }
+.fl-cal-btn { padding: 2px 5px; }
+.fl-date-picker-hidden { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.fl-updated { margin-left: auto; color: var(--text-3); font-size: 11px; }
+
+/* body */
+.fl-body { flex: 1; min-height: 0; display: flex; }
+.fl-list-panel { width: clamp(600px, 40vw, 720px); flex-shrink: 0; display: flex; flex-direction: column;
+                 background: var(--bg-1); border-right: 1px solid var(--border); }
+.fl-panel-hdr { display: flex; align-items: center; gap: .75rem; padding: 0.3rem 0.75rem; min-height: 28px;
+                background: var(--bg-2); border-bottom: 1px solid var(--border); }
+.fl-panel-title { color: var(--text-2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.fl-panel-note { color: var(--text-3); font-size: 11px; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-legend { margin-left: auto; color: var(--text-3); font-size: 10px; display: inline-flex; align-items: center; gap: 5px; }
+.fl-alt-scale { display: inline-block; width: 46px; height: 5px; border-radius: 3px;
+                background: linear-gradient(90deg, #f59e0b, #84cc16 11%, #10b981 22%, #06b6d4 44%, #3b82f6 67%, #a855f7 89%); }
+.fl-list-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
+.fl-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px;
+            border-top: 1px solid var(--border); background: var(--bg-2); color: var(--text-3); font-size: 11px; }
+.fl-pager button:disabled { opacity: .4; cursor: default; }
+
+/* tables */
+.fl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fl-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-1); color: var(--text-3); font-weight: 600;
+               font-size: 11px; text-align: left; padding: 5px 5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.fl-table th.num { text-align: right; }
+.fl-table td { padding: 3px 5px; height: 26px; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); white-space: nowrap; }
+.fl-table td.dim { color: var(--text-2); }
+.fl-table .mono { font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace; font-size: 11.5px; }
+.fl-table tbody tr[data-id] { cursor: pointer; }
+.fl-table tbody tr[data-id]:hover td { background: var(--bg-3); }
+.fl-table tbody tr.sel td { background: color-mix(in srgb, var(--accent) 22%, var(--bg-1)); }
+.fl-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.fl-td-cs { font-weight: 600; color: var(--text-1); }
+.fl-day { color: var(--text-3); font-size: 10px; }
+.fl-empty { text-align: center; color: var(--text-3); font-style: italic; padding: 18px !important; }
+.fl-th-alt { min-width: 135px; }
+.fl-altwrap { display: flex; align-items: center; gap: 6px; }
+.fl-altbar { position: relative; width: 44px; height: 6px; border-radius: 3px; background: var(--bg-3); flex-shrink: 0;
+             box-shadow: inset 0 0 0 1px var(--border); }
+.fl-altbar-fill { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.fl-alttxt { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11px; color: var(--text-2); }
+.fl-alttxt i { font-style: normal; font-weight: 700; margin-right: 2px; }
+.fl-arr-dn { color: #38bdf8; }
+.fl-arr-up { color: #f59e0b; }
+.fl-ev { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 3px; line-height: 15px;
+         margin-right: 3px; border: 1px solid; font-family: 'JetBrains Mono', Consolas, monospace; }
+.fl-ev-arr { color: #38bdf8; border-color: rgba(56,189,248,.5); background: rgba(56,189,248,.1); }
+.fl-ev-dep { color: #fbbf24; border-color: rgba(251,191,36,.5); background: rgba(251,191,36,.1); }
+.fl-ev-ga  { color: #f472b6; border-color: rgba(244,114,182,.5); background: rgba(244,114,182,.1); }
+.fl-ev-ws  { color: #fff; border-color: #ef4444; background: #ef4444; }
+.fl-edr-nil { color: var(--text-3); }
+.fl-edr-lgt { color: #eab308; font-weight: 600; }
+.fl-edr-mod { color: #f97316; font-weight: 700; }
+.fl-ws-hit { color: #ef4444; }
+.fl-snd { font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--border);
+          border-radius: 3px; padding: 0 4px; line-height: 15px; display: inline-block; }
+.fl-snd:hover { border-color: var(--accent); }
+
+/* the selected flight */
+.fl-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-0); }
+.fl-head { display: flex; align-items: center; gap: 22px; padding: 7px 14px; background: var(--bg-1);
+           border-bottom: 1px solid var(--border); min-height: 52px; }
+.fl-head-id { display: flex; flex-direction: column; min-width: 120px; }
+.fl-cs { font-size: 19px; font-weight: 700; letter-spacing: .02em; color: var(--text-1);
+         font-family: 'JetBrains Mono', Consolas, monospace; line-height: 1.15; }
+.fl-sub { font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', Consolas, monospace; }
+.fl-facts { display: flex; flex-wrap: wrap; gap: 4px 22px; flex: 1; min-width: 0; }
+.fl-fact { display: flex; flex-direction: column; }
+.fl-fact-k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+.fl-fact-v { font-size: 12px; color: var(--text-1); white-space: nowrap; }
+.fl-fact-v i { font-style: normal; color: var(--text-3); }
+.fl-head-btns { display: flex; gap: 6px; }
+.fl-btn { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 4px 11px;
+          font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.fl-btn:hover { border-color: var(--accent); color: var(--accent); }
+.fl-btn[hidden] { display: none; }
+.fl-grid { flex: 1; min-height: 0; display: grid; gap: 1px; background: var(--border);
+           grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+           grid-template-rows: minmax(0, 1.12fr) minmax(0, 1fr); }
+.fl-grid > * { background: var(--bg-1); min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.fl-map-panel { position: relative; }
+#fl-map { flex: 1; min-height: 0; }
+.fl-map-ctrl { position: absolute; top: 8px; right: 8px; z-index: 500; display: flex; gap: 6px; }
+.fl-seg-sm button { padding: 1px 7px; }
+.fl-map-legend { position: absolute; left: 8px; bottom: 8px; z-index: 500; display: flex; align-items: center; gap: 10px;
+                 background: color-mix(in srgb, var(--bg-1) 88%, transparent); border: 1px solid var(--border);
+                 border-radius: 4px; padding: 4px 8px; font-size: 10px; color: var(--text-2); flex-wrap: wrap; max-width: 70%; }
+.fl-map-legend:has(.fl-lg-bar) { flex-direction: column; align-items: stretch; gap: 2px; width: 210px; }
+.fl-lg-bar { height: 6px; border-radius: 3px;
+             background: linear-gradient(90deg, #f59e0b, #84cc16 12.5%, #10b981 25%, #06b6d4 50%, #3b82f6 75%, #a855f7 100%); }
+.fl-lg-ticks { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 9px; color: var(--text-3); }
+.fl-lg-src { display: inline-flex; align-items: center; gap: 4px; }
+.fl-lg-src i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.fl-apt { display: flex; flex-direction: row-reverse; align-items: center; gap: 3px; color: var(--text-1); transform: translate(calc(-100% + 7px), -7px);
+          font: 600 10px 'JetBrains Mono', Consolas, monospace; text-shadow: 0 0 3px var(--bg-0); }
+.fl-end { display: flex; align-items: center; gap: 4px; transform: translate(-5px, -5px); white-space: nowrap;
+          font: 600 10px 'JetBrains Mono', Consolas, monospace; color: var(--text-1); text-shadow: 0 0 3px var(--bg-0), 0 0 3px var(--bg-0); }
+.fl-end b { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--text-1); background: var(--bg-0); flex-shrink: 0; }
+.fl-end-e b { background: var(--text-1); }
+.fl-tip { font-size: 11px; line-height: 1.35; }
+.fl-prof-body, .fl-ts-body { flex: 1; min-height: 0; position: relative; padding: 4px 8px 4px 4px; }
+.fl-prof-body canvas { position: absolute; inset: 4px 8px 4px 4px; }
+.fl-ts-body { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); }
+.fl-ts-cell { position: relative; min-height: 0; }
+.fl-ts-cell canvas { position: absolute; inset: 14px 0 0 0; }
+.fl-ts-lbl { position: absolute; top: 0; left: 52px; font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+.fl-ts-lbl i { font-style: normal; text-transform: none; }
+.fl-dir-key { color: #f59e0b; text-transform: none; }
+.fl-ts-none::after { content: 'No temperature — the aircraft gave no Mach / TAS replies'; position: absolute; inset: 14px 0 0 0;
+                     display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-3); font-style: italic; }
+.fl-ts-none canvas { visibility: hidden; }
+.fl-obs-scroll { flex: 1; min-height: 0; overflow: auto; }
+.fl-obs-table td { padding: 3px 6px; }
+.fl-obs-table tr.hl td { background: color-mix(in srgb, var(--accent) 22%, var(--bg-1)); }
+.fl-src { font-size: 10px; font-weight: 600; color: var(--c); }
+.fl-src::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c); margin-right: 4px; }
+
+[data-theme="light"] .fl-arr-dn, [data-theme="light"] .fl-ev-arr { color: #0369a1; }
+[data-theme="light"] .fl-arr-up, [data-theme="light"] .fl-ev-dep { color: #b45309; }
+[data-theme="light"] .fl-ev-ga { color: #be185d; }
+[data-theme="light"] .fl-edr-lgt { color: #a16207; }
+[data-theme="light"] .fl-edr-mod { color: #c2410c; }

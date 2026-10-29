@@ -923,43 +923,39 @@ The soundings come from **FMI open data** (stored query `fmi::observations::weat
 
 ### Flights  `/flights`
 
-Historical browser for all flights recorded in the database.
+Browser for all flights stored in the database (redesigned 29 Oct 2026, in the style of the other pages): the flight list on the left, the selected flight on the right. Static files `web/templates/flights.html`, `static/js/flights.js`.
 
-#### Filter bar
+#### Toolbar
 
-- **ICAO** — filter by ICAO24 address (partial match, e.g. `461F`)
-- **Callsign** — filter by callsign (partial match, e.g. `FIN`)
-- **Meteo only** — show only flights that have at least one meteo observation
-- **Search** / **Reset** buttons
-- Result count shown on the right
+- **Search** — one box for a callsign (`FIN6`), an ICAO24 address (`4601F6`) or a registration (`OH-ATI`; registrations from the stored landings and departures and the optional BaseStation.sqb); after a short pause or Enter, Esc clears
+- **Period** — 1h · 6h · **24h** (default) · 7d · All, or one UTC day typed as dd.mm.yyyy or picked from the calendar
+- **Show** — All · Landings · Departures · Soundings, each with its count in the period: *Landings* are the flights with a landing in the Approach History, *Departures* those with a recorded climb-out, *Soundings* the climbs and descents of over 5 000 ft with meteo data (the per-flight Skew-T)
+- The period, the Show choice and the map options are remembered in the browser
 
-#### Flights table
+#### Flight list (left)
 
 | Column | Description |
 |--------|-------------|
-| ICAO | ICAO24 hex address |
-| Callsign | Flight callsign if decoded |
-| First seen (UTC) | Time the flight was first contacted |
-| Last seen (UTC) | Time of last contact |
-| Max alt | Highest altitude observed (ft) |
-| Min alt | Lowest altitude observed (ft) |
-| Obs | Total number of raw observations stored |
-| Meteo obs | Number of observations with meteo data (highlighted if > 0) |
-| Sounding | 🌡 Sounding button appears if the flight has meteo data AND an altitude range > 5 000 ft (suitable for a vertical profile) |
+| UTC | Last seen (the date as well when not today) |
+| Callsign | Callsign, or the ICAO24 address when none was decoded |
+| Reg · Type | Registration and ICAO type: of the landing / departure record, else from the optional BaseStation.sqb |
+| Altitude | The flight's altitude range as a bar on a 0 – FL450 scale (coloured by altitude), ↓ landed / ↑ departed, lowest – highest (ft below 10 000 ft, FL above) |
+| Event | **ARR 22L** landing / **DEP 22R** departure and the runway; **GA** go-around; **WS** a windshear report |
+| EDR | Turbulence (EDR) of the landing or climb-out: light from 0.10, moderate from 0.20 |
+| Obs | Stored observations with meteo data |
+| Skew-T | Opens the Sounding page with this flight's climb or descent |
 
-Flights are sorted newest first. Pagination at the bottom, 50 flights per page (buttons for the first 20 pages; use the filters to reach older flights).
+Newest first, 50 a page (*‹ Newer* / *Older ›*). Click a row to show the flight; ↑ / ↓ step through the list. On the first page of a period the list follows the newest flights every minute. A link `/flights?id=N` (the **Link** button) opens a given flight.
 
-#### Flight detail modal
+#### The selected flight (right)
 
-Clicking a flight row opens a modal showing:
+- **Header** — callsign, registration · type · ICAO24, the time seen and duration, the altitude range, the number of observations, and the **landing** (runway, time, go-arounds, approach conditions ACI, EDR, windshear report) or the **departure** (runway, time, EDR, windshear report); buttons **Skew-T** and **Link**
+- **Map** — the track coloured by **Altitude** (amber near the ground → green → cyan → blue → violet at FL400) or by meteo **Source**; dashed where the stored rows are more than 2 min apart (in `METEO_ONLY` mode only the rows with meteo are stored); wind **Barbs** along the track (at least 34 px apart, redrawn on zoom); start and end with time and altitude; the airport
+- **Vertical profile** — wind speed (green, bottom axis) and temperature (red, top axis) of each observation against altitude, with the mean wind per band (1 000 ft below FL100, 2 000 ft above) as barbs at the right edge
+- **Along the flight** — altitude, wind speed and direction (orange, right axis), and temperature against time; hovering marks the point on the map (ring) and in the table
+- **Observations** — the rows with wind or temperature: UTC, altitude, vertical rate, source, wind, temperature; hovering a row marks it on the map and the charts
 
-- **Flight track map** — the aircraft's recorded path, with meteo observation points colour-coded by source (blue = MRAR, green = COMPUTED, amber = MHR and JSON)
-- **Four time-series charts** — altitude, temperature, wind speed, wind direction over the flight duration
-- **Observation table** — the meteo observations of the flight (the last 200) with UTC time, altitude, ground speed, source badge, wind, temperature, and pressure
-
-#### Sounding link
-
-The 🌡 **Sounding** button (visible on flights with sufficient altitude range) opens the Sounding page pre-loaded with that flight's vertical profile.
+The temperature is the measured (MRAR) or the Mach / TAS temperature, as on the other pages (until 29 Oct 2026 the flight view showed only the measured one, which most aircraft do not report). An aircraft that gave no Mach replies (e.g. most ATRs) has no temperature.
 
 ---
 
@@ -969,7 +965,7 @@ Skew-T style atmospheric soundings with the Mach/TAS temperature (see [Air tempe
 
 - **Area · now** (default) — all aircraft within `SOUNDING_RADIUS_KM` (150 km) of the receiver over the last 30 min, 60 min (default, `SOUNDING_WINDOW_MIN`), 2 h or 3 h
 - **Area · hour** — the **hourly profile archive** (`profile_hours`): one stored profile per completed UTC hour, kept indefinitely — also after the observations themselves have been purged. Pick a date and hour; the hour list shows the observations used
-- **Flight** — profile of a single flight: select a flight from the dropdown (flights with meteo data and an altitude range > 5 000 ft, most recent first), then **Load Sounding**. The flight info banner shows callsign, ICAO24, time range, altitude range and observation count. The Flights page's 🌡 Sounding button opens this page with the flight pre-selected
+- **Flight** — profile of a single flight: select a flight from the dropdown (flights with meteo data and an altitude range > 5 000 ft, most recent first), then **Load Sounding**. The flight info banner shows callsign, ICAO24, time range, altitude range and observation count. The Flights page's **Skew-T** button opens this page with the flight pre-selected
 
 Three more buttons replace the diagram: **Time–height** shows the hourly profiles side by side as a time–height section (see [Time–height section](#timeheight-section) below), **Sonde check** the automatic verification against the radiosonde (see [Sonde check](#sonde-check) below) and **MEPS check** the hourly comparison with the MEPS model (see [MEPS check](#meps-check) below).
 
@@ -2293,7 +2289,7 @@ mode_s_wind/
 │       ├── _moved_notice.html # "MODE-S Wind has moved" notice of an old server (SITE_MOVED_URL), pages and /app
 │       ├── shared_ended.html  # Page shown to the shared test login after its end date
 │       ├── live.html          # Live map page
-│       ├── flights.html       # Flights browser page
+│       ├── flights.html       # Flights page: flight list + the selected flight
 │       ├── sounding.html      # Skew-T sounding page
 │       ├── windmap.html       # Gridded wind map page
 │       ├── weather.html       # Weather page (MEPS surface maps)
@@ -2313,6 +2309,7 @@ mode_s_wind/
 │       ├── skewt_analysis.js  # Skew-T analysis: tropopause, isotherms, wind max, inversions, stability, shear / Ri
 │       ├── skewt_chart.js     # Skew-T diagram (createSkewT), shared by the Live Map and the Sounding page
 │       ├── skewt_indices.js   # Stability indices and levels for the Sounding page's Indices panel
+│       ├── flights.js         # Flights page: list, search, map, vertical profile, time series (from 29 Oct 2026)
 │       ├── sounding.js        # Sounding page: sources, data table, diagram controls
 │       ├── timeheight.js      # Sounding page: time–height section of the hourly profiles
 │       ├── windmap.js         # Wind map barb rendering + controls
@@ -2397,8 +2394,8 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/api/live/stream` | Server-Sent Events stream (3-second updates) |
 | GET | `/api/live/aircraft/<icao>` | Last 30 minutes of observations for one aircraft |
 | GET | `/api/aircraft/<icao>/wind_history` | Full wind+temp history for the aircraft's current flight (used to pre-seed the live map atmosphere profile and aircraft track polyline); response includes `lat` and `lon` fields for each observation |
-| GET | `/api/flights` | Paginated flight list (params: `page`, `per`, `icao`, `callsign`, `meteo`) |
-| GET | `/api/flights/<id>` | Full observation track for one historical flight |
+| GET | `/api/flights` | Paginated flight list (params: `page`, `per`, `q` callsign / ICAO24 / registration, `hours` or `date`, `kind` all · meteo · arr · dep · snd; old `icao`, `callsign`, `meteo=1` still work) with the counts per kind, the registration / type and the landing or departure of each flight |
+| GET | `/api/flights/<id>` | Full observation track for one historical flight (measured or Mach / TAS temperature), with its registration / type and landing or departure |
 | GET | `/api/flights/<id>/sounding` | Per-flight Skew-T sounding profile |
 | GET | `/api/flights/suitable_soundings` | Flights eligible for per-flight sounding |
 | GET | `/api/sounding` | Area sounding of all aircraft within `SOUNDING_RADIUS_KM` over the last `?minutes=` (10–360, default `SOUNDING_WINDOW_MIN`): altitude layers with trimmed-mean Mach/TAS temperature (10–90 % range, count), vector-mean wind (SD, count) and `ac_count` (distinct aircraft per layer); `aircraft` = distinct aircraft in the window; `?moist=1` adds `moisture` = the trial moisture indicator of the hour in progress (`hour`, `rows` = [[lo ft, hi ft, index %, ± % total, flights, Tv − T after the offsets K, raw K, ± % from the flights], …], `window_h`, `offsets_n` soundings, `offsets_meps_h` model hours, `offsets_src` `meps` / `meps+sondes` / `sondes` / `none`, `uncertain_pct`); `tcorr` = the upper-level temperature correction applied (`src`, `ts`, `days`, `corr` {hPa: K}, `n` {hPa: hours}; absent when off or never learnt) — the corrected levels carry `temp_corr` (K added) and `temp_uncorr` (raw Mach/TAS °C) |

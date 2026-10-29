@@ -155,6 +155,25 @@ def lookup(icao: str) -> tuple[str | None, str | None]:
         return reg, typ
 
 
+def icaos_for_reg(text: str, limit: int = 20) -> list[str]:
+    """ICAO24 addresses whose registration contains text (the Flights page
+    search, from 2026-10-29); [] without a BaseStation.sqb."""
+    text = (text or "").strip().upper()
+    if len(text) < 3:
+        return []
+    with _lock:
+        _reopen_locked()
+        if _conn is None:
+            return []
+        try:
+            rows = _conn.execute(
+                "SELECT ModeS FROM Aircraft WHERE Registration LIKE ? LIMIT ?",
+                (f"%{text}%", limit)).fetchall()
+        except sqlite3.Error:
+            return []
+    return [r[0].upper() for r in rows if r[0]]
+
+
 def status() -> dict:
     """Status for the system health (Statistics page) and diagnostics:
     path, exists (the file is there now), open (in use), aircraft (rows when
