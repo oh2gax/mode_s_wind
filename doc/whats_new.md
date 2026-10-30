@@ -3,8 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines
+## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Clearer charts on the Windshear page** — the buttons under the chart now show less at a time: **ACI** the approach conditions with the turbulence (EDR) below them, so the two can be compared; **WS** the windshear alone; **EDR** the turbulence above the windshear.
+- **WS + EDR chart on the phone** — the ILS approach view now shows by default a chart of the turbulence and the windshear of every landing and departure under the profile or the map (*Chart under the view*: WS + EDR, WS + ACI or Off), for 3, 6 or 12 hours (*Chart range*).
 - **Thinner turbulence lines on the phone's approach map** — the turbulence (EDR) colours no longer cover the aircraft and their labels, and the departures' turbulence is drawn only when *Departures on the map* is *Shown*.
 - **Departures on the phone's approach map** — with *Departures: Shown* the ILS approach map now shows every climb-out within 15 NM, with its runway (`22R↑`); before, almost none appeared. *All tracked (15 NM)* likewise shows all traffic in the area, also aircraft that are climbing.
 

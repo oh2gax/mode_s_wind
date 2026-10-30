@@ -55,8 +55,8 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.10
-date: 2026-10-29
+version: 2.11
+date: 2026-10-30
 pages: 24
 open: windshear
 
@@ -66,9 +66,9 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile; a windshear alert needs a real change of 14 kt, as at Hong Kong), ramp alerts **confirmed** or **isolated** by the nearby landings, how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The **alert message** in the controllers' short form (e.g. `15A WSA 15K+ 2MF` — runway one five arrival, windshear alert, 15-kt gain, two-mile final), marked as research
-- The page: banner, flight-strip badges, the map in ATC style (labels with A023 / FL061 and speed vectors), ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view with **landings and departures**, ACI, the **ACI + windshear** view on one time axis and the **space–time diagram (ST)**, wind rose
+- The page: banner, flight-strip badges, the map in ATC style (labels with A023 / FL061 and speed vectors), ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view with **landings and departures**, the chart views **ACI + EDR**, **WS** and **EDR + WS** on one time axis and the **space–time diagram (ST)**, wind rose
 - **The boundary layer** (research): the low-level jet and the surface inversion hour by hour, the **BL** view, and the **LLJ / INV** tag of the windshear alerts and reports
-- **Turbulence (EDR)** (research): the ICAO turbulence measure of every landing and departure from the aircraft's own replies (departures up to 5 000 ft), the **ACI + EDR + WS** view and the Approach History **EDR** view with its filter
+- **Turbulence (EDR)** (research): the ICAO turbulence measure of every landing and departure from the aircraft's own replies (departures up to 5 000 ft), the **EDR + WS** and **ACI + EDR** views and the Approach History **EDR** view with its filter
 - **METAR and pilot reports**: the METAR windshear groups (`WS R22L`) and the pilot reports (ARS, WXREP) near the airport on the ACI + windshear view, and the Approach History's **Reports** list with the archive of windshear METARs
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October, turbulence on 26 October), first results and the limitations
 
@@ -88,7 +88,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.21
+version: 1.22
 date: 2026-10-30
 pages: 24
 
@@ -97,7 +97,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, and the optional **WS + ACI chart**), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
+- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

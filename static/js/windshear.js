@@ -2310,15 +2310,16 @@ function sizeWindroseCanvas() {
   if (!canvas) return;
   let w = WR_ROSE_SIZE;
   let h = WR_ROSE_SIZE;
-  if (wrView === 'ws' || wrView === 'st' || wrView === 'edr' || wrView === 'bl') {
+  if (wrView === 'cond' || wrView === 'ws' || wrView === 'st' || wrView === 'edr' || wrView === 'bl') {
     // room between the panel and the map's bottom edge (map attribution: 22 px)
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
       const rest = panel.offsetHeight - canvas.height;          // buttons + readout + padding
       // EDR view (three strips, from 2026-10-29): down to the map's bottom edge (over the attribution), up to +320 px
-      const edrV = wrView === 'edr' || wrView === 'bl';
+      // two-part views ACI + EDR and EDR + WS (from 2026-10-30): up to +200 px
+      const edrV = wrView === 'edr' || wrView === 'bl' || wrView === 'cond';
       const room = box.clientHeight - panel.offsetTop - rest - (edrV ? 4 : 22);
-      h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + (edrV ? 320 : WR_WS_EXTRA), Math.floor(room)));
+      h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + (wrView === 'bl' ? 320 : edrV ? 200 : WR_WS_EXTRA), Math.floor(room)));
     }
   }
   if (Math.abs(canvas.height - h) > 4 || h === WR_ROSE_SIZE) { if (canvas.height !== h) canvas.height = h; }
@@ -2350,7 +2351,8 @@ async function fetchCondData() {
     const win = wrCondHours * 3600;
     const [r, rd, rw] = await Promise.all([
       fetch(`/api/windshear/approach-history?window=${win}`),
-      wrView === 'ws' || wrView === 'edr' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
+      // departures: the WS strip and the EDR rings (the ACI view has EDR from 2026-10-30)
+      wrView === 'ws' || wrView === 'edr' || wrView === 'cond' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
       wrView === 'ws' || wrView === 'edr' ? fetch(`/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null)]);
     if (!r.ok) return;
     const rows = await r.json();
@@ -2379,6 +2381,8 @@ async function fetchSpaceTime() {
   } catch (_) { /* silent */ }
 }
 
+// The parts of the chart views (from 2026-10-30): ACI = ACI + EDR, WS = windshear only, EDR = EDR + windshear
+const WR_PARTS = { cond: ['aci', 'edr'], ws: ['ws'], edr: ['edr', 'ws'] };
 function drawCondChart() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
@@ -2395,7 +2399,8 @@ function drawCondChart() {
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
     aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
     met: wrWxRep ? wrWxRep.metars : [], rep: wrWxRep ? wrWxRep.reports : [],
-    hours: wrCondHours, withWs: wrView === 'ws' || wrView === 'edr', withEdr: wrView === 'edr', fetchedMs: wrCondFetchedMs });
+    // the views (from 2026-10-30): ACI = ACI + EDR, WS = windshear only, EDR = EDR + windshear
+    hours: wrCondHours, parts: WR_PARTS[wrView] || ['aci'], fetchedMs: wrCondFetchedMs });
 }
 
 function _syncWrViewBtns() {

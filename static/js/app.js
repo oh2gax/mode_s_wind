@@ -869,8 +869,10 @@
               ac: [], ev: [], sel: null, manual: false, dots: [], fetched: 0,
               // Show: profile / map / both, aircraft on the map: app / all (from 2026-10-28)
               show: lsGet('ms_app_ils_show', 'both'), mapac: lsGet('ms_app_ils_mapac', 'app'),
-              // WS + ACI chart under the profile / map: off / 3 / 6 h (from 2026-10-29)
-              wsaci: lsGet('ms_app_ils_wsaci', 'off'),
+              // the chart under the profile / map: off / WS + ACI / WS + EDR (default, from
+              // 2026-10-30) and its range 3 / 6 / 12 h (the old WS + ACI setting gives the range)
+              wschart: lsGet('ms_app_ils_wschart', 'edr'),
+              wsh: lsGet('ms_app_ils_wsh', ['3', '6'].includes(lsGet('ms_app_ils_wsaci', '')) ? lsGet('ms_app_ils_wsaci', '') : '3'),
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
               vec: lsGet('ms_app_ils_vec', 'off'),
               // departures on the map: hide (default) / show (from 2026-10-29)
@@ -882,21 +884,22 @@
   if (!['adv', 'wsa', 'mba', 'off'].includes(I.lvl)) I.lvl = 'wsa';
   if (!['profile', 'map', 'both'].includes(I.show)) I.show = 'both';
   if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
-  if (!['off', '3', '6'].includes(I.wsaci)) I.wsaci = 'off';
+  if (!['off', 'aci', 'edr'].includes(I.wschart)) I.wschart = 'edr';
+  if (!['3', '6', '12'].includes(I.wsh)) I.wsh = '3';
   if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
   if (!['hide', 'show'].includes(I.deps)) I.deps = 'hide';
   if (!['off', '30', '60'].includes(I.edrmap)) I.edrmap = 'off';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
-                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wsaci', 'wsaci', 'ms_app_ils_wsaci'],
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
                   ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
       if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
-      if (key === 'wsaci') { IW.at = 0; loadIlsWs(); }
+      if (key === 'wschart' || key === 'wsh') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
     });
   }
@@ -1137,15 +1140,16 @@
                 `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
-  // ── WS + ACI chart under the profile or the map (from 2026-10-29) ────────
-  // The ACI + windshear chart of the ACI · WS · ST view (ws_cond_chart.js)
-  // for the last 3 or 6 h, off by default; its landings and departures are
-  // fetched at most once a minute while the ILS view is open.
+  // ── Chart under the profile or the map (from 2026-10-29) ─────────────────
+  // The chart of the ACI · WS · ST view (ws_cond_chart.js): from 2026-10-30
+  // WS + EDR (turbulence over windshear, the default — on) or WS + ACI, for the
+  // last 3, 6 or 12 h; its landings and departures are fetched at most once a
+  // minute while the ILS view is open.
   const IW = { aph: [], dep: [], wx: null, fetched: 0, at: 0, hours: 3, dots: [] };
   async function loadIlsWs() {
-    if (I.wsaci === 'off' || Date.now() - IW.at < 60000) return;
+    if (I.wschart === 'off' || Date.now() - IW.at < 60000) return;
     IW.at = Date.now();
-    const hours = parseInt(I.wsaci, 10) || 3, win = hours * 3600;
+    const hours = parseInt(I.wsh, 10) || 3, win = hours * 3600;
     try {
       const [aph, dep, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
@@ -1158,7 +1162,7 @@
   }
   function drawIlsWs(W) {
     const box = $('app-ils-ws');
-    box.hidden = I.wsaci === 'off';
+    box.hidden = I.wschart === 'off';
     if (box.hidden || !IW.fetched) return;
     const cv = $('app-ils-wscv'), H = Math.round(Math.max(200, W * 0.62)), dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
@@ -1166,10 +1170,11 @@
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const ro = document.createElement('div');                       // the chart's own read-out, shortened below
-    IW.dots = WsCondChart.draw(ctx, W, H, ro, { aph: IW.aph, dep: IW.dep, ga: [], hours: IW.hours, withWs: true, fetchedMs: IW.fetched,
+    IW.dots = WsCondChart.draw(ctx, W, H, ro, { aph: IW.aph, dep: IW.dep, ga: [], hours: IW.hours, fetchedMs: IW.fetched,
+      parts: I.wschart === 'aci' ? ['aci', 'ws'] : ['edr', 'ws'],
       met: IW.wx ? IW.wx.metars : [], rep: IW.wx ? IW.wx.reports : [] });
     const parts = ro.innerHTML.split('<br>').map(t => t.trim());                 // its own lines (ws_cond_chart.js)
-    $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last')), parts.find(t => t.startsWith('WS ')),
+    $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last') || t.startsWith('EDR')), parts.find(t => t.startsWith('WS ')),
       parts.find(t => t.startsWith('<span style='))].filter(Boolean).join(' · ');   // + METAR WS / pilot reports
   }
   $('app-ils-wscv').addEventListener('pointerdown', e => {
@@ -1268,7 +1273,7 @@
       I.fetched = Date.now();
       autoSel();
       drawIls();
-      if (I.wsaci !== 'off') loadIlsWs();
+      if (I.wschart !== 'off') loadIlsWs();
       if (I.edrmap !== 'off') loadEdrTracks();
       loadBlNow();
     } catch (_) { $('app-sub').textContent = 'Could not load the approach traffic.'; }

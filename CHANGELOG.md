@@ -7,7 +7,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS)
+
+### Windshear page chart views: ACI = ACI + EDR, WS = windshear, EDR = EDR + windshear
+- The three-part EDR view (ACI + EDR + windshear) was too full to read. On the Wind Rose panel now **ACI** shows the ACI chart with the turbulence (EDR) strip below it (to compare the two; departures fetched for their EDR rings), **WS** the windshear strip alone (full height) and **EDR** the EDR strip above the windshear strip; the ACI and EDR views up to 200 px taller where the map has room. `WsCondChart.draw` takes `parts` (any of `aci`, `edr`, `ws`, top to bottom; without it as before, so the mobile *ACI · WS · ST* view is unchanged): layouts, title, read-outs per combination, a *No turbulence values* note. `static/js/ws_cond_chart.js`, `static/js/windshear.js` (`WR_PARTS`, sizing, fetch), `web/templates/windshear.html` (button hovers). Windshear user guide 2.11 (text and the four panel figures, now drawn at the flights' own time).
+
+### Mobile ILS view: WS + EDR chart, on by default, 3 / 6 / 12 h
+- The chart under the ILS profile / map is now chosen with *Chart under the view* **WS + EDR** (default — on) / *WS + ACI* / *Off* and *Chart range* **3 h** / 6 h / 12 h (new keys `ms_app_ils_wschart`, `ms_app_ils_wsh`; before *WS + ACI chart* Off / 3 h / 6 h, off by default). WS + EDR is the turbulence of every landing and departure above their windshear; the line under it starts with the EDR summary. `static/js/app.js`, `web/templates/app.html`. Mobile user guide 1.22.
 
 ### Mobile ILS approach map: thinner turbulence lines, departures only when shown
 - *Turbulence on the map (EDR, research)*: the coloured pieces are drawn thinner (2.5 px on a 4-px halo at 60 %; were 5 px on an 8-px halo at 90 %), so they no longer cover the aircraft squares and labels; the departures' pieces only with *Departures on the map: Shown* (also in the summary line: *N landings* alone otherwise). `static/js/app.js` (`drawIlsMap`). Mobile user guide 1.21 (text and figure).

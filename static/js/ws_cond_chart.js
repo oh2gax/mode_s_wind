@@ -13,6 +13,8 @@
  *     hours,      // range 3 / 6 / 12 / 24
  *     withWs,     // false: ACI only; true: ACI + the windshear strip
  *     withEdr,    // with withWs: ACI + turbulence (EDR) + windshear, three strips (from 2026-10-29)
+ *     parts,      // or (from 2026-10-30) the parts top to bottom, any of 'aci', 'edr', 'ws'
+ *                 // (e.g. ['aci', 'edr'], ['edr', 'ws'], ['ws']) — overrides withWs / withEdr
  *     selMs,      // optional: the tapped flight's time — a line through all the strips
  *     fetchedMs,  // when the data arrived (0 = still loading)
  *     nowMs });   // optional, default Date.now()
@@ -110,17 +112,34 @@ const WsCondChart = (() => {
     const wrHistDots = [];
     const light = document.documentElement.dataset.theme === 'light';
     const CLS_COL = light ? COND_CLASS_COLORS_LIGHT : COND_CLASS_COLORS_DARK;
-    const withWs = !!d.withWs;
-    const withEdr = !!d.withEdr && withWs;          // ACI + EDR + WS (from 2026-10-29)
+    // The parts, top to bottom (from 2026-10-30 any of them: d.parts, e.g. ['aci', 'edr']
+    // or ['edr', 'ws'] or ['ws']); without d.parts as before: ACI, + EDR (withEdr),
+    // + windshear (withWs)
+    const P = Array.isArray(d.parts) && d.parts.length
+      ? ['aci', 'edr', 'ws'].filter(x => d.parts.includes(x))
+      : ['aci'].concat(d.withWs && d.withEdr ? ['edr'] : []).concat(d.withWs ? ['ws'] : []);
+    const hasAci = P.includes('aci'), withEdr = P.includes('edr'), withWs = P.includes('ws');
     const nowMs = d.nowMs || Date.now();
     const spanMs = wrCondHours * 3_600_000;
     const t0 = nowMs - spanMs;
     const L = 24, R = 8, T = 22, B = 18;          // plot margins
-    const GAP = 6;                                // between the ACI and the WS part
+    const GAP = 6;                                // between the parts
     const PW = W - L - R;
-    const PH = withEdr ? Math.round((H - T - B - 2 * GAP) * 0.31) : withWs ? Math.round((H - T - B - GAP) * 0.56) : H - T - B;   // ACI part
-    const ET = T + PH + GAP, EH = withEdr ? Math.round((H - T - B - 2 * GAP) * 0.33) : 0;   // EDR strip
-    const WT = withEdr ? ET + EH + GAP : T + PH + GAP, WH = H - B - WT;     // WS strip
+    // heights: the shares of each combination (the ACI + WS and the three-part
+    // views as before 2026-10-30)
+    const SHARE = { 'aci+ws': [0.56, 0.44], 'aci+edr+ws': [0.31, 0.33, 0.36], 'aci+edr': [0.55, 0.45], 'edr+ws': [0.48, 0.52] };
+    const sh = SHARE[P.join('+')] || P.map(() => 1 / P.length);
+    const avail = H - T - B - GAP * (P.length - 1);
+    const box = {};
+    let top = T;
+    P.forEach((k, i) => {
+      const h = i === P.length - 1 ? H - B - top : Math.round(avail * sh[i]);
+      box[k] = { y: top, h };
+      top += h + GAP;
+    });
+    const PH = hasAci ? box.aci.h : 0;                                        // ACI part
+    const ET = withEdr ? box.edr.y : 0, EH = withEdr ? box.edr.h : 0;         // EDR strip
+    const WT = withWs ? box.ws.y : 0, WH = withWs ? box.ws.h : 0;             // WS strip
     const xOf = ms  => L + (ms - t0) / spanMs * PW;
     const yOf = idx => T + PH - Math.max(0, Math.min(10, idx)) / 10 * PH;
     const grey = light ? '#94a3b8' : '#64748b';
@@ -130,34 +149,32 @@ const WsCondChart = (() => {
     ctx.fillRect(0, 0, W, H);
 
     // Level bands (0–2 smooth … 8–10 very rough)
-    for (let l = 0; l < 5; l++) {
-      ctx.globalAlpha = light ? 0.13 : 0.09;
-      ctx.fillStyle = COND_LVL_COLORS[l];
-      ctx.fillRect(L, yOf((l + 1) * 2), PW, yOf(l * 2) - yOf((l + 1) * 2));
+    if (hasAci) {
+      for (let l = 0; l < 5; l++) {
+        ctx.globalAlpha = light ? 0.13 : 0.09;
+        ctx.fillStyle = COND_LVL_COLORS[l];
+        ctx.fillRect(L, yOf((l + 1) * 2), PW, yOf(l * 2) - yOf((l + 1) * 2));
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
     // Axes, y labels, hourly x ticks (labels under the lowest part)
     ctx.strokeStyle = CT.roseRing;
     ctx.lineWidth = 1;
-    ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
-    if (withWs) ctx.strokeRect(L + 0.5, WT + 0.5, PW, WH);
-    if (withEdr) ctx.strokeRect(L + 0.5, ET + 0.5, PW, EH);
+    for (const k of P) ctx.strokeRect(L + 0.5, box[k].y + 0.5, PW, box[k].h);
     ctx.font = '9px "Courier New",monospace';
     ctx.fillStyle = CT.roseLabel;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let v = 0; v <= 10; v += withWs ? 5 : 2) ctx.fillText(String(v), L - 4, yOf(v));
+    if (hasAci) for (let v = 0; v <= 10; v += P.length > 1 ? 5 : 2) ctx.fillText(String(v), L - 4, yOf(v));
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const tickH   = wrCondHours <= 6 ? 1 : wrCondHours <= 12 ? 2 : 3;   // hours between x labels
     const tickMs  = tickH * 3_600_000;
     const firstHour = Math.ceil(t0 / tickMs) * tickMs;
-    const yBottom = withWs ? WT + WH : T + PH;
+    const yBottom = H - B;
     for (let h = firstHour; h <= nowMs; h += tickMs) {
       const x = xOf(h);
       ctx.strokeStyle = CT.roseOuter;
-      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + PH); ctx.stroke();
-      if (withWs) { ctx.beginPath(); ctx.moveTo(x, WT); ctx.lineTo(x, WT + WH); ctx.stroke(); }
-      if (withEdr) { ctx.beginPath(); ctx.moveTo(x, ET); ctx.lineTo(x, ET + EH); ctx.stroke(); }
+      for (const k of P) { ctx.beginPath(); ctx.moveTo(x, box[k].y); ctx.lineTo(x, box[k].y + box[k].h); ctx.stroke(); }
       ctx.fillText(String(new Date(h).getUTCHours()).padStart(2, '0') + 'Z', x, yBottom + 4);
     }
 
@@ -165,7 +182,9 @@ const WsCondChart = (() => {
     ctx.font = '10px "Courier New",monospace';
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';  ctx.fillStyle = CT.roseLabel;
-    ctx.fillText(withEdr ? 'Approach conditions + turbulence (EDR) + windshear' : withWs ? 'Approach conditions + windshear' : 'Approach conditions', 5, 5);
+    const TNAME = { aci: 'approach conditions', edr: 'turbulence (EDR)', ws: 'windshear' };
+    const title = P.map(k => TNAME[k]).join(' + ');
+    ctx.fillText(title.charAt(0).toUpperCase() + title.slice(1), 5, 5);
     ctx.textAlign = 'right';
     ctx.fillText(wrRangeLabel(wrCondHours), W - 5, 5);
 
@@ -174,50 +193,61 @@ const WsCondChart = (() => {
       .map(e => ({ ms: e.ts * 1000, idx: e.cond.idx, e }))
       .sort((a, b) => a.ms - b.ms);
 
-    // Running median (±30 min window, ≥ 3 landings), every 5 min
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    let pen = false;
-    for (let t = t0; t <= nowMs; t += 300_000) {
-      const win = pts.filter(p => Math.abs(p.ms - t) <= 1_800_000).map(p => p.idx);
-      if (win.length < 3) { pen = false; continue; }
-      const m = _median(win);
-      if (!pen) { ctx.moveTo(xOf(t), yOf(m)); pen = true; } else ctx.lineTo(xOf(t), yOf(m));
-    }
-    ctx.stroke();
-
-    // Landing dots (hover tooltip reuses the Hist dot tooltip); ring = windshear ADV+
-    for (const p of pts) {
-      const x = xOf(p.ms), y = yOf(p.idx);
-      const col = CLS_COL[p.e.cond.cls] || CLS_COL['?'];
-      const lv = _wsStrongLv(p.e.shear);
-      if (lv) {
-        ctx.beginPath();
-        ctx.arc(x, y, 5.5, 0, Math.PI * 2);
-        ctx.strokeStyle = WS_LV_COLOR[lv];
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+    if (hasAci) {
+      // Running median (±30 min window, ≥ 3 landings), every 5 min
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = col;
-      ctx.fill();
-      const lbl = `${p.e.time_utc} ${p.e.callsign || p.e.icao} ${p.e.aircraft_type || ''} ` +
-                  `${p.e.runway || ''}: ${p.idx.toFixed(1)} ${p.e.cond.lbl}` +
-                  (withWs || lv ? `\nWindshear: ${_wsShortTxt(p.e.shear)}` : '');
-      wrHistDots.push({ x, y, dotR: 3, label: lbl, color: col });
-    }
-    if (!pts.length) {
-      ctx.fillStyle = CT.noTraffic;
-      ctx.font = '10px "Courier New",monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(wrCondFetchedMs ? 'No scored landings yet' : 'Loading…', L + PW / 2, T + PH / 2);
+      let pen = false;
+      for (let t = t0; t <= nowMs; t += 300_000) {
+        const win = pts.filter(p => Math.abs(p.ms - t) <= 1_800_000).map(p => p.idx);
+        if (win.length < 3) { pen = false; continue; }
+        const m = _median(win);
+        if (!pen) { ctx.moveTo(xOf(t), yOf(m)); pen = true; } else ctx.lineTo(xOf(t), yOf(m));
+      }
+      ctx.stroke();
+
+      // Landing dots (hover tooltip reuses the Hist dot tooltip); ring = windshear ADV+
+      for (const p of pts) {
+        const x = xOf(p.ms), y = yOf(p.idx);
+        const col = CLS_COL[p.e.cond.cls] || CLS_COL['?'];
+        const lv = _wsStrongLv(p.e.shear);
+        if (lv) {
+          ctx.beginPath();
+          ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+          ctx.strokeStyle = WS_LV_COLOR[lv];
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+        const lbl = `${p.e.time_utc} ${p.e.callsign || p.e.icao} ${p.e.aircraft_type || ''} ` +
+                    `${p.e.runway || ''}: ${p.idx.toFixed(1)} ${p.e.cond.lbl}` +
+                    (withWs || lv ? `\nWindshear: ${_wsShortTxt(p.e.shear)}` : '') +
+                    (withEdr && p.e.edr && p.e.edr.m != null ? `\nEDR ${p.e.edr.m.toFixed(2)} (${EDR_NAME[edrCls(p.e.edr.m)]})` : '');
+        wrHistDots.push({ x, y, dotR: 3, label: lbl, color: col });
+      }
+      if (!pts.length) {
+        ctx.fillStyle = CT.noTraffic;
+        ctx.font = '10px "Courier New",monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(wrCondFetchedMs ? 'No scored landings yet' : 'Loading…', L + PW / 2, T + PH / 2);
+      }
     }
 
-    // ── Windshear strip (ACI + WS view) ─────────────────────────────────────────
+    // ── EDR and windshear strips ─────────────────────────────────────────────
     let edrSum = null;
-    if (withEdr) edrSum = _drawEdrStrip(ctx, { L, PW, ET, EH, t0, nowMs, xOf, CT, light, CLS_COL, wrAphEntries, wrDepEntries, wrHistDots, sel: d.selMs });
+    if (withEdr) {
+      edrSum = _drawEdrStrip(ctx, { L, PW, ET, EH, t0, nowMs, xOf, CT, light, CLS_COL, wrAphEntries, wrDepEntries, wrHistDots, sel: d.selMs });
+      if (!edrSum) {
+        ctx.fillStyle = CT.noTraffic;
+        ctx.font = '10px "Courier New",monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(wrCondFetchedMs ? 'No turbulence values in the range' : 'Loading…', L + PW / 2, ET + EH / 2);
+      }
+    }
     if (d.selMs) {                                     // the tapped flight, through all the strips
       const x = xOf(d.selMs);
       ctx.save(); ctx.strokeStyle = light ? '#0f172a' : '#ffffff'; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.2;
@@ -257,12 +287,22 @@ const WsCondChart = (() => {
         `<br><span class="ws-cond-legend">│ ramp (1 km) · ◆ band landing · ◇ band departure · ▲ go-around · ` +
         `<span style="color:${MET_WS_COL(light)}">▬ METAR WS</span> · <span style="color:${REP_COL(light)}">P pilot report</span></span>`;
     }
-    if (edrSum) {                     // a compact read-out in the three-strip view (more room for the chart)
+    const edrLine = withEdr ? (edrSum ? edrSum.line : '<br>EDR: no turbulence values in the range') : '';
+    const key = P.join('+');
+    if (key === 'aci+edr+ws') {        // a compact read-out in the three-strip view (more room for the chart)
       const ws = line3.split('<br>').filter(Boolean)[0] || '';
-      readout.innerHTML = `${line1} · ${line2}${edrSum.line}<br>${ws}<br><span class="ws-cond-legend">● landing ○ departure · ◆◇ band change · │ ramp</span>`;
-      return wrHistDots;
+      readout.innerHTML = `${line1} · ${line2}${edrLine}<br>${ws}<br><span class="ws-cond-legend">● landing ○ departure · ◆◇ band change · │ ramp</span>`;
+    } else if (key === 'aci+edr') {    // ACI + EDR (the ACI view from 2026-10-30)
+      readout.innerHTML = `${line1} · ${line2}${edrLine}<br><span class="ws-cond-legend">${legend} · EDR ● landing ○ departure${met}</span>`;
+    } else if (key === 'edr+ws') {     // EDR + WS (the EDR view from 2026-10-30)
+      readout.innerHTML = `${edrLine.replace(/^<br>/, '')}${line3}`;
+    } else if (key === 'ws') {         // windshear only (the WS view from 2026-10-30)
+      readout.innerHTML = line3.replace(/^<br>/, '');
+    } else if (key === 'edr') {
+      readout.innerHTML = edrLine.replace(/^<br>/, '');
+    } else {
+      readout.innerHTML = `${line1}<br>${line2}${line3}<br><span class="ws-cond-legend">${legend}${met}</span>`;
     }
-    readout.innerHTML = `${line1}<br>${line2}${line3}<br><span class="ws-cond-legend">${legend}${met}</span>`;
     return wrHistDots;
   }
 
