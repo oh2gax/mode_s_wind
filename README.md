@@ -1074,6 +1074,8 @@ The table on the right shows each altitude layer — the highest (lowest pressur
 
 #### Time–height section
 
+**Refresh without a jump** (from the evening of 30 Oct 2026): in every mode of the Sounding page the status text beside **↻ Refresh** keeps its previous content, faded (`.meta-loading`, opacity 0.45), while new data load, and is replaced when they arrive; *Loading…* appears only when there is no earlier text. Before, the short *Loading…* let the Refresh group — the last item of the wrapping controls bar — move up to the right end of the first row and back to the left of the second row when the long text came, and the picture below moved up and down with it (`metaLoading` and a MutationObserver in `static/js/sounding.js`; `load` in `static/js/timeheight.js`).
+
 **Time–height** (button next to Flight) draws the hourly profile archive as a time–height cross-section: one column per UTC hour, one row per altitude layer (1 000 ft up to 10 000 ft, 2 000 ft above), time running to the right — the weather passing over the receiver at a glance. The hour in progress is added live from the observations (dashed frame). The height scale is stretched near the ground (square root of the pressure altitude, so the 1 000 ft layers below 5 000 ft stay readable); the left axis gives altitude / flight levels, the right axis the ISA pressure.
 
 | Control | Options | Description |

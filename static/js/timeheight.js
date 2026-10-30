@@ -869,7 +869,12 @@
   async function load() {
     const req = ++seq;
     const meta = $('sounding-meta');
-    if (meta) meta.textContent = 'Loading…';
+    // a refresh keeps the previous text, faded, so that the controls bar does not
+    // re-wrap and the section does not jump (from 30 Oct 2026); "Loading…" when empty
+    if (meta) {
+      if (meta.textContent && !/^(Error|Loading)/.test(meta.textContent)) meta.classList.add('meta-loading');
+      else meta.textContent = 'Loading…';
+    }
     try {
       const [d, s] = await Promise.all([
         fetch(`/api/sounding/timeheight?hours=${st.hours}&end=${endTs()}`).then(r => r.json()),
@@ -883,10 +888,11 @@
       const n = d.cols.length, low = d.cols.filter(c => c.a != null && c.a < 8).length;
       if (meta) meta.textContent = `${n} hourly profiles · ${low} with < 8 aircraft` +
         (d.cols.length && d.cols[d.cols.length - 1].partial ? ' · last column: hour in progress' : '');
+      if (meta) meta.classList.remove('meta-loading');
       blMeta();
       render();
     } catch (e) {
-      if (meta) meta.textContent = 'Error loading the time–height section.';
+      if (meta) { meta.classList.remove('meta-loading'); meta.textContent = 'Error loading the time–height section.'; }
       console.error(e);
     }
   }

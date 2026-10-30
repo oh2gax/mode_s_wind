@@ -272,6 +272,23 @@ function setMode(mode) {
   else loadCurrent();
 }
 
+// The status text beside Refresh while loading (from 30 Oct 2026): the previous text
+// stays, faded, until the new one comes — "Loading…" only when there is none.  The
+// controls bar wraps: a short "Loading…" let the Refresh group jump up to the right
+// end of the first row and back to the left of the second when the long text came,
+// and the picture below moved up and down with it.  The fade goes with the next text
+// (the observer below; also the Time–height section's own texts).
+function metaLoading(meta) {
+  if (!meta) return;
+  if (meta.textContent && !/^(Error|Could not)/.test(meta.textContent)) meta.classList.add('meta-loading');
+  else meta.textContent = 'Loading…';
+}
+(function () {
+  const meta = document.getElementById('sounding-meta');
+  if (meta && window.MutationObserver)
+    new MutationObserver(() => meta.classList.remove('meta-loading')).observe(meta, { childList: true, characterData: true, subtree: true });
+})();
+
 function loadCurrent() {
   if (sndMode === 'verif')  return loadVerification();
   if (sndMode === 'meps')   return loadMepsCheck();
@@ -410,7 +427,7 @@ function clearProfile(msg) {
 // ── Area sounding (last N minutes) ────────────────────────────────────────
 async function loadAreaSounding() {
   const meta = document.getElementById('sounding-meta');
-  meta.textContent = 'Loading…';
+  metaLoading(meta);
   const minutes = document.getElementById('snd-minutes').value;
   const req = ++sndReq;
   try {
@@ -464,7 +481,7 @@ async function loadHourSounding() {
   const ts = document.getElementById('snd-hour').value;
   const meta = document.getElementById('sounding-meta');
   if (!ts) { clearProfile('Select a date and hour.'); return; }
-  meta.textContent = 'Loading…';
+  metaLoading(meta);
   const req = ++sndReq;
   try {
     const r = await fetch(`/api/sounding/hour?ts=${ts}${rhShow ? '&moist=1' : ''}`);
@@ -521,7 +538,7 @@ async function loadFlightSounding() {
   const flightId = document.getElementById('flight-select').value;
   const meta = document.getElementById('sounding-meta');
   if (!flightId) { clearProfile('Select a flight first.'); return; }
-  meta.textContent = 'Loading…';
+  metaLoading(meta);
   const req = ++sndReq;
   try {
     const r = await fetch(`/api/flights/${flightId}/sounding`);
@@ -691,7 +708,7 @@ async function loadVerification() {
   document.querySelectorAll('#sv-days-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', Number(b.dataset.days) === svDays));
   const meta = document.getElementById('sounding-meta');
-  meta.textContent = 'Loading…';
+  metaLoading(meta);
   try {
     const [r, g] = await Promise.all([fetch(`/api/sonde/verification?days=${svDays}`),
                                       fetch('/api/gnss/calibration').catch(() => null)]);
@@ -834,7 +851,7 @@ async function loadMepsCheck() {
     b.classList.toggle('active', Number(b.dataset.days) === mcDays));
   document.getElementById('mc-busy').checked = mcBusy;
   const meta = document.getElementById('sounding-meta');
-  meta.textContent = 'Loading…';
+  metaLoading(meta);
   try {
     const r = await fetch(`/api/meps/check?days=${mcDays}&busy=${mcBusy ? 8 : 0}`);
     mcData = await r.json();
