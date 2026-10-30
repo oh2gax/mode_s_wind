@@ -23,6 +23,15 @@
         <button id="lbl-btn" class="skewt-ana-btn" type="button"
                 title="Aircraft labels on the map — click to step: Off · CS (callsign) · Reg (registration) · ICAO24 (the transponder address) · Type (ICAO aircraft type) · CS+Alt (callsign over the altitude as on a controller's radar label: A023 on the METAR QNH up to 5 000 ft, FL061 above, ↑ / ↓ climbing / descending) · +Type (callsign and type over the altitude) · Full (also the altitude selected on the autopilot panel, MCP / FCU, e.g. A023+020). Remembered in the browser.">Lbl CS+Alt</button>
       </div>
+      <!-- history plots and speed vectors (from 2026-10-30, as on a radar display) -->
+      <div class="filter-row">
+        <button id="hist-btn" class="skewt-ana-btn" type="button"
+                title="History plots: the aircraft's earlier positions as small squares, one per about 6 s, older ones fainter — click to step: Off · 5 · 10 · 20 plots (about 30 s · 1 min · 2 min). Remembered in the browser.">Hist 5</button>
+        <button id="vec-btn" class="skewt-ana-btn" type="button"
+                title="Speed vectors: a line to where the aircraft will be in 30 s · 1 min · 2 min at its ground speed and track — click to step: Off · 30 s · 1 min · 2 min. Remembered in the browser.">Vec Off</button>
+        <button id="style-btn" class="skewt-ana-btn" type="button"
+                title="Map style — click to switch: Meteo (the street map, the symbols in the colour of the meteo source, wind lines) · ATC (a radar-display look: no street map, the airport, the ILS / RNP finals, the coastline and range rings every 5 NM; symbols below 6 000 ft light, above grey, the selected aircraft highlighted; labels in three lines with a leader line, kept apart automatically — callsign / level, trend and selected level in hundreds of feet (019↑060) / ground speed in tens of knots and type (19 AT75); the Lbl button chooses how much). A research display, not for air traffic control. Remembered in the browser.">Style Meteo</button>
+      </div>
     </div>
     <div id="aircraft-list" class="aircraft-list">
       <div class="ac-placeholder">Waiting for data…</div>

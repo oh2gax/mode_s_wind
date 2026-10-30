@@ -80,15 +80,14 @@ let currentTile = L.tileLayer(
   TILE_OPTS
 ).addTo(map);
 
-// Receiver marker
-L.circleMarker([RECEIVER_LAT, RECEIVER_LON], {
+// Receiver marker (hidden in the ATC style)
+const receiverMarker = L.circleMarker([RECEIVER_LAT, RECEIVER_LON], {
   radius: 7, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2,
 }).bindTooltip('Receiver (EFHK area)').addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────
 const markers        = {};   // icao → L.Marker (aircraft symbol)
-const trailLayers    = {};   // icao → L.LayerGroup (trail dots)
-const trails         = {};   // icao → [[lat, lon], ...] position history
+const trails         = {};   // icao → [[lat, lon, ts], ...] history plots (one per ~6 s)
 const labelMarkers   = {};   // icao → L.Marker (callsign label)
 const windArrows     = {};   // icao → L.Polyline (wind direction arrow)
 const aircraftData   = {};   // icao → latest data object
@@ -98,7 +97,7 @@ const dbSeeded       = new Set(); // ICAOs whose wind history has been pre-loade
 
 let selectedIcao = null;
 
-const MAX_TRAIL       = 20;   // position dots kept ≈ 60 s
+const MAX_TRAIL       = 40;   // history plots kept ≈ 4 min (Hist shows up to 20)
 const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profile)
 
 // Restore persisted UI prefs — default both toggles ON
@@ -347,69 +346,324 @@ function resizeMiniCanvas() {
   if (skewt.resize(w, h)) drawMiniSounding();
 }
 
-// ── ATC-style aircraft icon ───────────────────────────────────────────────
-// A filled square with a speed-vector line pointing in the track direction.
-function makeIcon(color, track, selected) {
-  const sq    = selected ? 8 : 5;       // half-width of the square (px)
-  const S     = 60;                     // SVG canvas size
-  const cx    = 30, cy = 30;            // centre point
-  const vLen  = selected ? 22 : 16;     // speed-vector length (px)
-  const sw    = selected ? 2.5 : 1.5;   // stroke width
-
-  // Convert track (°, 0=North, clockwise) to SVG angle (0=right, clockwise)
-  const rad = ((track ?? 0) - 90) * Math.PI / 180;
-  const vx  = (cx + vLen * Math.cos(rad)).toFixed(1);
-  const vy  = (cy + vLen * Math.sin(rad)).toFixed(1);
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
-    <line x1="${cx}" y1="${cy}" x2="${vx}" y2="${vy}"
-          stroke="${color}" stroke-width="${sw}" stroke-linecap="round" opacity="0.9"/>
-    <rect x="${cx - sq}" y="${cy - sq}" width="${sq * 2}" height="${sq * 2}"
-          fill="${color}" stroke="#ffffff" stroke-width="${sw}" opacity="0.95"/>
-  </svg>`;
-
-  return L.divIcon({
-    html:       svg,
-    className:  '',
-    iconSize:   [S, S],
-    iconAnchor: [cx, cy],
-  });
+// ── Aircraft symbol (from 2026-10-30, as the Windshear map) ──────────────
+// An open square in the meteo-source colour, as on a controller's radar
+// display; the selected aircraft a slightly larger square in white (near-black
+// in the Light theme).  The heading stick of the earlier filled square is gone:
+// the direction shows in the history plots and, when on, the speed vector.
+const selSymColor = () => document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff';
+function makeIcon(color, selected) {
+  const s = selected ? 9 : 8, H = 22, o = (H - s) / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">
+    <rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"
+          stroke="${selected ? selColorNow() : color}" stroke-width="${selected ? 1.4 : 1.5}"/></svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2] });
 }
 
-// ── Trail dots ────────────────────────────────────────────────────────────
-function updateTrail(icao, lat, lon, color) {
+// ── History plots and speed vectors (from 2026-10-30) ─────────────────────
+// History plots as on a radar display: small filled squares at the earlier
+// positions, one per ~6 s (every second stream update), older ones fainter.
+// The Hist button: Off · 5 · 10 · 20 plots (30 s · 1 min · 2 min).  The Vec
+// button: the speed vector, where the aircraft is in 30 s · 1 min · 2 min at
+// its ground speed and track (as the Windshear map).  All plots and vectors are
+// drawn on one canvas layer, not as a map object each (100 aircraft × 20 plots).
+const HIST_STEPS   = [0, 5, 10, 20];
+const VEC_STEPS    = [0, 30, 60, 120];
+const HIST_EVERY_S = 5;          // a plot kept when ≥ 5 s after the previous (stream every 3 s → ~6 s)
+const lsInt = (k, steps, dflt) => {
+  try { const v = parseInt(localStorage.getItem(k), 10); return steps.includes(v) ? v : dflt; }
+  catch (_) { return dflt; }
+};
+let histN = lsInt('ms_liveHist', HIST_STEPS, 5);
+let vecS  = lsInt('ms_liveVec',  VEC_STEPS,  0);
+
+function updateTrail(icao, lat, lon, ts) {
   if (!trails[icao]) trails[icao] = [];
   const t    = trails[icao];
   const last = t[t.length - 1];
-
-  // Only store if position has moved meaningfully (~50 m threshold)
-  if (!last || Math.abs(last[0] - lat) > 0.0005 || Math.abs(last[1] - lon) > 0.0005) {
-    t.push([lat, lon]);
-  }
+  if (last && ts - last[2] < HIST_EVERY_S) return;
+  if (last && Math.abs(last[0] - lat) < 1e-5 && Math.abs(last[1] - lon) < 1e-5) return;  // standing still
+  t.push([lat, lon, ts]);
   if (t.length > MAX_TRAIL) t.shift();
-
-  // Rebuild trail layer
-  if (trailLayers[icao]) trailLayers[icao].remove();
-  const group = L.layerGroup();
-  const n     = t.length;
-  for (let i = 0; i < n - 1; i++) {          // skip newest (that's the main marker)
-    const frac = i / Math.max(n - 2, 1);     // 0 = oldest, 1 = newest-1
-    L.circleMarker(t[i], {
-      radius:      2,
-      color:       color,
-      fillColor:   color,
-      fillOpacity: 0.10 + 0.55 * frac,
-      weight:      0,
-      interactive: false,
-    }).addTo(group);
-  }
-  group.addTo(map);
-  trailLayers[icao] = group;
 }
+
+// The point sec seconds ahead along the track at the ground speed (great circle)
+function vecEnd(lat, lon, trackDeg, gsKt, sec) {
+  const d = gsKt * sec / 3600 * 1852 / 6371000, br = trackDeg * Math.PI / 180;
+  const la = lat * Math.PI / 180, lo = lon * Math.PI / 180;
+  const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(br));
+  const lo2 = lo + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
+}
+
+const PlotLayer = L.Layer.extend({
+  onAdd(m) {
+    this._c = L.DomUtil.create('canvas', 'live-plot-layer');
+    m.getPane('livePlots').appendChild(this._c);
+    m.on('moveend zoomend resize viewreset', this._reset, this);
+    m.on('zoomstart', this._hide, this);
+    this._reset();
+  },
+  onRemove(m) {
+    m.off('moveend zoomend resize viewreset', this._reset, this);
+    m.off('zoomstart', this._hide, this);
+    this._c.remove();
+  },
+  _hide() { this._c.style.visibility = 'hidden'; },
+  _reset() {
+    const m = this._map, sz = m.getSize(), dpr = window.devicePixelRatio || 1;
+    L.DomUtil.setPosition(this._c, m.containerPointToLayerPoint([0, 0]));
+    this._c.width  = Math.round(sz.x * dpr);
+    this._c.height = Math.round(sz.y * dpr);
+    this._c.style.width  = sz.x + 'px';
+    this._c.style.height = sz.y + 'px';
+    this._c.style.visibility = '';
+    this.redraw();
+  },
+  redraw() {
+    if (!this._map) return;
+    const c = this._c, g = c.getContext('2d'), m = this._map, dpr = window.devicePixelRatio || 1;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, c.width, c.height);
+    const atc = liveStyle === 'atc';
+    if (!histN && !vecS && !atc) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = c.width / dpr, H = c.height / dpr;
+    if (atc) drawRangeRings(g, m, W, H);
+    const lbls = [], obst = [];                       // ATC style: the labels, placed after; plots and vectors to keep clear of
+    // newest → oldest plot opacity; stronger on the pale Light-theme map
+    const light = document.documentElement.dataset.theme === 'light';
+    const aNew = light ? 0.95 : 0.85, aOld = light ? 0.45 : 0.25;
+    for (const [icao, ac] of Object.entries(aircraftData)) {
+      if (!markers[icao] || !ac.lat || !ac.lon) continue;
+      const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
+      if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
+      const col  = acSymColor(ac), sel = icao === selectedIcao;
+      const fade = ac.landed ? 0.4 : 1;
+      g.fillStyle = col;
+      if (histN) {
+        const curTs = ac.pos_ts || ac.last_seen || 0;
+        const t = (trails[icao] || []).filter(q => q[2] < curTs);   // not the current position
+        const pts = t.slice(-histN), n = pts.length;
+        for (let k = 0; k < n; k++) {                 // k = 0 the oldest
+          const age = n - 1 - k;                      // 0 = the newest plot
+          const q = m.latLngToContainerPoint([pts[k][0], pts[k][1]]);
+          g.globalAlpha = (aNew - (aNew - aOld) * age / Math.max(1, histN - 1)) * fade;
+          g.fillRect(q.x - 1.75, q.y - 1.75, 3.5, 3.5);
+          if (atc) obst.push({ x: q.x - 2, y: q.y - 2, w: 4, h: 4 });
+        }
+      }
+      if (vecS && ac.track != null && ac.groundspeed > 30) {
+        const e  = vecEnd(ac.lat, ac.lon, ac.track, ac.groundspeed, vecS);
+        const pe = m.latLngToContainerPoint(e);
+        const dx = pe.x - p0.x, dy = pe.y - p0.y, L0 = Math.hypot(dx, dy);
+        if (L0 > 6) {                                 // from the square's edge
+          g.globalAlpha = 0.9 * fade;
+          g.strokeStyle = sel ? selColorNow() : col;
+          g.lineWidth = 1.3;
+          g.beginPath();
+          g.moveTo(p0.x + dx * 5 / L0, p0.y + dy * 5 / L0);
+          g.lineTo(pe.x, pe.y);
+          g.stroke();
+          if (atc) for (let d = 8; d < L0; d += 8) obst.push({ x: p0.x + dx * d / L0 - 2, y: p0.y + dy * d / L0 - 2, w: 4, h: 4 });
+        }
+      }
+      if (atc) {
+        const lines = atcLabelLines(ac);
+        if (lines) lbls.push({ icao, p: p0, lines, sel, fade, col: sel ? selColorNow() : col, alt: ac.altitude ?? 99999 });
+      }
+    }
+    if (atc && lbls.length) drawAtcLabels(g, lbls, W, H, obst);
+    g.globalAlpha = 1;
+  },
+});
+// own panes: the plots, vectors and ATC labels above the map lines and the
+// weather (350–365), under the aircraft symbols (markerPane 600); the ATC map
+// lines (airport, finals, coast) above the weather
+map.createPane('livePlots').style.zIndex = 450;
+map.getPane('livePlots').style.pointerEvents = 'none';
+map.createPane('atcMapPane').style.zIndex = 370;
+map.getPane('atcMapPane').style.pointerEvents = 'none';
+
+// ── Style: Meteo / ATC (from 2026-10-30) ──────────────────────────────────
+// ATC: a radar-display look for the air traffic controllers among the users —
+// no street map but a plain background with the airport, the ILS / RNP finals,
+// the coastline and range rings every 5 NM from the airport; monochrome symbols
+// (below 6 000 ft light, above grey, the selected aircraft yellow), the labels
+// in three lines with a leader line, moved automatically so that they do not
+// overlap: callsign / level, trend ↑↓ and selected level in hundreds of feet
+// (019↑060) / ground speed in tens of knots and type (19 AT75).  A generic
+// European radar style (after Thales TopSky as used in Finland, whose screens
+// and settings are not public) — a research display, not for controlling.
+// Follows the page theme: dark grey in Dark, light grey in Light.
+const ATC_LOW_FT = 6000;
+let liveStyle = (() => { try { return localStorage.getItem('ms_liveStyle') === 'atc' ? 'atc' : 'meteo'; } catch (_) { return 'meteo'; } })();
+const ATC_PAL = {
+  dark:  { bg: '#1b2027', apt: '#5b6573', ils: '#46566a', rnp: '#6b5a3c', coast: '#36414e', ring: '#2c3540', ringTxt: '#4f5a67',
+           low: '#d1fae5', high: '#9ca3af', sel: '#facc15', leader: '#7b8594' },
+  light: { bg: '#cfd2d5', apt: '#59626e', ils: '#2a4a7a', rnp: '#8a5a1c', coast: '#8b9bb0', ring: '#b3b8be', ringTxt: '#8a9099',
+           low: '#0b3b2c', high: '#4b5563', sel: '#1d4ed8', leader: '#5d6672' },
+};
+const atcPal = () => ATC_PAL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+function acSymColor(ac) {
+  if (liveStyle !== 'atc') return acColor(ac);
+  const P = atcPal();
+  return ac.altitude != null && ac.altitude < ATC_LOW_FT ? P.low : P.high;
+}
+const selColorNow = () => liveStyle === 'atc' ? atcPal().sel : selSymColor();
+
+// Level in hundreds of feet, three digits: up to the transition altitude on the
+// METAR QNH, above it the flight level (as liveAtcAlt without the A / FL)
+const atcLvl3 = pa => pa == null ? '---' : liveAtcAlt(pa).replace(/^(A|FL)/, '');
+function atcLabelLines(ac) {
+  const lv = lblLvl;
+  if (lv === 'off') return null;
+  const cs = callsignCache[ac.icao] || ac.callsign || ac.icao;
+  if (lv === 'cs')   return [cs];
+  if (lv === 'reg')  return [ac.registration || cs];
+  if (lv === 'icao') return [ac.icao];
+  if (lv === 'type') return [ac.aircraft_type || '—'];
+  const vr = ac.vert_rate, tr = vr == null ? ' ' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : ' ';
+  const sel = lv === 'full' && ac.sel_alt != null ? String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
+  const l2 = ac.landed ? 'landed' : (atcLvl3(ac.altitude) + tr + sel).trimEnd();
+  if (lv === 'alt') return [cs, l2];
+  const gs = ac.groundspeed != null ? String(Math.round(ac.groundspeed / 10)).padStart(2, '0') : '--';
+  return [cs, l2, `${gs} ${ac.aircraft_type || ''}`.trimEnd()];
+}
+
+// Range rings every 5 NM from the airport (to 30 NM), with their distance
+function drawRangeRings(g, m, W, H) {
+  const P = atcPal(), c = m.latLngToContainerPoint([AIRPORT_LAT, AIRPORT_LON]);
+  const pxPerNm = Math.abs(m.latLngToContainerPoint([AIRPORT_LAT + 1 / 60, AIRPORT_LON]).y - c.y);
+  if (pxPerNm * 5 < 14) return;                       // zoomed far out: no rings
+  g.globalAlpha = 1;
+  g.strokeStyle = P.ring; g.lineWidth = 1;
+  g.fillStyle = P.ringTxt; g.font = '10px Consolas, "DejaVu Sans Mono", monospace';
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  for (let nm = 5; nm <= 30; nm += 5) {
+    const r = nm * pxPerNm;
+    g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.stroke();
+    if (c.y - r > 8 && c.y - r < H) g.fillText(String(nm), c.x, c.y - r - 1);
+  }
+  g.textAlign = 'left';
+}
+
+// ATC labels with leader lines, placed so that they do not overlap: each tries
+// 16 positions (8 directions, near and far) and takes the free one with the
+// least overlap with the labels already placed, the aircraft symbols and the
+// history plots and speed vectors; it
+// keeps its last position while that stays free, so the labels do not jump.
+// The selected aircraft first, then from the lowest up (the approach traffic).
+const ATC_DIRS = [[1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]];  // NE first
+const atcLblPos = {};            // icao → the chosen position (0–15)
+const ATC_LH = 13;               // line height, px
+function drawAtcLabels(g, items, W, H, obst) {
+  const P = atcPal();
+  g.font = '12px Consolas, "DejaVu Sans Mono", "Courier New", monospace';
+  g.textBaseline = 'top';
+  for (const it of items) {
+    it.w = Math.ceil(Math.max(...it.lines.map(t => g.measureText(t).width))) + 4;
+    it.h = it.lines.length * ATC_LH + 2;
+  }
+  const syms = items.map(it => ({ x: it.p.x - 6, y: it.p.y - 6, w: 12, h: 12, icao: it.icao }));
+  const ov = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+                       Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const rectFor = (it, k) => {
+    const [dx, dy] = ATC_DIRS[k % 8], r = k < 8 ? 22 : 44, u = dx && dy ? 0.7071 : 1;
+    const ax = it.p.x + dx * r * u, ay = it.p.y + dy * r * u;
+    const x = dx > 0 ? ax : dx < 0 ? ax - it.w : ax - it.w / 2;
+    const y = dy < 0 ? ay - it.h : dy > 0 ? ay : ay - it.h / 2;
+    return { x, y, w: it.w, h: it.h, ax, ay, ux: dx * u, uy: dy * u };
+  };
+  items.sort((a, b) => (b.sel - a.sel) || (a.alt - b.alt));
+  const placed = [];
+  for (const it of items) {
+    const prev = atcLblPos[it.icao];
+    const order = prev != null ? [prev, ...Array.from({ length: 16 }, (_, i) => i).filter(i => i !== prev)]
+                               : Array.from({ length: 16 }, (_, i) => i);
+    let best = null, bestCost = Infinity;
+    for (const k of order) {
+      const R = rectFor(it, k);
+      let cost = (k >= 8 ? 1 : 0);                   // a near position first
+      for (const q of placed) cost += ov(R, q) * 4;
+      for (const q of syms) if (q.icao !== it.icao) cost += ov(R, q) * 8;
+      for (const q of obst) cost += ov(R, q) * 2;
+      if (R.x < 0 || R.y < 0 || R.x + R.w > W || R.y + R.h > H) cost += 50;
+      if (k === prev && cost <= 1) { best = { k, R }; break; }
+      if (cost < bestCost) { bestCost = cost; best = { k, R }; }
+    }
+    atcLblPos[it.icao] = best.k;
+    placed.push(best.R);
+    const R = best.R;
+    g.globalAlpha = it.fade;
+    g.strokeStyle = it.sel ? it.col : P.leader; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(it.p.x + R.ux * 6, it.p.y + R.uy * 6); g.lineTo(R.ax, R.ay); g.stroke();
+    g.fillStyle = it.col;
+    it.lines.forEach((t, i) => g.fillText(t, R.x + 2, R.y + 1 + i * ATC_LH));
+  }
+  g.globalAlpha = 1;
+}
+
+// The ATC map lines: loaded at the first switch to the ATC style
+let atcMap = null, atcGeo = null;
+const atcRenderer = L.canvas({ pane: 'atcMapPane', padding: 0.3 });
+async function loadAtcMap() {
+  if (!atcGeo) {
+    try {
+      const [ils, apt, coast] = await Promise.all(['efhk_ils', 'efhk_apt', 'efhk_coast']
+        .map(n => fetch(`/overlays/${n}.geojson`).then(r => r.ok ? r.json() : null).catch(() => null)));
+      atcGeo = { ils, apt, coast };
+    } catch (_) { atcGeo = {}; }
+  }
+  if (atcMap) { atcMap.remove(); atcMap = null; }
+  if (liveStyle !== 'atc') return;
+  const P = atcPal(), g = L.layerGroup();
+  const opt = st => ({ renderer: atcRenderer, interactive: false, style: st });
+  if (atcGeo.coast) L.geoJSON(atcGeo.coast, opt({ color: P.coast, weight: 1, opacity: 0.9, fill: false })).addTo(g);
+  if (atcGeo.apt)   L.geoJSON(atcGeo.apt,   opt({ color: P.apt,   weight: 1, opacity: 0.9, fill: false })).addTo(g);
+  if (atcGeo.ils) {
+    const efhk = { type: 'FeatureCollection', features: (atcGeo.ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK') };
+    L.geoJSON(efhk, opt(f => f.properties?.approach_type === 'RNP'
+      ? { color: P.rnp, weight: 1, opacity: 0.9, dashArray: '8 5', fill: false }
+      : { color: P.ils, weight: 1, opacity: 0.9, dashArray: '4 4', fill: false })).addTo(g);
+  }
+  atcMap = g.addTo(map);
+}
+
+const legendEl = document.querySelector('.map-legend');
+const legendMeteoHtml = legendEl ? legendEl.innerHTML : '';
+function applyLiveStyle() {
+  const atc = liveStyle === 'atc', P = atcPal();
+  if (atc) { if (map.hasLayer(currentTile)) map.removeLayer(currentTile); }
+  else if (!map.hasLayer(currentTile)) currentTile.addTo(map);
+  map.getContainer().style.background = atc ? P.bg : '';
+  if (atc) receiverMarker.remove(); else receiverMarker.addTo(map);
+  if (legendEl) {
+    legendEl.classList.toggle('atc', atc);
+    legendEl.innerHTML = atc
+      ? `<span class="legend-sq" style="border-color:${P.low}"></span> below ${ATC_LOW_FT.toLocaleString('en-US')} ft
+         <span class="legend-sq" style="border-color:${P.high}"></span> above
+         <span class="legend-sq" style="border-color:${P.sel}"></span> selected
+         <span class="legend-note" title="A radar-display look for research and comparison: positions as received by this station (ADS-B / MLAT), not certified surveillance data">Research display — not for air traffic control</span>`
+      : legendMeteoHtml;
+  }
+  loadAtcMap();
+  for (const [k, m] of Object.entries(markers)) {
+    const d = aircraftData[k];
+    if (!d) continue;
+    m.setIcon(makeIcon(acSymColor(d), k === selectedIcao));
+    updateLabel(k, d.lat, d.lon, d);
+    drawWindArrow(k, d.lat, d.lon, d.best_wind_spd, d.best_wind_dir);
+  }
+  plotLayer.redraw();
+}
+// created after the style state above (its first draw reads it)
+const plotLayer = new PlotLayer().addTo(map);
 
 // ── Map labels (ATC style, levels of the Lbl button) ──────────────────────
 function updateLabel(icao, lat, lon, ac) {
-  const html = liveLabelHtml(ac || aircraftData[icao] || { icao });
+  // the ATC style draws its labels on the plot canvas (drawAtcLabels)
+  const html = liveStyle === 'atc' ? '' : liveLabelHtml(ac || aircraftData[icao] || { icao });
   if (!html) {
     if (labelMarkers[icao]) { labelMarkers[icao].remove(); delete labelMarkers[icao]; }
     return;
@@ -434,7 +688,8 @@ function updateLabel(icao, lat, lon, ac) {
 
 // ── Wind arrow ────────────────────────────────────────────────────────────
 function drawWindArrow(icao, lat, lon, windSpd, windDir) {
-  if (windArrows[icao]) windArrows[icao].remove();
+  if (windArrows[icao]) { windArrows[icao].remove(); delete windArrows[icao]; }
+  if (liveStyle === 'atc') return;                  // no wind lines in the ATC style
   if (windSpd == null || windDir == null || windSpd < 1) return;
 
   const len     = Math.min(0.012, windSpd / 1000);
@@ -453,7 +708,7 @@ function upsertMarker(ac) {
 
   const color    = acColor(ac);
   const selected = ac.icao === selectedIcao;
-  const icon     = makeIcon(color, ac.track, selected);
+  const icon     = makeIcon(acSymColor(ac), selected);
 
   const cs = callsignCache[ac.icao] || ac.callsign;
   let popup = `<b>${esc(cs || ac.registration || ac.icao)}</b>  <span style="color:${color}">${ac.meteo_source || 'NONE'}</span><br>`;
@@ -481,7 +736,7 @@ function upsertMarker(ac) {
     markers[ac.icao] = m;
   }
 
-  updateTrail(ac.icao, ac.lat, ac.lon, color);
+  updateTrail(ac.icao, ac.lat, ac.lon, ac.pos_ts || ac.last_seen || Date.now() / 1000);
   updateLabel(ac.icao, ac.lat, ac.lon, ac);
   drawWindArrow(ac.icao, ac.lat, ac.lon, ac.best_wind_spd, ac.best_wind_dir);
   // landed (no new position near the airport for 15 s): faded
@@ -499,9 +754,9 @@ function removeStale(liveIcaos) {
       markers[icao].off('popupclose');
       markers[icao].remove();       delete markers[icao];
       if (windArrows[icao])  { windArrows[icao].remove();  delete windArrows[icao]; }
-      if (trailLayers[icao]) { trailLayers[icao].remove(); delete trailLayers[icao]; }
       if (labelMarkers[icao]){ labelMarkers[icao].remove();delete labelMarkers[icao]; }
       delete trails[icao];
+      delete atcLblPos[icao];
       delete aircraftData[icao];
       // The selected aircraft keeps its profile history and its track, which
       // stays on the map and continues when the aircraft reappears
@@ -643,8 +898,9 @@ function selectAircraft(icao) {
 
   for (const [k, m] of Object.entries(markers)) {
     const d = aircraftData[k];
-    if (d) m.setIcon(makeIcon(acColor(d), d.track, k === icao));
+    if (d) m.setIcon(makeIcon(acSymColor(d), k === icao));
   }
+  plotLayer.redraw();                    // the selected aircraft's vector colour
 
   document.getElementById('detail-ac-panel').classList.remove('hidden');
 
@@ -831,8 +1087,9 @@ function closeDetail() {
   document.getElementById('detail-ac-panel').classList.add('hidden');
   for (const [k, m] of Object.entries(markers)) {
     const d = aircraftData[k];
-    if (d) m.setIcon(makeIcon(acColor(d), d.track, false));
+    if (d) m.setIcon(makeIcon(acSymColor(d), false));
   }
+  plotLayer.redraw();
 }
 
 // ── SSE connection ─────────────────────────────────────────────────────────
@@ -894,6 +1151,7 @@ function connectSSE() {
       upsertMarker(ac);
     }
     removeStale(liveIcaos);
+    plotLayer.redraw();            // history plots and vectors, once per update
     renderList(data);
 
     if (selectedIcao && aircraftData[selectedIcao]) {
@@ -949,9 +1207,45 @@ if (lblBtn) {
       if (ac.lat && ac.lon) updateLabel(icao, ac.lat, ac.lon, ac);
     }
     renderList(Object.values(aircraftData));     // the list follows Reg / ICAO24
+    plotLayer.redraw();                          // the ATC style's labels
     syncSkewT();
   });
 }
+
+// History plots and speed vectors: the Hist and Vec buttons step the lengths
+function stepBtn(id, steps, get, set, key, fmt) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  const show = () => { b.textContent = fmt(get()); b.classList.toggle('active', get() !== 0); };
+  show();
+  b.addEventListener('click', () => {
+    set(steps[(steps.indexOf(get()) + 1) % steps.length]);
+    try { localStorage.setItem(key, String(get())); } catch (_) { /* private mode */ }
+    show();
+    plotLayer.redraw();
+  });
+}
+stepBtn('hist-btn', HIST_STEPS, () => histN, v => { histN = v; }, 'ms_liveHist',
+        v => `Hist ${v ? v : 'Off'}`);
+stepBtn('vec-btn', VEC_STEPS, () => vecS, v => { vecS = v; }, 'ms_liveVec',
+        v => `Vec ${v === 0 ? 'Off' : v < 60 ? v + ' s' : v / 60 + ' min'}`);
+
+// Style: Meteo / ATC
+const styleBtn = document.getElementById('style-btn');
+if (styleBtn) {
+  const showStyle = () => {
+    styleBtn.textContent = liveStyle === 'atc' ? 'Style ATC' : 'Style Meteo';
+    styleBtn.classList.toggle('active', liveStyle === 'atc');
+  };
+  showStyle();
+  styleBtn.addEventListener('click', () => {
+    liveStyle = liveStyle === 'atc' ? 'meteo' : 'atc';
+    try { localStorage.setItem('ms_liveStyle', liveStyle); } catch (_) { /* private mode */ }
+    showStyle();
+    applyLiveStyle();
+  });
+}
+if (liveStyle === 'atc') applyLiveStyle();
 
 // ── Wind density slider ───────────────────────────────────────────────────
 const densitySlider = document.getElementById('wind-density');
@@ -1169,6 +1463,7 @@ window.onThemeChange = function () {
   currentTile = L.tileLayer(
     document.documentElement.dataset.theme === 'light' ? TILE_LIGHT : TILE_DARK,
     TILE_OPTS
-  ).addTo(map);
+  );
+  applyLiveStyle();       // the tiles (Meteo) or the ATC colours; the selected square
   drawMiniSounding();
 };

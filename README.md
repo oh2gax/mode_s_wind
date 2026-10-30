@@ -29,7 +29,7 @@ All decoded observations are stored in a local SQLite database and presented thr
 - **Historical flight browser** — searchable and paginated table of all recorded flights with meteo statistics, time-series charts, and a flight track map
 - **Light / Dark / Auto theme** — an icon button in the navbar, right next to the UTC clock (from 29 Oct 2026, as in the mobile view; before a *Dark / Light* text button left of the version): a **moon** for Dark, a **sun** for Light, a **half circle** for **Auto**, which follows the computer's own light / dark setting (`prefers-color-scheme`) and switches with it while the page is open; a click steps Dark → Light → Auto → Dark, the hover tells the setting in use and the next one. **Auto is the default** for whoever has not chosen (from 29 Oct 2026; before Dark). The setting is shared with the mobile view `/app` in the same browser (`ms_app_theme_auto` = 1 for Auto, a chosen Light / Dark in `ms_theme`); it is stored in `localStorage` and applied before first paint so there is no flash on page load; all canvas renderers (Skew-T diagrams, ILS profile, Wind Rose) redraw instantly with the new palette. In the dark theme the diagrams (Skew-T, ILS profile, Wind Rose and Approach Conditions chart) and the Windshear map overlays (Wind Rose / ACI, Approach History) use the same blue-grey as the panels (`--bg-1`)
 - **About, What's new and User guides windows** — the navbar's version button opens the notes of the latest versions and the user guides (PDF); **About** tells who made the system, where the receiver is and how the measurements are made
-- **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, aircraft list order, wind history density, theme) are remembered across browser sessions via localStorage; the Live Map, the Wind Map and the Weather page also remember their map view (centre and zoom), and a **⌂** button under the zoom buttons returns to the receiver at the default zoom (from 2026-10-28)
+- **Persistent UI preferences** — all toggles (Meteo only, Labels, label mode, history plots and speed vectors, map style, aircraft list order, wind history density, theme) are remembered across browser sessions via localStorage; the Live Map, the Wind Map and the Weather page also remember their map view (centre and zoom), and a **⌂** button under the zoom buttons returns to the receiver at the default zoom (from 2026-10-28)
 - **Configurable meteo source mode** — choose between EHS-only (pyModeS Beast decoding), JSON-only (Radarcape's own decoded values), or Hybrid priority for the live view (stored observations always come from pyModeS decoding); active mode shown as a read-only badge in the navbar on every page
 - **Configurable storage mode** — store all observations or meteo-only to drastically reduce database size and SD-card write load; active mode shown in the navbar badge alongside source mode
 - **Per-aircraft write throttle** — configurable minimum interval between successive database writes for the same aircraft, dramatically reducing write volume without meaningfully affecting sounding data quality
@@ -80,6 +80,8 @@ All measurements come from the aircraft alone. The MEPS model (MET Norway open d
 The system was developed and tested with a Radarcape receiver and Raspberry Pi 4 near EFHK (Helsinki-Vantaa Airport, Finland). Any receiver that outputs Beast binary format over TCP will work, though the JSON/MLAT feed integration is specific to the Radarcape.
 
 A six-page A4 overview of the receiving station — the hardware with photos, the Mode S registers used, the formulas, calibration, storage, the pages, the windshear detection with the ongoing study, the two sites (the off-grid capable local station and the cloud server that serves the users) and, from 28 Oct 2026, the phone view `/app` (light-theme screens of the Skew-T, ILS approach, ACI + windshear and Statistics, the seven views, a QR code of the address) and, from 29 Oct 2026, turbulence (EDR) and the boundary layer (low-level jet, surface inversion); from 30 Oct 2026 page 5's ILS approach screen shows the phone's turbulence on the approach map (the paths of 28 Oct 2026, 12:22–13:22 UTC, replayed from the stored flights) — is in [`doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf`](doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf) (also in the *User guides* tab).
+
+**EDR explained** (from 30 Oct 2026, [`doc/EDR_Explained.pdf`](doc/EDR_Explained.pdf), also in the *User guides* tab): the eddy dissipation rate for aviation meteorologists and atmospheric scientists, opening with a section in plain words — the physics (Kolmogorov's inertial subrange, the structure function), the history from pilot reports and gust loads to the NCAR in-situ algorithms and the ICAO standard (the limits of Annex 3 Amendment 79 and PANS-MET, WAFS / GTG forecasts in EDR), its use at Hong Kong International Airport (anemometer, lidar, flight-data and ADS-B methods of the Hong Kong Observatory), the MODE-S Wind method (`collector/edr.py`) with its parameters and limits, and the results at Helsinki-Vantaa 9–30 October 2026. It is updated whenever the calculation changes (its version history table); LaTeX source with the figure script kept with the project notes.
 
 ---
 
@@ -771,10 +773,11 @@ The main dashboard showing all currently tracked aircraft in real time, updated 
 
 #### Aircraft symbols
 
-Aircraft are drawn in an ATC-style display:
+Aircraft are drawn as on a controller's radar display (from 30 Oct 2026, as the Windshear map; before a filled square with a short heading stick):
 
-- **Filled square** — current position of the aircraft
-- **Speed vector line** — short line extending from the square in the direction of travel (track)
+- **Open square** (8 px) — the current position of the aircraft; the selected aircraft a slightly larger square in white (near-black in the Light theme) — `makeIcon` in `static/js/live_map.js`
+- **History plots** — small filled squares at the earlier positions (see below)
+- **Speed vector** (optional, the **Vec** button) — a line to where the aircraft will be in 30 s, 1 min or 2 min at its ground speed and track
 - **Colour** — indicates the meteo data source:
 
 | Colour | Source | Description |
@@ -789,9 +792,36 @@ Aircraft are drawn in an ATC-style display:
 
 **Wind vectors:** every aircraft with a wind reading also gets a short light-blue line pointing downwind (the direction the air moves; longer for stronger wind), so the wind field over the map is visible at a glance.
 
-#### Trail dots
+#### History plots and speed vectors
 
-Each aircraft leaves a trail of fading dots showing its position over the past ~60 seconds. Older positions are more transparent; the trail gives an immediate sense of direction and speed without cluttering the map.
+From 30 Oct 2026 (before a trail of round dots over ~60 s) each aircraft leaves **history plots** as on a radar display: small filled squares (3.5 px) in its symbol colour at its earlier positions, one per about 6 s (a position is kept when at least 5 s after the previous one by its position time `pos_ts`; the stream comes every 3 s), the older ones fainter. The **Hist** button in the list's second filter row steps **Off · 5 · 10 · 20** plots (about 30 s · 1 min · 2 min; default 5, saved as `ms_liveHist`); up to 40 positions are kept per aircraft (`MAX_TRAIL`).
+
+The **Vec** button next to it steps the **speed vectors**: **Off · 30 s · 1 min · 2 min** (default Off — with many aircraft the map gets busy; saved as `ms_liveVec`). The vector runs from the square's edge to the point the aircraft reaches in that time at its ground speed along its track (great circle, as the Windshear map); none below 30 kt. The selected aircraft's vector is white (near-black in the Light theme). A landed aircraft's plots and vector fade with its symbol.
+
+All plots and vectors are drawn on **one canvas layer** over the map, under the symbols and labels (`PlotLayer` in `static/js/live_map.js`, `.live-plot-layer`), redrawn once per stream update and after a pan or zoom — not as a map object per plot (100 aircraft × 20 plots every 3 s).
+
+#### Style: Meteo / ATC
+
+The **Style** button (from 30 Oct 2026, in the list's second filter row next to Hist and Vec; saved as `ms_liveStyle`) switches the map between two looks:
+
+- **Meteo** (default) — the street map, the symbols in the colour of the meteo source, the wind lines and the receiver, as above.
+- **ATC** — a radar-display look for the air traffic controllers among the users: no street map but a plain background (dark grey in the Dark theme, light grey in the Light theme), with the EFHK airport layout, the ILS (short dashes) and RNP (long dashes) finals and the coastline (`/overlays/efhk_apt|ils|coast.geojson`, loaded at the first switch, drawn on a canvas in their own pane above the weather overlay) and **range rings** every 5 NM to 30 NM from the airport, with their distance. The symbols are monochrome — below 6 000 ft light (`ATC_LOW_FT`), above grey, the selected aircraft yellow (blue in the Light theme) — and the history plots and speed vectors follow them; no wind lines and no receiver marker. The legend shows the three symbol colours and *Research display — not for air traffic control*.
+
+**ATC labels** are drawn on the plot canvas in a monospaced face, with a **leader line** from the symbol, in up to three lines as on a controller's display; the **Lbl** button chooses how much:
+
+| Lbl | ATC label |
+|---|---|
+| Off | none |
+| CS / Reg / ICAO24 / Type | one line: that item |
+| CS+Alt | `FIN6KB` / `013↓` |
+| +Type | `FIN6KB` / `013↓` / `18 AT75` |
+| Full | `FIN6KB` / `013↓020` / `18 AT75` |
+
+Line 2: the level in hundreds of feet, three digits — up to the transition altitude 5 000 ft the altitude on the METAR QNH, above it the flight level (as the A / FL of the Meteo labels, without the letters) — then ↑ / ↓ (climbing / descending 300 fpm or more) and, with *Full*, the autopilot's selected altitude in hundreds of feet (`019↑060`: at 1 900 ft climbing, 6 000 ft selected); `landed` for a landed aircraft. Line 3: the ground speed in tens of knots and the ICAO type.
+
+**Label anti-overlap:** each label tries 16 positions around its symbol (8 directions, near and far) and takes the one with the least overlap with the labels already placed, the other symbols and the history plots and speed vectors, and inside the map; it keeps its position while that stays free, so the labels do not jump from update to update. The selected aircraft is placed first, then the others from the lowest up, so the approach traffic gets the best places (`drawAtcLabels` in `static/js/live_map.js`). Labels cannot yet be dragged by hand.
+
+The ATC style is a generic European radar-display look, after the conventions of systems such as Thales TopSky (used in Finland), whose screens and each air navigation service provider's settings are not public — it is not a copy of any one system. It is a **research display**: positions as received by this station (ADS-B / MLAT), not certified surveillance data.
 
 #### Left panel — Aircraft list
 
@@ -2349,7 +2379,7 @@ mode_s_wind/
 │                              # (Windshear_User_Guide.pdf), Mode S & ADS-B / Statistics page guide
 │                              # (Statistics_User_Guide.pdf), mobile view guide (Mobile_User_Guide.pdf), retired windshear algorithms
 │                              # (Windshear_Algorithms_v1_Legacy.pdf), windshear study log
-│                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), receiving station overview
+│                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), EDR explained (EDR_Explained.pdf), receiving station overview
 │                              # (MODE_S_Wind_Receiving_Station_OH2GAX.pdf), whats_new.md (user notes of the
 │                              # latest versions) and guides.md (the guides of the User guides tab) for the What's new window
 ├── data/                      # SQLite database (created at runtime); optional BaseStation.sqb; soundings/ (radiosondes)

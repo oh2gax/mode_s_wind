@@ -127,6 +127,12 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ac-placeholder { padding: 1rem; color: var(--text-3); font-style: italic; }
 
 .filter-row { display: flex; gap: 6px; align-items: center; }
+/* Live Map history plots and speed vectors: one canvas over the map, under the symbols (2026-10-30) */
+.live-plot-layer { position: absolute; left: 0; top: 0; pointer-events: none; }
+.map-legend .legend-sq { display: inline-block; width: 8px; height: 8px; border: 1.5px solid; border-radius: 1px;
+                         margin-right: -5px; }
+.map-legend .legend-note { margin-left: 6px; color: #f59e0b; cursor: help; pointer-events: auto; }
+[data-theme="light"] .map-legend .legend-note { color: #b45309; }
 .toggle-label { font-size: 11px; color: var(--text-2); display: flex;
                 align-items: center; gap: 4px; cursor: pointer; }
 .toggle-label input { cursor: pointer; }

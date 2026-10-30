@@ -114,6 +114,21 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
 - The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (ADS-B ground speed, the convective season, validation)
 
+## EDR explained — turbulence intensity
+file: EDR_Explained.pdf
+version: 1.0
+date: 2026-10-30
+pages: 11
+
+The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation meteorologists and atmospheric scientists — with a first section in plain words for everyone. Updated whenever the MODE-S Wind calculation changes.
+
+- **EDR in plain words**: what turbulence and EDR are, and the ICAO scale (light 0.10, moderate 0.20, severe 0.45)
+- **The physics**: Kolmogorov's cascade and inertial subrange, the structure function, why EDR describes the air and not the aircraft, mean and peak
+- **History and use in aviation**: from pilot reports and gust loads to MacCready, the NCAR in-situ algorithms and the ICAO standard (2001; the limits of Amendment 79, 2020, and PANS-MET), WAFS and GTG forecasts in EDR
+- **Hong Kong International Airport**: the Hong Kong Observatory's anemometer, lidar and flight-data EDR and ADS-B turbulence detection
+- **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters and the scale problem
+- **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown; limitations, calibration and the version history
+
 ## Windshear detection v1 — retired algorithms (legacy)
 file: Windshear_Algorithms_v1_Legacy.pdf
 version: 1.0

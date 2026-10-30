@@ -5,6 +5,9 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **ATC style on the Live Map** — the new **Style** button switches the map to a radar-display look: no street map, the airport, the approach lines, the coastline and range rings, light and grey symbols and labels in three lines (callsign / level and selected level / speed and type) with a leader line, kept apart automatically. A research display, not for controlling traffic.
+- **Live Map like a radar display** — the aircraft are open squares (as on the Windshear map) with small square history plots behind them instead of the round dots. **Hist** chooses how many plots (off, 5, 10, 20 — about 30 s to 2 min) and **Vec** shows speed vectors: where each aircraft will be in 30 s, 1 min or 2 min.
+- **New guide: EDR explained** — what the turbulence number EDR is, how aviation and the Hong Kong Observatory use it, and how MODE-S Wind computes it from the aircraft's replies, with the first results at Helsinki-Vantaa (User guides tab).
 - **Pages open in the same tab** — the navigation no longer opens every page in a tab of its own; Ctrl- or middle-click still gives a new tab.
 - **Selected altitude in the Live Map list** — after the altitude, the altitude set on the autopilot: `FL120-A030` descending to 3 000 ft, `FL120-FL080` descending to FL080, `FL108+FL380` climbing to FL380, `FL390=FL390` level.
 - **Live Map labels like the Windshear map** — the new **Lbl** button steps the labels: off, callsign, registration, ICAO24, type, callsign + altitude (A023 / FL061), + type, and full with the autopilot's selected altitude (A023+A050, FL061-FL070).
