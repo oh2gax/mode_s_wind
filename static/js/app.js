@@ -876,7 +876,11 @@
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
               vec: lsGet('ms_app_ils_vec', 'off'),
               // departures on the map: hide (default) / show (from 2026-10-29)
-              deps: lsGet('ms_app_ils_deps', 'hide'), edrmap: lsGet('ms_app_ils_edrmap', 'off') };
+              deps: lsGet('ms_app_ils_deps', 'hide'), edrmap: lsGet('ms_app_ils_edrmap', 'off'),
+              // the MCP / FCU selected altitude after the altitude: off (default) / on (from 2026-10-30)
+              selalt: lsGet('ms_app_ils_selalt', 'off'),
+              // the ICAO type after the callsign on the map: off (default) / on (from 2026-10-30)
+              actype: lsGet('ms_app_ils_actype', 'off') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -889,11 +893,13 @@
   if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
   if (!['hide', 'show'].includes(I.deps)) I.deps = 'hide';
   if (!['off', '30', '60'].includes(I.edrmap)) I.edrmap = 'off';
+  if (!['off', 'on'].includes(I.selalt)) I.selalt = 'off';
+  if (!['off', 'on'].includes(I.actype)) I.actype = 'off';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
-                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap']];
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
@@ -924,6 +930,15 @@
     const alt = pa - (1013.25 - (wxQnh || 1013.25)) * 27;
     return alt <= ATC_TA_FT ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
                             : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
+  }
+  // With *Selected altitude* on (from 2026-10-30) the altitude is followed by the sign of the
+  // vertical rate and the altitude selected on the MCP / FCU in hundreds of feet, when the
+  // aircraft has sent it (BDS 4,0 or ADS-B, within 2 min): A023+020 = at 2 300 ft, climbing
+  // (or level), 2 000 ft selected; A045-030 = at 4 500 ft, descending, 3 000 ft selected.
+  function altLbl(a) {
+    const base = atcAlt(a.altitude);
+    if (I.selalt !== 'on' || a.sel_alt == null || a.altitude == null) return base;
+    return base + ((a.vert_rate || 0) < 0 ? '-' : '+') + String(Math.round(a.sel_alt / 100)).padStart(3, '0');
   }
   const shownEv = () => I.lvl === 'off' ? [] : I.ev.filter(e => (LV_RANK[e.lvl] ?? 0) >= LV_RANK[I.lvl] && rwyOk(e.rwy));
   // Auto: the barbs of the lowest aircraft on the approach (the closest to the
@@ -1104,6 +1119,7 @@
         ` · median below 1000 ft ${md(lay.lo) != null ? md(lay.lo).toFixed(2) : '—'}, 1000–3000 ft ${md(lay.hi) != null ? md(lay.hi).toFixed(2) : '—'} <span class="ws-research-tag">research</span>`
         : `Turbulence (EDR): no flights in the last ${EMIN} min`;
     }
+    const dense = I.actype === 'on' || I.selalt === 'on';            // longer labels (from 2026-10-30)
     for (const a of I.ac) {
       if (a.lat == null || a.lon == null) continue;
       const onA = a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway);
@@ -1122,7 +1138,10 @@
       // source, the selected one in white (dark theme) / near-black (light theme, white would vanish
       // on the light tiles); 10 px on the approach (also the selected one, with a thin frame — from
       // 2026-10-30, was 12 px with a heavy frame), 8 px others, in a 24-px tap area
-      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel || onA ? 10 : 8, H = 24, o = (H - s) / 2;
+      // with the type and / or the selected altitude in the labels (from 2026-10-30) smaller
+      // squares (8 / 6 px) and a smaller label font, so the longer labels fit
+      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, H = 24;
+      const s = dense ? (sel || onA ? 8 : 6) : (sel || onA ? 10 : 8), o = (H - s) / 2;
       // speed vector (from 2026-10-29): to where the aircraft will be after 30 s / 1 / 2 min at its
       // ground speed along its track, in map distance; not for a landed aircraft
       if (I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null)
@@ -1133,11 +1152,12 @@
               ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 1.6 : onA ? 2 : 1.5}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
-      const alt = a.altitude == null ? '' : atcAlt(a.altitude);
+      const alt = a.altitude == null ? '' : altLbl(a);
       const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
-          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">${esc(a.callsign || a.icao)}` +
+          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${dense ? ' dense' : ''}">${esc(a.callsign || a.icao)}` +
+                `${I.actype === 'on' && a.aircraft_type ? ` <span class="ty">${esc(a.aircraft_type)}</span>` : ''}` +
                 `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
     }
   }
@@ -1241,7 +1261,7 @@
       pick.innerHTML = `<span class="txt">${list.length ? 'Tap an aircraft or a strip for its wind barbs.' : 'No aircraft on the approach' + (I.rwy ? ' to ' + esc(I.rwy) : '') + '.'}</span>`;
     } else {
       pick.innerHTML = `<span class="txt"><b>${esc(sel.callsign || sel.icao)}</b> ${esc(sel.aircraft_type || '')} · RWY ${esc(sel.approach_runway || '?')} · ` +
-        `${sel.dist_thr_nm != null ? sel.dist_thr_nm.toFixed(1) : '—'} NM · ${atcAlt(sel.altitude)} · ` +
+        `${sel.dist_thr_nm != null ? sel.dist_thr_nm.toFixed(1) : '—'} NM · ${altLbl(sel)} · ` +
         `wind ${fmtWind(sel.best_wind_spd, sel.best_wind_dir)}${hwTxt(hw(sel))} · ${I.manual ? 'chosen' : 'auto: lowest'}` +
         (selWs && selWs.msg ? ` · <b>⚠ ${esc(selWs.msg)}</b> <small>(research)</small>` : '') + `</span>` +
         (I.manual ? '<button type="button" class="app-btn" id="app-ils-auto">Auto</button>' : '');
@@ -1256,7 +1276,7 @@
              ` style="--src:${ILS_SRC[a.meteo_source] || 'var(--border)'}">` +
              `<span class="rwy">${esc(a.approach_runway || '?')}</span><span class="cs">${esc(a.callsign || a.icao)}${a.ap ? ' <small>AP</small>' : ''}</span>` +
              `<span class="badges">${w ? `<span class="ws" style="background:${WSC[w.lvl]}"${w.msg ? ` title="${esc(w.msg + (w.say ? ' · ' + w.say : '') + ' (research)')}"` : ''}>${w.lvl.toUpperCase()}</span>` : ''}<span class="gs" style="color:${a.landed ? 'var(--text-3)' : pal[gs]}">${a.landed ? 'LANDED?' : gs}</span></span>` +
-             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${atcAlt(a.altitude)}${vs ? ' · ' + vs : ''}</span>` +
+             `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${altLbl(a)}${vs ? ' · ' + vs : ''}</span>` +
              `<span class="row">${a.landed ? `no new position for ${a.landed} s` : `wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}`}</span></button>`;
     }).join('') : '';
     // ICAO-style messages ("15A WSA 15K+ 2MF", from 28 Oct 2026) — research, not operational

@@ -119,6 +119,9 @@ body.app-body {
 /* the callsign as the altitude below it (29 Oct 2026); the selected aircraft too, from 30 Oct 2026 */
 .ils-ac-lbl { font-weight: 600; font-size: 10.5px; }   /* also the selected one (from 2026-10-30; was 700 12px): the frame marks it */
 .ils-ac-lbl.dim { color: #cbd5e1; font-weight: 600; }
+/* the type and / or the selected altitude in the label (from 2026-10-30): a smaller font */
+.ils-ac-lbl.dense, .ils-ac-lbl.dense small { font-size: 9px; }
+.ils-ac-lbl .ty { font-weight: 500; }
 .ils-ac-lbl small { display: block; font-weight: 600; color: #e2e8f0; font-size: 10.5px; margin-top: 1px; }
 /* the light theme's plate: 40 % white with a faint edge, so the map shows through (29 Oct 2026; was 85 %) */
 [data-theme="light"] .ils-ac-lbl { color: #0b1220; text-shadow: none; background: rgba(255,255,255,.4);

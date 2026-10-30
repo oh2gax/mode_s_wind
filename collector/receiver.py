@@ -621,6 +621,18 @@ def run_collector(
                     # Heard by OUR receiver (Beast feed) — the JSON poller
                     # refreshes last_seen but never last_rx_ts.
                     merged["last_rx_ts"] = ts
+                    # The altitude selected on the MCP / FCU (from 2026-10-30, the
+                    # phone's ILS view): from a BDS 4,0 reply (selected vertical
+                    # intention, as interrogated by the radars) or the ADS-B target
+                    # state (TC 29) when its source is the MCP / FCU — not the FMS
+                    _sa = None
+                    if bds == "4,0" and result.get("selected_altitude_mcp"):
+                        _sa = result.get("selected_altitude_mcp")
+                    elif tc == 29 and result.get("selected_altitude") \
+                            and result.get("selected_altitude_source") == "MCP/FCU":
+                        _sa = result.get("selected_altitude")
+                    if _sa is not None and 0 < _sa <= 50000:
+                        merged["sel_alt"], merged["sel_alt_ts"] = int(_sa), ts
                     # Any DF17 extended squitter (identification, velocity,
                     # status, position …) proves the aircraft is ADS-B
                     # equipped and transmitting during this visit.

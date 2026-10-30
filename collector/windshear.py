@@ -82,6 +82,7 @@ CORRIDOR_MAX_TRACK_DEV_DEG = 60.0  # default max track deviation from approach h
 CORRIDOR_GS_FLOOR_FT      = 1000.0 # reject corridor match when aircraft is more than
                                     # this many ft below the theoretical 3° glidepath;
                                     # filters overflying traffic vectored to other runways
+SEL_ALT_MAX_AGE           = 120.0  # s — an older MCP / FCU selected altitude is not shown (2026-10-30)
 CORRIDOR_CLIMB_FPM        = 500.0  # climbing faster without having been on an approach: not in a corridor (2026-10-29)
 
 # ── Go-around detection defaults ──────────────────────────────────────────────
@@ -1017,6 +1018,10 @@ class WindshearTracker:
                 "lon":            lon,
                 "altitude":       round(alt),
                 "vert_rate":      round(vert_rate),
+                # the MCP / FCU selected altitude (BDS 4,0 / ADS-B TC 29) when
+                # heard within SEL_ALT_MAX_AGE (from 2026-10-30)
+                "sel_alt":        (aircraft.get("sel_alt")
+                                   if now - (aircraft.get("sel_alt_ts") or 0) <= SEL_ALT_MAX_AGE else None),
                 "groundspeed":    aircraft.get("groundspeed"),
                 "track":          track,
                 "best_wind_spd":  wind_spd,

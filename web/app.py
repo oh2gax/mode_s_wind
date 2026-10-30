@@ -62,7 +62,7 @@ _wx_cache_lock = threading.Lock()
 _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
                  "best_wind_spd", "best_wind_dir", "meteo_source", "ap",
                  "in_corridor", "approach_runway", "dist_thr_nm", "last_seen",
-                 "barbs", "barbs_hi", "none_hist")
+                 "barbs", "barbs_hi", "none_hist", "sel_alt")   # sel_alt: MCP / FCU selected altitude (2026-10-30)
 # ?lite=1&map=1 (the map of the mobile ILS view, from 2026-10-28): also the
 # position and track and a short trail (the last TRAIL_SEC, every 2nd point);
 # &near=1 also the other aircraft within WINDSHEAR_RADIUS_NM and below
@@ -73,7 +73,8 @@ _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
 _WS_MAP_KEYS = ("lat", "lon", "track", "groundspeed")      # groundspeed: speed vectors (2026-10-29)
 _WS_NEAR_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "meteo_source",
                  "in_corridor", "lat", "lon", "track", "groundspeed", "last_seen",
-                 "dep", "dep_rwy")          # dep: a departure (climb-out), from 2026-10-29
+                 "dep", "dep_rwy",          # dep: a departure (climb-out), from 2026-10-29
+                 "vert_rate", "sel_alt")    # the selected-altitude label (2026-10-30)
 _WS_TRAIL_SEC = 120
 _WS_NEAR_POS_SEC = 30      # a position older than this is not drawn (e.g. a landed aircraft
                            # still heard on the ground at its last airborne position)
@@ -1527,7 +1528,9 @@ def create_app(
                 continue
             if _haversine_nm(lat0, lon0, lat, lon) > r_max:
                 continue
-            x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a and k not in ("dep", "dep_rwy")}
+            x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a and k not in ("dep", "dep_rwy", "sel_alt")}
+            if a.get("sel_alt") and now - (a.get("sel_alt_ts") or 0) <= 120:
+                x["sel_alt"] = a["sel_alt"]
             x["in_corridor"] = False
             x["meteo_source"] = a.get("meteo_source") or "NONE"
             if icao in deps:

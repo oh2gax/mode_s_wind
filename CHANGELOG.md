@@ -7,7 +7,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map)
+
+### Mobile ILS map: aircraft type, smaller labels with more data
+- New option *Aircraft type on the map* **Off** (default) / *On*: the ICAO type after the callsign (`FIN456 AT75`). With the type and / or the selected altitude on, the map's labels are drawn in a 9-px font (10.5 px otherwise) and the squares 8 / 6 px (10 / 8 px otherwise), so the longer labels fit; with both off the map is as before. `static/js/app.js`, `static/css/app.css`, `web/templates/app.html`. Mobile user guide 1.25.
+
+### Mobile ILS view: selected altitude
+- New option *Selected altitude* **Off** (default) / *On*: the altitude on the map, in the selected aircraft's line and in the strips is followed by `+` / `-` (the sign of the vertical rate) and the altitude set on the MCP / FCU in hundreds of feet — `A023+020`: at 2 300 ft, climbing or level, 2 000 ft selected. Source: BDS 4,0 replies (`selected_altitude_mcp`) and the ADS-B target state (TC 29, MCP / FCU source only), kept in `live_state` as `sel_alt` / `sel_alt_ts` (`collector/receiver.py`), passed on by the windshear tracker when at most 120 s old (`SEL_ALT_MAX_AGE`, `collector/windshear.py`) and in `/api/windshear/state?lite=1` (`web/app.py`; the other traffic also with `vert_rate`). `static/js/app.js` (`altLbl`), `web/templates/app.html`. Mobile user guide 1.24.
 
 ### Mobile ILS map: lighter selected aircraft
 - The selected aircraft (whose barbs are drawn) is now a 10-px square like the other approach traffic with a thin 1.6-px white frame (near-black in the light theme; was 12 px with a 2.4-px frame), its speed vector as thin as the others', and its label in the same size and weight as the other labels (was bold 12 px). `static/js/app.js`, `static/css/app.css`. Mobile user guide 1.23 (text).
