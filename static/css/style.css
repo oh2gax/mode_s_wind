@@ -492,6 +492,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ac-map-label .ac-lbl-type { font-weight: 400; }
 .ac-map-label .ac-lbl-notype { opacity: .6; }
 .ac-map-label.dense, .ac-map-label.dense small { font-size: 10px; }
+/* selected altitude after the altitude in the Live Map list (from 2026-10-30) */
+.ac-detail .ac-sel { margin-left: 2px; font-family: Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', ui-monospace, monospace; color: var(--text-1); cursor: help; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    WINDSHEAR PAGE

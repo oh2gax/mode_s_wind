@@ -812,7 +812,8 @@ function heatTipHtml(cell) {
     if (!cell) return;
     const d   = new Date(cell.dt * 1000);
     const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    window.open(`/gps-episodes?date=${iso}&fl=${encodeURIComponent(cell.band)}`, '_blank');
+    // the same tab (from 30 Oct 2026; was a new tab) — Back returns here
+    location.href = `/gps-episodes?date=${iso}&fl=${encodeURIComponent(cell.band)}`;
   });
 })();
 

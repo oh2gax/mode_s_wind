@@ -5,7 +5,9 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
-- **Live Map labels like the Windshear map** — the new **Lbl** button steps the labels: off, callsign, registration, ICAO24, type, callsign + altitude (A023 / FL061), + type, and full with the autopilot's selected altitude (A023+020).
+- **Pages open in the same tab** — the navigation no longer opens every page in a tab of its own; Ctrl- or middle-click still gives a new tab.
+- **Selected altitude in the Live Map list** — after the altitude, the altitude set on the autopilot: `FL120-A030` descending to 3 000 ft, `FL120-FL080` descending to FL080, `FL108+FL380` climbing to FL380, `FL390=FL390` level.
+- **Live Map labels like the Windshear map** — the new **Lbl** button steps the labels: off, callsign, registration, ICAO24, type, callsign + altitude (A023 / FL061), + type, and full with the autopilot's selected altitude (A023+A050, FL061-FL070).
 - **Boundary-layer temperature to 5 000 ft** — the temperatures of the climb-outs now reach 5 000 ft (before 3 000 ft) in the time–height section and the BL charts; the hours since yesterday evening are filled in at the update. At night few aircraft depart, so the upper part is often empty then.
 - **Receiving-station overview updated** — page 5 now shows the phone's approach map with the turbulence (EDR) of the last hour (User guides: *The receiving station*, version 1.6).
 - **Go-arounds in the aircraft types** — on the Windshear page's statistics a type with a go-around gets a red **GA** badge; point at it to see those landings.

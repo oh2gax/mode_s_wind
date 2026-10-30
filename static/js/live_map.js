@@ -184,8 +184,7 @@ function liveLabelHtml(ac) {
   if (lv === 'icao') return esc(ac.icao);
   if (lv === 'type') return ty || '<span class="ac-lbl-notype">—</span>';
   const vr = ac.vert_rate, tr = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '';
-  const sel = lv === 'full' && ac.sel_alt != null && ac.altitude != null
-    ? ((vr || 0) < 0 ? '-' : '+') + String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
+  const sel = lv === 'full' ? selAltTxt(ac) : '';    // as in the list: A023+A050, FL120-A030, FL061-FL070, FL390=FL390
   const l2 = ac.landed ? 'landed' : liveAtcAlt(ac.altitude) + (sel || tr);
   return cs + ((lv === 'type+' || lv === 'full') && ty ? ` <span class="ac-lbl-type">${ty}</span>` : '') + `<small>${l2}</small>`;
 }
@@ -554,6 +553,19 @@ function listAlt(alt) {
 }
 // Climbing / descending: arrow when the vertical rate is at least 300 fpm
 const VS_ARROW_FPM = 300;
+// The altitude selected on the autopilot panel (MCP / FCU; sel_alt of the live
+// stream when heard within 2 min) after the altitude (from 30 Oct 2026):
+// + climbing, - descending (≥ 300 fpm), = level; the value as the controllers
+// write it — up to the transition altitude A + hundreds of feet (A030), above
+// it a flight level (FL080): FL120-A030, FL120-FL080, FL050+FL380,
+// FL390=FL390.  '' when not known.
+function selAltTxt(ac) {
+  if (ac.sel_alt == null || ac.altitude == null) return '';
+  const vr = ac.vert_rate || 0;
+  const sign = vr >= VS_ARROW_FPM ? '+' : vr <= -VS_ARROW_FPM ? '-' : '=';
+  const h = Math.round(ac.sel_alt / 100);
+  return sign + (ac.sel_alt > TRANSITION_ALT_FT ? 'FL' : 'A') + String(h).padStart(3, '0');
+}
 
 // ── Aircraft list panel ───────────────────────────────────────────────────
 function renderList(data) {
@@ -611,7 +623,7 @@ function renderList(data) {
         <span class="ac-icao">${ac.callsign || ac.registration ? ac.icao : ''}</span>
         ${vsArrow}
       </div>
-      <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${listAlt(ac.altitude)}${vsText}
+      <div class="ac-detail">${ac.aircraft_type ? esc(ac.aircraft_type) + ' · ' : ''}${listAlt(ac.altitude)}${selAltTxt(ac) ? `<span class="ac-sel" title="Selected altitude on the autopilot panel (MCP / FCU): ${ac.sel_alt.toLocaleString()} ft — + climbing, - descending, = level">${selAltTxt(ac)}</span>` : ''}${vsText}
         ${ac.groundspeed != null ? ' · ' + ac.groundspeed + ' kt' : ''}</div>
       <div class="ac-meteo">${ac.landed ? `Landed? — no new position for ${ac.landed} s` : meteoLine}</div>
     `;
