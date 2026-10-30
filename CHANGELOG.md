@@ -9,6 +9,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map)
 
+### Windshear page map: one label size, lighter selected square
+- The map labels show the callsign in the same size and weight as the altitude (11 px; 10 px with *+Type* / *Full*); before the callsign was 12 px and heavier. The selected aircraft's white square is smaller (8 px) with a thinner frame, so it is only lightly marked. `static/css/style.css`, `static/js/windshear.js`. Windshear user guide 2.12.
+
 ### Windshear page map: label levels with the aircraft type and the selected altitude
 - New **Lbl** button next to *Vec*: steps the map labels through *CS* (callsign) → *Type* (ICAO type only) → *CS+Alt* (default, as before) → *+Type* (`FIN456 AT75` over the altitude) → *Full* (also the MCP / FCU selected altitude, `A023+020`, as on the phone). With the type or the selected altitude the labels are a little smaller; the level is remembered in the browser. The aircraft's hover tooltip gives its type. `static/js/windshear.js`, `static/css/style.css`, `web/templates/windshear.html`. Windshear user guide 2.12.
 

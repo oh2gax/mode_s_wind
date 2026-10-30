@@ -268,17 +268,18 @@ const acMarkers = {};   // icao → { marker, label }
 // The aircraft symbol as on a radar screen (from 2026-10-29, as the mobile view's
 // approach map): an open square framed in the colour of the wind source — 10 px on
 // the approach, 8 px others; the aircraft whose barbs the profile shows has a thin
-// white frame (near-black in the light theme), 10 px (from 2026-10-29 evening; it
-// was 12 px with a heavy frame); drawn in a 22-px icon.
+// white frame (near-black in the light theme), 8 px, only lightly marked (from
+// 2026-10-30; 10 px from 2026-10-29 evening, before 12 px with a heavy frame);
+// drawn in a 22-px icon.
 function makeAcIcon(src, ac) {
   const sel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao);
   const onA = !!(ac && ac.in_corridor);
   const color = sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
-  const s = sel || onA ? 10 : 8, H = 22, o = (H - s) / 2;
+  const s = sel ? 8 : onA ? 10 : 8, H = 22, o = (H - s) / 2;
   return L.divIcon({
     html: `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">` +
           `<rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none" stroke="${color}"` +
-          ` stroke-opacity="${onA || sel ? 1 : 0.7}" stroke-width="${sel ? 1.6 : onA ? 2 : 1.5}"/></svg>`,
+          ` stroke-opacity="${sel ? 0.9 : onA ? 1 : 0.7}" stroke-width="${sel ? 1.3 : onA ? 2 : 1.5}"/></svg>`,
     className:  '',
     iconSize:   [H, H],
     iconAnchor: [H / 2, H / 2],
@@ -326,7 +327,7 @@ function wsAcLabelHtml(ac) {
 }
 function wsAcLabelIcon(ac) {
   const sel = barbLayerActive && ac.icao === barbSelectedIcao;
-  const s = sel || ac.in_corridor ? 10 : 8;
+  const s = sel ? 8 : ac.in_corridor ? 10 : 8;   // as makeAcIcon
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
   return L.divIcon({ html: wsAcLabelHtml(ac), className: '', iconSize: [0, 0],
                      iconAnchor: left ? [s / 2 + 4, 7] : [-(s / 2 + 4), 7] });
