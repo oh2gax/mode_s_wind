@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Approach history in the phone's ILS view** — under the flight strips the landings of the last 3 hours (or 6 h, or off) as in the History view, by default with their turbulence (EDR); tap a landing for its details. Mobile guide 1.29.
 - **ATC map on the phone** — the ILS approach view's new option *Map style: ATC* gives the approach map the radar-display look of the Live Map and the Windshear page: a plain dark or light grey background with the coast, the airport and the approach lines, and grey aircraft. Goes well with *Labels on the map: ATC*. Mobile guide 1.28.
 - **Statistics opens on Message rate** — the Statistics page now always starts with the *Message rate* chart, also after you have looked at *Data transfer*.
 - **Calmer Windshear page buttons** — all buttons of the Windshear page — over the map, in the chart panel (WR, ACI, WS, EDR, BL, ST, ½ …), the Approach History, the statistics (Live, Yest, 1w) and the ILS profile (Barbs, Hi, Auto, Val, HW, Trk, Zoom) — are now alike: grey when off, dark blue when on (as ATC was), instead of amber, teal, magenta, purple and blue.

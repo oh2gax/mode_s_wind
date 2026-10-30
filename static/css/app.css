@@ -282,6 +282,12 @@ body.app-body {
 /* Turbulence (EDR) line under the ILS map / profile (from 2026-10-29) */
 .app-ils-edr { padding: 2px 8px 6px; font-size: 11.5px; line-height: 1.4; }
 .app-ils-edr[hidden] { display: none; }
+/* Approach history under the ILS strips (from 2026-10-30): the History view's cards */
+.app-ils-hist { margin-top: 8px; padding: 0; }
+.app-ils-hist[hidden] { display: none; }
+.app-ils-histhd { padding: 4px 8px 2px; font-size: 12px; color: var(--text-2); border-top: 1px solid var(--border); }
+.app-ils-histhd b { color: var(--text-1); }
+.app-ils-hist .app-hist-head { position: static; }
 .app-bl-chip { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 0 6px; border: 1px solid currentColor;
                border-radius: 9px; margin: 1px 2px; white-space: nowrap; }
 /* METAR & pilot report cards (from 2026-10-29): the whole message, wrapped */

@@ -668,8 +668,8 @@
     return `Boundary layer then: ${p.length ? p.join(' · ') : (r.w || []).length ? 'no low-level jet, no surface inversion' : 'no flights in that hour'}`;
   }
 
-  function histChips(e) {
-    const dep = H.kind === 'dep', w = e.shear || null, out = [];
+  function histChips(e, S = H) {   // S: the settings (kind, show, res) — H, or the ILS view's list (from 2026-10-30)
+    const dep = S.kind === 'dep', w = e.shear || null, out = [];
     const c = !dep && e.cond && e.cond.idx != null ? e.cond.idx : null;
     if (c != null) out.push(`<span class="ch" style="color:${aciCol(c)}">ACI ${c.toFixed(1)}</span>`);
     const lv = w && w.lvl && w.lvl !== 'none' ? w.lvl : null;
@@ -680,21 +680,21 @@
     if (e.go_arounds > 0 || e.ga) out.push('<span class="ch ga">GA</span>');
     return out.join('');
   }
-  function histLine2(e) {
-    const dep = H.kind === 'dep', hdg = e.rwy_heading;
-    if (H.show === 'aci') {
+  function histLine2(e, S = H) {
+    const dep = S.kind === 'dep', hdg = e.rwy_heading;
+    if (S.show === 'aci') {
       const c = e.cond;
       if (dep) return '<span class="dim">ACI is computed for landings only</span>';
       if (!c || c.idx == null) return `<span class="dim">no index${c && c.metar ? ' · METAR ' + esc(c.metar) : ''}</span>`;
       return `<b style="color:${aciCol(c.idx)}">${c.idx.toFixed(1)} ${esc(c.lbl || '')}</b>` +
              ` · hi ${c.hi ? c.hi.idx.toFixed(1) : '–'} · lo ${c.lo ? c.lo.idx.toFixed(1) : '–'}${c.metar ? ' · ' + esc(c.metar) : ''}`;
     }
-    if (H.show === 'edr') {
+    if (S.show === 'edr') {
       const d = e.edr;
       if (!d || d.m == null) return '<span class="dim">no EDR (too few straight pieces)</span>';
       return `<span><b style="color:${edrCol(d.m)}">${f2(d.m)} ${EDR_NAME[edrCls(d.m)]}</b> · lo ${f2(d.lo)} · hi ${f2(d.hi)} · peak <b style="color:${edrCol(d.pk)}">${f2(d.pk)}</b> · ${d.n} pcs</span>`;
     }
-    if (H.show === 'ws') {
+    if (S.show === 'ws') {
       const w = e.shear;
       if (!w) return '<span class="dim">no windshear report</span>';
       const t = dep ? w.trial : w, b = w.band, parts = [];
@@ -704,17 +704,17 @@
       if (!dep && w.cf && w.lvl && w.lvl !== 'none') { const n = (w.cf.b || 0) + (w.cf.a || 0); parts.push(n ? `✓${n}` : 'iso'); }
       return parts.length ? parts.join(' · ') : '<span class="dim">nothing above the noise</span>';
     }
-    const bands = H.res === 'hi' ? HB_HI : HB_LO;
+    const bands = S.res === 'hi' ? HB_HI : HB_LO;
     return `<span class="strip" style="--n:${bands.length}">` + bands.map(bb => {
       const b = e.bands ? e.bands[String(bb)] : null;
       if (!b) return '<i class="nil">·</i>';
-      if (H.show === 'wind') return `<i><span class="arr" style="transform:rotate(${(b.dir + 180) % 360}deg)">↑</span>${Math.round(b.spd)}</i>`;
-      const v = H.show === 'xw' ? xwOf(b, hdg) : hwOf(b, hdg);
-      return v == null ? '<i class="nil">·</i>' : `<i class="${H.show === 'xw' ? xwCls(v) : hwCls(v)}">${sgn(v)}</i>`;
+      if (S.show === 'wind') return `<i><span class="arr" style="transform:rotate(${(b.dir + 180) % 360}deg)">↑</span>${Math.round(b.spd)}</i>`;
+      const v = S.show === 'xw' ? xwOf(b, hdg) : hwOf(b, hdg);
+      return v == null ? '<i class="nil">·</i>' : `<i class="${S.show === 'xw' ? xwCls(v) : hwCls(v)}">${sgn(v)}</i>`;
     }).join('') + '</span>';
   }
-  function histBody(e) {
-    const dep = H.kind === 'dep', hdg = e.rwy_heading, rows = [];
+  function histBody(e, S = H) {
+    const dep = S.kind === 'dep', hdg = e.rwy_heading, rows = [];
     for (const bb of HB_ALL) {
       const b = e.bands ? e.bands[String(bb)] : null;
       if (!b) continue;
@@ -887,7 +887,10 @@
               lbl: lsGet('ms_app_ils_lbl', 'std'),
               // the map style: street (CARTO tiles, default) or atc — the radar-display look of
               // the Live Map and the Windshear map (static/js/atc_display.js; from 2026-10-30)
-              mapst: lsGet('ms_app_ils_mapst', 'street') };
+              mapst: lsGet('ms_app_ils_mapst', 'street'),
+              // the approach history under the strips: off / 3 / 6 h (default 3) and what its
+              // cards show (default edr — the turbulence), as the History view (from 2026-10-30)
+              hist: lsGet('ms_app_ils_hist', '3'), hshow: lsGet('ms_app_ils_hshow', 'edr') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -904,11 +907,14 @@
   if (!['off', 'on'].includes(I.actype)) I.actype = 'off';
   if (!['std', 'atc'].includes(I.lbl)) I.lbl = 'std';
   if (!['street', 'atc'].includes(I.mapst)) I.mapst = 'street';
+  if (!['off', '3', '6'].includes(I.hist)) I.hist = '3';
+  if (!['hw', 'xw', 'wind', 'aci', 'ws', 'edr'].includes(I.hshow)) I.hshow = 'edr';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
-                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst']];
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst'],
+                  ['app-ils-hist', 'hist', 'ms_app_ils_hist'], ['app-ils-hshow', 'hshow', 'ms_app_ils_hshow']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
@@ -917,6 +923,7 @@
       if (key === 'wschart' || key === 'wsh') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
       if (key === 'mapst' && I.mapst === 'atc' && window.L) loadAtc().then(drawIls).catch(() => {});
+      if (key === 'hist') { IHist.at = 0; IHist.open.clear(); loadIlsHist(); }
     });
   }
   $('app-ils-trails').checked = I.trails;
@@ -1347,12 +1354,70 @@
              `<span class="row">${esc(a.aircraft_type || '—')} · ${a.dist_thr_nm.toFixed(1)} NM · ${altLbl(a)}${vs ? ' · ' + vs : ''}</span>` +
              `<span class="row">${a.landed ? `no new position for ${a.landed} s` : `wind ${fmtWind(a.best_wind_spd, a.best_wind_dir)}${hwTxt(hw(a))}`}</span></button>`;
     }).join('') : '';
+    drawIlsHist();
     // ICAO-style messages ("15A WSA 15K+ 2MF", from 28 Oct 2026) — research, not operational
     const alert = evs.length ? ' · ⚠ ' + [...new Set(evs.map(e => e.msg || `${e.lvl.toUpperCase()} ${e.rwy}`))].join(', ') + ' (research)' : '';
     $('app-sub').textContent = I.fetched
       ? `${list.length} on approach · QNH ${wxQnh != null ? Math.round(wxQnh) : '—'}${alert} · ${new Date(I.fetched).toISOString().slice(11, 19)} UTC`
       : 'Loading…';
   }
+  // ── Approach history under the strips (from 2026-10-30) ─────────────────
+  // The History view's cards (histChips / histLine2 / histBody with the ILS view's
+  // settings: landings, I.hshow, Lo bands) of the landings of the last 3 or 6 h of
+  // the runways chosen; fetched at most once a minute while the ILS view is open,
+  // the boundary layer of those hours (for the opened cards) every 10 min.
+  const IHist = { rows: [], at: 0, hours: 0, fetched: 0, open: new Set(), blAt: 0 };
+  async function loadIlsHist() {
+    const h = parseInt(I.hist, 10) || 0;
+    if (!h || (Date.now() - IHist.at < 60000 && IHist.hours === h)) return;
+    IHist.at = Date.now();
+    try {
+      const d = await (await fetch(`/api/windshear/approach-history?lite=1&window=${h * 3600}`, { cache: 'no-store' })).json();
+      IHist.rows = Array.isArray(d) ? d.slice().sort((a, b) => b.ts - a.ts) : [];
+      IHist.hours = h; IHist.fetched = Date.now();
+    } catch (_) { IHist.at = 0; return; }
+    drawIlsHist();
+    if (Date.now() - IHist.blAt > 600000) {
+      IHist.blAt = Date.now();
+      try {
+        const b = await (await fetch(`/api/boundary?hours=${h + 1}`, { cache: 'no-store' })).json();
+        for (const r of Array.isArray(b) ? b : []) if (!r.partial) HB.map.set(r.ts, r);
+      } catch (_) { IHist.blAt = 0; }
+    }
+  }
+  function drawIlsHist() {
+    const box = $('app-ils-hist');
+    const h = parseInt(I.hist, 10) || 0;
+    box.hidden = !h;
+    if (!h) return;
+    const S = { kind: 'arr', show: I.hshow, res: 'lo' };
+    const list = IHist.rows.filter(e => !I.rwy || rwyOk(e.runway));
+    const what = { edr: 'turbulence (EDR, research)', hw: 'headwind kt', xw: 'crosswind kt', wind: 'wind kt', aci: 'approach conditions', ws: 'windshear' }[S.show];
+    $('app-ils-histhd').innerHTML = `<b>Approach history</b> · last ${h} h${I.rwy ? ' · ' + esc(I.rwy) : ''} · ` +
+      (IHist.fetched && IHist.hours === h ? `${list.length} landing${list.length === 1 ? '' : 's'} · ${what}` : 'loading…');
+    const bandsShown = ['hw', 'xw', 'wind'].includes(S.show);
+    $('app-ils-histband').innerHTML = bandsShown
+      ? `<span class="strip" style="--n:${HB_LO.length}">` + HB_LO.map(b => `<i>${b}</i>`).join('') + '</span>' : '';
+    $('app-ils-histband').hidden = !bandsShown || !list.length;
+    const today = isoDay(new Date());
+    $('app-ils-histlist').innerHTML = list.map(e => {
+      const k = `${Math.round(e.ts)}|${e.icao}`, open = IHist.open.has(k);
+      const d = new Date(e.ts * 1000);
+      const tm = (isoDay(d) !== today ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + (e.time_utc || hhmm(e.ts));
+      return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
+        `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw">${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
+        `<span class="l2">${histLine2(e, S)}</span></button>` +
+        (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
+    }).join('') || (IHist.fetched ? `<div class="app-empty">No landings${I.rwy ? ' on ' + esc(I.rwy) : ''} in the last ${h} h.</div>` : '');
+  }
+  $('app-ils-histlist').addEventListener('click', ev => {
+    const hd = ev.target.closest('.hd');
+    if (!hd) return;
+    const k = hd.parentElement.dataset.k;
+    IHist.open.has(k) ? IHist.open.delete(k) : IHist.open.add(k);
+    drawIlsHist(); markScroll();
+  });
   async function loadIls() {
     try {
       const q = I.show === 'profile' ? '' : I.mapac === 'all' || I.deps === 'show' ? '&map=1&near=1' : '&map=1';
@@ -1365,6 +1430,7 @@
       if (I.wschart !== 'off') loadIlsWs();
       if (I.edrmap !== 'off') loadEdrTracks();
       loadBlNow();
+      if (I.hist !== 'off') loadIlsHist();
     } catch (_) { $('app-sub').textContent = 'Could not load the approach traffic.'; }
   }
   $('app-ils').addEventListener('pointerdown', e => {
