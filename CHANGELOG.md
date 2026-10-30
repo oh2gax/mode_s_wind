@@ -9,6 +9,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away)
 
+### Mobile ILS options: Trails under Speed vectors
+- The *Trails* switch of the ILS approach options moved from the end of the list to right under *Speed vectors*, next to the other map drawing options. `web/templates/app.html`. Mobile user guide 1.25 (options table).
+
 ### Mobile menu: What's new at the top, User guides from What's new
 - *What's new* is now also at the top of the phone menu, next to the *MODE-S Wind* title, with the same red dot for an unread version; the button in *General* stays. In the *What's new* sheet a **User guides** button next to the title opens the guides (and **What's new** there leads back), like the two tabs of the desktop window. `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`. Mobile user guide 1.25.
 
