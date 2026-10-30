@@ -276,7 +276,7 @@ function applyTheme(theme) {
   if (atc) { wsAptMarker.remove(); wsRangeCircle.remove(); }
   else     { wsAptMarker.addTo(map); wsRangeCircle.addTo(map); }
   const lg = document.getElementById('ws-atc-legend');
-  if (lg) { lg.hidden = !atc; if (atc) lg.innerHTML = AtcDisplay.legendHtml(); }
+  if (lg) { lg.hidden = !atc; if (atc) lg.innerHTML = AtcDisplay.legendHtml({ noSel: true }); }   // no selected colour here
 
   loadOverlays(theme);
   wsAtcLines.show(atc);
@@ -303,10 +303,12 @@ const acMarkers = {};   // icao → { marker, label }
 // 2026-10-30; 10 px from 2026-10-29 evening, before 12 px with a heavy frame);
 // drawn in a 22-px icon.
 function makeAcIcon(src, ac) {
-  const sel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao);
+  // ATC style: monochrome (below 6 000 ft light, above grey, landed grey); from 30 Oct
+  // 2026 evening the aircraft whose barbs the profile shows is not marked there at all
+  // (was yellow / blue, its label too), as on the Live Map — the flight strip shows it
+  const sel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao) && !wsIsAtc();
   const onA = !!(ac && ac.in_corridor);
-  // ATC style: monochrome (below 6 000 ft light, above grey, landed grey), the selected yellow / blue
-  const color = wsIsAtc() ? (sel ? AtcDisplay.pal().sel : ac && !ac.landed ? AtcDisplay.symColor(ac) : AtcDisplay.pal().high)
+  const color = wsIsAtc() ? (ac && !ac.landed ? AtcDisplay.symColor(ac) : AtcDisplay.pal().high)
                           : sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
   const s = sel ? 8 : onA ? 10 : 8, H = 22, o = (H - s) / 2;
   return L.divIcon({
@@ -422,12 +424,15 @@ function wsDrawCanvas(g, m, W, H) {
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
     const sel = barbLayerActive && icao === barbSelectedIcao;
-    const col = atc ? (sel ? P.sel : ac.landed ? P.high : AtcDisplay.symColor(ac))
+    // In the ATC style the aircraft whose barbs the profile shows (nearly always one,
+    // chosen by Auto) is drawn like the others — square, label, plots and vector grey,
+    // as on the Live Map (from 30 Oct 2026 evening; before all yellow in Dark, blue in Light)
+    const col = atc ? (ac.landed ? P.high : AtcDisplay.symColor(ac))
                     : acColor(ac.landed ? 'NONE' : ac.meteo_source);
     const fade = ac.landed ? 0.5 : 1;
     if (wsHistN) {
       const pts = (wsTrails[icao] || []).filter(q => q[2] < ac._ts).slice(-wsHistN);   // not the current position
-      AtcDisplay.drawPlots(g, m, pts, wsHistN, atc && sel ? P.sel : col, fade, obst);
+      AtcDisplay.drawPlots(g, m, pts, wsHistN, col, fade, obst);
     }
     if (atc) {
       if (!ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
@@ -435,7 +440,7 @@ function wsDrawCanvas(g, m, W, H) {
       const lines = ext ? AtcDisplay.extLines(ac, wsHov.data(), { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
                                                                  apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] })
                         : AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, col, ext,
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel: false, fade, col, ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
                              ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
     }

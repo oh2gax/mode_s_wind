@@ -371,11 +371,12 @@ const AtcDisplay = (() => {
   }
 
   // Legend: the three symbol colours and the research notice
-  function legendHtml() {
+  // o.noSel: without the selected colour (the Windshear map, from 30 Oct 2026 evening)
+  function legendHtml(o) {
     const P = pal();
     return `<span class="legend-sq" style="border-color:${P.low}"></span> below ${LOW_FT.toLocaleString('en-US')} ft
       <span class="legend-sq" style="border-color:${P.high}"></span> above
-      <span class="legend-sq" style="border-color:${P.sel}"></span> selected
+      ${o && o.noSel ? '' : `<span class="legend-sq" style="border-color:${P.sel}"></span> selected`}
       <span class="legend-note" title="A radar-display look for research and comparison: positions as received by this station (ADS-B / MLAT), not certified surveillance data">Research display — not for air traffic control</span>`;
   }
 
