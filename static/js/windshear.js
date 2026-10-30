@@ -68,8 +68,54 @@ const GS_COLOR_LIGHT = {
 };
 
 // ── Map initialisation ────────────────────────────────────────────────────────
+// The map view (centre and zoom) is remembered in this browser (from
+// 2026-10-30, as the Live Map, Wind Map and Weather maps; ms_wsMapView) and
+// the page opens where it was left; the ⌂ button under the zoom buttons goes
+// back to the airport at the default zoom.
+const WS_MAP_HOME_ZOOM = 10;
+const WS_MAP_VIEW_KEY  = 'ms_wsMapView';
+function wsSavedView() {
+  try {
+    const v = JSON.parse(localStorage.getItem(WS_MAP_VIEW_KEY) || 'null');
+    if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && Number.isFinite(v.z)
+        && Math.abs(v.lat) <= 85 && Math.abs(v.lon) <= 180 && v.z >= 3 && v.z <= 18) return v;
+  } catch (e) { /* private mode / broken value: the default view */ }
+  return null;
+}
+const _wsView = wsSavedView();
 const map = L.map('ws-map', { zoomControl: true })
-             .setView([WS_AIRPORT_LAT, WS_AIRPORT_LON], 10);
+             .setView(_wsView ? [_wsView.lat, _wsView.lon] : [WS_AIRPORT_LAT, WS_AIRPORT_LON],
+                      _wsView ? _wsView.z : WS_MAP_HOME_ZOOM);
+map.on('moveend', () => {
+  if (!map.getSize().x) return;                   // hidden map: nothing to keep
+  const c = map.getCenter();
+  try {
+    localStorage.setItem(WS_MAP_VIEW_KEY, JSON.stringify({ lat: +c.lat.toFixed(4), lon: +c.lng.toFixed(4), z: map.getZoom() }));
+  } catch (e) { /* private mode */ }
+});
+(function () {
+  const Home = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const box = L.DomUtil.create('div', 'leaflet-bar ms-map-home');
+      const a = L.DomUtil.create('a', '', box);
+      a.href = '#';
+      a.title = 'Back to the airport (default view)';
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', a.title);
+      a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">'
+        + '<path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" '
+        + 'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(a, 'click', e => {
+        L.DomEvent.preventDefault(e);
+        map.setView([WS_AIRPORT_LAT, WS_AIRPORT_LON], WS_MAP_HOME_ZOOM);
+      });
+      return box;
+    },
+  });
+  new Home().addTo(map);
+})();
 
 // CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
 // appended as a query param so raster tiles are served without the watermark.
@@ -351,7 +397,7 @@ function wsDrawCanvas(g, m, W, H) {
   if (atc) AtcDisplay.drawRings(g, m, W, H, wsRingNm, WS_AIRPORT_LAT, WS_AIRPORT_LON);
   const P = AtcDisplay.pal(), lbls = [];
   // the labels keep clear of the plots, the vectors and the panels over the map
-  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, .leaflet-control-zoom') : null;
+  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, .leaflet-control-zoom, .ms-map-home') : null;
   for (const [icao, ac] of Object.entries(wsShown)) {
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
