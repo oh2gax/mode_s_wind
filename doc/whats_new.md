@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **ATC labels on the phone's approach map** — the new option *Labels on the map: ATC* gives every aircraft the three-line label of the ATC view in a small font: callsign / level and selected level (`007↓020`) / speed and type (`14 A320`). Mobile guide 1.27.
 - **Half-width charts on the Windshear page** — the new **½** button next to the chart range makes the ACI, WS, EDR, BL and ST charts half as wide, so more of the map (and the ATC view) is free; up to 12 hours of data. Click again for the full width. Windshear guide 2.20.
 - **Selected altitude written the same everywhere** — the Windshear map's *Full* labels and the phone's *Selected altitude* now use the Live Map's form: `FL120-A030` descending from FL120 to 3 000 ft, `A023+A050` climbing to 5 000 ft, `FL390=FL390` level (before `A023+020`).
 - **Receiving-station overview, page 7: the extended label** — the ATC-style map page now shows Hover with live traffic of this afternoon: an A321 turning towards the final at 25° of bank, its six-line label with airspeeds, heading, bank and tailwind (User guides: *The receiving station*, version 1.8).
