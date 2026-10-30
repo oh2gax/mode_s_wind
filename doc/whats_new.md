@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Statistics opens on Message rate** — the Statistics page now always starts with the *Message rate* chart, also after you have looked at *Data transfer*.
 - **Calmer Windshear page buttons** — all buttons of the Windshear page — over the map, in the chart panel (WR, ACI, WS, EDR, BL, ST, ½ …), the Approach History, the statistics (Live, Yest, 1w) and the ILS profile (Barbs, Hi, Auto, Val, HW, Trk, Zoom) — are now alike: grey when off, dark blue when on (as ATC was), instead of amber, teal, magenta, purple and blue.
 - **Grey ATC symbols on the Windshear map** — in the ATC style the aircraft whose wind barbs the profile shows is no longer yellow (blue in Light): it is grey like the others, as on the Live Map. Its flight strip still shows which one it is.
 - **Windshear charts no longer cover the alert title** — on the Windshear page the ACI, EDR and BL charts are now the same height as the WS chart, so they stay above the *Windshear alert* title on a 1920 × 1080 screen, and the chart no longer changes height by itself after switching view.

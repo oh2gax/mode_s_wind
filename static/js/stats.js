@@ -37,7 +37,9 @@
   try {
     win = EMBED ? (+EMBED.win || 1440) : parseInt(localStorage.getItem('ms_statsWindow') || '10', 10) || 10;
     series = localStorage.getItem('ms_statsSeries') || 'rate';
-    tab = localStorage.getItem('ms_statsTab') === 'traffic' ? 'traffic' : 'msgs';
+    // the chart tab: always Message rate when the page opens (from 30 Oct 2026 evening;
+    // before the last tab was remembered as ms_statsTab, so the page could open on Data transfer)
+    localStorage.removeItem('ms_statsTab');
     trView = localStorage.getItem('ms_statsTrView') === 'net' ? 'net' : 'app';
     cadKind = localStorage.getItem('ms_statsCad') || '5,0';
     sigCat = localStorage.getItem('ms_statsSig') || 'all';
@@ -643,7 +645,6 @@
   }
   function setTab(t) {
     tab = t;
-    try { localStorage.setItem('ms_statsTab', tab); } catch (e) { /* */ }
     document.querySelectorAll('#mst-chart-tabs .mst-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     const tr = tab === 'traffic';
     document.querySelectorAll('#mst-chart-range .mst-tr-only').forEach(b => { b.hidden = !tr; });
