@@ -818,11 +818,13 @@ const WsCondChart = (() => {
     ctx.font = '10px "Courier New",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = CT.roseLabel;
     ctx.fillText(field === 'wind' ? 'Boundary layer · wind speed' : 'Boundary layer · temperature against the surface', 5, 5);
     ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5, 5);
+    // the readout's first line kept short (from 2026-10-30; the inversion's 600–1000 ft is in its hover text):
+    // a longer line wrapped and changed the chart's height when an inversion came or went
     if (readout) {
       const last = rows.filter(r => nowMs - r.ts * 1000 <= 2 * 3_600_000).sort((a, b) => b.ts - a.ts)[0];
       const nj = rows.filter(r => r.llj).length, ni = rows.filter(r => r.inv).length;
       const now = last ? [last.llj ? `<b>low-level jet ${last.llj.ft} ft ${last.llj.kt} kt</b> from ${String(last.llj.dir).padStart(3, '0')}°` : 'no low-level jet',
-                          last.inv ? `<b style="color:${light ? '#b91c1c' : '#f87171'}">surface inversion +${last.inv.dT.toFixed(0)} K</b> (600–1000 ft against the surface)` : 'no surface inversion'].join(' · ') : 'no data in the last hours';
+                          last.inv ? `<b style="color:${light ? '#b91c1c' : '#f87171'}">surface inversion +${last.inv.dT.toFixed(0)} K</b>` : 'no surface inversion'].join(' · ') : 'no data in the last hours';
       const key = field === 'wind'
         ? ['0', '10', '20', '30', '40', '55'].map(v => `<span style="color:${_spdCol(+v)}">■</span>${v}`).join(' ') + ' kt'
         : `<span style="color:${_dtCol(-6, light)}">■</span>−6 <span style="color:${_dtCol(0, light)}">■</span>0 <span style="color:${_dtCol(6, light)}">■</span>+6 K`;

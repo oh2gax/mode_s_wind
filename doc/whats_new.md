@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Fix: the boundary-layer chart kept jumping wider** — on the Windshear page the BL chart widened for a moment when the last hour had both a low-level jet and an inversion; it now keeps its width.
 - **Calmer Windshear map labels** — callsign and altitude in the same size; the selected aircraft's square is smaller and only lightly marked.
 - **Label levels on the Windshear map** — the new **Lbl** button steps the labels: callsign · type · callsign + altitude · + type · full (also the autopilot's selected altitude, `A023+020`).
 - **Windshear landings in the aircraft types** — on the Windshear page's statistics a type with a windshear report (ADV, WSA, MBA) in the period is coloured and gets a badge (e.g. `WSA` `ADV×5`); point at it to see those landings and what raised the alert.

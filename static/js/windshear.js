@@ -2409,9 +2409,13 @@ function sizeWindroseCanvas() {
     const ctrl = document.querySelector('.ws-map-controls');
     // panel = canvas + 2 × 5 px padding + 2 × 1 px border
     if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, ctrl.offsetWidth - 12);
-    if (Math.abs(canvas.width - w) <= 12 && canvas.width > WR_ROSE_SIZE) return;
-  }
-  if (canvas.width !== w)            canvas.width  = w;
+    if (!(Math.abs(canvas.width - w) <= 12 && canvas.width > WR_ROSE_SIZE) && canvas.width !== w) canvas.width = w;
+  } else if (canvas.width !== w) canvas.width = w;
+  // The readout no wider than the chart (from 2026-10-30): the panel is as wide as its
+  // content, so a long readout line (e.g. the BL view's "Last hour: low-level jet …
+  // · surface inversion …") made the whole panel jump wider and back; it now wraps.
+  const ro = document.getElementById('ws-windrose-readout');
+  if (ro) ro.style.maxWidth = wrIsChart() ? canvas.width + 'px' : '';
 }
 window.addEventListener('resize', () => { if (windroseEnabled) drawWindrose(); });
 
