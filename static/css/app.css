@@ -167,6 +167,8 @@ body.app-body {
                  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1); white-space: nowrap; cursor: pointer; }
 .app-head-news:active { background: var(--bg-3); }
 .app-head-news .app-news-dot { margin-left: 5px; }
+.app-sheet-tl { display: inline-flex; align-items: center; gap: 10px; }
+.app-head-news[hidden] { display: none; }
 
 /* view tiles */
 .app-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }

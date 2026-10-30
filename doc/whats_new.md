@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
-- **What's new at the top of the phone menu** — next to the *MODE-S Wind* title, with the red dot when there is something new (it is still in *General* too).
+- **What's new at the top of the phone menu** — next to the *MODE-S Wind* title, with the red dot when there is something new (it is still in *General* too). From *What's new*, the **User guides** button next to the title opens the guides.
 - **Aircraft type on the phone's approach map** — *Aircraft type on the map: On* shows the type after the callsign (`FIN456 AT75`); with it or the selected altitude on, the labels and squares are a little smaller so that everything fits.
 - **Selected altitude on the phone** — with *Selected altitude: On* the ILS approach view shows after each altitude the altitude the pilots have set on the autopilot panel, when the aircraft sends it: `A023+020` is at 2 300 ft, climbing (+) or descending (−), with 2 000 ft set.
 - **Lighter selection on the phone's approach map** — the selected aircraft now has a thin white frame of the same size as the other approach traffic, and its label is like the others.

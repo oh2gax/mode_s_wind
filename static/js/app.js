@@ -1520,6 +1520,9 @@
     $('app-sheet-about').hidden = kind !== 'about';
     $('app-sheet-guides').hidden = kind !== 'guides';
     $('app-sheet-news').hidden = kind !== 'news';
+    const alt = { news: 'guides', guides: 'news' }[kind];             // What's new ⇄ User guides (from 2026-10-30)
+    $('app-sheet-alt').hidden = !alt;
+    if (alt) { $('app-sheet-alt').textContent = alt === 'guides' ? 'User guides' : "What's new"; $('app-sheet-alt').dataset.kind = alt; }
     if (kind === 'guides' && !guidesLoaded) { $('app-sheet-guides').innerHTML = '<p class="app-small">Loading…</p>'; loadGuides(); }
     if (kind === 'news') {
       if (!newsLoaded) { $('app-sheet-news').innerHTML = '<p class="app-small">Loading…</p>'; loadNews(); }
@@ -1542,6 +1545,7 @@
   $('app-about-btn').addEventListener('click', () => openSheet('about'));
   $('app-guides-btn').addEventListener('click', () => openSheet('guides'));
   $('app-sheet-close').addEventListener('click', () => closeSheet(false));
+  $('app-sheet-alt').addEventListener('click', e => openSheet(e.currentTarget.dataset.kind));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(false); });
   window.addEventListener('popstate', () => closeSheet(true));
 
