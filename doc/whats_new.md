@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Tidier Windshear alert header** — the *ⓘ v2* link to the old, retired windshear algorithms is gone (their description is still in the User guides); next to the **?** of the Windshear guide a **? EDR** now opens *EDR explained*.
 - **Receiving-station overview, page 7** — a new page on the ATC-style map for readers with an air traffic control background: how a full label is read, with live traffic of 30 October (User guides: *The receiving station*, version 1.7).
 - **Calmer GPS pages** — GPS Quality and GPS Episodes now use softer colours, as the Flights page: muted signal colours, a one-colour heatmap, outlined tags and lighter episode lines on the map.
 - **Statistics chart opens at 24 h** — the *Message rate* and *Data transfer* chart now shows the last 24 hours by default (before 1 h).

@@ -199,9 +199,11 @@
               <option value="wsa" selected>WSA ≥15 kt</option>
               <option value="mba">MBA ≥30 kt</option>
             </select>
-            <a class="ws-log-info" href="/doc/Windshear_Algorithms_v1_Legacy.pdf" target="_blank" rel="noopener"
-               title="Detection v2 (from 24 Oct 2026): one server-side detector replaced the six browser algorithms Pair, Gradient, Energy, Rate, Baseline and Kinematic, which were retired — they mostly flagged the normal change of the wind with height. Opens the description of the retired algorithms (PDF).">ⓘ v2</a>
+            <!-- the ⓘ v2 link to the retired algorithms' description was removed on 30 Oct 2026;
+                 doc/Windshear_Algorithms_v1_Legacy.pdf stays in the User guides tab -->
             {% if guide_links.windshear %}<a class="guide-q" href="{{ guide_links.windshear }}" target="_blank" rel="noopener" title="User guide: Windshear detection and the Windshear page — PDF in a new tab">?</a>{% endif %}
+            <!-- the EDR document (from 30 Oct 2026): what the turbulence number EDR is and how MODE-S Wind computes it -->
+            {% if guide_links.edr %}<a class="guide-q guide-q-txt" href="{{ guide_links.edr }}" target="_blank" rel="noopener" title="EDR explained — turbulence intensity: what EDR is, how aviation and the Hong Kong Observatory use it and how MODE-S Wind computes it from the aircraft's replies — PDF in a new tab">? EDR</a>{% endif %}
             <button id="ws-log-clear" class="ws-log-clear-btn" title="Clear log">Clear</button>
           </div>
           <!-- status line of the server-side detection (ws_engine of /api/windshear/state); hover for details -->

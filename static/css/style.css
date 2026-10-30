@@ -1620,12 +1620,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   transition: all .15s;
 }
 .ws-log-clear-btn:hover { background: var(--bg-3); color: var(--text-1); }
-/* Windshear detection v2: info link (retired v1 algorithms) and log note */
-.ws-log-info {
-  font-size: 10px; color: var(--text-3); text-decoration: none; white-space: nowrap;
-  border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; flex-shrink: 0;
-}
-.ws-log-info:hover { color: var(--text-1); background: var(--bg-3); }
+/* Windshear log note (the ⓘ v2 info link was removed on 30 Oct 2026) */
 .ws-ws-log-note { display: inline-block; margin-top: 6px; font-size: 10px; line-height: 1.4; color: var(--text-3); }
 .ws-ws-log-note a { color: var(--accent); }
 
@@ -2208,6 +2203,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
            font-size: 11px; font-weight: 700; text-decoration: none; flex-shrink: 0; line-height: 1; }
 .panel-title-q { display: inline-flex; align-items: center; gap: 6px; }
 .guide-q:hover { color: #fff; background: var(--accent); border-color: var(--accent); }
+/* a "?" with a short name, e.g. "? EDR" on the Windshear page (30 Oct 2026) */
+.guide-q.guide-q-txt { width: auto; border-radius: 9px; padding: 0 6px; font-size: 10px; white-space: nowrap; }
 .wn-close { background: none; border: none; color: var(--text-2); font-size: 22px; line-height: 1;
             cursor: pointer; padding: 0 4px; }
 .wn-close:hover { color: var(--text-1); }

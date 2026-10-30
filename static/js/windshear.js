@@ -1772,8 +1772,7 @@ function renderWsLog() {
   if (ws.length) loadBlAt(null).then(ch => { if (ch) renderWsLog(); });   // the boundary layer of the alerts' hours
   if (all.length === 0) {
     el.innerHTML = `<div class="ws-ws-log-empty">No windshear alerts in the last 24 h<br>`
-      + `<span class="ws-ws-log-note">Detection v2 runs on the server for every landing (from 24 Oct 2026).`
-      + ` The six earlier algorithms were retired — <a href="/doc/Windshear_Algorithms_v1_Legacy.pdf" target="_blank" rel="noopener">legacy description</a>.</span></div>`;
+      + `<span class="ws-ws-log-note">The detection runs on the server for every landing and departure.</span></div>`;
     return;
   }
 

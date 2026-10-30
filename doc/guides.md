@@ -56,7 +56,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.14
+version: 2.15
 date: 2026-10-30
 pages: 25
 open: windshear
@@ -120,6 +120,7 @@ file: EDR_Explained.pdf
 version: 1.0
 date: 2026-10-30
 pages: 11
+open: edr
 
 The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation meteorologists and atmospheric scientists — with a first section in plain words for everyone. Updated whenever the MODE-S Wind calculation changes.
 
