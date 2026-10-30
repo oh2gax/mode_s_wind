@@ -3,8 +3,9 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.30102026 — Departures and all traffic on the phone's approach map
+## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines
 
+- **Thinner turbulence lines on the phone's approach map** — the turbulence (EDR) colours no longer cover the aircraft and their labels, and the departures' turbulence is drawn only when *Departures on the map* is *Shown*.
 - **Departures on the phone's approach map** — with *Departures: Shown* the ILS approach map now shows every climb-out within 15 NM, with its runway (`22R↑`); before, almost none appeared. *All tracked (15 NM)* likewise shows all traffic in the area, also aircraft that are climbing.
 
 ## v.29102026 — The boundary layer (low-level jet, inversion) — also in the Sounding page's time–height section, the windshear reports and on the Skew-T, turbulence in the Approach History, turbulence (EDR) of every landing and departure, METARs and pilot reports, altitudes as ATC sees them on the phone, speed vectors, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner, a new Flights page

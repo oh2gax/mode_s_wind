@@ -1077,14 +1077,17 @@
     // coloured by their EDR (collector/edr.py, /api/windshear/edr-tracks), the strongest
     // drawn last so that the colour shows the worst piece; and a summary line
     const EMIN = I.edrmap === 'off' ? 0 : parseInt(I.edrmap, 10) || 0;
-    const ET = EMIN ? IE.tracks.filter(t => Date.now() / 1000 - t.ts < EMIN * 60) : [];
+    // departures only when *Departures on the map: Shown* (from 2026-10-30)
+    const ET = EMIN ? IE.tracks.filter(t => Date.now() / 1000 - t.ts < EMIN * 60 && (t.ph !== 'dep' || I.deps === 'show')) : [];
     const ecol = v => v >= 0.45 ? '#ef4444' : v >= 0.20 ? '#fb923c' : v >= 0.10 ? '#facc15' : (light ? '#059669' : '#34d399');
     // the strongest on top: the colour shows the worst piece of the period
     const SG = []; for (const t of ET) for (const g of t.seg) if (g.p.length > 1) SG.push(g);
     SG.sort((x, y) => x.e - y.e);
+    // thin lines (from 2026-10-30; were 5 px on an 8-px halo) so that the aircraft and
+    // their labels stay readable over them
     for (const g of SG) {
-      L.polyline(g.p, { interactive: false, color: light ? '#ffffff' : '#0b1220', weight: 8, opacity: 0.9 }).addTo(IM.ac);
-      L.polyline(g.p, { interactive: false, color: ecol(g.e), weight: 5, opacity: 0.95 }).addTo(IM.ac);
+      L.polyline(g.p, { interactive: false, color: light ? '#ffffff' : '#0b1220', weight: 4, opacity: 0.6 }).addTo(IM.ac);
+      L.polyline(g.p, { interactive: false, color: ecol(g.e), weight: 2.5, opacity: 0.9 }).addTo(IM.ac);
     }
     const el = $('app-ils-edr');
     if (el) el.hidden = !EMIN;
@@ -1094,7 +1097,7 @@
         if (!mx || g.e > mx.e) mx = { e: g.e, h: Math.round(h / 100) * 100, cs: t.cs, rwy: t.rwy }; } }
       const nm = v => v >= 0.45 ? 'severe' : v >= 0.20 ? 'moderate' : v >= 0.10 ? 'light' : 'smooth';
       const md = a => { a = a.slice().sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
-      el.innerHTML = mx ? `<b>Turbulence (EDR), last ${EMIN} min</b> · ${n} landings, ${nd} departures · max <b style="color:${ecol(mx.e)}">${mx.e.toFixed(2)} ${nm(mx.e)}</b> at ${mx.h} ft (${esc(mx.cs || '')} ${esc(mx.rwy || '')})` +
+      el.innerHTML = mx ? `<b>Turbulence (EDR), last ${EMIN} min</b> · ${n} landings${I.deps === 'show' ? `, ${nd} departures` : ''} · max <b style="color:${ecol(mx.e)}">${mx.e.toFixed(2)} ${nm(mx.e)}</b> at ${mx.h} ft (${esc(mx.cs || '')} ${esc(mx.rwy || '')})` +
         ` · median below 1000 ft ${md(lay.lo) != null ? md(lay.lo).toFixed(2) : '—'}, 1000–3000 ft ${md(lay.hi) != null ? md(lay.hi).toFixed(2) : '—'} <span class="ws-research-tag">research</span>`
         : `Turbulence (EDR): no flights in the last ${EMIN} min`;
     }
