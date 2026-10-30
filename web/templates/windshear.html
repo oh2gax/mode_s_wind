@@ -51,6 +51,7 @@
           <button class="ws-theme-btn"        data-theme="grey" title="Street map, light — symbols in the colour of the meteo source">Grey</button>
           <button class="ws-theme-btn"        data-theme="atc" title="ATC style, as on the Live Map: a radar-display look — no street map but the airport, the ILS / RNP finals and the coastline (dark grey in the Dark theme, light grey in Light), symbols below 6 000 ft light, above grey, the selected aircraft highlighted, history plots and labels in three lines with a leader line, kept apart automatically: callsign / level, trend and selected level in hundreds of feet (019↑060) / ground speed in tens of knots and type (19 AT75). A research display, not for air traffic control. Remembered in the browser.">ATC</button>
           <button class="ws-ils-filter-btn ws-rings-btn" id="ws-rings-btn" hidden title="Range rings from the airport (ATC style only) — click to step Off → every 5 NM → every 10 NM, to 30 NM. Remembered in the browser.">Rings</button>
+          <button class="ws-ils-filter-btn ws-hover-btn" id="ws-hover-btn" hidden title="Hover (ATC style only) — when on, the label of the aircraft under the mouse grows into an extended label with what the receiver has just heard from it: callsign, type, registration / level, selected level, vertical rate, AP / APP / ground speed, true and indicated airspeed, Mach / magnetic heading and track, drift, roll / wind, head- or tailwind and crosswind, temperature / distance and bearing from the airport, NACp, squawk. A value not heard within 20 s shows as ---. Remembered in the browser.">Hover</button>
           <button class="ws-windrose-btn active" id="ws-windrose-btn" title="Toggle the Wind Rose / Approach Conditions Index (ACI) panel — METAR surface wind vs MODE-S approach wind; ACI view: ACI chart">WR / ACI</button>
           <button class="ws-aphist-btn" id="ws-aphist-btn" title="Toggle Approach History — altitude-band wind profile for each completed approach this session">Apch Hist</button>
         </div>
@@ -250,6 +251,7 @@
 <script>
 const WS_AIRPORT_LAT      = {{ airport_lat }};
 const WS_AIRPORT_LON      = {{ airport_lon }};
+const WS_AIRPORT_NAME     = {{ airport_icao|tojson }};
 const WS_RADIUS_NM        = {{ radius_nm }};
 const WS_THR_ELEVATION_FT = {{ thr_elevation_ft }};
 const WS_GS_OFFSET_FT     = {{ gs_offset_ft }};

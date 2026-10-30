@@ -251,6 +251,16 @@ function updateThemeButtons() {
   document.querySelectorAll('.ws-theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === currentTheme));
   const rb = document.getElementById('ws-rings-btn');
   if (rb) rb.hidden = !wsIsAtc();
+  const hb = document.getElementById('ws-hover-btn');
+  if (hb) hb.hidden = !wsIsAtc();
+  wsHoverSync();
+}
+// The Hover button's state; the extended label replaces the symbol's tooltip
+function wsHoverSync() {
+  const hb = document.getElementById('ws-hover-btn'), on = wsIsAtc() && wsHoverOn;
+  if (hb) { hb.textContent = wsHoverOn ? 'Hover On' : 'Hover'; hb.classList.toggle('active', wsHoverOn); }
+  document.getElementById('ws-map').classList.toggle('ws-atc-hover', on);
+  if (!on && wsHov) wsHov.clear();
 }
 
 function applyTheme(theme) {
@@ -390,6 +400,12 @@ const wsTrails = {};             // icao → [[lat, lon, ts], ...]
 const wsShown  = {};             // icao → the aircraft as last drawn on the map
 const wsLblPos = {};             // icao → the ATC label's position (0–15)
 let wsGaOn = true;               // the GA mark's blink phase
+// Hover (ATC style, from 30 Oct 2026, as the Live Map): the Hover button
+// (ms_ws_hover, default off); the aircraft under the mouse gets the extended label
+// (var: updateThemeButtons above runs before this point at the page load)
+var wsHoverOn = (() => { try { return localStorage.getItem('ms_ws_hover') === '1'; } catch (_) { return false; } })();
+var wsHov = null;                // the hover (created after the canvas below)
+let wsLblRects = {};             // the label boxes of the last draw
 const wsAtcLvl3 = pa => wsAtcAlt(pa).replace(/^(A|FL)/, '');
 function wsDrawCanvas(g, m, W, H) {
   const atc = wsIsAtc();
@@ -411,15 +427,25 @@ function wsDrawCanvas(g, m, W, H) {
     }
     if (atc) {
       if (!ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
-      const lines = AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, col,
+      const ext = wsHov && wsHov.key() === icao;
+      const lines = ext ? AtcDisplay.extLines(ac, wsHov.data(), { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
+                                                                 apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] })
+                        : AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, col, ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
                              ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
     }
   }
-  if (atc && lbls.length) AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos);
+  wsLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos) : {};
 }
 const wsCanvas   = AtcDisplay.canvasLayer(map, wsDrawCanvas);
+wsHov = AtcDisplay.hover(map, {
+  active:  () => wsIsAtc() && wsHoverOn,
+  targets: () => Object.entries(wsShown).map(([k, a]) => [k, a.lat, a.lon]),
+  rects:   () => wsLblRects,
+  redraw:  () => wsCanvas.redraw(),
+});
+wsHoverSync();
 const wsAtcLines = AtcDisplay.mapLines(map);
 // the GA mark blinks as on the street-map labels (only redrawn while one is shown)
 setInterval(() => {
@@ -1684,6 +1710,11 @@ ilsFilterBtn.addEventListener('click', () => {
     const S = AtcDisplay.RING_STEPS;
     wsRingNm = S[(S.indexOf(wsRingNm) + 1) % S.length];
     AtcDisplay.lsSet('ms_ws_rings', wsRingNm); showR(); wsCanvas.redraw();
+  });
+  const vb = document.getElementById('ws-hover-btn');
+  if (vb) vb.addEventListener('click', () => {
+    wsHoverOn = !wsHoverOn;
+    AtcDisplay.lsSet('ms_ws_hover', wsHoverOn ? '1' : '0'); wsHoverSync();
   });
 })();
 

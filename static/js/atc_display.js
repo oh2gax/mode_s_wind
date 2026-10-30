@@ -2,7 +2,8 @@
  * (from 2026-10-30): history plots, speed vectors, range rings and the
  * radar-display labels with leader lines and automatic anti-overlap, all drawn
  * on one canvas layer; the ATC map lines (airport, ILS / RNP finals, coastline)
- * and the ATC colours.
+ * and the ATC colours; the Hover's extended label of the aircraft under the
+ * mouse (from 30 Oct 2026).
  *
  * A generic European radar-display look, after the conventions of systems such
  * as Thales TopSky (used in Finland), whose screens and settings are not
@@ -13,9 +14,9 @@
 const AtcDisplay = (() => {
   const PAL = {
     dark:  { bg: '#1b2027', apt: '#5b6573', ils: '#46566a', rnp: '#6b5a3c', coast: '#36414e', ring: '#2c3540', ringTxt: '#4f5a67',
-             low: '#d1fae5', high: '#9ca3af', sel: '#facc15', leader: '#7b8594', ga: '#ef4444' },
+             low: '#d1fae5', high: '#9ca3af', sel: '#facc15', leader: '#7b8594', ga: '#ef4444', extBg: '#0c1015' },
     light: { bg: '#cfd2d5', apt: '#59626e', ils: '#2a4a7a', rnp: '#8a5a1c', coast: '#8b9bb0', ring: '#b3b8be', ringTxt: '#8a9099',
-             low: '#0b3b2c', high: '#4b5563', sel: '#1d4ed8', leader: '#5d6672', ga: '#dc2626' },
+             low: '#0b3b2c', high: '#4b5563', sel: '#1d4ed8', leader: '#5d6672', ga: '#dc2626', extBg: '#e9ebed' },
   };
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const pal = () => PAL[isLight() ? 'light' : 'dark'];
@@ -175,7 +176,10 @@ const AtcDisplay = (() => {
   // plots and speed vectors (obst), inside the map; it keeps its last position
   // (pos[key]) while that stays free, so the labels do not jump.  The selected
   // aircraft first, then from the lowest up (the approach traffic).
-  // items: { key, p (container point), lines, col, sel, fade, alt, ga (GA mark), gaOn }
+  // items: { key, p (container point), lines, col, sel, fade, alt, ga (GA mark), gaOn,
+  //          ext (the hover's extended label: placed first, on a dark backing with a frame) }
+  // Returns the label boxes, key → { x, y, w, h } (the hover keeps a label open
+  // while the mouse is on it).
   const DIRS = [[1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]];   // NE first
   const LH = 13;
   function drawLabels(g, items, W, H, obst, pos) {
@@ -198,8 +202,8 @@ const AtcDisplay = (() => {
       return { x, y, w: it.w, h: it.h, ax, ay, ux: dx * u, uy: dy * u };
     };
     const ALL = Array.from({ length: 16 }, (_, i) => i);
-    items.sort((a, b) => (b.sel - a.sel) || (a.alt - b.alt));
-    const placed = [];
+    items.sort((a, b) => (!!b.ext - !!a.ext) || (b.sel - a.sel) || (a.alt - b.alt));
+    const placed = [], rects = {};
     for (const it of items) {
       const prev = pos[it.key];
       const order = prev != null ? [prev, ...ALL.filter(i => i !== prev)] : ALL;
@@ -217,6 +221,15 @@ const AtcDisplay = (() => {
       pos[it.key] = best.k;
       placed.push(best.R);
       const R = best.R;
+      rects[it.key] = R;
+      if (it.ext) {                                    // the extended label: a backing and a thin frame
+        g.globalAlpha = 0.9;
+        g.fillStyle = P.extBg;
+        g.fillRect(R.x - 3, R.y - 2, R.w + 6, R.h + 3);
+        g.globalAlpha = 0.5;
+        g.strokeStyle = it.col; g.lineWidth = 1;
+        g.strokeRect(Math.round(R.x - 3) + 0.5, Math.round(R.y - 2) + 0.5, Math.round(R.w + 6) - 1, Math.round(R.h + 3) - 1);
+      }
       g.globalAlpha = it.fade;
       g.strokeStyle = it.sel ? it.col : P.leader; g.lineWidth = 1;
       g.beginPath(); g.moveTo(it.p.x + R.ux * 6, it.p.y + R.uy * 6); g.lineTo(R.ax, R.ay); g.stroke();
@@ -228,6 +241,101 @@ const AtcDisplay = (() => {
       }
     }
     g.globalAlpha = 1;
+    return rects;
+  }
+
+  // ── Hover (from 30 Oct 2026): the extended label ──────────────────────────
+  // With the Hover button on (ATC style), the label of the aircraft under the
+  // mouse grows into an extended label with the values the receiver has just
+  // heard from it (/api/live/ac/<icao>: the latest Comm-B BDS 5,0 / 6,0 replies,
+  // ADS-B quality and the selected altitude — read from memory, nothing stored),
+  // fetched at once and every 2 s while the mouse stays on it.
+  const HOVER_POLL_MS = 2000;
+  const HOVER_HIT_PX  = 10;                // the mouse within 10 px of the symbol
+  const sgn = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+  const pad3 = v => String(v).padStart(3, '0');
+  const norm180 = d => ((d % 360) + 540) % 360 - 180;
+
+  // The six lines of the extended label.  ac: the aircraft as on the map (the
+  // stream); x: the hover reply (or null while it is on its way); o: { cs, lvl3,
+  // apt: [lat, lon, name] }.  A value not heard within 20 s shows as ---.
+  function extLines(ac, x, o) {
+    x = x || {};
+    const b5 = x.b50 || {}, b6 = x.b60 || {};
+    const alt = ac.altitude, vr = ac.vert_rate;
+    const tr = vr == null ? ' ' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : ' ';
+    const selA = x.sel ?? ac.sel_alt;
+    const l1 = [o.cs, ac.aircraft_type || x.type, ac.registration || x.reg].filter(Boolean).join('  ');
+    const lvl = ac.landed ? 'landed' : (alt == null ? '---' : o.lvl3(alt)) + tr;
+    const mode = x.app ? '  APP' : x.ap ? '  AP' : '';
+    const l2 = `${lvl}  sel ${selA != null ? pad3(Math.round(selA / 100)) : '---'}  VR ${vr != null ? sgn(Math.round(vr / 10) * 10) : '---'}${mode}`;
+    const gs = ac.groundspeed ?? b5.gs;
+    const l3 = `GS ${gs != null ? Math.round(gs) : '---'}  TAS ${b5.tas != null ? Math.round(b5.tas) : '---'}  IAS ${b6.ias != null ? Math.round(b6.ias) : '---'}  M${b6.mach != null ? '.' + pad3(Math.round(b6.mach * 1000)) : ' ---'}`;
+    // track and heading magnetic (the true track less the declination at the aircraft)
+    const decl = x.decl ?? 0, trkT = ac.track ?? b5.trk;
+    const mtrk = trkT != null ? Math.round(((trkT - decl) % 360 + 360) % 360) : null;
+    const mh = b6.mhdg != null ? Math.round((b6.mhdg % 360 + 360) % 360) : null;
+    const dr = mtrk != null && mh != null ? Math.round(norm180(mtrk - mh)) : null;
+    const roll = b5.roll;
+    const l4 = `MH ${mh != null ? pad3(mh) : '---'}  TRK ${mtrk != null ? pad3(mtrk) : '---'}  DR ${dr == null ? '---' : dr ? (dr < 0 ? 'L' : 'R') + Math.abs(dr) : '0'}  ROLL ${roll == null ? '---' : Math.abs(roll) < 0.5 ? '0' : (roll < 0 ? 'L' : 'R') + Math.round(Math.abs(roll))}`;
+    // wind, its head / tail and cross components on the track, the temperature
+    const wd = x.wdir ?? ac.best_wind_dir, ws = x.wspd ?? ac.best_wind_spd, t = x.temp ?? ac.best_temp;
+    let l5 = wd != null && ws != null ? `W ${pad3(Math.round(wd) % 360 || 360)}/${Math.round(ws)}` : 'W ---';
+    if (wd != null && ws != null && trkT != null) {
+      const rel = (wd - trkT) * Math.PI / 180, hw = Math.round(ws * Math.cos(rel)), xw = Math.round(ws * Math.sin(rel));
+      l5 += `  ${hw >= 0 ? 'HW' : 'TW'} ${Math.abs(hw)}  XW ${Math.abs(xw)}${xw > 0 ? 'R' : xw < 0 ? 'L' : ''}`;
+    }
+    l5 += `  SAT ${t != null ? sgn(Math.round(t)) : '---'}`;
+    // distance and bearing from the airport, NACp, the squawk
+    let l6 = '';
+    if (o.apt && ac.lat != null && ac.lon != null) {
+      const dy = (ac.lat - o.apt[0]) * 60, dx = (ac.lon - o.apt[1]) * 60 * Math.cos(ac.lat * Math.PI / 180);
+      l6 = `${Math.hypot(dx, dy).toFixed(1)} NM ${pad3(Math.round((Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360) % 360)}° ${o.apt[2]}  `;
+    }
+    l6 += `NACp ${x.nacp ?? '-'}${x.sq ? '  SQ ' + x.sq : ''}`;
+    return [l1, l2, l3, l4, l5, l6];
+  }
+
+  // The hover on one map: opts = { active() — the ATC style and the Hover button
+  // on; targets() — [[key, lat, lon], ...] of the aircraft shown; rects() — the
+  // label boxes of the last draw; redraw() }.  Returns { key(), data() }: the
+  // aircraft under the mouse (null = none) and its latest hover reply.
+  function hover(map, opts) {
+    const el = map.getContainer();
+    let key = null, data = null, timer = null, raf = 0, mx = 0, my = 0;
+    const poll = k => fetch(`/api/live/ac/${encodeURIComponent(k)}`)
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(d => { if (k === key) { data = d; opts.redraw(); } });
+    function set(k) {
+      if (k === key) return;
+      key = k; data = null;
+      clearInterval(timer); timer = null;
+      if (k) {
+        poll(k);
+        timer = setInterval(() => { if (key && !document.hidden) poll(key); }, HOVER_POLL_MS);
+      }
+      opts.redraw();
+    }
+    function pick() {
+      raf = 0;
+      if (!opts.active()) { set(null); return; }
+      // the open label keeps open while the mouse is on it
+      const R = key && (opts.rects() || {})[key];
+      if (R && mx >= R.x - 4 && mx <= R.x + R.w + 4 && my >= R.y - 3 && my <= R.y + R.h + 2) return;
+      let best = null, bd = HOVER_HIT_PX;
+      for (const [k, lat, lon] of opts.targets()) {
+        const p = map.latLngToContainerPoint([lat, lon]), d = Math.hypot(p.x - mx, p.y - my);
+        if (d <= bd) { bd = d; best = k; }
+      }
+      set(best);
+    }
+    el.addEventListener('mousemove', e => {
+      const r = el.getBoundingClientRect();
+      mx = e.clientX - r.left; my = e.clientY - r.top;
+      if (!raf) raf = requestAnimationFrame(pick);
+    });
+    el.addEventListener('mouseleave', () => set(null));
+    return { key: () => key, data: () => data, clear: () => set(null) };
   }
 
   // The ATC map lines (coastline, airport, EFHK ILS / RNP finals), loaded at the
@@ -288,5 +396,5 @@ const AtcDisplay = (() => {
 
   return { pal, isLight, LOW_FT, HIST_STEPS, VEC_STEPS, RING_STEPS, MAX_TRAIL, lsInt, lsSet,
            addTrail, vecEnd, canvasLayer, drawPlots, drawVector, drawRings, labelLines, drawLabels,
-           mapLines, legendHtml, symColor, domObstacles };
+           extLines, hover, mapLines, legendHtml, symColor, domObstacles };
 })();

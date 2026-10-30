@@ -405,6 +405,11 @@ function atcLabelLines(ac) {
   return AtcDisplay.labelLines(ac, lblLvl, callsignCache[ac.icao] || ac.callsign || ac.icao, atcLvl3);
 }
 const atcLblPos = {};            // icao → the label's chosen position (0–15)
+// Hover (ATC style, from 2026-10-30): the Hover button (ms_liveHover, default off);
+// the aircraft under the mouse gets the extended label (AtcDisplay.hover / extLines)
+let liveHoverOn = (() => { try { return localStorage.getItem('ms_liveHover') === '1'; } catch (_) { return false; } })();
+let liveHov = null;              // the hover (created after the canvas below)
+let atcLblRects = {};            // the label boxes of the last draw
 
 // The canvas: range rings (ATC), history plots, speed vectors and the ATC labels
 function drawPlotCanvas(g, m, W, H) {
@@ -426,11 +431,15 @@ function drawPlotCanvas(g, m, W, H) {
     }
     AtcDisplay.drawVector(g, m, p0, ac, vecS, sel ? selColorNow() : col, 0.9 * fade, 1.3, obst);
     if (atc) {
-      const lines = atcLabelLines(ac);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, col: sel ? selColorNow() : col, alt: ac.altitude ?? 99999 });
+      const ext = liveHov && liveHov.key() === icao;
+      const lines = ext ? AtcDisplay.extLines(ac, liveHov.data(), {
+                            cs: callsignCache[icao] || ac.callsign || icao, lvl3: atcLvl3,
+                            apt: [AIRPORT_LAT, AIRPORT_LON, AIRPORT_NAME] })
+                        : atcLabelLines(ac);
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: sel ? selColorNow() : col, alt: ac.altitude ?? 99999 });
     }
   }
-  if (atc && lbls.length) AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos);
+  atcLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos) : {};
 }
 
 // The ATC map lines (airport, finals, coast): loaded at the first switch to the ATC style
@@ -460,6 +469,12 @@ function applyLiveStyle() {
 }
 // created after the style state above (its first draw reads it)
 const plotLayer = AtcDisplay.canvasLayer(map, drawPlotCanvas);
+liveHov = AtcDisplay.hover(map, {
+  active:  () => liveStyle === 'atc' && liveHoverOn,
+  targets: () => Object.entries(aircraftData).filter(([k, a]) => markers[k] && a.lat && a.lon).map(([k, a]) => [k, a.lat, a.lon]),
+  rects:   () => atcLblRects,
+  redraw:  () => plotLayer.redraw(),
+});
 
 // ── Map labels (ATC style, levels of the Lbl button) ──────────────────────
 function updateLabel(icao, lat, lon, ac) {
@@ -1044,6 +1059,7 @@ if (styleBtn) {
     try { localStorage.setItem('ms_liveStyle', liveStyle); } catch (_) { /* private mode */ }
     showStyle();
     showRings();
+    showHover();
     applyLiveStyle();
   });
 }
@@ -1061,6 +1077,21 @@ if (ringsBtn) ringsBtn.addEventListener('click', () => {
   try { localStorage.setItem('ms_liveRings', String(ringNm)); } catch (_) { /* private mode */ }
   showRings();
   plotLayer.redraw();
+});
+// Hover (ATC style): the Hover button switches the extended label on and off
+const hoverBtn = document.getElementById('hover-btn');
+function showHover() {
+  if (!hoverBtn) return;
+  hoverBtn.hidden = liveStyle !== 'atc';
+  hoverBtn.textContent = liveHoverOn ? 'Hover On' : 'Hover Off';
+  hoverBtn.classList.toggle('active', liveHoverOn);
+  if (liveStyle !== 'atc' || !liveHoverOn) liveHov.clear();
+}
+showHover();
+if (hoverBtn) hoverBtn.addEventListener('click', () => {
+  liveHoverOn = !liveHoverOn;
+  try { localStorage.setItem('ms_liveHover', liveHoverOn ? '1' : '0'); } catch (_) { /* private mode */ }
+  showHover();
 });
 if (liveStyle === 'atc') applyLiveStyle();
 

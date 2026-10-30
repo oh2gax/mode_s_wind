@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Hover for an extended ATC label** — in the ATC style of the Live Map and the Windshear map, the new **Hover** button (off at the start) makes the label of the aircraft under the mouse grow into six lines, as on a controller's display: also the selected level, vertical rate and autopilot mode, true and indicated airspeed and Mach, magnetic heading and track, drift and bank angle, wind with head- and crosswind, temperature, distance from the airport, NACp and squawk — what the receiver has just heard, updated every 2 s. Windshear guide 2.18.
 - **Windshear map remembers where you left it** — position and zoom are kept in your browser; the **⌂** button beside the zoom buttons brings it back to the airport.
 - **Windshear detection v8 on trial** — a sharper version of the windshear detection now runs beside the current one for a week, without alerts: it also uses the ground speed the aircraft broadcast twice a second and the second airspeed register, so it gets about twice as many headwind values. Its result shows in the Approach History when you point at a flight (*v8 (shadow)*). Study log 1.7, Windshear guide 2.16.
 - **Tidier Windshear alert header** — the *ⓘ v2* link to the old, retired windshear algorithms is gone (their description is still in the User guides); next to the **?** of the Windshear guide a **? EDR** now opens *EDR explained*.

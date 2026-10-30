@@ -33,6 +33,8 @@
                 title="Map style (Style button) — click to switch: Meteo (the street map, the symbols in the colour of the meteo source, wind lines) · ATC (a radar-display look: no street map, the airport, the ILS / RNP finals, the coastline and, with the Rings button, range rings; symbols below 6 000 ft light, above grey, the selected aircraft highlighted; labels in three lines with a leader line, kept apart automatically — callsign / level, trend and selected level in hundreds of feet (019↑060) / ground speed in tens of knots and type (19 AT75); the Lbl button chooses how much). A research display, not for air traffic control. Remembered in the browser.">Meteo</button>
         <button id="rings-btn" class="skewt-ana-btn" type="button" hidden
                 title="Range rings from the airport (ATC style only) — click to step: Off · every 5 NM (Rings 5) · every 10 NM (Rings 10), to 30 NM. Remembered in the browser.">Rings Off</button>
+        <button id="hover-btn" class="skewt-ana-btn" type="button" hidden
+                title="Hover (ATC style only) — when on, the label of the aircraft under the mouse grows into an extended label with what the receiver has just heard from it: callsign, type, registration / level, selected level, vertical rate, AP / APP / ground speed, true and indicated airspeed, Mach / magnetic heading and track, drift, roll / wind, head- or tailwind and crosswind, temperature / distance and bearing from the airport, NACp, squawk. A value not heard within 20 s shows as ---. Remembered in the browser.">Hover Off</button>
       </div>
     </div>
     <div id="aircraft-list" class="aircraft-list">
@@ -148,6 +150,7 @@ const RECEIVER_LAT = {{ receiver_lat }};
 const RECEIVER_LON = {{ receiver_lon }};
 const AIRPORT_LAT  = {{ airport_lat }};
 const AIRPORT_LON  = {{ airport_lon }};
+const AIRPORT_NAME = {{ airport_icao|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>

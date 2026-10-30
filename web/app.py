@@ -725,6 +725,56 @@ def create_app(
             },
         )
 
+    # ── Hover of the ATC style (from 2026-10-30) ──────────────────────────
+
+    @app.route("/api/live/ac/<icao>")
+    def live_ac_hover(icao: str):
+        """The latest values heard from one aircraft, for the extended label of
+        the ATC style's Hover (Live Map, Windshear map; polled every 2 s only
+        while the mouse is on the aircraft).  Read from memory — the live state
+        and the receiver's latest Comm-B BDS 5,0 / 6,0 replies — nothing is
+        stored.  A register not heard within HOVER_MAX_AGE s is left out (null);
+        the selected altitude and the autopilot modes within 2 min."""
+        from collector.receiver import get_bds_samples
+        from collector.declination import declination as _decl
+        HOVER_MAX_AGE = 20.0
+        icao = icao.upper()[:6]
+        now = time.time()
+        with live_lock:
+            ac = dict(live_state.get(icao) or {})
+        if not ac or now - ac.get("last_seen", 0) > 300:
+            return jsonify({"icao": icao, "gone": True}), 404
+        b50s, b60s = get_bds_samples(icao, now - HOVER_MAX_AGE)
+        r1 = lambda v, n=1: round(v, n) if isinstance(v, (int, float)) else None
+        b50 = b60 = None
+        if b50s:     # (ts, roll, track_rate, true_track, groundspeed, true_airspeed)
+            t, roll, rate, trk, gs, tas = b50s[-1]
+            b50 = {"age": r1(now - t), "roll": r1(roll), "rate": r1(rate, 2),
+                   "trk": r1(trk), "gs": r1(gs, 0), "tas": r1(tas, 0)}
+        if b60s:     # (ts, ias, magnetic_heading, inertial_vr, baro_vr, mach)
+            t, ias, mhdg, ivr, bvr, mach = b60s[-1]
+            b60 = {"age": r1(now - t), "ias": r1(ias, 0), "mhdg": r1(mhdg),
+                   "ivr": r1(ivr, 0), "bvr": r1(bvr, 0), "mach": r1(mach, 3)}
+        fresh = lambda k, sec=120.0: now - (ac.get(k) or 0) <= sec
+        try:
+            decl = _decl(ac.get("lat"), ac.get("lon"), cfg.MAG_DECLINATION)
+        except Exception:
+            decl = cfg.MAG_DECLINATION
+        return jsonify({
+            "icao": icao,
+            "type": ac.get("aircraft_type"), "reg": ac.get("registration"),
+            "sq":   ac.get("squawk"),
+            "sel":  ac.get("sel_alt") if fresh("sel_alt_ts") else None,
+            "ap":   bool(ac.get("ap")) if fresh("ap_ts") else None,
+            "app":  bool(ac.get("ap_app")) if fresh("ap_ts") else None,
+            "nacp": ac.get("nac_p") if fresh("nac_p_ts", 30.0) else None,
+            "gmb":  ac.get("geo_minus_baro") if fresh("gmb_ts", 30.0) else None,
+            "wdir": r1(ac.get("best_wind_dir"), 0), "wspd": r1(ac.get("best_wind_spd"), 0),
+            "temp": r1(ac.get("best_temp")),
+            "decl": r1(decl),
+            "b50": b50, "b60": b60,
+        })
+
     # ── Aircraft detail API ───────────────────────────────────────────────
 
     @app.route("/api/live/aircraft/<icao>")
