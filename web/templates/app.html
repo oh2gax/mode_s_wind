@@ -242,6 +242,8 @@
     <summary>ILS approach options</summary>
     <div class="app-field"><span>Show</span>
       <select id="app-ils-show" data-chips><option value="profile">Profile</option><option value="map">Map</option><option value="both">Both</option></select></div>
+    <div class="app-field"><span>Map style</span>
+      <select id="app-ils-mapst" data-chips><option value="street">Street</option><option value="atc">ATC (research)</option></select></div>
     <div class="app-field"><span>Aircraft on the map</span>
       <select id="app-ils-mapac" data-chips><option value="app">On the approach</option><option value="all">All tracked ({{ radius_nm|round|int }} NM)</option></select></div>
     <div class="app-field"><span>Departures on the map</span>
@@ -391,6 +393,8 @@
   // loaded on the first visit of the Statistics view (app.js)
   const APP_STATS_JS = "{{ url_for('static', filename='js/stats.js') }}";
   const APP_CHART_JS = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js";
+  // the ATC map style of the ILS map (from 2026-10-30): loaded after Leaflet when chosen
+  const APP_ATC_JS = "{{ url_for('static', filename='js/atc_display.js') }}";
 </script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

@@ -89,16 +89,16 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.27
+version: 1.28
 date: 2026-10-30
-pages: 24
+pages: 25
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
+- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, ATC labels and the **ATC map style** of the big pages, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **ACI · WS · ST** with **ACI + EDR + WS**, the space–time diagram and the **boundary layer** (low-level jet, inversion; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

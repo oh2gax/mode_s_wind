@@ -884,7 +884,10 @@
               // the map labels: std (callsign / altitude, as before) or atc — the ATC style's three
               // lines in a small monospaced font (from 2026-10-30): callsign / level, trend and
               // selected level / ground speed in tens of knots and type
-              lbl: lsGet('ms_app_ils_lbl', 'std') };
+              lbl: lsGet('ms_app_ils_lbl', 'std'),
+              // the map style: street (CARTO tiles, default) or atc — the radar-display look of
+              // the Live Map and the Windshear map (static/js/atc_display.js; from 2026-10-30)
+              mapst: lsGet('ms_app_ils_mapst', 'street') };
   if (!['', '04L&R', '22L&R', '04L', '04R', '22L', '22R', '15', '33'].includes(I.rwy)) I.rwy = '';
   if (!['15', '7.5'].includes(I.range)) I.range = '15';
   if (!['lo', 'hi', 'off'].includes(I.barbs)) I.barbs = 'lo';
@@ -900,11 +903,12 @@
   if (!['off', 'on'].includes(I.selalt)) I.selalt = 'off';
   if (!['off', 'on'].includes(I.actype)) I.actype = 'off';
   if (!['std', 'atc'].includes(I.lbl)) I.lbl = 'std';
+  if (!['street', 'atc'].includes(I.mapst)) I.mapst = 'street';
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
-                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl']];
+                  ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
@@ -912,6 +916,7 @@
       if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
       if (key === 'wschart' || key === 'wsh') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
+      if (key === 'mapst' && I.mapst === 'atc' && window.L) loadAtc().then(drawIls).catch(() => {});
     });
   }
   $('app-ils-trails').checked = I.trails;
@@ -991,7 +996,7 @@
   // radius; tiles Dark / Grey with the theme.  A tap on an aircraft on the
   // approach follows it (as on the profile).  Leaflet is loaded the first time
   // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
-  const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null };
+  const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null, atcLoading: null, atcLines: null };
   const IM_KEY = 'ms_app_ilsMapView', IM_HOME_ZOOM = 9;
   const IM_SRC = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', NONE: '#6b7280' };
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -1006,6 +1011,20 @@
     }
     return IM.loading;
   }
+  // the shared ATC display code (static/js/atc_display.js), loaded after Leaflet the
+  // first time the ATC map style is used (from 2026-10-30)
+  const atcReady = () => typeof AtcDisplay !== 'undefined';
+  function loadAtc() {
+    if (atcReady()) return Promise.resolve();
+    if (!IM.atcLoading) {
+      IM.atcLoading = new Promise((ok, fail) => {
+        const sc = document.createElement('script'); sc.src = APP_ATC_JS; sc.onload = ok;
+        sc.onerror = () => { IM.atcLoading = null; fail(); }; document.head.appendChild(sc);
+      });
+    }
+    return IM.atcLoading;
+  }
+  const imAtc = () => I.mapst === 'atc' && atcReady();
   function imSavedView() {
     try {
       const v = JSON.parse(lsGet(IM_KEY, 'null'));
@@ -1046,15 +1065,28 @@
       .then(([ils, apt]) => { IM.geo = { ils, apt }; IM.theme = null; drawIlsMap(); });
   }
   // tiles and overlays in the colours of the theme (the Windshear page's Dark / Grey)
+  // Map style ATC (from 2026-10-30): no tiles but the ATC background (dark grey in the
+  // dark theme, light grey in the light one) with the coastline, the airport layout and
+  // the ILS / RNP finals of AtcDisplay.mapLines — the same as the Live Map and the
+  // Windshear map; no tracking radius and no airport marker
   function imTheme() {
-    const light = isLight(), t = light ? 'light' : 'dark';
+    const light = isLight(), atc = imAtc(), t = (light ? 'light' : 'dark') + (atc ? '-atc' : '');
     if (IM.theme === t) return;
     IM.theme = t;
-    if (IM.tiles) IM.map.removeLayer(IM.tiles);
+    if (IM.tiles) { IM.map.removeLayer(IM.tiles); IM.tiles = null; }
+    IM.ovl.clearLayers();
+    const el = IM.map.getContainer();
+    if (atc) {
+      el.style.background = AtcDisplay.pal().bg;
+      if (!IM.atcLines) IM.atcLines = AtcDisplay.mapLines(IM.map);
+      IM.atcLines.show(true);                       // drawn again in the theme's colours
+      return;
+    }
+    el.style.background = '';
+    if (IM.atcLines) IM.atcLines.show(false);
     const key = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
     IM.tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${light ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png${key}`,
       { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 16 }).addTo(IM.map);
-    IM.ovl.clearLayers();
     const g = IM.geo || {};
     if (g.apt) L.geoJSON(g.apt, { interactive: false, style: { color: light ? '#475569' : '#94a3b8', weight: 1, opacity: light ? 0.5 : 0.5, fillOpacity: 0 } }).addTo(IM.ovl);
     if (g.ils) L.geoJSON({ type: 'FeatureCollection', features: (g.ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK') }, {
@@ -1111,6 +1143,9 @@
     imTheme();
     IM.ac.clearLayers();
     const light = isLight();
+    // the ATC map style (from 2026-10-30): monochrome as on the Live Map and the Windshear
+    // map — below 6 000 ft light, above grey, landed grey; the followed aircraft not marked
+    const atc = imAtc(), AP = atc ? AtcDisplay.pal() : null;
     // Turbulence on the map (from 2026-10-29; RESEARCH, option Off / 30 min / 1 h): the
     // straight 2-km pieces of the paths of the landings and departures of the period
     // coloured by their EDR (collector/edr.py, /api/windshear/edr-tracks), the strongest
@@ -1125,7 +1160,7 @@
     // thin lines (from 2026-10-30; were 5 px on an 8-px halo) so that the aircraft and
     // their labels stay readable over them
     for (const g of SG) {
-      L.polyline(g.p, { interactive: false, color: light ? '#ffffff' : '#0b1220', weight: 4, opacity: 0.6 }).addTo(IM.ac);
+      L.polyline(g.p, { interactive: false, color: atc ? AP.bg : light ? '#ffffff' : '#0b1220', weight: 4, opacity: 0.6 }).addTo(IM.ac);
       L.polyline(g.p, { interactive: false, color: ecol(g.e), weight: 2.5, opacity: 0.9 }).addTo(IM.ac);
     }
     const el = $('app-ils-edr');
@@ -1151,8 +1186,10 @@
         else if (I.mapac !== 'all') continue;
       }
       const sel = onA && a.icao === I.sel && I.barbs !== 'off';
+      const selM = sel && !atc;                                      // the followed aircraft marked (not in ATC)
+      const ac0 = atc ? (a.landed ? AP.high : AtcDisplay.symColor(a)) : null;   // its ATC colour
       if (onA && I.trails && Array.isArray(a.trail) && a.trail.length > 1)
-        L.polyline(a.trail, { interactive: false, color: light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: 0.6 }).addTo(IM.ac);
+        L.polyline(a.trail, { interactive: false, color: atc ? ac0 : light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: atc ? 0.45 : 0.6 }).addTo(IM.ac);
       // the square: 12 px selected, 9 px on the approach, 7 px others (smaller from 28 Oct 2026 evening);
       // drawn in a 24-px icon so that it stays easy to tap
       // a landed aircraft (no new position for 15 s near the threshold): grey, "landed" (from 2026-10-29)
@@ -1162,16 +1199,16 @@
       // 2026-10-30, was 12 px with a heavy frame), 8 px others, in a 24-px tap area
       // with the type and / or the selected altitude in the labels (from 2026-10-30) smaller
       // squares (8 / 6 px) and a smaller label font, so the longer labels fit
-      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, H = 24;
+      const c = atc ? ac0 : a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, H = 24;
       const s = dense ? (sel || onA ? 8 : 6) : (sel || onA ? 10 : 8), o = (H - s) / 2;
       // speed vector (from 2026-10-29): to where the aircraft will be after 30 s / 1 / 2 min at its
       // ground speed along its track, in map distance; not for a landed aircraft
       if (I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null)
         L.polyline([[a.lat, a.lon], vecEnd(a.lat, a.lon, a.track, a.groundspeed, +I.vec)], { interactive: false,
-          color: sel ? (light ? '#0f172a' : '#fff') : c, weight: 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
+          color: selM ? (light ? '#0f172a' : '#fff') : c, weight: 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
-              ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 1.6 : onA ? 2 : 1.5}"/></svg>` });
+              ` stroke="${selM ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${selM ? 1.6 : onA ? 2 : 1.5}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
       const alt = a.altitude == null ? '' : altLbl(a);
@@ -1180,13 +1217,13 @@
         // three lines in a small monospaced font, beside the square as the other labels
         L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
           icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 3, 15] : [-(s / 2 + 3), 15],
-            html: `<div class="ils-ac-lbl atc${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}">` +
+            html: `<div class="ils-ac-lbl atc${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${atc ? ' atcm' : ''}"${atc ? ` style="color:${c}"` : ''}>` +
                   atcLines(a).map(esc).join('<br>') + '</div>' }) }).addTo(IM.ac);
         continue;
       }
       L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
         icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
-          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${dense ? ' dense' : ''}">${esc(a.callsign || a.icao)}` +
+          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${dense ? ' dense' : ''}${atc ? ' atcm' : ''}"${atc ? ` style="color:${c}"` : ''}>${esc(a.callsign || a.icao)}` +
                 `${I.actype === 'on' && a.aircraft_type ? ` <span class="ty">${esc(a.aircraft_type)}</span>` : ''}` +
                 `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
     }
@@ -1252,7 +1289,8 @@
         : I.show === 'map' ? Math.round(Math.max(300, v.clientHeight * 0.58))     // room for the strips (2026-10-29)
         : Math.round(Math.max(220, v.clientHeight * 0.40))) + 'px';
       if (IM.map) { IM.map.invalidateSize(); drawIlsMap(); }
-      else loadLeaflet().then(() => { initIlsMap(); drawIlsMap(); }).catch(() => {
+      else loadLeaflet().then(() => I.mapst === 'atc' ? loadAtc().catch(() => {}) : null)
+                        .then(() => { initIlsMap(); drawIlsMap(); }).catch(() => {
         $('app-ils-map').textContent = 'The map could not be loaded.'; });
     }
     drawIlsWs(full);

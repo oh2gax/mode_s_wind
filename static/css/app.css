@@ -131,6 +131,11 @@ body.app-body {
                                    padding: 1px 4px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15,23,42,.12); }
 [data-theme="light"] .ils-ac-lbl small { color: #1e293b; }
 [data-theme="light"] .ils-ac-lbl.dim { color: #334155; background: rgba(255,255,255,.3); }
+/* Map style ATC (from 2026-10-30): the labels in the symbol colour (set inline), with no
+   outline and no plate, as on the Live Map and the Windshear map; others a little fainter */
+.ils-ac-lbl.atcm, [data-theme="light"] .ils-ac-lbl.atcm { text-shadow: none; background: none; box-shadow: none; padding: 0; }
+.ils-ac-lbl.atcm small, [data-theme="light"] .ils-ac-lbl.atcm small { color: inherit; }
+.ils-ac-lbl.atcm.dim { opacity: .75; }
 .app-ils-pick { display: flex; align-items: center; gap: 8px; min-height: 0; white-space: normal; }
 .app-ils-pick .txt { flex: 1; min-width: 0; font-family: 'Courier New', monospace; font-size: 11.5px; line-height: 1.4; }
 .app-strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; margin: 6px 2px 10px; }
