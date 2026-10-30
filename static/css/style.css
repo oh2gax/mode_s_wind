@@ -3415,18 +3415,21 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 /* Windshear page buttons: one calm design (from 30 Oct 2026 evening) — the bar over
    the map, the Wind Rose / chart panel (WR · ACI · WS · EDR · BL · ST, Hist, Wind,
    the range and ½) and the Approach History panel (Landings · Departures · Reports,
-   1h–1d, 📅, Live, Lo / Hi).  Off: the plain grey of Rings; on: the colour of the ATC
+   1h–1d, 📅, Live, Lo / Hi) and, from 19:45, the statistics' Live · Yest · 1w · 📅
+   above Runway usage (were blue).  Off: the plain grey of Rings; on: the colour of the ATC
    style button — no more amber (ILS Only, Hist, EDR), teal (Vec), bright blue (Dark /
    Grey), magenta (WR / ACI), purple (the chart panel) or blue (Apch Hist, the
    Approach History).  At the end of the file so it wins over the buttons' own
    colours above (sizes and fonts are kept). */
-.ws-map-controls button, .ws-windrose-panel button, .ws-aphist-panel button {
+.ws-map-controls button, .ws-windrose-panel button, .ws-aphist-panel button, .ws-stats-timerow button {
   background: var(--bg-2); color: var(--text-2); border-color: var(--border); }
-.ws-map-controls button:hover, .ws-windrose-panel button:hover, .ws-aphist-panel button:hover {
+.ws-map-controls button:hover, .ws-windrose-panel button:hover, .ws-aphist-panel button:hover,
+.ws-stats-timerow button:hover {
   background: var(--bg-3); color: var(--text-1); }
 .ws-map-controls button.active, .ws-map-controls button.active:hover,
 .ws-windrose-panel button.active, .ws-windrose-panel button.active:hover,
 .ws-aphist-panel button.active, .ws-aphist-panel button.active:hover,
+.ws-stats-timerow button.active, .ws-stats-timerow button.active:hover,
 .ws-aphist-panel button.ws-aphist-time-active, .ws-aphist-panel button.ws-aphist-time-active:hover,
 .ws-aphist-panel button.ws-aphist-live-active, .ws-aphist-panel button.ws-aphist-live-active:hover {
   background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; }
