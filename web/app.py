@@ -65,13 +65,18 @@ _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
                  "barbs", "barbs_hi", "none_hist")
 # ?lite=1&map=1 (the map of the mobile ILS view, from 2026-10-28): also the
 # position and track and a short trail (the last TRAIL_SEC, every 2nd point);
-# &near=1 also the other tracked aircraft (outside the approach corridors)
-# with the fields of their map square and label only.
+# &near=1 also the other aircraft within WINDSHEAR_RADIUS_NM and below
+# WINDSHEAR_MAX_ALT_FT with the fields of their map square and label only —
+# from 2026-10-30 taken from live_state (all traffic), not from the windshear
+# tracker, which never takes in an aircraft first seen climbing (its entry
+# gate) and so had almost no departures.
 _WS_MAP_KEYS = ("lat", "lon", "track", "groundspeed")      # groundspeed: speed vectors (2026-10-29)
 _WS_NEAR_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "meteo_source",
                  "in_corridor", "lat", "lon", "track", "groundspeed", "last_seen",
                  "dep", "dep_rwy")          # dep: a departure (climb-out), from 2026-10-29
 _WS_TRAIL_SEC = 120
+_WS_NEAR_POS_SEC = 30      # a position older than this is not drawn (e.g. a landed aircraft
+                           # still heard on the ground at its last airborne position)
 _GZIP_MIN_BYTES = 1024
 
 
@@ -1460,6 +1465,12 @@ def create_app(
         position, track and `trail` ([lat, lon] of the last 2 min) for the
         mobile view's approach map, and &near=1 the other tracked aircraft
         (within WINDSHEAR_RADIUS_NM) with only the fields of their map square.
+        From 2026-10-30 that list is built from live_state — all traffic with a
+        position not older than 30 s within WINDSHEAR_RADIUS_NM and below
+        WINDSHEAR_MAX_ALT_FT, the departures marked ``dep`` / ``dep_rwy`` from the
+        climb-out capture — because the windshear tracker turns away every
+        aircraft first seen climbing (its entry gate), so it had almost no
+        departures for the map's *Departures: Shown*.
         """
         if ws_tracker is None:
             return jsonify([])
@@ -1471,10 +1482,6 @@ def create_app(
             acs = []
             for a in state.get("aircraft") or []:
                 if not a.get("in_corridor") or a.get("dist_thr_nm") is None:
-                    if want_near and a.get("lat") is not None and a.get("lon") is not None:
-                        x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a}
-                        x["in_corridor"] = False
-                        acs.append(x)
                     continue
                 x = {k: a.get(k) for k in _WS_LITE_KEYS if k in a}
                 x["history"] = [{k: h.get(k) for k in ("ts", "altitude", "dist_thr")}
@@ -1485,8 +1492,48 @@ def create_app(
                           if (h.get("ts") or 0) >= t_trail and h.get("lat") is not None]
                     x["trail"] = [[round(h["lat"], 4), round(h["lon"], 4)] for h in tr[::-2][::-1]]
                 acs.append(x)
+            if want_near:
+                acs += _ws_near(set(a["icao"] for a in acs))
             state = {"aircraft": acs, "ws_events": state.get("ws_events") or [], "lite": 1}
         return _gzip_json(state)
+
+    def _ws_near(skip: set) -> list:
+        """The other aircraft of the mobile ILS map (from 2026-10-30): all of
+        live_state with a fresh position within WINDSHEAR_RADIUS_NM of the
+        airport and below WINDSHEAR_MAX_ALT_FT, except those on the approach
+        (skip); climb-outs marked dep / dep_rwy (DepartureTracker.following,
+        go-arounds excluded)."""
+        from collector.windshear import _haversine_nm
+        now = time.time()
+        lat0, lon0 = cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON
+        r_max = float(cfg.WINDSHEAR_RADIUS_NM)
+        alt_max = float(cfg.WINDSHEAR_MAX_ALT_FT)
+        deps = {}
+        fn = getattr(ws_tracker, "departures_fn", None)
+        if fn is not None:
+            try:
+                deps = fn() or {}
+            except Exception:                              # noqa: BLE001
+                deps = {}
+        with live_lock:
+            data = list(live_state.values())
+        out = []
+        for a in data:
+            icao, lat, lon, alt = a.get("icao"), a.get("lat"), a.get("lon"), a.get("altitude")
+            if not icao or icao in skip or lat is None or lon is None or alt is None or alt > alt_max:
+                continue
+            pos_ts = a.get("last_pos_update_ts") or a.get("last_seen") or 0
+            if now - pos_ts > _WS_NEAR_POS_SEC or now - (a.get("last_seen") or 0) > _WS_NEAR_POS_SEC:
+                continue
+            if _haversine_nm(lat0, lon0, lat, lon) > r_max:
+                continue
+            x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a and k not in ("dep", "dep_rwy")}
+            x["in_corridor"] = False
+            x["meteo_source"] = a.get("meteo_source") or "NONE"
+            if icao in deps:
+                x["dep"], x["dep_rwy"] = True, deps[icao]
+            out.append(x)
+        return out
 
     @app.route("/api/windshear/approach-history")
     def windshear_approach_history_api():

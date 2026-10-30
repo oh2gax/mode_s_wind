@@ -7,6 +7,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM)
+
+### Mobile ILS approach map: departures and all traffic shown
+- With *Departures: Shown* (and *All tracked (15 NM)*) hardly any departure appeared: the map's other traffic came from the windshear tracker, whose entry gate turns away every aircraft first seen climbing faster than 200 fpm — a climb-out is first heard already climbing, so only the few whose first airborne position came before any climb rate were there (also any other climbing traffic was missing). `/api/windshear/state?lite=1&map=1&near=1` now builds that list from `live_state`: all aircraft with a position not older than 30 s within `WINDSHEAR_RADIUS_NM` of the airport and below `WINDSHEAR_MAX_ALT_FT`, except those on the approach, the climb-outs marked `dep` / `dep_rwy` from `DepartureTracker.following()` (`_ws_near`, `_WS_NEAR_POS_SEC` in `web/app.py`). The windshear tracker, its entry gate and the analysis are unchanged; the phone view's code is unchanged.
+
 ## v.29102026 — 2026-10-29 (boundary layer: low-level jet and surface inversion, also in the Sounding page's Time–height section, the windshear reports and on the Skew-T airport profile; turbulence EDR of every landing and departure, also in the Approach History and the mobile History; departure series to 5 000 ft; METAR archive and pilot reports; mobile ILS view: ATC-style altitudes, more room for the strips, WS + ACI chart; landed aircraft leave the windshear views sooner; speed vectors; Flights page redesigned)
 
 ### Documentation: the receiving station overview, page 6 (turbulence and the boundary layer)

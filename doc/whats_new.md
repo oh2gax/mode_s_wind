@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.30102026 — Departures and all traffic on the phone's approach map
+
+- **Departures on the phone's approach map** — with *Departures: Shown* the ILS approach map now shows every climb-out within 15 NM, with its runway (`22R↑`); before, almost none appeared. *All tracked (15 NM)* likewise shows all traffic in the area, also aircraft that are climbing.
+
 ## v.29102026 — The boundary layer (low-level jet, inversion) — also in the Sounding page's time–height section, the windshear reports and on the Skew-T, turbulence in the Approach History, turbulence (EDR) of every landing and departure, METARs and pilot reports, altitudes as ATC sees them on the phone, speed vectors, more room for the strips, the WS + ACI chart in the ILS view, landed aircraft leave sooner, a new Flights page
 
 - **The receiving station overview, page 6** — the A4 / A3 overview (User guides) has a new page on turbulence (EDR) and the boundary layer: what they are, how MODE-S Wind measures them from the aircraft's replies, the first results and where to find them.
