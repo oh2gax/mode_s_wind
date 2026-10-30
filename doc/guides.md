@@ -9,11 +9,11 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.6
+version: 1.7
 date: 2026-10-30
-pages: 6
+pages: 7
 
-A six-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
+A seven-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
 
 - The hardware: the 1090 MHz antenna, the Jetvision Radarcape and the Raspberry Pi 4, and the signal chain from the aircraft's transponder to the browser
 - What the aircraft send: Mode S EHS, the Comm-B registers (BDS 5,0, 6,0 …), ADS-B and the quality gates
@@ -22,6 +22,7 @@ A six-page overview of the station behind MODE-S Wind — poster style, for prin
 - **One system, two sites** (page 4): the off-grid capable local station and the cloud server at https://mode-s-wind.oh2gax.org that serves the users, the tunnel between them, how both are kept up to date, and what comes next
 - **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, the ILS approach with the turbulence (EDR) of the last hour on the approach map, ACI + windshear and Statistics, and the seven views
 - **Turbulence and the boundary layer** (page 6): EDR from the headwind replies of every landing and departure, with the ICAO classes and the first results; the low-level jet and the surface inversion hour by hour, and how they relate to the windshear levels
+- **The ATC-style map** (page 7, research): the Live Map and the Windshear map as a radar display for readers with an air traffic control background — how a full label is read (callsign / level, trend and selected level / ground speed and type), history plots, speed vectors, labels kept apart, the selected altitude (BDS 4,0 / ADS-B), with live traffic of 30 Oct 2026 drawn in the style; not for air traffic control
 
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
