@@ -27,6 +27,15 @@
  *    (AtcDisplay.drawLabels, 10 px): Standard callsign / FL, or ATC three
  *    lines.  Map style ATC: no street map but the ATC background with the
  *    coastline, the airport, the finals and the borders, monochrome symbols.
+ *  - Rain source (from 2026-10-30): MEPS model, FMI radar or Both, as the Live
+ *    Map's ☂ panel.  The radar is the newest FMI composite (/api/radar/latest,
+ *    rain rate every 5 min, about 2 km, Finland and the nearby seas), read
+ *    every 4 min while the view is shown with a radar source, and drawn only
+ *    at the present hour of the slider (WxLayer.setOverlay): Radar alone
+ *    without the model's rain, Both with the model's rain outside the radar
+ *    area and as outlines inside it.  The other hours show the model's rain.
+ *    Rain opacity and Radar opacity (25–100 %, 75 % by default) set the two
+ *    rains' opacity separately (WxLayer options rainAlpha / radarAlpha).
  */
 'use strict';
 
@@ -42,6 +51,7 @@ window.AppWx = (() => {
   let hours = [], view = [], grid = null, frames = new Map(), loadedKey = '', loadRun = 0, bytes = 0;
   let current = null, playing = false, playRun = 0, indexAt = 0, shown = false;
   let traffic = null, trafficAt = 0, trafficLayer = null, trails = {}, lblPos = {}, tip = null, tipMk = null;
+  let radar = null, radarAt = 0, radarErr = '', radarOn = false;    // the FMI radar (Rain source)
   const pad = n => String(n).padStart(2, '0');
   const nowTs = () => Math.floor(Date.now() / 1000);
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -50,10 +60,13 @@ window.AppWx = (() => {
   // ── settings → layer options, fields ──────────────────────────────────
   const S = () => C.S;
   const atcMap = () => S().mapst === 'atc' && typeof AtcDisplay !== 'undefined';
+  const useRadar = () => S().src === 'radar' || S().src === 'both';
   function layerOptions() {
     const s = S();
     return { rain: s.rain === 'on', pres: s.pres === 'on', wind: s.wind === 'on', gust: s.gust === 'on',
-             clouds: s.cloud !== 'off' ? [s.cloud] : [] };
+             clouds: s.cloud !== 'off' ? [s.cloud] : [],
+             modelOutline: radarOn && s.src === 'both', edge: radarOn,
+             rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100 };
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
@@ -244,7 +257,12 @@ window.AppWx = (() => {
     const f = frames.get(h[0]);
     if (!f) { statusLine('loading this hour…'); return; }
     current = f;
-    wx.setFrame(f, grid);
+    // the radar at the present hour only (the newest composite); Radar alone: without the model's rain
+    const on = useRadar() && !!radar && k === presentIndex();
+    if (on !== radarOn) { radarOn = on; wx.setOptions(layerOptions()); renderLegend(); }
+    wx.setOverlay(on ? radar : null, on ? radar.grid : null);
+    wx.setFrame(on && S().src === 'radar' ? Object.assign({}, f, { r: null, s: null }) : f, grid);
+    if (on) { const t = new Date(radar.ts * 1000); $('app-wx-rel').innerHTML = `now · <span class="rd">radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}</span>`; }
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
     statusLine();
   }
@@ -252,7 +270,17 @@ window.AppWx = (() => {
     const n = view.filter(fresh).length;
     const tr = S().traffic === 'on' && traffic ? (() => { const t = new Date(traffic.t * 1000);
       return `traffic live ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} UTC · ${traffic.ac.length} aircraft · `; })() : '';
-    status(`${tr}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · rain of the hour before the shown time · MET Norway, CC BY 4.0`);
+    let rd = '', rain = 'rain of the hour before the shown time';
+    if (useRadar()) {
+      if (radar) {
+        const t = new Date(radar.ts * 1000), age = Math.max(0, Math.round((Date.now() / 1000 - radar.ts) / 60));
+        rd = radarOn ? `FMI radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} UTC (${age} min old) · rain rate, about ${radar.km} km · ` +
+                       (S().src === 'both' ? 'model rain outside the radar area, outlined inside it · ' : '')
+                     : `FMI radar only at the present hour (Now) · `;
+        if (radarOn) rain = 'radar: FMI open data, CC BY 4.0 · model';
+      } else rd = radarErr ? `FMI radar not reachable${radarErr} — trying again in a few minutes · ` : 'FMI radar loading… · ';
+    }
+    status(`${tr}${rd}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
     $('app-wx-loading').hidden = n >= view.length || !view.length || S().load === 'near';
     $('app-wx-loading').textContent = `Loading ${n} / ${view.length} hours…`;
   }
@@ -293,7 +321,13 @@ window.AppWx = (() => {
     showTip(e.latlng);
   }
   function showTip(ll) {
-    const txt = current ? wx.describe(wx.valuesAt(ll), ll) : '';
+    let txt = '';
+    if (current) {
+      const v = wx.valuesAt(ll), ra = radarOn ? wx.radarAt(ll) : null;
+      if (v && radarOn && S().src === 'radar') { delete v.r; delete v.s; }
+      txt = wx.describe(v, ll);
+      if (ra) txt += ra.in ? ` · radar ${ra.r >= 10 ? (ra.r / 100).toFixed(1) + ' mm/h' : 'dry'}` : ' · outside the radar';
+    }
     if (!txt) { closeTip(); return; }
     if (tipMk) tipMk.setLatLng(ll); else tipMk = L.marker(ll, { interactive: false, keyboard: false,
       icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="app-wx-pin"></div>' }) }).addTo(map);
@@ -315,6 +349,29 @@ window.AppWx = (() => {
     $('app-wx-tip').hidden = true;
     if (tipMk) { tipMk.remove(); tipMk = null; }
     tip = null;
+  }
+
+  // ── FMI radar ─────────────────────────────────────────────────────────
+  // the newest composite, at most every 4 min (the server looks every 5 min)
+  async function loadRadar(force) {
+    if (!useRadar() || !shown) return;
+    if (!force && radar && Date.now() - radarAt < 4 * 60 * 1000) return;
+    if (!force && !radar && Date.now() - radarAt < 60 * 1000) return;     // after a failure: once a minute
+    radarAt = Date.now();
+    let d = null;
+    try {
+      const r = await fetch('/api/radar/latest', { cache: 'no-store' });
+      d = await r.json();
+      bytes += +(r.headers.get('content-length') || 0);
+    } catch (_) { d = null; }
+    if (d && d.ts && d.grid) {
+      if (!radar || radar.ts !== d.ts) radar = { ts: d.ts, rs: d.rs, cov: d.cov, grid: d.grid, km: d.km };
+      radarErr = '';
+    } else {
+      radar = null;
+      radarErr = d && d.error ? ` (${String(d.error).slice(0, 60)})` : '';
+    }
+    showFrame();
   }
 
   // ── air traffic ───────────────────────────────────────────────────────
@@ -383,12 +440,14 @@ window.AppWx = (() => {
     applyMapStyle();
     if (!hours.length || Date.now() - indexAt > 10 * 60 * 1000) loadIndex(); else { buildView(); }
     if (S().traffic === 'on') loadTraffic(true);
+    loadRadar();
   }
   function hide() { shown = false; if (playing) play(); }
   function layout() { if (map) { map.invalidateSize(); trafficLayer && trafficLayer.redraw(); } }
   function refresh() {                                     // every 6 s while the view is shown
     if (!shown) return;
     if (S().traffic === 'on') loadTraffic();
+    loadRadar();
     if (!playing && Date.now() - indexAt > 10 * 60 * 1000) loadIndex();
   }
   function option(key) {                                   // a Weather option changed in the menu
@@ -402,6 +461,13 @@ window.AppWx = (() => {
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
+    else if (key === 'rainop' || key === 'radarop') wx.setOptions(layerOptions());
+    else if (key === 'src') {
+      if (!useRadar()) { radar = null; radarErr = ''; }
+      radarOn = null; showFrame();                         // re-applies the options and the overlay
+      if (useRadar()) loadRadar(true); else { wx.setOptions(layerOptions()); renderLegend(); }
+      if (tip && tip.ll) showTip(tip.ll);
+    }
   }
   function theme() {
     if (!map) return;

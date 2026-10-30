@@ -53,8 +53,19 @@ const WxLayer = (() => {
   })();
 
   // ── ETRS-TM35FIN (EPSG:3067, the FMI radar grid): transverse Mercator,
-  //    GRS80, 27° E, k0 0.9996, false easting 500 km — inverse only ────────
+  //    GRS80, 27° E, k0 0.9996, false easting 500 km (forward xy from 2026-10-30,
+  //    for the phone's radar read-out) ─────────────────────────────────────
   const TM35 = {
+    xy(latDeg, lonDeg) {
+      const a = 6378137, f = 1 / 298.257222101, e2 = f * (2 - f), ep2 = e2 / (1 - e2), k0 = 0.9996, lon0 = 27 * Math.PI / 180;
+      const p = latDeg * Math.PI / 180, l = lonDeg * Math.PI / 180, sp = Math.sin(p), cp = Math.cos(p), tp = Math.tan(p);
+      const N = a / Math.sqrt(1 - e2 * sp * sp), T = tp * tp, C = ep2 * cp * cp, A = (l - lon0) * cp;
+      const M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256) * p - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * p)
+              + (15 * e2 * e2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * p) - (35 * e2 ** 3 / 3072) * Math.sin(6 * p));
+      const E = 500000 + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120);
+      const Nn = k0 * (M + N * tp * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720));
+      return [E, Nn];
+    },
     latlon(E, N) {
       const a = 6378137, f = 1 / 298.257222101, e2 = f * (2 - f), ep2 = e2 / (1 - e2), k0 = 0.9996, lon0 = 27 * Math.PI / 180;
       const mu = N / k0 / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
@@ -287,8 +298,11 @@ const WxLayer = (() => {
         }
         if (any) layer(o.gustAlpha != null ? o.gustAlpha : (opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
       }
-      // rain / snow: the model's, cut away inside the radar coverage, then the radar's
+      // rain / snow: the model's, cut away inside the radar coverage, then the radar's;
+      // o.rainAlpha / o.radarAlpha (the phone's opacity options, from 2026-10-30): each its own opacity,
+      // otherwise the two together at opts.rainAlpha (the Live Map, the Weather page)
       const oq = hasO ? quads(ovGeo) : null;
+      const rainA = opts.rainAlpha || 0.72, sepA = o.rainAlpha != null || o.radarAlpha != null;
       if (o.rain && (f.r || (hasO && ov.r))) {
         begin();
         let any = false;
@@ -308,6 +322,7 @@ const WxLayer = (() => {
               for (let i = ov.cov[q + 1]; i <= ov.cov[q + 2]; i += SPLIT) oq(i, ov.cov[q], null, Math.min(i + SPLIT - 1, ov.cov[q + 2]));
             g2.globalCompositeOperation = 'source-over';
           }
+          if (sepA && any) { layer(o.rainAlpha != null ? o.rainAlpha : rainA); begin(); any = false; }
         }
         if (hasO && ov.r) {
           const onx = ovGeo.nx;
@@ -316,7 +331,7 @@ const WxLayer = (() => {
             if (cl >= 0) { oq(k % onx, Math.floor(k / onx), RAIN_C[cl]); any = true; }
           }
         }
-        if (any) layer(opts.rainAlpha || 0.72);
+        if (any) layer(sepA && hasO ? (o.radarAlpha != null ? o.radarAlpha : rainA) : sepA ? (o.rainAlpha != null ? o.rainAlpha : rainA) : rainA);
       }
       // the model's rain inside the radar coverage as outlines (clipped to the coverage)
       if (hasF && hasO && o.rain && o.modelOutline && f.r && ov.cov) {
@@ -564,6 +579,18 @@ const WxLayer = (() => {
         return { k: best[4], dir: best[2], spd: best[3], values: vals, latlng: geo.pt(best[4]) };
       },
       valuesAt, describe,
+      // the radar's rain at a map position (from 2026-10-30, the phone's tap):
+      // null = no radar shown; {in: false} outside its coverage; {in: true, r: mm/h × 100 (0 = dry)}
+      radarAt(latlng) {
+        if (!ov || !ovGrid) return null;
+        const [E, N] = TM35.xy(latlng.lat, latlng.lng);
+        const i = Math.round((E - ovGrid.x[0]) / ovGrid.x[1]), j = Math.round((N - ovGrid.y[0]) / ovGrid.y[1]);
+        if (i < 0 || j < 0 || i >= ovGrid.x[2] || j >= ovGrid.y[2]) return { in: false };
+        let cov = !ov.cov;
+        for (let q = 0; !cov && q < ov.cov.length; q += 3) if (ov.cov[q] === j && i >= ov.cov[q + 1] && i <= ov.cov[q + 2]) cov = true;
+        if (!cov) return { in: false };
+        return { in: true, r: (ov.r && ov.r[j * ovGrid.x[2] + i]) || 0 };
+      },
     };
   }
 
