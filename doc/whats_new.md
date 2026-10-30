@@ -5,6 +5,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Half-width charts on the Windshear page** — the new **½** button next to the chart range makes the ACI, WS, EDR, BL and ST charts half as wide, so more of the map (and the ATC view) is free; up to 12 hours of data. Click again for the full width. Windshear guide 2.20.
+- **Selected altitude written the same everywhere** — the Windshear map's *Full* labels and the phone's *Selected altitude* now use the Live Map's form: `FL120-A030` descending from FL120 to 3 000 ft, `A023+A050` climbing to 5 000 ft, `FL390=FL390` level (before `A023+020`).
 - **Receiving-station overview, page 7: the extended label** — the ATC-style map page now shows Hover with live traffic of this afternoon: an A321 turning towards the final at 25° of bank, its six-line label with airspeeds, heading, bank and tailwind (User guides: *The receiving station*, version 1.8).
 - **Hover for an extended ATC label** — in the ATC style of the Live Map and the Windshear map, the new **Hover** button (off at the start) makes the label of the aircraft under the mouse grow into six lines, as on a controller's display: also the selected level, vertical rate and autopilot mode, true and indicated airspeed and Mach, magnetic heading and track, drift and bank angle, wind with head- and crosswind, temperature, distance from the airport, NACp and squawk — what the receiver has just heard, updated every 2 s. Windshear guide 2.18.
 - **Windshear map remembers where you left it** — position and zoom are kept in your browser; the **⌂** button beside the zoom buttons brings it back to the airport.

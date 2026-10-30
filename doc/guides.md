@@ -56,7 +56,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.18
+version: 2.20
 date: 2026-10-30
 pages: 26
 open: windshear
@@ -89,7 +89,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.25
+version: 1.26
 date: 2026-10-30
 pages: 24
 

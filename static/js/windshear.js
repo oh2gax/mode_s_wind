@@ -331,7 +331,7 @@ function wsAtcAlt(pa) {
 //   cs    callsign                  type   ICAO type only (AT75)
 //   alt   callsign / altitude (the default, as before)
 //   type+ callsign + type / altitude
-//   full  callsign + type / altitude + selected altitude (A023+020)
+//   full  callsign + type / altitude + selected altitude (A023+A050, FL061-FL070, as the Live Map)
 // With the type or the selected altitude the label is a little smaller.
 const WS_LBL_STEPS = ['cs', 'type', 'alt', 'type+', 'full'];
 const WS_LBL_NAME  = { cs: 'CS', type: 'Type', alt: 'CS+Alt', 'type+': '+Type', full: 'Full' };
@@ -342,9 +342,12 @@ function wsAcLabelHtml(ac) {
   const dim = !(ac.in_corridor && !ac.landed);
   const lv = wsLblLvl;
   const vr = ac.vert_rate, tr = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '';
-  // the selected altitude (MCP / FCU) after the altitude, signed with the vertical rate, as on the phone
+  // the selected altitude (MCP / FCU) after the altitude, as in the Live Map list (from 30 Oct 2026
+  // evening; before A023+020): + climbing, - descending (300 ft/min or more), = level; A and the
+  // hundreds of feet up to the transition altitude, FL above — A023+A050, FL120-A030, FL390=FL390
   const selA = lv === 'full' && ac.sel_alt != null && ac.altitude != null
-    ? ((vr || 0) < 0 ? '-' : '+') + String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
+    ? ((vr || 0) >= 300 ? '+' : (vr || 0) <= -300 ? '-' : '=') + (ac.sel_alt > WS_ATC_TA_FT ? 'FL' : 'A')
+      + String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
   const l2 = ac.landed ? 'landed' : wsAtcAlt(ac.altitude) + (selA || tr);
   // the right-hand runway's traffic labelled to the left of its square, as on the phone
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
@@ -2200,6 +2203,11 @@ let wrStData             = null;   // /api/windshear/spacetime answer (ST view)
 const WR_COND_RANGES     = [3, 6, 12, 24];   // Cond chart range options (h), cycled by the range button
 let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('ms_ws_wr_cond_h')))
                            ? Number(localStorage.getItem('ms_ws_wr_cond_h')) : 12;   // Cond chart range (first visit 12 h)
+// Half width (from 30 Oct 2026): the ½ button makes the chart views half as wide, leaving
+// more of the map (and the ATC style) free; their range then goes up to 12 h (3 → 6 → 12 h)
+let wrHalf               = (() => { try { return localStorage.getItem('ms_ws_wr_half') === '1'; } catch (_) { return false; } })();
+const wrRanges           = () => (wrHalf ? WR_COND_RANGES.filter(h => h <= 12) : WR_COND_RANGES);
+if (wrHalf && wrCondHours > 12) wrCondHours = 12;
 let wrCondEntries        = [];     // landings with a conditions index (last 6 h), newest first
 let wrCondFetchedMs      = 0;
 let wrAphEntries         = [];     // all landings of the chart range (ACI + WS view: also those without an index)
@@ -2570,7 +2578,7 @@ function sizeWindroseCanvas() {
   if (wrIsChart()) {
     const ctrl = document.querySelector('.ws-map-controls');
     // panel = canvas + 2 × 5 px padding + 2 × 1 px border
-    if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, ctrl.offsetWidth - 12);
+    if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, wrHalf ? Math.round((ctrl.offsetWidth - 12) / 2) : ctrl.offsetWidth - 12);
     if (!(Math.abs(canvas.width - w) <= 12 && canvas.width > WR_ROSE_SIZE) && canvas.width !== w) canvas.width = w;
   } else if (canvas.width !== w) canvas.width = w;
   // The readout no wider than the chart (from 2026-10-30): the panel is as wide as its
@@ -2664,6 +2672,11 @@ function _syncWrViewBtns() {
     rangeBtn.style.display = chart ? '' : 'none';
     rangeBtn.textContent   = wrRangeLabel(wrCondHours);
   }
+  const halfBtn = document.getElementById('ws-wr-half-btn');
+  if (halfBtn) {
+    halfBtn.style.display = chart ? '' : 'none';
+    halfBtn.classList.toggle('active', wrHalf);
+  }
   const blBtn = document.getElementById('ws-bl-field-btn');
   if (blBtn) {
     blBtn.style.display = wrView === 'bl' ? '' : 'none';
@@ -2692,11 +2705,29 @@ if (_blFieldBtn) {
 const _wrRangeBtn = document.getElementById('ws-wr-range-btn');
 if (_wrRangeBtn) {
   _wrRangeBtn.addEventListener('click', () => {
-    wrCondHours = WR_COND_RANGES[(WR_COND_RANGES.indexOf(wrCondHours) + 1) % WR_COND_RANGES.length];
+    const R = wrRanges();
+    wrCondHours = R[(R.indexOf(wrCondHours) + 1) % R.length];
     localStorage.setItem('ms_ws_wr_cond_h', String(wrCondHours));
     _syncWrViewBtns();
     drawWindrose();
     fetchCondData();          // the request window follows the range
+  });
+}
+// ½: the chart views half as wide (up to 12 h); again: full width
+const _wrHalfBtn = document.getElementById('ws-wr-half-btn');
+if (_wrHalfBtn) {
+  _wrHalfBtn.addEventListener('click', () => {
+    wrHalf = !wrHalf;
+    try { localStorage.setItem('ms_ws_wr_half', wrHalf ? '1' : '0'); } catch (_) { /* private mode */ }
+    let refetch = false;
+    if (wrHalf && wrCondHours > 12) {
+      wrCondHours = 12; refetch = true;
+      try { localStorage.setItem('ms_ws_wr_cond_h', '12'); } catch (_) { /* private mode */ }
+    }
+    _syncWrViewBtns();
+    drawWindrose();
+    if (refetch) fetchCondData();
+    if (typeof wsCanvas !== 'undefined') wsCanvas.redraw();   // the ATC labels keep clear of the panel
   });
 }
 _syncWrViewBtns();

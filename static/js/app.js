@@ -931,14 +931,18 @@
     return alt <= ATC_TA_FT ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
                             : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
   }
-  // With *Selected altitude* on (from 2026-10-30) the altitude is followed by the sign of the
-  // vertical rate and the altitude selected on the MCP / FCU in hundreds of feet, when the
-  // aircraft has sent it (BDS 4,0 or ADS-B, within 2 min): A023+020 = at 2 300 ft, climbing
-  // (or level), 2 000 ft selected; A045-030 = at 4 500 ft, descending, 3 000 ft selected.
+  // With *Selected altitude* on (from 2026-10-30) the altitude is followed by the altitude selected
+  // on the MCP / FCU, when the aircraft has sent it (BDS 4,0 or ADS-B, within 2 min), in the Live
+  // Map's form (from 30 Oct 2026 evening; before A023+020): + climbing, - descending (300 ft/min
+  // or more), = level; A and the hundreds of feet up to the transition altitude, FL above —
+  // A023+A050 = at 2 300 ft, climbing, 5 000 ft selected; FL120-A030 = at FL120, descending,
+  // 3 000 ft selected; FL390=FL390 level at the selected FL390.
   function altLbl(a) {
     const base = atcAlt(a.altitude);
     if (I.selalt !== 'on' || a.sel_alt == null || a.altitude == null) return base;
-    return base + ((a.vert_rate || 0) < 0 ? '-' : '+') + String(Math.round(a.sel_alt / 100)).padStart(3, '0');
+    const vr = a.vert_rate || 0;
+    return base + (vr >= 300 ? '+' : vr <= -300 ? '-' : '=') + (a.sel_alt > ATC_TA_FT ? 'FL' : 'A')
+      + String(Math.round(a.sel_alt / 100)).padStart(3, '0');
   }
   const shownEv = () => I.lvl === 'off' ? [] : I.ev.filter(e => (LV_RANK[e.lvl] ?? 0) >= LV_RANK[I.lvl] && rwyOk(e.rwy));
   // Auto: the barbs of the lowest aircraft on the approach (the closest to the
