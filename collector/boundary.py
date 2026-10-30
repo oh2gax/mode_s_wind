@@ -11,8 +11,10 @@ minutes after the hour; the hour in progress is computed when asked):
          5 000 ft MSL (pressure altitude corrected with the METAR QNH),
          at least 3 observations per bin → "w": [[ft, kt, dir°, n], …]
   temp   the airport low-level profile of the hour (web/api/lowlevel.py: the
-         200-ft bands 400–3 000 ft MSL of the landings and departures, at
-         least 4 flights per band), smoothed over ±200 ft → "t": [[ft, °C, n]]
+         200-ft bands of the landings and departures, at least 4 flights per
+         band — 400–3 000 ft MSL from both, and from 30 Oct 2026 3 200–5 000 ft
+         from the climb-outs, collector/departures.py DEP_BANDS), smoothed over
+         ±200 ft → "t": [[ft, °C, n]]
          and the METAR temperature "tt" (°C) and QNH "q"
   llj    low-level jet (Baas et al. 2009, made stricter by the study of
          29 Oct 2026): the strongest local wind maximum ("nose") at most
@@ -225,6 +227,31 @@ def store_missing(db, max_hours: int = 48, now: float | None = None, pause_sec: 
         db.executemany("INSERT OR IGNORE INTO bl_hours (ts, data) VALUES (?, ?)", rows)
         db.commit()
         n += len(rows)
+    return n
+
+
+def recompute(db, hours, now: float | None = None, pause_sec: float = 0.0) -> int:
+    """Compute again and replace the stored completed hours `hours` (hour
+    starts) — after a back-fill changed their flights' profiles (from 30 Oct
+    2026: the departure bands to 5 000 ft).  Returns the hours stored."""
+    now = time.time() if now is None else now
+    cur = int(now // 3600 * 3600)
+    n = 0
+    for h in sorted(set(int(x) for x in hours)):
+        if h >= cur:
+            continue
+        rec = compute_hour(db, h)
+        if pause_sec:
+            time.sleep(pause_sec)
+        if not rec["w"] and not rec["t"]:
+            continue
+        db.execute("INSERT OR REPLACE INTO bl_hours (ts, data) VALUES (?, ?)",
+                   (h, json.dumps({k: v for k, v in rec.items() if k != "ts"}, separators=(",", ":"))))
+        n += 1
+        if n % 24 == 0:
+            db.commit()
+    db.commit()
+    _live["t"] = 0.0                            # the hour in progress again with the new profiles
     return n
 
 

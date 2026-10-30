@@ -19,14 +19,9 @@
         <label class="toggle-label">
           <input type="checkbox" id="toggle-track"> Track
         </label>
-        <label class="toggle-label">
-          <input type="checkbox" id="toggle-labels"> Labels:
-        </label>
-        <select id="label-mode" class="label-mode-select">
-          <option value="callsign">Callsign</option>
-          <option value="reg">Registration</option>
-          <option value="icao">ICAO24</option>
-        </select>
+        <!-- map labels (from 2026-10-30, as the Windshear map's Lbl button): one button steps the levels -->
+        <button id="lbl-btn" class="skewt-ana-btn" type="button"
+                title="Aircraft labels on the map — click to step: Off · CS (callsign) · Reg (registration) · ICAO24 (the transponder address) · Type (ICAO aircraft type) · CS+Alt (callsign over the altitude as on a controller's radar label: A023 on the METAR QNH up to 5 000 ft, FL061 above, ↑ / ↓ climbing / descending) · +Type (callsign and type over the altitude) · Full (also the altitude selected on the autopilot panel, MCP / FCU, e.g. A023+020). Remembered in the browser.">Lbl CS+Alt</button>
       </div>
     </div>
     <div id="aircraft-list" class="aircraft-list">

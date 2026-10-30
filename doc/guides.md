@@ -40,9 +40,9 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.6
-date: 2026-10-29
-pages: 46
+version: 3.7
+date: 2026-10-30
+pages: 47
 open: sounding, windmap@30
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
@@ -55,7 +55,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.12
+version: 2.13
 date: 2026-10-30
 pages: 24
 open: windshear

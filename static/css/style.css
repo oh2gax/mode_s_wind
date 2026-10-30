@@ -476,18 +476,22 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .label-mode-select:focus { border-color: var(--accent); }
 
-/* ── Aircraft callsign labels on map ───────────────────────────────────── */
+/* ── Aircraft labels on the Live Map (from 2026-10-30 ATC style, as the Windshear map:
+      callsign over the altitude in a monospaced radar-label face, one size) ── */
 .ac-map-label {
-  color: #e2e8f0;
-  font-size: 11px;
-  font-family: 'Courier New', monospace;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 3px #000, 0 0 6px #000, 1px 1px 0 #000;
+  color: #f1f5f9;
+  font: 400 11px/1.15 Consolas, 'Cascadia Mono', 'Roboto Mono', 'DejaVu Sans Mono', ui-monospace, monospace;
+  letter-spacing: .2px;
+  text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000;
   white-space: nowrap;
+  display: inline-block;
   pointer-events: none;
   user-select: none;
 }
+.ac-map-label small { display: block; font-size: 11px; font-weight: 400; color: #e2e8f0; margin-top: 1px; }
+.ac-map-label .ac-lbl-type { font-weight: 400; }
+.ac-map-label .ac-lbl-notype { opacity: .6; }
+.ac-map-label.dense, .ac-map-label.dense small { font-size: 10px; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    WINDSHEAR PAGE
@@ -2109,9 +2113,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 /* Aircraft callsign labels on the Leaflet map.
    Dark mode: light text + dark shadow.  Light mode: dark text + white shadow. */
 [data-theme="light"] .ac-map-label {
-  color: #1e293b;
-  text-shadow: 0 0 3px #fff, 0 0 6px #fff, 1px 1px 0 #fff;
+  color: #0b1220; text-shadow: none; background: rgba(255,255,255,.4);
+  padding: 1px 4px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15,23,42,.12);
 }
+[data-theme="light"] .ac-map-label small { color: #1e293b; }
 [data-theme="light"] .ws-ac-label {
   color: #0b1220; text-shadow: none; background: rgba(255,255,255,.4);
   padding: 1px 4px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15,23,42,.12);

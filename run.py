@@ -465,6 +465,29 @@ def _edr_backfill() -> None:
         el.warning("EDR back-fill failed: %s", exc)
 
 
+def _dep_hiband_backfill() -> None:
+    """Startup thread (from 2026-10-30, one-time): the departure bands went
+    from 3 000 to 5 000 ft (collector/departures.py DEP_BANDS) — the stored
+    climb-outs whose raw series reach that high get the temperatures of the
+    bands 3 200–5 000 ft, and the boundary-layer hours of those flights are
+    computed again.  Marked done in maintenance_config, so it runs once."""
+    from database.db import get_db
+    from collector import departures as _dep
+    from collector import boundary as _bl
+    dl = logging.getLogger("modes.departures")
+    try:
+        time.sleep(90)
+        t0 = time.time()
+        db = get_db()
+        n, hours = _dep.backfill_high_bands(db, pause_sec=0.2)
+        n_h = _bl.recompute(db, hours, pause_sec=0.1) if hours else 0
+        if n:
+            dl.info("Departure bands to 5 000 ft: back-filled %d climb-out(s), boundary layer of %d hour(s) "
+                    "recomputed in %.0f s", n, n_h, time.time() - t0)
+    except Exception as exc:                              # noqa: BLE001
+        dl.warning("Departure 5 000 ft back-fill failed: %s", exc)
+
+
 def _on_departure_committed(record: dict) -> None:
     """Write one departure climb-out profile (collector/departures.py) to
     departure_profiles — called from the windshear sweep thread."""
@@ -969,6 +992,8 @@ def main() -> None:
     from collector import boundary as _bl_mod
     _bl_mod.init(cfg)
     threading.Thread(target=_edr_backfill, name="edr_backfill", daemon=True).start()
+    # Departure bands 3 200–5 000 ft of the stored climb-outs (one-time, from 2026-10-30)
+    threading.Thread(target=_dep_hiband_backfill, name="dep_hiband_backfill", daemon=True).start()
     _preload_dep_refs(ws_tracker)
     _seed_ws_day(ws_tracker)
     _preload_ga_events(ws_tracker)

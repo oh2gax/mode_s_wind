@@ -716,7 +716,7 @@ const WsCondChart = (() => {
   // Time × height 0–5000 ft MSL from /api/boundary (collector/boundary.py), one
   // column per UTC hour (the hour in progress included): field 'wind' — the wind
   // speed of the 250-ft bins (kt colours), or 'temp' — the temperature of the
-  // 200-ft bands 400–3000 ft against the METAR temperature (red warmer = inversion,
+  // 200-ft bands 400–5000 ft (above 3000 ft from the climb-outs, from 30 Oct 2026) against the METAR temperature (red warmer = inversion,
   // blue colder); hatched where there were no flights.  The low-level jet's nose as
   // a diamond with its speed, joined hour to hour (the jet core); a surface
   // inversion as a red bar along the bottom.  Hover / tap: the cell, the jet, the

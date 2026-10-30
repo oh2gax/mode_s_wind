@@ -4,7 +4,9 @@ Airport low-level profile (from 2026-10-11).
 Pools the 200 ft band profiles of the landings (approach_history.prof_json,
 collector/windshear.py) and departures (departure_profiles.prof_json,
 collector/departures.py) of the last N minutes into one temperature / wind
-profile from 200 to 3 000 ft MSL near the airport.  Each band profile was
+profile from 200 to 3 000 ft MSL near the airport (from 30 Oct 2026 up to
+5 000 ft: above 3 000 ft from the departures only, collector/departures.py
+DEP_BANDS).  Each band profile was
 built from every raw BDS 5,0 / 6,0 reply on final or in the climb (not the
 30 s stored observations), so a busy hour gives some hundred replies per
 200 ft band — enough to resolve low-level inversions that the 1 000 ft layers

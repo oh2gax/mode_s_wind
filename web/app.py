@@ -679,6 +679,10 @@ def create_app(
                             "groundspeed": ac.get("groundspeed"),
                             "track":    ac.get("track"),
                             "vert_rate": ac.get("vert_rate"),
+                            # the MCP / FCU selected altitude when heard within
+                            # 2 min (the Live Map's Full labels, from 2026-10-30)
+                            "sel_alt":  (ac.get("sel_alt") if ac.get("sel_alt") is not None
+                                         and now - (ac.get("sel_alt_ts") or 0) <= 120 else None),
                             "meteo_source": ac.get("meteo_source", "NONE"),
                             "best_wind_spd":  ac.get("best_wind_spd"),
                             "best_wind_dir":  ac.get("best_wind_dir"),

@@ -83,7 +83,7 @@
   // boundary layer (/api/boundary): rows {ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv, partial}
   let blRows = null, blKey = '', blAt = 0;
   const BL_TOP = 5000;
-  const blTop = () => st.field === 'blt' ? 3500 : BL_TOP;   // the temperatures reach 3 000 ft
+  const blTop = () => BL_TOP;   // the temperatures reach 5 000 ft too (the climb-outs, from 30 Oct 2026; 3 000 ft before)
   // wind speed of the boundary layer: the colours of the Windshear page's chart (blue … green … yellow … red)
   const BL_SPD = [[0, [30, 58, 138]], [10, [14, 116, 144]], [20, [16, 185, 129]], [30, [234, 179, 8]], [40, [249, 115, 22]], [55, [220, 38, 38]]];
   function blSpd(v) {

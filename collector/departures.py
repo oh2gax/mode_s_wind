@@ -20,11 +20,15 @@ Detection (every windshear sweep, ~3 s, from live_state):
            heading calibration (hdg_off) applied;
   end    — above DEP_SERIES_TOP_FT + 300 ft (5 300 ft MSL; until 29 Oct 2026
            DEP_TOP_FT + 300 = 3 300 ft), farther than DEP_MAX_NM, descending,
-           or not updated for 60 s.  The 200 ft bands, the band comparison and
-           the trial ramps still end at DEP_TOP_FT + 300 ft (the final
-           windshear report is made there, as before); above it only the raw
-           series grows, for the turbulence (EDR) of the climb (collector/edr.py
-           uses 200–5 000 ft for departures).  A record with at least 3 bands with
+           or not updated for 60 s.  The band comparison and the trial ramps
+           still end at DEP_TOP_FT + 300 ft (the final windshear report is made
+           there, as before; the band comparison itself only uses the bands up
+           to shear.BAND_MAX_FT, 1 800 ft); above it the raw series grows, for
+           the turbulence (EDR) of the climb (collector/edr.py uses 200–5 000 ft
+           for departures), and — from 30 Oct 2026 — the 200 ft bands too, up
+           to 5 000 ft (DEP_BANDS; until then 3 000 ft): the boundary-layer
+           temperature (collector/boundary.py via web/api/lowlevel.py) and the
+           airport profile reach 5 000 ft from the climb-outs.  A record with at least 3 bands with
            temperature or wind is committed (one INSERT into
            departure_profiles; turboprops report no Mach, so their climbs
            give winds only).
@@ -67,7 +71,7 @@ from collector.wind_calc import compute_wind
 
 log = logging.getLogger("modes.departures")
 
-DEP_BANDS        = tuple(range(200, 3001, 200))   # ft MSL, as the approach profile
+DEP_BANDS        = tuple(range(200, 5001, 200))   # ft MSL (to 3 000 ft, as the approach profile, until 30 Oct 2026)
 DEP_BAND_TOL     = 100.0
 DEP_START_NM     = 6.0
 DEP_START_MAX_FT = 1500.0
@@ -110,6 +114,84 @@ def prof_summary(prof: dict) -> dict | None:
         if d:
             out[str(band)] = d
     return out or None
+
+
+HIBAND_KEY = "dep_hiband_backfill"   # maintenance_config: the one-time back-fill below is done
+
+
+def backfill_high_bands(db, pause_sec: float = 0.2) -> tuple[int, set]:
+    """One-time back-fill (from 30 Oct 2026, when DEP_BANDS went from 3 000
+    to 5 000 ft): the temperatures of the bands above DEP_TOP_FT of the stored
+    departures whose raw climb series (departure_series, up to 5 000 ft since
+    29 Oct 2026) reaches them, computed as the live capture does — every BDS 6,0
+    reply paired with the nearest BDS 5,0 reply (≤ PAIR_SEC), Mach/TAS
+    temperature, the 200 ft band within ±DEP_BAND_TOL, trimmed mean — and
+    added to prof_json ("t", "tn"; no winds: they need the heading calibration
+    of that moment, and the boundary-layer wind comes from the observations).
+    Profiles that already have a band above DEP_TOP_FT are left as they are.
+    Marks itself done in maintenance_config, so it runs once.  Returns
+    (profiles updated, the hour starts whose boundary layer to recompute)."""
+    import bisect
+    import json
+    try:
+        if db.execute("SELECT value FROM maintenance_config WHERE key = ?", (HIBAND_KEY,)).fetchone():
+            return 0, set()
+    except Exception:                                     # noqa: BLE001  (older database)
+        return 0, set()
+    from collector.windshear import WindshearTracker
+    hi = [b for b in DEP_BANDS if b > DEP_TOP_FT]
+    todo = db.execute(
+        "SELECT p.id, p.ts, p.icao, p.prof_json FROM departure_profiles p "
+        "WHERE EXISTS (SELECT 1 FROM departure_series s WHERE s.ts = p.ts AND s.icao = p.icao) "
+        "ORDER BY p.ts").fetchall()
+    n, hours = 0, set()
+    for rid, ts, icao, pj in todo:
+        try:
+            prof = json.loads(pj) if pj else {}
+        except (TypeError, ValueError):
+            continue
+        if any(int(b) > DEP_TOP_FT for b in prof if str(b).isdigit()):
+            continue
+        row = db.execute("SELECT data FROM departure_series WHERE ts = ? AND icao = ?", (ts, icao)).fetchone()
+        try:
+            d = WindshearTracker.decode_series(row[0]) if row else None
+        except Exception:                                 # noqa: BLE001
+            d = None
+        if not d:
+            continue
+        b5, b6 = d.get("b50") or {}, d.get("b60") or {}
+        p5 = sorted((t, tas) for t, tas in zip(b5.get("t") or [], b5.get("tas") or [])
+                    if t is not None and tas is not None)
+        tl = [p[0] for p in p5]
+        temps: dict[int, list] = {}
+        for t, m, a in zip(b6.get("t") or [], b6.get("mach") or [], b6.get("alt") or []):
+            if t is None or m is None or a is None or not p5 or a < DEP_TOP_FT:
+                continue
+            k = bisect.bisect_left(tl, t)
+            q = min((p5[j] for j in (k - 1, k) if 0 <= j < len(p5)), key=lambda p: abs(p[0] - t))
+            if abs(q[0] - t) > PAIR_SEC:
+                continue
+            band = int(round(a / 200.0) * 200)
+            if band not in hi or abs(a - band) > DEP_BAND_TOL:
+                continue
+            tm = tm_temp_c(q[1], m)
+            if tm is not None:
+                temps.setdefault(band, []).append(tm)
+        if not temps:
+            continue
+        for band, v in temps.items():
+            prof[str(band)] = {"t": round(trimmed_mean(v), 1), "tn": len(v)}
+        db.execute("UPDATE departure_profiles SET prof_json = ? WHERE id = ?",
+                   (json.dumps(prof, separators=(",", ":")), rid))
+        n += 1
+        hours.add(int((ts - 1e-6) // 3600 * 3600))     # the hour whose airport profile window ends after it
+        if n % 25 == 0:
+            db.commit()
+            if pause_sec:
+                time.sleep(pause_sec)
+    db.execute("INSERT OR REPLACE INTO maintenance_config (key, value) VALUES (?, ?)", (HIBAND_KEY, "1"))
+    db.commit()
+    return n, hours
 
 
 class DepartureTracker:

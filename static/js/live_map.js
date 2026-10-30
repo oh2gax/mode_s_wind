@@ -104,9 +104,19 @@ const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profil
 // Restore persisted UI prefs — default both toggles ON
 // localStorage.getItem returns null when key is absent; null !== 'false' → true (default ON)
 let meteoOnly   = localStorage.getItem('ms_meteoOnly')  !== 'false';
-let showLabels  = localStorage.getItem('ms_showLabels') !== 'false';
 let showTrack   = localStorage.getItem('ms_showTrack')  === 'true';   // default OFF
-let labelMode   = localStorage.getItem('ms_labelMode')  || 'callsign';
+// Map labels (from 2026-10-30; before a Labels tick box and a Callsign /
+// Registration / ICAO24 menu): one button steps the levels, as the Windshear
+// map's Lbl button — ATC-style labels (callsign over the altitude).
+const LBL_STEPS = ['off', 'cs', 'reg', 'icao', 'type', 'alt', 'type+', 'full'];
+const LBL_NAME  = { off: 'Off', cs: 'CS', reg: 'Reg', icao: 'ICAO24', type: 'Type', alt: 'CS+Alt', 'type+': '+Type', full: 'Full' };
+let lblLvl = (() => {
+  const v = localStorage.getItem('ms_liveLbl');
+  if (LBL_STEPS.includes(v)) return v;
+  if (localStorage.getItem('ms_showLabels') === 'false') return 'off';     // the old settings
+  const m = localStorage.getItem('ms_labelMode');
+  return m === 'icao' ? 'icao' : m === 'reg' ? 'reg' : 'alt';
+})();
 // Aircraft list order: 'alt_asc' (lowest on top, default), 'alt_desc', 'name'
 const AC_SORTS  = { alt_asc: 'Alt ↑', alt_desc: 'Alt ↓', name: 'A–Z' };
 let acSort      = localStorage.getItem('ms_acSort') || 'alt_asc';
@@ -148,9 +158,36 @@ function acColor(ac) {
 }
 
 function getLabelText(ac) {
-  if (labelMode === 'icao') return ac.icao;
-  if (labelMode === 'reg')  return ac.registration || callsignCache[ac.icao] || ac.icao;
-  return callsignCache[ac.icao] || ac.icao;
+  if (lblLvl === 'icao') return ac.icao;
+  if (lblLvl === 'reg')  return ac.registration || callsignCache[ac.icao] || ac.icao;
+  return callsignCache[ac.icao] || ac.callsign || ac.icao;
+}
+
+// The altitude as on a controller's radar label (as the Windshear map): up to
+// the transition altitude 5 000 ft A + hundreds of feet on the METAR QNH, above
+// it the flight level; without a QNH the pressure altitude.
+function liveAtcAlt(pa) {
+  if (pa == null) return '—';
+  const qnh = miniSfc && miniSfc.qnh ? miniSfc.qnh : 1013.25;
+  const alt = pa - (1013.25 - qnh) * 27;
+  return alt <= 5000 ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
+                     : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
+}
+// The label of one aircraft at the current level ('' = none)
+function liveLabelHtml(ac) {
+  const lv = lblLvl;
+  if (lv === 'off') return '';
+  const cs = esc(callsignCache[ac.icao] || ac.callsign || ac.icao);
+  const ty = esc(ac.aircraft_type || '');
+  if (lv === 'cs')   return cs;
+  if (lv === 'reg')  return esc(ac.registration || callsignCache[ac.icao] || ac.icao);
+  if (lv === 'icao') return esc(ac.icao);
+  if (lv === 'type') return ty || '<span class="ac-lbl-notype">—</span>';
+  const vr = ac.vert_rate, tr = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '';
+  const sel = lv === 'full' && ac.sel_alt != null && ac.altitude != null
+    ? ((vr || 0) < 0 ? '-' : '+') + String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
+  const l2 = ac.landed ? 'landed' : liveAtcAlt(ac.altitude) + (sel || tr);
+  return cs + ((lv === 'type+' || lv === 'full') && ty ? ` <span class="ac-lbl-type">${ty}</span>` : '') + `<small>${l2}</small>`;
 }
 
 // Escape text from the data feeds before it goes into innerHTML
@@ -371,17 +408,19 @@ function updateTrail(icao, lat, lon, color) {
   trailLayers[icao] = group;
 }
 
-// ── Callsign labels ───────────────────────────────────────────────────────
-function updateLabel(icao, lat, lon, label) {
-  if (!showLabels) {
+// ── Map labels (ATC style, levels of the Lbl button) ──────────────────────
+function updateLabel(icao, lat, lon, ac) {
+  const html = liveLabelHtml(ac || aircraftData[icao] || { icao });
+  if (!html) {
     if (labelMarkers[icao]) { labelMarkers[icao].remove(); delete labelMarkers[icao]; }
     return;
   }
+  const two = ['alt', 'type+', 'full'].includes(lblLvl);
   const icon = L.divIcon({
-    html:       `<div class="ac-map-label">${label}</div>`,
+    html:       `<div class="ac-map-label${lblLvl === 'type+' || lblLvl === 'full' ? ' dense' : ''}">${html}</div>`,
     className:  '',
     iconSize:   null,
-    iconAnchor: [-10, 6],   // offset: label sits to the right of the square
+    iconAnchor: [-10, two ? 7 : 6],   // offset: label sits to the right of the square
   });
   if (labelMarkers[icao]) {
     labelMarkers[icao].setLatLng([lat, lon]).setIcon(icon);
@@ -416,7 +455,6 @@ function upsertMarker(ac) {
   const color    = acColor(ac);
   const selected = ac.icao === selectedIcao;
   const icon     = makeIcon(color, ac.track, selected);
-  const label    = getLabelText(ac);
 
   const cs = callsignCache[ac.icao] || ac.callsign;
   let popup = `<b>${esc(cs || ac.registration || ac.icao)}</b>  <span style="color:${color}">${ac.meteo_source || 'NONE'}</span><br>`;
@@ -445,7 +483,7 @@ function upsertMarker(ac) {
   }
 
   updateTrail(ac.icao, ac.lat, ac.lon, color);
-  updateLabel(ac.icao, ac.lat, ac.lon, label);
+  updateLabel(ac.icao, ac.lat, ac.lon, ac);
   drawWindArrow(ac.icao, ac.lat, ac.lon, ac.best_wind_spd, ac.best_wind_dir);
   // landed (no new position near the airport for 15 s): faded
   const op = ac.landed ? 0.4 : 1;
@@ -856,9 +894,7 @@ function connectSSE() {
 
 // Restore saved state into the DOM controls before first render
 document.getElementById('filter-meteo-only').checked = meteoOnly;
-document.getElementById('toggle-labels').checked     = showLabels;
 document.getElementById('toggle-track').checked      = showTrack;
-document.getElementById('label-mode').value          = labelMode;
 
 // Aircraft list order button: Alt ↑ → Alt ↓ → A–Z
 const acSortBtn = document.getElementById('ac-sort-btn');
@@ -885,30 +921,25 @@ document.getElementById('toggle-track').addEventListener('change', e => {
   drawSelectedTrack(selectedIcao);   // redraw (or clear) immediately
 });
 
-document.getElementById('toggle-labels').addEventListener('change', e => {
-  showLabels = e.target.checked;
-  localStorage.setItem('ms_showLabels', showLabels);
-  if (!showLabels) {
-    for (const icao of Object.keys(labelMarkers)) {
-      labelMarkers[icao].remove();
-      delete labelMarkers[icao];
-    }
-  } else {
+// Map labels: the Lbl button steps Off → CS → Reg → ICAO24 → Type → CS+Alt → +Type → Full
+const lblBtn = document.getElementById('lbl-btn');
+if (lblBtn) {
+  const showLbl = () => {
+    lblBtn.textContent = `Lbl ${LBL_NAME[lblLvl]}`;
+    lblBtn.classList.toggle('active', lblLvl !== 'off');
+  };
+  showLbl();
+  lblBtn.addEventListener('click', () => {
+    lblLvl = LBL_STEPS[(LBL_STEPS.indexOf(lblLvl) + 1) % LBL_STEPS.length];
+    try { localStorage.setItem('ms_liveLbl', lblLvl); } catch (_) { /* private mode */ }
+    showLbl();
     for (const [icao, ac] of Object.entries(aircraftData)) {
-      if (ac.lat && ac.lon) updateLabel(icao, ac.lat, ac.lon, getLabelText(ac));
+      if (ac.lat && ac.lon) updateLabel(icao, ac.lat, ac.lon, ac);
     }
-  }
-});
-
-document.getElementById('label-mode').addEventListener('change', e => {
-  labelMode = e.target.value;
-  localStorage.setItem('ms_labelMode', labelMode);
-  if (showLabels) {
-    for (const [icao, ac] of Object.entries(aircraftData)) {
-      if (ac.lat && ac.lon) updateLabel(icao, ac.lat, ac.lon, getLabelText(ac));
-    }
-  }
-});
+    renderList(Object.values(aircraftData));     // the list follows Reg / ICAO24
+    syncSkewT();
+  });
+}
 
 // ── Wind density slider ───────────────────────────────────────────────────
 const densitySlider = document.getElementById('wind-density');
