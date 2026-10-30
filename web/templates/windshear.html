@@ -39,6 +39,8 @@
         <div id="ws-map"></div>
         <!-- ATC style: the symbol colours and the research notice (static/js/atc_display.js) -->
         <div class="map-legend ws-atc-legend" id="ws-atc-legend" hidden></div>
+        <!-- Turbulence on the map: the colour key and the summary (EDR button) -->
+        <div class="map-legend ws-edr-sum" id="ws-edr-sum" hidden></div>
 
         <!-- Map controls overlay -->
         <div class="ws-map-controls">
@@ -47,6 +49,7 @@
           <button class="ws-ils-filter-btn ws-vec-btn" id="ws-vec-btn" title="Speed vectors: where each aircraft will be after 30 s, 1 min or 2 min at its ground speed — click to step Off → 30 s → 1 min → 2 min">Vec</button>
           <button class="ws-ils-filter-btn ws-lbl-btn" id="ws-lbl-btn" title="Aircraft labels on the map — click to step: callsign · type · callsign + altitude · callsign + type + altitude · full (also the selected altitude of the autopilot panel, MCP / FCU, signed + climbing, - descending, = level: A023+A050, FL120-A030, FL390=FL390)">Lbl</button>
           <button class="ws-ils-filter-btn ws-hist-btn" id="ws-hist-btn" title="History plots: the aircraft's earlier positions as small squares, one per about 6 s, older ones fainter — click to step Off → 5 → 10 → 20 plots (about 30 s · 1 min · 2 min). Remembered in the browser.">Hist</button>
+          <button class="ws-ils-filter-btn ws-edr-btn" id="ws-edr-btn" title="Turbulence on the map (research) — the paths of the landings of the last 30 min or 1 h as thin lines coloured by their turbulence (EDR, from each aircraft's own Mode S replies, per straight 2-km piece): green smooth, yellow light ≥ 0.10, orange moderate ≥ 0.20, red severe ≥ 0.45 (ICAO classes of a medium aircraft); the strongest piece on top, a summary at the lower left. A flight appears after it has landed. Click to step Off → 30 min → 1 h. Remembered in the browser.">EDR</button>
           <button class="ws-theme-btn active" data-theme="dark" title="Street map, dark — symbols in the colour of the meteo source">Dark</button>
           <button class="ws-theme-btn"        data-theme="grey" title="Street map, light — symbols in the colour of the meteo source">Grey</button>
           <button class="ws-theme-btn"        data-theme="atc" title="ATC style, as on the Live Map: a radar-display look — no street map but the airport, the ILS / RNP finals and the coastline (dark grey in the Dark theme, light grey in Light), symbols below 6 000 ft light, above grey, the selected aircraft highlighted, history plots and labels in three lines with a leader line, kept apart automatically: callsign / level, trend and selected level in hundreds of feet (019↑060) / ground speed in tens of knots and type (19 AT75). A research display, not for air traffic control. Remembered in the browser.">ATC</button>

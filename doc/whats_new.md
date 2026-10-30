@@ -5,6 +5,9 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Windshear charts no longer cover the alert title** — on the Windshear page the ACI, EDR and BL charts are now the same height as the WS chart, so they stay above the *Windshear alert* title on a 1920 × 1080 screen, and the chart no longer changes height by itself after switching view.
+- **Go-around runway in the aircraft types** — pointing at a type's red **GA** badge now shows each go-around with its own runway, time and height, then the landing runway: `go-around RWY 22L 08:43 at 1,725 ft` / `landed RWY 22L 08:57`. Windshear guide 2.22.
+- **Turbulence on the Windshear map** — the new **EDR** button in the map bar (off at the start, then 30 min or 1 h) colours the paths of the recent landings on the finals by their turbulence, as on the phone: thin lines, green smooth, yellow light, orange moderate, red severe, the roughest piece on top, and a short summary at the lower left. Windshear guide 2.21.
 - **ATC labels on the phone's approach map** — the new option *Labels on the map: ATC* gives every aircraft the three-line label of the ATC view in a small font: callsign / level and selected level (`007↓020`) / speed and type (`14 A320`). Mobile guide 1.27.
 - **Half-width charts on the Windshear page** — the new **½** button next to the chart range makes the ACI, WS, EDR, BL and ST charts half as wide, so more of the map (and the ATC view) is free; up to 12 hours of data. Click again for the full width. Windshear guide 2.20.
 - **Selected altitude written the same everywhere** — the Windshear map's *Full* labels and the phone's *Selected altitude* now use the Live Map's form: `FL120-A030` descending from FL120 to 3 000 ft, `A023+A050` climbing to 5 000 ft, `FL390=FL390` level (before `A023+020`).

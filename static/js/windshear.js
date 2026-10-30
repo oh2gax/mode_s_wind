@@ -282,6 +282,7 @@ function applyTheme(theme) {
   wsAtcLines.show(atc);
   updateThemeButtons();
   updateMapMarkers(lastAircraft);          // symbols, labels and vectors in the style's colours
+  try { wsDrawEdr(); } catch (_) { /* before the EDR layer exists */ }   // the turbulence lines' colours
 
   // Redraw ILS canvas with updated colours
   drawIlsProfile(lastAircraft);
@@ -416,7 +417,7 @@ function wsDrawCanvas(g, m, W, H) {
   if (atc) AtcDisplay.drawRings(g, m, W, H, wsRingNm, WS_AIRPORT_LAT, WS_AIRPORT_LON);
   const P = AtcDisplay.pal(), lbls = [];
   // the labels keep clear of the plots, the vectors and the panels over the map
-  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, .leaflet-control-zoom, .ms-map-home') : null;
+  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, #ws-edr-sum, .leaflet-control-zoom, .ms-map-home') : null;
   for (const [icao, ac] of Object.entries(wsShown)) {
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
@@ -1721,6 +1722,80 @@ ilsFilterBtn.addEventListener('click', () => {
   });
 })();
 
+// ── Turbulence on the map (from 30 Oct 2026, RESEARCH; as the mobile ILS map) ──
+// The EDR button steps Off → 30 min → 1 h (ms_ws_edrmap, default off): the
+// straight 2-km pieces of the paths of the landings of the period coloured by
+// their EDR (collector/edr.py, /api/windshear/edr-tracks) as thin lines over the
+// finals, the strongest drawn last so that the colour shows the worst piece, and
+// a summary box at the lower left.  Fetched at most once a minute while on.
+const WS_EDR_STEPS = [0, 30, 60];
+let wsEdrMin = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_edrmap') ?? '0', 10); return WS_EDR_STEPS.includes(v) ? v : 0; } catch (_) { return 0; } })();
+const WE = { tracks: [], at: 0, min: 0 };
+map.createPane('wsEdrPane').style.zIndex = 420;            // over the finals, under the aircraft
+map.getPane('wsEdrPane').style.pointerEvents = 'none';
+const wsEdrLayer = L.layerGroup().addTo(map);
+const wsEdrRenderer = L.canvas({ pane: 'wsEdrPane', padding: 0.3 });
+const wsEdrName = v => v >= 0.45 ? 'severe' : v >= 0.20 ? 'moderate' : v >= 0.10 ? 'light' : 'smooth';
+const wsMapLight = () => currentTheme === 'grey' || (wsIsAtc() && pageIsLight());
+const wsEdrCol = v => v >= 0.45 ? '#ef4444' : v >= 0.20 ? '#fb923c' : v >= 0.10 ? '#facc15' : (wsMapLight() ? '#059669' : '#34d399');
+async function wsLoadEdrTracks(force) {
+  if (!wsEdrMin) return;
+  if (!force && Date.now() - WE.at < 60000 && WE.min === wsEdrMin) return;
+  WE.at = Date.now(); WE.min = wsEdrMin;
+  try {
+    const d = await (await fetch(`/api/windshear/edr-tracks?minutes=${wsEdrMin}`, { cache: 'no-store' })).json();
+    WE.tracks = Array.isArray(d) ? d : [];
+  } catch (_) { WE.at = 0; return; }
+  wsDrawEdr();
+}
+function wsDrawEdr() {
+  wsEdrLayer.clearLayers();
+  const box = document.getElementById('ws-edr-sum');
+  if (box) box.hidden = !wsEdrMin;
+  if (!wsEdrMin) return;
+  const now = Date.now() / 1000, light = wsMapLight();
+  const ET = WE.tracks.filter(t => t.ph !== 'dep' && now - t.ts < wsEdrMin * 60);   // the landings
+  const SG = []; for (const t of ET) for (const g of t.seg) if (g.p && g.p.length > 1) SG.push(g);
+  SG.sort((x, y) => x.e - y.e);
+  const halo = wsIsAtc() ? AtcDisplay.pal().bg : light ? '#ffffff' : '#0b1220';
+  for (const g of SG) {      // thin lines (4-px halo, 2.5-px colour) as on the phone
+    L.polyline(g.p, { renderer: wsEdrRenderer, interactive: false, color: halo, weight: 4, opacity: 0.6 }).addTo(wsEdrLayer);
+    L.polyline(g.p, { renderer: wsEdrRenderer, interactive: false, color: wsEdrCol(g.e), weight: 2.5, opacity: 0.9 }).addTo(wsEdrLayer);
+  }
+  if (!box) return;
+  let mx = null; const lay = { lo: [], hi: [] };
+  for (const t of ET) for (const g of t.seg) {
+    const h = (g.a[0] + g.a[1]) / 2 - WS_THR_ELEVATION_FT;
+    (h < 1000 ? lay.lo : lay.hi).push(g.e);
+    if (!mx || g.e > mx.e) mx = { e: g.e, h: Math.round(h / 100) * 100, cs: t.cs, rwy: t.rwy };
+  }
+  const md = a => { a = a.slice().sort((x, y) => x - y); return a.length ? a[a.length >> 1].toFixed(2) : '—'; };
+  const key = [[0.05, 'smooth'], [0.15, 'light 0.10'], [0.3, 'moderate 0.20'], [0.5, 'severe 0.45']]
+    .map(([v, n]) => `<span class="ws-edr-key" style="background:${wsEdrCol(v)}"></span>${n}`).join(' ');
+  box.innerHTML = `<div><b>Turbulence (EDR), last ${wsEdrMin < 60 ? wsEdrMin + ' min' : '1 h'}</b> ${key} <span class="ws-research-tag">research</span></div>`
+    + (mx ? `<div>${ET.length} landing${ET.length === 1 ? '' : 's'} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
+          + ` at ${mx.h} ft (${_wsEsc(mx.cs || '')} ${_wsEsc(mx.rwy || '')}) · median below 1000 ft ${md(lay.lo)}, 1000–3000 ft ${md(lay.hi)}</div>`
+          : `<div>No landings with EDR in the last ${wsEdrMin < 60 ? wsEdrMin + ' min' : 'hour'}</div>`);
+}
+(function () {
+  const btn = document.getElementById('ws-edr-btn');
+  if (!btn) return;
+  const show = () => {
+    btn.textContent = wsEdrMin ? `EDR ${wsEdrMin < 60 ? wsEdrMin + ' min' : '1 h'}` : 'EDR';
+    btn.classList.toggle('active', !!wsEdrMin);
+  };
+  show();
+  btn.addEventListener('click', () => {
+    wsEdrMin = WS_EDR_STEPS[(WS_EDR_STEPS.indexOf(wsEdrMin) + 1) % WS_EDR_STEPS.length];
+    try { localStorage.setItem('ms_ws_edrmap', String(wsEdrMin)); } catch (_) {}
+    show();
+    wsDrawEdr();
+    wsLoadEdrTracks(true);
+  });
+  wsLoadEdrTracks(true);
+  setInterval(() => { if (wsEdrMin && !document.hidden) wsLoadEdrTracks(); }, 60_000);
+})();
+
 // ── Wind Rose toggle ──────────────────────────────────────────────────────────
 document.getElementById('ws-windrose-btn').addEventListener('click', () => {
   windroseEnabled = !windroseEnabled;
@@ -2095,9 +2170,15 @@ function _statsGaTip(list) {
   };
   const rows = [...list].sort((a, b) => b.ts - a.ts);
   const n = rows.reduce((s, ap) => s + ap.go_arounds, 0);
+  // the go-arounds themselves (ga_ev of the API, from 2026-10-30): their runway — not
+  // always the landing runway — time and height; older landings have only the count
+  const gaLine = ap => (ap.ga_ev || []).map(g => `\n  go-around${g.rwy ? ' RWY ' + _escStats(g.rwy) : ''} ${when({ ts: g.ts })}` +
+    `${g.low ? ' (low, at the threshold)' : g.alt != null ? ` at ${Number(g.alt).toLocaleString('en-US')} ft` : ''}`).join('');
   const out = rows.slice(0, 8).map(ap =>
     `<b class="ws-stats-ga-tip">GA</b> ${when(ap)} ${_escStats(ap.callsign || ap.icao || '')}${ap.registration ? ' ' + _escStats(ap.registration) : ''}` +
-    `\n  landed${ap.runway ? ' RWY ' + _escStats(ap.runway) : ''} after ${ap.go_arounds} go-around${ap.go_arounds !== 1 ? 's' : ''}`);
+    gaLine(ap) +
+    `\n  landed${ap.runway ? ' RWY ' + _escStats(ap.runway) : ''} ${when(ap)}` +
+    ((ap.ga_ev || []).length ? '' : ` after ${ap.go_arounds} go-around${ap.go_arounds !== 1 ? 's' : ''}`));
   if (rows.length > 8) out.push(`… and ${rows.length - 8} more (Approach history)`);
   return `\n${n} go-around${n !== 1 ? 's' : ''} before ${rows.length} landing${rows.length !== 1 ? 's' : ''}:\n` + out.join('\n');
 }
@@ -2261,12 +2342,27 @@ function vectorAvgWind(obs) {
  *   047°/227°  (04L, 04R, 22L, 22R — same magnetic heading)
  *   152°/332°  (RWY 15 / RWY 33)
  */
+let wrResizing = false;   // drawWindrose's second sizing pass is running
 function drawWindrose() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
   if (!canvas || !windroseEnabled) return;
   sizeWindroseCanvas();
-  if (wrIsChart()) { drawCondChart(); return; }
+  if (wrIsChart()) {
+    drawCondChart();
+    // The size above was worked out with the read-out as it was before this draw —
+    // after a view switch the previous view's, and at half width the new text may
+    // wrap onto more lines.  Size again with this read-out and redraw once if the
+    // chart changed (from 30 Oct 2026; before, the panel stayed too tall or too low
+    // until the next refresh and seemed to change size by itself).
+    if (!wrResizing) {
+      const h0 = canvas.height, w0 = canvas.width;
+      wrResizing = true;
+      try { sizeWindroseCanvas(); if (canvas.height !== h0 || canvas.width !== w0) drawCondChart(); }
+      finally { wrResizing = false; }
+    }
+    return;
+  }
 
   const ctx = canvas.getContext('2d');
   const W   = canvas.width;
@@ -2556,22 +2652,26 @@ const COND_CLASS_COLORS_LIGHT = { N: '#334155', R: '#7c3aed', T: '#0891b2', W: '
  * bar (counter digits) are ignored so the chart does not jitter.
  */
 const WR_ROSE_SIZE = 265;
-const WR_WS_EXTRA  = 95;     // ACI + WS view: up to this much taller where the map has room below the panel
+const WR_WS_EXTRA  = 95;     // chart views: up to this much taller where the map has room below the panel
+const WR_CHART_MIN = 180;    // chart views: not lower than this on a low map
 function sizeWindroseCanvas() {
   const canvas = document.getElementById('ws-windrose-canvas');
   if (!canvas) return;
   let w = WR_ROSE_SIZE;
   let h = WR_ROSE_SIZE;
-  if (wrView === 'cond' || wrView === 'ws' || wrView === 'st' || wrView === 'edr' || wrView === 'bl') {
-    // room between the panel and the map's bottom edge (map attribution: 22 px)
+  if (wrIsChart()) {
+    // room between the panel and the map's bottom edge (map attribution: 22 px).
+    // From 30 Oct 2026 evening every chart view (ACI, WS, EDR, BL, ST) has the WS
+    // view's size: up to WR_WS_EXTRA taller than the rose and 22 px clear of the
+    // map's bottom edge.  Before, ACI / EDR / BL went up to +200 / +320 px and to 4 px
+    // from the edge, so a read-out of one more line pushed them over the Windshear
+    // alert title below the map.  Where the map is low the chart may get smaller
+    // than the rose (down to WR_CHART_MIN) rather than cover what is below the map.
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
       const rest = panel.offsetHeight - canvas.height;          // buttons + readout + padding
-      // EDR view (three strips, from 2026-10-29): down to the map's bottom edge (over the attribution), up to +320 px
-      // two-part views ACI + EDR and EDR + WS (from 2026-10-30): up to +200 px
-      const edrV = wrView === 'edr' || wrView === 'bl' || wrView === 'cond';
-      const room = box.clientHeight - panel.offsetTop - rest - (edrV ? 4 : 22);
-      h = Math.max(WR_ROSE_SIZE, Math.min(WR_ROSE_SIZE + (wrView === 'bl' ? 320 : edrV ? 200 : WR_WS_EXTRA), Math.floor(room)));
+      const room = box.clientHeight - panel.offsetTop - rest - 22;
+      h = Math.max(WR_CHART_MIN, Math.min(WR_ROSE_SIZE + WR_WS_EXTRA, Math.floor(room)));
     }
   }
   if (Math.abs(canvas.height - h) > 4 || h === WR_ROSE_SIZE) { if (canvas.height !== h) canvas.height = h; }
@@ -4011,7 +4111,7 @@ function renderApproachHistory(entries) {
 
     return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
-  <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 || e.ga ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around"` : e.ga ? ' title="Climb-out of a go-around"' : ''}>${e.callsign || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 || e.ga ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around${(e.ga_ev || []).map(g => `, RWY ${g.rwy || '?'} ${_hm(g.ts)}`).join('')}"` : e.ga ? ' title="Climb-out of a go-around"' : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-rwy">${e.runway       || '—'}</td>

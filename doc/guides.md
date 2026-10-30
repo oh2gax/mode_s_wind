@@ -56,9 +56,9 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.20
+version: 2.22
 date: 2026-10-30
-pages: 26
+pages: 27
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
@@ -67,7 +67,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile; a windshear alert needs a real change of 14 kt, as at Hong Kong), ramp alerts **confirmed** or **isolated** by the nearby landings, how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The **alert message** in the controllers' short form (e.g. `15A WSA 15K+ 2MF` — runway one five arrival, windshear alert, 15-kt gain, two-mile final), marked as research
-- The page: banner, flight-strip badges, the map (labels with A023 / FL061, speed vectors, history plots and the **ATC** map style shared with the Live Map — radar look, three-line labels kept apart, range rings, **Hover** for the extended label), ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view with **landings and departures**, the chart views **ACI + EDR**, **WS** and **EDR + WS** on one time axis and the **space–time diagram (ST)**, wind rose
+- The page: banner, flight-strip badges, the map (labels with A023 / FL061, speed vectors, history plots and the **ATC** map style shared with the Live Map — radar look, three-line labels kept apart, range rings, **Hover** for the extended label, the **EDR** button for the turbulence of the recent landings on the finals), ILS profile, alert log (alerts and go-arounds of the last 24 hours) and the **engine status line**, Approach History **WS** view with **landings and departures**, the chart views **ACI + EDR**, **WS** and **EDR + WS** on one time axis and the **space–time diagram (ST)**, wind rose
 - **The boundary layer** (research): the low-level jet and the surface inversion hour by hour, the **BL** view, and the **LLJ / INV** tag of the windshear alerts and reports
 - **Turbulence (EDR)** (research): the ICAO turbulence measure of every landing and departure from the aircraft's own replies (departures up to 5 000 ft), the **EDR + WS** and **ACI + EDR** views and the Approach History **EDR** view with its filter
 - **METAR and pilot reports**: the METAR windshear groups (`WS R22L`) and the pilot reports (ARS, WXREP) near the airport on the ACI + windshear view, and the Approach History's **Reports** list with the archive of windshear METARs

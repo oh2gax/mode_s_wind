@@ -925,6 +925,15 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-theme-btn.active[data-theme="atc"]   { background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; }
 .ws-atc-legend[hidden] { display: none; }
 .ws-map-wrap .ws-atc-legend { bottom: 10px; }
+/* Turbulence on the map (EDR button, from 30 Oct 2026): the key and summary at the
+   lower left, over the ATC legend when that is shown */
+.ws-edr-sum[hidden] { display: none; }
+.ws-map-wrap .ws-edr-sum { bottom: 10px; display: block; max-width: min(560px, calc(100% - 20px));
+                           line-height: 1.55; }
+.ws-map-wrap .ws-atc-legend:not([hidden]) ~ .ws-edr-sum { bottom: 44px; }
+.ws-edr-sum .ws-edr-key { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+                          margin: 0 3px 2px 6px; vertical-align: middle; }
+.ws-edr-sum .ws-research-tag { margin-left: 6px; }
 
 /* ILS corridor filter toggle — same shape as theme buttons but amber when active */
 .ws-ils-filter-btn {
@@ -1147,6 +1156,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-windrose-hist-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-windrose-hist-btn.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+/* The ½ (half width) button (from 30 Oct 2026 evening): the ½ glyph is tiny in an 11-px
+   monospaced font, so it gets a larger, bolder sans-serif glyph; the line height stays
+   15.4 px (11 px × 1.4) so the button is as tall as the others in the row */
+#ws-wr-half-btn { font-family: Inter, system-ui, sans-serif; font-size: 15px; font-weight: 600;
+                  line-height: 15.4px; padding: 1px 7px; }
 .ws-windrose-hist-badge {
   font-size: 11px;
   font-family: 'Courier New', monospace;

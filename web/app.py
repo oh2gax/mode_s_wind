@@ -1621,6 +1621,8 @@ def create_app(
         landing had too few replies or no raw series is left).
         The answer is gzip-compressed when the browser accepts it; ?lite=1
         leaves out gnss / rough / prof and shear.bd (from 2026-10-28).
+        A landing after go-arounds carries "ga_ev" (from 2026-10-30): their time,
+        runway, altitude and low flag from the go_arounds table (_ga_attach).
         """
         import json as _json
 
@@ -1631,6 +1633,25 @@ def create_app(
             except ValueError:
                 return None
             return {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if e and e.get("m") is not None else None
+
+        def _ga_attach(db, result):
+            """The go-arounds before each landing that had any (from 2026-10-30): the
+            go_arounds table (from 2026-10-29; run.py _on_go_around) rows of the same
+            aircraft in the 2 h before the landing, the newest go_arounds of them, as
+            "ga_ev": [{ts, rwy, alt, low}] oldest first — the runway of the go-around
+            may differ from the landing runway.  Missing for older landings."""
+            for r in result:
+                n = r.get("go_arounds") or 0
+                if n <= 0:
+                    continue
+                try:
+                    g = db.execute("SELECT ts, runway, alt_ft, low FROM go_arounds "
+                                   "WHERE icao = ? AND ts > ? AND ts <= ? ORDER BY ts DESC LIMIT ?",
+                                   (r["icao"], r["ts"] - 7200, r["ts"], n)).fetchall()
+                except Exception:                      # noqa: BLE001  (older database)
+                    return
+                if g:
+                    r["ga_ev"] = [{"ts": x[0], "rwy": x[1], "alt": x[2], "low": bool(x[3])} for x in reversed(g)]
 
         def _aph_out(result):
             """gzip-compressed (from 2026-10-28); ?lite=1 (the mobile view /app):
@@ -1677,6 +1698,7 @@ def create_app(
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
+            _ga_attach(db, result)
             return _aph_out(result)
         if date is not None:
             # Validate format loosely: expect YYYY-MM-DD
@@ -1709,6 +1731,7 @@ def create_app(
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
                 result.append(r)
+            _ga_attach(db, result)
             return _aph_out(result)
         # No window or date param — serve from RAM (backward compat / internal use)
         if ws_tracker is None:
