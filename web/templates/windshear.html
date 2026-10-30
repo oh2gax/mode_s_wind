@@ -37,6 +37,8 @@
       <!-- Leaflet map -->
       <div class="ws-map-wrap">
         <div id="ws-map"></div>
+        <!-- ATC style: the symbol colours and the research notice (static/js/atc_display.js) -->
+        <div class="map-legend ws-atc-legend" id="ws-atc-legend" hidden></div>
 
         <!-- Map controls overlay -->
         <div class="ws-map-controls">
@@ -44,10 +46,11 @@
           <button class="ws-ils-filter-btn" id="ws-ils-filter" title="Show only aircraft inside an ILS corridor">ILS Only</button>
           <button class="ws-ils-filter-btn ws-vec-btn" id="ws-vec-btn" title="Speed vectors: where each aircraft will be after 30 s, 1 min or 2 min at its ground speed — click to step Off → 30 s → 1 min → 2 min">Vec</button>
           <button class="ws-ils-filter-btn ws-lbl-btn" id="ws-lbl-btn" title="Aircraft labels on the map — click to step: callsign · type · callsign + altitude · callsign + type + altitude · full (also the selected altitude of the autopilot panel, MCP / FCU, e.g. A023+020)">Lbl</button>
-          <button class="ws-theme-btn active" data-theme="dark">Dark</button>
-          <button class="ws-theme-btn"        data-theme="grey">Grey</button>
-          <button class="ws-theme-btn"        data-theme="atc">ATC</button>
-          <button class="ws-theme-btn"        data-theme="black">Black</button>
+          <button class="ws-ils-filter-btn ws-hist-btn" id="ws-hist-btn" title="History plots: the aircraft's earlier positions as small squares, one per about 6 s, older ones fainter — click to step Off → 5 → 10 → 20 plots (about 30 s · 1 min · 2 min). Remembered in the browser.">Hist</button>
+          <button class="ws-theme-btn active" data-theme="dark" title="Street map, dark — symbols in the colour of the meteo source">Dark</button>
+          <button class="ws-theme-btn"        data-theme="grey" title="Street map, light — symbols in the colour of the meteo source">Grey</button>
+          <button class="ws-theme-btn"        data-theme="atc" title="ATC style, as on the Live Map: a radar-display look — no street map but the airport, the ILS / RNP finals and the coastline (dark grey in the Dark theme, light grey in Light), symbols below 6 000 ft light, above grey, the selected aircraft highlighted, history plots and labels in three lines with a leader line, kept apart automatically: callsign / level, trend and selected level in hundreds of feet (019↑060) / ground speed in tens of knots and type (19 AT75). A research display, not for air traffic control. Remembered in the browser.">ATC</button>
+          <button class="ws-ils-filter-btn ws-rings-btn" id="ws-rings-btn" hidden title="Range rings from the airport (ATC style only) — click to step Off → every 5 NM → every 10 NM, to 30 NM. Remembered in the browser.">Rings</button>
           <button class="ws-windrose-btn active" id="ws-windrose-btn" title="Toggle the Wind Rose / Approach Conditions Index (ACI) panel — METAR surface wind vs MODE-S approach wind; ACI view: ACI chart">WR / ACI</button>
           <button class="ws-aphist-btn" id="ws-aphist-btn" title="Toggle Approach History — altitude-band wind profile for each completed approach this session">Apch Hist</button>
         </div>
@@ -250,5 +253,6 @@ const WS_THR_ELEVATION_FT = {{ thr_elevation_ft }};
 const WS_GS_OFFSET_FT     = {{ gs_offset_ft }};
 </script>
 <script src="{{ url_for('static', filename='js/ws_cond_chart.js') }}"></script>
+<script src="{{ url_for('static', filename='js/atc_display.js') }}"></script>
 <script src="{{ url_for('static', filename='js/windshear.js') }}"></script>
 {% endblock %}

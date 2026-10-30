@@ -17,13 +17,24 @@
 // ── Constants ────────────────────────────────────────────────────────────────
 const NM_M = 1852;
 
-const END_COLOR = {
-  recovered:     '#34d399',
-  lost:          '#f87171',
-  edge:          '#94a3b8',
-  below_min_alt: '#fbbf24',
-  shutdown:      '#a78bfa',
+// Calmer colours (from 30 Oct 2026, as the Flights page; before saturated green /
+// red / amber / violet): muted, theme-aware — the same signal colours as the GPS
+// Quality page (gpsPal there).  END_COLOR and the signal colours are refreshed
+// by setEpColors() at start and on a theme switch.
+const GPS_PAL = {
+  dark:  { nacp: '#cf9f6b', nic: '#c995ad', freeze: '#88b6cd', gap: '#a8a0d0', adsb: '#76ad9f',
+           rec: '#76ad9f', lost: '#d48f8f', edge: '#8b97a8', below: '#c9b26e', shut: '#a8a0d0', spoof: '#c995ad', start: '#c9b26e' },
+  light: { nacp: '#a06b2e', nic: '#9c5577', freeze: '#3d7896', gap: '#6a5fa3', adsb: '#3a7a6d',
+           rec: '#3a7a6d', lost: '#a94f4f', edge: '#64748b', below: '#8f7520', shut: '#6a5fa3', spoof: '#9c5577', start: '#8f7520' },
 };
+const gpsPal = () => GPS_PAL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+const END_COLOR = {};
+function setEpColors() {
+  const P = gpsPal();
+  Object.assign(END_COLOR, { recovered: P.rec, lost: P.lost, edge: P.edge, below_min_alt: P.below, shutdown: P.shut });
+  SIG_META.nacp.col = P.nacp; SIG_META.nic.col = P.nic; SIG_META.freeze.col = P.freeze;
+  SIG_META.gap.col = P.gap;   SIG_META.adsb_loss.col = P.adsb;
+}
 const END_LABEL = {
   recovered:     'Recovered',
   lost:          'Lost',
@@ -40,6 +51,7 @@ const SIG_META = {
   adsb_loss: { lbl: 'LOSS', col: '#14b8a6', tip: 'ADS-B loss — no own ADS-B position, MLAT still tracks' },
 };
 const SIG_ORDER = ['nacp', 'nic', 'freeze', 'gap', 'adsb_loss'];
+setEpColors();
 
 // ── State ────────────────────────────────────────────────────────────────────
 let gpeWindow   = 86400;   // seconds (live mode)
@@ -110,7 +122,7 @@ function startAlt(e) { return e.start_alt != null ? e.start_alt : e.min_alt; }
 function sigChips(sigStr) {
   const s = (sigStr || '').split(',').filter(Boolean);
   return SIG_ORDER.filter(k => s.includes(k)).map(k =>
-    `<span class="gpe-chip" style="color:${SIG_META[k].col};border-color:${SIG_META[k].col}" ` +
+    `<span class="gpe-chip" style="color:${SIG_META[k].col};border-color:color-mix(in srgb, ${SIG_META[k].col} 45%, transparent)" ` +
     `title="${SIG_META[k].tip}">${SIG_META[k].lbl}</span>`).join('');
 }
 
@@ -156,7 +168,7 @@ function popupHtml(e) {
       ' <span class="gpe-note">(position unusable: NACp 0, NIC 0 or no own position)</span>']);
   if (e.spoof || e.gmb_min != null || e.mlat_cmp) {
     const sp = (e.spoof || '').split(',').filter(Boolean).map(k => SPOOF_LABEL[k] || k).join(', ');
-    let v = sp ? `<span style="color:#f472b6">${sp}</span>` : 'none';
+    let v = sp ? `<span style="color:${gpsPal().spoof}">${sp}</span>` : 'none';
     if (spoofGroups(e) >= 2) v += ' <span class="gpe-note">(2+ independent checks agree)</span>';
     if (e.max_mlat_nm != null) v += ` · ADS-B vs MLAT ${e.max_mlat_nm} NM`;
     if (e.mlat_cmp) v += ` · ${e.mlat_cmp} MLAT comparisons`;
@@ -229,26 +241,26 @@ function renderMap() {
     const tip = `${e.callsign || e.icao} ${e.aircraft_type || ''} · ${fmtUtc(e.t_start, false)} · ${fmtDur(e.duration_s)} · ${END_LABEL[e.end_class] || ''}`;
     if (hasStart && hasEnd) {
       o.line = L.polyline([[e.start_lat, e.start_lon], [e.end_lat, e.end_lon]],
-        { color: col, weight: 2, opacity: 0.75 }).bindTooltip(tip, { sticky: true });
+        { color: col, weight: 1.5, opacity: 0.55 }).bindTooltip(tip, { sticky: true });
       o.line.addTo(group);
     }
     if (hasEnd && e.rec_lat != null && e.rec_lon != null) {
       o.recLine = L.polyline([[e.end_lat, e.end_lon], [e.rec_lat, e.rec_lon]],
-        { color: END_COLOR.recovered, weight: 1.5, opacity: 0.6, dashArray: '3 4' });
+        { color: END_COLOR.recovered, weight: 1, opacity: 0.45, dashArray: '3 4' });
       o.recLine.addTo(group);
       o.rec = L.circleMarker([e.rec_lat, e.rec_lon],
-        { radius: 3, color: END_COLOR.recovered, weight: 1, fillColor: END_COLOR.recovered, fillOpacity: 0.9 })
+        { radius: 2.5, color: END_COLOR.recovered, weight: 1, fillColor: END_COLOR.recovered, fillOpacity: 0.7, opacity: 0.8 })
         .bindTooltip(tip);
       o.rec.addTo(group);
     }
     if (hasStart) {
       o.start = L.circleMarker([e.start_lat, e.start_lon],
-        { radius: 3.5, color: col, weight: 1.5, fillOpacity: 0, opacity: 0.9 }).bindTooltip(tip);
+        { radius: 3, color: col, weight: 1.2, fillOpacity: 0, opacity: 0.75 }).bindTooltip(tip);
       o.start.addTo(group);
     }
     if (hasEnd) {
       o.end = L.circleMarker([e.end_lat, e.end_lon],
-        { radius: 3.5, color: col, weight: 1, fillColor: col, fillOpacity: 0.9 }).bindTooltip(tip);
+        { radius: 3, color: col, weight: 1, fillColor: col, fillOpacity: 0.7, opacity: 0.8 }).bindTooltip(tip);
       o.end.addTo(group);
     }
     for (const lyr of [o.line, o.recLine, o.rec, o.start, o.end]) {
@@ -265,12 +277,12 @@ function styleSelection() {
   for (const [id, o] of gpeLayers) {
     const on  = sel == null || id === sel;
     const hi  = id === sel;
-    if (o.line)    o.line.setStyle({ opacity: on ? (hi ? 1 : 0.75) : 0.15, weight: hi ? 4 : 2 });
-    if (o.recLine) o.recLine.setStyle({ opacity: on ? 0.6 : 0.1 });
+    if (o.line)    o.line.setStyle({ opacity: on ? (hi ? 1 : 0.55) : 0.12, weight: hi ? 3 : 1.5 });
+    if (o.recLine) o.recLine.setStyle({ opacity: on ? (hi ? 0.8 : 0.45) : 0.08 });
     for (const m of [o.start, o.end, o.rec]) {
       if (!m) continue;
-      m.setStyle({ opacity: on ? 0.9 : 0.15, fillOpacity: m === o.start ? 0 : (on ? 0.9 : 0.15) });
-      if (hi) m.setRadius(5); else m.setRadius(m === o.rec ? 3 : 3.5);
+      m.setStyle({ opacity: on ? (hi ? 1 : 0.8) : 0.12, fillOpacity: m === o.start ? 0 : (on ? (hi ? 0.9 : 0.7) : 0.12) });
+      if (hi) m.setRadius(4.5); else m.setRadius(m === o.rec ? 2.5 : 3);
     }
     if (hi) for (const l of [o.line, o.recLine, o.start, o.end, o.rec]) if (l && l.bringToFront) l.bringToFront();
   }
@@ -351,12 +363,13 @@ function renderScatter() {
     if (e.end_class === 'lost' && e.end_dist_nm != null && e.end_alt != null)
       lostPts.push({ x: e.end_dist_nm, y: e.end_alt, id: e.id, sel });
   }
-  const rad = ctx => (ctx.raw && ctx.raw.sel) ? 7 : 3.5;
-  const th  = scatterTheme();
+  const rad = ctx => (ctx.raw && ctx.raw.sel) ? 6 : 3;
+  const th  = scatterTheme(), P = gpsPal();
+  const fa  = c => { const n = parseInt(c.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},0.7)`; };   // calmer: slightly transparent points
   const datasets = [
-    { label: 'Start',    data: startPts, pointStyle: 'triangle', backgroundColor: '#f59e0b', borderColor: '#f59e0b', pointRadius: rad },
-    { label: 'Recovery', data: recPts,   pointStyle: 'circle',   backgroundColor: '#34d399', borderColor: '#34d399', pointRadius: rad },
-    { label: 'Lost',     data: lostPts,  pointStyle: 'crossRot', backgroundColor: '#f87171', borderColor: '#f87171', pointRadius: rad, borderWidth: 2 },
+    { label: 'Start',    data: startPts, pointStyle: 'triangle', backgroundColor: fa(P.start), borderColor: fa(P.start), pointRadius: rad },
+    { label: 'Recovery', data: recPts,   pointStyle: 'circle',   backgroundColor: fa(P.rec),   borderColor: fa(P.rec),   pointRadius: rad },
+    { label: 'Lost',     data: lostPts,  pointStyle: 'crossRot', backgroundColor: P.lost,      borderColor: P.lost,      pointRadius: rad, borderWidth: 1.5 },
   ];
   if (scatter) {
     scatter.data.datasets = datasets;
@@ -482,7 +495,8 @@ window.onThemeChange = function () {
   tileLayer = L.tileLayer(isLight() ? TILE_LIGHT : TILE_DARK, TILE_OPTS).addTo(map);
   tileLayer.bringToBack();
   drawRings();
-  renderScatter();
+  setEpColors();
+  renderAll();            // map lines, list, summary and scatter in the theme's colours
 };
 
 // ── Startup ──────────────────────────────────────────────────────────────────

@@ -5,6 +5,9 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Calmer GPS pages** — GPS Quality and GPS Episodes now use softer colours, as the Flights page: muted signal colours, a one-colour heatmap, outlined tags and lighter episode lines on the map.
+- **Statistics chart opens at 24 h** — the *Message rate* and *Data transfer* chart now shows the last 24 hours by default (before 1 h).
+- **ATC style on the Windshear map too** — the Windshear map's **ATC** button now gives the same radar-display look as the Live Map (it replaces the old ATC and Black backgrounds), with **Rings** for range rings, and a new **Hist** button adds history plots in every map style. Windshear user guide 2.14.
 - **ATC style on the Live Map** — the new **Style** button switches the map to a radar-display look: no street map, the airport, the approach lines, the coastline and range rings, light and grey symbols and labels in three lines (callsign / level and selected level / speed and type) with a leader line, kept apart automatically. Range rings around the airport with the **Rings** button (off, every 5 or 10 NM). A research display, not for controlling traffic.
 - **Live Map like a radar display** — the aircraft are open squares (as on the Windshear map) with small square history plots behind them instead of the round dots. **Hist** chooses how many plots (off, 5, 10, 20 — about 30 s to 2 min) and **Vec** shows speed vectors: where each aircraft will be in 30 s, 1 min or 2 min.
 - **New guide: EDR explained** — what the turbulence number EDR is, how aviation and the Hong Kong Observatory use it, and how MODE-S Wind computes it from the aircraft's replies, with the first results at Helsinki-Vantaa (User guides tab).

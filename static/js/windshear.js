@@ -85,41 +85,30 @@ const TILES = {
     `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
     { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18 }
   ),
-  atc: L.tileLayer(
-    `https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
-    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
-      opacity: 0.0 }     // tiles hidden, bg = #cfcfcf (ATC radar grey)
-  ),
-  black: L.tileLayer(
-    `https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png${_cartoKeyQs}`,
-    { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 18,
-      opacity: 0.0 }     // tiles hidden, bg = #000
-  ),
 };
 
-// Overlay cycling state for ATC and Black themes.
-// Level 0 = ILS only, 1 = + coast, 2 = + coast + aqua
-const overlayLevelByTheme = { atc: 0, black: 0 };
-const OVERLAY_LEVEL_LABELS = {
-  atc:   ['ATC', 'ATC+C', 'ATC+CA'],
-  black: ['Black', 'Black+C', 'Black+CA'],
-};
-
-// The map style follows the page's Light / Dark theme (navbar button):
-// Dark ↔ Grey and Black ↔ ATC (see window.onThemeChange at the end).  The
-// four map buttons still choose any style by hand.
+// Map styles (from 30 Oct 2026; before Dark · Grey · ATC · Black): Dark and Grey
+// are the street maps with the symbols in the colour of the meteo source; ATC
+// is the radar-display look shared with the Live Map (static/js/atc_display.js):
+// no street map, the airport, the finals, the coastline and range rings (the
+// Rings button), monochrome symbols, history plots and labels in three lines
+// with leader lines and automatic anti-overlap — dark grey in the Dark page
+// theme, light grey in Light (it replaces the old flat ATC and Black styles).
+// Dark ↔ Grey follow the page's Light / Dark theme (window.onThemeChange at the
+// end); the ATC choice is remembered (ms_ws_style).
 const pageIsLight = () => document.documentElement.dataset.theme === 'light';
 let currentTheme = pageIsLight() ? 'grey' : 'dark';
 TILES[currentTheme].addTo(map);
+const wsIsAtc = () => currentTheme === 'atc';
 
-// Airport marker
-L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
+// Airport marker (not in the ATC style)
+const wsAptMarker = L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
   radius: 6, color: '#fff', fillColor: '#1d4ed8',
   fillOpacity: 1, weight: 2,
 }).bindTooltip('EFHK').addTo(map);
 
-// 30 NM range circle
-L.circle([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
+// 30 NM range circle (not in the ATC style)
+const wsRangeCircle = L.circle([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
   radius:      WS_RADIUS_NM * 1_852,
   color:       '#334155',
   weight:      1,
@@ -169,6 +158,7 @@ async function loadOverlays(theme, level = 0) {
   if (aquaLayer)  { map.removeLayer(aquaLayer);  aquaLayer  = null; }
 
   try {
+    if (theme === 'atc') return;              // the ATC style has its own map lines (wsAtcLines)
     // ILS — always loaded; filtered to EFHK features
     const ilsGeo = await fetch('/overlays/efhk_ils.geojson').then(r => r.json());
     if (seq !== _ovlSeq) return;
@@ -212,46 +202,30 @@ loadOverlays(currentTheme);
 // ── Theme switching ───────────────────────────────────────────────────────────
 
 function updateThemeButtons() {
-  document.querySelectorAll('.ws-theme-btn').forEach(b => {
-    const t = b.dataset.theme;
-    b.classList.toggle('active', t === currentTheme);
-    // Show cycling level label for ATC / Black when active
-    if (OVERLAY_LEVEL_LABELS[t]) {
-      const level = overlayLevelByTheme[t] ?? 0;
-      b.textContent = (t === currentTheme)
-        ? OVERLAY_LEVEL_LABELS[t][level]
-        : OVERLAY_LEVEL_LABELS[t][0];
-    }
-  });
+  document.querySelectorAll('.ws-theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === currentTheme));
+  const rb = document.getElementById('ws-rings-btn');
+  if (rb) rb.hidden = !wsIsAtc();
 }
 
 function applyTheme(theme) {
   const container = document.getElementById('ws-map');
-
-  // ATC / Black: if already active, cycle overlay level instead of re-switching
-  if ((theme === 'atc' || theme === 'black') && currentTheme === theme) {
-    overlayLevelByTheme[theme] = (overlayLevelByTheme[theme] + 1) % 3;
-    loadOverlays(theme, overlayLevelByTheme[theme]);
-    updateThemeButtons();
-    return;
-  }
-
   currentTheme = theme;
+  const atc = theme === 'atc';
+  try { localStorage.setItem('ms_ws_style', atc ? 'atc' : 'meteo'); } catch (_) { /* private mode */ }
 
-  // Swap tile layer
+  // Swap tile layer (none in the ATC style)
   Object.values(TILES).forEach(t => map.removeLayer(t));
-  TILES[theme].addTo(map);
+  if (!atc) TILES[theme].addTo(map);
+  container.style.background = atc ? AtcDisplay.pal().bg : '';
+  if (atc) { wsAptMarker.remove(); wsRangeCircle.remove(); }
+  else     { wsAptMarker.addTo(map); wsRangeCircle.addTo(map); }
+  const lg = document.getElementById('ws-atc-legend');
+  if (lg) { lg.hidden = !atc; if (atc) lg.innerHTML = AtcDisplay.legendHtml(); }
 
-  // Flat-colour themes: set background; tile-based themes: clear it
-  if (theme === 'black') container.style.background = '#000';
-  else if (theme === 'atc') container.style.background = '#cfcfcf';
-  else container.style.background = '';
-
-  // Load overlays at the stored level for this theme (resets to 0 on first switch)
-  const level = overlayLevelByTheme[theme] ?? 0;
-  loadOverlays(theme, level);
-
+  loadOverlays(theme);
+  wsAtcLines.show(atc);
   updateThemeButtons();
+  updateMapMarkers(lastAircraft);          // symbols, labels and vectors in the style's colours
 
   // Redraw ILS canvas with updated colours
   drawIlsProfile(lastAircraft);
@@ -274,7 +248,9 @@ const acMarkers = {};   // icao → { marker, label }
 function makeAcIcon(src, ac) {
   const sel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao);
   const onA = !!(ac && ac.in_corridor);
-  const color = sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
+  // ATC style: monochrome (below 6 000 ft light, above grey, landed grey), the selected yellow / blue
+  const color = wsIsAtc() ? (sel ? AtcDisplay.pal().sel : ac && !ac.landed ? AtcDisplay.symColor(ac) : AtcDisplay.pal().high)
+                          : sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
   const s = sel ? 8 : onA ? 10 : 8, H = 22, o = (H - s) / 2;
   return L.divIcon({
     html: `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">` +
@@ -331,6 +307,8 @@ function wsAcLabelHtml(ac) {
          `${body}</div>`;
 }
 function wsAcLabelIcon(ac) {
+  // the ATC style draws its labels on the canvas (wsDrawCanvas)
+  if (wsIsAtc()) return L.divIcon({ html: '', className: '', iconSize: [0, 0] });
   const sel = barbLayerActive && ac.icao === barbSelectedIcao;
   const s = sel ? 8 : ac.in_corridor ? 10 : 8;   // as makeAcIcon
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
@@ -355,6 +333,55 @@ const WS_VEC_STEPS = [0, 30, 60, 120];
 // 30 s by default (from 2026-10-29, ATC style); the choice is remembered
 let wsVecSec = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_vec') ?? '30', 10); return WS_VEC_STEPS.includes(v) ? v : 30; } catch (_) { return 30; } })();
 
+// History plots, range rings and the ATC labels (from 30 Oct 2026, as the Live
+// Map; static/js/atc_display.js): one canvas layer over the map.  Hist: Off · 5 ·
+// 10 · 20 plots, one per ~6 s (ms_ws_hist, default 5); Rings (ATC style only):
+// Off · 5 NM · 10 NM (ms_ws_rings, default off).  In the ATC style the speed
+// vectors are drawn on the canvas too, in the symbols' colours.
+let wsHistN  = AtcDisplay.lsInt('ms_ws_hist',  AtcDisplay.HIST_STEPS, 5);
+let wsRingNm = AtcDisplay.lsInt('ms_ws_rings', AtcDisplay.RING_STEPS, 0);
+const wsTrails = {};             // icao → [[lat, lon, ts], ...]
+const wsShown  = {};             // icao → the aircraft as last drawn on the map
+const wsLblPos = {};             // icao → the ATC label's position (0–15)
+let wsGaOn = true;               // the GA mark's blink phase
+const wsAtcLvl3 = pa => wsAtcAlt(pa).replace(/^(A|FL)/, '');
+function wsDrawCanvas(g, m, W, H) {
+  const atc = wsIsAtc();
+  if (!wsHistN && !atc) return;
+  if (atc) AtcDisplay.drawRings(g, m, W, H, wsRingNm, WS_AIRPORT_LAT, WS_AIRPORT_LON);
+  const P = AtcDisplay.pal(), lbls = [];
+  // the labels keep clear of the plots, the vectors and the panels over the map
+  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, .leaflet-control-zoom') : null;
+  for (const [icao, ac] of Object.entries(wsShown)) {
+    const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
+    if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
+    const sel = barbLayerActive && icao === barbSelectedIcao;
+    const col = atc ? (sel ? P.sel : ac.landed ? P.high : AtcDisplay.symColor(ac))
+                    : acColor(ac.landed ? 'NONE' : ac.meteo_source);
+    const fade = ac.landed ? 0.5 : 1;
+    if (wsHistN) {
+      const pts = (wsTrails[icao] || []).filter(q => q[2] < ac._ts).slice(-wsHistN);   // not the current position
+      AtcDisplay.drawPlots(g, m, pts, wsHistN, atc && sel ? P.sel : col, fade, obst);
+    }
+    if (atc) {
+      if (!ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
+      const lines = AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, col,
+                             alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
+                             ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
+    }
+  }
+  if (atc && lbls.length) AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos);
+}
+const wsCanvas   = AtcDisplay.canvasLayer(map, wsDrawCanvas);
+const wsAtcLines = AtcDisplay.mapLines(map);
+// the GA mark blinks as on the street-map labels (only redrawn while one is shown)
+setInterval(() => {
+  if (!wsIsAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed)) return;
+  wsGaOn = !wsGaOn;
+  wsCanvas.redraw();
+}, 500);
+
 function updateMapMarkers(aircraft) {
   const seen = new Set();
 
@@ -371,10 +398,15 @@ function updateMapMarkers(aircraft) {
         if (acMarkers[ac.icao].vec) map.removeLayer(acMarkers[ac.icao].vec);
         delete acMarkers[ac.icao];
       }
+      delete wsShown[ac.icao];
       continue;
     }
 
     seen.add(ac.icao);
+    // history plots: the position time when the server gives it, else now
+    const ts = ac.pos_ts || Date.now() / 1000;
+    AtcDisplay.addTrail(wsTrails[ac.icao] || (wsTrails[ac.icao] = []), ac.lat, ac.lon, ts);
+    wsShown[ac.icao] = Object.assign({}, ac, { _ts: ts });
 
     const tip = [
       `${ac.callsign || ac.icao}${ac.aircraft_type ? ' ' + ac.aircraft_type : ''}${ac.ga_phase === 'GO_AROUND' ? ' · GO-AROUND' : ''}`,
@@ -410,7 +442,7 @@ function updateMapMarkers(aircraft) {
     // speed vector (not for a landed aircraft)
     const m = acMarkers[ac.icao];
     if (m.vec) { map.removeLayer(m.vec); m.vec = null; }
-    if (wsVecSec && !ac.landed && ac.groundspeed > 30 && ac.track != null) {
+    if (wsVecSec && !wsIsAtc() && !ac.landed && ac.groundspeed > 30 && ac.track != null) {   // ATC: on the canvas
       m.vec = L.polyline([[ac.lat, ac.lon], wsVecEnd(ac.lat, ac.lon, ac.track, ac.groundspeed, wsVecSec)], {
         interactive: false, color: ac.landed ? acColor('NONE') : acColor(ac.meteo_source), weight: ac.in_corridor ? 1.8 : 1.4,
         opacity: ac.in_corridor ? 0.95 : 0.6 }).addTo(map);
@@ -426,6 +458,9 @@ function updateMapMarkers(aircraft) {
       delete acMarkers[icao];
     }
   }
+  for (const icao of Object.keys(wsShown)) if (!seen.has(icao)) delete wsShown[icao];
+  for (const icao of Object.keys(wsTrails)) if (!seen.has(icao)) { delete wsTrails[icao]; delete wsLblPos[icao]; }
+  wsCanvas.redraw();
 }
 
 // ── ILS vertical profile canvas ───────────────────────────────────────────────
@@ -1585,6 +1620,24 @@ ilsFilterBtn.addEventListener('click', () => {
     try { localStorage.setItem('ms_ws_lbl', wsLblLvl); } catch (_) {}
     show();
     updateMapMarkers(lastAircraft);
+  });
+})();
+
+// ── History plots and range rings buttons (from 30 Oct 2026, as the Live Map) ──
+(function () {
+  const hb = document.getElementById('ws-hist-btn'), rb = document.getElementById('ws-rings-btn');
+  const showH = () => { if (hb) { hb.textContent = wsHistN ? `Hist ${wsHistN}` : 'Hist'; hb.classList.toggle('active', !!wsHistN); } };
+  const showR = () => { if (rb) { rb.textContent = wsRingNm ? `Rings ${wsRingNm}` : 'Rings'; rb.classList.toggle('active', !!wsRingNm); } };
+  showH(); showR();
+  if (hb) hb.addEventListener('click', () => {
+    const S = AtcDisplay.HIST_STEPS;
+    wsHistN = S[(S.indexOf(wsHistN) + 1) % S.length];
+    AtcDisplay.lsSet('ms_ws_hist', wsHistN); showH(); wsCanvas.redraw();
+  });
+  if (rb) rb.addEventListener('click', () => {
+    const S = AtcDisplay.RING_STEPS;
+    wsRingNm = S[(S.indexOf(wsRingNm) + 1) % S.length];
+    AtcDisplay.lsSet('ms_ws_rings', wsRingNm); showR(); wsCanvas.redraw();
   });
 })();
 
@@ -4088,13 +4141,12 @@ setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 
 // data refresh.
 window.onThemeChange = function () {
   const light = pageIsLight();
-  const want = light ? ({ dark: 'grey', black: 'atc' })[currentTheme]
-                     : ({ grey: 'dark', atc: 'black' })[currentTheme];
-  if (want) {
-    if (want in overlayLevelByTheme && currentTheme in overlayLevelByTheme)
-      overlayLevelByTheme[want] = overlayLevelByTheme[currentTheme];
-    applyTheme(want);
-  }
+  const want = currentTheme === 'atc' ? 'atc'           // the ATC style: its colours follow the theme
+             : light ? 'grey' : 'dark';
+  applyTheme(want);
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   drawWindrose();
 };
+
+// The ATC style chosen last time (from 30 Oct 2026; ms_ws_style)
+try { if (localStorage.getItem('ms_ws_style') === 'atc') applyTheme('atc'); } catch (_) { /* private mode */ }

@@ -22,22 +22,42 @@ function canvasTheme() {
   };
 }
 
+// ── Calmer colours (from 30 Oct 2026, as the Flights page) ────────────────────
+// Before: saturated orange / pink / sky / violet / teal bars, a traffic-light
+// heatmap and a rainbow donut.  Now muted, theme-aware signal colours (the same
+// on the GPS Episodes page), a single-hue heatmap and an altitude ramp donut.
+const GPS_PAL = {
+  dark:  { nacp: '#cf9f6b', nic: '#c995ad', freeze: '#88b6cd', gap: '#a8a0d0', adsb: '#76ad9f', unk: '#64748b',
+           ac: '#8b97a8', epa: '#c9b26e', sev: '#d48f8f', mild: '#cf9f6b', spoof: '#c995ad', pct: '#88b6cd', mark: '#c9b26e' },
+  light: { nacp: '#a06b2e', nic: '#9c5577', freeze: '#3d7896', gap: '#6a5fa3', adsb: '#3a7a6d', unk: '#64748b',
+           ac: '#64748b', epa: '#8f7520', sev: '#a94f4f', mild: '#a06b2e', spoof: '#9c5577', pct: '#3d7896', mark: '#8f7520' },
+};
+const gpsPal = () => GPS_PAL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+const rgbaHex = (c, a) => { const n = parseInt(c.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+
 // ── Heatmap colour scale ──────────────────────────────────────────────────────
-// Five steps from "no events" to "high activity"
+// Five steps from "no events" to "high activity": one hue, slate → steel blue
+// (calmer from 30 Oct 2026; before blue → amber → red → dark red)
 const HEAT_COLORS = [
-  '#1e293b',   // 0  — no events (dark slate, almost bg)
-  '#1e3a5f',   // 1  — low
-  '#b45309',   // 2  — moderate (amber)
-  '#dc2626',   // 3  — high (red)
-  '#7f1d1d',   // 4  — very high (dark red)
+  '#1b2433',   // 0  — no events (almost bg)
+  '#21344a',   // 1  — low
+  '#2b4865',   // 2  — moderate
+  '#3b6185',   // 3  — high
+  '#5a80a6',   // 4  — very high
 ];
 const HEAT_COLORS_LIGHT = [
-  '#e2e8f0',   // 0  — no events
-  '#bfdbfe',   // 1  — low (light blue)
-  '#fde68a',   // 2  — moderate (amber)
-  '#fca5a5',   // 3  — high (red)
-  '#f87171',   // 4  — very high
+  '#eef2f6',   // 0  — no events
+  '#dbe5ef',   // 1  — low
+  '#bfd2e4',   // 2  — moderate
+  '#9cb8d4',   // 3  — high
+  '#7899bf',   // 4  — very high
 ];
+
+// Cell numbers: dim on the low cells, brighter on the high ones (regular weight)
+function heatText(high) {
+  const light = document.documentElement.dataset.theme === 'light';
+  return light ? (high ? '#0f172a' : '#475569') : (high ? '#e2e8f0' : '#8b97a8');
+}
 
 function heatColor(norm) {
   // norm 0..1
@@ -53,6 +73,39 @@ function applyHeatCssVars() {
     ? HEAT_COLORS_LIGHT : HEAT_COLORS;
   const root = document.documentElement;
   palette.forEach((c, i) => root.style.setProperty(`--gps-heat-${i}`, c));
+}
+
+// The time-series chart's colours (calm, theme-aware): muted bars without
+// borders, thin lines without points
+function applyTsColors() {
+  if (!tsChart) return;
+  const P = gpsPal(), light = document.documentElement.dataset.theme === 'light';
+  const fill = light ? 0.78 : 0.72;
+  const bars = { NACp: P.nacp, NIC: P.nic, Freeze: P.freeze, Gap: P.gap, 'ADS-B': P.adsb, Unknown: P.unk };
+  for (const ds of tsChart.data.datasets) {
+    if (bars[ds.label]) {
+      ds.backgroundColor = rgbaHex(bars[ds.label], ds.label === 'Unknown' ? 0.55 : fill);
+      ds.borderColor = bars[ds.label]; ds.borderWidth = 0;
+    } else if (ds.label === 'Aircraft') {
+      ds.borderColor = P.ac; ds.pointBackgroundColor = P.ac; ds.borderWidth = 1.2; ds.pointRadius = 0; ds.pointHoverRadius = 3;
+    } else if (ds.label === 'Events / aircraft') {
+      ds.borderColor = P.epa; ds.pointBackgroundColor = P.epa; ds.borderWidth = 1.2; ds.pointRadius = 0; ds.pointHoverRadius = 3;
+    }
+  }
+  const sc = tsChart.options.scales;
+  sc.y2.ticks.color = sc.y2.title.color = P.ac;
+  sc.y3.ticks.color = sc.y3.title.color = P.epa;
+}
+// The severity chart's colours (calm, theme-aware)
+function applySevColors() {
+  if (!t10Chart) return;
+  const P = gpsPal(), ds = t10Chart.data.datasets;
+  ds[0].backgroundColor = rgbaHex(P.sev, 0.72);  ds[0].borderColor = P.sev;  ds[0].borderWidth = 0;
+  ds[1].backgroundColor = rgbaHex(P.mild, 0.6);  ds[1].borderColor = P.mild; ds[1].borderWidth = 0;
+  ds[2].borderColor = P.spoof; ds[2].backgroundColor = P.spoof;
+  ds[3].borderColor = P.pct;   ds[3].borderWidth = 1.2;
+  const y1 = t10Chart.options.scales.y1;
+  y1.ticks.color = y1.title.color = P.pct;
 }
 
 // ── Zone selector state ───────────────────────────────────────────────────────
@@ -159,13 +212,13 @@ const methodMarkerPlugin = {
     ctx.save();
     for (const mk of marks) {
       const x = xs.getPixelForValue(mk.index) - half;
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth   = 1.5;
+      ctx.strokeStyle = gpsPal().mark;
+      ctx.lineWidth   = 1.2;
       ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(x, area.top); ctx.lineTo(x, area.bottom); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = gpsPal().mark;
+      ctx.font = '10px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText(mk.methods.map(m => 'v' + m).join(' '), x + 3, area.top + 2);
@@ -177,7 +230,7 @@ const methodMarkerPlugin = {
 function initTsChart() {
   const ctx = document.getElementById('gps-timeseries-canvas').getContext('2d');
   const th  = canvasTheme();
-  tsChart = new Chart(ctx, {
+  tsChart = new Chart(ctx, {   // colours: applyTsColors() below
     plugins: [methodMarkerPlugin],
     type: 'bar',
     data: {
@@ -350,6 +403,7 @@ function initTsChart() {
       },
     },
   });
+  applyTsColors();
 }
 
 function _unknownEvents(b) {
@@ -662,9 +716,9 @@ function drawHeatmap(heatmapData, flBands) {
         const step = pctStep(pct);
         ctx.fillStyle = heatColorStep(step);
         ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
-        ctx.fillStyle = step >= 3 ? '#fff' : th.text;
+        ctx.fillStyle = heatText(step >= 3);
         const fontSize = Math.max(6, Math.min(11, Math.floor(cellH * 0.45), Math.floor(cellW / 4 / 0.62)));
-        ctx.font      = `bold ${fontSize}px monospace`;
+        ctx.font      = `${fontSize}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(Math.round(pct), x + cellW / 2, y + cellH / 2);
@@ -687,9 +741,9 @@ function drawHeatmap(heatmapData, flBands) {
       // legible even in the narrower daily columns of the 1m heatmap range
       // (31 columns vs 14) — width budget assumes up to 4 monospace digits.
       if (val > 0) {
-        ctx.fillStyle = norm > 0.5 ? '#fff' : th.text;
+        ctx.fillStyle = heatText(norm > 0.5);
         const fontSize = Math.max(6, Math.min(11, Math.floor(cellH * 0.45), Math.floor(cellW / 4 / 0.62)));
-        ctx.font      = `bold ${fontSize}px monospace`;
+        ctx.font      = `${fontSize}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(val, x + cellW / 2, y + cellH / 2);
@@ -704,8 +758,8 @@ function drawHeatmap(heatmapData, flBands) {
     if (xi <= 0) continue;
     const x = MARGIN_L + xi * cellW;
     ctx.save();
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth   = 2;
+    ctx.strokeStyle = gpsPal().mark;
+    ctx.lineWidth   = 1.5;
     ctx.setLineDash([5, 4]);
     ctx.beginPath(); ctx.moveTo(x, MARGIN_T); ctx.lineTo(x, MARGIN_T + plotH); ctx.stroke();
     ctx.restore();
@@ -869,17 +923,21 @@ function renderLiveTable(liveEvents) {
 // ── FL band donut + 14-day stats panel ───────────────────────────────────────
 let donutChart = null;
 
-const DONUT_COLORS = [
-  '#38bdf8',  // 010-030  sky blue
-  '#818cf8',  // 030-050  indigo
-  '#34d399',  // 050-080  emerald
-  '#2dd4bf',  // 080-100  teal
-  '#fb923c',  // 100-150  orange
-  '#f472b6',  // 150-200  pink
-  '#a78bfa',  // 200-250  violet
-  '#fbbf24',  // 250-300  amber
-  '#94a3b8',  // 300+     slate
-];
+// FL bands as an altitude ramp, low → high (calmer from 30 Oct 2026, as the
+// Flights page map; before nine unrelated colours): muted teal → sky → blue → lavender
+const DONUT_STOPS = {
+  dark:  [[0, [118, 173, 159]], [0.35, [136, 182, 205]], [0.7, [128, 152, 205]], [1, [168, 160, 208]]],
+  light: [[0, [104, 160, 147]], [0.35, [104, 152, 182]], [0.7, [112, 134, 190]], [1, [146, 136, 194]]],
+};
+function donutColors(n) {
+  const st = DONUT_STOPS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+  return Array.from({ length: n }, (_, i) => {
+    const f = n > 1 ? i / (n - 1) : 0;
+    let k = 1; while (k < st.length - 1 && f > st[k][0]) k++;
+    const [f0, c0] = st[k - 1], [f1, c1] = st[k], t = (f - f0) / (f1 - f0 || 1);
+    return `rgb(${c0.map((v, j) => Math.round(v + t * (c1[j] - v))).join(',')})`;
+  });
+}
 
 function drawDonutAndStats(heatmapData, flBands) {
   if (!heatmapData || heatmapData.length === 0 || !flBands || flBands.length === 0) return;
@@ -943,7 +1001,7 @@ function drawDonutAndStats(heatmapData, flBands) {
         labels:   flBands.map(b => 'FL' + b),
         datasets: [{
           data:            flBands.map(b => bandTotals[b]),
-          backgroundColor: DONUT_COLORS.slice(0, flBands.length),
+          backgroundColor: donutColors(flBands.length),
           borderColor:     borderColor,
           borderWidth:     2,
         }],
@@ -1124,6 +1182,7 @@ function initT10Chart() {
       },
     },
   });
+  applySevColors();
 }
 
 async function fetchDetail(hours) {
@@ -1400,6 +1459,7 @@ window.onThemeChange = function () {
     tsChart.options.scales.y.ticks.color         = th.axisLabel;
     tsChart.options.scales.y.grid.color          = th.grid;
     tsChart.options.scales.y.title.color         = th.axisLabel;
+    applyTsColors();
     tsChart.update('none');
   }
   if (t10Chart) {
@@ -1410,6 +1470,7 @@ window.onThemeChange = function () {
       t10Chart.options.scales[ax].grid.color  = th.grid;
     }
     t10Chart.options.scales.y.title.color = th.axisLabel;
+    applySevColors();
     t10Chart.update('none');
   }
   // Redraw heatmap with new theme

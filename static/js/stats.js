@@ -26,7 +26,8 @@
  */
 (function () {
   'use strict';
-  let win = 10, range = '1h', series = 'rate', cadKind = '5,0', sigCat = 'all';
+  // the chart's range: 24 h by default (from 30 Oct 2026; before 1 h)
+  let win = 10, range = '24h', series = 'rate', cadKind = '5,0', sigCat = 'all';
   // Message rate / Data transfer tabs of the chart panel (from 2026-10-27)
   let tab = 'msgs', trView = 'app', trData = null, chartType = null;
   const EMBED = window.MST_EMBED || null;      // the mobile view (from 2026-10-28)
