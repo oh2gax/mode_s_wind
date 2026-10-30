@@ -412,9 +412,124 @@ def _shear_confirm_backfill(ws_tracker) -> None:
 
 
 def _shear_startup(ws_tracker) -> None:
-    """Startup thread: windshear report back-fill, then the confirmation back-fill."""
+    """Startup thread: windshear report back-fill, then the confirmation
+    back-fill, then (once) the detection v8 shadow back-fill."""
     _shear_backfill(ws_tracker)
     _shear_confirm_backfill(ws_tracker)
+    _shear_v8_backfill(ws_tracker)
+
+
+V8_BACKFILL_KEY = "ws_v8_backfill"     # maintenance_config: the one-time back-fill below is done
+
+
+def _shear_v8_backfill(ws_tracker) -> None:
+    """One-time at start (from 2026-10-30): the detection v8 SHADOW result
+    (collector/shear.py analyze_v8 — both airspeed registers against the ADS-B
+    ground speed) for the stored landings ("v8" in shear_json) and departures
+    ("trial8") whose raw series have ADS-B ground speed (stored from
+    24 Oct 2026), so that v8 can be compared with v7 from the start.  The
+    reference flights and the band comparison are those of each stored report
+    (the band comparison is v7's, unchanged); in time order, so a flight
+    without its own ISA deviation takes that of the flights within ±1 h.  The
+    last 30 minutes are left to the live tracker.  Marked done in
+    maintenance_config, so it runs once.  Background thread, low priority."""
+    from collections import deque
+    from database.db import get_db
+    from collector import shear as _shear
+    from collector.windshear import WindshearTracker
+    sl = logging.getLogger("modes.windshear")
+    try:
+        db = get_db()
+        try:
+            if db.execute("SELECT value FROM maintenance_config WHERE key = ?", (V8_BACKFILL_KEY,)).fetchone():
+                return
+        except Exception:                                 # noqa: BLE001  (older database)
+            return
+        t_start = time.time()
+        t_end = t_start - 1800
+        t_from = 1792868400.0 - _shear.BAND_WINDOW_SEC    # 24 Oct 2026 19:00 UTC: before the first ADS-B GS
+        land = db.execute(
+            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.prof_json, h.shear_json, s.data
+               FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
+               WHERE h.ts >= ? AND h.ts < ? ORDER BY h.ts""", (t_from, t_end)).fetchall()
+        dep = db.execute(
+            """SELECT p.id, p.ts, p.track, p.lat, p.lon, p.prof_json, p.shear_json, s.data
+               FROM departure_profiles p LEFT JOIN departure_series s ON s.ts = p.ts AND s.icao = p.icao
+               WHERE p.ts >= ? AND p.ts < ? AND p.ga = 0 ORDER BY p.ts""", (t_from, t_end)).fetchall()
+        events = sorted([(r["ts"], 0, r) for r in land] + [(r["ts"], 1, r) for r in dep],
+                        key=lambda e: (e[0], e[1]))
+        hist: deque = deque()
+        dts: deque = deque(maxlen=200)
+        done: dict = {}
+        b_land, b_dep = [], []
+
+        def rows(d, key, cols):
+            b = d.get(key) or {}
+            return list(zip(*(b.get(c, []) for c in cols))) if b.get("t") else []
+
+        def fallback(ts):
+            v = sorted(x for t, x in dts if abs(t - ts) <= 3600)
+            return v[len(v) // 2] if len(v) >= 3 else None
+
+        for i, (ts, kind, row) in enumerate(events):
+            while hist and hist[0]["ts"] < ts - _shear.BAND_WINDOW_SEC:
+                hist.popleft()
+            try:
+                prof = json.loads(row["prof_json"]) if row["prof_json"] else None
+            except ValueError:
+                prof = None
+            if row["data"] and row["shear_json"]:
+                try:
+                    d = WindshearTracker.decode_series(row["data"])
+                    if (d.get("v19") or {}).get("t"):
+                        rep = json.loads(row["shear_json"])
+                        refs = _shear.vec_refs(hist, ts)
+                        if kind == 0:
+                            rwy, hdg, band = row["runway"], row["rwy_heading"], rep.get("band")
+                        else:
+                            rwy, hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])
+                            band = None
+                        a8 = _shear.analyze_v8(
+                            rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt")),
+                            rows(d, "b60", ("t", "ias", "hdg", "vri", "vrb", "mach", "alt")),
+                            rows(d, "v19", ("t", "gs", "trk", "vr", "alt")),
+                            rows(d, "sw", ("t", "alt", "palt", "dthr", "xt")),
+                            ws_tracker._thr_ft(rwy), fallback(ts))
+                        if a8 is not None:
+                            info = a8.get("v8") or {}
+                            if info.get("dTsrc") == "own" and info.get("dT") is not None:
+                                dts.append((ts, info["dT"]))
+                            v8 = _shear.v8_report(a8, band, refs, hdg)
+                            if kind == 0:
+                                rep["v8"] = v8
+                                b_land.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                                done[(int(ts), row["icao"])] = rep
+                            else:
+                                rep["trial8"] = v8
+                                b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                except Exception as exc:                  # noqa: BLE001
+                    sl.debug("Windshear v8 back-fill failed at %s: %s", ts, exc)
+            bv = _shear.vec_bands(prof, 1)
+            if bv:
+                hist.append({"ts": ts, "bv": bv, "ph": "arr" if kind == 0 else "dep",
+                             "hdg": row["rwy_heading"] if kind == 0 else row["track"]})
+            if len(b_land) >= 100 or len(b_dep) >= 100:
+                db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
+                db.executemany("UPDATE departure_profiles SET shear_json = ? WHERE id = ?", b_dep)
+                db.commit()
+                b_land, b_dep = [], []
+                time.sleep(0.2)
+            if i % 50 == 49:
+                time.sleep(0.05)
+        db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
+        db.executemany("UPDATE departure_profiles SET shear_json = ? WHERE id = ?", b_dep)
+        db.execute("INSERT OR REPLACE INTO maintenance_config (key, value) VALUES (?, ?)", (V8_BACKFILL_KEY, "1"))
+        db.commit()
+        n_ram = ws_tracker.attach_shear(done)
+        sl.info("Windshear detection v8 (shadow) back-filled for %d landing(s) (%d in RAM) and the departures "
+                "in %.0f s", len(done), n_ram, time.time() - t_start)
+    except Exception as exc:                              # noqa: BLE001
+        sl.warning("Windshear v8 back-fill failed: %s", exc)
 
 
 def _edr_json(series_blob, dep: bool = False) -> str | None:
@@ -802,6 +917,12 @@ def _shear_backfill(ws_tracker) -> None:
                             tr = dict(tr)               # re-levelled with the current rules (v7)
                             tr["lvl"] = _shear.ramps_level(tr, refs, hdg)
                             rep["trial"] = tr
+                        try:            # keep the v8 shadow result of the climb (from 30 Oct 2026)
+                            t8 = (json.loads(row["shear_json"]) or {}).get("trial8") if row["shear_json"] else None
+                        except ValueError:
+                            t8 = None
+                        if t8:
+                            rep["trial8"] = t8
                         b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                         n_dep += 1
                 except Exception as exc:            # noqa: BLE001

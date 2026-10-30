@@ -794,3 +794,198 @@ def alert_msg(ev: dict, thr_ft: float = 0.0) -> tuple:
            f"{'Departure' if dep else 'Arrival'}, ") + \
           f"{word}, {_say_digits(kt)} knot {'loss' if loss else 'gain'}, {where_s}"
     return msg, say
+
+
+# ── Detection v8 (from 30 Oct 2026, SHADOW: stored beside v7, no alerts) ─────────
+# The headwind from both Comm-B airspeed registers against the ADS-B ground speed
+# (TC 19 airborne velocity, about twice a second at 1-kt resolution, stored with
+# every landing and departure since 24 Oct 2026):
+#   BDS 5,0:  TAS − GS(ADS-B)
+#   BDS 6,0:  TAS from the indicated airspeed (pressure altitude of the sweep,
+#             temperature ISA + the flight's own deviation from BDS 5,0 TAS /
+#             BDS 6,0 Mach pairs) − GS(ADS-B)
+# Check on 1 062 landings 24–30 Oct 2026: the ADS-B GS taken 0.5 s before the
+# reply matches the registers (BDS 5,0 GS vs ADS-B GS RMS 0.92 kt); the BDS 6,0
+# headwind agrees with the BDS 5,0 one (bias 0.02 kt, RMS 0.98 kt; per flight
+# p10/p90 ±0.4 kt, removed); a headwind every 0.5 s instead of 1.9 s, 2.3× the
+# values per approach, noise 1.48 kt instead of 1.59; more 400–600 m ramps,
+# each seen by both registers separately where both had data.
+# Run beside v7 for a week before it replaces it.
+V8 = 8
+V8_GS_LAG = -0.5              # s: the ADS-B GS at t − 0.5 s matches the reply received at t
+V8_ROLL_SEC = 4.0             # a BDS 6,0 reply takes the roll of a BDS 5,0 reply within this
+V8_MIN_DT_PAIRS = 5           # TAS / Mach pairs for the flight's own ISA deviation
+V8_MIN_OFF_PAIRS = 10         # BDS 6,0 / BDS 5,0 pairs for the per-flight offset
+_A0 = 661.4788                # kt, speed of sound at sea level (ISA)
+_AK = 38.967854               # kt per √K
+_P0 = 1013.25
+
+
+def _isa_t(palt: float) -> float:
+    return 288.15 - 0.0019812 * palt
+
+
+def tas_from_ias(ias: float, palt: float, t_k: float) -> float:
+    """True airspeed (kt) from the indicated airspeed (kt), the pressure
+    altitude (ft) and the temperature (K): compressible flow, ISA pressure."""
+    p = _P0 * (1 - 6.8756e-6 * palt) ** 5.2559
+    qc = _P0 * ((1 + 0.2 * (ias / _A0) ** 2) ** 3.5 - 1)
+    m = math.sqrt(5 * ((qc / p + 1) ** (2 / 7) - 1))
+    return m * _AK * math.sqrt(t_k)
+
+
+def _sorted_xy(rows, ix: int, iy: int):
+    pts = sorted((r[ix], r[iy]) for r in rows if r and r[ix] is not None and r[iy] is not None)
+    return [p[0] for p in pts], [p[1] for p in pts]
+
+
+def _interp_gap(ts: list, vs: list, t: float, gap: float):
+    """Linear interpolation of vs(ts) at t when the bracketing points are at most gap s apart."""
+    if not ts:
+        return None
+    lo, hi = 0, len(ts)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if ts[mid] < t:
+            lo = mid + 1
+        else:
+            hi = mid
+    if lo == 0 or lo == len(ts):
+        return None
+    t0, t1 = ts[lo - 1], ts[lo]
+    if t1 - t0 > gap:
+        return None
+    w = (t - t0) / (t1 - t0) if t1 > t0 else 0.0
+    return vs[lo - 1] + (vs[lo] - vs[lo - 1]) * w
+
+
+def isa_dev(b50: list, b60: list, sw: list):
+    """The flight's own ISA deviation (K): median over BDS 5,0 TAS / BDS 6,0 Mach
+    pairs within 1 s, at the pressure altitude of the sweeps (None with fewer
+    than V8_MIN_DT_PAIRS pairs — turboprops send no Mach)."""
+    mt, mm = _sorted_xy(b60, 0, 5)
+    pt, pa = _sorted_xy(sw, 0, 2)
+    out = []
+    j = 0
+    for r in sorted((r for r in b50 if r and r[0] is not None and r[5]), key=lambda r: r[0]):
+        t, tas = r[0], r[5]
+        while j < len(mt) and mt[j] < t - 1.0:
+            j += 1
+        k = j
+        while k < len(mt) and mt[k] <= t + 1.0:
+            if mm[k] and mm[k] > 0.15:
+                p = _interp_gap(pt, pa, t, 10.0)
+                if p is not None:
+                    out.append((tas / (_AK * mm[k])) ** 2 - _isa_t(p))
+                break
+            k += 1
+    if len(out) < V8_MIN_DT_PAIRS:
+        return None
+    out.sort()
+    m = len(out)
+    dt = out[m // 2] if m % 2 else 0.5 * (out[m // 2 - 1] + out[m // 2])
+    return dt if abs(dt) < 30 else None
+
+
+def v8_rows(b50: list, b60: list, v19: list, sw: list, dt_fallback=None):
+    """Rows for analyze() from both registers against the ADS-B ground speed:
+    [t, roll, track rate, track, GS(ADS-B), TAS, alt] (BDS 6,0 rows with the
+    roll of the nearest BDS 5,0 reply and track rate / track None), and the
+    info {"n50", "n60", "dT", "dTsrc" own|near|none, "off"}.  None without
+    ADS-B ground speed."""
+    vt, vg = _sorted_xy(v19 or [], 0, 1)
+    if len(vt) < 10:
+        return None, None
+    rows = []
+    prev = None
+    for r in sorted((r for r in (b50 or []) if r and r[0] is not None), key=lambda r: r[0]):
+        t, roll, tr, trk, gs, tas = r[:6]
+        alt = r[6] if len(r) > 6 else None
+        if gs is None or tas is None:
+            continue
+        if prev is not None and gs == prev[1] and tas == prev[2] and t - prev[0] < REPEAT_SEC:
+            continue                       # the same register content again (its own GS / TAS)
+        prev = (t, gs, tas)
+        g = _interp_gap(vt, vg, t + V8_GS_LAG, 2.0)
+        if g is not None:
+            rows.append([t, roll, tr, trk, round(g, 2), tas, alt])
+    dt = isa_dev(b50 or [], b60 or [], sw or [])
+    src = "own"
+    if dt is None:
+        dt, src = (dt_fallback, "near") if dt_fallback is not None else (None, "none")
+    r60 = []
+    if dt is not None and b60:
+        rt, rr = _sorted_xy(b50 or [], 0, 1)
+        pt, pa = _sorted_xy(sw or [], 0, 2)
+        prev = None
+        for r in sorted((r for r in b60 if r and r[0] is not None), key=lambda r: r[0]):
+            t, ias, hdg = r[0], r[1], r[2]
+            mach = r[5] if len(r) > 5 else None
+            alt = r[6] if len(r) > 6 else None
+            if not ias:
+                continue
+            key = (ias, hdg, mach)
+            if prev is not None and key == prev[1] and t - prev[0] < REPEAT_SEC:
+                continue                   # the same register content again
+            prev = (t, key)
+            p = _interp_gap(pt, pa, t, 10.0)
+            g = _interp_gap(vt, vg, t + V8_GS_LAG, 2.0)
+            roll = _interp_gap(rt, rr, t, V8_ROLL_SEC)
+            if p is None or g is None or roll is None:
+                continue
+            tas = tas_from_ias(ias, p, _isa_t(p) + dt)
+            r60.append([t, roll, None, None, round(g, 2), round(tas, 2), alt])
+    # the BDS 6,0 headwind against the BDS 5,0 one of the same flight: the offset
+    # is removed, so that a change in the mix of the two along the path is no ramp
+    off = None
+    if r60:
+        ht = [r[0] for r in rows]
+        hv = [r[5] - r[4] for r in rows]
+        dif = []
+        for r in r60:
+            h = _interp_gap(ht, hv, r[0], 2.5)
+            if h is not None:
+                dif.append((r[5] - r[4]) - h)
+        if len(dif) >= V8_MIN_OFF_PAIRS:
+            dif.sort()
+            m = len(dif)
+            off = dif[m // 2] if m % 2 else 0.5 * (dif[m // 2 - 1] + dif[m // 2])
+            for r in r60:
+                r[5] = round(r[5] - off, 2)
+        else:
+            r60 = []
+    info = {"n50": len(rows), "n60": len(r60), "dT": None if dt is None else round(dt, 1),
+            "dTsrc": src, "off": None if off is None else round(off, 2)}
+    return rows + r60, info
+
+
+def analyze_v8(b50: list, b60: list, v19: list, sw: list, thr_ft: float = 179.0,
+               dt_fallback=None) -> dict | None:
+    """analyze() on the v8 headwind (see above); the result carries "v8" (the
+    info of v8_rows).  None without ADS-B ground speed or enough data."""
+    rows, info = v8_rows(b50, b60, v19, sw, dt_fallback)
+    if not rows:
+        return None
+    a = analyze(rows, sw, thr_ft)
+    if a is not None:
+        a["v8"] = info
+    return a
+
+
+def v8_report(a: dict | None, band: dict | None, refs: list | None, heading) -> dict | None:
+    """The stored v8 shadow result of a flight (shear_json "v8" of a landing,
+    "trial8" of a departure): the analysis without t2 and the per-reply data,
+    the level of its ramps (advisories relative to the reference flights, as
+    v7) combined with the band comparison of v7 when given, and "v": 8."""
+    if a is None:
+        return None
+    out = {k: a.get(k) for k in ("n", "drop", "noise", "len", "a", "d", "fh", "fh_a")}
+    for k in ("loss", "gain"):
+        if a.get(k):
+            out[k] = {kk: vv for kk, vv in a[k].items() if kk != "t2"}
+    lv = ramps_level(out, refs, heading)
+    out["rlvl"] = lv
+    out["lvl"] = max(lv, (band or {}).get("lvl") or "none", key=LEVELS.index)
+    out.update(a.get("v8") or {})
+    out["v"] = V8
+    return out

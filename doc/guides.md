@@ -56,7 +56,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.15
+version: 2.16
 date: 2026-10-30
 pages: 25
 open: windshear
@@ -103,9 +103,9 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.6
-date: 2026-10-29
-pages: 23
+version: 1.7
+date: 2026-10-30
+pages: 24
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -113,7 +113,8 @@ The development of the windshear detection as a study log for aviation meteorolo
 - Phases 1–5: detection v2/v3 (ramps and the band comparison on the wind vector), the relative rule for weak ramp advisories, the **confirmed / isolated** label, the band comparison by flight phase and the higher limits for turboprop departures — each with its evidence and replay; the new tools (space–time diagram, trial ramps along the climb-out); the first night of the departure trial — a **nocturnal low-level jet**, the climb into it and two departure advisories during its weakening
 - **Comparison with the Hong Kong lidar method** (GLYGA): a replay of its 14-kt alert rule over all stored landings, the severity–length (Woodfield) diagram and the alert duration
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
-- The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (ADS-B ground speed, the convective season, validation)
+- **Phase 7: the ADS-B ground speed and the BDS 6,0 airspeed** in the headwind — timing, temperature, agreement of the two registers, noise and density, the replay of the ramps and whether the extra short ramps are real; detection v8 running in shadow beside v7
+- The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (the v8 comparison, the convective season, validation)
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
