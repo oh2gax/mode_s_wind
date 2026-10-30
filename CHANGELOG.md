@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types)
+
+### Windshear page: windshear landings in the Aircraft Types list
+- In *Today's statistics* an aircraft type with a landing whose windshear report has a level (ADV / WSA / MBA) in the chosen period is written in the colour of its highest level with a badge per level (e.g. `WSA` `ADV×5`); the bars stay aligned. Hovering the row lists those landings: level, time, callsign, registration, runway and the ramp or band change that raised the level. `static/js/windshear.js`, `static/css/style.css`. Windshear user guide 2.12.
 
 ### Mobile ILS options: Trails under Speed vectors
 - The *Trails* switch of the ILS approach options moved from the end of the list to right under *Speed vectors*, next to the other map drawing options. `web/templates/app.html`. Mobile user guide 1.25 (options table).

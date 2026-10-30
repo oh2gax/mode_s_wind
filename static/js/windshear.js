@@ -1798,10 +1798,13 @@ function renderTodayStats(approaches) {
   // Count per runway and per aircraft type
   const rwyCounts  = {};
   const typeCounts = {};
+  const typeWs     = {};          // the landings with a windshear report level (ADV / WSA / MBA), from 2026-10-30
   for (const ap of approaches) {
     if (ap.runway)       rwyCounts[ap.runway]                     = (rwyCounts[ap.runway]       || 0) + 1;
     const t = ap.aircraft_type || 'NIL';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
+    const lv = ap.shear && ap.shear.lvl;
+    if (lv && WS_LEVEL[lv]) (typeWs[t] || (typeWs[t] = [])).push(ap);
   }
 
   // Render runway bars (sorted by count desc)
@@ -1821,12 +1824,17 @@ function renderTodayStats(approaches) {
   // Render top 10 aircraft types (sorted by count desc)
   const typeSorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]);
   const maxType = typeSorted[0]?.[1] || 1;
+  const anyWs = Object.keys(typeWs).length > 0;      // then every row gets the badge slot, so that the bars stay aligned
   typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxType * 100);
-    const tip  = `${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''}`;
-    return `<div class="ws-stats-row" data-tip="${tip}">
-  <span class="ws-stats-type-name">${type}</span>
+    const ws   = typeWs[type];
+    const top  = ws ? ws.reduce((m, ap) => LV_RANK[ap.shear.lvl] > LV_RANK[m] ? ap.shear.lvl : m, 'adv') : null;
+    const tip  = _escStats(`${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''}`) + (ws ? _statsWsTip(ws) : '');
+    return `<div class="ws-stats-row${ws ? ' ws-stats-ws' : ''}" data-tip="${tip.replace(/"/g, '&quot;')}">
+  <span class="ws-stats-type-name"${ws ? ` style="color:${WS_LV_COLOR[top]}"` : ''}>${_escStats(type)}</span>${anyWs
+    ? `<span class="ws-stats-wsbox">${ws ? ['mba', 'wsa', 'adv'].map(l => { const k = ws.filter(ap => ap.shear.lvl === l).length;
+        return k ? `<span class="ws-stats-wsb" style="background:${WS_LV_COLOR[l]}">${WS_LEVEL[l].short}${k > 1 ? `×${k}` : ''}</span>` : ''; }).join('') : ''}</span>` : ''}
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:#10b981"></div></div>
   <span class="ws-stats-pct">${pct}%</span>
 </div>`;
@@ -1852,7 +1860,46 @@ function renderTodayStats(approaches) {
       row.addEventListener('mouseleave', _hideLogTooltip);
     });
   });
+  if (anyWs) {                                        // the slot as wide as the widest badges
+    const boxes = [...typeEl.querySelectorAll('.ws-stats-wsbox')];
+    const w = Math.max(...boxes.map(b => b.scrollWidth));
+    boxes.forEach(b => { b.style.width = w + 'px'; });
+  }
   _fitWholeRows(typeEl);
+}
+
+/**
+ * Windshear in the Aircraft Types list (from 2026-10-30): a type with a landing
+ * whose windshear report has a level (ADV / WSA / MBA — the WS column of the
+ * Approach history) in the period is written in the colour of its highest
+ * level with a badge per level (WSA, ADV×5 …); the hover lists those landings, newest
+ * first: level, time, callsign, registration, runway and what raised it —
+ * the headwind ramps with a level of their own, the band change.
+ */
+const _escStats = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function _statsWsTip(list) {
+  const multiDay = wsStatsRange === '1w' && !(wsStatsDateMode && wsStatsDate);
+  const when = ap => {
+    const d = new Date(ap.ts * 1000), p = n => String(n).padStart(2, '0');
+    return (multiDay ? `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)} ` : '') + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  };
+  const ramp = (r, lbl, loss) => r
+    ? `  ${lbl} ${Math.abs(r.dv).toFixed(0)} kt / ${(r.L / 1000).toFixed(1)} km, ${r.a1}→${r.a2} ft` : '';
+  const rows = [...list].sort((a, b) => b.ts - a.ts);
+  const out = rows.slice(0, 8).map(ap => {
+    const w = ap.shear, lv = w.lvl;
+    const why = [];
+    for (const [r, lbl, loss] of [[w.loss, 'loss', true], [w.gain, 'gain', false]])
+      if (r && r.zone && _wsLvOfSc(r.sc, loss, r.dv)) why.push(ramp(r, lbl, loss));
+    if (w.band && w.band.lvl && w.band.lvl !== 'none')
+      why.push(`  band ${w.band.a > 0 ? '+' : ''}${Math.round(w.band.a)} kt @${w.band.b} ft`);
+    if (!why.length) { if (w.loss) why.push(ramp(w.loss, 'loss', true)); if (w.gain) why.push(ramp(w.gain, 'gain', false)); }
+    return `<b style="color:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</b> ${when(ap)} ${_escStats(ap.callsign || ap.icao || '')}` +
+      `${ap.registration ? ' ' + _escStats(ap.registration) : ''}${ap.runway ? ' RWY ' + _escStats(ap.runway) : ''}` +
+      (why.length ? '\n' + why.join('\n') : '');
+  });
+  if (rows.length > 8) out.push(`… and ${rows.length - 8} more (Approach history, WS)`);
+  return `\nWindshear on ${rows.length} landing${rows.length !== 1 ? 's' : ''}:\n` + out.join('\n');
 }
 
 /**

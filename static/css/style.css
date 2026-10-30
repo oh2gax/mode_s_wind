@@ -2728,6 +2728,10 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .ws-stats-bar-wrap { flex: 1; background: var(--bg-3); border-radius: 2px; height: 5px; overflow: hidden; }
 .ws-stats-bar { height: 100%; border-radius: 2px; background: var(--accent); }
 .ws-stats-pct { color: var(--text-3); min-width: 30px; text-align: right; flex-shrink: 0; }
+/* a type with a windshear landing in the period (from 2026-10-30): the name in the level's colour and a badge */
+.ws-stats-wsb { flex-shrink: 0; font-size: 9px; font-weight: 700; line-height: 1; padding: 2px 4px; border-radius: 3px; color: #fff; letter-spacing: .02em; }
+.ws-stats-row.ws-stats-ws { cursor: help; }
+.ws-stats-wsbox { flex-shrink: 0; display: inline-flex; gap: 2px; }
 .ws-stats-ga-row  { margin-top: 5px; font-size: 11px; color: var(--text-2); padding: 0 2px; }
 .ws-stats-ga-none { color: var(--text-3); }   /* muted when count is zero */
 
