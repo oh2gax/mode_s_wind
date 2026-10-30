@@ -420,6 +420,9 @@ function wsDrawCanvas(g, m, W, H) {
   const P = AtcDisplay.pal(), lbls = [];
   // the labels keep clear of the plots, the vectors and the panels over the map
   const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, #ws-edr-sum, .leaflet-control-zoom, .ms-map-home') : null;
+  // and of the approach lines, so that the leading aircraft on a final does not
+  // put its label straight ahead over the line (from 30 Oct 2026)
+  if (obst && wsAtcLines) obst.push(...wsAtcLines.obstacles(W, H));
   for (const [icao, ac] of Object.entries(wsShown)) {
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
@@ -455,7 +458,7 @@ wsHov = AtcDisplay.hover(map, {
   redraw:  () => wsCanvas.redraw(),
 });
 wsHoverSync();
-const wsAtcLines = AtcDisplay.mapLines(map);
+var wsAtcLines = AtcDisplay.mapLines(map);   // var: the canvas may draw before this line
 // the GA mark blinks as on the street-map labels (only redrawn while one is shown)
 setInterval(() => {
   if (!wsIsAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed)) return;

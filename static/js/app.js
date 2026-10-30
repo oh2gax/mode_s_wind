@@ -46,6 +46,7 @@
     aci:          { title: 'ACI · WS · ST', sec: 'aci', el: 'v-aci' },
     hist:         { title: 'History', sec: 'hist', el: 'v-hist' },
     stats:        { title: 'Statistics', sec: 'stats', el: 'v-stats' },
+    wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
   };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
@@ -125,6 +126,7 @@
     if (redraw && was !== light) {
       layout(true);
       if (typeof window.onThemeChange === 'function') window.onThemeChange();   // the Statistics charts
+      if (window.AppWx && window.AppWx.ready()) window.AppWx.theme();            // the Weather view's map
     }
   }
   let themeNoteT = null;
@@ -1458,6 +1460,7 @@
     else if (view === 'aci') drawAci();
     else if (view === 'hist') drawHist();
     else if (view === 'stats' && window.MsStats) window.MsStats.redraw();
+    else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.layout();
     markScroll();
   }
   function refresh() {
@@ -1467,16 +1470,18 @@
     else if (view === 'ils') loadIls();
     else if (view === 'aci') loadAci();
     else if (view === 'hist' && !H.date) loadHist();
+    else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0 }[view];          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
     view = VIEWS[v] ? v : 'skewt-now';
     if (view !== 'stats' && window.MsStats) window.MsStats.stop();
+    if (view !== 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.hide();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -1503,6 +1508,7 @@
     else if (view === 'aci') loadAci();
     else if (view === 'hist') loadHist();
     else if (view === 'stats') openStats();
+    else if (view === 'wx') openWx();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
@@ -1547,6 +1553,41 @@
   const loadScript = src => new Promise((ok, fail) => {
     const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = fail; document.head.appendChild(sc);
   });
+  // ══ Weather (from 2026-10-30) ════════════════════════════════════════
+  // The MEPS maps with a time slider and the live air traffic: static/js/app_wx.js,
+  // loaded the first time with Leaflet, wx_layer.js and atc_display.js.  The menu's
+  // Weather options live here (ms_app_wx_<key>) and are passed on as they change.
+  const WX_OPTS = { rain: ['on', 'off'], pres: ['on', 'off'], wind: ['off', 'on'], gust: ['off', 'on'],
+                    cloud: ['off', 'c', 'l', 'm', 'h', 'f'], traffic: ['off', 'on'], mapst: ['street', 'atc'],
+                    tlbl: ['atc', 'std'], fc: ['48', '24'], grid: ['10', '20'], load: ['all', 'near'],
+                    speed: ['normal', 'slow', 'fast'] };                     // the first value is the default
+  const W = {};
+  for (const [k, vals] of Object.entries(WX_OPTS)) {
+    const v = lsGet('ms_app_wx_' + k, vals[0]);
+    W[k] = vals.includes(v) ? v : vals[0];
+    const el = $('app-wx-' + k);
+    el.value = W[k];
+    el.addEventListener('change', e => {
+      W[k] = e.target.value; lsSet('ms_app_wx_' + k, W[k]);
+      if (window.AppWx && window.AppWx.ready()) window.AppWx.option(k);
+    });
+  }
+  const WXL = { loading: null };
+  async function openWx() {
+    $('app-sub').textContent = 'MEPS maps · loading…';
+    if (!(window.AppWx && window.AppWx.ready())) {
+      if (!WXL.loading) {
+        WXL.loading = loadLeaflet()
+          .then(() => Promise.all([typeof WxLayer === 'undefined' ? loadScript(APP_WXLAYER_JS) : null, loadAtc()]))
+          .then(() => (window.AppWx ? null : loadScript(APP_WX_JS)))
+          .then(() => window.AppWx.init({ $, lsGet, lsSet, esc, S: W,
+                                          sub: t => { if (view === 'wx') $('app-sub').textContent = t; } }));
+      }
+      try { await WXL.loading; } catch (e) { WXL.loading = null; $('app-sub').textContent = 'The weather map could not be loaded.'; return; }
+    }
+    if (view === 'wx') window.AppWx.show();
+  }
+
   async function openStats() {
     $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;
     if (!window.MsStats) {

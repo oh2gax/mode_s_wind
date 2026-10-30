@@ -725,6 +725,34 @@ def create_app(
             },
         )
 
+    # ── Air traffic for the phone's Weather view (from 2026-10-30) ────────
+
+    @app.route("/api/live/traffic")
+    def live_traffic_api():
+        """The aircraft heard now with a position, slim and gzip-compressed, for
+        the phone's Weather view (polled every 6 s instead of the Live Map's
+        stream of the full list every 3 s): {t, ac: [[icao, callsign, type, lat,
+        lon, altitude, ground speed, track, vertical rate, selected altitude
+        (heard within 2 min, else null), seconds since the position changed]]}.
+        Positions older than 60 s are left out."""
+        now = time.time()
+        with live_lock:
+            data = list(live_state.values())
+        out = []
+        for ac in data:
+            lat, lon = ac.get("lat"), ac.get("lon")
+            pos_ts = ac.get("last_pos_update_ts") or ac.get("last_seen") or 0
+            if lat is None or lon is None or now - pos_ts > 60:
+                continue
+            sel = ac.get("sel_alt") if (ac.get("sel_alt") is not None
+                                        and now - (ac.get("sel_alt_ts") or 0) <= 120) else None
+            trk, gs = ac.get("track"), ac.get("groundspeed")
+            out.append([ac.get("icao"), ac.get("callsign"), ac.get("aircraft_type"),
+                        round(lat, 5), round(lon, 5), ac.get("altitude"),
+                        round(gs) if gs is not None else None, round(trk) if trk is not None else None,
+                        ac.get("vert_rate"), sel, round(now - pos_ts)])
+        return _gzip_json({"t": round(now, 1), "ac": out})
+
     # ── Hover of the ATC style (from 2026-10-30) ──────────────────────────
 
     @app.route("/api/live/ac/<icao>")
@@ -1147,7 +1175,16 @@ def create_app(
         except ValueError:
             return jsonify({"error": "bad ts or step"}), 400
         fields = [f for f in (request.args.get("fields") or "").split(",") if f] or None
-        resp = jsonify(_wx.frames(get_db(), ts, step, fields))
+        # ?bbox=lat0,lon0,lat1,lon1 (from 2026-10-30, the phone's Weather view):
+        # only the part of the grid over it
+        bbox = None
+        try:
+            b = [float(v) for v in (request.args.get("bbox") or "").split(",") if v.strip()]
+            if len(b) == 4 and -90 <= b[0] < b[2] <= 90 and -180 <= b[1] < b[3] <= 180:
+                bbox = b
+        except ValueError:
+            bbox = None
+        resp = jsonify(_wx.frames(get_db(), ts, step, fields, bbox))
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
             resp.headers["Content-Encoding"] = "gzip"

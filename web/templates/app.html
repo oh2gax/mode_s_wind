@@ -98,6 +98,31 @@
     </div>
   </section>
 
+  <!-- Weather (from 2026-10-30): the MEPS maps of the Weather page with a time slider,
+       preloading and animation, and the live air traffic (static/js/app_wx.js, loaded with
+       Leaflet, wx_layer.js and atc_display.js when the view is first opened) -->
+  <section id="v-wx" class="app-view app-wx" hidden>
+    <div id="app-wx-mapbox" class="app-wx-mapbox">
+      <div id="app-wx-map"></div>
+      <div id="app-wx-tip" class="app-wx-tip" role="status" hidden></div>
+      <div id="app-wx-loading" class="app-wx-loading" hidden></div>
+    </div>
+    <div class="app-wx-panel">
+      <div class="app-wx-row1"><b id="app-wx-time">—</b><span id="app-wx-rel"></span><span class="run" id="app-wx-run"></span></div>
+      <div id="app-wx-strip" class="app-wx-strip" aria-hidden="true"></div>
+      <input type="range" id="app-wx-t" class="app-wx-slider" min="0" max="0" step="1" value="0" aria-label="Model hour">
+      <div id="app-wx-ticks" class="app-wx-ticks" aria-hidden="true"></div>
+      <div class="app-wx-btns">
+        <button type="button" id="app-wx-prev" aria-label="One hour back">−1h</button>
+        <button type="button" id="app-wx-play" class="play" aria-label="Play">▶</button>
+        <button type="button" id="app-wx-next" aria-label="One hour on">+1h</button>
+        <button type="button" id="app-wx-now">Now</button>
+      </div>
+      <div id="app-wx-legend" class="app-wx-legend"></div>
+      <div id="app-wx-status" class="app-wx-status"></div>
+    </div>
+  </section>
+
   <!-- ACI & WS (ws_cond_chart.js) -->
   <section id="v-aci" class="app-view" hidden>
     <div id="app-aci-box" class="app-aci-box"><canvas id="app-aci"></canvas></div>
@@ -167,6 +192,7 @@
     <button type="button" class="app-tile" data-view="aci"><b>ACI · WS · ST</b><small>conditions · windshear</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
     <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
+    <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -303,6 +329,35 @@
     <div class="app-small">ACI + EDR + WS (research): between the ACI and the windshear the turbulence (EDR) of each landing (dot) and departure (ring) from its own Mode S replies, with the ICAO lines light 0.10, moderate 0.20 and severe 0.45; tap a flight to mark it in all three. Boundary layer (research): the wind (or the temperature against the surface) from 0 to 5000 ft hour by hour, the low-level jet (◆ its nose and speed, joined hour to hour) and the surface inversion (red bar along the bottom); hatched where there were no flights. Space–time: the headwind change of every height band of the landings and departures against the flights before them — blue less, red more. A front is a streak through the flights. Tap a cell for its flights.</div>
   </details>
 
+  <details class="app-sec" data-for="wx">
+    <summary>Weather options</summary>
+    <div class="app-field"><span>Rain and snow</span>
+      <select id="app-wx-rain" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
+    <div class="app-field"><span>Isobars, highs and lows</span>
+      <select id="app-wx-pres" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
+    <div class="app-field"><span>Wind (barbs)</span>
+      <select id="app-wx-wind" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
+    <div class="app-field"><span>Gusts</span>
+      <select id="app-wx-gust" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
+    <div class="app-field"><span>Clouds</span>
+      <select id="app-wx-cloud" data-chips><option value="off">Off</option><option value="c">Total</option><option value="l">Low</option><option value="m">Medium</option><option value="h">High</option><option value="f">Fog</option></select></div>
+    <div class="app-field"><span>Air traffic (live, all aircraft)</span>
+      <select id="app-wx-traffic" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
+    <div class="app-field"><span>Map style</span>
+      <select id="app-wx-mapst" data-chips><option value="street">Street</option><option value="atc">ATC (research)</option></select></div>
+    <div class="app-field"><span>Traffic labels</span>
+      <select id="app-wx-tlbl" data-chips><option value="std">Standard</option><option value="atc">ATC</option></select></div>
+    <div class="app-field"><span>Forecast</span>
+      <select id="app-wx-fc" data-chips><option value="24">24 h</option><option value="48">48 h</option></select></div>
+    <div class="app-field"><span>Grid</span>
+      <select id="app-wx-grid" data-chips><option value="20">20 km</option><option value="10">10 km</option></select></div>
+    <div class="app-field"><span>Load</span>
+      <select id="app-wx-load" data-chips><option value="all">All hours at once</option><option value="near">Near the slider</option></select></div>
+    <div class="app-field"><span>Speed</span>
+      <select id="app-wx-speed" data-chips><option value="slow">Slow</option><option value="normal">Normal</option><option value="fast">Fast</option></select></div>
+    <div class="app-small">The MEPS model of MET Norway (CC BY 4.0), the newest run, from 6 h back to 24 or 48 h ahead, hour by hour, over Finland and the Baltic Sea. Rain and snow of the hour before the shown time. ▶ plays the loaded hours; tap the map for the values of a place (they follow the slider), or an aircraft for its details. Data per hour at 10 km: about 20 kB with rain and isobars, about 50 kB with wind and gusts, about 70 kB with clouds too — 54 hours with rain and isobars about 1 MB (20 km: about a third). "Near the slider" loads only ±6 h around it. Air traffic: the aircraft the receiver hears now, updated every 6 s (about 1–3 MB an hour), whatever hour the slider shows; the ATC map style and labels as on the Live Map — a research display, not for air traffic control.</div>
+  </details>
+
   <details class="app-sec" data-for="hist">
     <summary>History options</summary>
     <div class="app-field"><span>List</span>
@@ -406,6 +461,9 @@
   const APP_CHART_JS = "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js";
   // the ATC map style of the ILS map (from 2026-10-30): loaded after Leaflet when chosen
   const APP_ATC_JS = "{{ url_for('static', filename='js/atc_display.js') }}";
+  // the Weather view (from 2026-10-30): loaded with Leaflet when first opened
+  const APP_WXLAYER_JS = "{{ url_for('static', filename='js/wx_layer.js') }}";
+  const APP_WX_JS = "{{ url_for('static', filename='js/app_wx.js') }}";
 </script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

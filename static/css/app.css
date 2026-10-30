@@ -384,3 +384,54 @@ body.app-body {
 /* system health: the panel inline (a pop-up on the desktop) */
 .app-stats .app-st-health { position: static; width: auto; max-height: none; box-shadow: none; border: none; z-index: auto; }
 .app-stats .app-st-health td { font-size: 12px; }
+
+/* ── Weather (from 2026-10-30): the map over the control panel (beside it in
+   landscape), static/js/app_wx.js ── */
+.app-wx { padding: 0; }
+.app-view.app-wx > .app-wx-mapbox { flex: 1 1 auto; min-height: 200px; position: relative; z-index: 0; isolation: isolate; display: flex; }
+#app-wx-map { flex: 1; background: #0b1622; }
+[data-theme="light"] #app-wx-map { background: #dfe6ee; }
+#app-wx-map .leaflet-control-attribution { font-size: 9px; background: rgba(15,25,35,.8); color: var(--text-3); }
+#app-wx-map .leaflet-control-attribution a { color: var(--text-2); }
+[data-theme="light"] #app-wx-map .leaflet-control-attribution { background: rgba(232,237,244,.88); }
+.app-wx-panel { flex: none; padding: 6px 10px calc(8px + env(safe-area-inset-bottom)); background: var(--bg-1);
+                border-top: 1px solid var(--border); }
+.app-wx-row1 { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.app-wx-row1 b { font-size: 14px; white-space: nowrap; }
+.app-wx-row1 .fc { color: #a78bfa; font-weight: 700; }
+[data-theme="light"] .app-wx-row1 .fc { color: #6d28d9; }
+.app-wx-row1 .run { margin-left: auto; font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+/* which hours are loaded: past grey, forecast purple; faint until loaded */
+.app-wx-strip { display: flex; gap: 1px; height: 5px; margin: 7px 2px 0; }
+.app-wx-strip i { flex: 1; background: var(--bg-3); border-radius: 1px; }
+.app-wx-strip i.ok { background: #64748b; }
+.app-wx-strip i.fc { background: color-mix(in srgb, #7c3aed 25%, var(--bg-3)); }
+.app-wx-strip i.ok.fc { background: #7c3aed; }
+[data-theme="light"] .app-wx-strip i.ok { background: #94a3b8; }
+.app-wx-slider { width: 100%; margin: 4px 0 2px; height: 30px; accent-color: #1a3a6b; }
+.app-wx-ticks { position: relative; height: 14px; margin: 0 12px; font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.app-wx-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.app-wx-btns { display: flex; gap: 8px; margin-top: 6px; }
+.app-wx-btns button { flex: 1; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2);
+                      color: var(--text-1); font: inherit; font-size: 15px; font-weight: 600; }
+.app-wx-btns button:disabled { opacity: .4; }
+.app-wx-btns button.play { flex: 1.4; background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; font-size: 17px; }
+.app-wx-legend { margin-top: 7px; font-size: 10.5px; line-height: 1.5; color: var(--text-2); }
+.app-wx-legend .wx-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 1px; }
+.app-wx-status { margin-top: 3px; font-size: 10.5px; color: var(--text-3); }
+/* the tap read-out: a card at the bottom of the map */
+.app-wx-tip { position: absolute; z-index: 700; left: 8px; right: 8px; bottom: 22px; padding: 7px 10px; border-radius: 8px;
+              background: rgba(15,25,35,.93); border: 1px solid var(--border); font-size: 12px; line-height: 1.45; color: var(--text-1); }
+[data-theme="light"] .app-wx-tip { background: rgba(248,250,252,.96); }
+.app-wx-tip[hidden], .app-wx-loading[hidden] { display: none; }
+.app-wx-tip.top { bottom: auto; top: 8px; left: 56px; }   /* beside the zoom buttons */
+.app-wx-tip small { display: block; color: var(--text-3); font-size: 10.5px; }
+.app-wx-pin { width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000; margin: -9px 0 0 -9px; }
+.app-wx-loading { position: absolute; z-index: 700; left: 8px; bottom: 22px; padding: 3px 9px; border-radius: 10px; font-size: 11px;
+                  background: rgba(15,25,35,.85); color: var(--text-2); pointer-events: none; }
+[data-theme="light"] .app-wx-loading { background: rgba(248,250,252,.9); }
+/* landscape: the panel beside the map */
+@media (orientation: landscape) and (max-height: 560px) {
+  .app-view.app-wx { flex-direction: row; }
+  .app-wx-panel { width: 300px; overflow-y: auto; border-top: 0; border-left: 1px solid var(--border); }
+}

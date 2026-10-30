@@ -5,6 +5,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Windshear map labels beside the approach line** — in the ATC style the label of the first aircraft on a final no longer lies straight ahead over the approach line; all labels now keep clear of the finals, also when only one aircraft is on the approach. Windshear guide 2.24.
+- **Weather on the phone** — the menu's new **Weather** view shows the MEPS weather maps from 6 hours back to 24 or 48 hours ahead (10 or 20 km grid): all hours are loaded at once, so the slider and ▶ animation run smoothly. Rain and snow, isobars, wind, gusts and clouds as on the Weather page; tap a place for its values. Optionally the live air traffic (all aircraft) on a street map or the ATC map, with ATC or standard labels. Mobile guide 1.30.
 - **Calmer GPS and Statistics page buttons** — GPS Quality, GPS Episodes and the Statistics page now have the same buttons as the Windshear page: grey when off, dark blue when on.
 - **Fix: Sounding page Refresh stays put** — pressing ↻ Refresh in the Time–height view no longer makes the button and the section jump; the status text just fades until the new data are in.
 - **Approach history in the phone's ILS view** — under the flight strips the landings of the last 3 hours (or 6 h, or off) as in the History view, by default with their turbulence (EDR); tap a landing for its details. Mobile guide 1.29.

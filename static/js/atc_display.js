@@ -182,14 +182,15 @@ const AtcDisplay = (() => {
   // while the mouse is on it).
   const DIRS = [[1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]];   // NE first
   const LH = 13;
-  function drawLabels(g, items, W, H, obst, pos) {
-    const P = pal();
-    g.font = '12px Consolas, "DejaVu Sans Mono", "Courier New", monospace';
+  // fs: the font size in px (12 by default; the phone's Weather view 10, from 2026-10-30)
+  function drawLabels(g, items, W, H, obst, pos, fs = 12) {
+    const P = pal(), lh = Math.round(fs * LH / 12);
+    g.font = `${fs}px Consolas, "DejaVu Sans Mono", "Courier New", monospace`;
     g.textBaseline = 'top';
     for (const it of items) {
       const ws = it.lines.map((t, i) => g.measureText(t + (i === 0 && it.ga ? ' GA' : '')).width);
       it.w = Math.ceil(Math.max(...ws)) + 4;
-      it.h = it.lines.length * LH + 2;
+      it.h = it.lines.length * lh + 2;
     }
     const syms = items.map(it => ({ x: it.p.x - 6, y: it.p.y - 6, w: 12, h: 12, key: it.key }));
     const ov = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
@@ -234,7 +235,7 @@ const AtcDisplay = (() => {
       g.strokeStyle = it.sel ? it.col : P.leader; g.lineWidth = 1;
       g.beginPath(); g.moveTo(it.p.x + R.ux * 6, it.p.y + R.uy * 6); g.lineTo(R.ax, R.ay); g.stroke();
       g.fillStyle = it.col;
-      it.lines.forEach((t, i) => g.fillText(t, R.x + 2, R.y + 1 + i * LH));
+      it.lines.forEach((t, i) => g.fillText(t, R.x + 2, R.y + 1 + i * lh));
       if (it.ga && it.gaOn) {                          // go-around: a red GA after the callsign
         g.fillStyle = P.ga;
         g.fillText('GA', R.x + 2 + g.measureText(it.lines[0] + ' ').width, R.y + 1);
@@ -340,7 +341,8 @@ const AtcDisplay = (() => {
 
   // The ATC map lines (coastline, airport, EFHK ILS / RNP finals), loaded at the
   // first show, drawn on a canvas in their own pane; show(on) adds or removes
-  // them in the current theme's colours
+  // them in the current theme's colours; obstacles(W, H) gives
+  // the finals as label obstacles while they are shown
   function mapLines(map) {
     ensurePanes(map);
     const renderer = L.canvas({ pane: 'atcMapPane', padding: 0.3 });
@@ -367,7 +369,32 @@ const AtcDisplay = (() => {
       }
       layer = grp.addTo(map);
     }
-    return { show };
+    // The EFHK finals as small boxes every 6 px along them (in container pixels,
+    // inside the map), for the labels to keep clear of the approach lines
+    // (from 30 Oct 2026): the leading aircraft on a final otherwise put its label
+    // straight ahead, over the line, when nothing else was in the way.
+    function obstacles(W, H) {
+      const out = [];
+      if (!layer || !geo || !geo.ils) return out;
+      for (const f of geo.ils.features || []) {
+        if (!f.properties || f.properties.airport !== 'EFHK' || !f.geometry) continue;
+        const cs = f.geometry.type === 'LineString' ? [f.geometry.coordinates]
+                 : f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [];
+        for (const line of cs) for (let i = 1; i < line.length; i++) {
+          const a = map.latLngToContainerPoint([line[i - 1][1], line[i - 1][0]]),
+                b = map.latLngToContainerPoint([line[i][1], line[i][0]]);
+          if (Math.max(a.x, b.x) < -10 || Math.min(a.x, b.x) > W + 10 ||
+              Math.max(a.y, b.y) < -10 || Math.min(a.y, b.y) > H + 10) continue;
+          const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 6));
+          for (let j = 0; j <= n; j++) {
+            const x = a.x + (b.x - a.x) * j / n, y = a.y + (b.y - a.y) * j / n;
+            if (x >= -4 && y >= -4 && x <= W + 4 && y <= H + 4) out.push({ x: x - 3, y: y - 3, w: 6, h: 6 });
+          }
+        }
+      }
+      return out;
+    }
+    return { show, obstacles };
   }
 
   // Legend: the three symbol colours and the research notice
