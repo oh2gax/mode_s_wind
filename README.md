@@ -794,7 +794,7 @@ Aircraft are drawn as on a controller's radar display (from 30 Oct 2026, as the 
 
 #### History plots and speed vectors
 
-From 30 Oct 2026 (before a trail of round dots over ~60 s) each aircraft leaves **history plots** as on a radar display: small filled squares (3.5 px) in its symbol colour at its earlier positions, one per about 6 s (a position is kept when at least 5 s after the previous one by its position time `pos_ts`; the stream comes every 3 s), the older ones fainter. The **Hist** button in the list's second filter row steps **Off · 5 · 10 · 20** plots (about 30 s · 1 min · 2 min; default 5, saved as `ms_liveHist`); up to 40 positions are kept per aircraft (`MAX_TRAIL`).
+From 30 Oct 2026 (before a trail of round dots over ~60 s) each aircraft leaves **history plots** as on a radar display: small filled squares (3.5 px) in its symbol colour at its earlier positions, one per about 6 s (a position is kept when at least 5 s after the previous one by its position time `pos_ts`; the stream comes every 3 s), the older ones fainter. The **Hist** button in the list's second filter row (its buttons are kept on one line: *Hist 5*, *Vec 1m*, *Meteo*, *Rings 10*) steps **Off · 5 · 10 · 20** plots (about 30 s · 1 min · 2 min; default 5, saved as `ms_liveHist`); up to 40 positions are kept per aircraft (`MAX_TRAIL`).
 
 The **Vec** button next to it steps the **speed vectors**: **Off · 30 s · 1 min · 2 min** (default Off — with many aircraft the map gets busy; saved as `ms_liveVec`). The vector runs from the square's edge to the point the aircraft reaches in that time at its ground speed along its track (great circle, as the Windshear map); none below 30 kt. The selected aircraft's vector is white (near-black in the Light theme). A landed aircraft's plots and vector fade with its symbol.
 
@@ -802,10 +802,10 @@ All plots and vectors are drawn on **one canvas layer** over the map, under the 
 
 #### Style: Meteo / ATC
 
-The **Style** button (from 30 Oct 2026, in the list's second filter row next to Hist and Vec; saved as `ms_liveStyle`) switches the map between two looks:
+The **Style** button (from 30 Oct 2026, in the list's second filter row next to Hist and Vec, labelled *Meteo* or *ATC*; saved as `ms_liveStyle`) switches the map between two looks:
 
 - **Meteo** (default) — the street map, the symbols in the colour of the meteo source, the wind lines and the receiver, as above.
-- **ATC** — a radar-display look for the air traffic controllers among the users: no street map but a plain background (dark grey in the Dark theme, light grey in the Light theme), with the EFHK airport layout, the ILS (short dashes) and RNP (long dashes) finals and the coastline (`/overlays/efhk_apt|ils|coast.geojson`, loaded at the first switch, drawn on a canvas in their own pane above the weather overlay) and **range rings** every 5 NM to 30 NM from the airport, with their distance. The symbols are monochrome — below 6 000 ft light (`ATC_LOW_FT`), above grey, the selected aircraft yellow (blue in the Light theme) — and the history plots and speed vectors follow them; no wind lines and no receiver marker. The legend shows the three symbol colours and *Research display — not for air traffic control*.
+- **ATC** — a radar-display look for the air traffic controllers among the users: no street map but a plain background (dark grey in the Dark theme, light grey in the Light theme), with the EFHK airport layout, the ILS (short dashes) and RNP (long dashes) finals and the coastline (`/overlays/efhk_apt|ils|coast.geojson`, loaded at the first switch, drawn on a canvas in their own pane above the weather overlay). **Range rings** from the airport, with their distance, are chosen with the **Rings** button, shown only in the ATC style: *Rings Off* (default), *Rings 5* (every 5 NM) or *Rings 10* (every 10 NM), to 30 NM (`ringNm`, saved as `ms_liveRings`). The symbols are monochrome — below 6 000 ft light (`ATC_LOW_FT`), above grey, the selected aircraft yellow (blue in the Light theme) — and the history plots and speed vectors follow them; no wind lines and no receiver marker. The legend shows the three symbol colours and *Research display — not for air traffic control*.
 
 **ATC labels** are drawn on the plot canvas in a monospaced face, with a **leader line** from the symbol, in up to three lines as on a controller's display; the **Lbl** button chooses how much:
 
@@ -1067,7 +1067,7 @@ The table on the right shows each altitude layer — the highest (lowest pressur
 |---------|---------|-------------|
 | Length | 24 h / 48 h / 72 h / 7 days / 14 days | Hours shown |
 | ending | date (empty) · **Now** | The section ends at the end of that UTC day; empty or **Now** = up to now |
-| Colour field | Temperature anomaly / Temperature change 3 h / Wind speed / Lapse rate / Vertical motion / Vorticity / Height of the pressure surfaces / Height change 6 h / Thickness temperature check / Moisture (trial) / Boundary layer · wind (0–5 000 ft) / Boundary layer · temperature (0–3 500 ft) | See below |
+| Colour field | Temperature anomaly / Temperature change 3 h / Wind speed / Lapse rate / Vertical motion / Vorticity / Height of the pressure surfaces / Height change 6 h / Thickness temperature check / Moisture (trial) / Boundary layer · wind (0–5 000 ft) / Boundary layer · temperature (0–5 000 ft; until 30 Oct 2026 0–3 500 ft) | See below |
 | Barbs | tick box | Wind barbs (every second column / layer as space allows), with a halo so they read on any colour |
 | Isotherms | tick box | The lowest 0 °C (solid), −10 and −20 °C (dashed) crossing of each hour, joined across hours |
 | Tropopause | tick box | The tropopause of each hour (magenta dashed `TP`): the lowest layer above 5 km where the lapse rate falls to ≤ 2 K/km and the mean lapse rate to every layer within the next 2 km stays ≤ 2 K/km (WMO), from the ±1 h smoothed layer temperatures — only where the aircraft data reach above it (usually up to about FL420, so a high tropopause is not found) |

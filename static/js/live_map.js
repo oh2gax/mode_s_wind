@@ -429,7 +429,7 @@ const PlotLayer = L.Layer.extend({
     if (!histN && !vecS && !atc) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const W = c.width / dpr, H = c.height / dpr;
-    if (atc) drawRangeRings(g, m, W, H);
+    if (atc && ringNm) drawRangeRings(g, m, W, H, ringNm);
     const lbls = [], obst = [];                       // ATC style: the labels, placed after; plots and vectors to keep clear of
     // newest → oldest plot opacity; stronger on the pale Light-theme map
     const light = document.documentElement.dataset.theme === 'light';
@@ -488,7 +488,7 @@ map.getPane('atcMapPane').style.pointerEvents = 'none';
 // ── Style: Meteo / ATC (from 2026-10-30) ──────────────────────────────────
 // ATC: a radar-display look for the air traffic controllers among the users —
 // no street map but a plain background with the airport, the ILS / RNP finals,
-// the coastline and range rings every 5 NM from the airport; monochrome symbols
+// the coastline and, with the Rings button, range rings from the airport; monochrome symbols
 // (below 6 000 ft light, above grey, the selected aircraft yellow), the labels
 // in three lines with a leader line, moved automatically so that they do not
 // overlap: callsign / level, trend ↑↓ and selected level in hundreds of feet
@@ -497,6 +497,10 @@ map.getPane('atcMapPane').style.pointerEvents = 'none';
 // and settings are not public) — a research display, not for controlling.
 // Follows the page theme: dark grey in Dark, light grey in Light.
 const ATC_LOW_FT = 6000;
+// Range rings from the airport (the Rings button, ATC style only): off (default),
+// every 5 NM or every 10 NM, to 30 NM
+const RING_STEPS = [0, 5, 10];
+let ringNm = (() => { try { const v = parseInt(localStorage.getItem('ms_liveRings'), 10); return RING_STEPS.includes(v) ? v : 0; } catch (_) { return 0; } })();
 let liveStyle = (() => { try { return localStorage.getItem('ms_liveStyle') === 'atc' ? 'atc' : 'meteo'; } catch (_) { return 'meteo'; } })();
 const ATC_PAL = {
   dark:  { bg: '#1b2027', apt: '#5b6573', ils: '#46566a', rnp: '#6b5a3c', coast: '#36414e', ring: '#2c3540', ringTxt: '#4f5a67',
@@ -531,16 +535,16 @@ function atcLabelLines(ac) {
   return [cs, l2, `${gs} ${ac.aircraft_type || ''}`.trimEnd()];
 }
 
-// Range rings every 5 NM from the airport (to 30 NM), with their distance
-function drawRangeRings(g, m, W, H) {
+// Range rings every 5 or 10 NM from the airport (to 30 NM), with their distance
+function drawRangeRings(g, m, W, H, step) {
   const P = atcPal(), c = m.latLngToContainerPoint([AIRPORT_LAT, AIRPORT_LON]);
   const pxPerNm = Math.abs(m.latLngToContainerPoint([AIRPORT_LAT + 1 / 60, AIRPORT_LON]).y - c.y);
-  if (pxPerNm * 5 < 14) return;                       // zoomed far out: no rings
+  if (pxPerNm * step < 14) return;                    // zoomed far out: no rings
   g.globalAlpha = 1;
   g.strokeStyle = P.ring; g.lineWidth = 1;
   g.fillStyle = P.ringTxt; g.font = '10px Consolas, "DejaVu Sans Mono", monospace';
   g.textAlign = 'center'; g.textBaseline = 'bottom';
-  for (let nm = 5; nm <= 30; nm += 5) {
+  for (let nm = step; nm <= 30; nm += step) {
     const r = nm * pxPerNm;
     g.beginPath(); g.arc(c.x, c.y, r, 0, 2 * Math.PI); g.stroke();
     if (c.y - r > 8 && c.y - r < H) g.fillText(String(nm), c.x, c.y - r - 1);
@@ -1228,13 +1232,13 @@ function stepBtn(id, steps, get, set, key, fmt) {
 stepBtn('hist-btn', HIST_STEPS, () => histN, v => { histN = v; }, 'ms_liveHist',
         v => `Hist ${v ? v : 'Off'}`);
 stepBtn('vec-btn', VEC_STEPS, () => vecS, v => { vecS = v; }, 'ms_liveVec',
-        v => `Vec ${v === 0 ? 'Off' : v < 60 ? v + ' s' : v / 60 + ' min'}`);
+        v => `Vec ${v === 0 ? 'Off' : v < 60 ? v + 's' : v / 60 + 'm'}`);
 
 // Style: Meteo / ATC
 const styleBtn = document.getElementById('style-btn');
 if (styleBtn) {
   const showStyle = () => {
-    styleBtn.textContent = liveStyle === 'atc' ? 'Style ATC' : 'Style Meteo';
+    styleBtn.textContent = liveStyle === 'atc' ? 'ATC' : 'Meteo';
     styleBtn.classList.toggle('active', liveStyle === 'atc');
   };
   showStyle();
@@ -1242,9 +1246,25 @@ if (styleBtn) {
     liveStyle = liveStyle === 'atc' ? 'meteo' : 'atc';
     try { localStorage.setItem('ms_liveStyle', liveStyle); } catch (_) { /* private mode */ }
     showStyle();
+    showRings();
     applyLiveStyle();
   });
 }
+// Range rings (ATC style): the Rings button steps Off · 5 NM · 10 NM; shown only in the ATC style
+const ringsBtn = document.getElementById('rings-btn');
+function showRings() {
+  if (!ringsBtn) return;
+  ringsBtn.hidden = liveStyle !== 'atc';
+  ringsBtn.textContent = ringNm ? `Rings ${ringNm}` : 'Rings Off';
+  ringsBtn.classList.toggle('active', ringNm !== 0);
+}
+showRings();
+if (ringsBtn) ringsBtn.addEventListener('click', () => {
+  ringNm = RING_STEPS[(RING_STEPS.indexOf(ringNm) + 1) % RING_STEPS.length];
+  try { localStorage.setItem('ms_liveRings', String(ringNm)); } catch (_) { /* private mode */ }
+  showRings();
+  plotLayer.redraw();
+});
 if (liveStyle === 'atc') applyLiveStyle();
 
 // ── Wind density slider ───────────────────────────────────────────────────

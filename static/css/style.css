@@ -129,6 +129,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .filter-row { display: flex; gap: 6px; align-items: center; }
 /* Live Map history plots and speed vectors: one canvas over the map, under the symbols (2026-10-30) */
 .live-plot-layer { position: absolute; left: 0; top: 0; pointer-events: none; }
+.filter-row .skewt-ana-btn[hidden] { display: none; }
+.filter-row-btns { flex-wrap: wrap; row-gap: 4px; }
+.filter-row-btns .skewt-ana-btn { white-space: nowrap; }
 .map-legend .legend-sq { display: inline-block; width: 8px; height: 8px; border: 1.5px solid; border-radius: 1px;
                          margin-right: -5px; }
 .map-legend .legend-note { margin-left: 6px; color: #f59e0b; cursor: help; pointer-events: auto; }
