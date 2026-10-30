@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
-- **Calmer Windshear map buttons** — the buttons over the Windshear map are now all alike: grey when off, dark blue when on (as ATC was), instead of amber, teal, magenta and blue.
+- **Calmer Windshear page buttons** — the buttons over the Windshear map, of the chart panel (WR, ACI, WS, EDR, BL, ST, ½ …) and of the Approach History are now all alike: grey when off, dark blue when on (as ATC was), instead of amber, teal, magenta, purple and blue.
 - **Grey ATC symbols on the Windshear map** — in the ATC style the aircraft whose wind barbs the profile shows is no longer yellow (blue in Light): it is grey like the others, as on the Live Map. Its flight strip still shows which one it is.
 - **Windshear charts no longer cover the alert title** — on the Windshear page the ACI, EDR and BL charts are now the same height as the WS chart, so they stay above the *Windshear alert* title on a 1920 × 1080 screen, and the chart no longer changes height by itself after switching view.
 - **Go-around runway in the aircraft types** — pointing at a type's red **GA** badge now shows each go-around with its own runway, time and height, then the landing runway: `go-around RWY 22L 08:43 at 1,725 ft` / `landed RWY 22L 08:57`. Windshear guide 2.22.
