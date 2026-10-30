@@ -6,7 +6,7 @@
  * mouse (from 30 Oct 2026).
  *
  * A generic European radar-display look, after the conventions of systems such
- * as Thales TopSky (used in Finland), whose screens and settings are not
+ * as Thales TopSky, whose screens and settings are not
  * public — not a copy of any one system.  A research display, not for air
  * traffic control.  The colours follow the page theme: dark grey in Dark,
  * light grey in Light.
