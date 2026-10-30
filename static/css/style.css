@@ -1991,6 +1991,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ac-label .ws-ac-type { font-weight: 400; }
 .ws-ac-label .ws-ac-notype { opacity: .6; }
 .ws-ac-label-dense, .ws-ac-label-dense small { font-size: 10px; }
+/* go-around (from 2026-10-30): a flashing red GA in the label while the aircraft is in its go-around phase —
+   the strip's blink (ws-ga-blink) at 1 s, so the label's refresh every 3 s does not break the rhythm */
+.ws-ac-label .ws-ac-ga { color: #f87171; font-weight: 700; animation: ws-ga-blink 1s step-end infinite; }
+[data-theme="light"] .ws-ac-label .ws-ac-ga { color: #dc2626; }
 
 /* ── Leaflet map theme overrides ────────────────────────────────────────── */
 .ws-theme-black .leaflet-container {
@@ -2737,6 +2741,12 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .ws-stats-wsb { flex-shrink: 0; font-size: 9px; font-weight: 700; line-height: 1; padding: 2px 4px; border-radius: 3px; color: #fff; letter-spacing: .02em; }
 .ws-stats-row.ws-stats-ws { cursor: help; }
 .ws-stats-wsbox { flex-shrink: 0; display: inline-flex; gap: 2px; }
+/* go-arounds in the type list (from 2026-10-30): a red outlined GA badge; the name red when there is no windshear level */
+.ws-stats-wsb.ws-stats-gab { background: transparent; color: #f87171; box-shadow: inset 0 0 0 1px #f87171; }
+.ws-stats-type-name[data-ga] { color: #f87171; }
+.ws-stats-ga-tip { color: #f87171; }
+[data-theme="light"] .ws-stats-wsb.ws-stats-gab { color: #dc2626; box-shadow: inset 0 0 0 1px #dc2626; }
+[data-theme="light"] .ws-stats-type-name[data-ga], [data-theme="light"] .ws-stats-ga-tip { color: #dc2626; }
 .ws-stats-ga-row  { margin-top: 5px; font-size: 11px; color: var(--text-2); padding: 0 2px; }
 .ws-stats-ga-none { color: var(--text-3); }   /* muted when count is zero */
 

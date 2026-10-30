@@ -5,6 +5,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Go-arounds in the aircraft types** — on the Windshear page's statistics a type with a go-around gets a red **GA** badge; point at it to see those landings.
+- **GA on the Windshear map** — after a go-around the aircraft's label shows a flashing red **GA** until it turns onto its next approach or leaves the map as a climb-out.
 - **Fix: the boundary-layer chart kept jumping wider** — on the Windshear page the BL chart widened for a moment when the last hour had both a low-level jet and an inversion; it now keeps its width.
 - **Calmer Windshear map labels** — callsign and altitude in the same size; the selected aircraft's square is smaller and only lightly marked.
 - **Label levels on the Windshear map** — the new **Lbl** button steps the labels: callsign · type · callsign + altitude · + type · full (also the autopilot's selected altitude, `A023+020`).

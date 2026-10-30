@@ -317,10 +317,15 @@ function wsAcLabelHtml(ac) {
   // the right-hand runway's traffic labelled to the left of its square, as on the phone
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
   const cs = _wsEsc(ac.callsign || ac.icao), ty = _wsEsc(ac.aircraft_type || '');
+  // Go-around (from 30 Oct 2026): a flashing red GA after the first line while the
+  // tracker has the aircraft in its go-around phase (ga_phase GO_AROUND: from the
+  // detected go-around until it enters a corridor again for the next approach);
+  // a climb-out marked as a departure is hidden from the map as before.
+  const ga = ac.ga_phase === 'GO_AROUND' && !ac.landed ? ' <span class="ws-ac-ga">GA</span>' : '';
   let body;
-  if (lv === 'cs')        body = cs;
-  else if (lv === 'type') body = ty || '<span class="ws-ac-notype">—</span>';
-  else body = cs + ((lv === 'type+' || lv === 'full') && ty ? ` <span class="ws-ac-type">${ty}</span>` : '') + `<small>${l2}</small>`;
+  if (lv === 'cs')        body = cs + ga;
+  else if (lv === 'type') body = (ty || '<span class="ws-ac-notype">—</span>') + ga;
+  else body = cs + ((lv === 'type+' || lv === 'full') && ty ? ` <span class="ws-ac-type">${ty}</span>` : '') + ga + `<small>${l2}</small>`;
   const dense = lv === 'type+' || lv === 'full';
   return `<div class="ws-ac-label${dim ? ' ws-ac-label-dim' : ''}${sel ? ' ws-ac-label-sel' : ''}${left ? ' ws-ac-label-left' : ''}${dense ? ' ws-ac-label-dense' : ''}">` +
          `${body}</div>`;
@@ -372,7 +377,7 @@ function updateMapMarkers(aircraft) {
     seen.add(ac.icao);
 
     const tip = [
-      `${ac.callsign || ac.icao}${ac.aircraft_type ? ' ' + ac.aircraft_type : ''}`,
+      `${ac.callsign || ac.icao}${ac.aircraft_type ? ' ' + ac.aircraft_type : ''}${ac.ga_phase === 'GO_AROUND' ? ' · GO-AROUND' : ''}`,
       ac.approach_runway ? `RWY ${ac.approach_runway}` : 'No ILS match',
       `${ac.altitude?.toLocaleString()} ft`,
       ac.dist_thr_nm != null
@@ -1834,12 +1839,14 @@ function renderTodayStats(approaches) {
   const rwyCounts  = {};
   const typeCounts = {};
   const typeWs     = {};          // the landings with a windshear report level (ADV / WSA / MBA), from 2026-10-30
+  const typeGa     = {};          // the landings after one or more go-arounds (go_arounds > 0), from 2026-10-30
   for (const ap of approaches) {
     if (ap.runway)       rwyCounts[ap.runway]                     = (rwyCounts[ap.runway]       || 0) + 1;
     const t = ap.aircraft_type || 'NIL';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
     const lv = ap.shear && ap.shear.lvl;
     if (lv && WS_LEVEL[lv]) (typeWs[t] || (typeWs[t] = [])).push(ap);
+    if (ap.go_arounds > 0) (typeGa[t] || (typeGa[t] = [])).push(ap);
   }
 
   // Render runway bars (sorted by count desc)
@@ -1859,17 +1866,21 @@ function renderTodayStats(approaches) {
   // Render top 10 aircraft types (sorted by count desc)
   const typeSorted = Object.entries(typeCounts).sort((a,b) => b[1]-a[1]);
   const maxType = typeSorted[0]?.[1] || 1;
-  const anyWs = Object.keys(typeWs).length > 0;      // then every row gets the badge slot, so that the bars stay aligned
+  const anyWs = Object.keys(typeWs).length + Object.keys(typeGa).length > 0;   // then every row gets the badge slot, so that the bars stay aligned
   typeEl.innerHTML = typeSorted.map(([type, cnt]) => {
     const pct = Math.round(cnt / total * 100);
     const barW = Math.round(cnt / maxType * 100);
-    const ws   = typeWs[type];
+    const ws   = typeWs[type], ga = typeGa[type];
     const top  = ws ? ws.reduce((m, ap) => LV_RANK[ap.shear.lvl] > LV_RANK[m] ? ap.shear.lvl : m, 'adv') : null;
-    const tip  = _escStats(`${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''}`) + (ws ? _statsWsTip(ws) : '');
-    return `<div class="ws-stats-row${ws ? ' ws-stats-ws' : ''}" data-tip="${tip.replace(/"/g, '&quot;')}">
-  <span class="ws-stats-type-name"${ws ? ` style="color:${WS_LV_COLOR[top]}"` : ''}>${_escStats(type)}</span>${anyWs
+    const nGa  = ga ? ga.reduce((s, ap) => s + ap.go_arounds, 0) : 0;
+    const tip  = _escStats(`${type}: ${cnt} approach${cnt !== 1 ? 'es' : ''}`) + (ws ? _statsWsTip(ws) : '') + (ga ? _statsGaTip(ga) : '');
+    // the name in the colour of the highest windshear level, or red with go-arounds only
+    const nameAttr = ws ? ` style="color:${WS_LV_COLOR[top]}"` : ga ? ' data-ga="1"' : '';
+    return `<div class="ws-stats-row${ws || ga ? ' ws-stats-ws' : ''}" data-tip="${tip.replace(/"/g, '&quot;')}">
+  <span class="ws-stats-type-name"${nameAttr}>${_escStats(type)}</span>${anyWs
     ? `<span class="ws-stats-wsbox">${ws ? ['mba', 'wsa', 'adv'].map(l => { const k = ws.filter(ap => ap.shear.lvl === l).length;
-        return k ? `<span class="ws-stats-wsb" style="background:${WS_LV_COLOR[l]}">${WS_LEVEL[l].short}${k > 1 ? `×${k}` : ''}</span>` : ''; }).join('') : ''}</span>` : ''}
+        return k ? `<span class="ws-stats-wsb" style="background:${WS_LV_COLOR[l]}">${WS_LEVEL[l].short}${k > 1 ? `×${k}` : ''}</span>` : ''; }).join('') : ''}` +
+      `${ga ? `<span class="ws-stats-wsb ws-stats-gab">GA${nGa > 1 ? `×${nGa}` : ''}</span>` : ''}</span>` : ''}
   <div class="ws-stats-bar-wrap"><div class="ws-stats-bar" style="width:${barW}%;background:#10b981"></div></div>
   <span class="ws-stats-pct">${pct}%</span>
 </div>`;
@@ -1935,6 +1946,28 @@ function _statsWsTip(list) {
   });
   if (rows.length > 8) out.push(`… and ${rows.length - 8} more (Approach history, WS)`);
   return `\nWindshear on ${rows.length} landing${rows.length !== 1 ? 's' : ''}:\n` + out.join('\n');
+}
+
+/**
+ * Go-arounds in the Aircraft Types list (from 2026-10-30): a type with a landing
+ * that came after one or more go-arounds (go_arounds of the approach record, the
+ * same count as the runway section's "Go-arounds: N") gets a red outlined GA badge
+ * (GA×2: two go-arounds), and its name is red when it has no windshear level;
+ * the hover lists those landings, newest first.
+ */
+function _statsGaTip(list) {
+  const multiDay = wsStatsRange === '1w' && !(wsStatsDateMode && wsStatsDate);
+  const when = ap => {
+    const d = new Date(ap.ts * 1000), p = n => String(n).padStart(2, '0');
+    return (multiDay ? `${p(d.getUTCDate())}.${p(d.getUTCMonth() + 1)} ` : '') + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  };
+  const rows = [...list].sort((a, b) => b.ts - a.ts);
+  const n = rows.reduce((s, ap) => s + ap.go_arounds, 0);
+  const out = rows.slice(0, 8).map(ap =>
+    `<b class="ws-stats-ga-tip">GA</b> ${when(ap)} ${_escStats(ap.callsign || ap.icao || '')}${ap.registration ? ' ' + _escStats(ap.registration) : ''}` +
+    `\n  landed${ap.runway ? ' RWY ' + _escStats(ap.runway) : ''} after ${ap.go_arounds} go-around${ap.go_arounds !== 1 ? 's' : ''}`);
+  if (rows.length > 8) out.push(`… and ${rows.length - 8} more (Approach history)`);
+  return `\n${n} go-around${n !== 1 ? 's' : ''} before ${rows.length} landing${rows.length !== 1 ? 's' : ''}:\n` + out.join('\n');
 }
 
 /**

@@ -7,7 +7,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map; the boundary-layer chart keeps its width)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map; the boundary-layer chart keeps its width; GA on the Windshear map and in its aircraft types)
+
+### Windshear page: go-arounds in the Aircraft Types list
+- Like the windshear marks: a type with a landing after a go-around in the chosen period gets a red outlined **GA** badge (`GA×2` = two go-arounds), its name red when it has no windshear level; hovering the row lists those landings (time, callsign, registration, runway, number of go-arounds). From the same `go_arounds` count as *Go-arounds: N* under the runways. `static/js/windshear.js`, `static/css/style.css`. Windshear user guide 2.12.
+
+### Windshear page map: flashing GA after a go-around
+- After a go-around the aircraft's map label shows a flashing red **GA** after the callsign, from the detected go-around until the aircraft enters an approach corridor again or is hidden from the map as a departure (climb-out). Display only, the go-around detection is unchanged. `static/js/windshear.js`, `static/css/style.css`. Windshear user guide 2.12.
 
 ### Windshear page: the boundary-layer chart no longer jumps in width
 - **Fix:** in the BL view a read-out line with both a low-level jet and a surface inversion (about 100 characters) was wider than the chart, and the panel, which takes the width of its content, jumped about 80 px wider and back as the last hour changed. The read-out of the chart views is now limited to the chart's width, and the BL line is shorter (the inversion's *600–1000 ft against the surface* is in its hover text), so it does not wrap and change the chart's height either. `static/js/windshear.js`, `static/js/ws_cond_chart.js` (also the phone's BL read-out).
