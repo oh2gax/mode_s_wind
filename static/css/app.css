@@ -161,6 +161,12 @@ body.app-body {
 .app-drawer-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
                    padding: 6px 6px 6px 16px; font-weight: 700; font-size: 15px;
                    background: var(--bg-1); border-bottom: 1px solid var(--border); }
+/* What's new next to the title (from 2026-10-30) */
+.app-drawer-title { display: inline-flex; align-items: center; gap: 10px; }
+.app-head-news { font: inherit; font-size: 13px; font-weight: 500; min-height: 30px; padding: 3px 10px; border-radius: 8px;
+                 background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1); white-space: nowrap; cursor: pointer; }
+.app-head-news:active { background: var(--bg-3); }
+.app-head-news .app-news-dot { margin-left: 5px; }
 
 /* view tiles */
 .app-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }

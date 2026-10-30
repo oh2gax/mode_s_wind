@@ -1454,7 +1454,7 @@
     .catch(e => { wnData = null; throw e; }));
   function newsDots() {
     const unseen = !!APP_VERSION && lsGet('ms_seen_version', null) !== APP_VERSION;
-    $('app-menu-dot').hidden = !unseen; $('app-news-dot').hidden = !unseen;
+    $('app-menu-dot').hidden = !unseen; $('app-news-dot').hidden = !unseen; $('app-news-dot2').hidden = !unseen;
   }
   newsDots();
   const escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1538,6 +1538,7 @@
     sheetHist = false;
   }
   $('app-news-btn').addEventListener('click', () => openSheet('news'));
+  $('app-news-btn2').addEventListener('click', () => openSheet('news'));   // at the top of the menu (from 2026-10-30)
   $('app-about-btn').addEventListener('click', () => openSheet('about'));
   $('app-guides-btn').addEventListener('click', () => openSheet('guides'));
   $('app-sheet-close').addEventListener('click', () => closeSheet(false));

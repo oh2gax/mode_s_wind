@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu)
+
+### Mobile menu: What's new at the top
+- *What's new* is now also at the top of the phone menu, next to the *MODE-S Wind* title, with the same red dot for an unread version; the button in *General* stays. `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`. Mobile user guide 1.25.
 
 ### Mobile ILS map: aircraft type, smaller labels with more data
 - New option *Aircraft type on the map* **Off** (default) / *On*: the ICAO type after the callsign (`FIN456 AT75`). With the type and / or the selected altitude on, the map's labels are drawn in a 9-px font (10.5 px otherwise) and the squares 8 / 6 px (10 / 8 px otherwise), so the longer labels fit; with both off the map is as before. `static/js/app.js`, `static/css/app.css`, `web/templates/app.html`. Mobile user guide 1.25.
