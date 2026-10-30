@@ -3440,3 +3440,17 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .ws-aphist-panel button.ws-aphist-live-active, .ws-aphist-panel button.ws-aphist-live-active:hover {
   background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; }
 .ws-aphist-panel .ws-aphist-reg-filter.ws-aphist-reg-active { border-color: #1a3a6b; }
+
+/* GPS Quality and GPS Episodes: the same calm button design as the Windshear page
+   (from 30 Oct 2026 evening) — every button (zones, ranges, Events / 10 min, the
+   heatmap's range and mode, the spoofing range and 2+ only, the episodes' window, 📅
+   and Live) and the Quality / Episodes switch: off in the plain grey of Rings, on in
+   the dark blue of the ATC style button (before the accent blue, and 2+ only pink). */
+.gps-page button, .gpe-page button, .gps-page .gps-switch-btn, .gpe-page .gps-switch-btn {
+  background: var(--bg-2); color: var(--text-2); border-color: var(--border); }
+.gps-page button:hover, .gpe-page button:hover, .gps-page .gps-switch-btn:hover, .gpe-page .gps-switch-btn:hover {
+  background: var(--bg-3); color: var(--text-1); }
+.gps-page button.active, .gpe-page button.active, .gps-page .gps-switch-btn.active, .gpe-page .gps-switch-btn.active,
+.gps-page button.active:hover, .gpe-page button.active:hover, .gps-page .gps-switch-btn.active:hover, .gpe-page .gps-switch-btn.active:hover,
+[data-theme="light"] .gps-page button.active, [data-theme="light"] .gpe-page button.active {
+  background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; }

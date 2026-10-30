@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Calmer GPS page buttons** — GPS Quality and GPS Episodes now have the same buttons as the Windshear page: grey when off, dark blue when on.
 - **Fix: Sounding page Refresh stays put** — pressing ↻ Refresh in the Time–height view no longer makes the button and the section jump; the status text just fades until the new data are in.
 - **Approach history in the phone's ILS view** — under the flight strips the landings of the last 3 hours (or 6 h, or off) as in the History view, by default with their turbulence (EDR); tap a landing for its details. Mobile guide 1.29.
 - **ATC map on the phone** — the ILS approach view's new option *Map style: ATC* gives the approach map the radar-display look of the Live Map and the Windshear page: a plain dark or light grey background with the coast, the airport and the approach lines, and grey aircraft. Goes well with *Labels on the map: ATC*. Mobile guide 1.28.
