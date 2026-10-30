@@ -1945,6 +1945,8 @@ The **detail popup** of an episode also shows the number of *severe* sweeps (pos
 
 User guide with the Mode S / ADS-B background, every register, the signal strength, range rings and health indicators, and what can be analysed: [`doc/Statistics_User_Guide.pdf`](doc/Statistics_User_Guide.pdf) (version 1.10; also the **?** at the right end of the summary bar).
 
+**Buttons** (from the evening of 30 Oct 2026, as the Windshear page): the window buttons (1 min … 1 w), the *Message rate* / *Data transfer* tabs and the chart ranges are plain grey (`--bg-2`) when off and dark blue (`#1a3a6b`) when on; before the accent blue. On this page only (`.mst-page button` at the end of `static/css/style.css`); the phone's Statistics view keeps its look.
+
 ![MODE-S Wind Statistics page](doc/Statistics_Screen_1.png)
 
 *The Statistics page over a 24 h window (26 Oct 2026, 06:19 UTC): aircraft and EHS aircraft per minute, downlink formats, signal strength, Comm-B registers, ADS-B type codes, interrogators, reply cadence and range rings, with the system health dots at the top right.*

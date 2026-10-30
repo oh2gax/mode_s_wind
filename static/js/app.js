@@ -914,7 +914,7 @@
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
                   ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
                   ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst'],
-                  ['app-ils-hist', 'hist', 'ms_app_ils_hist'], ['app-ils-hshow', 'hshow', 'ms_app_ils_hshow']];
+                  ['app-ils-histopt', 'hist', 'ms_app_ils_hist'], ['app-ils-hshow', 'hshow', 'ms_app_ils_hshow']];
   for (const [id, key, ls] of ilsCtl) {
     $(id).value = I[key];
     $(id).addEventListener('change', e => {
