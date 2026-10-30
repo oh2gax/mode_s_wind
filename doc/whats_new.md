@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.30102026 — Departures and all traffic on the phone's approach map, thinner turbulence lines, clearer charts
 
+- **Label levels on the Windshear map** — the new **Lbl** button steps the labels: callsign · type · callsign + altitude · + type · full (also the autopilot's selected altitude, `A023+020`).
 - **Windshear landings in the aircraft types** — on the Windshear page's statistics a type with a windshear report (ADV, WSA, MBA) in the period is coloured and gets a badge (e.g. `WSA` `ADV×5`); point at it to see those landings and what raised the alert.
 - **Trails under Speed vectors** — in the phone's ILS approach options the *Trails* switch is now right under *Speed vectors*.
 - **What's new at the top of the phone menu** — next to the *MODE-S Wind* title, with the red dot when there is something new (it is still in *General* too). From *What's new*, the **User guides** button next to the title opens the guides.

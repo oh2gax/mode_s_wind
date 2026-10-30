@@ -294,15 +294,35 @@ function wsAtcAlt(pa) {
   return alt <= WS_ATC_TA_FT ? 'A' + String(Math.max(0, Math.round(alt / 100))).padStart(3, '0')
                              : 'FL' + String(Math.round(pa / 100)).padStart(3, '0');
 }
+// Label levels (from 30 Oct 2026): the Lbl button steps through them (ms_ws_lbl).
+//   cs    callsign                  type   ICAO type only (AT75)
+//   alt   callsign / altitude (the default, as before)
+//   type+ callsign + type / altitude
+//   full  callsign + type / altitude + selected altitude (A023+020)
+// With the type or the selected altitude the label is a little smaller.
+const WS_LBL_STEPS = ['cs', 'type', 'alt', 'type+', 'full'];
+const WS_LBL_NAME  = { cs: 'CS', type: 'Type', alt: 'CS+Alt', 'type+': '+Type', full: 'Full' };
+let wsLblLvl = (() => { try { const v = localStorage.getItem('ms_ws_lbl'); return WS_LBL_STEPS.includes(v) ? v : 'alt'; } catch (_) { return 'alt'; } })();
+const _wsEsc = t => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 function wsAcLabelHtml(ac) {
   const sel = barbLayerActive && ac.icao === barbSelectedIcao;
   const dim = !(ac.in_corridor && !ac.landed);
+  const lv = wsLblLvl;
   const vr = ac.vert_rate, tr = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '';
-  const l2 = ac.landed ? 'landed' : wsAtcAlt(ac.altitude) + tr;
+  // the selected altitude (MCP / FCU) after the altitude, signed with the vertical rate, as on the phone
+  const selA = lv === 'full' && ac.sel_alt != null && ac.altitude != null
+    ? ((vr || 0) < 0 ? '-' : '+') + String(Math.round(ac.sel_alt / 100)).padStart(3, '0') : '';
+  const l2 = ac.landed ? 'landed' : wsAtcAlt(ac.altitude) + (selA || tr);
   // the right-hand runway's traffic labelled to the left of its square, as on the phone
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
-  return `<div class="ws-ac-label${dim ? ' ws-ac-label-dim' : ''}${sel ? ' ws-ac-label-sel' : ''}${left ? ' ws-ac-label-left' : ''}">` +
-         `${ac.callsign || ac.icao}<small>${l2}</small></div>`;
+  const cs = _wsEsc(ac.callsign || ac.icao), ty = _wsEsc(ac.aircraft_type || '');
+  let body;
+  if (lv === 'cs')        body = cs;
+  else if (lv === 'type') body = ty || '<span class="ws-ac-notype">—</span>';
+  else body = cs + ((lv === 'type+' || lv === 'full') && ty ? ` <span class="ws-ac-type">${ty}</span>` : '') + `<small>${l2}</small>`;
+  const dense = lv === 'type+' || lv === 'full';
+  return `<div class="ws-ac-label${dim ? ' ws-ac-label-dim' : ''}${sel ? ' ws-ac-label-sel' : ''}${left ? ' ws-ac-label-left' : ''}${dense ? ' ws-ac-label-dense' : ''}">` +
+         `${body}</div>`;
 }
 function wsAcLabelIcon(ac) {
   const sel = barbLayerActive && ac.icao === barbSelectedIcao;
@@ -351,7 +371,7 @@ function updateMapMarkers(aircraft) {
     seen.add(ac.icao);
 
     const tip = [
-      `${ac.callsign || ac.icao}`,
+      `${ac.callsign || ac.icao}${ac.aircraft_type ? ' ' + ac.aircraft_type : ''}`,
       ac.approach_runway ? `RWY ${ac.approach_runway}` : 'No ILS match',
       `${ac.altitude?.toLocaleString()} ft`,
       ac.dist_thr_nm != null
@@ -1543,6 +1563,20 @@ ilsFilterBtn.addEventListener('click', () => {
   btn.addEventListener('click', () => {
     wsVecSec = WS_VEC_STEPS[(WS_VEC_STEPS.indexOf(wsVecSec) + 1) % WS_VEC_STEPS.length];
     try { localStorage.setItem('ms_ws_vec', String(wsVecSec)); } catch (_) {}
+    show();
+    updateMapMarkers(lastAircraft);
+  });
+})();
+
+// ── Label level button (from 30 Oct 2026) ─────────────────────────────────────
+(function () {
+  const btn = document.getElementById('ws-lbl-btn');
+  if (!btn) return;
+  const show = () => { btn.textContent = `Lbl ${WS_LBL_NAME[wsLblLvl]}`; };
+  show();
+  btn.addEventListener('click', () => {
+    wsLblLvl = WS_LBL_STEPS[(WS_LBL_STEPS.indexOf(wsLblLvl) + 1) % WS_LBL_STEPS.length];
+    try { localStorage.setItem('ms_ws_lbl', wsLblLvl); } catch (_) {}
     show();
     updateMapMarkers(lastAircraft);
   });

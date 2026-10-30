@@ -1986,6 +1986,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ac-label-dim small { font-weight: 400; }
 .ws-ac-label-sel { color: #f1f5f9; }   /* the same as the others: the frame marks it */
 .ws-ac-label-left { position: absolute; right: 0; top: 0; text-align: right; }
+/* label levels (Lbl button, from 2026-10-30): the type after the callsign; with the type / selected altitude a little smaller */
+.ws-ac-label .ws-ac-type { font-weight: 400; }
+.ws-ac-label .ws-ac-notype { opacity: .6; }
+.ws-ac-label-dense { font-size: 11px; }
+.ws-ac-label-dense small { font-size: 10px; }
 
 /* ── Leaflet map theme overrides ────────────────────────────────────────── */
 .ws-theme-black .leaflet-container {

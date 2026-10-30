@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map)
+
+### Windshear page map: label levels with the aircraft type and the selected altitude
+- New **Lbl** button next to *Vec*: steps the map labels through *CS* (callsign) → *Type* (ICAO type only) → *CS+Alt* (default, as before) → *+Type* (`FIN456 AT75` over the altitude) → *Full* (also the MCP / FCU selected altitude, `A023+020`, as on the phone). With the type or the selected altitude the labels are a little smaller; the level is remembered in the browser. The aircraft's hover tooltip gives its type. `static/js/windshear.js`, `static/css/style.css`, `web/templates/windshear.html`. Windshear user guide 2.12.
 
 ### Windshear page: windshear landings in the Aircraft Types list
 - In *Today's statistics* an aircraft type with a landing whose windshear report has a level (ADV / WSA / MBA) in the chosen period is written in the colour of its highest level with a badge per level (e.g. `WSA` `ADV×5`); the bars stay aligned. Hovering the row lists those landings: level, time, callsign, registration, runway and the ramp or band change that raised the level. `static/js/windshear.js`, `static/css/style.css`. Windshear user guide 2.12.
