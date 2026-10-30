@@ -9,6 +9,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS)
 
+### Mobile ILS map: lighter selected aircraft
+- The selected aircraft (whose barbs are drawn) is now a 10-px square like the other approach traffic with a thin 1.6-px white frame (near-black in the light theme; was 12 px with a 2.4-px frame), its speed vector as thin as the others', and its label in the same size and weight as the other labels (was bold 12 px). `static/js/app.js`, `static/css/app.css`. Mobile user guide 1.23 (text).
+
 ### Windshear page chart views: ACI = ACI + EDR, WS = windshear, EDR = EDR + windshear
 - The three-part EDR view (ACI + EDR + windshear) was too full to read. On the Wind Rose panel now **ACI** shows the ACI chart with the turbulence (EDR) strip below it (to compare the two; departures fetched for their EDR rings), **WS** the windshear strip alone (full height) and **EDR** the EDR strip above the windshear strip; the ACI and EDR views up to 200 px taller where the map has room. `WsCondChart.draw` takes `parts` (any of `aci`, `edr`, `ws`, top to bottom; without it as before, so the mobile *ACI · WS · ST* view is unchanged): layouts, title, read-outs per combination, a *No turbulence values* note. `static/js/ws_cond_chart.js`, `static/js/windshear.js` (`WR_PARTS`, sizing, fetch), `web/templates/windshear.html` (button hovers). Windshear user guide 2.11 (text and the four panel figures, now drawn at the flights' own time).
 

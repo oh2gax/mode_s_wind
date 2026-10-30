@@ -1120,16 +1120,17 @@
       // a landed aircraft (no new position for 15 s near the threshold): grey, "landed" (from 2026-10-29)
       // An open square as on a radar screen (from 2026-10-29): framed in the colour of the meteo
       // source, the selected one in white (dark theme) / near-black (light theme, white would vanish
-      // on the light tiles); 12 px selected, 10 px on the approach, 8 px others, in a 24-px tap area
-      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel ? 12 : onA ? 10 : 8, H = 24, o = (H - s) / 2;
+      // on the light tiles); 10 px on the approach (also the selected one, with a thin frame — from
+      // 2026-10-30, was 12 px with a heavy frame), 8 px others, in a 24-px tap area
+      const c = a.landed ? '#94a3b8' : IM_SRC[a.meteo_source] || IM_SRC.NONE, s = sel || onA ? 10 : 8, H = 24, o = (H - s) / 2;
       // speed vector (from 2026-10-29): to where the aircraft will be after 30 s / 1 / 2 min at its
       // ground speed along its track, in map distance; not for a landed aircraft
       if (I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null)
         L.polyline([[a.lat, a.lon], vecEnd(a.lat, a.lon, a.track, a.groundspeed, +I.vec)], { interactive: false,
-          color: sel ? (light ? '#0f172a' : '#fff') : c, weight: sel ? 2 : 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
+          color: sel ? (light ? '#0f172a' : '#fff') : c, weight: 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
-              ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 2.4 : onA ? 2 : 1.5}"/></svg>` });
+              ` stroke="${sel ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${sel ? 1.6 : onA ? 2 : 1.5}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
       const alt = a.altitude == null ? '' : atcAlt(a.altitude);

@@ -116,8 +116,8 @@ body.app-body {
 .ils-ac-lbl { font: 700 12px/1.15 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; color: #f8fafc; display: inline-block;
               text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 4px #000; white-space: nowrap; }
 .ils-ac-lbl.left { position: absolute; right: 0; top: 0; text-align: right; }
-/* the callsign as the altitude below it — only the selected aircraft's in bold (29 Oct 2026) */
-.ils-ac-lbl:not(.sel) { font-weight: 600; font-size: 10.5px; }
+/* the callsign as the altitude below it (29 Oct 2026); the selected aircraft too, from 30 Oct 2026 */
+.ils-ac-lbl { font-weight: 600; font-size: 10.5px; }   /* also the selected one (from 2026-10-30; was 700 12px): the frame marks it */
 .ils-ac-lbl.dim { color: #cbd5e1; font-weight: 600; }
 .ils-ac-lbl small { display: block; font-weight: 600; color: #e2e8f0; font-size: 10.5px; margin-top: 1px; }
 /* the light theme's plate: 40 % white with a faint edge, so the map shows through (29 Oct 2026; was 85 %) */
