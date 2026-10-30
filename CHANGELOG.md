@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map; the boundary-layer chart keeps its width; GA on the Windshear map and in its aircraft types)
+## v.30102026 — 2026-10-30 (mobile ILS map: all traffic and every departure within 15 NM; thinner turbulence lines; WS + EDR chart in the ILS view; Windshear page chart views ACI + EDR / WS / EDR + WS; selected altitude and aircraft type on the ILS map; What's new at the top of the phone menu, with the user guides one tap away; windshear landings marked in the Windshear page's aircraft types; label levels on the Windshear map; the boundary-layer chart keeps its width; GA on the Windshear map and in its aircraft types; the receiving-station overview shows the turbulence map)
+
+### Receiving-station overview: the phone's turbulence map
+- *The receiving station* A4 and A3 (version 1.6, v.30102026) and the Finnish versions: page 5's ILS approach screen is now the phone's ILS view with *Turbulence on the map* — the paths of the landings and departures of 28 Oct 2026, 12:22–13:22 UTC, coloured by EDR, with the WS + EDR chart under it, replayed from the stored flights; its caption, the views table and page 6's *Where:* line updated. `doc/MODE_S_Wind_Receiving_Station_OH2GAX(_A3).pdf`, `doc/guides.md`; the source zip in `tmp_files/Articles`.
 
 ### Windshear page: go-arounds in the Aircraft Types list
 - Like the windshear marks: a type with a landing after a go-around in the chosen period gets a red outlined **GA** badge (`GA×2` = two go-arounds), its name red when it has no windshear level; hovering the row lists those landings (time, callsign, registration, runway, number of go-arounds). From the same `go_arounds` count as *Go-arounds: N* under the runways. `static/js/windshear.js`, `static/css/style.css`. Windshear user guide 2.12.

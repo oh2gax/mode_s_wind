@@ -9,8 +9,8 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.5
-date: 2026-10-29
+version: 1.6
+date: 2026-10-30
 pages: 6
 
 A six-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
@@ -20,7 +20,7 @@ A six-page overview of the station behind MODE-S Wind — poster style, for prin
 - From replies to weather: the formulas for wind, temperature and the heights of the pressure surfaces; the self-correction and calibration against the soundings and the MEPS model; data storage and the pages
 - **Windshear detection and the ongoing study** (page 3): headwind ramps and the band comparison, the alert levels (with the 14-kt rule), the alert message in the controllers' short form with its spoken form, the study phases so far and the results
 - **One system, two sites** (page 4): the off-grid capable local station and the cloud server at https://mode-s-wind.oh2gax.org that serves the users, the tunnel between them, how both are kept up to date, and what comes next
-- **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, ILS approach, ACI + windshear and Statistics, and the seven views
+- **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, the ILS approach with the turbulence (EDR) of the last hour on the approach map, ACI + windshear and Statistics, and the seven views
 - **Turbulence and the boundary layer** (page 6): EDR from the headwind replies of every landing and departure, with the ICAO classes and the first results; the low-level jet and the surface inversion hour by hour, and how they relate to the windshear levels
 
 ## Reading the Atmosphere Profile (Skew-T)
