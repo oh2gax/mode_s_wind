@@ -311,8 +311,13 @@ function makeAcIcon(src, ac) {
   const color = wsIsAtc() ? (ac && !ac.landed ? AtcDisplay.symColor(ac) : AtcDisplay.pal().high)
                           : sel ? (pageIsLight() ? '#0f172a' : '#ffffff') : acColor(src);
   const s = sel ? 8 : onA ? 10 : 8, H = 22, o = (H - s) / 2;
+  // ATC style (from 2026-10-31, as the Live Map): the aircraft whose barbs the profile
+  // shows keeps its colour and gets a thin frame around its square
+  const atcSel = !!(ac && barbLayerActive && ac.icao === barbSelectedIcao) && wsIsAtc();
+  const fo = Math.max(1, o - 3);
+  const frame = atcSel ? `<rect x="${fo}" y="${fo}" width="${H - 2 * fo}" height="${H - 2 * fo}" rx="1.5" fill="none" stroke="${color}" stroke-width="1" stroke-opacity="0.75"/>` : '';
   return L.divIcon({
-    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">` +
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">` + frame +
           `<rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none" stroke="${color}"` +
           ` stroke-opacity="${sel ? 0.9 : onA ? 1 : 0.7}" stroke-width="${sel ? 1.3 : onA ? 2 : 1.5}"/></svg>`,
     className:  '',
@@ -413,8 +418,33 @@ var wsHoverOn = (() => { try { return localStorage.getItem('ms_ws_hover') === '1
 var wsHov = null;                // the hover (created after the canvas below)
 let wsLblRects = {};             // the label boxes of the last draw
 const wsAtcLvl3 = pa => wsAtcAlt(pa).replace(/^(A|FL)/, '');
+// The selected aircraft's extended label (ATC style, from 2026-10-31, as the Live Map):
+// the aircraft chosen by a click on its strip (not Auto) shows the six-line extended
+// label in the palette's grey, also with Hover off, its values from /api/live/ac/<icao>
+// at once and every 2 s while it stays selected.
+const wsSelExtIcao = () => {
+  // (the first draw of the canvas comes before the barb state below is declared)
+  try { return (wsIsAtc() && barbLayerActive && !barbAutoActive && barbSelectedIcao) || null; }
+  catch (_) { return null; }
+};
+let wsSelExt = { key: null, data: null, timer: null };
+function wsSelExtSync(redraw = true) {
+  const want = wsSelExtIcao();
+  if (want === wsSelExt.key) return;
+  clearInterval(wsSelExt.timer);
+  wsSelExt = { key: want, data: null, timer: null };
+  if (want) {
+    const poll = () => fetch(`/api/live/ac/${encodeURIComponent(want)}`)
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+      .then(d => { if (wsSelExt.key === want) { wsSelExt.data = d; wsCanvas.redraw(); } });
+    poll();
+    wsSelExt.timer = setInterval(() => { if (wsSelExt.key === want && !document.hidden) poll(); }, 2000);
+  }
+  if (redraw) wsCanvas.redraw();
+}
 function wsDrawCanvas(g, m, W, H) {
   const atc = wsIsAtc();
+  wsSelExtSync(false);                   // the selected aircraft's extended label (ATC)
   if (!wsHistN && !atc) return;
   if (atc) AtcDisplay.drawRings(g, m, W, H, wsRingNm, WS_AIRPORT_LAT, WS_AIRPORT_LON);
   const P = AtcDisplay.pal(), lbls = [];
@@ -439,11 +469,11 @@ function wsDrawCanvas(g, m, W, H) {
     }
     if (atc) {
       if (!ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
-      const ext = wsHov && wsHov.key() === icao;
-      const lines = ext ? AtcDisplay.extLines(ac, wsHov.data(), { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
+      const hov = wsHov && wsHov.key() === icao, selExt = !hov && wsSelExt.key === icao, ext = hov || selExt;
+      const lines = ext ? AtcDisplay.extLines(ac, hov ? wsHov.data() : wsSelExt.data, { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
                                                                  apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] })
                         : AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel: false, fade, col, ext,
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: selExt ? P.high : col, ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
                              ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
     }
@@ -504,7 +534,11 @@ function updateMapMarkers(aircraft) {
     if (acMarkers[ac.icao]) {
       acMarkers[ac.icao].marker.setLatLng([ac.lat, ac.lon]);
       acMarkers[ac.icao].marker.setIcon(makeAcIcon(ac.landed ? 'NONE' : ac.meteo_source, ac));
-      acMarkers[ac.icao].marker.setTooltipContent(tip);
+      const mk = acMarkers[ac.icao].marker;
+      // no tooltip while the aircraft shows the selection's extended label (from 2026-10-31)
+      if (wsSelExtIcao() === ac.icao) { if (mk.getTooltip()) mk.unbindTooltip(); }
+      else if (mk.getTooltip()) mk.setTooltipContent(tip);
+      else mk.bindTooltip(tip, { direction: 'top', offset: [0, -12] });
       acMarkers[ac.icao].label.setLatLng([ac.lat, ac.lon]);
       // Refresh label text so callsign appears as soon as the server provides it,
       // rather than staying frozen as ICAO24 from the first poll.
@@ -3386,6 +3420,7 @@ document.getElementById('ws-strips').addEventListener('click', e => {
   barbSelectedIcao = (barbSelectedIcao === icao) ? null : icao;
   drawIlsProfile(lastAircraft.filter(ac => ac.in_corridor), lastShearEvents);
   renderStrips(lastAircraft, lastShearEvents);
+  wsSelExtSync();                       // the map: the extended label of the clicked aircraft (ATC)
 });
 
 

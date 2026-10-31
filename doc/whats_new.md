@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.31102026 — Sharper weather maps near the airport, tidier labels on the phone's approach map
 
-- **The selected aircraft's extended label** — on the Live Map in the ATC style, the aircraft you select shows the six-line extended label (speeds, heading, bank, wind, temperature …), the same as *Hover* shows under the mouse.
+- **The selected aircraft's extended label** — on the Live Map in the ATC style, the aircraft you select shows the six-line extended label (speeds, heading, bank, wind, temperature …), the same as *Hover* shows under the mouse — in grey, with a frame around its square and without the info box. On the Windshear map the same for the aircraft whose flight strip you click.
 - **The receiving station, page 8** — the overview of the station has a new page on the windshear detection with the aircraft's own ADS-B ground speed and on the boundary layer flight by flight.
 - **The boundary layer flight by flight on the Windshear page and the phone** — the BL chart's button now steps on from Wind and T to *HW*, *ΔHW* and *Shear*: every landing and departure as its own column, as in the Sounding page's Time–height section, beside the low-level jet and inversion marks. On the phone they are *BL headwind*, *BL Δ headwind* and *BL shear* in *ACI · WS · ST*; tap a column for the flight.
 - **Receiver coverage on the Live Map** — in the ☂ Weather panel, *Receiver → Coverage (24 h)* draws a thin light-blue line around where the receiver heard aircraft in the last 24 hours (hover it for the distance and height in that direction). And when you zoom in near the airport, the MEPS weather on the Live Map now uses the sharper 2.5 km grid, as on the Weather page.

@@ -353,9 +353,14 @@ function resizeMiniCanvas() {
 const selSymColor = () => document.documentElement.dataset.theme === 'light' ? '#0f172a' : '#ffffff';
 function makeIcon(color, selected) {
   const s = selected ? 9 : 8, H = 22, o = (H - s) / 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">
+  // ATC style (from 2026-10-31): the selected square keeps its own colour and gets
+  // a highlight frame around it (before it turned yellow / blue)
+  const atcSel = selected && liveStyle === 'atc';
+  const frame = atcSel ? `<rect x="${o - 4}" y="${o - 4}" width="${s + 8}" height="${s + 8}" rx="1.5" fill="none"
+          stroke="${color}" stroke-width="1" stroke-opacity="0.75"/>` : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">${frame}
     <rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"
-          stroke="${selected ? selColorNow() : color}" stroke-width="${selected ? 1.4 : 1.5}"/></svg>`;
+          stroke="${selected && !atcSel ? selColorNow() : color}" stroke-width="${selected ? 1.6 : 1.5}"/></svg>`;
   return L.divIcon({ html: svg, className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2] });
 }
 
@@ -450,7 +455,8 @@ function drawPlotCanvas(g, m, W, H) {
       const pts = (trails[icao] || []).filter(q => q[2] < curTs).slice(-histN);   // not the current position
       AtcDisplay.drawPlots(g, m, pts, histN, col, fade, obst);
     }
-    AtcDisplay.drawVector(g, m, p0, ac, vecS, sel ? selColorNow() : col, 0.9 * fade, 1.3, obst);
+    // the selected aircraft: in the ATC style its own colour (from 2026-10-31; before yellow / blue)
+    AtcDisplay.drawVector(g, m, p0, ac, vecS, sel && !atc ? selColorNow() : col, 0.9 * fade, 1.3, obst);
     if (atc) {
       // extended: the aircraft under the mouse (Hover) or the selected one
       const hov = liveHov && liveHov.key() === icao, ext = hov || sel;
@@ -458,7 +464,8 @@ function drawPlotCanvas(g, m, W, H) {
                             cs: callsignCache[icao] || ac.callsign || icao, lvl3: atcLvl3,
                             apt: [AIRPORT_LAT, AIRPORT_LON, AIRPORT_NAME] })
                         : atcLabelLines(ac);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: sel ? selColorNow() : col, alt: ac.altitude ?? 99999 });
+      // the selected aircraft's extended label in the palette's grey (from 2026-10-31; before yellow / blue)
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: sel ? atcPal().high : col, alt: ac.altitude ?? 99999 });
     }
   }
   atcLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos) : {};
@@ -477,7 +484,7 @@ function applyLiveStyle() {
   if (atc) receiverMarker.remove(); else receiverMarker.addTo(map);
   if (legendEl) {
     legendEl.classList.toggle('atc', atc);
-    legendEl.innerHTML = atc ? AtcDisplay.legendHtml() : legendMeteoHtml;
+    legendEl.innerHTML = atc ? AtcDisplay.legendHtml({ noSel: true }) : legendMeteoHtml;   // no yellow 'selected' (from 2026-10-31)
   }
   atcLines.show(atc);
   if (selectedTrackLayer) selectedTrackLayer.setStyle({ color: selTrackColor(aircraftData[selectedIcao]) });
@@ -485,6 +492,7 @@ function applyLiveStyle() {
     const d = aircraftData[k];
     if (!d) continue;
     m.setIcon(makeIcon(acSymColor(d), k === selectedIcao));
+    if (atc) dropPopup(m);               // Meteo: bound again at the next update
     updateLabel(k, d.lat, d.lon, d);
     drawWindArrow(k, d.lat, d.lon, d.best_wind_spd, d.best_wind_dir);
   }
@@ -542,6 +550,13 @@ function drawWindArrow(icao, lat, lon, windSpd, windDir) {
 }
 
 // ── Update / create marker ────────────────────────────────────────────────
+// Remove a marker's popup without deselecting the aircraft (the ATC style)
+let popupDropping = false;
+function dropPopup(mk) {
+  if (!mk.getPopup()) return;
+  popupDropping = true;
+  try { mk.closePopup(); mk.unbindPopup(); } finally { popupDropping = false; }
+}
 function upsertMarker(ac) {
   if (!ac.lat || !ac.lon) return;
 
@@ -559,19 +574,24 @@ function upsertMarker(ac) {
   if (ac.best_wind_spd != null)
     popup += `Wind: <b>${ac.best_wind_spd.toFixed(0)} kt @ ${ac.best_wind_dir?.toFixed(0)}°</b>`;
 
+  // the info popup only in the Meteo style; in the ATC style the selected aircraft
+  // has the extended label instead (from 2026-10-31: before both at once)
+  const wantPopup = liveStyle !== 'atc';
   if (markers[ac.icao]) {
-    markers[ac.icao].setLatLng([ac.lat, ac.lon]).setIcon(icon);
-    markers[ac.icao]._popup.setContent(popup);
+    const mk = markers[ac.icao];
+    mk.setLatLng([ac.lat, ac.lon]).setIcon(icon);
+    if (!wantPopup) dropPopup(mk);
+    else if (mk.getPopup()) mk.setPopupContent(popup);
+    else mk.bindPopup(popup);
   } else {
-    const m = L.marker([ac.lat, ac.lon], { icon })
-      .bindPopup(popup)
-      .addTo(map);
+    const m = L.marker([ac.lat, ac.lon], { icon }).addTo(map);
+    if (wantPopup) m.bindPopup(popup);
     m.on('click', () => selectAircraft(ac.icao));
     // Closing the aircraft's popup (its × button) also deselects it, so the
     // Atmosphere Profile returns to the area profile.  Only when this
     // aircraft is still the selected one — clicking another aircraft closes
     // this popup too, after or before selecting the new one.
-    m.on('popupclose', () => { if (selectedIcao === ac.icao) closeDetail(); });
+    m.on('popupclose', () => { if (!popupDropping && selectedIcao === ac.icao) closeDetail(); });
     markers[ac.icao] = m;
   }
 
