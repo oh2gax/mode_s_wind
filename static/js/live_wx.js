@@ -36,6 +36,12 @@
  * 10 km hour; /api/weather/frames?fine=1, WxLayer.setFine).  Off with the
  * "2.5 km detail" tick box.
  *
+ * Smooth (from 2026-10-31, on by default): the model's and the radar's rain, the
+ * gusts and the clouds interpolated between the grid points (wx_layer.js o.smooth:
+ * contour bands and smooth shading); off: the grid cells as stored.  The cloud
+ * tick box shows the total cloud cover (field c; before 31 Oct 2026 the low cloud,
+ * l — the setting keeps its key "low").
+ *
  * Receiver coverage (from 2026-10-31): a thin light-blue line around the area
  * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
  * sector, all heights (/api/coverage, the Statistics page's range data).  The
@@ -50,7 +56,7 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true };
   const FINE_ZOOM = 7;                 // as the Weather page
   const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
@@ -209,7 +215,7 @@
     onAdd() {
       el = L.DomUtil.create('div', 'lwx');
       el.innerHTML = `
-        <button type="button" class="lwx-btn" title="Weather overlay: MEPS model rain, snow, low cloud, fog and isobars under the aircraft">☂ <span class="lwx-chip">Weather</span></button>
+        <button type="button" class="lwx-btn" title="Weather overlay: MEPS model rain, snow, cloud cover, fog and isobars under the aircraft">☂ <span class="lwx-chip">Weather</span></button>
         <div class="lwx-panel">
           <div class="lwx-head"><b>Weather overlay</b><button type="button" class="lwx-x" title="Close (the overlay stays on)">✕</button></div>
           <div class="lwx-row"><span class="lwx-lbl">Source</span>
@@ -220,9 +226,10 @@
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Show</span>
             <label title="Rain and snow of the hour (mm of water per hour), radar-like colours; snow in violet. With the radar: the observed rain rate (mm/h)"><input type="checkbox" data-k="rain"> Rain / snow</label>
-            <label title="Low cloud cover (grey, denser with more cloud)"><input type="checkbox" data-k="low"> Low cloud</label>
+            <label title="Total cloud cover of the model (grey, denser with more cloud; before 31 Oct 2026 the low cloud)"><input type="checkbox" data-k="low"> Clouds</label>
             <label title="Fog (yellow)"><input type="checkbox" data-k="fog"> Fog</label>
             <label title="Sea-level pressure: isobars every 4 hPa, highs H and lows L"><input type="checkbox" data-k="pres"> Isobars</label>
+            <label title="Smooth: the values interpolated between the grid points — rain, snow, radar and gusts as smooth contour bands, clouds and fog as smooth shading (the values and colour steps unchanged); off: each grid cell in one colour, as stored"><input type="checkbox" class="lwx-smooth"> Smooth</label>
             <label title="Zoomed in near the airport (zoom 7 or closer): the MEPS fields inside the box around the receiver from the model's full 2.5 km grid instead of the stored 10 km grid (faint dotted edge), as on the Weather page"><input type="checkbox" class="lwx-fine"> 2.5 km detail</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Wind</span>
@@ -270,6 +277,7 @@
   q('.lwx-wm').addEventListener('change', e => { st.wMeps = e.target.checked; save(); windKey = ''; sync(); refresh(true); });
   q('.lwx-ws').addEventListener('change', e => { st.wModes = e.target.checked; save(); modesKey = ''; sync(); refresh(true); });
   q('.lwx-per').addEventListener('change', e => { st.wPer = parseInt(e.target.value, 10); save(); modesKey = ''; sync(); refresh(true); });
+  q('.lwx-smooth').addEventListener('change', e => { st.smooth = e.target.checked; save(); sync(); });
   q('.lwx-fine').addEventListener('change', e => { st.fine = e.target.checked; save(); fineKey = ''; sync(); refresh(true); });
   q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
 
@@ -281,16 +289,17 @@
   const perTxt = () => (PERIODS.find(p => p[0] === st.wPer) || [0, st.wPer + ' min'])[1];
   function options() {
     const edge = useRadar() && !!radarShown;
-    if (st.src === 'radar') return { rain: true, pres: false, clouds: [], edge };
+    const smooth = !!st.smooth;
+    if (st.src === 'radar') return { rain: true, pres: false, clouds: [], edge, smooth };
     const clouds = [];
-    if (st.low) clouds.push('l');
+    if (st.low) clouds.push('c');                     // the total cloud cover (from 2026-10-31; before the low cloud 'l')
     if (st.fog) clouds.push('f');
-    return { rain: st.rain, pres: st.pres, clouds, edge, modelOutline: st.src === 'both' };
+    return { rain: st.rain, pres: st.pres, clouds, edge, modelOutline: st.src === 'both', smooth };
   }
   function fields() {
     const f = ['p'];
     if (st.rain) f.push('r', 's');
-    if (st.low) f.push('l', 'b');
+    if (st.low) f.push('c', 'b');
     if (st.fog) f.push('f');
     return f.join(',');
   }
@@ -299,7 +308,7 @@
     // the gust shading follows the opacity slider (as on the Weather page at 100 %); the barbs stay opaque
     const gustAlpha = (document.documentElement.dataset.theme === 'light' ? 0.55 : 0.72) * st.op / 100;
     return { rain: false, pres: false, clouds: [], wind: st.wind !== 'off', gust: st.wind === 'sfc' && !!st.gust, gustAlpha,
-             windLabel: windLabel() };
+             windLabel: windLabel(), smooth: !!st.smooth };
   }
   function applyOptions() {
     layer.setOptions(options());
@@ -338,6 +347,7 @@
     windLayer.show(mepsWind());
     modesLayer.show(modesWind());
     q('.lwx-fine').checked = !!st.fine;
+    q('.lwx-smooth').checked = !!st.smooth;
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
     covLayer.show(st.cov);

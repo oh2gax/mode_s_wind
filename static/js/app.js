@@ -1681,7 +1681,8 @@
                     cloud: ['off', 'c', 'l', 'm', 'h', 'f'], traffic: ['off', 'on'], mapst: ['street', 'atc'],
                     tlbl: ['atc', 'std'], fc: ['48', '24'], grid: ['10', '20'], load: ['all', 'near'],
                     speed: ['normal', 'slow', 'fast'], src: ['meps', 'radar', 'both'],
-                    rainop: ['75', '25', '50', '100'], radarop: ['75', '25', '50', '100'], detail: ['auto', 'off'] };   // the first value is the default
+                    rainop: ['75', '25', '50', '100'], radarop: ['75', '25', '50', '100'], detail: ['auto', 'off'],
+                    smooth: ['on', 'off'] };   // the first value is the default (smooth: from 2026-10-31)
   const W = {};
   for (const [k, vals] of Object.entries(WX_OPTS)) {
     const v = lsGet('ms_app_wx_' + k, vals[0]);

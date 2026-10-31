@@ -73,7 +73,8 @@ window.AppWx = (() => {
              clouds: s.cloud !== 'off' ? [s.cloud] : [],
              modelOutline: radarOn && s.src === 'both', edge: radarOn,
              rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100,
-             fine: !!(wx && wx.fineShown()) };
+             fine: !!(wx && wx.fineShown()),
+             smooth: s.smooth !== 'off' };                  // Shading: Smooth / Cells (from 2026-10-31)
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
@@ -518,7 +519,7 @@ window.AppWx = (() => {
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
-    else if (key === 'rainop' || key === 'radarop') wx.setOptions(layerOptions());
+    else if (key === 'rainop' || key === 'radarop' || key === 'smooth') wx.setOptions(layerOptions());
     else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }
     else if (key === 'src') {
       if (!useRadar()) { radar = null; radarErr = ''; }

@@ -29,6 +29,14 @@
  * thin from 0.1 mm/h, thick from 1 mm/h — so the forecast can be compared
  * with what the radar observes without mixing the two.
  *
+ * Smoothing (from 2026-10-31, o.smooth — the pages' Shading Smooth / Cells
+ * switch, Smooth by default): the values belong to the cell centres; rain /
+ * snow, the radar and the gusts are drawn as contour bands (marching squares
+ * on the lattice of the centres, each class filled as one path), clouds and fog
+ * as bilinear shading in sub-cells of about 4 px, and the model's outlines over
+ * the radar as contour lines.  The values, colour steps and read-outs are the
+ * same; a single cell above a limit shows as a smaller, rounded spot.
+ *
  * setFine(frame, grid) (from 2026-10-31) adds a detail frame on a finer grid
  * of the same projection — the 2.5 km MEPS box around the receiver: the
  * filled fields (clouds, gust, rain / snow) of the main frame are cut away
@@ -157,6 +165,8 @@ const WxLayer = (() => {
       nx, ny,
       pt(k) { return pts[k] || (pts[k] = inv(x0 + (k % nx) * dx, y0 + Math.floor(k / nx) * dy)); },
       cor(k) { return cor[k] || (cor[k] = inv(x0 + (k % (nx + 1) - 0.5) * dx, y0 + (Math.floor(k / (nx + 1)) - 0.5) * dy)); },
+      // any position in grid units (the smoothing's lattice, from 2026-10-31)
+      at(fi, fj) { return inv(x0 + fi * dx, y0 + fj * dy); },
     };
   }
 
@@ -300,13 +310,183 @@ const WxLayer = (() => {
         }
         return any;
       };
+      // ── Smoothing (from 2026-10-31; o.smooth, the pages' Smooth / Cells switch) ──
+      // Each value belongs to the centre of its cell.  Class fields (rain / snow,
+      // radar, gusts) become contour bands: on the lattice of the cell centres —
+      // extended by half a cell at the grid's edges with the edge values, so that
+      // e.g. the 2.5 km box is filled to its border — every lattice square is cut at
+      // each class limit along the linearly interpolated crossings (marching
+      // squares), and each class (and colour family) is filled as one path, lowest
+      // class first.  Shaded fields (clouds, fog) are interpolated bilinearly in
+      // sub-cells of about 4 px.  The values and the colour steps do not change.
+      const SM = !!o.smooth;
+      // the lattice of grid gg around the cells listed (indices with something to draw)
+      const lattice = (gg, cells) => {
+        const gnx = gg.nx, gny = gg.ny, W = gnx + 2, Hh = gny + 2, sz = map.getSize();
+        const lx = a => (a === 0 ? -0.5 : a === W - 1 ? gnx - 0.5 : a - 1);
+        const ly = b => (b === 0 ? -0.5 : b === Hh - 1 ? gny - 0.5 : b - 1);
+        const ci = a => (a <= 1 ? 0 : a >= gnx ? gnx - 1 : a - 1), cj = b => (b <= 1 ? 0 : b >= gny ? gny - 1 : b - 1);
+        const sq = new Uint8Array((W - 1) * (Hh - 1));
+        for (const k of cells) {
+          const i = k % gnx, j = (k / gnx) | 0;
+          sq[j * (W - 1) + i] = sq[j * (W - 1) + i + 1] = sq[(j + 1) * (W - 1) + i] = sq[(j + 1) * (W - 1) + i + 1] = 1;
+        }
+        // lattice points from the cell corners already projected (cached between draws):
+        // a corner where the point lies on one, else the mean of the 2 or 4 around it
+        const qd = gg === geo ? quad : gg === fineGeo ? fq : gg === ovGeo ? oq : quads(gg), C = qd.C, n1 = gnx + 1;
+        const pos = new Map();
+        const PP = (a, b) => {
+          const k = b * W + a; let q = pos.get(k);
+          if (q) return q;
+          const cx = lx(a) + 0.5, cy = ly(b) + 0.5, i0 = Math.floor(cx), j0 = Math.floor(cy), i1 = Math.ceil(cx), j1 = Math.ceil(cy);
+          const p00 = C(j0 * n1 + i0), p10 = C(j0 * n1 + i1), p01 = C(j1 * n1 + i0), p11 = C(j1 * n1 + i1);
+          q = { x: (p00.x + p10.x + p01.x + p11.x) / 4, y: (p00.y + p10.y + p01.y + p11.y) / 4 };
+          pos.set(k, q); return q;
+        };
+        const val = (G, a, b) => { const x = G(ci(a), cj(b)); return x == null ? 0 : x; };
+        // fn(a, b, corners [4 screen points], value(G) → [4 values]) for every square in view
+        const each = fn => {
+          for (let b = 0; b < Hh - 1; b++) for (let a = 0; a < W - 1; a++) {
+            if (!sq[b * (W - 1) + a]) continue;
+            const pq = [PP(a, b), PP(a + 1, b), PP(a + 1, b + 1), PP(a, b + 1)];
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+            for (const q of pq) { if (q.x < x0) x0 = q.x; if (q.x > x1) x1 = q.x; if (q.y < y0) y0 = q.y; if (q.y > y1) y1 = q.y; }
+            if (x1 < -4 || x0 > sz.x + 4 || y1 < -4 || y0 > sz.y + 4) continue;
+            fn(pq, G => [val(G, a, b), val(G, a + 1, b), val(G, a + 1, b + 1), val(G, a, b + 1)], a, b);
+          }
+        };
+        return { each };
+      };
+      const cellsOf = (gnx, gny, keep) => { const out = []; for (let k = 0; k < gnx * gny; k++) if (keep(k)) out.push(k); return out; };
+      // contour bands: R value getter (i, j); Sn (snow) getter or null; limits ascending;
+      // pals [rain colours, snow colours] (one family without Sn); filled into g2
+      const bands = (gg, cells, R, Sn, limits, pals) => {
+        const paths = pals.map(() => limits.map(() => null));
+        // squares wholly inside a class are merged into strips along the row (up to 24),
+        // through every lattice point of the row so that neighbouring strips and squares
+        // share their edges exactly: run[fam][k] = [[corners …], row, next a, first a]
+        const run = pals.map(() => limits.map(() => null));
+        const flush = (fm, k) => {
+          const r = run[fm][k];
+          if (!r) return;
+          const path = paths[fm][k] || (paths[fm][k] = new Path2D()), sqs = r[0];
+          path.moveTo(sqs[0][0].x, sqs[0][0].y);
+          for (const c of sqs) path.lineTo(c[1].x, c[1].y);
+          for (let n = sqs.length - 1; n >= 0; n--) path.lineTo(sqs[n][2].x, sqs[n][2].y), path.lineTo(sqs[n][3].x, sqs[n][3].y);
+          // (no closePath: fill closes each subpath, and closePath is slow on long Path2Ds)
+          run[fm][k] = null;
+        };
+        lattice(gg, cells).each((pq, vals, a, b) => {
+          const v = vals(R), vmax = Math.max(v[0], v[1], v[2], v[3]), vmin = Math.min(v[0], v[1], v[2], v[3]);
+          if (vmax < limits[0]) return;
+          let fam = 0;
+          if (Sn && pals.length > 1) { const sv = vals(Sn), rs = v[0] + v[1] + v[2] + v[3]; if (rs > 0 && sv[0] + sv[1] + sv[2] + sv[3] >= 0.5 * rs) fam = 1; }
+          for (let k = 0; k < limits.length; k++) {
+            const T = limits[k];
+            if (vmax < T) break;
+            if (vmin >= T) {                                 // wholly inside: extend the strip
+              const r = run[fam][k];
+              if (r && r[1] === b && r[2] === a && a - r[3] < 24) { r[0].push(pq); r[2] = a + 1; continue; }
+              flush(fam, k);
+              run[fam][k] = [[pq], b, a + 1, a];
+              continue;
+            }
+            const path = paths[fam][k] || (paths[fam][k] = new Path2D());
+            let n = 0;
+            for (let e = 0; e < 4; e++) {
+              const e1 = (e + 1) & 3, va = v[e], vb = v[e1];
+              if (va >= T) { n++ ? path.lineTo(pq[e].x, pq[e].y) : path.moveTo(pq[e].x, pq[e].y); }
+              if ((va >= T) !== (vb >= T)) {
+                const t = (T - va) / (vb - va), x = pq[e].x + (pq[e1].x - pq[e].x) * t, y = pq[e].y + (pq[e1].y - pq[e].y) * t;
+                n++ ? path.lineTo(x, y) : path.moveTo(x, y);
+              }
+            }
+          }
+        });
+        for (let fm = 0; fm < pals.length; fm++) for (let k = 0; k < limits.length; k++) flush(fm, k);
+        let any = false;
+        for (let k = 0; k < limits.length; k++) for (let fm = 0; fm < pals.length; fm++) {
+          const p2 = paths[fm][k];
+          if (p2) { g2.fillStyle = pals[fm][k]; g2.fill(p2); any = true; }
+        }
+        return any;
+      };
+      // contour lines at limit T (the model's rain outlined over the radar)
+      const isolines = (gg, cells, R, T) => {
+        const path = new Path2D();
+        let any = false;
+        lattice(gg, cells).each((pq, vals) => {
+          const v = vals(R), pts = [];
+          for (let e = 0; e < 4; e++) {
+            const e1 = (e + 1) & 3, va = v[e], vb = v[e1];
+            if ((va >= T) !== (vb >= T)) {
+              const t = (T - va) / (vb - va);
+              pts.push([pq[e].x + (pq[e1].x - pq[e].x) * t, pq[e].y + (pq[e1].y - pq[e].y) * t]);
+            }
+          }
+          for (let q = 0; q + 1 < pts.length; q += 2) { path.moveTo(pts[q][0], pts[q][1]); path.lineTo(pts[q + 1][0], pts[q + 1][1]); any = true; }
+        });
+        return any ? path : null;
+      };
+      // shaded fields: bilinear in sub-cells of about 4 px (runs of one colour merged)
+      const shade = (q, gnx, gny, G, colour, keep) => {
+        const C = q.C, n1 = gnx + 1, sz = map.getSize();
+        const mi = gnx >> 1, mj = gny >> 1, a0 = C(mj * n1 + mi), b0 = C(mj * n1 + mi + 1);
+        const S = Math.max(1, Math.min(6, Math.round(Math.hypot(b0.x - a0.x, b0.y - a0.y) / 4)));
+        if (S === 1) {                                       // cells of a few px: the plain cells look the same
+          let any1 = false;
+          for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) { const c = G(i, j); const col = c == null ? null : colour(c); if (col) { q(i, j, col); any1 = true; } }
+          return any1;
+        }
+        const near = new Uint8Array(gnx * gny);
+        for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) if (keep(i, j))
+          for (let b = Math.max(0, j - 1); b <= Math.min(gny - 1, j + 1); b++)
+            for (let a = Math.max(0, i - 1); a <= Math.min(gnx - 1, i + 1); a++) near[b * gnx + a] = 1;
+        const val = (i, j) => { i = i < 0 ? 0 : i >= gnx ? gnx - 1 : i; j = j < 0 ? 0 : j >= gny ? gny - 1 : j; const x = G(i, j); return x == null ? 0 : x; };
+        let any = false;
+        for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) {
+          if (!near[j * gnx + i]) continue;
+          const a = C(j * n1 + i), b = C(j * n1 + i + 1), c = C((j + 1) * n1 + i + 1), d = C((j + 1) * n1 + i);
+          if (Math.max(a.x, b.x, c.x, d.x) < -4 || Math.min(a.x, b.x, c.x, d.x) > sz.x + 4 ||
+              Math.max(a.y, b.y, c.y, d.y) < -4 || Math.min(a.y, b.y, c.y, d.y) > sz.y + 4) continue;
+          const pt = (u, w) => { const x1 = a.x + (b.x - a.x) * u, y1 = a.y + (b.y - a.y) * u, x2 = d.x + (c.x - d.x) * u, y2 = d.y + (c.y - d.y) * u;
+                                 return [x1 + (x2 - x1) * w, y1 + (y2 - y1) * w]; };
+          for (let qq = 0; qq < S; qq++) {
+            const w0 = qq / S, w1 = (qq + 1) / S, yc = j + (qq + 0.5) / S - 0.5, j0 = Math.floor(yc), fy = yc - j0;
+            let runCol = null, run0 = 0;
+            for (let p = 0; p <= S; p++) {
+              let col = null;
+              if (p < S) {
+                const xc = i + (p + 0.5) / S - 0.5, i0 = Math.floor(xc), fx = xc - i0;
+                col = colour((val(i0, j0) * (1 - fx) + val(i0 + 1, j0) * fx) * (1 - fy) + (val(i0, j0 + 1) * (1 - fx) + val(i0 + 1, j0 + 1) * fx) * fy);
+              }
+              if (col !== runCol || p === S) {
+                if (runCol) {
+                  const A = pt(run0 / S, w0), B = pt(p / S, w0), D2 = pt(run0 / S, w1), C2 = pt(p / S, w1);
+                  g2.fillStyle = g2.strokeStyle = runCol;
+                  g2.beginPath(); g2.moveTo(A[0], A[1]); g2.lineTo(B[0], B[1]); g2.lineTo(C2[0], C2[1]); g2.lineTo(D2[0], D2[1]); g2.closePath();
+                  g2.fill(); g2.stroke(); any = true;
+                }
+                runCol = col; run0 = p;
+              }
+            }
+          }
+        }
+        return any;
+      };
+      // the smoothed cover in 4 % steps (longer runs of one colour; a step is an alpha
+      // of about 0.015 at the clouds' opacity — not visible)
+      const greyOf = c => { if (c < 15) return null; const g = Math.round(255 * Math.min(100, Math.round(c / 4) * 4) / 100); return `rgb(${g},${g},${g})`; };
+      const getter = (a, n) => (i, j) => (a ? a[j * n + i] : null);
+      const RAIN_L = RAIN_T.map(t => t * 100);               // the stored rain is mm/h × 100
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
       for (const key of (hasF ? o.clouds : [])) {
         const v = f[key];
         if (!v) continue;
         begin();
         let any = false;
-        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        if (SM) any = shade(quad, nx, ny, getter(v, nx), greyOf, (i, j) => { const c = v[j * nx + i]; return c != null && c >= 15; });
+        else for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
           const c = v[j * nx + i];
           if (c == null || c < 15) continue;
           const g = Math.round(255 * c / 100);
@@ -314,7 +494,9 @@ const WxLayer = (() => {
         }
         if (hasFine) {
           fineCut();
-          if (fineCells((fr, k) => { const c = fr[key] && fr[key][k]; if (c == null || c < 15) return null;
+          const fv = fine[key];
+          if (SM) { if (fv && shade(fq, fnx, fny, getter(fv, fnx), greyOf, (i, j) => { const c = fv[j * fnx + i]; return c != null && c >= 15; })) any = true; }
+          else if (fineCells((fr, k) => { const c = fr[key] && fr[key][k]; if (c == null || c < 15) return null;
                                       const g = Math.round(255 * c / 100); return `rgb(${g},${g},${g})`; })) any = true;
         }
         if (!any) continue;
@@ -332,7 +514,8 @@ const WxLayer = (() => {
       if (hasF && o.gust && f.g) {
         begin();
         let any = false;
-        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        if (SM) any = bands(geo, cellsOf(nx, ny, k => f.g[k] != null && f.g[k] >= GUST_T[0]), getter(f.g, nx), null, GUST_T, [GUST_C]);
+        else for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
           const v = f.g[j * nx + i];
           if (v == null) continue;
           const cl = gustClass(v);
@@ -340,7 +523,8 @@ const WxLayer = (() => {
         }
         if (hasFine) {
           fineCut();
-          if (fineCells((fr, k) => { const v = fr.g && fr.g[k]; const cl = v == null ? -1 : gustClass(v); return cl >= 0 ? GUST_C[cl] : null; })) any = true;
+          if (SM) { if (fine.g && bands(fineGeo, cellsOf(fnx, fny, k => fine.g[k] != null && fine.g[k] >= GUST_T[0]), getter(fine.g, fnx), null, GUST_T, [GUST_C])) any = true; }
+          else if (fineCells((fr, k) => { const v = fr.g && fr.g[k]; const cl = v == null ? -1 : gustClass(v); return cl >= 0 ? GUST_C[cl] : null; })) any = true;
         }
         if (any) layer(o.gustAlpha != null ? o.gustAlpha : (opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
       }
@@ -353,7 +537,8 @@ const WxLayer = (() => {
         begin();
         let any = false;
         if (f.r) {
-          for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+          if (SM) any = bands(geo, cellsOf(nx, ny, k => f.r[k] != null && f.r[k] >= RAIN_L[0]), getter(f.r, nx), getter(f.s, nx), RAIN_L, [RAIN_C, SNOW_C]);
+          else for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
             const k = j * nx + i, r = f.r[k];
             if (r == null || r < 10) continue;
             const cl = rainClass(r / 100);
@@ -363,7 +548,8 @@ const WxLayer = (() => {
           }
           if (hasFine && fine.r) {
             fineCut();
-            if (fineCells((fr, k) => {
+            if (SM) { if (bands(fineGeo, cellsOf(fnx, fny, k => fine.r[k] != null && fine.r[k] >= RAIN_L[0]), getter(fine.r, fnx), getter(fine.s, fnx), RAIN_L, [RAIN_C, SNOW_C])) any = true; }
+            else if (fineCells((fr, k) => {
               const r = fr.r[k];
               if (r == null || r < 10) return null;
               const cl = rainClass(r / 100);
@@ -382,7 +568,11 @@ const WxLayer = (() => {
         }
         if (hasO && ov.r) {
           const onx = ovGeo.nx;
-          for (let q = 0; q < (ov.rs || []).length; q += 2) {
+          if (SM) {
+            const cells = [];
+            for (let q = 0; q < (ov.rs || []).length; q += 2) if (ov.rs[q + 1] >= RAIN_L[0]) cells.push(ov.rs[q]);
+            if (cells.length && bands(ovGeo, cells, getter(ov.r, onx), null, RAIN_L, [RAIN_C])) any = true;
+          } else for (let q = 0; q < (ov.rs || []).length; q += 2) {
             const k = ov.rs[q], cl = rainClass(ov.rs[q + 1] / 100);
             if (cl >= 0) { oq(k % onx, Math.floor(k / onx), RAIN_C[cl]); any = true; }
           }
@@ -403,7 +593,17 @@ const WxLayer = (() => {
         }
         ctx.clip();
         const C = quad.C, nx1 = nx + 1;
-        for (const [cl0, w] of [[0, 1], [2, 2]]) {            // ≥ 0.1 mm/h thin, ≥ 1 mm/h thick
+        if (SM) {                                             // smoothed: contour lines at 0.1 and 1 mm/h
+          const cells = cellsOf(nx, ny, k => f.r[k] != null && f.r[k] >= RAIN_L[0]);
+          for (const [cl0, w] of [[0, 1], [2, 2]]) {
+            const path = isolines(geo, cells, getter(f.r, nx), RAIN_L[cl0]);
+            if (!path) continue;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = T.mrainHalo; ctx.lineWidth = w + 2; ctx.stroke(path);
+            ctx.strokeStyle = T.mrain; ctx.lineWidth = w; ctx.stroke(path);
+          }
+        }
+        else for (const [cl0, w] of [[0, 1], [2, 2]]) {       // ≥ 0.1 mm/h thin, ≥ 1 mm/h thick
           const m = (i, j) => {
             if (i < 0 || j < 0 || i >= nx || j >= ny) return false;
             const r = f.r[j * nx + i];

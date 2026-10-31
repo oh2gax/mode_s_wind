@@ -88,7 +88,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -111,7 +111,8 @@ const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
 const cloudKey = () => { const v = $('wx-cloud').value; return v === 'off' ? null : v; };
 function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
-           wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown() };
+           wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown(),
+           smooth: $('wx-smooth').value !== 'off' };          // Shading: Smooth / Cells (from 2026-10-31)
 }
 function fieldList() {
   const f = ['p', 'r', 's'], c = cloudKey();
@@ -349,6 +350,7 @@ $('wx-next').addEventListener('click', () => stepHour(1));
   saveSettings(); wx.setOptions(layerOptions()); renderLegend(); loadFrames(); loadFine();
 }));
 $('wx-fine').addEventListener('change', () => { saveSettings(); showFrame(); loadFine(); });
+$('wx-smooth').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));
 $('wx-step').addEventListener('change', () => { saveSettings(); loadFrames(); });
 
