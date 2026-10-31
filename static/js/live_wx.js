@@ -354,7 +354,8 @@
       const who = [mepsWind() ? 'MEPS' : '', modesWind() ? 'Mode S ' + perTxt() : ''].filter(Boolean).join(' + ');
       txt += (txt ? ' · ' : '') + `Wind ${lvl} (${who})`;
     }
-    if (st.cov) txt = txt === 'Weather' ? 'Coverage 24 h' : txt + (txt ? ' · ' : '') + 'Coverage 24 h';
+    // "Receiver coverage" without the period, so it is not read as the time of the weather (from 2026-10-31)
+    if (st.cov) txt = txt === 'Weather' ? 'Receiver coverage' : txt + (txt ? ' · ' : '') + 'Receiver coverage';
     chip.textContent = txt;
     el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off' || !!st.cov);
     applyOptions();

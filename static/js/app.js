@@ -400,9 +400,14 @@
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
               aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
-  if (!['ws', 'cond', 'st', 'edr', 'bl', 'blt'].includes(A.mode)) A.mode = 'ws';
-  const isBl = () => A.mode === 'bl' || A.mode === 'blt';     // boundary layer (from 2026-10-29)
-  const pickHint = () => A.mode === 'st' ? 'Tap a cell for its flights.' : isBl() ? 'Tap a cell, a jet ◆ or the inversion bar.' : 'Tap a dot for the landing.';
+  if (!['ws', 'cond', 'st', 'edr', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.mode)) A.mode = 'ws';
+  // boundary layer (from 2026-10-29): hour by hour (bl wind, blt temperature) and, from
+  // 2026-10-31, flight by flight as the Windshear page (blh headwind, bld change, bls shear)
+  const isBlFl = () => A.mode === 'blh' || A.mode === 'bld' || A.mode === 'bls';
+  const isBl = () => A.mode === 'bl' || A.mode === 'blt' || isBlFl();
+  const blField = () => A.mode === 'blt' ? 'temp' : A.mode === 'bl' ? 'wind' : A.mode;
+  const pickHint = () => A.mode === 'st' ? 'Tap a cell for its flights.' : isBlFl() ? 'Tap a column: the flight at that height (or a jet ◆).'
+    : isBl() ? 'Tap a cell, a jet ◆ or the inversion bar.' : 'Tap a dot for the landing.';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
   $('app-aci-pick').textContent = pickHint();
@@ -431,7 +436,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (isBl()) {                    // boundary layer: no flight list under it
       A.dots = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-aci-readout'), {
-        bl: A.bl, hours: A.hours, field: A.mode === 'blt' ? 'temp' : 'wind', fetchedMs: A.bl ? A.fetched : 0 });
+        bl: A.bl, fl: A.fl, hours: A.hours, field: blField(), fetchedMs: A.bl ? A.fetched : 0 });
       $('app-aci-list').innerHTML = '';
       return;
     }
@@ -536,7 +541,12 @@
         A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
       ]);
       A.st = sp;
-      A.bl = isBl() ? await (await fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' })).json() : null;
+      // the flights: one hour more, the reference of the first ones
+      const [bl, fl] = await Promise.all([
+        isBl() ? fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
+        isBlFl() ? fetch(`/api/boundary/flights?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []) : Promise.resolve(null)]);
+      A.bl = bl;
+      A.fl = Array.isArray(fl) ? fl : null;
       A.wx = wx;
       A.aph = Array.isArray(aph) ? aph : [];
       A.dep = Array.isArray(dep) ? dep : [];

@@ -410,10 +410,31 @@ const atcLblPos = {};            // icao → the label's chosen position (0–15
 let liveHoverOn = (() => { try { return localStorage.getItem('ms_liveHover') === '1'; } catch (_) { return false; } })();
 let liveHov = null;              // the hover (created after the canvas below)
 let atcLblRects = {};            // the label boxes of the last draw
+// The selected aircraft's extended label (ATC style, from 2026-10-31): the aircraft
+// selected in the list or on the map always shows the six-line extended label of
+// Hover (also with Hover off), its values fetched from /api/live/ac/<icao> at once
+// and every 2 s while it stays selected — as the Hover, read from memory.
+const SEL_EXT_POLL_MS = 2000;
+let selExt = { key: null, data: null, timer: null };
+function selExtSync(redraw = true) {
+  const want = liveStyle === 'atc' && selectedIcao ? selectedIcao : null;
+  if (want === selExt.key) return;
+  clearInterval(selExt.timer);
+  selExt = { key: want, data: null, timer: null };
+  if (want) {
+    const poll = () => fetch(`/api/live/ac/${encodeURIComponent(want)}`)
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+      .then(d => { if (selExt.key === want) { selExt.data = d; plotLayer.redraw(); } });
+    poll();
+    selExt.timer = setInterval(() => { if (selExt.key === want && !document.hidden) poll(); }, SEL_EXT_POLL_MS);
+  }
+  if (redraw) plotLayer.redraw();
+}
 
 // The canvas: range rings (ATC), history plots, speed vectors and the ATC labels
 function drawPlotCanvas(g, m, W, H) {
   const atc = liveStyle === 'atc';
+  selExtSync(false);                     // the selected aircraft's extended label (ATC)
   if (!histN && !vecS && !atc) return;
   if (atc) AtcDisplay.drawRings(g, m, W, H, ringNm, AIRPORT_LAT, AIRPORT_LON);
   // ATC: the labels, placed last, keep clear of the plots, the vectors and the panels over the map
@@ -431,8 +452,9 @@ function drawPlotCanvas(g, m, W, H) {
     }
     AtcDisplay.drawVector(g, m, p0, ac, vecS, sel ? selColorNow() : col, 0.9 * fade, 1.3, obst);
     if (atc) {
-      const ext = liveHov && liveHov.key() === icao;
-      const lines = ext ? AtcDisplay.extLines(ac, liveHov.data(), {
+      // extended: the aircraft under the mouse (Hover) or the selected one
+      const hov = liveHov && liveHov.key() === icao, ext = hov || sel;
+      const lines = ext ? AtcDisplay.extLines(ac, hov ? liveHov.data() : (selExt.key === icao ? selExt.data : null), {
                             cs: callsignCache[icao] || ac.callsign || icao, lvl3: atcLvl3,
                             apt: [AIRPORT_LAT, AIRPORT_LON, AIRPORT_NAME] })
                         : atcLabelLines(ac);
@@ -458,6 +480,7 @@ function applyLiveStyle() {
     legendEl.innerHTML = atc ? AtcDisplay.legendHtml() : legendMeteoHtml;
   }
   atcLines.show(atc);
+  if (selectedTrackLayer) selectedTrackLayer.setStyle({ color: selTrackColor(aircraftData[selectedIcao]) });
   for (const [k, m] of Object.entries(markers)) {
     const d = aircraftData[k];
     if (!d) continue;
@@ -875,15 +898,22 @@ function drawSelectedTrack(icao) {
   const ac     = aircraftData[icao];
   if (selectedTrackLayer) {
     selectedTrackLayer.setLatLngs(points);
-    if (ac) selectedTrackLayer.setStyle({ color: acColor(ac) });
+    selectedTrackLayer.setStyle({ color: selTrackColor(ac) });
     return;
   }
   selectedTrackLayer = L.polyline(points, {
-    color:     ac ? acColor(ac) : '#94a3b8',
+    color:     selTrackColor(ac),
     weight:    2,
     opacity:   0.65,
     dashArray: '5 4',
   }).addTo(map);
+}
+
+// The selected aircraft's dashed track: its meteo-source colour, in the ATC style
+// grey (the palette's grey of the symbols above 6 000 ft; from 2026-10-31, before green)
+function selTrackColor(ac) {
+  if (liveStyle === 'atc') return atcPal().high;
+  return ac ? acColor(ac) : '#94a3b8';
 }
 
 function closeDetail() {

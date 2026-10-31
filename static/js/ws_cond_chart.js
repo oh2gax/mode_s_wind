@@ -27,8 +27,10 @@
  * WsCondChart.drawSpaceTime(ctx, W, H, readoutEl, { st, hours, fetchedMs })
  * draws the space–time diagram of the ST view (from 2026-10-27, see below).
  *
- * WsCondChart.drawBoundaryLayer(ctx, W, H, readoutEl, { bl, hours, field, fetchedMs })
- * draws the boundary layer (BL view, from 2026-10-29, see below).
+ * WsCondChart.drawBoundaryLayer(ctx, W, H, readoutEl, { bl, fl, hours, field, fetchedMs })
+ * draws the boundary layer (BL view, from 2026-10-29, see below); from
+ * 2026-10-31 also flight by flight (field 'blh' / 'bld' / 'bls', fl from
+ * /api/boundary/flights) as in the Sounding page's Time–height section.
  */
 'use strict';
 
@@ -737,6 +739,158 @@ const WsCondChart = (() => {
     const g = Math.abs(f);
     return `rgb(${w.map((c, k) => Math.round(c + (t[k] - c) * g)).join(',')})`;
   }
+  // ── The boundary layer flight by flight (from 2026-10-31; RESEARCH) ──────────
+  // The same fields and rules as the Sounding page's Time–height section
+  // (static/js/timeheight.js flFilled / flRef / flDiff / flShear, hwFill /
+  // chgFill / shFill — keep them in step): each landing and departure a column
+  // held until the next flight (at most 20 min), 100-ft bins.
+  //   'blh' headwind along the flight's runway (violet = tailwind)
+  //   'bld' the change against the median of the flights of the previous 45 min
+  //         in the same direction (±30°, ≥ 3), ±100 ft mean; ±2 kt nearly clear, full at ±12
+  //   'bls' the vertical shear of the flight's own profile: the slope over ±200 ft
+  //         (at least 4 of 5 values), kt per 100 ft; ±0.7 nearly clear, full at ±3
+  const FL_HOLD = 20 * 60, FL_REF = 45 * 60, FL_BIN = 100, FL_DIR = 30;
+  const FL_FIELDS = ['blh', 'bld', 'bls'];
+  const _angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+  const _flVal = (f, ft) => { const j = Math.round((ft - f.lo) / FL_BIN); return j >= 0 && j < f.v.length ? f.v[j] : null; };
+  function _flFilled(f) {
+    if (f._fill) return f._fill;
+    const v = f.v, out = v.map(x => (x == null ? null : [x, false]));
+    for (let j = 0; j < v.length; j++) {
+      if (v[j] != null) continue;
+      let a = j - 1; while (a >= 0 && v[a] == null) a--;
+      let b = j + 1; while (b < v.length && v[b] == null) b++;
+      if (a >= 0 && b < v.length && b - a <= 4) out[j] = [v[a] + (v[b] - v[a]) * (j - a) / (b - a), true];
+    }
+    return (f._fill = out);
+  }
+  function _flRef(f, rows) {
+    if (f._ref !== undefined) return f._ref;
+    f._ref = null;
+    if (f.h == null) return null;
+    const refs = rows.filter(o => o !== f && o.t < f.t && o.t >= f.t - FL_REF && o.h != null && _angDiff(o.h, f.h) <= FL_DIR);
+    if (refs.length < 3) return null;
+    const m = new Map();
+    for (let j = 0; j < f.v.length; j++) {
+      const ft = f.lo + j * FL_BIN, vs = [];
+      for (const o of refs) { const v = _flVal(o, ft); if (v != null) vs.push(v); }
+      if (vs.length >= 3) { vs.sort((a, b) => a - b); const k = vs.length >> 1; m.set(ft, vs.length % 2 ? vs[k] : (vs[k - 1] + vs[k]) / 2); }
+    }
+    return (f._ref = { n: refs.length, m });
+  }
+  function _flDiff(f, ref, j) {
+    if (!ref) return null;
+    const fv = _flFilled(f);
+    let s = 0, n = 0;
+    for (let k = j - 1; k <= j + 1; k++) {
+      if (k < 0 || k >= fv.length || !fv[k]) continue;
+      const r = ref.m.get(f.lo + k * FL_BIN);
+      if (r == null) continue;
+      s += fv[k][0] - r; n++;
+    }
+    return n ? s / n : null;
+  }
+  function _flShear(f, j) {
+    const fv = _flFilled(f);
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let k = j - 2; k <= j + 2; k++) {
+      if (k < 0 || k >= fv.length || !fv[k]) continue;
+      const x = k - j, y = fv[k][0];
+      n++; sx += x; sy += y; sxx += x * x; sxy += x * y;
+    }
+    if (n < 4) return null;
+    const den = n * sxx - sx * sx;
+    return den ? (n * sxy - sx * sy) / den : null;
+  }
+  const _DIV = { neg: [37, 99, 235], pos: [220, 38, 38] };
+  const _hwFill = v => v >= 0 ? _spdCol(v) : `rgba(168,85,247,${(0.35 + 0.6 * Math.min(1, -v / 10)).toFixed(2)})`;
+  function _chgFill(v) {
+    const k = Math.max(0, Math.min(1, (Math.abs(v) - 2) / 10)), c = v < 0 ? _DIV.neg : _DIV.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.06 + 0.86 * k).toFixed(3)})`;
+  }
+  function _shFill(v) {
+    const k = Math.max(0, Math.min(1, (Math.abs(v) - 0.7) / 2.3)), c = v < 0 ? _DIV.neg : _DIV.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.05 + 0.87 * k).toFixed(3)})`;
+  }
+  const _sgn = (v, p = 1) => { const r = Math.abs(v) < 0.5 / 10 ** p ? 0 : v; return (r >= 0 ? '+' : '') + r.toFixed(p); };   // no "-0.0"
+  // the flight columns; returns {n landings, n departures}
+  function _drawFlights(ctx, d, geo, dots, CT, light) {
+    const { L, T, PW, PH, xOf, yOf, t0, nowMs, field } = geo;
+    const all = (d.fl || []).filter(f => f && f.v && f.lo != null);
+    const rows = all.filter(f => f.t * 1000 >= t0 - FL_HOLD * 1000 && f.t * 1000 <= nowMs);
+    const LV = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
+    const DIRC = { '04': '#38bdf8', '05': '#38bdf8', '15': '#f59e0b', '14': '#f59e0b', '16': '#f59e0b', '22': '#2dd4bf', '23': '#2dd4bf', '33': '#f472b6', '34': '#f472b6', '32': '#f472b6' };
+    const rwDir = f => (f.rw && /^\d\d/.test(f.rw) ? f.rw.slice(0, 2) : f.h != null ? String(Math.round(f.h / 10) % 36 || 36).padStart(2, '0') : '?');
+    const plotBg = CT.roseBg;
+    const cols = [];
+    let nA = 0, nD = 0;
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+    for (let i = 0; i < rows.length; i++) {
+      const f = rows[i], nx = rows[i + 1];
+      if (f.t * 1000 >= t0) f.k === 'd' ? nD++ : nA++;
+      const x0 = xOf(f.t * 1000);
+      const w = Math.max(1.5, Math.min((nx ? xOf(nx.t * 1000) : xOf(nowMs)) - x0, xOf((f.t + FL_HOLD) * 1000) - x0));
+      const ref = field === 'bld' ? _flRef(f, all) : null;
+      cols.push({ x0, w, f });
+      const fv = _flFilled(f);
+      for (let j = 0; j < fv.length; j++) {
+        if (!fv[j]) continue;
+        const [v, filled] = fv[j], ft = f.lo + j * FL_BIN;
+        let col;
+        if (field === 'blh') col = _hwFill(v);
+        else if (field === 'bls') { const sh = _flShear(f, j); if (sh == null) continue; col = _shFill(sh); }
+        else { const dv = _flDiff(f, ref, j); if (dv == null) continue; col = _chgFill(dv); }
+        const ya = yOf(ft + FL_BIN / 2), yb = yOf(ft - FL_BIN / 2);
+        ctx.globalAlpha = 1; ctx.fillStyle = plotBg; ctx.fillRect(x0, ya, w + 0.5, yb - ya + 0.5);
+        ctx.globalAlpha = filled ? 0.6 : 1; ctx.fillStyle = col; ctx.fillRect(x0, ya, w + 0.5, yb - ya + 0.5);
+        if (x0 + w < L || x0 > L + PW) continue;
+        // hover: built only when read (a day has some 30 000 cells)
+        dots.push({ x: Math.max(L, x0) + Math.min(w, L + PW - Math.max(L, x0)) / 2, y: (ya + yb) / 2,
+          dotR: Math.max(1, Math.min(w, yb - ya) / 2 - 3), color: CT.roseLabel,
+          get label() {
+            const hm = new Date(f.t * 1000).toISOString().slice(11, 16);
+            const lines = [`${hm}Z ${f.cs || '?'} ${f.ty || ''} ${f.k === 'd' ? 'departure' : 'landing'}${f.rw ? ' RWY ' + f.rw : ''} · ${ft} ft`,
+              `headwind ${_sgn(v)} kt${v < 0 ? ' (tailwind)' : ''}${filled ? ' (gap filled)' : ''}`];
+            const r = _flRef(f, all), rv = r && r.m.get(ft);
+            if (rv != null) { const dv = _flDiff(f, r, j); lines.push(`${_sgn(v - rv)} kt against the median ${rv.toFixed(1)} kt of ${r.n} flights of the previous 45 min (±100 ft mean ${dv == null ? '–' : _sgn(dv)} kt)`); }
+            else lines.push('fewer than 3 flights of the previous 45 min in the same direction at this height');
+            const sh = _flShear(f, j);
+            if (sh != null) lines.push(`shear ${_sgn(sh)} kt per 100 ft over ±200 ft (${Math.abs(sh) < 0.05 ? 'no shear' : sh > 0 ? 'more headwind higher up — a descent loses headwind' : 'less headwind higher up — a descent gains headwind'})`);
+            if (f.lv && f.lv !== 'none') lines.push(`windshear ${f.lv.toUpperCase()}${f.wa ? ` at ${f.wa[0]}–${f.wa[1]} ft` : ''}`);
+            lines.push(f.src === 'v7' ? 'TAS − GS of the BDS 5,0 replies (no ADS-B ground speed) · research' : 'both airspeed registers against the ADS-B ground speed (v8) · research');
+            return lines.join('\n');
+          } });
+      }
+      ctx.globalAlpha = 1;
+    }
+    // windshear alerts: the ramp (or band) outlined in the level's colour
+    for (const c of cols) {
+      if (!c.f.wa || !LV[c.f.lv]) continue;
+      const ya = yOf(c.f.wa[1] + 50), yb = yOf(c.f.wa[0] - 50), ww = Math.max(c.w, 4);
+      for (const [col, lw] of [[light ? '#ffffff' : '#0f172a', 3.5], [LV[c.f.lv], 1.8]]) {
+        ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.strokeRect(c.x0 - 0.5, ya, ww + 1, yb - ya);
+      }
+    }
+    // the landing runway along the top (the headwind is along each flight's runway)
+    ctx.font = 'bold 9px "Courier New",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    let lastLbl = -1e9, lastDir = null;
+    for (const c of cols) {
+      if (c.f.k !== 'a') continue;
+      const dd = rwDir(c.f);
+      ctx.fillStyle = DIRC[dd] || CT.roseLabel; ctx.fillRect(c.x0, T, c.w + 0.5, 3);
+      const lx = Math.max(L, c.x0);                 // the first column may start left of the plot
+      if (dd !== lastDir && lx >= lastLbl && c.x0 + c.w > L) {
+        const t = `RWY ${dd}`;
+        ctx.strokeStyle = light ? '#ffffff' : '#0f172a'; ctx.lineWidth = 3; ctx.strokeText(t, lx + 2, T + 13);
+        ctx.fillStyle = DIRC[dd] || CT.roseLabel; ctx.fillText(t, lx + 2, T + 13);
+        lastLbl = lx + ctx.measureText(t).width + 8;
+      }
+      lastDir = dd;
+    }
+    ctx.restore();
+    return { nA, nD };
+  }
+
   function drawBoundaryLayer(ctx, W, H, readout, d) {
     const CT = theme(), light = isLight(), dots = [];
     const hours = d.hours || 24, nowMs = d.nowMs || Date.now(), t0 = nowMs - hours * 3_600_000;
@@ -752,8 +906,10 @@ const WsCondChart = (() => {
     ctx.restore();
     const rows = (d.bl || []).filter(r => r.ts * 1000 >= t0 - 3_600_000 && r.ts * 1000 <= nowMs);
     const cw = PW / hours;
+    const isFl = FL_FIELDS.includes(field);
+    const flN = isFl ? _drawFlights(ctx, d, { L, T, PW, PH, xOf, yOf, t0, nowMs, field }, dots, CT, light) : null;
     ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
-    for (const r of rows) {
+    for (const r of (isFl ? [] : rows)) {
       const x = xOf(r.ts * 1000), x1 = xOf(r.ts * 1000 + 3_600_000);
       if (field === 'wind') for (const [ft, kt, dir, n] of r.w || []) {
         const ya = yOf(ft + 125), yb = yOf(ft - 125);
@@ -810,13 +966,18 @@ const WsCondChart = (() => {
       prev = { ts: r.ts, x, y };
     }
     ctx.restore();
-    if (!rows.length) {
+    if (isFl ? !(flN.nA + flN.nD) : !rows.length) {
       ctx.fillStyle = CT.noTraffic; ctx.font = '10px "Courier New",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(d.fetchedMs ? 'No boundary-layer data in the range' : 'Loading…', L + PW / 2, T + PH / 2);
+      ctx.fillText(!d.fetchedMs ? 'Loading…' : isFl ? 'No flights with a headwind profile in the range' : 'No boundary-layer data in the range', L + PW / 2, T + PH / 2);
     }
     // title
     ctx.font = '10px "Courier New",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = CT.roseLabel;
-    ctx.fillText(field === 'wind' ? 'Boundary layer · wind speed' : 'Boundary layer · temperature against the surface', 5, 5);
+    const TITLE = { wind: 'Boundary layer · wind speed', temp: 'Boundary layer · temperature against the surface',
+                    blh: 'Boundary layer · headwind per flight', bld: 'Boundary layer · headwind change per flight',
+                    bls: 'Boundary layer · wind shear per flight' };
+    const SHORT = { wind: 'BL · wind speed', temp: 'BL · temperature', blh: 'BL · headwind per flight', bld: 'BL · Δ headwind per flight', bls: 'BL · shear per flight' };
+    const tt = ctx.measureText(TITLE[field] || TITLE.wind).width + 5 + 24 <= W ? TITLE[field] || TITLE.wind : SHORT[field] || SHORT.wind;
+    ctx.fillText(tt, 5, 5);
     ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5, 5);
     // the readout's first line kept short (from 2026-10-30; the inversion's 600–1000 ft is in its hover text):
     // a longer line wrapped and changed the chart's height when an inversion came or went
@@ -825,11 +986,20 @@ const WsCondChart = (() => {
       const nj = rows.filter(r => r.llj).length, ni = rows.filter(r => r.inv).length;
       const now = last ? [last.llj ? `<b>low-level jet ${last.llj.ft} ft ${last.llj.kt} kt</b> from ${String(last.llj.dir).padStart(3, '0')}°` : 'no low-level jet',
                           last.inv ? `<b style="color:${light ? '#b91c1c' : '#f87171'}">surface inversion +${last.inv.dT.toFixed(0)} K</b>` : 'no surface inversion'].join(' · ') : 'no data in the last hours';
+      const sw = c => `<span style="color:${c}">■</span>`;
       const key = field === 'wind'
-        ? ['0', '10', '20', '30', '40', '55'].map(v => `<span style="color:${_spdCol(+v)}">■</span>${v}`).join(' ') + ' kt'
-        : `<span style="color:${_dtCol(-6, light)}">■</span>−6 <span style="color:${_dtCol(0, light)}">■</span>0 <span style="color:${_dtCol(6, light)}">■</span>+6 K`;
-      readout.innerHTML = `Last hour: ${now}<br>${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h <span class="ws-research-tag">research</span>` +
-        `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key} · ▨ no flights</span>`;
+        ? ['0', '10', '20', '30', '40', '55'].map(v => `${sw(_spdCol(+v))}${v}`).join(' ') + ' kt'
+        : field === 'temp'
+        ? `${sw(_dtCol(-6, light))}−6 ${sw(_dtCol(0, light))}0 ${sw(_dtCol(6, light))}+6 K`
+        : field === 'blh'
+        ? `headwind ${sw(_hwFill(-8))}tail ` + ['0', '10', '20', '30', '40'].map(v => `${sw(_spdCol(+v))}${v}`).join(' ') + ' kt'
+        : field === 'bld'
+        ? `vs. the previous 45 min ${sw(_chgFill(-12))}−12 ${sw(_chgFill(-6))}−6 ±2 ${sw(_chgFill(6))}+6 ${sw(_chgFill(12))}+12 kt`
+        : `shear ${sw(_shFill(-3))}−3 ${sw(_shFill(-1.5))}−1.5 ±0.7 ${sw(_shFill(1.5))}+1.5 ${sw(_shFill(3))}+3 kt / 100 ft`;
+      const second = isFl ? `${wrRangeLabel(hours)}: ${flN.nA} landings · ${flN.nD} departures · jet ${nj} h · inversion ${ni} h`
+                          : `${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h`;
+      readout.innerHTML = `Last hour: ${now}<br>${second} <span class="ws-research-tag">research</span>` +
+        `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key}${isFl ? ' · □ windshear alert' : ''} · ▨ no flights</span>`;
     }
     return dots;
   }

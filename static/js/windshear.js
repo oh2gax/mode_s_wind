@@ -2322,8 +2322,19 @@ let wrAphEntries         = [];     // all landings of the chart range (ACI + WS 
 let wrDepEntries         = [];     // departures with a windshear report (ACI + WS view)
 let wrWxRep              = null;   // METAR WS groups + pilot reports near the airport (ACI + WS view, from 2026-10-29)
 let wrBl                 = null;   // boundary layer hours (BL view, /api/boundary, from 2026-10-29)
-let wrBlField            = (() => { try { return localStorage.getItem('ms_ws_bl_field') === 'temp' ? 'temp' : 'wind'; }
-                                      catch (_) { return 'wind'; } })();   // BL view: wind / temperature
+// BL view field (from 2026-10-31 also the flights one by one, as the Sounding
+// page's Time–height section): wind / temp (hourly) · blh / bld / bls (per flight)
+const WR_BL_FIELDS = ['wind', 'temp', 'blh', 'bld', 'bls'];
+const WR_BL_LABEL  = { wind: 'Wind', temp: 'T', blh: 'HW', bld: 'ΔHW', bls: 'Shear' };
+const WR_BL_TITLE  = {
+  wind: 'Boundary layer: the wind speed hour by hour (median of the aircraft within 25 km). Click: the next field (Wind → T → HW → ΔHW → Shear)',
+  temp: 'Boundary layer: the temperature against the surface (METAR) hour by hour — red warmer than the surface (inversion), blue colder. Click: the next field',
+  blh:  'Boundary layer flight by flight: the headwind of every landing and departure along its runway, 100 ft steps, held until the next flight (violet: tailwind). Click: the next field',
+  bld:  'Boundary layer flight by flight: the headwind change against the median of the flights of the previous 45 min in the same direction — blue less, red more headwind. Click: the next field',
+  bls:  'Boundary layer flight by flight: the vertical wind shear of each flight\'s own headwind profile, kt per 100 ft — red the headwind grows with height (a descent loses headwind), blue it falls. Click: the next field' };
+let wrBlField            = (() => { try { const v = localStorage.getItem('ms_ws_bl_field'); return WR_BL_FIELDS.includes(v) ? v : 'wind'; }
+                                      catch (_) { return 'wind'; } })();
+let wrBlFl               = null;   // the flights' fine headwind profiles (/api/boundary/flights, from 2026-10-31)
 let wrGaEvents           = [];     // go-arounds of the last 24 h (from /api/windshear/state)
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
@@ -2722,9 +2733,12 @@ async function fetchCondData() {
   if (wrView === 'st') return fetchSpaceTime();
   if (wrView === 'bl') {
     try {
-      const r = await fetch(`/api/boundary?hours=${wrCondHours}`);
+      // the hourly layer and the flights (one hour more: the reference of the first ones)
+      const [r, rf] = await Promise.all([fetch(`/api/boundary?hours=${wrCondHours}`),
+        fetch(`/api/boundary/flights?hours=${wrCondHours + 1}`).catch(() => null)]);
       if (!r.ok) return;
       wrBl = await r.json();
+      if (rf && rf.ok) { const fl = await rf.json(); wrBlFl = Array.isArray(fl) ? fl : []; }
       wrCondFetchedMs = Date.now();
       if (windroseEnabled && wrView === 'bl') drawWindrose();
     } catch (_) { /* silent */ }
@@ -2771,7 +2785,7 @@ function drawCondChart() {
   const readout = document.getElementById('ws-windrose-readout');
   if (wrView === 'bl') {
     wrHistDots = WsCondChart.drawBoundaryLayer(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      bl: wrBl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0 });
+      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0 });
     return;
   }
   if (wrView === 'st') {
@@ -2807,7 +2821,9 @@ function _syncWrViewBtns() {
   const blBtn = document.getElementById('ws-bl-field-btn');
   if (blBtn) {
     blBtn.style.display = wrView === 'bl' ? '' : 'none';
-    blBtn.textContent   = wrBlField === 'temp' ? 'T' : 'Wind';
+    blBtn.textContent   = WR_BL_LABEL[wrBlField] || 'Wind';
+    blBtn.title         = WR_BL_TITLE[wrBlField] || '';
+    blBtn.classList.toggle('active', ['blh', 'bld', 'bls'].includes(wrBlField));
   }
 }
 document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
@@ -2819,11 +2835,12 @@ document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
     drawWindrose();
   });
 });
-// BL view: wind speed ↔ temperature against the surface (from 2026-10-29)
+// BL view: wind speed ↔ temperature against the surface (from 2026-10-29);
+// from 2026-10-31 on to the flights: Wind → T → HW → ΔHW → Shear → Wind
 const _blFieldBtn = document.getElementById('ws-bl-field-btn');
 if (_blFieldBtn) {
   _blFieldBtn.addEventListener('click', () => {
-    wrBlField = wrBlField === 'wind' ? 'temp' : 'wind';
+    wrBlField = WR_BL_FIELDS[(WR_BL_FIELDS.indexOf(wrBlField) + 1) % WR_BL_FIELDS.length];
     try { localStorage.setItem('ms_ws_bl_field', wrBlField); } catch (_) {}
     _syncWrViewBtns();
     drawWindrose();
