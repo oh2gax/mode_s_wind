@@ -3492,7 +3492,7 @@ function renderApproachHistoryHeader() {
         ['F 1km', 'Horizontal F-factor over 1 km (headwind loss rate / g; the downdraft part cannot be seen)'],
         ['Band Δ','Largest change of the headwind in a 200-ft band (400–1800 ft) against all landings and departures of the previous 45 min (their wind vectors, any runway)'],
         ['Low',   'Lowest height (ft MSL) the receiver followed the aircraft'],
-        ['n',     'BDS 5,0 replies used (and their noise, kt)'],
+        ['n',     'Headwind values used and their noise (kt) — from 31 Oct 2026 (detection v8) the BDS 5,0 and BDS 6,0 replies against the ADS-B ground speed; before, and for a flight without ADS-B ground speed, the BDS 5,0 replies (v7)'],
       ].map(([t, tip]) => `<th class="ws-aphist-th" title="${tip}">${t}</th>`).join('')
     : approachHistoryMode === 'edr'
     ? [
@@ -3975,18 +3975,22 @@ function formatDepWsCells(e) {
     `<td class="ws-aphist-cell">${t && t.a && t.a[1] != null ? t.a[1] : '—'}</td>` +
     `<td class="ws-aphist-cell">${t ? `${t.n}${t.noise != null ? `<span class="ws-aphist-nil"> ±${t.noise.toFixed(1)}</span>` : ''}` : '—'}</td>`;
 }
-/** Lines of the detection v8 SHADOW result (from 30 Oct 2026; stored beside v7, no
- *  alert): both airspeed registers against the ADS-B ground speed. */
+/** Lines of a second analysis stored beside a report: the departures' v8 trial
+ *  ramps (trial8, from 30 Oct 2026) and, from 31 Oct 2026, a landing's v7 shadow
+ *  (BDS 5,0 TAS − GS alone, no alert); 30–31 Oct a landing's v8 shadow. */
 function _wsV8Lines(v, ind = '') {
   if (!v) return [];
   const best = ['loss', 'gain'].map(k => v[k] ? { k, ...v[k] } : null).filter(Boolean)
     .sort((a, b) => b.sc - a.sc)[0];
+  const v7 = v.v === 7;
   return [
-    `${ind}v8 (shadow, no alert — headwind from BDS 5,0 and BDS 6,0 against the ADS-B ground speed): ` +
+    (v7 ? `${ind}v7 (shadow, no alert — headwind TAS − GS of the BDS 5,0 replies alone): `
+        : `${ind}v8 (${ind ? 'trial' : 'shadow'}, no alert — headwind from BDS 5,0 and BDS 6,0 against the ADS-B ground speed): `) +
       `ramps ${v.rlvl && v.rlvl !== 'none' ? WS_LEVEL[v.rlvl].short : 'no level'}` +
       (best ? ` · strongest ${best.k} ${Math.abs(best.dv).toFixed(0)} kt over ${(best.L / 1000).toFixed(1)} km = ${best.sc} kt per 1 km` : '') +
       (v.lvl && v.lvl !== (v.rlvl || 'none') ? ` · with the band change ${WS_LEVEL[v.lvl].short}` : ''),
-    `${ind}  ${v.n} values used (of ${v.n50} BDS 5,0 + ${v.n60} BDS 6,0), noise ±${v.noise != null ? v.noise : '?'} kt` +
+    v7 ? `${ind}  ${v.n} replies, noise ±${v.noise != null ? v.noise : '?'} kt`
+       : `${ind}  ${v.n} values used (of ${v.n50} BDS 5,0 + ${v.n60} BDS 6,0), noise ±${v.noise != null ? v.noise : '?'} kt` +
       (v.dT != null ? ` · ISA ${v.dT > 0 ? '+' : ''}${v.dT} K${v.dTsrc === 'near' ? ' (of the flights nearby)' : ''}` : ''),
   ];
 }
@@ -4033,9 +4037,15 @@ function _wsTitle(w) {
     w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}${w.fh_a != null ? ` (at ${w.fh_a} ft)` : ''}` : '',
     b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${wsRefWho(b.ph, false, b.n)})` : 'Band change: no reference flights',
     w.cf ? `${wsCfText(w.cf)} (${WS_CF_RULE})` : '',
-    w.a ? `Followed ${w.a[0]}→${w.a[1]} ft, ${w.d && w.d[0] != null ? w.d[0].toFixed(1) : '?'}→${w.d && w.d[1] != null ? w.d[1].toFixed(1) : '?'} NM · ${w.n} replies, noise ±${w.noise != null ? w.noise : '?'} kt` : '',
-    'Ramps: headwind = TAS − GS of each BDS 5,0 reply · band change: the heading-calibrated band winds against all flights of the last 45 min (detection v2)',
-    ..._wsV8Lines(w.v8),
+    w.a ? `Followed ${w.a[0]}→${w.a[1]} ft, ${w.d && w.d[0] != null ? w.d[0].toFixed(1) : '?'}→${w.d && w.d[1] != null ? w.d[1].toFixed(1) : '?'} NM · ` +
+      (w.src === 'v8' ? `${w.n} values (of ${w.n50} BDS 5,0 + ${w.n60} BDS 6,0)` : `${w.n} replies`) +
+      `, noise ±${w.noise != null ? w.noise : '?'} kt` +
+      (w.src === 'v8' && w.dT != null ? ` · ISA ${w.dT > 0 ? '+' : ''}${w.dT} K${w.dTsrc === 'near' ? ' (of the flights nearby)' : ''}` : '') : '',
+    (w.src === 'v8'
+      ? 'Ramps (detection v8): headwind = TAS of the BDS 5,0 and BDS 6,0 replies − the ADS-B ground speed'
+      : 'Ramps: headwind = TAS − GS of each BDS 5,0 reply' + ((w.v || 0) >= 8 ? ' (v7: no ADS-B ground speed stored)' : '')) +
+      ' · band change: the heading-calibrated band winds against all flights of the last 45 min',
+    ..._wsV8Lines(w.v7 || w.v8),
   ].filter(Boolean).join('\n');
 }
 

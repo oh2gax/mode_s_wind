@@ -1859,7 +1859,12 @@ class WindshearTracker:
         self._ws_an_ts[icao] = now
         rw = next((x for x in self.runways if x["name"] == runway), None)
         try:
-            a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
+            # detection v8 from 31 Oct 2026 (both airspeed registers against the
+            # ADS-B ground speed); v7 (BDS 5,0 alone) without ADS-B ground speed
+            a = _shear.analyze_v8(raw5, r.get("raw6") or [], r.get("raw19") or [], r.get("sw") or [],
+                                  self._thr_ft(runway), self._v8_fallback(now))
+            if a is None:
+                a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
             found = []
             if a:
                 refs = self._band_refs(now)
@@ -2222,46 +2227,50 @@ class WindshearTracker:
 
     def _shear_report(self, rough: dict | None, runway: str | None,
                       heading, ts: float) -> dict | None:
-        """The windshear report of a landing (approach_history.shear_json),
-        with the detection v8 shadow result as "v8" (from 2026-10-30)."""
+        """The windshear report of a landing (approach_history.shear_json):
+        from 31 Oct 2026 (REPORT_V 8) the ramps of detection v8, with v7 beside
+        them as "v7" (collector/shear.py report8); v7 alone for a flight without
+        ADS-B ground speed.  (30–31 Oct 2026: v7, with v8 in shadow as "v8".)"""
         try:
             r = rough or {}
-            a = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
+            a7 = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
+            a8 = self._v8_analysis(r, runway, ts)
             refs = self._band_refs(ts)
             band = _shear.band_anomaly(_shear.vec_bands(self._prof_record(rough), _shear.VEC_MIN_N_ARR),
                                        refs, heading, phase="arr")
-            rep = _shear.report(a, band, refs, heading)
+            return _shear.report8(a8, a7, band, refs, heading)
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)
             return None
-        if rep is not None:
-            v8 = self._v8_result(r, runway, band, refs, heading, ts)
-            if v8:
-                rep["v8"] = v8
-        return rep
 
     def _v8_fallback(self, ts: float):
         """Median ISA deviation of the flights within ±1 h (≥ 3), else None."""
         v = sorted(d for t, d in self._v8_dts if abs(t - ts) <= 3600)
         return v[len(v) // 2] if len(v) >= 3 else None
 
-    def _v8_result(self, r: dict, runway, band, refs, heading, ts: float) -> dict | None:
-        """Detection v8 SHADOW (collector/shear.py analyze_v8, from 2026-10-30):
-        both airspeed registers against the ADS-B ground speed — stored beside
-        the v7 report, raises no alert."""
+    def _v8_analysis(self, r: dict, runway, ts: float) -> dict | None:
+        """Detection v8 (collector/shear.py analyze_v8): both airspeed
+        registers against the ADS-B ground speed; the flight's own ISA
+        deviation is remembered for the flights without one.  None without
+        ADS-B ground speed."""
         try:
             a8 = _shear.analyze_v8(r.get("raw5") or [], r.get("raw6") or [], r.get("raw19") or [],
                                    r.get("sw") or [], self._thr_ft(runway), self._v8_fallback(ts))
-            if a8 is None:
-                return None
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Windshear v8 analysis failed: %s", exc)
+            return None
+        if a8 is not None:
             info = a8.get("v8") or {}
             if info.get("dTsrc") == "own" and info.get("dT") is not None:
                 self._v8_dts.append((ts, info["dT"]))
                 del self._v8_dts[:-200]
-            return _shear.v8_report(a8, band, refs, heading)
-        except Exception as exc:                          # noqa: BLE001
-            log.debug("Windshear v8 shadow failed: %s", exc)
-            return None
+        return a8
+
+    def _v8_result(self, r: dict, runway, band, refs, heading, ts: float) -> dict | None:
+        """The v8 trial ramps of a climb-out ("trial8", from 2026-10-30; no
+        alert — the departures' ramps stay a trial)."""
+        a8 = self._v8_analysis(r, runway, ts)
+        return _shear.v8_report(a8, band, refs, heading) if a8 is not None else None
 
     def attach_shear(self, reports: dict) -> int:
         """Put back-filled windshear reports {(int(ts), icao): report} on the

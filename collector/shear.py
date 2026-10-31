@@ -114,11 +114,14 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 7                  # report version (3: band comparison on the wind vector,
+REPORT_V = 8                  # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
                               #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
-                              #     7: WSA / MBA from a ramp only with |ΔV| ≥ RAMP_WSA_MIN_DV)
+                              #     7: WSA / MBA from a ramp only with |ΔV| ≥ RAMP_WSA_MIN_DV,
+                              #     8: the ramps from detection v8 — both airspeed registers
+                              #        against the ADS-B ground speed, see report8; v7 kept
+                              #        beside it as "v7", from 31 Oct 2026)
 
 # Band comparison by flight phase (from 27 Oct 2026, REPORT_V 5).  Against the
 # MEPS model (area mean, model levels, 600–1 800 ft, 9–26 Oct 2026) the band
@@ -796,7 +799,7 @@ def alert_msg(ev: dict, thr_ft: float = 0.0) -> tuple:
     return msg, say
 
 
-# ── Detection v8 (from 30 Oct 2026, SHADOW: stored beside v7, no alerts) ─────────
+# ── Detection v8 (from 30 Oct 2026 in shadow; THE DETECTION from 31 Oct 2026) ──────
 # The headwind from both Comm-B airspeed registers against the ADS-B ground speed
 # (TC 19 airborne velocity, about twice a second at 1-kt resolution, stored with
 # every landing and departure since 24 Oct 2026):
@@ -810,7 +813,12 @@ def alert_msg(ev: dict, thr_ft: float = 0.0) -> tuple:
 # p10/p90 ±0.4 kt, removed); a headwind every 0.5 s instead of 1.9 s, 2.3× the
 # values per approach, noise 1.48 kt instead of 1.59; more 400–600 m ramps,
 # each seen by both registers separately where both had data.
-# Run beside v7 for a week before it replaces it.
+# 30–31 Oct 2026 beside v7 in shadow; replay of 1 245 landings 24–31 Oct: v7 32 ADV
+# + 1 WSA, v8 41 ADV (19 both; 22 v8 only, mostly 8–10 kt over 400–600 m on the
+# gusty 25–27 Oct, EDR median 0.17, neighbour flags as often as the common ones).
+# From 31 Oct 2026 (REPORT_V 8) the live alerts and the reports use v8, and v7
+# (BDS 5,0 TAS − GS alone) is the fallback for a flight without ADS-B ground speed
+# and the shadow "v7" of the report.
 V8 = 8
 V8_GS_LAG = -0.5              # s: the ADS-B GS at t − 0.5 s matches the reply received at t
 V8_ROLL_SEC = 4.0             # a BDS 6,0 reply takes the roll of a BDS 5,0 reply within this
@@ -972,11 +980,13 @@ def analyze_v8(b50: list, b60: list, v19: list, sw: list, thr_ft: float = 179.0,
     return a
 
 
-def v8_report(a: dict | None, band: dict | None, refs: list | None, heading) -> dict | None:
-    """The stored v8 shadow result of a flight (shear_json "v8" of a landing,
-    "trial8" of a departure): the analysis without t2 and the per-reply data,
-    the level of its ramps (advisories relative to the reference flights, as
-    v7) combined with the band comparison of v7 when given, and "v": 8."""
+def shadow_report(a: dict | None, band: dict | None, refs: list | None, heading,
+                  v: int) -> dict | None:
+    """A second analysis of a flight stored beside its report (the v7 shadow
+    "v7" of a landing from 31 Oct 2026; v8 "v8" / "trial8" 30–31 Oct): the
+    analysis without t2 and the per-reply data, the level of its ramps "rlvl"
+    (advisories relative to the reference flights) combined with the band
+    comparison when given, the v8 info, and "v"."""
     if a is None:
         return None
     out = {k: a.get(k) for k in ("n", "drop", "noise", "len", "a", "d", "fh", "fh_a")}
@@ -987,5 +997,31 @@ def v8_report(a: dict | None, band: dict | None, refs: list | None, heading) -> 
     out["rlvl"] = lv
     out["lvl"] = max(lv, (band or {}).get("lvl") or "none", key=LEVELS.index)
     out.update(a.get("v8") or {})
-    out["v"] = V8
+    out["v"] = v
+    return out
+
+
+def v8_report(a: dict | None, band: dict | None, refs: list | None, heading) -> dict | None:
+    """The v8 result of a flight as stored 30–31 Oct 2026 (the departures'
+    trial ramps "trial8")."""
+    return shadow_report(a, band, refs, heading, V8)
+
+
+def report8(a8: dict | None, a7: dict | None, band: dict | None, refs: list | None = None,
+            heading=None) -> dict | None:
+    """The windshear report of a landing from 31 Oct 2026 (REPORT_V 8): the
+    ramps of detection v8 (analyze_v8) when the flight has ADS-B ground speed,
+    else of v7 (analyze) — "src" "v8" / "v7" — with the band comparison and the
+    level as report(); the v8 info (n50, n60, dT, dTsrc, off) at the top level;
+    v7 beside it as "v7" (shadow_report) when both could be computed."""
+    main = a8 if a8 is not None else a7
+    out = report(main, band, refs, heading)
+    if out is None:
+        return None
+    info = out.pop("v8", None)
+    if a8 is not None:
+        out.update(info or {})
+    out["src"] = "v8" if a8 is not None else "v7"
+    if a8 is not None and a7 is not None:
+        out["v7"] = shadow_report(a7, band, refs, heading, 7)
     return out

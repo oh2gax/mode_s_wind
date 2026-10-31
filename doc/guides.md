@@ -56,14 +56,14 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.25
+version: 2.26
 date: 2026-10-31
 pages: 27
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
 
-- The method step by step: headwind TAS − GS from each BDS 5,0 reply, **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with the landings and departures of the last 45 minutes (each flight with its own phase; higher limits for turboprop departures), the trial ramps along the departures
+- The method step by step: the headwind from both airspeed registers against the aircraft's ADS-B ground speed (**detection v8**, from 31 October 2026; before, and for a flight without ADS-B ground speed, TAS − GS from each BDS 5,0 reply), **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with the landings and departures of the last 45 minutes (each flight with its own phase; higher limits for turboprop departures), the trial ramps along the departures
 - The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile; a windshear alert needs a real change of 14 kt, as at Hong Kong), ramp alerts **confirmed** or **isolated** by the nearby landings, how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The **alert message** in the controllers' short form (e.g. `15A WSA 15K+ 2MF` — runway one five arrival, windshear alert, 15-kt gain, two-mile final), marked as research
@@ -103,9 +103,9 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.7
-date: 2026-10-30
-pages: 24
+version: 1.8
+date: 2026-10-31
+pages: 25
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -114,7 +114,8 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Comparison with the Hong Kong lidar method** (GLYGA): a replay of its 14-kt alert rule over all stored landings, the severity–length (Woodfield) diagram and the alert duration
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
 - **Phase 7: the ADS-B ground speed and the BDS 6,0 airspeed** in the headwind — timing, temperature, agreement of the two registers, noise and density, the replay of the ramps and whether the extra short ramps are real; detection v8 running in shadow beside v7
-- The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (the v8 comparison, the convective season, validation)
+- **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
+- The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf

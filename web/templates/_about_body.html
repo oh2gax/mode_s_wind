@@ -82,7 +82,8 @@
 <section class="ab-sec">
   <h3>Windshear detection v2</h3>
   <p>Runs on the server for every aircraft on final at EFHK, whether the page is open or not. Along each
-    approach path the headwind (TAS − GS, straight from the aircraft's replies, every 2–3 s) is searched for
+    approach path the headwind (the true airspeed of the aircraft's replies minus its ground speed — from
+    31 Oct 2026 both airspeed registers against the ADS-B ground speed, a value about every 0.5 s) is searched for
     ramps of 0.4–4 km, scaled to a 1-km equivalent and tested against the replies' own noise, after the ramp
     method of the Hong Kong Observatory's LIDAR windshear alerting (Shun &amp; Chan 2008; Hon &amp; Chan 2021);
     the F-factor (Proctor, Hinton &amp; Bowles 2000) is computed over 1 km. A second, independent check

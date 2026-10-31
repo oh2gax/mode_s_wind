@@ -422,6 +422,10 @@ def _shear_startup(ws_tracker) -> None:
 V8_BACKFILL_KEY = "ws_v8_backfill"     # maintenance_config: the one-time back-fill below is done
 
 
+class _SkipV8(Exception):
+    """A landing whose report is already of version 8 (v8 back-fill)."""
+
+
 def _shear_v8_backfill(ws_tracker) -> None:
     """One-time at start (from 2026-10-30): the detection v8 SHADOW result
     (collector/shear.py analyze_v8 — both airspeed registers against the ADS-B
@@ -484,6 +488,8 @@ def _shear_v8_backfill(ws_tracker) -> None:
                     if (d.get("v19") or {}).get("t"):
                         rep = json.loads(row["shear_json"])
                         refs = _shear.vec_refs(hist, ts)
+                        if kind == 0 and rep.get("v", 0) >= 8:
+                            raise _SkipV8              # already a v8 report (from 31 Oct 2026)
                         if kind == 0:
                             rwy, hdg, band = row["runway"], row["rwy_heading"], rep.get("band")
                         else:
@@ -507,6 +513,8 @@ def _shear_v8_backfill(ws_tracker) -> None:
                             else:
                                 rep["trial8"] = v8
                                 b_dep.append((json.dumps(rep, separators=(",", ":")), row["id"]))
+                except _SkipV8:
+                    pass
                 except Exception as exc:                  # noqa: BLE001
                     sl.debug("Windshear v8 back-fill failed at %s: %s", ts, exc)
             bv = _shear.vec_bands(prof, 1)
@@ -818,6 +826,18 @@ def _preload_approach_history(ws_tracker, db_path: str, hours: int = 24) -> None
         log.warning("approach_history preload failed: %s", exc)
 
 
+def _rows(d: dict, key: str, cols: tuple) -> list:
+    """Rows of one part of a decoded raw series (WindshearTracker.decode_series)."""
+    b = d.get(key) or {}
+    return list(zip(*(b.get(c, []) for c in cols))) if b.get("t") else []
+
+
+def _dt_near(dts, ts: float):
+    """Median ISA deviation of the flights within ±1 h (≥ 3) from (ts, dT) pairs, else None."""
+    v = sorted(x for t, x in dts if abs(t - ts) <= 3600)
+    return v[len(v) // 2] if len(v) >= 3 else None
+
+
 def _shear_backfill(ws_tracker) -> None:
     """One-off at start: windshear reports (detection v2, collector/shear.py)
     for the stored landings and departures that have none or an older version
@@ -837,7 +857,9 @@ def _shear_backfill(ws_tracker) -> None:
     from collector.windshear import WindshearTracker
     sl = logging.getLogger("modes.windshear")
     V = _shear.REPORT_V
-    old = f"instr(shear_json, '\"v\":{V}') = 0"
+    # the report's own version (from 31 Oct 2026 by json_extract: the shadow
+    # results inside a report — "v8" 30–31 Oct, "trial8" — carry a "v" of their own)
+    old = f"COALESCE(json_extract(shear_json, '$.v'), 0) < {V}"
     try:
         time.sleep(30)                      # let the collector start first
         t_start = time.time()
@@ -863,12 +885,18 @@ def _shear_backfill(ws_tracker) -> None:
         events = sorted([(r["ts"], 0, r) for r in land] + [(r["ts"], 1, r) for r in dep],
                         key=lambda e: (e[0], e[1]))
         hist: deque = deque()
+        dts: deque = deque(maxlen=200)          # ISA deviations of the flights (v8)
         done: dict = {}
         b_land, b_dep = [], []
         n_dep = 0
 
         def is_old(sj):
-            return sj is None or f'"v":{V}' not in sj
+            if sj is None:
+                return True
+            try:
+                return (json.loads(sj) or {}).get("v", 0) < V
+            except (ValueError, AttributeError):
+                return True
 
         for i, (ts, kind, row) in enumerate(events):
             while hist and hist[0]["ts"] < ts - _shear.BAND_WINDOW_SEC:
@@ -885,21 +913,43 @@ def _shear_backfill(ws_tracker) -> None:
                         band = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_ARR),
                                                    refs, row["rwy_heading"], phase="arr")
                         rep = None
-                        if rep_old is not None:
+                        d = WindshearTracker.decode_series(row["data"]) if row["data"] else None
+                        if d and (d.get("v19") or {}).get("t"):
+                            # 8 (from 31 Oct 2026): the ramps of detection v8 from the raw
+                            # series, v7 beside them (shear.report8); the confirmation of
+                            # the ramp alert is computed again (_shear_confirm_backfill)
+                            thr = ws_tracker._thr_ft(row["runway"])
+                            b50 = _rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt"))
+                            sw = _rows(d, "sw", ("t", "alt", "palt", "dthr", "xt"))
+                            a8 = _shear.analyze_v8(b50, _rows(d, "b60", ("t", "ias", "hdg", "vri", "vrb", "mach", "alt")),
+                                                   _rows(d, "v19", ("t", "gs", "trk", "vr", "alt")), sw, thr,
+                                                   _dt_near(dts, ts))
+                            if a8 is not None:
+                                info = a8.get("v8") or {}
+                                if info.get("dTsrc") == "own" and info.get("dT") is not None:
+                                    dts.append((ts, info["dT"]))
+                            rep = _shear.report8(a8, _shear.analyze(b50, sw, thr), band, refs,
+                                                 row["rwy_heading"])
+                        elif rep_old is not None:
                             rep = {k: v for k, v in rep_old.items() if k != "band"}
                             if band:
                                 rep["band"] = band
                             rep["lvl"] = max(_shear.ramps_level(rep, refs, row["rwy_heading"]),
                                              (band or {}).get("lvl") or "none", key=_shear.LEVELS.index)
                             rep["v"] = V
-                        elif row["data"]:
-                            d = WindshearTracker.decode_series(row["data"])
-                            b, s = d.get("b50") or {}, d.get("sw") or {}
-                            b50 = list(zip(*(b.get(c, []) for c in ("t", "roll", "trate", "trk", "gs", "tas", "alt"))))
-                            sw = list(zip(*(s.get(c, []) for c in ("t", "alt", "palt", "dthr", "xt"))))
-                            rep = _shear.report(_shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])), band,
-                                                refs, row["rwy_heading"])
+                            if V >= 8 and rep.get("src") is None:
+                                # a v7 report kept as it is (no ADS-B ground speed stored);
+                                # 30–31 Oct 2026 the shadow "v8" went with it, now "v7" is shadow
+                                rep.pop("v8", None)
+                                rep["src"] = "v7"
+                        elif d:
+                            b50 = _rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt"))
+                            sw = _rows(d, "sw", ("t", "alt", "palt", "dthr", "xt"))
+                            rep = _shear.report8(None, _shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])),
+                                                 band, refs, row["rwy_heading"])
                         if rep is not None:
+                            if rep_old and rep_old.get("cf") and rep.get("src") != "v8":
+                                rep["cf"] = rep_old["cf"]       # same ramps: the confirmation stays
                             b_land.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                             done[(int(ts), row["icao"])] = rep
                     else:

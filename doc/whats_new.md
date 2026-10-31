@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.31102026 — Sharper weather maps near the airport, tidier labels on the phone's approach map
 
+- **Windshear detection v8 switched on** — the windshear alerts and reports now use the ground speed every aircraft broadcasts by ADS-B together with both of its airspeed reports, a headwind value about every half second instead of every two. It sees short, sharp changes better (a few more advisories on gusty days). The former method is kept beside it for comparison and shown in the Approach History's hover. Windshear guide 2.26, study log 1.8.
 - **Truer turbulence on climb-outs** — a few receiver messages carried a time in the future, and a departure could then read the same reply at several heights as a gust (one climb-out on 30 Oct showed moderate turbulence that was not there). Message times are now checked against the clock and every stored flight's turbulence (EDR) is recomputed once at the next start.
 - **More colour on the GPS page** — the bar graphs and the FL-band ring of GPS Quality have clear, distinct colours again (a little softer than before), the ring from teal for the lowest bands to indigo for FL300+; the one-colour heatmap stays.
 - **Tap for the extended label on the phone** — with ATC labels on the phone's approach map, tap an aircraft and its label grows into the six-line extended label of the big pages' Hover (speeds, heading, bank, wind, temperature, distance …), updated every 2 seconds; tap an empty place on the map to close it. Mobile guide 1.35.
