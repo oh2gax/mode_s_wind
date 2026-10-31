@@ -218,7 +218,10 @@ const AtcDisplay = (() => {
         for (const q of placed) cost += ov(R, q) * 4;
         for (const q of syms) if (q.key !== it.key) cost += ov(R, q) * 8;
         for (const q of obst) cost += ov(R, q) * 2;
-        if (R.x < 0 || R.y < 0 || R.x + R.w > W || R.y + R.h > H) cost += 50;
+        // outside the map: a fixed cost, and (from 2026-10-31) more the more of the label is
+        // outside, so that a large label (the extended one) is not placed half off the map
+        if (R.x < 0 || R.y < 0 || R.x + R.w > W || R.y + R.h > H)
+          cost += 50 + (R.w * R.h - Math.max(0, Math.min(R.x + R.w, W) - Math.max(R.x, 0)) * Math.max(0, Math.min(R.y + R.h, H) - Math.max(R.y, 0))) * 8;
         if (k === prev && cost <= 1) { best = { k, R }; break; }
         if (cost < bestCost) { bestCost = cost; best = { k, R }; }
       }

@@ -1007,7 +1007,8 @@
   // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
   const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null, atcLoading: null, atcLines: null,
                lbl: null, items: [], lblStyle: null, lblPos: {}, ilsFeat: null,     // the canvas labels (2026-10-31)
-               hist: {} };   // ATC style + Trails: icao → history plots [[lat, lon, ts], …] (2026-10-31)
+               hist: {},     // ATC style + Trails: icao → history plots [[lat, lon, ts], …] (2026-10-31)
+               ext: { key: null, data: null, timer: null }, lblRects: {} };   // the tapped extended label (2026-10-31)
   const IM_KEY = 'ms_app_ilsMapView', IM_HOME_ZOOM = 9;
   const IM_SRC = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', NONE: '#6b7280' };
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -1072,6 +1073,11 @@
     });
     new Home().addTo(m);
     IM.map = m; IM.ovl = L.layerGroup().addTo(m); IM.ac = L.layerGroup().addTo(m);
+    m.on('click', e => {                           // a tap outside the extended label closes it
+      const R = IM.ext.key && IM.lblRects[IM.ext.key], q = e.containerPoint;
+      if (R && q.x >= R.x - 4 && q.x <= R.x + R.w + 4 && q.y >= R.y - 3 && q.y <= R.y + R.h + 3) return;
+      ilsExtClose();
+    });
     Promise.all(['efhk_ils.geojson', 'efhk_apt.geojson'].map(f => fetch('/overlays/' + f).then(r => r.ok ? r.json() : null).catch(() => null)))
       .then(([ils, apt]) => { IM.geo = { ils, apt }; IM.ilsFeat = ils ? (ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK') : null;
                               IM.theme = null; drawIlsMap(); });
@@ -1194,6 +1200,7 @@
     // (AtcDisplay.drawLabels, as the Live Map and the Windshear map); before, beside the
     // square at a fixed place — on 04L / 04R straight ahead, over the approach line
     const items = [];
+    let seenExt = false;
     const lblCol = (onA, a) => atc ? null : (onA && !a.landed ? (light ? '#0b1220' : '#f8fafc') : (light ? '#334155' : '#cbd5e1'));
     for (const a of I.ac) {
       if (a.lat == null || a.lon == null) continue;
@@ -1230,16 +1237,24 @@
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
               ` stroke="${selM ? (light ? '#0f172a' : '#fff') : c}" stroke-opacity="${onA ? 1 : 0.65}" stroke-width="${selM ? 1.6 : onA ? 2 : 1.5}"/></svg>` });
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
-      if (onA) mk.on('click', () => selectIls(a.icao));
+      // a tap: an aircraft on the approach is followed (as before); with the ATC labels any
+      // aircraft's label opens as the extended label (from 2026-10-31)
+      if (onA || atcL) mk.on('click', () => { if (onA) selectIls(a.icao); if (atcL) ilsExtOpen(a.icao); });
       const alt = a.altitude == null ? '' : altLbl(a);
       const lines = atcL ? atcLines(a)
         : [(a.callsign || a.icao) + (I.actype === 'on' && a.aircraft_type ? ' ' + a.aircraft_type : ''),
            (alt + (a.landed ? ' · landed' : '') + (a.dep ? ` · ${a.dep_rwy || 'DEP'}↑` : '')).replace(/^ · /, '')].filter(Boolean);
-      items.push({ key: a.icao, lat: a.lat, lon: a.lon, lines, sel, vec: vEnd,
+      const ext = atcL && IM.ext.key === a.icao;
+      if (ext) seenExt = true;
+      items.push({ key: a.icao, lat: a.lat, lon: a.lon, sel, vec: vEnd, ext,
+                   lines: ext ? AtcDisplay.extLines(a, IM.ext.data, { cs: a.callsign || a.icao,
+                     lvl3: v => atcAlt(v).replace(/^(A|FL)/, ''), apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] }) : lines,
                    trail: onA && I.trails && !atc && Array.isArray(a.trail) ? a.trail : null, ts: a.last_seen,
                    col: atc ? c : lblCol(onA, a), fade: atc && !(onA && !a.landed) ? 0.75 : 1,
                    alt: (a.altitude ?? 99999) - (onA ? 100000 : 0) });     // the approach traffic placed first
     }
+    // the extended label closes when the ATC labels are switched off or its aircraft has gone
+    if (IM.ext.key && (!atcL || !seenExt)) ilsExtClose(false);
     // the label style: ATC three monospaced lines, or the callsign and the level in a
     // sans-serif; on the street map with an outline (dark theme) / a light one (light theme)
     const fs = atcL ? 9 : dense ? 9 : 10.5;
@@ -1274,9 +1289,9 @@
         const pts = (IM.hist[it.key] || []).filter(q => it.ts == null || q[2] < it.ts - 0.5).slice(-5);
         if (pts.length) AtcDisplay.drawPlots(g, m, pts, 5, it.col, it.fade, obst);
       }
-      lbls.push({ key: it.key, p, lines: it.lines, col: it.col, sel: it.sel, fade: it.fade, alt: it.alt });
+      lbls.push({ key: it.key, p, lines: it.lines, col: it.col, sel: it.sel, fade: it.ext ? 1 : it.fade, alt: it.alt, ext: it.ext });
     }
-    AtcDisplay.drawLabels(g, lbls, W, H, obst, IM.lblPos, IM.lblStyle.fs, IM.lblStyle.opt);
+    IM.lblRects = AtcDisplay.drawLabels(g, lbls, W, H, obst, IM.lblPos, IM.lblStyle.fs, IM.lblStyle.opt) || {};
     g.globalAlpha = 1;
   }
   // ── Chart under the profile or the map (from 2026-10-29) ─────────────────
@@ -1462,6 +1477,31 @@
     IHist.open.has(k) ? IHist.open.delete(k) : IHist.open.add(k);
     drawIlsHist(); markScroll();
   });
+  // The extended label on the phone (from 2026-10-31): with Labels on the map: ATC a tap on
+  // an aircraft opens its label as the six-line extended label of the big pages' Hover
+  // (AtcDisplay.extLines; /api/live/ac/<icao> at once and every 2 s while it is open and
+  // the ILS view shown); a tap on the map outside it, ATC labels off or the aircraft gone
+  // close it
+  function ilsExtPoll() {
+    const k = IM.ext.key;
+    if (!k || document.hidden || $('v-ils').hidden) return;
+    fetch(`/api/live/ac/${encodeURIComponent(k)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(d => { if (k !== IM.ext.key) return; IM.ext.data = d; drawIlsMap(); });
+  }
+  function ilsExtOpen(icao) {
+    if (IM.ext.key === icao) return;
+    clearInterval(IM.ext.timer);
+    IM.ext = { key: icao, data: null, timer: setInterval(ilsExtPoll, 2000) };
+    ilsExtPoll();
+    drawIlsMap();
+  }
+  function ilsExtClose(redraw = true) {
+    if (!IM.ext.key) return;
+    clearInterval(IM.ext.timer);
+    IM.ext = { key: null, data: null, timer: null };
+    if (redraw) drawIlsMap();
+  }
   // History plots of the ATC map style (from 2026-10-31): a position of every aircraft
   // on the map at most every 5 s (AtcDisplay.addTrail, from each poll); an aircraft on
   // the approach starts with the last points of its server trail (2 min), so its dots

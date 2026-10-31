@@ -7,7 +7,12 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.31102026 — 2026-10-31 (2.5 km MEPS detail near the airport on the Weather page and the phone; the phone's approach-map labels placed apart with leader lines; All tracked (30 NM) at every level; About at the top of What's new; dates and fading age in the Windshear alert log; history plots on the phone's ATC map)
+## v.31102026 — 2026-10-31 (2.5 km MEPS detail near the airport on the Weather page and the phone; the phone's approach-map labels placed apart with leader lines; All tracked (30 NM) at every level; About at the top of What's new; dates and fading age in the Windshear alert log; history plots on the phone's ATC map; tap for the extended label on the phone)
+
+### Phone: tap an aircraft for the extended label
+- With *Labels on the map: ATC* the ILS approach map now opens the big pages' **extended label** (Hover) with a tap: any aircraft's square → its label grows into the six-line extended label (callsign, type, registration; level, selected level, vertical rate, AP / APP; GS, TAS, IAS, Mach; magnetic heading, track, drift, bank; wind with head / cross component, temperature; distance and bearing from the airport, NACp, squawk) on a backing with a frame, the other labels moving away. The values come from `/api/live/ac/<icao>` at once and every 2 s while it is open and the ILS view is shown; it closes with a tap on the map outside it (a tap on the label keeps it), the ATC labels off or the aircraft gone. A tap on an aircraft on the approach still also follows it. `static/js/app.js`; `web/app.py` and `web/templates/app.html` (`WS_AIRPORT_NAME` for the label's last line).
+- `AtcDisplay.drawLabels`: a label outside the map now costs more the more of it is outside (before a fixed cost), so a large label — the extended one — is not placed half off the map; ordinary labels are placed as before. `static/js/atc_display.js`.
+- Mobile user guide 1.35: *Tap for the extended label*, with a figure from the stored observations of 30 Oct 08:29 UTC. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ### Phone: history plots with Trails on the ATC map
 - With *Map style: ATC* and *Trails* the approach map showed only a faint 2-minute line behind the aircraft on the approach, and nothing behind the other traffic. It now draws the history plots of the Live Map's and the Windshear map's ATC style: the last 5 positions of every aircraft on the map as small dots, older ones fainter (`AtcDisplay.addTrail` from each 5-s poll, an aircraft on the approach seeded from its server trail so its dots show at once; `AtcDisplay.drawPlots` on the label canvas, the dots also kept clear by the labels). The street map keeps the trail lines. `static/js/app.js`.

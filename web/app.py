@@ -547,6 +547,7 @@ def create_app(
                                mobile_guide_url=whats_new.guide_url("Mobile_User_Guide.pdf"),
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
                                airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
+                               airport_icao=cfg.AIRPORT_ICAO,      # the extended label's last line (2026-10-31)
                                radius_nm=cfg.WINDSHEAR_RADIUS_NM,
                                thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
                                gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
