@@ -195,6 +195,22 @@ def backfill_high_bands(db, pause_sec: float = 0.2) -> tuple[int, set]:
     return n, hours
 
 
+def climb_profile(st: dict) -> dict | None:
+    """The fine headwind profile of a whole climb-out up to 5 000 ft (from
+    2026-10-31, the Time–height section's flight columns): "hp" of the
+    detection v8 analysis of its raw series (collector/shear.py; v7 without
+    ADS-B ground speed), or None."""
+    try:
+        from collector import shear as _shear
+        raw5, sw = st.get("raw5") or [], st.get("sw") or []
+        a = (_shear.analyze_v8(raw5, st.get("raw6") or [], st.get("raw19") or [], sw)
+             or _shear.analyze(raw5, sw))
+        return (a or {}).get("hp")
+    except Exception as exc:                              # noqa: BLE001
+        log.debug("Climb-out headwind profile failed: %s", exc)
+        return None
+
+
 class DepartureTracker:
     def __init__(self, airport_lat: float, airport_lon: float, bds_sample_fn,
                  qnh_fn, on_commit=None, approach_state_fn=None,
@@ -385,6 +401,10 @@ class DepartureTracker:
         if n_b < DEP_MIN_BANDS:
             return
         prof = prof_summary(st["prof"])
+        if isinstance(shear, dict):
+            hp = climb_profile(st)
+            if hp:
+                shear["hp"] = hp
         series = None
         try:
             from collector.windshear import WindshearTracker

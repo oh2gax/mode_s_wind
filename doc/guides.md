@@ -41,15 +41,15 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.7
-date: 2026-10-30
-pages: 47
+version: 3.8
+date: 2026-10-31
+pages: 49
 open: sounding, windmap@30
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
 
 - **Area · now**, **Area · hour** and **Flight** profiles, the **Indices** panel (Mode S, MEPS and the sonde side by side) and the level table
-- The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines, the airport's **boundary layer** (low-level jet and surface inversion, also as an overlay) — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
+- The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines, the airport's **boundary layer** (low-level jet and surface inversion, also as an overlay; and **flight by flight** — the headwind of every landing and departure and its change against the flights before it) — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
 - **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels, the comparison at the aircraft's own positions, and the **upper-level temperature correction** learnt from it
 - The **Wind Map** (Section 8): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider

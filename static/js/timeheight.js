@@ -43,6 +43,13 @@
  *            jet (◆ with its speed, joined hour to hour) and the surface
  *            inversion (red bar along the bottom, red line at its top);
  *            hatched where there were no flights
+ *   blh/bld  boundary layer, flight by flight (from 31 Oct 2026,
+ *            /api/boundary/flights → the reports' "hp"): each landing and
+ *            departure as its own column, held until the next flight (at most
+ *            20 min), in 100-ft steps 200–5 000 ft — the headwind along its
+ *            runway (blh; windshear detection v8, a value about every 0.5 s)
+ *            or its change against the median of the flights of the previous
+ *            45 min in the same direction (bld); windshear alerts outlined
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, the tropopause (WMO
  * lapse-rate definition, magenta dashed) and the height of the strongest wind
  * (≥ 50 kt, yellow), Jokioinen sonde launches (pink ▼ at the top) and — with
@@ -77,6 +84,7 @@
     vmax: lsGet('ms_th_vmax', 'false') === 'true',
     sondeCol: lsGet('ms_th_sondecol', 'false') === 'true',
     bl: lsGet('ms_th_bl', 'false') === 'true',            // boundary-layer overlay (jet, inversion)
+    flk: lsGet('ms_th_flk', 'all'),                         // blh / bld: all flights, landings (a) or departures (d)
     endDate: '',                       // '' = now, else YYYY-MM-DD (period ends at 24 UTC of it)
   };
   let geo = null;                       // last drawn geometry, for hover / click
@@ -91,8 +99,15 @@
     const [a, ca] = BL_SPD[i], [b, cb] = BL_SPD[i + 1], f = Math.max(0, Math.min(1, (v - a) / (b - a)));
     return `rgb(${ca.map((c, k) => Math.round(c + (cb[k] - c) * f)).join(',')})`;
   }
-  const isBL = () => st.field === 'blw' || st.field === 'blt';
+  const isFL = () => st.field === 'blh' || st.field === 'bld';
+  const isBL = () => st.field === 'blw' || st.field === 'blt' || isFL();
   const needBl = () => isBL() || st.bl;
+  // the flights' fine headwind profiles (/api/boundary/flights): [{t, k, cs, ty, rw, h, lo, v, lv, wa, src}]
+  let flRows = null, flKey = '', flAt = 0;
+  const FL_HOLD = 20 * 60, FL_REF = 45 * 60, FL_BIN = 100, FL_DIR = 30;
+  // headwind: the boundary-layer wind colours, tailwind violet
+  const hwFill = v => v >= 0 ? blSpd(v) : `rgba(168,85,247,${(0.35 + 0.6 * Math.min(1, -v / 10)).toFixed(2)})`;
+  const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 
   // ── colour scales ───────────────────────────────────────────────────────
   const DIV = { neg: [37, 99, 235], pos: [220, 38, 38] };         // blue / red
@@ -412,7 +427,8 @@
 
     g.fillStyle = C.plot; g.fillRect(ml, mt, pw, ph);
     // cells
-    if (BLF) drawBlCells(g, C, L, P);
+    if (BLF && isFL()) drawFlCells(g, C, L, P);
+    else if (BLF) drawBlCells(g, C, L, P);
     else for (const c of P.cols) {
       const x0 = x(c.ts), x1 = x0 + cw;
       if (x1 < ml || x0 > ml + pw) continue;
@@ -616,6 +632,145 @@
     }
     g.globalAlpha = 1; g.restore();
   }
+  // ── the flights' fine headwind profiles (blh / bld) ─────────────────────
+  const flIn = P => (flRows || []).filter(f => f.t >= P.start && f.t < P.end && (st.flk === 'all' || f.k === st.flk));
+  const flVal = (f, ft) => { const j = Math.round((ft - f.lo) / FL_BIN); return j >= 0 && j < f.v.length ? f.v[j] : null; };
+  // the profile with gaps of up to 300 ft filled linearly (a climb-out loses a
+  // few replies in each turn) — [[kt, filled]], memoised on the flight
+  function flFilled(f) {
+    if (f._fill) return f._fill;
+    const v = f.v, out = v.map(x => (x == null ? null : [x, false]));
+    for (let j = 0; j < v.length; j++) {
+      if (v[j] != null) continue;
+      let a = j - 1; while (a >= 0 && v[a] == null) a--;
+      let b = j + 1; while (b < v.length && v[b] == null) b++;
+      if (a >= 0 && b < v.length && b - a <= 4) out[j] = [v[a] + (v[b] - v[a]) * (j - a) / (b - a), true];
+    }
+    f._fill = out;
+    return out;
+  }
+  // the median headwind of the flights of the previous 45 min in the same
+  // direction (±30°), per 100-ft bin, at least 3 — memoised on the flight
+  function flRef(f, rows) {
+    if (f._ref !== undefined) return f._ref;
+    f._ref = null;
+    if (f.h == null) return null;
+    const refs = rows.filter(o => o !== f && o.t < f.t && o.t >= f.t - FL_REF && o.h != null && angDiff(o.h, f.h) <= FL_DIR);
+    if (refs.length < 3) return null;
+    const m = new Map();
+    for (let j = 0; j < f.v.length; j++) {
+      const ft = f.lo + j * FL_BIN, vs = [];
+      for (const o of refs) { const v = flVal(o, ft); if (v != null) vs.push(v); }
+      if (vs.length >= 3) { vs.sort((a, b) => a - b); const k = vs.length >> 1; m.set(ft, vs.length % 2 ? vs[k] : (vs[k - 1] + vs[k]) / 2); }
+    }
+    f._ref = { n: refs.length, m };
+    return f._ref;
+  }
+  // the change against the reference, smoothed over ±100 ft (3 bins) — the single
+  // values of a flight scatter by about ±1.5 kt
+  function flDiff(f, ref, j) {
+    if (!ref) return null;
+    const fv = flFilled(f);
+    let s = 0, n = 0;
+    for (let k = j - 1; k <= j + 1; k++) {
+      if (k < 0 || k >= fv.length || !fv[k]) continue;
+      const r = ref.m.get(f.lo + k * FL_BIN);
+      if (r == null) continue;
+      s += fv[k][0] - r; n++;
+    }
+    return n ? s / n : null;
+  }
+  // change colour: blue less / red more headwind, nearly clear within ±2 kt, full at ±12 kt
+  function chgFill(v) {
+    const k = Math.max(0, Math.min(1, (Math.abs(v) - 2) / 10));
+    const c = v < 0 ? DIV.neg : DIV.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.06 + 0.86 * k).toFixed(3)})`;
+  }
+  const LV_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
+  function drawFlCells(g, C, L, P) {
+    const { ml, mt, pw, ph, x, y } = geo;
+    g.save(); g.beginPath(); g.rect(ml, mt, pw, ph); g.clip();
+    g.strokeStyle = L ? 'rgba(100,116,139,.22)' : 'rgba(148,163,184,.13)'; g.lineWidth = 1;
+    for (let xx = ml - ph; xx < ml + pw; xx += 7) { g.beginPath(); g.moveTo(xx, mt + ph); g.lineTo(xx + ph, mt); g.stroke(); }
+    const rows = flIn(P), cols = [];
+    const all = flRows || [];
+    for (let i = 0; i < rows.length; i++) {
+      const f = rows[i], nx = rows[i + 1];
+      const x0 = x(f.t);
+      const w = Math.max(1.5, Math.min((nx ? x(nx.t) : x(P.end)) - x0, x(f.t + FL_HOLD) - x0));
+      const ref = st.field === 'bld' ? flRef(f, all) : null;
+      cols.push({ x0, w, f, ref });
+      const fv = flFilled(f);
+      for (let j = 0; j < fv.length; j++) {
+        if (!fv[j]) continue;
+        const [v, filled] = fv[j];
+        const ft = f.lo + j * FL_BIN;
+        let col;
+        if (st.field === 'blh') col = hwFill(v);
+        else { const dv = flDiff(f, ref, j); if (dv == null) continue; col = chgFill(dv); }
+        const ya = y(ft + FL_BIN / 2), yb = y(ft - FL_BIN / 2);
+        g.globalAlpha = 1; g.fillStyle = C.plot; g.fillRect(x0, ya, w + 0.5, yb - ya + 0.5);
+        g.globalAlpha = filled ? 0.6 : 1; g.fillStyle = col; g.fillRect(x0, ya, w + 0.5, yb - ya + 0.5);
+      }
+      g.globalAlpha = 1;
+    }
+    // windshear alerts: the ramp (or band) of the alert outlined in the level's colour
+    for (const c of cols) {
+      const f = c.f;
+      if (!f.wa || !LV_COL[f.lv]) continue;
+      const ya = y(f.wa[1] + 50), yb = y(f.wa[0] - 50), ww = Math.max(c.w, 4);
+      for (const [col, lw] of [[L ? '#ffffff' : '#0f172a', 3.5], [LV_COL[f.lv], 1.8]]) {
+        g.strokeStyle = col; g.lineWidth = lw; g.strokeRect(c.x0 - 0.5, ya, ww + 1, yb - ya);
+      }
+    }
+    // the runway direction of the flights along the top (the headwind is along
+    // each flight's own runway: a change of runway changes the colours too)
+    const rwDir = f => (f.rw && /^\d\d/.test(f.rw) ? f.rw.slice(0, 2) : f.h != null ? String(Math.round(f.h / 10) % 36 || 36).padStart(2, '0') : '?');
+    const DIRC = { '04': '#38bdf8', '05': '#38bdf8', '15': '#f59e0b', '14': '#f59e0b', '16': '#f59e0b', '22': '#2dd4bf', '23': '#2dd4bf', '33': '#f472b6', '34': '#f472b6', '32': '#f472b6' };
+    g.font = 'bold 10px system-ui'; g.textAlign = 'left';
+    let lastLbl = -1e9, lastDir = null;
+    for (const c of cols) {
+      if (c.f.k !== 'a') continue;                       // the landing runway in use
+      const d = rwDir(c.f);
+      g.fillStyle = DIRC[d] || C.ink2; g.fillRect(c.x0, mt, c.w + 0.5, 4);
+      if (d !== lastDir && c.x0 >= lastLbl) {
+        g.strokeStyle = L ? '#ffffff' : '#0f172a'; g.lineWidth = 3; g.strokeText(`RWY ${d}`, c.x0 + 2, mt + 15);
+        g.fillStyle = DIRC[d] || C.ink; g.fillText(`RWY ${d}`, c.x0 + 2, mt + 15);
+        lastLbl = c.x0 + g.measureText(`RWY ${d}`).width + 8;
+      }
+      lastDir = d;
+    }
+    g.restore();
+    geo.fcols = cols;
+  }
+  function flTip(c, ft) {
+    const f = c.f, d = new Date(f.t * 1000);
+    const parts = [`<b>${f.cs || '?'}</b>${f.ty ? ' ' + f.ty : ''} · ${f.k === 'a' ? 'landing' : 'departure'}${f.rw ? ' ' + f.rw : ''} · ` +
+      `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC <span class="mini-tip-dim">(${d.getUTCDate()}.${d.getUTCMonth() + 1}.)</span>`];
+    const b = Math.round(ft / FL_BIN) * FL_BIN, v = flVal(f, b);
+    if (v == null) parts.push(`<span class="mini-tip-dim">no value at ${fmtFt(b)}${f.v.length ? ` — this flight ${fmtFt(f.lo)}–${fmtFt(f.lo + (f.v.length - 1) * FL_BIN)}` : ''}</span>`);
+    else {
+      parts.push(`${v >= 0 ? 'headwind' : 'tailwind'} <b>${Math.abs(v).toFixed(1)} kt</b> at ${fmtFt(b)} MSL`);
+      const ref = flRef(f, flRows || []), r = ref && ref.m.get(b);
+      if (r != null) parts.push(`${v - r >= 0 ? '+' : ''}${(v - r).toFixed(1)} kt against the median ${r.toFixed(1)} kt of ${ref.n} flights of the previous 45 min in the same direction` +
+        (st.field === 'bld' ? ` (±100 ft mean ${(() => { const dv = flDiff(f, ref, Math.round((b - f.lo) / FL_BIN)); return dv == null ? '–' : (dv >= 0 ? '+' : '') + dv.toFixed(1); })()} kt)` : '') +
+        ` <span class="mini-tip-dim">(${v - r < 0 ? 'less headwind' : 'more headwind'})</span>`);
+      else parts.push('<span class="mini-tip-dim">fewer than 3 flights of the previous 45 min in the same direction at this height</span>');
+    }
+    if (f.lv && f.lv !== 'none') parts.push(`<b style="color:${LV_COL[f.lv]}">windshear ${f.lv.toUpperCase()}</b>` + (f.wa ? ` at ${fmtFt(f.wa[0])}–${fmtFt(f.wa[1])}` : ''));
+    parts.push(`<span class="mini-tip-dim">headwind along the ${f.k === 'a' ? 'approach' : 'climb'}${f.h != null ? ` (${String(Math.round(f.h)).padStart(3, '0')}°)` : ''} · ` +
+      `${f.src === 'v7' ? 'TAS − GS of the BDS 5,0 replies (no ADS-B ground speed)' : 'both airspeed registers against the ADS-B ground speed (v8)'} · mean of 100 ft · research</span>`);
+    return parts.join('<br>');
+  }
+  async function loadFl() {
+    const key = `${st.hours}|${st.endDate}`;
+    if (flRows && flKey === key && (st.endDate || Date.now() - flAt < 60000)) return;
+    try {
+      const r = await fetch(`/api/boundary/flights?hours=${st.hours}&end=${endTs()}`).then(r => r.json());
+      flRows = Array.isArray(r) ? r : [];
+    } catch (e) { flRows = []; }
+    flKey = key; flAt = Date.now();
+  }
   // barbs from the 250-ft wind bins at every 500 ft (fewer when the plot is low)
   function drawBlBarbs(g, L, C, P) {
     const { cw, x, y } = geo;
@@ -766,7 +921,13 @@
     const when = `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad(d.getUTCHours())}–${pad((d.getUTCHours() + 1) % 24)} UTC`;
     let html;
     const blr = blRows && needBl() ? blRows.find(r => r.ts === h.ts) : null;
-    if (h.blft != null) {
+    const fc = h.blft != null && isFL() && geo.fcols ? geo.fcols.find(c => h.mx >= c.x0 && h.mx < c.x0 + Math.max(c.w, 2)) : null;
+    if (fc) {
+      html = flTip(fc, h.blft);
+      if (blr && (blr.llj || blr.inv)) html += '<br>' + blTip(blr, null);
+    } else if (h.blft != null && isFL()) {
+      html = `<b>${when}</b> · ${fmtFt(Math.max(0, Math.round(h.blft / 50) * 50))} MSL<br><span class="mini-tip-dim">no landing or departure within 20 min before</span>`;
+    } else if (h.blft != null) {
       html = `<b>${when}</b> · ${fmtFt(Math.max(0, Math.round(h.blft / 50) * 50))} MSL<br>` +
         (blTip(blr, h.blft) || '<span class="mini-tip-dim">no boundary-layer data (no flights)</span>');
     } else if (h.sonde && h.li != null) {
@@ -862,6 +1023,13 @@
     if (!data) return;
     const meta = $('sounding-meta');
     if (!meta || !isBL()) return;
+    if (isFL()) {
+      const fl = flRows ? flIn({ start: data.start_ts, end: data.end_ts }) : [];
+      const na = fl.filter(f => f.k === 'a').length;
+      meta.textContent = `Boundary layer, flight by flight: ${na} landings · ${fl.length - na} departures · ` +
+        `${fl.filter(f => f.lv && f.lv !== 'none').length} with a windshear level (research)`;
+      return;
+    }
     const rows = blRows ? blIn({ start: data.start_ts, end: data.end_ts }) : [];
     meta.textContent = `Boundary layer: ${rows.filter(r => (r.w || []).length || (r.t || []).length).length} hours with flights · ` +
       `low-level jet in ${rows.filter(r => r.llj).length} h · surface inversion in ${rows.filter(r => r.inv).length} h (research)`;
@@ -880,6 +1048,7 @@
         fetch(`/api/sounding/timeheight?hours=${st.hours}&end=${endTs()}`).then(r => r.json()),
         sondes.length ? Promise.resolve(null) : fetch('/api/sondes').then(r => r.json()).catch(() => null),
         needBl() ? loadBl() : null,
+        isFL() ? loadFl() : null,
       ]);
       if (req !== seq) return;
       data = d;
@@ -906,12 +1075,14 @@
     $('th-vmax').checked = st.vmax;
     $('th-sondecol').checked = st.sondeCol;
     if ($('th-bl')) $('th-bl').checked = st.bl;
+    if ($('th-flk')) $('th-flk').value = st.flk;
     $('th-end').value = st.endDate;
     syncDisabled();
     renderLegend();
   }
   // the overlays that do not apply to the boundary-layer field are greyed out
   function syncDisabled() {
+    if ($('th-flk')) { $('th-flk').disabled = !isFL(); $('th-flk').classList.toggle('th-off', !isFL()); }
     for (const id of ['th-iso', 'th-tp', 'th-vmax', 'th-sondecol', 'th-bl']) {
       const el = $(id);
       if (!el) continue;
@@ -925,6 +1096,16 @@
     if (!el) return;
     const red = blRed(light());
     const blLeg = `<b>◆</b> low-level jet (kt) · <span style="color:${red}">▬</span> surface inversion (line: its top)`;
+    if (isFL()) {
+      el.innerHTML = (st.field === 'blh'
+        ? 'Boundary layer · headwind of each flight along its runway ' +
+          `<span class="th-sw" style="background:${hwFill(-8)}" title="tailwind"></span>` +
+          [0, 10, 20, 30, 40].map(v => `<span class="th-sw" style="background:${hwFill(v)}" title="${v} kt"></span>`).join('') +
+          ' <span class="th-lt">tailwind · 0 · 10 · 20 · 30 · 40 kt</span>'
+        : 'Boundary layer · headwind change against the flights of the previous 45 min (same direction, ±100 ft mean) <span class="th-bar"></span> <span class="th-lt">less −12 · ±2 · +12 kt more</span>') +
+        ` <span class="th-lt">· one column per landing / departure (held ≤ 20 min) · top line: landing runway${st.field === 'blh' ? ' (a runway change changes the headwind)' : ''} · ▭ windshear alert (ADV · WSA · MBA) · ${blLeg} · ▨ no flights · research</span>`;
+      return;
+    }
     if (isBL()) {
       el.innerHTML = (st.field === 'blw'
         ? 'Boundary layer · wind speed ' + [0, 10, 20, 30, 40, 55].map(v => `<span class="th-sw" style="background:${blSpd(v)}" title="${v} kt"></span>`).join('') +
@@ -1019,9 +1200,11 @@
     $('th-field').addEventListener('change', async e => {
       st.field = e.target.value; lsSet('ms_th_field', st.field); syncDisabled(); renderLegend();
       if (needBl()) { await loadBl(); }
+      if (isFL()) { await loadFl(); }
       if (data) { const meta = $('sounding-meta'); if (isBL()) blMeta(); else if (meta && meta.textContent.startsWith('Boundary')) load(); }
       render();
     });
+    if ($('th-flk')) $('th-flk').addEventListener('change', e => { st.flk = e.target.value; lsSet('ms_th_flk', st.flk); blMeta(); render(); });
     $('th-barbs').addEventListener('change', e => { st.barbs = e.target.checked; lsSet('ms_th_barbs', st.barbs); render(); });
     $('th-iso').addEventListener('change', e => { st.iso = e.target.checked; lsSet('ms_th_iso', st.iso); render(); });
     $('th-tp').addEventListener('change', e => { st.tp = e.target.checked; lsSet('ms_th_tp', st.tp); render(); });

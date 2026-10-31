@@ -413,10 +413,76 @@ def _shear_confirm_backfill(ws_tracker) -> None:
 
 def _shear_startup(ws_tracker) -> None:
     """Startup thread: windshear report back-fill, then the confirmation
-    back-fill, then (once) the detection v8 shadow back-fill."""
+    back-fill, then (once) the detection v8 shadow back-fill and (once) the
+    fine headwind profiles."""
     _shear_backfill(ws_tracker)
     _shear_confirm_backfill(ws_tracker)
     _shear_v8_backfill(ws_tracker)
+    _hp_backfill(ws_tracker)
+
+
+HP_BACKFILL_KEY = "ws_hp_backfill"     # maintenance_config: the one-time back-fill below is done
+
+
+def _hp_backfill(ws_tracker=None) -> None:
+    """One-time at start (from 2026-10-31): the fine headwind profile "hp"
+    (collector/shear.py analyze: 100-ft bins 200–5 000 ft) in the windshear
+    report of the stored landings and departures that have a raw series —
+    for the Time–height section's flight columns.  v8 where the series has
+    ADS-B ground speed, else v7.  Batches of 100 with short pauses; marked
+    done in maintenance_config."""
+    from database.db import get_db
+    from collector import shear as _shear
+    from collector.windshear import WindshearTracker
+    sl = logging.getLogger("modes.windshear")
+    try:
+        db = get_db()
+        try:
+            if db.execute("SELECT value FROM maintenance_config WHERE key = ?", (HP_BACKFILL_KEY,)).fetchone():
+                return
+        except Exception:                                 # noqa: BLE001  (older database)
+            return
+        t0 = time.time()
+        n = 0
+        done: dict = {}                 # landings: also put on the reports in RAM
+        for main, ser in (("approach_history", "approach_series"), ("departure_profiles", "departure_series")):
+            todo = db.execute(f"SELECT m.id, m.ts, m.icao FROM {main} m WHERE m.shear_json IS NOT NULL "
+                              f"AND EXISTS (SELECT 1 FROM {ser} s WHERE s.ts = m.ts AND s.icao = m.icao) "
+                              f"ORDER BY m.ts").fetchall()
+            for i in range(0, len(todo), 100):
+                upd = []
+                for rid, ts, icao in todo[i:i + 100]:
+                    try:
+                        row = db.execute(f"SELECT m.shear_json, s.data FROM {main} m JOIN {ser} s "
+                                         f"ON s.ts = m.ts AND s.icao = m.icao WHERE m.id = ?", (rid,)).fetchone()
+                        rep = json.loads(row[0])
+                        if not isinstance(rep, dict) or "hp" in rep:
+                            continue
+                        d = WindshearTracker.decode_series(row[1])
+                        b50 = _rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt"))
+                        sw = _rows(d, "sw", ("t", "alt", "palt", "dthr", "xt"))
+                        a = (_shear.analyze_v8(b50, _rows(d, "b60", ("t", "ias", "hdg", "vri", "vrb", "mach", "alt")),
+                                               _rows(d, "v19", ("t", "gs", "trk", "vr", "alt")), sw)
+                             if (d.get("v19") or {}).get("t") else None) or _shear.analyze(b50, sw)
+                        if a and a.get("hp"):
+                            rep["hp"] = a["hp"]
+                            upd.append((json.dumps(rep, separators=(",", ":")), rid))
+                            if main == "approach_history":
+                                done[(int(ts), icao)] = rep
+                    except Exception as exc:              # noqa: BLE001
+                        sl.debug("Headwind profile back-fill failed for %s: %s", rid, exc)
+                if upd:
+                    db.executemany(f"UPDATE {main} SET shear_json = ? WHERE id = ?", upd)
+                    db.commit()
+                    n += len(upd)
+                time.sleep(0.3)
+        db.execute("INSERT OR REPLACE INTO maintenance_config (key, value) VALUES (?, ?)", (HP_BACKFILL_KEY, "1"))
+        db.commit()
+        if ws_tracker is not None and done:
+            ws_tracker.attach_shear(done)
+        sl.info("Fine headwind profiles back-filled for %d landing(s) / departure(s) in %.0f s", n, time.time() - t0)
+    except Exception as exc:                              # noqa: BLE001
+        sl.warning("Headwind profile back-fill failed: %s", exc)
 
 
 V8_BACKFILL_KEY = "ws_v8_backfill"     # maintenance_config: the one-time back-fill below is done

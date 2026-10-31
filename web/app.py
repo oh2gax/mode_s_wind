@@ -1871,6 +1871,52 @@ def create_app(
         except Exception:                              # noqa: BLE001  (older database)
             return jsonify([])
 
+    @app.route("/api/boundary/flights")
+    def boundary_flights_api():
+        """The fine headwind profile of every landing and departure of the last
+        ?hours= (1–336, default 24; ?end=<Unix s> for a past period) — for the
+        Time–height section's flight columns (from 2026-10-31): the report's
+        "hp" (collector/shear.py, 100-ft bins 200–5 000 ft MSL; the detection
+        v8 headwind where the flight has ADS-B ground speed).  Oldest first:
+        [{t, k: "a" | "d", cs, ty, rw, h (direction ° true), lo, v: [kt | null],
+          lv (level), wa: [ft, ft] (the alert's ramp or band), src}]."""
+        import json as _json
+        hours = max(1.0, min(request.args.get("hours", 24, type=float), 336.0))
+        end = request.args.get("end", type=float) or time.time()
+        t0 = end - hours * 3600
+        out = []
+        try:
+            db = get_db()
+            rows = [("a", r) for r in db.execute(
+                "SELECT ts, callsign, aircraft_type, runway, rwy_heading AS hdg, shear_json FROM approach_history "
+                "WHERE ts >= ? AND ts < ? AND shear_json IS NOT NULL", (t0, end)).fetchall()]
+            rows += [("d", r) for r in db.execute(
+                "SELECT ts, callsign, aircraft_type, NULL AS runway, track AS hdg, shear_json FROM departure_profiles "
+                "WHERE ts >= ? AND ts < ? AND shear_json IS NOT NULL AND ga = 0", (t0, end)).fetchall()]
+            for k, r in rows:
+                try:
+                    w = _json.loads(r["shear_json"])
+                except ValueError:
+                    continue
+                hp = (w or {}).get("hp")
+                if not hp or not hp.get("v"):
+                    continue
+                e = {"t": round(r["ts"]), "k": k, "cs": r["callsign"], "ty": r["aircraft_type"],
+                     "rw": r["runway"] or w.get("rwy"), "h": w.get("hdg") if k == "d" and w.get("hdg") is not None else r["hdg"],
+                     "lo": hp.get("lo"), "v": hp["v"], "lv": w.get("lvl") or "none", "src": w.get("src")}
+                if e["lv"] != "none":
+                    zs = [c for c in (w.get("loss"), w.get("gain")) if c and c.get("zone") and (c.get("sc") or 0) >= 10]
+                    if zs:
+                        c = max(zs, key=lambda c: c.get("sc") or 0)
+                        e["wa"] = sorted([c.get("a1"), c.get("a2")])
+                    elif w.get("band"):
+                        e["wa"] = [w["band"]["b"] - 100, w["band"]["b"] + 100]
+                out.append(e)
+        except Exception:                              # noqa: BLE001  (older database)
+            return jsonify([])
+        out.sort(key=lambda e: e["t"])
+        return _gzip_json(out)
+
     @app.route("/api/windshear/edr-tracks")
     def windshear_edr_tracks_api():
         """Turbulence (EDR) along the paths of the landings and departures of the

@@ -101,6 +101,7 @@ RAMP_WSA_MIN_DV = 14.0
 # decides as before; windshear and microburst alerts are never relative.
 RAMP_ADV_ABS = 12.0
 
+HP_BIN_FT, HP_LO_FT, HP_HI_FT = 100, 200, 5000   # fine headwind profile "hp" (from 31 Oct 2026)
 BAND_WINDOW_SEC = 45 * 60     # reference landings for the band anomaly
 BAND_MIN_REF = 3
 BAND_ADVISORY = 10.0          # kt
@@ -219,7 +220,8 @@ def _points(b50: list, sw: list):
         alt = row[6] if len(row) > 6 else None
         if gs is None or tas is None or roll is None or abs(roll) > MAX_ROLL:
             continue
-        if not (60 <= gs <= 280 and 80 <= tas <= 260) or abs(tas - gs) > 80:
+        if not (60 <= gs <= 330 and 80 <= tas <= 300) or abs(tas - gs) > 80:   # (to 31 Oct 2026 GS ≤ 280, TAS ≤ 260:
+            #  the climb-outs above about 3 000 ft at 250 kt IAS were cut)
             continue
         if prev is not None and gs == prev[1] and tas == prev[2] and t - prev[0] < REPEAT_SEC:
             continue
@@ -402,6 +404,22 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
         if 200 <= b <= 3000 and abs(p["alt"] - b) <= 100:
             bsum.setdefault(b, []).append(p["hw"])
     bands = {str(b): round(sum(v) / len(v), 1) for b, v in sorted(bsum.items()) if len(v) >= 2}
+    # fine headwind profile (from 31 Oct 2026, the Time–height section's flight
+    # columns): every 100 ft 200–5 000 ft MSL the mean of the cleaned values
+    # within ±50 ft (at least 2), else within ±100 ft (at least 1 — a climb-out
+    # passes 100 ft in about 2 s, one reply) — {"lo": lowest ft, "v": [kt | None]}
+    hv = sorted((p["alt"], p["hw"]) for p in pts if p["alt"] is not None)
+    hp_v = {}
+    for b in range(HP_LO_FT, HP_HI_FT + HP_BIN_FT, HP_BIN_FT):
+        near = [w for a, w in hv if abs(a - b) <= HP_BIN_FT / 2]
+        if len(near) < 2:
+            near = [w for a, w in hv if abs(a - b) <= HP_BIN_FT]
+        if near:
+            hp_v[b] = round(sum(near) / len(near), 1)
+    hp = None
+    if hp_v:
+        lo, hi = min(hp_v), max(hp_v)
+        hp = {"lo": lo, "v": [hp_v.get(b) for b in range(lo, hi + HP_BIN_FT, HP_BIN_FT)]}
     out = {"n": len(pts), "drop": dropped,
            "noise": None if noise is None else round(noise, 2),
            "len": int(round(pts[-1]["x"])),
@@ -410,7 +428,7 @@ def analyze(b50: list, sw: list, thr_ft: float = 179.0) -> dict | None:
            "d": [_r2(max((p["d"] for p in pts if p["d"] is not None), default=None)),
                  _r2(min((p["d"] for p in pts if p["d"] is not None), default=None))],
            "fh": None if fh is None else round(fh, 3),
-           "fh_a": _r0(fh_a), "bd": bands}
+           "fh_a": _r0(fh_a), "bd": bands, "hp": hp}
     for kind in ("loss", "gain"):
         c = best[kind] or best_any[kind]
         out[kind] = {k: v for k, v in c.items() if k != "_rank"} if c else None
