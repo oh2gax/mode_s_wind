@@ -40,9 +40,9 @@
  * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
  * sector, all heights (/api/coverage, the Statistics page's range data).  The
  * API gives a list of receivers; the line is the outline of their union
- * (each outline stroked twice as wide, then all insides cleared), so more
- * receivers later give their combined coverage.  1 px, dashed 6 / 4 px (from the
- * same day; first 1.3 px solid).  Independent of the source.
+ * (each outline drawn 1 px dashed, as thin as the radar edge, with its parts
+ * inside the other receivers' areas cleared), so more receivers later give
+ * their combined coverage.  Independent of the source.
  */
 'use strict';
 
@@ -131,14 +131,14 @@
   })();
 
   // ── Receiver coverage: the outline of the union of the receivers' areas ──
-  const COV_COL = { dark: 'rgba(191,219,254,0.9)', light: 'rgba(29,78,216,0.75)' };
+  const COV_COL = { dark: 'rgba(191,219,254,0.75)', light: 'rgba(29,78,216,0.7)' };
   const covLayer = (() => {
     const paneName = 'wxCovPane';
     if (!map.getPane(paneName)) { const p = map.createPane(paneName); p.style.zIndex = 368; p.style.pointerEvents = 'none'; }
     const canvas = L.DomUtil.create('canvas', 'wx-canvas');
     canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0'; canvas.style.pointerEvents = 'none';
     map.getPane(paneName).appendChild(canvas);
-    let data = null, on = false, segs = [];      // [[x, y, sector] …] per receiver, for the hover
+    let data = null, on = false, segs = [], off = null;      // [[x, y, sector] …] per receiver, for the hover
     function place() {
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
       L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
@@ -158,16 +158,25 @@
         return ring;
       });
       if (!rings.length) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const path = () => { ctx.beginPath(); for (const ring of rings) { ring.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); } };
-      // stroke twice the width, then clear every inside: the outer half is the union's edge
-      path();
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
-      ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);   // 1 px dashed after the clearing
-      ctx.globalCompositeOperation = 'destination-out';
-      path(); ctx.fillStyle = '#000'; ctx.fill('nonzero');
-      ctx.globalCompositeOperation = 'source-over';
+      // each outline 1 px dashed (as the radar edge), with the parts inside the
+      // other receivers' areas cleared: the edge of the union
+      const col = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+      const trace = (c, ring) => { ring.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); };
+      if (!off) off = document.createElement('canvas');
+      off.width = canvas.width; off.height = canvas.height;
+      const o = off.getContext('2d');
+      rings.forEach((ring, k) => {
+        o.setTransform(1, 0, 0, 1, 0, 0); o.clearRect(0, 0, off.width, off.height);
+        o.setTransform(dpr, 0, 0, dpr, 0, 0);
+        o.beginPath(); trace(o, ring);
+        o.strokeStyle = col; o.lineWidth = 1; o.lineJoin = 'round'; o.setLineDash([6, 4]); o.stroke(); o.setLineDash([]);
+        if (rings.length > 1) {
+          o.globalCompositeOperation = 'destination-out'; o.fillStyle = '#000';
+          o.beginPath(); rings.forEach((r, j) => { if (j !== k) trace(o, r); }); o.fill('nonzero');
+          o.globalCompositeOperation = 'source-over';
+        }
+        ctx.drawImage(off, 0, 0);
+      });
     }
     map.on('zoomstart', () => { canvas.style.visibility = 'hidden'; });
     map.on('zoomend moveend resize', () => { canvas.style.visibility = ''; place(); });
