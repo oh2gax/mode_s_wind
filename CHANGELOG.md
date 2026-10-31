@@ -7,7 +7,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.31102026 — 2026-10-31 (2.5 km MEPS detail near the airport on the Weather page and the phone; the phone's approach-map labels placed apart with leader lines; All tracked (30 NM) at every level; About at the top of What's new; dates and fading age in the Windshear alert log)
+## v.31102026 — 2026-10-31 (2.5 km MEPS detail near the airport on the Weather page and the phone; the phone's approach-map labels placed apart with leader lines; All tracked (30 NM) at every level; About at the top of What's new; dates and fading age in the Windshear alert log; history plots on the phone's ATC map)
+
+### Phone: history plots with Trails on the ATC map
+- With *Map style: ATC* and *Trails* the approach map showed only a faint 2-minute line behind the aircraft on the approach, and nothing behind the other traffic. It now draws the history plots of the Live Map's and the Windshear map's ATC style: the last 5 positions of every aircraft on the map as small dots, older ones fainter (`AtcDisplay.addTrail` from each 5-s poll, an aircraft on the approach seeded from its server trail so its dots show at once; `AtcDisplay.drawPlots` on the label canvas, the dots also kept clear by the labels). The street map keeps the trail lines. `static/js/app.js`.
+- Mobile user guide 1.34. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ### Windshear page: date and age in the alert log
 - The alert log lists the alerts and go-arounds of the last 24 hours with only the time, so a go-around of the previous evening could be taken for one of this morning. An entry from an earlier UTC day now has its date before the time (`30.10. 22:15 ✈ GA 04L SAS733`), and the entries fade with age: under 1 h as before, 1–6 h dimmer (a go-around's red text grey), 6–24 h faint, full again under the mouse. The hover starts with the full date, the time to the second and the age. Go-arounds show hh:mm like the alerts (the seconds in the hover). `static/js/windshear.js` (`_logAge`), `static/css/style.css` (`.ws-log-aged`, `.ws-log-old`).

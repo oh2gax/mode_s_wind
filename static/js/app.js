@@ -1006,7 +1006,8 @@
   // approach follows it (as on the profile).  Leaflet is loaded the first time
   // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
   const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null, atcLoading: null, atcLines: null,
-               lbl: null, items: [], lblStyle: null, lblPos: {}, ilsFeat: null };   // the canvas labels (2026-10-31)
+               lbl: null, items: [], lblStyle: null, lblPos: {}, ilsFeat: null,     // the canvas labels (2026-10-31)
+               hist: {} };   // ATC style + Trails: icao → history plots [[lat, lon, ts], …] (2026-10-31)
   const IM_KEY = 'ms_app_ilsMapView', IM_HOME_ZOOM = 9;
   const IM_SRC = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', NONE: '#6b7280' };
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -1205,7 +1206,7 @@
       const sel = onA && a.icao === I.sel && I.barbs !== 'off';
       const selM = sel && !atc;                                      // the followed aircraft marked (not in ATC)
       const ac0 = atc ? (a.landed ? AP.high : AtcDisplay.symColor(a)) : null;   // its ATC colour
-      if (onA && I.trails && Array.isArray(a.trail) && a.trail.length > 1)
+      if (onA && I.trails && !atc && Array.isArray(a.trail) && a.trail.length > 1)     // ATC style: plots (below)
         L.polyline(a.trail, { interactive: false, color: atc ? ac0 : light ? '#334155' : '#cbd5e1', weight: 1.5, opacity: atc ? 0.45 : 0.6 }).addTo(IM.ac);
       // the square: 12 px selected, 9 px on the approach, 7 px others (smaller from 28 Oct 2026 evening);
       // drawn in a 24-px icon so that it stays easy to tap
@@ -1235,7 +1236,7 @@
         : [(a.callsign || a.icao) + (I.actype === 'on' && a.aircraft_type ? ' ' + a.aircraft_type : ''),
            (alt + (a.landed ? ' · landed' : '') + (a.dep ? ` · ${a.dep_rwy || 'DEP'}↑` : '')).replace(/^ · /, '')].filter(Boolean);
       items.push({ key: a.icao, lat: a.lat, lon: a.lon, lines, sel, vec: vEnd,
-                   trail: onA && I.trails && Array.isArray(a.trail) ? a.trail : null,
+                   trail: onA && I.trails && !atc && Array.isArray(a.trail) ? a.trail : null, ts: a.last_seen,
                    col: atc ? c : lblCol(onA, a), fade: atc && !(onA && !a.landed) ? 0.75 : 1,
                    alt: (a.altitude ?? 99999) - (onA ? 100000 : 0) });     // the approach traffic placed first
     }
@@ -1248,7 +1249,7 @@
                  : `600 ${fs}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`,
       lh: Math.round(fs * (atcL ? 1.14 : 1.2)),
       halo: atc ? null : light ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
-      leader: atc ? null : light ? '#64748b' : '#94a3b8' } };
+      leader: atc ? null : light ? '#64748b' : '#94a3b8' }, plots: atc && I.trails };
     if (atcReady() && !IM.lbl) IM.lbl = AtcDisplay.canvasLayer(IM.map, drawIlsLabels);
     if (IM.lbl) IM.lbl.redraw();
   }
@@ -1256,6 +1257,7 @@
   function drawIlsLabels(g, m, W, H) {
     const items = IM.items || [];
     if (!items.length || !IM.lblStyle) return;
+    g.globalAlpha = 1;
     const obst = AtcDisplay.domObstacles(m, '.leaflet-control-zoom, .ms-map-home, .leaflet-control-attribution');
     if (IM.ilsFeat) obst.push(...AtcDisplay.lineObstacles(m, IM.ilsFeat, W, H));
     const lbls = [];
@@ -1267,6 +1269,11 @@
         for (let d = 8; d < L0; d += 8) obst.push({ x: p.x + dx * d / L0 - 2, y: p.y + dy * d / L0 - 2, w: 4, h: 4 });
       }
       if (it.trail) for (const q of it.trail) { const t = m.latLngToContainerPoint(q); obst.push({ x: t.x - 2, y: t.y - 2, w: 4, h: 4 }); }
+      // ATC style + Trails: the last 5 history plots (not the current position), as on the big maps
+      if (IM.lblStyle.plots) {
+        const pts = (IM.hist[it.key] || []).filter(q => it.ts == null || q[2] < it.ts - 0.5).slice(-5);
+        if (pts.length) AtcDisplay.drawPlots(g, m, pts, 5, it.col, it.fade, obst);
+      }
       lbls.push({ key: it.key, p, lines: it.lines, col: it.col, sel: it.sel, fade: it.fade, alt: it.alt });
     }
     AtcDisplay.drawLabels(g, lbls, W, H, obst, IM.lblPos, IM.lblStyle.fs, IM.lblStyle.opt);
@@ -1455,6 +1462,25 @@
     IHist.open.has(k) ? IHist.open.delete(k) : IHist.open.add(k);
     drawIlsHist(); markScroll();
   });
+  // History plots of the ATC map style (from 2026-10-31): a position of every aircraft
+  // on the map at most every 5 s (AtcDisplay.addTrail, from each poll); an aircraft on
+  // the approach starts with the last points of its server trail (2 min), so its dots
+  // show at once
+  function ilsHistAdd() {
+    if (!atcReady()) return;
+    const keep = new Set(), now = Date.now() / 1000;
+    for (const a of I.ac) {
+      if (a.lat == null || a.lon == null) continue;
+      keep.add(a.icao);
+      const t = IM.hist[a.icao] || (IM.hist[a.icao] = []), ts = a.last_seen || now;
+      if (!t.length && Array.isArray(a.trail) && a.trail.length > 2) {
+        const tr = a.trail.slice(-6, -1);                      // about every 6 s, oldest first
+        tr.forEach((q, k) => t.push([q[0], q[1], ts - (tr.length - k) * 6]));
+      }
+      AtcDisplay.addTrail(t, a.lat, a.lon, ts);
+    }
+    for (const k of Object.keys(IM.hist)) if (!keep.has(k)) delete IM.hist[k];
+  }
   async function loadIls() {
     try {
       // All tracked (from 2026-10-31): every aircraft within 30 NM at any level; Departures
@@ -1463,6 +1489,7 @@
               : I.deps === 'show' ? '&map=1&near=1' : '&map=1';
       const st = await (await fetch('/api/windshear/state?lite=1' + q, { cache: 'no-store' })).json();
       I.ac = IlsProfile.landedFilter(st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : []);
+      ilsHistAdd();
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];
       I.fetched = Date.now();
       autoSel();

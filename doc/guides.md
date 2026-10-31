@@ -89,7 +89,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.33
+version: 1.34
 date: 2026-10-31
 pages: 30
 

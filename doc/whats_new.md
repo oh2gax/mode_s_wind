@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.31102026 — Sharper weather maps near the airport, tidier labels on the phone's approach map
 
+- **Trail dots on the phone's ATC map** — with *Map style: ATC* and *Trails* every aircraft on the approach map now leaves the small fading dots of its last positions, as on the big pages' ATC maps (the street map keeps its trail lines). Mobile guide 1.34.
 - **Dates in the Windshear alert log** — alerts and go-arounds from an earlier day now show their date (e.g. `30.10. 22:15`), and older entries fade: dimmer after 1 hour (a go-around turns from red to grey), faint after 6 hours. Point at an entry for the full date and how long ago it was. Windshear guide 2.25.
 - **Approach-map labels out of the way** — on the phone's ILS map the labels now have a thin leader line and move away from each other, the aircraft, the speed vectors and the approach lines, as on the big pages' maps; before, the first aircraft on 04L / 04R had its label right over the approach line ahead of it.
 - **All tracked (30 NM)** — the phone map's *All tracked* now shows every aircraft within 30 NM of the airport at any level (before 15 NM and below 5 000 ft).
