@@ -62,6 +62,15 @@ _BDS_SAMPLES_MAX = 16
 _VEL_SAMPLES_MAX = 40
 _VEL_SAMPLES: dict[str, deque] = {}
 STATS_LOG_SEC = 600           # the collector's "Stats:" log line every 10 min (was every 5000 messages)
+# Message time check (from 2026-10-31): pyModeS 3.3 NetworkSource anchors the
+# FIRST frame of each TCP read to the wall clock and stamps the later frames
+# from the Beast counter, so a burst that starts with a delayed frame puts the
+# rest up to tens of seconds in the future (seen in 0.1–0.7 % of the stored
+# replies; they duplicated rows in the climb-out series and left gaps in the
+# approach series).  A frame cannot have been received after now, nor long
+# before it: times outside [now − TS_MAX_AGE_SEC, now] are set to now.
+TS_MAX_AGE_SEC = 10.0
+TS_NOTE_SEC = 1.0             # corrections larger than this are counted for the Stats line
 # Stored with each observation (pressure-surface heights): the aircraft's
 # latest GNSS − baro altitude difference (TC 19, sent about twice a second)
 # when at most GMB_MAX_AGE_SEC old, and its NACp when at most NACP_MAX_AGE_SEC old
@@ -457,8 +466,19 @@ def run_collector(
             msg_count = 0
             stats_next = time.time() + STATS_LOG_SEC
             stats_count = 0
+            ts_ahead = ts_behind = 0
+            ts_ahead_max = 0.0
             for msg_hex, ts in source:
                 msg_count += 1
+                wall = time.time()                   # message time check (TS_MAX_AGE_SEC)
+                if ts > wall:
+                    if ts - wall > TS_NOTE_SEC:
+                        ts_ahead += 1
+                        ts_ahead_max = max(ts_ahead_max, ts - wall)
+                    ts = wall
+                elif ts < wall - TS_MAX_AGE_SEC:
+                    ts_behind += 1
+                    ts = wall
                 mstats.raw(ts, msg_hex, beast_sig.pop(msg_hex) if sig_on else None)
 
                 # ── Decode with pyModeS PipeDecoder ──────────────────────
@@ -758,6 +778,12 @@ def run_collector(
                         n_tracked = len(live_state)
                     log.info("Stats: %d messages processed (%d in the last %d min), %d aircraft tracked",
                              msg_count, msg_count - stats_count, STATS_LOG_SEC // 60, n_tracked)
+                    if ts_ahead or ts_behind:
+                        log.info("Message times corrected in the last %d min: %d ahead of the clock "
+                                 "(up to %.0f s), %d more than %.0f s old",
+                                 STATS_LOG_SEC // 60, ts_ahead, ts_ahead_max, ts_behind, TS_MAX_AGE_SEC)
+                        ts_ahead = ts_behind = 0
+                        ts_ahead_max = 0.0
                     stats_count = msg_count
                     stats_next = now_s + STATS_LOG_SEC
 

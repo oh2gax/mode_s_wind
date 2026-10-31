@@ -83,6 +83,7 @@ DEP_MAX_NM       = 25.0
 DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
+FUTURE_SEC       = 1.0         # replies stamped further ahead of the sweep clock are skipped (2026-10-31)
 MAX_ROLL         = 5.0
 SERIES_MAX_ROWS  = 600         # per list per climb-out (≈ 10 min at 1 reply/s)
 DEP_MARK_SEC     = 900.0       # a finished climb-out stays marked as a departure for the maps (2026-10-29)
@@ -299,13 +300,27 @@ class DepartureTracker:
 
         def _rd(v, nd):
             return None if v is None else (int(round(v)) if nd == 0 else round(v, nd))
-        # raw series (every reply since the previous sweep, height at its time)
-        for t5, roll5, trate5, trk5, gs5, tas5 in b50:
-            if t5 > since and len(st["raw5"]) < SERIES_MAX_ROWS:
-                st["raw5"].append([round(t5, 2), _rd(roll5, 2), _rd(trate5, 3), _rd(trk5, 2),
-                                   gs5, tas5, int(round(alt_at(t5)))])
-        for smp in b60:
-            if smp[0] > since and len(st["raw6"]) < SERIES_MAX_ROWS:
+        # raw series (every reply once, height at its time).  From 2026-10-31 a
+        # reply is new when it is later than the last one taken (l5 / l6), not
+        # later than the previous sweep: a reply stamped ahead of the sweep clock
+        # was taken again on every sweep (duplicated rows, false turbulence), and
+        # one that reached the buffer just after a sweep was lost.
+        # A reply stamped more than FUTURE_SEC ahead of the sweep clock is skipped
+        # (it cannot have been received yet; the receiver corrects such times
+        # from 2026-10-31, collector/receiver.py TS_MAX_AGE_SEC).
+        l5, l6 = st.get("l5", since), st.get("l6", since)
+        lim = now + FUTURE_SEC
+        new6 = sorted((smp for smp in b60 if l6 < smp[0] <= lim), key=lambda x: x[0])
+        for t5, roll5, trate5, trk5, gs5, tas5 in sorted(b50, key=lambda x: x[0]):
+            if l5 < t5 <= lim:
+                st["l5"] = l5 = t5
+                if len(st["raw5"]) < SERIES_MAX_ROWS:
+                    st["raw5"].append([round(t5, 2), _rd(roll5, 2), _rd(trate5, 3), _rd(trk5, 2),
+                                       gs5, tas5, int(round(alt_at(t5)))])
+        if new6:
+            st["l6"] = max(smp[0] for smp in new6)
+        for smp in new6:
+            if len(st["raw6"]) < SERIES_MAX_ROWS:
                 st["raw6"].append([round(smp[0], 2), smp[1], _rd(smp[2], 2), _rd(smp[3], 0),
                                    _rd(smp[4], 0), _rd(smp[5] if len(smp) > 5 else None, 3),
                                    int(round(alt_at(smp[0])))])
@@ -318,11 +333,9 @@ class DepartureTracker:
                                             int(round(alt_at(tv)))])
             except Exception as exc:                      # noqa: BLE001
                 log.debug("Velocity sample fetch failed for %s: %s", icao, exc)
-        for smp in b60:
+        for smp in new6:
             ts, _ias, mhdg = smp[0], smp[1], smp[2]
             mach = smp[5] if len(smp) > 5 else None
-            if ts <= since:
-                continue
             if not b50:
                 break
             p5 = min(b50, key=lambda x: abs(x[0] - ts))

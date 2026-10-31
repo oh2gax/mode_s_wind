@@ -38,6 +38,15 @@ classes (ACI needs class factors).  About 85 % of the landings and 40 % of
 the departures (their stored replies cover about 1 000–3 000 ft and they turn
 early) get a value.
 
+Record version 2 (31 Oct 2026): before the pieces, replies with the same time
+as an earlier one and replies stamped more than FUTURE_SEC later than a reply
+stored after them are dropped (receiver timestamps ahead of the clock, see
+collector/receiver.py TS_MAX_AGE_SEC; in the climb-out series one stale reply
+could be repeated at several heights — FIN3A on 30 Oct read EDR 0.34 / peak
+0.40 instead of 0.07 / 0.09).  Departures 27–31 Oct: peak ≥ 0.20 14 → 8;
+landings practically unchanged.  The stored records are recomputed once at the
+start (run.py _edr_backfill, by version).
+
 compute(series) takes the decoded series (WindshearTracker.decode_series);
 from_blob(blob) the stored blob.  Cheap: only pairs within 200 m are formed.
 """
@@ -47,11 +56,12 @@ from __future__ import annotations
 import bisect
 import math
 
-VERSION = 1
+VERSION = 2                   # 2: duplicate / future-stamped replies dropped (2026-10-31)
 KT = 0.514444                 # kt → m/s
 N0 = 0.35                     # noise floor of D at 100–200 m (m² s⁻²)
 R_MID = math.sqrt(100 * 200)  # 141 m, the middle of the separation bin
 R_LO, R_HI = 100.0, 200.0
+FUTURE_SEC = 3.0              # a reply this much later than one stored after it is mis-stamped
 PIECE_M = 2000.0              # straight piece length
 TURN_DEG = 15.0               # largest track change within a piece
 MIN_REPLIES = 8               # replies per piece
@@ -118,6 +128,28 @@ def _pieces(rows: list) -> list:
     return out
 
 
+def _clean(rows: list) -> list:
+    """rows in stored order (t first) → without the replies whose time repeats
+    an earlier one, and without every copy of a reply stamped more than
+    FUTURE_SEC later than a reply stored after it (version 2)."""
+    later_min, bad = math.inf, set()
+    for i in range(len(rows) - 1, -1, -1):
+        t = rows[i][0]
+        if t is None:
+            continue
+        if t - later_min > FUTURE_SEC:
+            bad.add(i)
+        later_min = min(later_min, t)
+    bad_t = {rows[i][0] for i in bad}          # every copy of a mis-stamped reply
+    seen, out = set(), []
+    for r in rows:
+        if r[0] in bad_t or r[0] in seen:
+            continue
+        seen.add(r[0])
+        out.append(r)
+    return out
+
+
 def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | None = None) -> dict | None:
     """EDR record of one flight from its decoded raw series, or None
     (top_ft: the upper limit above the threshold, default HI_FT)."""
@@ -128,7 +160,7 @@ def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | N
     top = HI_FT if top_ft is None else float(top_ft)
     b5 = series.get("b50") or {}
     cols = [b5.get(k) or [] for k in ("t", "tas", "gs", "alt", "trk")]
-    rows = sorted(r for r in zip(*cols)
+    rows = sorted(r for r in _clean(list(zip(*cols)))
                   if None not in r and LO_FT <= r[3] - elev_ft < top and r[2] > 30)
     if len(rows) < MIN_REPLIES:
         return None
