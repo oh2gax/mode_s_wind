@@ -4142,11 +4142,13 @@ function renderApproachHistory(entries) {
       : bands
       .map(b => formatBandCell(e.bands ? e.bands[String(b)] : null, rwyHdg))
       .join('');
-    const rowTitle = (condMode ? _condTitle(e.cond, e.rough)
+    const hwpOk = (wsMode || edrMode) && e.icao && e.shear;
+    const rowTitle = ((condMode ? _condTitle(e.cond, e.rough)
                       : wsMode ? (aphKind === 'dep' ? _wsDepTitle(e) : _wsTitle(e.shear)) + blAtLine(e.ts, '\n')
-                      : edrMode ? _edrTitle(e) : '').replace(/"/g, '&quot;');
+                      : edrMode ? _edrTitle(e) : '') +
+                      (hwpOk ? '\nClick: the headwind profile of this flight against the flights before it' : '')).replace(/"/g, '&quot;');
 
-    return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}>
+    return `<tr${rowTitle ? ` title="${rowTitle}"` : ''}${hwpOk ? ` class="ws-aphist-hwp" data-hwp="${aphKind === 'dep' ? 'd' : 'a'}|${e.ts}|${e.icao}"` : ''}>
   <td class="ws-aphist-cell ws-aphist-time">${timeStr}</td>
   <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 || e.ga ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around${(e.ga_ev || []).map(g => `, RWY ${g.rwy || '?'} ${_hm(g.ts)}`).join('')}"` : e.ga ? ' title="Climb-out of a go-around"' : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
@@ -4158,6 +4160,15 @@ function renderApproachHistory(entries) {
 }
 
 
+
+// A click on a landing or departure in the WS and EDR views opens its fine
+// headwind profile against the flights before it (from 2026-10-31, hw_profile.js)
+document.getElementById('ws-aphist-table-body')?.addEventListener('click', ev => {
+  const tr = ev.target.closest('tr[data-hwp]');
+  if (!tr || !window.HwProfile) return;
+  const [k, ts, icao] = tr.dataset.hwp.split('|');
+  HwProfile.popup(ev, k, +ts, icao);
+});
 
 // ── METAR & pilot reports in the Approach History panel (from 2026-10-29) ────
 // The stored METARs (metar_reports: the live ones every 30 min and the loaded

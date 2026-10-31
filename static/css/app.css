@@ -435,3 +435,8 @@ body.app-body {
   .app-view.app-wx { flex-direction: row; }
   .app-wx-panel { width: 300px; overflow-y: auto; border-top: 0; border-left: 1px solid var(--border); }
 }
+
+/* Fine headwind profile in an opened History card (from 2026-10-31, hw_profile.js) */
+.app-card .bd canvas.hwp { display: block; width: 100%; height: 240px; border-radius: 6px; margin: 2px 0 4px; }
+.app-card .bd .hwp-leg { font-size: 11px; color: var(--text-2, #94a3b8); line-height: 1.4; margin-bottom: 8px; }
+.app-card .bd .hwp-ref { opacity: .7; }

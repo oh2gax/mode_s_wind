@@ -1711,7 +1711,7 @@ def create_app(
                     for k in ("gnss", "rough", "prof"):
                         r.pop(k, None)
                     if isinstance(r.get("shear"), dict):
-                        r["shear"] = {k: v for k, v in r["shear"].items() if k != "bd"}
+                        r["shear"] = {k: v for k, v in r["shear"].items() if k not in ("bd", "hp")}
             return _gzip_json(result)
 
         window = request.args.get("window", type=int)
@@ -1743,6 +1743,8 @@ def create_app(
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 sh_txt = r.pop("shear_json", None)
                 r["shear"] = _json.loads(sh_txt) if sh_txt else None
+                if isinstance(r["shear"], dict):     # the fine profile: /api/windshear/flight-profile
+                    r["shear"].pop("hp", None)
                 r["edr"]   = _edr_sum(r.pop("edr_json", None))
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
@@ -1776,6 +1778,8 @@ def create_app(
                 r["prof"]  = _json.loads(pf_txt) if pf_txt else None
                 sh_txt = r.pop("shear_json", None)
                 r["shear"] = _json.loads(sh_txt) if sh_txt else None
+                if isinstance(r["shear"], dict):     # the fine profile: /api/windshear/flight-profile
+                    r["shear"].pop("hp", None)
                 r["edr"]   = _edr_sum(r.pop("edr_json", None))
                 r["cond"]  = approach_index(r["rough"], r.get("aircraft_type"))
                 r.setdefault("go_arounds", 0)
@@ -1837,6 +1841,8 @@ def create_app(
             ed = {k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if ed and ed.get("m") is not None else None
             if sh is None and ed is None and not full:
                 continue
+            if isinstance(sh, dict):                 # the fine profile: /api/windshear/flight-profile
+                sh.pop("hp", None)
             e = {"ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
                  "aircraft_type": r["aircraft_type"], "ga": r["ga"], "shear": sh, "edr": ed}
             if full:
@@ -1916,6 +1922,89 @@ def create_app(
             return jsonify([])
         out.sort(key=lambda e: e["t"])
         return _gzip_json(out)
+
+    @app.route("/api/windshear/flight-profile")
+    def windshear_flight_profile_api():
+        """The fine headwind profile of one landing (?k=a) or departure (?k=d)
+        — ?ts= (its stored time, ±2 s) and ?icao= — against the flights of the
+        previous 45 min in the same direction (from 2026-10-31; the Approach
+        History's profile chart): {k, t, cs, ty, rw, h, src, lv, lo, v,
+        ref: {n, lo, med, p25, p75} | null, ramps: [{kind, dv, sc, L, a1, a2,
+        zone}], band, v7: [ramps of the shadow], edr: [{e, a}]}."""
+        import json as _json
+        k = request.args.get("k", "a")
+        ts = request.args.get("ts", type=float)
+        icao = (request.args.get("icao") or "").upper()
+        if ts is None or not icao:
+            return jsonify({"error": "ts and icao needed"}), 400
+        try:
+            db = get_db()
+            if k == "d":
+                r = db.execute("SELECT ts, callsign, aircraft_type, NULL AS runway, track AS hdg, shear_json, edr_json "
+                               "FROM departure_profiles WHERE icao = ? AND ts BETWEEN ? AND ?",
+                               (icao, ts - 2, ts + 2)).fetchone()
+            else:
+                r = db.execute("SELECT ts, callsign, aircraft_type, runway, rwy_heading AS hdg, shear_json, edr_json "
+                               "FROM approach_history WHERE icao = ? AND ts BETWEEN ? AND ?",
+                               (icao, ts - 2, ts + 2)).fetchone()
+            if r is None:
+                return jsonify({"error": "not found"}), 404
+            w = _json.loads(r["shear_json"]) if r["shear_json"] else {}
+            hp = w.get("hp") or {}
+            h = (w.get("hdg") if k == "d" and w.get("hdg") is not None else r["hdg"])
+            out = {"k": k, "t": r["ts"], "cs": r["callsign"], "ty": r["aircraft_type"],
+                   "rw": r["runway"] or w.get("rwy"), "h": h, "src": w.get("src"), "lv": w.get("lvl") or "none",
+                   "lo": hp.get("lo"), "v": hp.get("v") or [], "ref": None, "band": w.get("band")}
+            # ramps of the report (landings) or of the climb's trial (departures)
+            rs = w if k == "a" else (w.get("trial8") or w.get("trial") or {})
+            out["ramps"] = [dict({kk: c.get(kk) for kk in ("dv", "sc", "L", "a1", "a2", "zone")}, kind=kind)
+                            for kind in ("loss", "gain") for c in [rs.get(kind)] if c]
+            sh7 = w.get("v7") or {}
+            out["v7"] = [dict({kk: c.get(kk) for kk in ("dv", "sc", "L", "a1", "a2", "zone")}, kind=kind)
+                         for kind in ("loss", "gain") for c in [sh7.get(kind)] if c]
+            try:
+                ed = _json.loads(r["edr_json"]) if r["edr_json"] else None
+                out["edr"] = [{"e": s_.get("e"), "a": s_.get("a")} for s_ in (ed or {}).get("seg") or []]
+            except ValueError:
+                out["edr"] = []
+            # the flights of the previous 45 min in the same direction (±30°)
+            if h is not None and out["v"]:
+                t0 = r["ts"] - 45 * 60
+                refs = []
+                q = [db.execute("SELECT rwy_heading AS hdg, shear_json FROM approach_history "
+                                "WHERE ts >= ? AND ts < ? AND shear_json IS NOT NULL", (t0, r["ts"])).fetchall(),
+                     db.execute("SELECT track AS hdg, shear_json FROM departure_profiles "
+                                "WHERE ts >= ? AND ts < ? AND shear_json IS NOT NULL AND ga = 0", (t0, r["ts"])).fetchall()]
+                for i, rows in enumerate(q):
+                    for o in rows:
+                        try:
+                            ow = _json.loads(o["shear_json"])
+                        except ValueError:
+                            continue
+                        oh = ow.get("hdg") if i == 1 and ow.get("hdg") is not None else o["hdg"]
+                        ohp = ow.get("hp")
+                        if oh is None or not ohp or abs((oh - h + 540) % 360 - 180) > 30:
+                            continue
+                        refs.append(ohp)
+                if len(refs) >= 3:
+                    lo = min(x["lo"] for x in refs)
+                    hi = max(x["lo"] + 100 * (len(x["v"]) - 1) for x in refs)
+                    med, p25, p75 = [], [], []
+                    for b in range(lo, hi + 100, 100):
+                        vs = sorted(x["v"][(b - x["lo"]) // 100] for x in refs
+                                    if x["lo"] <= b <= x["lo"] + 100 * (len(x["v"]) - 1)
+                                    and x["v"][(b - x["lo"]) // 100] is not None)
+                        if len(vs) >= 3:
+                            n = len(vs)
+                            q_ = lambda f: round(vs[min(n - 1, max(0, int(round(f * (n - 1)))))], 1)
+                            med.append(round(vs[n // 2] if n % 2 else (vs[n // 2 - 1] + vs[n // 2]) / 2, 1))
+                            p25.append(q_(0.25)); p75.append(q_(0.75))
+                        else:
+                            med.append(None); p25.append(None); p75.append(None)
+                    out["ref"] = {"n": len(refs), "lo": lo, "med": med, "p25": p25, "p75": p75}
+            return jsonify(out)
+        except Exception as exc:                       # noqa: BLE001
+            return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/windshear/edr-tracks")
     def windshear_edr_tracks_api():

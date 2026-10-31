@@ -254,6 +254,7 @@
         <option value="blt" data-short="BL temp">Boundary layer · temperature</option>
         <option value="blh" data-short="BL headwind">Boundary layer · headwind per flight</option>
         <option value="bld" data-short="BL Δ headwind">Boundary layer · headwind change per flight</option>
+        <option value="bls" data-short="BL shear">Boundary layer · wind shear per flight</option>
       </select></div>
     <div class="app-field"><span>Flights</span>
       <select id="th-flk" data-chips>
@@ -482,6 +483,7 @@
   const APP_WXLAYER_JS = "{{ url_for('static', filename='js/wx_layer.js') }}";
   const APP_WX_JS = "{{ url_for('static', filename='js/app_wx.js') }}";
 </script>
+<script src="{{ url_for('static', filename='js/hw_profile.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

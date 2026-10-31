@@ -758,7 +758,10 @@
     const bl = blThen(e.ts);
     if (bl) txt.push(bl);
     if (e.registration) txt.unshift(`${e.registration}${e.icao ? ' · ' + e.icao.toUpperCase() : ''}`);
-    return tbl + `<div class="txt">${esc(txt.filter((x, i, a) => x !== '' || (i && a[i - 1] !== '')).join('\n'))}</div>`;
+    // the fine headwind profile against the flights before it (from 2026-10-31, hw_profile.js)
+    const hwp = e.icao && w && window.HwProfile
+      ? `<canvas class="hwp" data-k="${dep ? 'd' : 'a'}" data-ts="${e.ts}" data-icao="${esc(e.icao)}"></canvas><div class="hwp-leg"></div>` : '';
+    return hwp + tbl + `<div class="txt">${esc(txt.filter((x, i, a) => x !== '' || (i && a[i - 1] !== '')).join('\n'))}</div>`;
   }
   // ── METAR & pilot reports as cards (from 2026-10-29) ──
   const REP_KCOL_D = { ARS: '#f87171', WXREP: '#2dd4bf', SIGMET: '#c084fc', AIRMET: '#c084fc' };
@@ -825,6 +828,7 @@
         `<span class="l2">${histLine2(e)}</span></button>` +
         (open ? `<div class="bd">${histBody(e)}</div>` : '') + '</div>';
     }).join('') : `<div class="app-empty">${H.fetched ? (H.q && all.length ? `No ${what}s match “${esc($('app-hist-q').value)}”.` : `No ${what}s in this range.`) : 'Loading…'}</div>`;
+    if (window.HwProfile) HwProfile.fill($('app-hist-list'));
     markScroll();
   }
   $('app-hist-list').addEventListener('click', ev => {
@@ -1469,6 +1473,7 @@
         `<span class="l2">${histLine2(e, S)}</span></button>` +
         (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
     }).join('') || (IHist.fetched ? `<div class="app-empty">No landings${I.rwy ? ' on ' + esc(I.rwy) : ''} in the last ${h} h.</div>` : '');
+    if (window.HwProfile) HwProfile.fill($('app-ils-histlist'));
   }
   $('app-ils-histlist').addEventListener('click', ev => {
     const hd = ev.target.closest('.hd');

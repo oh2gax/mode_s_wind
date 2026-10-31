@@ -49,7 +49,9 @@
  *            20 min), in 100-ft steps 200–5 000 ft — the headwind along its
  *            runway (blh; windshear detection v8, a value about every 0.5 s)
  *            or its change against the median of the flights of the previous
- *            45 min in the same direction (bld); windshear alerts outlined
+ *            45 min in the same direction (bld), or its change with height —
+ *            the vertical wind shear, kt per 100 ft over ±200 ft (bls); windshear
+ *            alerts outlined
  * Overlays: wind barbs, the 0 / −10 / −20 °C isotherms, the tropopause (WMO
  * lapse-rate definition, magenta dashed) and the height of the strongest wind
  * (≥ 50 kt, yellow), Jokioinen sonde launches (pink ▼ at the top) and — with
@@ -99,7 +101,7 @@
     const [a, ca] = BL_SPD[i], [b, cb] = BL_SPD[i + 1], f = Math.max(0, Math.min(1, (v - a) / (b - a)));
     return `rgb(${ca.map((c, k) => Math.round(c + (cb[k] - c) * f)).join(',')})`;
   }
-  const isFL = () => st.field === 'blh' || st.field === 'bld';
+  const isFL = () => st.field === 'blh' || st.field === 'bld' || st.field === 'bls';
   const isBL = () => st.field === 'blw' || st.field === 'blt' || isFL();
   const needBl = () => isBL() || st.bl;
   // the flights' fine headwind profiles (/api/boundary/flights): [{t, k, cs, ty, rw, h, lo, v, lv, wa, src}]
@@ -686,6 +688,27 @@
     const c = v < 0 ? DIV.neg : DIV.pos;
     return `rgba(${c[0]},${c[1]},${c[2]},${(0.06 + 0.86 * k).toFixed(3)})`;
   }
+  // the vertical shear of the flight's headwind: the slope of a straight line through
+  // the values within ±200 ft (at least 4 of the 5), kt per 100 ft, + = more headwind higher up
+  function flShear(f, j) {
+    const fv = flFilled(f);
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let k = j - 2; k <= j + 2; k++) {
+      if (k < 0 || k >= fv.length || !fv[k]) continue;
+      const x = k - j, y = fv[k][0];
+      n++; sx += x; sy += y; sxx += x * x; sxy += x * y;
+    }
+    if (n < 4) return null;
+    const den = n * sxx - sx * sx;
+    return den ? (n * sxy - sx * sy) / den : null;
+  }
+  // shear colour: red = the headwind grows upwards (a descending aircraft loses headwind), blue = it falls;
+  // nearly clear within ±0.7 kt per 100 ft, full at ±3
+  function shFill(v) {
+    const k = Math.max(0, Math.min(1, (Math.abs(v) - 0.7) / 2.3));
+    const c = v < 0 ? DIV.neg : DIV.pos;
+    return `rgba(${c[0]},${c[1]},${c[2]},${(0.05 + 0.87 * k).toFixed(3)})`;
+  }
   const LV_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
   function drawFlCells(g, C, L, P) {
     const { ml, mt, pw, ph, x, y } = geo;
@@ -707,6 +730,7 @@
         const ft = f.lo + j * FL_BIN;
         let col;
         if (st.field === 'blh') col = hwFill(v);
+        else if (st.field === 'bls') { const sh = flShear(f, j); if (sh == null) continue; col = shFill(sh); }
         else { const dv = flDiff(f, ref, j); if (dv == null) continue; col = chgFill(dv); }
         const ya = y(ft + FL_BIN / 2), yb = y(ft - FL_BIN / 2);
         g.globalAlpha = 1; g.fillStyle = C.plot; g.fillRect(x0, ya, w + 0.5, yb - ya + 0.5);
@@ -756,6 +780,8 @@
         (st.field === 'bld' ? ` (±100 ft mean ${(() => { const dv = flDiff(f, ref, Math.round((b - f.lo) / FL_BIN)); return dv == null ? '–' : (dv >= 0 ? '+' : '') + dv.toFixed(1); })()} kt)` : '') +
         ` <span class="mini-tip-dim">(${v - r < 0 ? 'less headwind' : 'more headwind'})</span>`);
       else parts.push('<span class="mini-tip-dim">fewer than 3 flights of the previous 45 min in the same direction at this height</span>');
+      const sh = flShear(f, Math.round((b - f.lo) / FL_BIN));
+      if (sh != null) parts.push(`shear ${sh >= 0 ? '+' : ''}${sh.toFixed(1)} kt per 100 ft over ±200 ft <span class="mini-tip-dim">(${sh >= 0 ? 'more headwind higher up — a descent loses headwind' : 'less headwind higher up — a descent gains headwind'})</span>`);
     }
     if (f.lv && f.lv !== 'none') parts.push(`<b style="color:${LV_COL[f.lv]}">windshear ${f.lv.toUpperCase()}</b>` + (f.wa ? ` at ${fmtFt(f.wa[0])}–${fmtFt(f.wa[1])}` : ''));
     parts.push(`<span class="mini-tip-dim">headwind along the ${f.k === 'a' ? 'approach' : 'climb'}${f.h != null ? ` (${String(Math.round(f.h)).padStart(3, '0')}°)` : ''} · ` +
@@ -1102,6 +1128,8 @@
           `<span class="th-sw" style="background:${hwFill(-8)}" title="tailwind"></span>` +
           [0, 10, 20, 30, 40].map(v => `<span class="th-sw" style="background:${hwFill(v)}" title="${v} kt"></span>`).join('') +
           ' <span class="th-lt">tailwind · 0 · 10 · 20 · 30 · 40 kt</span>'
+        : st.field === 'bls'
+        ? 'Boundary layer · wind shear of each flight (headwind change with height, ±200 ft) <span class="th-bar"></span> <span class="th-lt">less higher up −3 · ±0.7 · +3 kt per 100 ft more higher up</span>'
         : 'Boundary layer · headwind change against the flights of the previous 45 min (same direction, ±100 ft mean) <span class="th-bar"></span> <span class="th-lt">less −12 · ±2 · +12 kt more</span>') +
         ` <span class="th-lt">· one column per landing / departure (held ≤ 20 min) · top line: landing runway${st.field === 'blh' ? ' (a runway change changes the headwind)' : ''} · ▭ windshear alert (ADV · WSA · MBA) · ${blLeg} · ▨ no flights · research</span>`;
       return;
