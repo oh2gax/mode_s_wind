@@ -27,7 +27,7 @@
  * WsCondChart.drawSpaceTime(ctx, W, H, readoutEl, { st, hours, fetchedMs })
  * draws the space–time diagram of the ST view (from 2026-10-27, see below).
  *
- * WsCondChart.drawBoundaryLayer(ctx, W, H, readoutEl, { bl, fl, hours, field, fetchedMs })
+ * WsCondChart.drawBoundaryLayer(ctx, W, H, readoutEl, { bl, fl, hours, field, fetchedMs, nowMs, L })
  * draws the boundary layer (BL view, from 2026-10-29, see below); from
  * 2026-10-31 also flight by flight (field 'blh' / 'bld' / 'bls', fl from
  * /api/boundary/flights) as in the Sounding page's Time–height section.
@@ -894,7 +894,8 @@ const WsCondChart = (() => {
   function drawBoundaryLayer(ctx, W, H, readout, d) {
     const CT = theme(), light = isLight(), dots = [];
     const hours = d.hours || 24, nowMs = d.nowMs || Date.now(), t0 = nowMs - hours * 3_600_000;
-    const L = 34, R = 8, T = 22, B = 18, PW = W - L - R, PH = H - T - B;
+    // d.L: the left margin (from 2026-10-31 24 under the ACI / WS chart of the phone, so the hours line up)
+    const L = d.L || 34, R = 8, T = 22, B = 18, PW = W - L - R, PH = H - T - B;
     const xOf = ms => L + (ms - t0) / (hours * 3_600_000) * PW;
     const yOf = ft => T + PH - Math.max(0, Math.min(BL_TOP, ft)) / BL_TOP * PH;
     const field = d.field || 'wind';

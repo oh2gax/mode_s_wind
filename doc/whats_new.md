@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.31102026 — Sharper weather maps near the airport, tidier labels on the phone's approach map
 
+- **Phone: turbulence, windshear and the boundary layer together** — *ACI · WS · ST* has a new *EDR + WS* chart, and *Boundary layer below* puts one of the boundary-layer charts (wind, temperature, headwind, its change or shear per flight) under it on the same hours — in the ILS approach view too, under its turbulence and windshear chart.
 - **Smooth weather maps** — rain and snow, gusts, clouds, fog and the FMI radar are now drawn as smooth areas that follow the colour steps between the model's grid points, instead of square boxes (Weather page and phone: *Shading*, Live Map ☂ panel: *Smooth*; switch back to *Cells* any time). The values are the same — only the drawing is smoother. On the Live Map the cloud layer now shows the **total cloud cover** instead of the low cloud.
 - **The selected aircraft's extended label** — on the Live Map in the ATC style, the aircraft you select shows the six-line extended label (speeds, heading, bank, wind, temperature …), the same as *Hover* shows under the mouse — in grey, with a frame around its square and without the info box. On the Windshear map the same for the aircraft whose flight strip you click.
 - **The receiving station, page 8** — the overview of the station has a new page on the windshear detection with the aircraft's own ADS-B ground speed and on the boundary layer flight by flight.

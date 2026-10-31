@@ -398,24 +398,43 @@
 
   // ══ ACI & WS ═════════════════════════════════════════════════════════════
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
-              aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null };
+              aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null,
+              bl2: lsGet('ms_app_aci_bl2', 'off'), dots2: [] };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
-  if (!['ws', 'cond', 'st', 'edr', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.mode)) A.mode = 'ws';
+  if (!['ws', 'cond', 'st', 'edr', 'ew', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.mode)) A.mode = 'ws';
+  if (!['off', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.bl2)) A.bl2 = 'off';
   // boundary layer (from 2026-10-29): hour by hour (bl wind, blt temperature) and, from
   // 2026-10-31, flight by flight as the Windshear page (blh headwind, bld change, bls shear)
   const isBlFl = () => A.mode === 'blh' || A.mode === 'bld' || A.mode === 'bls';
   const isBl = () => A.mode === 'bl' || A.mode === 'blt' || isBlFl();
   const blField = () => A.mode === 'blt' ? 'temp' : A.mode === 'bl' ? 'wind' : A.mode;
+  // EDR + WS without the ACI (ew) and, from 2026-10-31, a boundary-layer chart under the
+  // ACI / windshear / EDR charts (A.bl2: off or one of the BL fields), on the same time axis
+  const hasWs = () => A.mode === 'ws' || A.mode === 'edr' || A.mode === 'ew';
+  const hasEdr = () => A.mode === 'edr' || A.mode === 'ew';
+  const bl2On = () => A.bl2 !== 'off' && (A.mode === 'ws' || A.mode === 'cond' || A.mode === 'edr' || A.mode === 'ew');
+  const bl2Fl = () => bl2On() && (A.bl2 === 'blh' || A.bl2 === 'bld' || A.bl2 === 'bls');
+  const bl2Field = () => A.bl2 === 'blt' ? 'temp' : A.bl2 === 'bl' ? 'wind' : A.bl2;
+  const bl2Hint = () => bl2Fl() ? 'Tap a column: the flight at that height (or a jet ◆).' : 'Tap a cell, a jet ◆ or the inversion bar.';
+  const bl2Show = () => { $('app-aci-bl2').closest('.app-field').hidden = !(A.mode === 'ws' || A.mode === 'cond' || A.mode === 'edr' || A.mode === 'ew'); };
   const pickHint = () => A.mode === 'st' ? 'Tap a cell for its flights.' : isBlFl() ? 'Tap a column: the flight at that height (or a jet ◆).'
     : isBl() ? 'Tap a cell, a jet ◆ or the inversion bar.' : 'Tap a dot for the landing.';
   $('app-aci-hours').value = String(A.hours);
   $('app-aci-ws').value = A.mode;
   $('app-aci-pick').textContent = pickHint();
+  $('app-aci-bl2').value = A.bl2;
+  $('app-aci-blpick').textContent = bl2Hint();
+  bl2Show();
+  $('app-aci-bl2').addEventListener('change', e => {
+    A.bl2 = e.target.value; lsSet('ms_app_aci_bl2', A.bl2);
+    $('app-aci-blpick').textContent = bl2Hint();
+    loadAci(); });
   $('app-aci-hours').addEventListener('change', e => { A.hours = parseInt(e.target.value, 10); lsSet('ms_app_aci_h', A.hours);
     A.all = false; A.cell = null; loadAci(); });
   $('app-aci-ws').addEventListener('change', e => {
     A.mode = e.target.value; lsSet('ms_app_aci_mode', A.mode); A.all = false; A.cell = null;
     $('app-aci-pick').textContent = pickHint();
+    bl2Show();
     loadAci(); });
   const WS_COL = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
   const ACI_COL_D = ['#34d399', '#a3e635', '#facc15', '#fb923c', '#f87171'];
@@ -427,13 +446,25 @@
     if (v.hidden) return;
     const cv = $('app-aci'), box = $('app-aci-box');
     const W = Math.max(280, v.clientWidth - 8);
-    const H = Math.max(220, Math.min(Math.round(W * (isBl() ? 1.0 : A.mode === 'edr' ? 1.25 : A.mode === 'ws' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
+    const H = Math.max(220, Math.min(Math.round(W * (isBl() ? 1.0 : A.mode === 'edr' ? 1.25 : A.mode === 'ws' || A.mode === 'ew' ? 0.95 : A.mode === 'st' ? 0.8 : 0.65)), v.clientHeight - 150));
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     box.style.width = W + 'px';
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const nowMs = Date.now();
+    $('app-aci-bl2box').hidden = !bl2On();
+    if (bl2On()) {                   // the boundary layer under the chart, same width and time axis
+      const cv2 = $('app-aci-blcv'), H2 = Math.max(200, Math.min(Math.round(W * 0.8), v.clientHeight - 150));
+      cv2.width = Math.round(W * dpr); cv2.height = Math.round(H2 * dpr);
+      cv2.style.width = W + 'px'; cv2.style.height = H2 + 'px';
+      $('app-aci-blbox').style.width = W + 'px';
+      const c2 = cv2.getContext('2d');
+      c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+      A.dots2 = WsCondChart.drawBoundaryLayer(c2, W, H2, $('app-aci-blro'), {
+        bl: A.bl, fl: A.fl, hours: A.hours, field: bl2Field(), fetchedMs: A.bl ? A.fetched : 0, nowMs, L: 24 });
+    } else A.dots2 = [];
     if (isBl()) {                    // boundary layer: no flight list under it
       A.dots = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-aci-readout'), {
         bl: A.bl, fl: A.fl, hours: A.hours, field: blField(), fetchedMs: A.bl ? A.fetched : 0 });
@@ -443,7 +474,7 @@
     A.dots = A.mode === 'st'
       ? WsCondChart.drawSpaceTime(ctx, W, H, $('app-aci-readout'), { st: A.st, hours: A.hours, fetchedMs: A.st ? A.fetched : 0 })
       : WsCondChart.draw(ctx, W, H, $('app-aci-readout'), {
-          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, withWs: A.mode === 'ws' || A.mode === 'edr', withEdr: A.mode === 'edr', selMs: A.selMs, fetchedMs: A.fetched,
+          aph: A.aph, dep: A.dep, ga: A.ga, hours: A.hours, parts: A.mode === 'ew' ? ['edr', 'ws'] : null, withWs: hasWs(), withEdr: hasEdr(), selMs: A.selMs, fetchedMs: A.fetched, nowMs,
           met: A.wx ? A.wx.metars : [], rep: A.wx ? A.wx.reports : [] });
     drawAciList();
   }
@@ -469,7 +500,7 @@
     }
     const out = A.aph.map(e => ({ ts: e.ts, dep: false, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.runway,
       aci: e.cond && e.cond.idx != null ? e.cond.idx : null, lvl: e.shear && e.shear.lvl }));
-    if (A.mode === 'ws' || A.mode === 'edr') for (const e of A.dep) {
+    if (hasWs()) for (const e of A.dep) {
       out.push({ ts: e.ts, dep: true, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.shear && e.shear.rwy, aci: null, lvl: e.shear && e.shear.lvl });
     }
     return out;
@@ -534,17 +565,17 @@
       // landings lite (no per-landing details, gzipped: about an eighth of the full answer)
       const [aph, dep, st, sp, wx] = await Promise.all([
         fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
-        A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
+        hasWs() ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve([]),
         A.mode === 'st' || isBl() ? Promise.resolve(null) : fetch('/api/windshear/state', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         A.mode === 'st' ? fetch(`/api/windshear/spacetime?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
         // METAR windshear groups and pilot reports near the airport (from 2026-10-29)
-        A.mode === 'ws' || A.mode === 'edr' ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+        hasWs() ? fetch(`/api/wx/reports?hours=${A.hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
       ]);
       A.st = sp;
       // the flights: one hour more, the reference of the first ones
       const [bl, fl] = await Promise.all([
-        isBl() ? fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
-        isBlFl() ? fetch(`/api/boundary/flights?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []) : Promise.resolve(null)]);
+        isBl() || bl2On() ? fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
+        isBlFl() || bl2Fl() ? fetch(`/api/boundary/flights?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []) : Promise.resolve(null)]);
       A.bl = bl;
       A.fl = Array.isArray(fl) ? fl : null;
       A.wx = wx;
@@ -565,13 +596,25 @@
       if (dd < bd) { bd = dd; best = d; }
     }
     $('app-aci-pick').textContent = best ? best.label : pickHint();
-    if (A.mode === 'edr' && best && best.ms && best.ms !== A.selMs) { A.selMs = best.ms; drawAci(); }
+    if (hasEdr() && best && best.ms && best.ms !== A.selMs) { A.selMs = best.ms; drawAci(); }
     if (A.mode === 'st') {                     // the list follows the tapped cell
       const c = best && best.cell ? best.cell : null;
       if (c !== A.cell && (c || e.type === 'pointerdown')) { A.cell = c; drawAciList(); markScroll(); }
     }
   }
   $('app-aci').addEventListener('pointerdown', pickAci);
+  function pickBl2(e) {                // the boundary-layer chart under it
+    const r = $('app-aci-blcv').getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    let best = null, bd = 18 * 18;
+    for (const d of A.dots2) {
+      const dd = (d.x - x) ** 2 + (d.y - y) ** 2;
+      if (dd < bd) { bd = dd; best = d; }
+    }
+    $('app-aci-blpick').textContent = best ? best.label : bl2Hint();
+  }
+  $('app-aci-blcv').addEventListener('pointerdown', pickBl2);
+  $('app-aci-blcv').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickBl2(e); });
   $('app-aci').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickAci(e); });
 
   // ══ History (from 2026-10-28) ════════════════════════════════════════════
@@ -888,6 +931,8 @@
               // the chart under the profile / map: off / WS + ACI / WS + EDR (default, from
               // 2026-10-30) and its range 3 / 6 / 12 h (the old WS + ACI setting gives the range)
               wschart: lsGet('ms_app_ils_wschart', 'edr'),
+              // a boundary-layer chart under it (from 2026-10-31): off / bl / blt / blh / bld / bls
+              wsbl: lsGet('ms_app_ils_wsbl', 'off'),
               wsh: lsGet('ms_app_ils_wsh', ['3', '6'].includes(lsGet('ms_app_ils_wsaci', '')) ? lsGet('ms_app_ils_wsaci', '') : '3'),
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
               vec: lsGet('ms_app_ils_vec', 'off'),
@@ -916,6 +961,7 @@
   if (!['app', 'all'].includes(I.mapac)) I.mapac = 'app';
   if (!['off', 'aci', 'edr'].includes(I.wschart)) I.wschart = 'edr';
   if (!['3', '6', '12'].includes(I.wsh)) I.wsh = '3';
+  if (!['off', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(I.wsbl)) I.wsbl = 'off';
   if (!['off', '30', '60', '120'].includes(I.vec)) I.vec = 'off';
   if (!['hide', 'show'].includes(I.deps)) I.deps = 'hide';
   if (!['off', '30', '60'].includes(I.edrmap)) I.edrmap = 'off';
@@ -928,7 +974,7 @@
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
-                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'],
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'], ['app-ils-wsbl', 'wsbl', 'ms_app_ils_wsbl'],
                   ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst'],
                   ['app-ils-histopt', 'hist', 'ms_app_ils_hist'], ['app-ils-hshow', 'hshow', 'ms_app_ils_hshow']];
   for (const [id, key, ls] of ilsCtl) {
@@ -936,7 +982,7 @@
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
       if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
-      if (key === 'wschart' || key === 'wsh') { IW.at = 0; loadIlsWs(); }
+      if (key === 'wschart' || key === 'wsh' || key === 'wsbl') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
       if (key === 'mapst' && I.mapst === 'atc' && window.L) loadAtc().then(drawIls).catch(() => {});
       if (key === 'hist') { IHist.at = 0; IHist.open.clear(); loadIlsHist(); }
@@ -1313,22 +1359,31 @@
   // WS + EDR (turbulence over windshear, the default — on) or WS + ACI, for the
   // last 3, 6 or 12 h; its landings and departures are fetched at most once a
   // minute while the ILS view is open.
-  const IW = { aph: [], dep: [], wx: null, fetched: 0, at: 0, hours: 3, dots: [] };
+  // From 2026-10-31 a boundary-layer chart can follow it (I.wsbl, the fields of the ACI ·
+  // WS · ST view's BL choices) on the same range and time axis, also with the chart off.
+  const IW = { aph: [], dep: [], wx: null, fetched: 0, at: 0, hours: 3, dots: [], bl: null, fl: null, blAt: 0, dots2: [] };
+  const ilsBlFl = () => I.wsbl === 'blh' || I.wsbl === 'bld' || I.wsbl === 'bls';
+  const ilsBlField = () => I.wsbl === 'blt' ? 'temp' : I.wsbl === 'bl' ? 'wind' : I.wsbl;
+  const ilsBlHint = () => ilsBlFl() ? 'Tap a column: the flight at that height (or a jet ◆).' : 'Tap a cell, a jet ◆ or the inversion bar.';
   async function loadIlsWs() {
-    if (I.wschart === 'off' || Date.now() - IW.at < 60000) return;
+    if ((I.wschart === 'off' && I.wsbl === 'off') || Date.now() - IW.at < 60000) return;
     IW.at = Date.now();
-    const hours = parseInt(I.wsh, 10) || 3, win = hours * 3600;
+    const hours = parseInt(I.wsh, 10) || 3, win = hours * 3600, ws = I.wschart !== 'off', bl = I.wsbl !== 'off';
     try {
-      const [aph, dep, wx] = await Promise.all([
-        fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()),
-        fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()),
-        fetch(`/api/wx/reports?hours=${hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null)]);
-      IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : []; IW.wx = wx;
-      IW.hours = hours; IW.fetched = Date.now();
+      const [aph, dep, wx, blr, flr] = await Promise.all([
+        ws ? fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
+        ws ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
+        ws ? fetch(`/api/wx/reports?hours=${hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+        bl ? fetch(`/api/boundary?hours=${hours}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+        bl && ilsBlFl() ? fetch(`/api/boundary/flights?hours=${hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null)]);
+      if (ws) { IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : []; IW.wx = wx; IW.fetched = Date.now(); }
+      if (bl) { IW.bl = Array.isArray(blr) ? blr : []; IW.fl = Array.isArray(flr) ? flr : null; IW.blAt = Date.now(); }
+      IW.hours = hours;
     } catch (_) { IW.at = 0; return; }
     drawIls();
   }
   function drawIlsWs(W) {
+    drawIlsBl(W);
     const box = $('app-ils-ws');
     box.hidden = I.wschart === 'off';
     if (box.hidden || !IW.fetched) return;
@@ -1345,6 +1400,27 @@
     $('app-ils-wsro').innerHTML = [parts.find(t => t.startsWith('Last') || t.startsWith('EDR')), parts.find(t => t.startsWith('WS ')),
       parts.find(t => t.startsWith('<span style='))].filter(Boolean).join(' · ');   // + METAR WS / pilot reports
   }
+  function drawIlsBl(W) {                     // the boundary layer under the chart (from 2026-10-31)
+    const box = $('app-ils-bl2');
+    box.hidden = I.wsbl === 'off';
+    if (box.hidden) { IW.dots2 = []; return; }
+    const cv = $('app-ils-blcv'), H = Math.round(Math.max(200, W * 0.7)), dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // left margin 24 px as the chart above, so the hours line up
+    IW.dots2 = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-ils-blro'), {
+      bl: IW.bl, fl: IW.fl, hours: parseInt(I.wsh, 10) || 3, field: ilsBlField(), fetchedMs: IW.bl ? IW.blAt : 0, L: 24 });
+  }
+  $('app-ils-blpick').textContent = ilsBlHint();
+  $('app-ils-wsbl').addEventListener('change', () => { $('app-ils-blpick').textContent = ilsBlHint(); });
+  $('app-ils-blcv').addEventListener('pointerdown', e => {
+    const r = $('app-ils-blcv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    let best = null, bd = 18 * 18;
+    for (const d of IW.dots2 || []) { const dd = (d.x - x) ** 2 + (d.y - y) ** 2; if (dd < bd) { bd = dd; best = d; } }
+    $('app-ils-blpick').textContent = best ? best.label : ilsBlHint();
+  });
   $('app-ils-wscv').addEventListener('pointerdown', e => {
     const r = $('app-ils-wscv').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     let best = null, bd = 18 * 18;
@@ -1549,7 +1625,7 @@
       I.fetched = Date.now();
       autoSel();
       drawIls();
-      if (I.wschart !== 'off') loadIlsWs();
+      if (I.wschart !== 'off' || I.wsbl !== 'off') loadIlsWs();
       if (I.edrmap !== 'off') loadEdrTracks();
       loadBlNow();
       if (I.hist !== 'off') loadIlsHist();
