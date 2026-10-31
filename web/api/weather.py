@@ -22,6 +22,12 @@ decompresses and averages.
 bbox (from 2026-10-30, the phone's Weather view): only the part of the grid
 that covers lat0, lon0, lat1, lon1 (whole step blocks, so the averaging is
 the same as without it) — a third or less of the download.
+
+fine (from 2026-10-31): the same fields on the full 2.5 km MEPS grid in a box
+around the receiver (table meps_wx25_hours, MEPS_WX_FINE_KM, 300 km by
+default), for the detail of the Weather page and the phone when zoomed in;
+index() lists its hours as "fine" and frames(..., fine=True) sends them
+(step and bbox do not apply).
 """
 
 from __future__ import annotations
@@ -47,9 +53,17 @@ def index(db) -> dict:
         meta = db.execute("SELECT meta FROM meps_wx_hours ORDER BY ts DESC LIMIT 1").fetchone()
     except Exception:                                    # noqa: BLE001  (table missing)
         return {"hours": [], "grid": None}
-    return {"hours": [[ts, run, lead, 1 if w else 0] for ts, run, lead, w in rows],
-            "grid": json.loads(meta[0]) if meta else None,
-            "source": "MEPS (MET Norway, CC BY 4.0)"}
+    out = {"hours": [[ts, run, lead, 1 if w else 0] for ts, run, lead, w in rows],
+           "grid": json.loads(meta[0]) if meta else None,
+           "source": "MEPS (MET Norway, CC BY 4.0)"}
+    # the 2.5 km box: [[ts, run, lead], …] and its grid (none when not fetched)
+    try:
+        frows = db.execute("SELECT ts, run, lead FROM meps_wx25_hours ORDER BY ts").fetchall()
+        fmeta = db.execute("SELECT meta FROM meps_wx25_hours ORDER BY ts DESC LIMIT 1").fetchone()
+        out["fine"] = {"hours": [list(r) for r in frows], "grid": json.loads(fmeta[0]) if fmeta else None}
+    except Exception:                                    # noqa: BLE001  (table missing)
+        out["fine"] = {"hours": [], "grid": None}
+    return out
 
 
 def _decode(meta: dict, blob: bytes):
@@ -143,19 +157,25 @@ def _crop(plane, nx: int, win):
     return out
 
 
-def frames(db, ts_list, step: int = 2, fields=None, bbox=None) -> dict:
+def frames(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> dict:
     """The fields of the given hours, averaged to step × 10 km; with bbox only
-    the part of the grid over it."""
+    the part of the grid over it; fine: the 2.5 km box (every cell)."""
+    table = "meps_wx25_hours" if fine else "meps_wx_hours"
+    if fine:
+        step, bbox = 1, None
     step = 1 if step <= 1 else (2 if step <= 2 else 4)
     send = tuple(f for f in ALL if f in (fields or SEND))
     bkey = tuple(round(v, 2) for v in bbox) if bbox else None
     out, grid = [], None
     for ts in ts_list[:96]:
-        r = db.execute("SELECT run, lead, instr(meta, '\"u\"') > 0 FROM meps_wx_hours WHERE ts = ?",
-                       (int(ts),)).fetchone()
+        try:
+            r = db.execute(f"SELECT run, lead, instr(meta, '\"u\"') > 0 FROM {table} WHERE ts = ?",
+                           (int(ts),)).fetchone()
+        except Exception:                                # noqa: BLE001  (table missing)
+            r = None
         if not r:
             continue
-        key = (int(ts), r[0], r[1], r[2], step, send, bkey)
+        key = (table, int(ts), r[0], r[1], r[2], step, send, bkey)
         hit = _cache.get(key)
         if hit:
             if grid is None:
@@ -163,7 +183,7 @@ def frames(db, ts_list, step: int = 2, fields=None, bbox=None) -> dict:
             if hit[0] == grid:
                 out.append(hit[1])
             continue
-        r = db.execute("SELECT run, lead, meta, data FROM meps_wx_hours WHERE ts = ?", (int(ts),)).fetchone()
+        r = db.execute(f"SELECT run, lead, meta, data FROM {table} WHERE ts = ?", (int(ts),)).fetchone()
         if not r:
             continue
         meta = json.loads(r[2])
@@ -192,5 +212,5 @@ def frames(db, ts_list, step: int = 2, fields=None, bbox=None) -> dict:
             _cache.clear()
         _cache[key] = (g, f)
         out.append(f)
-    return {"grid": grid, "step": step, "km": 10 * step, "frames": out,
+    return {"grid": grid, "step": step, "km": 2.5 if fine else 10 * step, "fine": 1 if fine else 0, "frames": out,
             "source": "MEPS (MET Norway, CC BY 4.0)"}

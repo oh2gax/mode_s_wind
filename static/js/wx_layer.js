@@ -28,6 +28,13 @@
  * rain inside the coverage is drawn as outlines over the radar's colours —
  * thin from 0.1 mm/h, thick from 1 mm/h — so the forecast can be compared
  * with what the radar observes without mixing the two.
+ *
+ * setFine(frame, grid) (from 2026-10-31) adds a detail frame on a finer grid
+ * of the same projection — the 2.5 km MEPS box around the receiver: the
+ * filled fields (clouds, gust, rain / snow) of the main frame are cut away
+ * inside the box and drawn from the detail frame there, a faint dotted line
+ * marks its edge, and the read-out (valuesAt) takes its values inside it.
+ * Isobars and barbs stay those of the main frame.
  */
 'use strict';
 
@@ -121,10 +128,10 @@ const WxLayer = (() => {
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const theme = () => isLight()
     ? { iso: 'rgba(30,41,59,0.85)', isoLbl: '#1e293b', halo: 'rgba(241,245,249,0.9)', hi: '#1d4ed8', lo: '#b91c1c',
-        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a',
+        cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a', fineEdge: 'rgba(30,41,59,0.45)',
         mrain: '#1e293b', mrainHalo: 'rgba(255,255,255,0.75)' }
     : { iso: 'rgba(226,232,240,0.8)', isoLbl: '#e2e8f0', halo: 'rgba(15,25,35,0.85)', hi: '#60a5fa', lo: '#f87171',
-        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)', barb: '#f8fafc',
+        cloud: [226, 232, 240], fog: [250, 204, 21], radarEdge: 'rgba(45,212,191,0.7)', barb: '#f8fafc', fineEdge: 'rgba(226,232,240,0.4)',
         mrain: '#f8fafc', mrainHalo: 'rgba(15,25,35,0.7)' };
   const CLOUD_NAME = { c: 'cloud cover', l: 'low cloud', m: 'medium cloud', h: 'high cloud', f: 'fog' };
 
@@ -207,6 +214,7 @@ const WxLayer = (() => {
     const off = document.createElement('canvas');
     let frame = null, grid = null, geo = null, gridKey = '';
     let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
+    let fine = null, fineGrid = null, fineGeo = null, fineKey = '';  // the 2.5 km box (setFine)
     let o = { rain: true, clouds: [], pres: true, wind: false, gust: false };
     let drawn = [];            // barbs drawn last: [x, y, dir, spd, grid index] (barbAt)
 
@@ -263,6 +271,35 @@ const WxLayer = (() => {
         g2.setTransform(dpr, 0, 0, dpr, 0, 0); g2.lineWidth = 0.8;
       };
       const f = hasF ? frame : {};
+      // the 2.5 km box: its outline (corners along the edge, split for the projection),
+      // cut out of a layer and filled from the detail frame
+      const hasFine = hasF && fine && fineGeo && !grid.proj && !fineGrid.proj;
+      const fq = hasFine ? quads(fineGeo) : null, fnx = hasFine ? fineGeo.nx : 0, fny = hasFine ? fineGeo.ny : 0;
+      const fineRing = () => {
+        const pts = [], n1 = fnx + 1, E = 25;
+        for (let i = 0; i < fnx; i += E) pts.push(fq.C(i));
+        for (let j = 0; j < fny; j += E) pts.push(fq.C(j * n1 + fnx));
+        for (let i = fnx; i > 0; i -= E) pts.push(fq.C(fny * n1 + i));
+        for (let j = fny; j > 0; j -= E) pts.push(fq.C(j * n1));
+        return pts;
+      };
+      const fineCut = () => {                        // clear the box in the layer being drawn
+        if (!hasFine) return;
+        const pts = fineRing();
+        g2.save(); g2.globalCompositeOperation = 'destination-out'; g2.fillStyle = '#000';
+        g2.beginPath(); pts.forEach((q, k) => k ? g2.lineTo(q.x, q.y) : g2.moveTo(q.x, q.y)); g2.closePath(); g2.fill();
+        g2.restore();
+      };
+      // the detail frame's cells: colour(frame, k) → css colour or null
+      const fineCells = colour => {
+        if (!hasFine) return false;
+        let any = false;
+        for (let j = 0; j < fny; j++) for (let i = 0; i < fnx; i++) {
+          const col = colour(fine, j * fnx + i);
+          if (col) { fq(i, j, col); any = true; }
+        }
+        return any;
+      };
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
       for (const key of (hasF ? o.clouds : [])) {
         const v = f[key];
@@ -274,6 +311,11 @@ const WxLayer = (() => {
           if (c == null || c < 15) continue;
           const g = Math.round(255 * c / 100);
           quad(i, j, `rgb(${g},${g},${g})`); any = true;
+        }
+        if (hasFine) {
+          fineCut();
+          if (fineCells((fr, k) => { const c = fr[key] && fr[key][k]; if (c == null || c < 15) return null;
+                                      const g = Math.round(255 * c / 100); return `rgb(${g},${g},${g})`; })) any = true;
         }
         if (!any) continue;
         const img = g2.getImageData(0, 0, off.width, off.height), px = img.data;
@@ -296,6 +338,10 @@ const WxLayer = (() => {
           const cl = gustClass(v);
           if (cl >= 0) { quad(i, j, GUST_C[cl]); any = true; }
         }
+        if (hasFine) {
+          fineCut();
+          if (fineCells((fr, k) => { const v = fr.g && fr.g[k]; const cl = v == null ? -1 : gustClass(v); return cl >= 0 ? GUST_C[cl] : null; })) any = true;
+        }
         if (any) layer(o.gustAlpha != null ? o.gustAlpha : (opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
       }
       // rain / snow: the model's, cut away inside the radar coverage, then the radar's;
@@ -314,6 +360,16 @@ const WxLayer = (() => {
             if (cl < 0) continue;
             const snow = f.s && f.s[k] != null && f.s[k] >= 0.5 * r;
             quad(i, j, (snow ? SNOW_C : RAIN_C)[cl]); any = true;
+          }
+          if (hasFine && fine.r) {
+            fineCut();
+            if (fineCells((fr, k) => {
+              const r = fr.r[k];
+              if (r == null || r < 10) return null;
+              const cl = rainClass(r / 100);
+              if (cl < 0) return null;
+              return ((fr.s && fr.s[k] != null && fr.s[k] >= 0.5 * r) ? SNOW_C : RAIN_C)[cl];
+            })) any = true;
           }
           if (any && hasO && ov.cov) {
             g2.globalCompositeOperation = 'destination-out';
@@ -385,6 +441,12 @@ const WxLayer = (() => {
         }
         ctx.strokeStyle = T.radarEdge; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
         ctx.stroke(); ctx.setLineDash([]);
+      }
+      // the edge of the 2.5 km box: a faint dotted line
+      if (hasFine && o.fineEdge !== false) {
+        const pts = fineRing();
+        ctx.beginPath(); pts.forEach((q, k) => k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath();
+        ctx.strokeStyle = T.fineEdge; ctx.lineWidth = 1; ctx.setLineDash([1.5, 3]); ctx.stroke(); ctx.setLineDash([]);
       }
       if (hasF && o.wind && f.u && f.v) drawBarbs(ctx, f, T, P);
       if (hasF && o.pres && f.p) drawPressure(ctx, f, T, P);
@@ -520,6 +582,14 @@ const WxLayer = (() => {
     function valuesAt(latlng) {
       if (!frame || !grid || grid.proj) return null;
       const [x, y] = LCC.xy(latlng.lat, latlng.lng);
+      if (fine && fineGrid && !fineGrid.proj) {                 // inside the 2.5 km box: its values
+        const i = Math.round((x - fineGrid.x[0]) / fineGrid.x[1]), j = Math.round((y - fineGrid.y[0]) / fineGrid.y[1]);
+        if (i >= 0 && j >= 0 && i < fineGrid.x[2] && j < fineGrid.y[2]) {
+          const k = j * fineGrid.x[2] + i, out = { fine: 1 };
+          for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b', 'u', 'v', 'g', 't']) if (fine[key] && fine[key][k] != null) out[key] = fine[key][k];
+          return out;
+        }
+      }
       const i = Math.round((x - grid.x[0]) / grid.x[1]), j = Math.round((y - grid.y[0]) / grid.y[1]);
       if (i < 0 || j < 0 || i >= grid.x[2] || j >= grid.y[2]) return null;
       const k = j * grid.x[2] + i, f = frame, out = {};
@@ -542,6 +612,7 @@ const WxLayer = (() => {
       for (const key of ['c', 'l', 'm', 'h', 'f']) if (v[key] != null) parts.push(`${CLOUD_NAME[key]} ${v[key]} %`);
       if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20)))
         parts.push(`cloud base ${(Math.round(v.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`);
+      if (v.fine) parts.push('2.5 km grid');
       return parts.join(' · ');
     }
 
@@ -561,6 +632,19 @@ const WxLayer = (() => {
         ov = f && ovGrid ? prepRadar(f, ovGrid) : null; draw();
       },
       setOptions(x) { Object.assign(o, x); draw(); },
+      // the 2.5 km detail frame (null: none) on its grid
+      // (quiet: no redraw — a setFrame follows)
+      setFine(f, g, quiet) {
+        if (g) {
+          const k = JSON.stringify(g);
+          if (k !== fineKey) { fineKey = k; fineGrid = g; fineGeo = buildGeo(g); }
+        }
+        const nf = f && fineGrid ? f : null;
+        if (nf === fine) return;
+        fine = nf;
+        if (!quiet) draw();
+      },
+      fineShown: () => !!(fine && fineGeo),
       setOpacity(a) { canvas.style.opacity = String(a); },
       show(on) { canvas.style.display = on ? '' : 'none'; },
       redraw: draw,
@@ -610,6 +694,7 @@ const WxLayer = (() => {
     if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
     if (o.wind) parts.push(`barbs: ${o.windLabel || '10 m wind'} (kt; half feather 5, feather 10, pennant 50)`);
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);
+    if (o.fine) parts.push(`<span style="display:inline-block;width:16px;border-top:1px dotted ${theme().fineEdge.replace(/[\d.]+\)$/, '0.9)')};vertical-align:middle"></span> 2.5 km detail area`);
     for (const c of o.clouds || []) parts.push(c === 'f' ? `<span class="wx-key" style="background:rgb(${T.fog})"></span> fog` : `grey: ${CLOUD_NAME[c]}`);
     return parts.join(' &nbsp;·&nbsp; ');
   }

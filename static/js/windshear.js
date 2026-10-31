@@ -1920,6 +1920,23 @@ function _hms(ts) {
   return String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0') + ':' + String(d.getUTCSeconds()).padStart(2,'0');
 }
 
+// The age of a log entry (from 2026-10-31): the date before the time when it is from an
+// earlier UTC day (the log reaches 24 h back, so a go-around of last evening could be
+// taken for one of today), and fainter with age — under 1 h as before, 1–6 h dimmer
+// (a go-around's red text grey), 6–24 h faint; the hover gives the full date and the age.
+const _WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function _logAge(tsS) {
+  const now = Date.now() / 1000, age = Math.max(0, now - tsS), d = new Date(tsS * 1000), n = new Date(now * 1000);
+  const otherDay = d.getUTCDate() !== n.getUTCDate() || d.getUTCMonth() !== n.getUTCMonth() || d.getUTCFullYear() !== n.getUTCFullYear();
+  const h = Math.floor(age / 3600), m = Math.floor(age % 3600 / 60);
+  return {
+    date: otherDay ? `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ` : '',
+    cls:  age >= 6 * 3600 ? ' ws-log-old' : age >= 3600 ? ' ws-log-aged' : '',
+    full: `${_WD[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`,
+    ago:  h ? `${h} h ${m} min ago` : `${m} min ago`,
+  };
+}
+
 function renderWsLog() {
   const el = document.getElementById('ws-ws-log-entries');
   if (!el) return;
@@ -1941,13 +1958,15 @@ function renderWsLog() {
 
   el.innerHTML = all.map(e => {
     // ── Go-around entry (compact) ─────────────────────────────────────────
+    const A = _logAge(e._ts / 1000);
     if (e._type === 'go_around') {
       const lowTxt = e.low ? '\nClimb-out at / after the threshold (low go-around or touch-and-go)' : '';
       const wsTxt = e.ws && e.ws !== 'none' && WS_LEVEL[e.ws] ? `\n${WS_LEVEL[e.ws].name} active at that moment` : '';
-      const tip = `${e._time} UTC  ·  RWY ${e.rwy}\n✈ Go-Around  ·  ${e._ordinal} go-around of this flight\nAlt: ${e.alt_ft} ft${lowTxt}${wsTxt}\nAircraft: ${e.callsign || e.icao}${e.ac_type ? '  ' + e.ac_type : ''}`;
-      return `<div class="ws-log-entry-compact ws-log-ga"
+      const tip = `${A.full} ${e._time} UTC  ·  ${A.ago}\nRWY ${e.rwy}  ·  ✈ Go-Around  ·  ${e._ordinal} go-around of this flight\nAlt: ${e.alt_ft} ft${lowTxt}${wsTxt}\nAircraft: ${e.callsign || e.icao}${e.ac_type ? '  ' + e.ac_type : ''}`;
+      // HH:MM as the alerts (the seconds are in the hover), with the date from an earlier day
+      return `<div class="ws-log-entry-compact ws-log-ga${A.cls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
->${e._time} ✈ GA ${e.rwy}${e.low ? ' low' : ''}  ${e.callsign || e.icao}</div>`;
+>${A.date}${e._time.slice(0, 5)} ✈ GA ${e.rwy}${e.low ? ' low' : ''}  ${e.callsign || e.icao}</div>`;
     }
 
     // ── Windshear alert (compact) ─────────────────────────────────────────
@@ -1956,13 +1975,13 @@ function renderWsLog() {
     const dep = e.ph === 'dep';
     const cfe = wsEvCf(e);
     // HH:MM so that the message fits the narrow column (the seconds are in the hover)
-    const compact = `${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}${blAtTag(e._ts / 1000)}`;
+    const compact = `${A.date}${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}${blAtTag(e._ts / 1000)}`;
     const how = dep ? 'climb-out compared with the earlier landings and departures'
               : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
     const cfLine = cfe ? '\n' + (cfe._ev ? (cfe.b ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
-    const tip = `${e._time} UTC  ·  RWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}${blAtLine(e._ts / 1000, '\n')}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
+    const tip = `${A.full} ${e._time} UTC  ·  ${A.ago}\nRWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}${blAtLine(e._ts / 1000, '\n')}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
-    return `<div class="ws-log-entry-compact${sevCls}"
+    return `<div class="ws-log-entry-compact${sevCls}${A.cls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
 >${compact}</div>`;
   }).join('');

@@ -66,7 +66,9 @@ _WS_LITE_KEYS = ("icao", "callsign", "aircraft_type", "altitude", "vert_rate",
 # ?lite=1&map=1 (the map of the mobile ILS view, from 2026-10-28): also the
 # position and track and a short trail (the last TRAIL_SEC, every 2nd point);
 # &near=1 also the other aircraft within WINDSHEAR_RADIUS_NM and below
-# WINDSHEAR_MAX_ALT_FT with the fields of their map square and label only —
+# WINDSHEAR_MAX_ALT_FT with the fields of their map square and label only
+# (from 2026-10-31 &nm=… and &alt=all widen it: the map's "All tracked (30 NM)",
+# every level) —
 # from 2026-10-30 taken from live_state (all traffic), not from the windshear
 # tracker, which never takes in an aircraft first seen climbing (its entry
 # gate) and so had almost no departures.
@@ -1184,7 +1186,7 @@ def create_app(
                 bbox = b
         except ValueError:
             bbox = None
-        resp = jsonify(_wx.frames(get_db(), ts, step, fields, bbox))
+        resp = jsonify(_wx.frames(get_db(), ts, step, fields, bbox, fine=request.args.get("fine") == "1"))
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
             resp.headers["Content-Encoding"] = "gzip"
@@ -1570,6 +1572,14 @@ def create_app(
         if request.args.get("lite", "0") in ("1", "true", "yes") and isinstance(state, dict):
             want_map = request.args.get("map") == "1"
             want_near = want_map and request.args.get("near") == "1"
+            # &nm= (1 … 60) and &alt=all (from 2026-10-31, the map's "All tracked (30 NM)"):
+            # a wider radius and every level; without them WINDSHEAR_RADIUS_NM and
+            # below WINDSHEAR_MAX_ALT_FT (the departures of "Departures: Shown")
+            try:
+                near_nm = min(60.0, max(1.0, float(request.args.get("nm")))) if request.args.get("nm") else None
+            except ValueError:
+                near_nm = None
+            near_all_alt = request.args.get("alt") == "all"
             t_trail = time.time() - _WS_TRAIL_SEC
             acs = []
             for a in state.get("aircraft") or []:
@@ -1585,21 +1595,22 @@ def create_app(
                     x["trail"] = [[round(h["lat"], 4), round(h["lon"], 4)] for h in tr[::-2][::-1]]
                 acs.append(x)
             if want_near:
-                acs += _ws_near(set(a["icao"] for a in acs))
+                acs += _ws_near(set(a["icao"] for a in acs), near_nm, near_all_alt)
             state = {"aircraft": acs, "ws_events": state.get("ws_events") or [], "lite": 1}
         return _gzip_json(state)
 
-    def _ws_near(skip: set) -> list:
+    def _ws_near(skip: set, r_nm: float | None = None, all_alt: bool = False) -> list:
         """The other aircraft of the mobile ILS map (from 2026-10-30): all of
         live_state with a fresh position within WINDSHEAR_RADIUS_NM of the
         airport and below WINDSHEAR_MAX_ALT_FT, except those on the approach
         (skip); climb-outs marked dep / dep_rwy (DepartureTracker.following,
-        go-arounds excluded)."""
+        go-arounds excluded).  r_nm / all_alt (from 2026-10-31): another radius
+        and no altitude limit (the map's "All tracked (30 NM)")."""
         from collector.windshear import _haversine_nm
         now = time.time()
         lat0, lon0 = cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON
-        r_max = float(cfg.WINDSHEAR_RADIUS_NM)
-        alt_max = float(cfg.WINDSHEAR_MAX_ALT_FT)
+        r_max = float(r_nm) if r_nm else float(cfg.WINDSHEAR_RADIUS_NM)
+        alt_max = float("inf") if all_alt else float(cfg.WINDSHEAR_MAX_ALT_FT)
         deps = {}
         fn = getattr(ws_tracker, "departures_fn", None)
         if fn is not None:

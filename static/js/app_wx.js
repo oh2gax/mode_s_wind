@@ -36,6 +36,9 @@
  *    area and as outlines inside it.  The other hours show the model's rain.
  *    Rain opacity and Radar opacity (25–100 %, 75 % by default) set the two
  *    rains' opacity separately (WxLayer options rainAlpha / radarAlpha).
+ *  - Detail (from 2026-10-31): the model's full 2.5 km grid in the box around
+ *    the receiver (/api/weather/frames?fine=1), loaded and drawn when the map
+ *    is zoomed to FINE_ZOOM or closer with the box in view (WxLayer.setFine).
  */
 'use strict';
 
@@ -52,6 +55,9 @@ window.AppWx = (() => {
   let current = null, playing = false, playRun = 0, indexAt = 0, shown = false;
   let traffic = null, trafficAt = 0, trafficLayer = null, trails = {}, lblPos = {}, tip = null, tipMk = null;
   let radar = null, radarAt = 0, radarErr = '', radarOn = false;    // the FMI radar (Rain source)
+  const FINE_ZOOM = 7;
+  let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = '', fineRun = 0, fineWas = false;
+  const fineFrames = new Map();                                     // the 2.5 km box (Detail)
   const pad = n => String(n).padStart(2, '0');
   const nowTs = () => Math.floor(Date.now() / 1000);
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -66,7 +72,8 @@ window.AppWx = (() => {
     return { rain: s.rain === 'on', pres: s.pres === 'on', wind: s.wind === 'on', gust: s.gust === 'on',
              clouds: s.cloud !== 'off' ? [s.cloud] : [],
              modelOutline: radarOn && s.src === 'both', edge: radarOn,
-             rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100 };
+             rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100,
+             fine: !!(wx && wx.fineShown()) };
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
@@ -115,6 +122,8 @@ window.AppWx = (() => {
     wx.setOptions(layerOptions());
     trafficLayer = AtcDisplay.canvasLayer(map, drawTraffic);
     map.on('click', onTap);
+    // a redraw only when the detail comes or goes (the layer redraws itself on a move)
+    map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); });
     $('app-wx-tip').addEventListener('click', closeTip);
     $('app-wx-t').addEventListener('input', () => { if (playing) play(); showFrame(); maybeLoadNear(); });
     $('app-wx-play').addEventListener('click', play);
@@ -167,8 +176,51 @@ window.AppWx = (() => {
     try {
       const d = await (await fetch('/api/weather/index', { cache: 'no-store' })).json();
       hours = d.hours || [];
+      fineInfo = d.fine || { hours: [], grid: null };
+      fineBox = null;
     } catch (_) { status('Could not load the weather map index.'); return; }
     buildView();
+  }
+
+  // ── 2.5 km detail ─────────────────────────────────────────────────────
+  function fineBounds() {
+    const g = fineInfo.grid;
+    if (!g) return null;
+    if (!fineBox) {
+      const xs = [g.x[0] - g.x[1] / 2, g.x[0] + (g.x[2] - 0.5) * g.x[1]], ys = [g.y[0] - g.y[1] / 2, g.y[0] + (g.y[2] - 0.5) * g.y[1]];
+      fineBox = L.latLngBounds(xs.flatMap(x => ys.map(y => WxLayer.LCC.latlon(x, y))));
+    }
+    return fineBox;
+  }
+  function fineWanted() {
+    const b = fineBounds();
+    return S().detail !== 'off' && !!b && map.getZoom() >= FINE_ZOOM && map.getBounds().intersects(b);
+  }
+  // the hours of the box near the slider first; Load: Near the slider — only ±6 h
+  async function loadFine() {
+    if (!shown || !fineWanted()) return;
+    const fields = fieldList();
+    if (fineKey !== fields) { fineFrames.clear(); fineKey = fields; }
+    const run = ++fineRun, cur = +$('app-wx-t').value, near = S().load === 'near';
+    const have = new Map(fineInfo.hours.map(h => [h[0], h]));
+    const need = view.map((h, i) => ({ h, i, fh: have.get(h[0]) }))
+      .filter(o => o.fh && (!near || Math.abs(o.i - cur) <= NEAR_H) &&
+                   !(fineFrames.get(o.h[0]) && fineFrames.get(o.h[0]).run === o.fh[1] && fineFrames.get(o.h[0]).lead === o.fh[2]))
+      .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
+    for (let k = 0; k < need.length; k += CHUNK) {
+      if (run !== fineRun || !shown || !fineWanted()) return;
+      const ts = need.slice(k, k + CHUNK).map(o => o.h[0]).sort((a, b) => a - b);
+      try {
+        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${fields}&fine=1`);
+        const txt = await r.text();
+        if (run !== fineRun) return;
+        const n = +(r.headers.get('content-length') || 0) || Math.round(txt.length / 3);
+        bytes += n;
+        for (const f of JSON.parse(txt).frames || []) fineFrames.set(f.ts, f);
+      } catch (_) { return; }
+      const h = view[+$('app-wx-t').value];
+      if (h && ts.includes(h[0])) showFrame(); else statusLine();
+    }
   }
   function presentIndex() {
     const now = nowTs();
@@ -188,6 +240,7 @@ window.AppWx = (() => {
     drawStrip();
     loadFrames();
     showFrame();
+    loadFine();
   }
   const fresh = h => { const f = frames.get(h[0]); return f && f.run === h[1] && f.lead === h[2] && (f.w || 0) === (h[3] || 0); };
   async function loadFrames() {
@@ -261,6 +314,9 @@ window.AppWx = (() => {
     const on = useRadar() && !!radar && k === presentIndex();
     if (on !== radarOn) { radarOn = on; wx.setOptions(layerOptions()); renderLegend(); }
     wx.setOverlay(on ? radar : null, on ? radar.grid : null);
+    const ff = fineWanted() ? fineFrames.get(h[0]) : null, hadFine = wx.fineShown();
+    wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
+    if (hadFine !== wx.fineShown()) renderLegend();
     wx.setFrame(on && S().src === 'radar' ? Object.assign({}, f, { r: null, s: null }) : f, grid);
     if (on) { const t = new Date(radar.ts * 1000); $('app-wx-rel').innerHTML = `now · <span class="rd">radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}</span>`; }
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
@@ -280,7 +336,8 @@ window.AppWx = (() => {
         if (radarOn) rain = 'radar: FMI open data, CC BY 4.0 · model';
       } else rd = radarErr ? `FMI radar not reachable${radarErr} — trying again in a few minutes · ` : 'FMI radar loading… · ';
     }
-    status(`${tr}${rd}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
+    const fn = wx && wx.fineShown() ? '2.5 km near the airport · ' : '';
+    status(`${tr}${rd}${fn}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
     $('app-wx-loading').hidden = n >= view.length || !view.length || S().load === 'near';
     $('app-wx-loading').textContent = `Loading ${n} / ${view.length} hours…`;
   }
@@ -453,7 +510,7 @@ window.AppWx = (() => {
   function option(key) {                                   // a Weather option changed in the menu
     if (['rain', 'pres', 'wind', 'gust', 'cloud'].includes(key)) {
       wx.setOptions(layerOptions()); renderLegend();
-      if (key !== 'rain' && key !== 'pres') loadFrames();
+      if (key !== 'rain' && key !== 'pres') { loadFrames(); loadFine(); }
       else showFrame();
     } else if (key === 'fc') buildView();
     else if (key === 'grid') { bytes = 0; loadFrames(); }
@@ -462,6 +519,7 @@ window.AppWx = (() => {
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
     else if (key === 'rainop' || key === 'radarop') wx.setOptions(layerOptions());
+    else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }
     else if (key === 'src') {
       if (!useRadar()) { radar = null; radarErr = ''; }
       radarOn = null; showFrame();                         // re-applies the options and the overlay

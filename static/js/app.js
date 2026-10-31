@@ -1005,7 +1005,8 @@
   // radius; tiles Dark / Grey with the theme.  A tap on an aircraft on the
   // approach follows it (as on the profile).  Leaflet is loaded the first time
   // the map is shown; the view is remembered (ms_app_ilsMapView), ⌂ = home.
-  const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null, atcLoading: null, atcLines: null };
+  const IM = { map: null, loading: null, theme: null, tiles: null, ovl: null, ac: null, geo: null, atcLoading: null, atcLines: null,
+               lbl: null, items: [], lblStyle: null, lblPos: {}, ilsFeat: null };   // the canvas labels (2026-10-31)
   const IM_KEY = 'ms_app_ilsMapView', IM_HOME_ZOOM = 9;
   const IM_SRC = { MRAR: '#3b82f6', COMPUTED: '#10b981', MHR: '#f59e0b', JSON: '#a855f7', NONE: '#6b7280' };
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -1071,7 +1072,8 @@
     new Home().addTo(m);
     IM.map = m; IM.ovl = L.layerGroup().addTo(m); IM.ac = L.layerGroup().addTo(m);
     Promise.all(['efhk_ils.geojson', 'efhk_apt.geojson'].map(f => fetch('/overlays/' + f).then(r => r.ok ? r.json() : null).catch(() => null)))
-      .then(([ils, apt]) => { IM.geo = { ils, apt }; IM.theme = null; drawIlsMap(); });
+      .then(([ils, apt]) => { IM.geo = { ils, apt }; IM.ilsFeat = ils ? (ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK') : null;
+                              IM.theme = null; drawIlsMap(); });
   }
   // tiles and overlays in the colours of the theme (the Windshear page's Dark / Grey)
   // Map style ATC (from 2026-10-30): no tiles but the ATC background (dark grey in the
@@ -1186,6 +1188,12 @@
     }
     const atcL  = I.lbl === 'atc';                                   // the ATC labels (from 2026-10-30)
     const dense = atcL || I.actype === 'on' || I.selalt === 'on';    // longer labels (from 2026-10-30)
+    // the labels (from 2026-10-31): on a canvas with leader lines, placed apart from each
+    // other, the squares, the speed vectors, the trails and the approach lines
+    // (AtcDisplay.drawLabels, as the Live Map and the Windshear map); before, beside the
+    // square at a fixed place — on 04L / 04R straight ahead, over the approach line
+    const items = [];
+    const lblCol = (onA, a) => atc ? null : (onA && !a.landed ? (light ? '#0b1220' : '#f8fafc') : (light ? '#334155' : '#cbd5e1'));
     for (const a of I.ac) {
       if (a.lat == null || a.lon == null) continue;
       const onA = a.in_corridor && a.dist_thr_nm != null && rwyOk(a.approach_runway);
@@ -1212,8 +1220,10 @@
       const s = dense ? (sel || onA ? 8 : 6) : (sel || onA ? 10 : 8), o = (H - s) / 2;
       // speed vector (from 2026-10-29): to where the aircraft will be after 30 s / 1 / 2 min at its
       // ground speed along its track, in map distance; not for a landed aircraft
-      if (I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null)
-        L.polyline([[a.lat, a.lon], vecEnd(a.lat, a.lon, a.track, a.groundspeed, +I.vec)], { interactive: false,
+      const vEnd = I.vec !== 'off' && !a.landed && a.groundspeed > 30 && a.track != null
+        ? vecEnd(a.lat, a.lon, a.track, a.groundspeed, +I.vec) : null;
+      if (vEnd)
+        L.polyline([[a.lat, a.lon], vEnd], { interactive: false,
           color: selM ? (light ? '#0f172a' : '#fff') : c, weight: 1.6, opacity: onA ? 0.95 : 0.6 }).addTo(IM.ac);
       const icon = L.divIcon({ className: '', iconSize: [H, H], iconAnchor: [H / 2, H / 2],
         html: `<svg width="${H}" height="${H}" viewBox="0 0 ${H} ${H}" aria-hidden="true"><rect x="${o}" y="${o}" width="${s}" height="${s}" rx="1" fill="none"` +
@@ -1221,21 +1231,46 @@
       const mk = L.marker([a.lat, a.lon], { icon, zIndexOffset: sel ? 300 : onA ? 100 : 0, keyboard: false }).addTo(IM.ac);
       if (onA) mk.on('click', () => selectIls(a.icao));
       const alt = a.altitude == null ? '' : altLbl(a);
-      const left = onA && /R$/.test(a.approach_runway || '');          // the right-hand runway's traffic labelled to the left
-      if (atcL) {
-        // three lines in a small monospaced font, beside the square as the other labels
-        L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
-          icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 3, 15] : [-(s / 2 + 3), 15],
-            html: `<div class="ils-ac-lbl atc${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${atc ? ' atcm' : ''}"${atc ? ` style="color:${c}"` : ''}>` +
-                  atcLines(a).map(esc).join('<br>') + '</div>' }) }).addTo(IM.ac);
-        continue;
-      }
-      L.marker([a.lat, a.lon], { interactive: false, keyboard: false, zIndexOffset: sel ? 290 : 50,
-        icon: L.divIcon({ className: '', iconSize: [0, 0], iconAnchor: left ? [s / 2 + 4, 6] : [-(s / 2 + 4), 6],
-          html: `<div class="ils-ac-lbl${sel ? ' sel' : ''}${onA && !a.landed ? '' : ' dim'}${left ? ' left' : ''}${dense ? ' dense' : ''}${atc ? ' atcm' : ''}"${atc ? ` style="color:${c}"` : ''}>${esc(a.callsign || a.icao)}` +
-                `${I.actype === 'on' && a.aircraft_type ? ` <span class="ty">${esc(a.aircraft_type)}</span>` : ''}` +
-                `<small>${alt}${a.landed ? ' · landed' : ''}${a.dep ? ` · ${a.dep_rwy ? esc(a.dep_rwy) : 'DEP'}↑` : ''}</small></div>` }) }).addTo(IM.ac);
+      const lines = atcL ? atcLines(a)
+        : [(a.callsign || a.icao) + (I.actype === 'on' && a.aircraft_type ? ' ' + a.aircraft_type : ''),
+           (alt + (a.landed ? ' · landed' : '') + (a.dep ? ` · ${a.dep_rwy || 'DEP'}↑` : '')).replace(/^ · /, '')].filter(Boolean);
+      items.push({ key: a.icao, lat: a.lat, lon: a.lon, lines, sel, vec: vEnd,
+                   trail: onA && I.trails && Array.isArray(a.trail) ? a.trail : null,
+                   col: atc ? c : lblCol(onA, a), fade: atc && !(onA && !a.landed) ? 0.75 : 1,
+                   alt: (a.altitude ?? 99999) - (onA ? 100000 : 0) });     // the approach traffic placed first
     }
+    // the label style: ATC three monospaced lines, or the callsign and the level in a
+    // sans-serif; on the street map with an outline (dark theme) / a light one (light theme)
+    const fs = atcL ? 9 : dense ? 9 : 10.5;
+    IM.items = items;
+    IM.lblStyle = { fs, opt: {
+      font: atcL ? `500 ${fs}px ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace`
+                 : `600 ${fs}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`,
+      lh: Math.round(fs * (atcL ? 1.14 : 1.2)),
+      halo: atc ? null : light ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
+      leader: atc ? null : light ? '#64748b' : '#94a3b8' } };
+    if (atcReady() && !IM.lbl) IM.lbl = AtcDisplay.canvasLayer(IM.map, drawIlsLabels);
+    if (IM.lbl) IM.lbl.redraw();
+  }
+  // the labels of drawIlsMap's items, at every draw of the canvas (also while the map moves)
+  function drawIlsLabels(g, m, W, H) {
+    const items = IM.items || [];
+    if (!items.length || !IM.lblStyle) return;
+    const obst = AtcDisplay.domObstacles(m, '.leaflet-control-zoom, .ms-map-home, .leaflet-control-attribution');
+    if (IM.ilsFeat) obst.push(...AtcDisplay.lineObstacles(m, IM.ilsFeat, W, H));
+    const lbls = [];
+    for (const it of items) {
+      const p = m.latLngToContainerPoint([it.lat, it.lon]);
+      if (p.x < -200 || p.y < -200 || p.x > W + 200 || p.y > H + 200) continue;
+      if (it.vec) {                                  // the speed vector's line
+        const pe = m.latLngToContainerPoint(it.vec), dx = pe.x - p.x, dy = pe.y - p.y, L0 = Math.hypot(dx, dy);
+        for (let d = 8; d < L0; d += 8) obst.push({ x: p.x + dx * d / L0 - 2, y: p.y + dy * d / L0 - 2, w: 4, h: 4 });
+      }
+      if (it.trail) for (const q of it.trail) { const t = m.latLngToContainerPoint(q); obst.push({ x: t.x - 2, y: t.y - 2, w: 4, h: 4 }); }
+      lbls.push({ key: it.key, p, lines: it.lines, col: it.col, sel: it.sel, fade: it.fade, alt: it.alt });
+    }
+    AtcDisplay.drawLabels(g, lbls, W, H, obst, IM.lblPos, IM.lblStyle.fs, IM.lblStyle.opt);
+    g.globalAlpha = 1;
   }
   // ── Chart under the profile or the map (from 2026-10-29) ─────────────────
   // The chart of the ACI · WS · ST view (ws_cond_chart.js): from 2026-10-30
@@ -1298,7 +1333,7 @@
         : I.show === 'map' ? Math.round(Math.max(300, v.clientHeight * 0.58))     // room for the strips (2026-10-29)
         : Math.round(Math.max(220, v.clientHeight * 0.40))) + 'px';
       if (IM.map) { IM.map.invalidateSize(); drawIlsMap(); }
-      else loadLeaflet().then(() => I.mapst === 'atc' ? loadAtc().catch(() => {}) : null)
+      else loadLeaflet().then(() => loadAtc().catch(() => {}))      // the labels use it in every map style (2026-10-31)
                         .then(() => { initIlsMap(); drawIlsMap(); }).catch(() => {
         $('app-ils-map').textContent = 'The map could not be loaded.'; });
     }
@@ -1422,7 +1457,10 @@
   });
   async function loadIls() {
     try {
-      const q = I.show === 'profile' ? '' : I.mapac === 'all' || I.deps === 'show' ? '&map=1&near=1' : '&map=1';
+      // All tracked (from 2026-10-31): every aircraft within 30 NM at any level; Departures
+      // alone: those within the windshear radius below its ceiling (15 NM, 5 000 ft)
+      const q = I.show === 'profile' ? '' : I.mapac === 'all' ? '&map=1&near=1&nm=30&alt=all'
+              : I.deps === 'show' ? '&map=1&near=1' : '&map=1';
       const st = await (await fetch('/api/windshear/state?lite=1' + q, { cache: 'no-store' })).json();
       I.ac = IlsProfile.landedFilter(st && !Array.isArray(st) ? st.aircraft || [] : Array.isArray(st) ? st : []);
       I.ev = st && !Array.isArray(st) ? st.ws_events || [] : [];
@@ -1561,7 +1599,7 @@
                     cloud: ['off', 'c', 'l', 'm', 'h', 'f'], traffic: ['off', 'on'], mapst: ['street', 'atc'],
                     tlbl: ['atc', 'std'], fc: ['48', '24'], grid: ['10', '20'], load: ['all', 'near'],
                     speed: ['normal', 'slow', 'fast'], src: ['meps', 'radar', 'both'],
-                    rainop: ['75', '25', '50', '100'], radarop: ['75', '25', '50', '100'] };   // the first value is the default
+                    rainop: ['75', '25', '50', '100'], radarop: ['75', '25', '50', '100'], detail: ['auto', 'off'] };   // the first value is the default
   const W = {};
   for (const [k, vals] of Object.entries(WX_OPTS)) {
     const v = lsGet('ms_app_wx_' + k, vals[0]);
@@ -1696,9 +1734,14 @@
     $('app-sheet-about').hidden = kind !== 'about';
     $('app-sheet-guides').hidden = kind !== 'guides';
     $('app-sheet-news').hidden = kind !== 'news';
-    const alt = { news: 'guides', guides: 'news' }[kind];             // What's new ⇄ User guides (from 2026-10-30)
-    $('app-sheet-alt').hidden = !alt;
-    if (alt) { $('app-sheet-alt').textContent = alt === 'guides' ? 'User guides' : "What's new"; $('app-sheet-alt').dataset.kind = alt; }
+    // the other two of What's new, User guides and About (from 2026-10-30 the first two, About from 2026-10-31)
+    const others = { news: ['guides', 'about'], guides: ['news', 'about'], about: ['news', 'guides'] }[kind] || [];
+    const NAME = { news: "What's new", guides: 'User guides', about: 'About' };
+    ['app-sheet-alt', 'app-sheet-alt2'].forEach((id, k) => {
+      const b = $(id), o = others[k];
+      b.hidden = !o;
+      if (o) { b.textContent = NAME[o]; b.dataset.kind = o; }
+    });
     if (kind === 'guides' && !guidesLoaded) { $('app-sheet-guides').innerHTML = '<p class="app-small">Loading…</p>'; loadGuides(); }
     if (kind === 'news') {
       if (!newsLoaded) { $('app-sheet-news').innerHTML = '<p class="app-small">Loading…</p>'; loadNews(); }
@@ -1722,6 +1765,7 @@
   $('app-guides-btn').addEventListener('click', () => openSheet('guides'));
   $('app-sheet-close').addEventListener('click', () => closeSheet(false));
   $('app-sheet-alt').addEventListener('click', e => openSheet(e.currentTarget.dataset.kind));
+  $('app-sheet-alt2').addEventListener('click', e => openSheet(e.currentTarget.dataset.kind));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(false); });
   window.addEventListener('popstate', () => closeSheet(true));
 

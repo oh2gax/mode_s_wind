@@ -2743,6 +2743,12 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .ws-log-entry-compact.ws-log-warning { border-left-color: var(--amber); }
 .ws-log-entry-compact.ws-log-alarm   { border-left-color: var(--red); }
 .ws-log-entry-compact.ws-log-ga      { border-left-color: var(--red); color: var(--red); }
+/* older entries (from 2026-10-31): 1–6 h dimmer — a go-around's red text grey —, 6–24 h faint */
+.ws-log-entry-compact.ws-log-aged { opacity: .8; }
+.ws-log-entry-compact.ws-log-ga.ws-log-aged { color: var(--text-2); }
+.ws-log-entry-compact.ws-log-old  { opacity: .5; }
+.ws-log-entry-compact.ws-log-ga.ws-log-old  { color: var(--text-3, var(--text-2)); }
+.ws-log-entry-compact.ws-log-aged:hover, .ws-log-entry-compact.ws-log-old:hover { opacity: 1; }
 
 /* ── Hover tooltip for compact log entries ───────────────────────────────── */
 .ws-log-tooltip {

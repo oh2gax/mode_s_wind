@@ -88,7 +88,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -111,7 +111,7 @@ const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
 const cloudKey = () => { const v = $('wx-cloud').value; return v === 'off' ? null : v; };
 function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
-           wind: $('wx-wind').checked, gust: $('wx-gust').checked };
+           wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown() };
 }
 function fieldList() {
   const f = ['p', 'r', 's'], c = cloudKey();
@@ -133,8 +133,56 @@ async function loadIndex() {
   const r = await fetch('/api/weather/index', { cache: 'no-store' });
   const d = await r.json();
   hours = d.hours || [];
+  fineInfo = d.fine || { hours: [], grid: null };
+  fineBox = null;
   buildView();
 }
+
+// ── 2.5 km detail (from 31 Oct 2026) ──────────────────────────────────────
+// The full MEPS grid in a box around the receiver (/api/weather/index "fine",
+// /api/weather/frames?fine=1): loaded and drawn only when Detail is on, the
+// map zoomed to FINE_ZOOM or closer and the box in view; an hour of the box
+// is used only with the same run as the 10 km hour.
+const FINE_ZOOM = 7;
+let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = null, fineRun = 0;
+const fineFrames = new Map();
+function fineBounds() {
+  const g = fineInfo.grid;
+  if (!g) return null;
+  if (!fineBox) {
+    const xs = [g.x[0] - g.x[1] / 2, g.x[0] + (g.x[2] - 0.5) * g.x[1]], ys = [g.y[0] - g.y[1] / 2, g.y[0] + (g.y[2] - 0.5) * g.y[1]];
+    fineBox = L.latLngBounds(xs.flatMap(x => ys.map(y => WxLayer.LCC.latlon(x, y))));
+  }
+  return fineBox;
+}
+function fineWanted() {
+  const b = fineBounds();
+  return $('wx-fine').value !== 'off' && !!b && map.getZoom() >= FINE_ZOOM && map.getBounds().intersects(b);
+}
+async function loadFine() {
+  if (!fineWanted()) return;
+  const fields = fieldList();
+  if (fineKey !== fields) { fineFrames.clear(); fineKey = fields; }
+  const run = ++fineRun, cur = parseInt($('wx-t').value, 10);
+  const have = new Map(fineInfo.hours.map(h => [h[0], h]));
+  const need = view.map((h, i) => ({ h, i, fh: have.get(h[0]) }))
+    .filter(o => o.fh && !(fineFrames.get(o.h[0]) && fineFrames.get(o.h[0]).run === o.fh[1] && fineFrames.get(o.h[0]).lead === o.fh[2]))
+    .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
+  for (let k = 0; k < need.length; k += 12) {
+    if (run !== fineRun || !fineWanted()) return;
+    const ts = need.slice(k, k + 12).map(o => o.h[0]).sort((a, b) => a - b);
+    try {
+      const d = await (await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${fields}&fine=1`)).json();
+      if (run !== fineRun) return;
+      for (const f of d.frames || []) fineFrames.set(f.ts, f);
+    } catch (e) { console.error('Weather 2.5 km frames:', e); return; }
+    const shown = view[parseInt($('wx-t').value, 10)];
+    if (shown && ts.includes(shown[0])) showFrame();
+  }
+}
+// a redraw only when the detail comes or goes (the layer redraws itself on a move)
+let fineWas = false;
+map.on('zoomend moveend', () => { const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); });
 
 function nowTs() { return Math.floor(Date.now() / 1000); }
 function buildView(keepTs = null) {
@@ -151,6 +199,7 @@ function buildView(keepTs = null) {
   drawLoadStrip();
   loadFrames();
   showFrame();
+  loadFine();
 }
 function presentIndex() {
   const now = nowTs();
@@ -218,6 +267,8 @@ function showFrame() {
   const f = frames.get(h[0]);
   if (!f) { $('wx-status').textContent = 'Loading…'; return; }
   current = f;
+  const ff = fineWanted() ? fineFrames.get(h[0]) : null;
+  wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
   wx.setFrame(f, grid);
   // hours stored before 24 Oct 2026 have no wind / gust
   const noWind = ($('wx-wind').checked && !f.u) || ($('wx-gust').checked && !f.g);
@@ -239,7 +290,7 @@ function statusLine(f, noWind = false) {
   $('wx-status').textContent =
     `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${f.lead} h` +
     ` · rain / snow of the hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
-    ` · grid ${grid ? Math.round(grid.x[1] / 1000) : '—'} km · ${loaded} / ${view.length} hours loaded · MET Norway, CC BY 4.0` +
+    ` · grid ${grid ? Math.round(grid.x[1] / 1000) : '—'} km${wx.fineShown() ? ' (2.5 km near the airport)' : ''} · ${loaded} / ${view.length} hours loaded · MET Norway, CC BY 4.0` +
     (noWind ? ' · no wind stored for this hour (wind from 24 Oct 2026)' : '');
 }
 
@@ -295,8 +346,9 @@ $('wx-prev').addEventListener('click', () => stepHour(-1));
 $('wx-next').addEventListener('click', () => stepHour(1));
 ['wx-pres', 'wx-rain'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); renderLegend(); }));
 ['wx-cloud', 'wx-wind', 'wx-gust'].forEach(id => $(id).addEventListener('change', () => {
-  saveSettings(); wx.setOptions(layerOptions()); renderLegend(); loadFrames();
+  saveSettings(); wx.setOptions(layerOptions()); renderLegend(); loadFrames(); loadFine();
 }));
+$('wx-fine').addEventListener('change', () => { saveSettings(); showFrame(); loadFine(); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));
 $('wx-step').addEventListener('change', () => { saveSettings(); loadFrames(); });
 

@@ -107,6 +107,7 @@ WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r")
            # 10 m wind (grid x / y components, turned to true north) and the gust (from 2026-10-24)
            ("x_wind_10m", "u"), ("y_wind_10m", "v"), ("wind_speed_of_gust", "g"))
 WX_STRIDE = 4                # every 4th cell: 10 km
+WX_FINE_TABLE = "meps_wx25_hours"   # the 2.5 km detail box around the receiver (from 2026-10-31, MEPS_WX_FINE_KM)
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
 WX_CHUNK = 12                # forecast hours per request (the main runs come in 4 pieces, each stored at once)
 WX_REFILL_H = 30             # weather-map hours stored without the 10 m wind (before 24 Oct 2026) are
@@ -224,6 +225,12 @@ def ensure_table(db) -> None:
                       lead INTEGER NOT NULL,
                       meta TEXT    NOT NULL,      -- {"p": [hPa], "x": [x0, dx, nx], "y": [y0, dy, ny]} (LCC m)
                       data BLOB    NOT NULL)""")   # zlib(int16 [var t,u,v,z][level][point])
+    db.execute("""CREATE TABLE IF NOT EXISTS meps_wx25_hours (
+                      ts   INTEGER PRIMARY KEY,   -- as meps_wx_hours, on the full 2.5 km grid in a box
+                      run  INTEGER NOT NULL,      -- around the receiver (MEPS_WX_FINE_KM, from 2026-10-31)
+                      lead INTEGER NOT NULL,
+                      meta TEXT    NOT NULL,
+                      data BLOB    NOT NULL)""")
     db.execute("""CREATE TABLE IF NOT EXISTS meps_wx_hours (
                       ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour); rain / snow of the hour ending then
                       run  INTEGER NOT NULL,
@@ -248,7 +255,8 @@ class MepsFetcher:
     def __init__(self, lat: float, lon: float, radius_km: float, base: str = BASE_URL,
                  backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True,
                  map_fields: bool = True, map_days: float = 7.0,
-                 wx: bool = True, wx_days: float = 7.0, wx_hours: int = 48, wx_km: float = 3000.0):
+                 wx: bool = True, wx_days: float = 7.0, wx_hours: int = 48, wx_km: float = 3000.0,
+                 wx_fine_km: float = 300.0):
         self.lat, self.lon, self.radius = lat, lon, radius_km
         self.model_levels = model_levels
         self.map_fields = map_fields
@@ -256,6 +264,10 @@ class MepsFetcher:
         self.wx, self.wx_days = wx, wx_days
         self.wx_hours = max(6, min(66, int(wx_hours)))
         self.wx_half = max(40, int(round(wx_km / 2.5 / WX_STRIDE)))       # points each side
+        # the 2.5 km box: its half width in grid cells, a whole number of 10 km steps
+        # (so that it ends between two 10 km cells), plus half a 10 km cell; 0 = off
+        hf = int(round(wx_fine_km / 2 / 2.5 / WX_STRIDE)) * WX_STRIDE
+        self.wx_fine_half = hf + WX_STRIDE // 2 if hf > 0 else 0
         self.base = base.rstrip("/")
         self.backfill_days = backfill_days
         self.enabled = enabled
@@ -291,7 +303,8 @@ class MepsFetcher:
             self.grid = (ix - HALF, iy - HALF, len(x), len(y))
         return self.grid
 
-    def _cons(self, url: str, kind: str, run: Optional[int] = None, leads: Optional[tuple] = None) -> str:
+    def _cons(self, url: str, kind: str, run: Optional[int] = None, leads: Optional[tuple] = None,
+              kind_fine: bool = False) -> str:
         ix0, iy0, _, _ = self._box(url)
         sx, sy = f"[{ix0}:{STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{STRIDE}:{iy0 + 2 * HALF}]"
         if kind == "pl":
@@ -306,6 +319,9 @@ class MepsFetcher:
             wxs = f"[{gx - kx0 * WX_STRIDE}:{WX_STRIDE}:{gx + kx1 * WX_STRIDE}]"
             wys = f"[{gy - ky0 * WX_STRIDE}:{WX_STRIDE}:{gy + ky1 * WX_STRIDE}]"
             t0, t1 = leads if leads else (0, self._wx_leads(run))
+            if kind_fine:                            # the 2.5 km box: every cell
+                h = self.wx_fine_half
+                wxs, wys = f"[{gx - h}:1:{gx + h}]", f"[{gy - h}:1:{gy + h}]"
             box = f"[{t0}:{t1}][0:0]{wys}{wxs}"
             return ",".join([f"time[{t0}:{t1}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
         if kind == "map":
@@ -350,9 +366,26 @@ class MepsFetcher:
             written += w
             log.info("MEPS weather maps: run %s +%d…+%d h, %d hour(s) stored (download %.0f s, store %.1f s)",
                      tag, a, b, w, t1 - t, time.time() - t1)
+            if self.wx_fine_half:
+                self.fetch_fine(db, run, url, (a - 1, b))
         return written
 
-    def _store_wx(self, db, run: int, d: dict) -> int:
+    def fetch_fine(self, db, run: int, url: str, leads: tuple) -> int:
+        """The same hours on the full 2.5 km grid in the box around the receiver
+        (MEPS_WX_FINE_KM, from 2026-10-31); a failure leaves the 10 km maps alone."""
+        try:
+            t = time.time()
+            d = _fetch(url, self._cons(url, "wx", run, leads, kind_fine=True), TIMEOUT["wx"])
+            t1 = time.time()
+            w = self._store_wx(db, run, d, WX_FINE_TABLE)
+            log.info("MEPS weather maps 2.5 km: +%d…+%d h, %d hour(s) stored (download %.0f s, store %.1f s)",
+                     leads[0] + 1, leads[1], w, t1 - t, time.time() - t1)
+            return w
+        except Exception as exc:                     # noqa: BLE001
+            log.warning("MEPS weather maps 2.5 km: +%d…+%d h failed: %s", leads[0] + 1, leads[1], exc)
+            return 0
+
+    def _store_wx(self, db, run: int, d: dict, table: str = "meps_wx_hours") -> int:
         """Weather maps: per valid hour (leads 1 … n) the sea-level pressure
         ((hPa − 1000) × 10), the rain and the snow of the hour ending then
         (mm water × 100, from the accumulated amounts), total, low, medium
@@ -401,14 +434,14 @@ class MepsFetcher:
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(
-                """INSERT INTO meps_wx_hours (ts, run, lead, meta, data) VALUES (?, ?, ?, ?, ?)
+                f"""INSERT INTO {table} (ts, run, lead, meta, data) VALUES (?, ?, ?, ?, ?)
                    ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead,
                                                  meta = excluded.meta, data = excluded.data
-                   WHERE excluded.lead < meps_wx_hours.lead
-                      OR (excluded.lead = meps_wx_hours.lead AND excluded.run >= meps_wx_hours.run)""",
+                   WHERE excluded.lead < {table}.lead
+                      OR (excluded.lead = {table}.lead AND excluded.run >= {table}.run)""",
                 (valid, run, lead, meta, zlib.compress(a.tobytes(), 6)))
             written += cur.rowcount
-        db.execute("DELETE FROM meps_wx_hours WHERE ts < ?", (int(time.time() - self.wx_days * 86400),))
+        db.execute(f"DELETE FROM {table} WHERE ts < ?", (int(time.time() - self.wx_days * 86400),))
         db.commit()
         return written
 
@@ -416,14 +449,18 @@ class MepsFetcher:
         """(cos, sin) of the angle between the grid y axis and true north at
         each point of the weather-map grid (kept while the grid is the same)."""
         key = (xs[0], xs[-1], len(xs), ys[0], ys[-1], len(ys))
-        if getattr(self, "_wx_rot_key", None) != key:
-            rot = []
-            for y in ys:
-                for x in xs:
-                    al = math.radians(_N * (lcc_latlon(x, y)[1] - LCC_LON0))
-                    rot.append((math.cos(al), math.sin(al)))
-            self._wx_rot_key, self._wx_rot_val = key, rot
-        return self._wx_rot_val
+        cache = self.__dict__.setdefault("_wx_rot_cache", {})     # per grid (10 km and 2.5 km)
+        if key in cache:
+            return cache[key]
+        rot = []
+        for y in ys:
+            for x in xs:
+                al = math.radians(_N * (lcc_latlon(x, y)[1] - LCC_LON0))
+                rot.append((math.cos(al), math.sin(al)))
+        if len(cache) > 4:
+            cache.clear()
+        cache[key] = rot
+        return rot
 
     def _store_map(self, db, run: int, d: dict) -> int:
         """Wind Map fields: every point of the ± 300 km box on the pressure
@@ -722,7 +759,8 @@ def init(cfg) -> MepsFetcher:
                             wx=bool(getattr(cfg, "MEPS_WX", True)),
                             wx_days=float(getattr(cfg, "MEPS_WX_DAYS", 7)),
                             wx_hours=int(getattr(cfg, "MEPS_WX_FORECAST_H", 48)),
-                            wx_km=float(getattr(cfg, "MEPS_WX_KM", 3000)))
+                            wx_km=float(getattr(cfg, "MEPS_WX_KM", 3000)),
+                            wx_fine_km=float(getattr(cfg, "MEPS_WX_FINE_KM", 300)))
     return _instance
 
 
