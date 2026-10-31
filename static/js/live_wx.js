@@ -41,7 +41,8 @@
  * sector, all heights (/api/coverage, the Statistics page's range data).  The
  * API gives a list of receivers; the line is the outline of their union
  * (each outline stroked twice as wide, then all insides cleared), so more
- * receivers later give their combined coverage.  Independent of the source.
+ * receivers later give their combined coverage.  1 px, dashed 6 / 4 px (from the
+ * same day; first 1.3 px solid).  Independent of the source.
  */
 'use strict';
 
@@ -163,7 +164,7 @@
       path();
       ctx.lineJoin = 'round';
       ctx.strokeStyle = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
-      ctx.lineWidth = 2.6; ctx.stroke();
+      ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);   // 1 px dashed after the clearing
       ctx.globalCompositeOperation = 'destination-out';
       path(); ctx.fillStyle = '#000'; ctx.fill('nonzero');
       ctx.globalCompositeOperation = 'source-over';
@@ -297,7 +298,7 @@
     const parts = [];
     if (st.src !== 'off') parts.push(WxLayer.legendHtml(options()));
     if (mepsWind()) parts.push(WxLayer.legendHtml(windOptions()));
-    if (st.cov) parts.push(`<span style="display:inline-block;width:16px;border-top:1.5px solid ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h`);
+    if (st.cov) parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h`);
     if (modesWind()) parts.push('Mode S barbs (aircraft, last ' + perTxt() + '): ' +
       MODES_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']
         .map((c, i) => `<span class="wx-key" style="background:${c}"></span> ${['< 15', '15–30', '30–50', '≥ 50'][i]}`).join(' ') +
