@@ -22,15 +22,18 @@ function canvasTheme() {
   };
 }
 
-// ── Calmer colours (from 30 Oct 2026, as the Flights page) ────────────────────
-// Before: saturated orange / pink / sky / violet / teal bars, a traffic-light
-// heatmap and a rainbow donut.  Now muted, theme-aware signal colours (the same
-// on the GPS Episodes page), a single-hue heatmap and an altitude ramp donut.
+// ── Colours ────────────────────────────────────────────────────────────────────
+// Calmer from 30 Oct 2026 (before saturated orange / pink / sky / violet / teal
+// bars, a traffic-light heatmap and nine unrelated donut colours): a single-hue
+// heatmap, kept.  From 31 Oct 2026 the bars and the donut have their contrast
+// back, a little softer than before 30 Oct ("balanced"): distinct theme-aware
+// signal colours and the FL bands as an ordered rainbow, low → high.  The GPS
+// Episodes page keeps the calm palette (its own GPS_PAL).
 const GPS_PAL = {
-  dark:  { nacp: '#cf9f6b', nic: '#c995ad', freeze: '#88b6cd', gap: '#a8a0d0', adsb: '#76ad9f', unk: '#64748b',
-           ac: '#8b97a8', epa: '#c9b26e', sev: '#d48f8f', mild: '#cf9f6b', spoof: '#c995ad', pct: '#88b6cd', mark: '#c9b26e' },
-  light: { nacp: '#a06b2e', nic: '#9c5577', freeze: '#3d7896', gap: '#6a5fa3', adsb: '#3a7a6d', unk: '#64748b',
-           ac: '#64748b', epa: '#8f7520', sev: '#a94f4f', mild: '#a06b2e', spoof: '#9c5577', pct: '#3d7896', mark: '#8f7520' },
+  dark:  { nacp: '#f2a25c', nic: '#e98bbb', freeze: '#5cb8e4', gap: '#a596f2', adsb: '#3cc2aa', unk: '#64748b',
+           ac: '#94a3b8', epa: '#e9c64a', sev: '#e86b6b', mild: '#f2a25c', spoof: '#e98bbb', pct: '#5cb8e4', mark: '#e9c64a' },
+  light: { nacp: '#d9711c', nic: '#c94588', freeze: '#1b86bb', gap: '#6e56cc', adsb: '#13937d', unk: '#64748b',
+           ac: '#64748b', epa: '#b28a0c', sev: '#c93838', mild: '#d9711c', spoof: '#c94588', pct: '#1b86bb', mark: '#b28a0c' },
 };
 const gpsPal = () => GPS_PAL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 const rgbaHex = (c, a) => { const n = parseInt(c.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
@@ -80,7 +83,7 @@ function applyHeatCssVars() {
 function applyTsColors() {
   if (!tsChart) return;
   const P = gpsPal(), light = document.documentElement.dataset.theme === 'light';
-  const fill = light ? 0.78 : 0.72;
+  const fill = light ? 0.82 : 0.85;
   const bars = { NACp: P.nacp, NIC: P.nic, Freeze: P.freeze, Gap: P.gap, 'ADS-B': P.adsb, Unknown: P.unk };
   for (const ds of tsChart.data.datasets) {
     if (bars[ds.label]) {
@@ -100,8 +103,8 @@ function applyTsColors() {
 function applySevColors() {
   if (!t10Chart) return;
   const P = gpsPal(), ds = t10Chart.data.datasets;
-  ds[0].backgroundColor = rgbaHex(P.sev, 0.72);  ds[0].borderColor = P.sev;  ds[0].borderWidth = 0;
-  ds[1].backgroundColor = rgbaHex(P.mild, 0.6);  ds[1].borderColor = P.mild; ds[1].borderWidth = 0;
+  ds[0].backgroundColor = rgbaHex(P.sev, 0.85);  ds[0].borderColor = P.sev;  ds[0].borderWidth = 0;
+  ds[1].backgroundColor = rgbaHex(P.mild, 0.72);  ds[1].borderColor = P.mild; ds[1].borderWidth = 0;
   ds[2].borderColor = P.spoof; ds[2].backgroundColor = P.spoof;
   ds[3].borderColor = P.pct;   ds[3].borderWidth = 1.2;
   const y1 = t10Chart.options.scales.y1;
@@ -925,9 +928,11 @@ let donutChart = null;
 
 // FL bands as an altitude ramp, low → high (calmer from 30 Oct 2026, as the
 // Flights page map; before nine unrelated colours): muted teal → sky → blue → lavender
+// FL bands low → high as a clear rainbow (from 31 Oct 2026; calm ramp sage → lavender
+// on 30 Oct, nine unrelated colours before): teal, green, yellow, orange, rose, indigo
 const DONUT_STOPS = {
-  dark:  [[0, [118, 173, 159]], [0.35, [136, 182, 205]], [0.7, [128, 152, 205]], [1, [168, 160, 208]]],
-  light: [[0, [104, 160, 147]], [0.35, [104, 152, 182]], [0.7, [112, 134, 190]], [1, [146, 136, 194]]],
+  dark:  [[0, [45, 212, 191]], [0.2, [134, 214, 106]], [0.4, [240, 205, 70]], [0.6, [244, 150, 82]], [0.8, [236, 120, 170]], [1, [132, 140, 240]]],
+  light: [[0, [20, 160, 140]], [0.2, [96, 168, 64]], [0.4, [206, 164, 22]], [0.6, [222, 112, 40]], [0.8, [204, 72, 132]], [1, [92, 100, 210]]],
 };
 function donutColors(n) {
   const st = DONUT_STOPS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
@@ -1473,6 +1478,9 @@ window.onThemeChange = function () {
     applySevColors();
     t10Chart.update('none');
   }
+  // the donut in the theme's colours (its bands, border and legend; from 31 Oct 2026 —
+  // before it kept the old theme's colours until its next hourly redraw)
+  if (lastFlBands.length > 0) drawDonutAndStats(lastHeatmapData, lastFlBands);
   // Redraw heatmap with new theme
   fetchGpsState();
 };
