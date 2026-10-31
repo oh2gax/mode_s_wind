@@ -2329,7 +2329,28 @@ class WindshearTracker:
             have = {(e["icao"], round(e["ts"])) for e in self._ga_events}
             old = [e for e in events if (e["icao"], round(e["ts"])) not in have]
             self._ga_events = sorted(old + self._ga_events, key=lambda e: e["ts"])[-GA_EVENTS_MAX:]
-        log.info("Go-arounds: pre-loaded %d of the last 24 h from DB", len(old))
+            # The go-around count of an aircraft that has not landed since (from
+            # 2026-10-31): the count lived in RAM only, so a restart between a
+            # go-around and the next approach lost the "2nd APP" badge and the
+            # landing was stored with go_arounds 0 (FIN20, 31 Oct 2026).  Needs
+            # the approach history pre-loaded first (run.py does that).
+            cut = time.time() - GA_COUNT_EXPIRY_SEC
+            landed: dict[str, float] = {}
+            for r in self._approach_history:
+                if r.get("icao"):
+                    landed[r["icao"]] = max(landed.get(r["icao"], 0.0), r.get("ts") or 0.0)
+            n_rest = 0
+            for e in self._ga_events:
+                k = e.get("icao")
+                if not k or e["ts"] < cut or e["ts"] <= landed.get(k, 0.0) or k in self._state:
+                    continue
+                if self._ga_last_ts.get(k, 0.0) >= e["ts"]:
+                    continue
+                self._ga_counts[k] = self._ga_counts.get(k, 0) + 1
+                self._ga_last_ts[k] = e["ts"]
+                n_rest += 1
+        log.info("Go-arounds: pre-loaded %d of the last 24 h from DB%s", len(old),
+                 f"; {n_rest} still waiting for the next approach (count restored)" if n_rest else "")
 
     def get_approach_history(self) -> list:
         """Thread-safe snapshot of the landed approach history list (newest first)."""

@@ -252,6 +252,15 @@ def ensure_tables(db) -> None:
     db.commit()
 
 
+def _dest(lat, lon, brg_deg, nm):
+    """The point nm nautical miles from (lat, lon) on the initial bearing brg_deg."""
+    d = nm / 3440.065
+    p1, l1, b = math.radians(lat), math.radians(lon), math.radians(brg_deg)
+    p2 = math.asin(math.sin(p1) * math.cos(d) + math.cos(p1) * math.sin(d) * math.cos(b))
+    l2 = l1 + math.atan2(math.sin(b) * math.sin(d) * math.cos(p1), math.cos(d) - math.sin(p1) * math.sin(p2))
+    return math.degrees(p2), (math.degrees(l2) + 540.0) % 360.0 - 180.0
+
+
 def _bearing(lat1, lon1, lat2, lon2) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dl = math.radians(lon2 - lon1)
@@ -606,6 +615,44 @@ class MsgStats:
             self._json["errors"] += 1
 
     # ── snapshot (web thread) ───────────────────────────────────────────────
+    def coverage(self, hours: int = 24) -> dict:
+        """The receiver's coverage of the last `hours` (1–24) for the Live Map
+        (from 2026-10-31): per 10° bearing sector the farthest ADS-B airborne
+        position of any height (the range rings' data, RAM only — a few
+        microseconds), as an outline of points at the sector's middle bearing.
+        A list of receivers, so more receivers can be combined later (the page
+        draws the outline of their union); the position rounded to 0.01°."""
+        now = time.time()
+        hours = max(1, min(HOURS_DETAIL, int(hours)))
+        with self._lock:
+            self._roll(now)
+            h0 = float(int(now // 3600) * 3600) - (hours - 1) * 3600
+            recs = [h for h in self._hours if h["t0"] >= h0] + ([self._hour] if self._hour else []) + [self._min]
+            best = [None] * RNG_SECTORS
+            for m in recs:
+                for band, sec in (m.get("r") or {}).items():
+                    for i, x in enumerate(sec[:RNG_SECTORS]):
+                        if x and (best[i] is None or x[0] > best[i][0]):
+                            best[i] = (x[0], x[1], band)
+            site, src = self.site, self.site_src
+            since = max(recs[0]["t0"], self.since or 0.0)
+        step = 360.0 / RNG_SECTORS
+        lat0, lon0 = round(site[0], 2), round(site[1], 2)
+        sectors, outline = [], []
+        for i, x in enumerate(best):
+            if x is None:
+                sectors.append(None)
+                continue
+            brg = (i + 0.5) * step
+            sectors.append({"brg": brg, "nm": x[0], "alt": x[1], "band": x[2]})
+            plat, plon = _dest(lat0, lon0, brg, x[0])
+            outline.append([round(plat, 4), round(plon, 4)])
+        far = max((x for x in sectors if x), key=lambda x: x["nm"], default=None)
+        return {"now": now, "hours": hours, "since": since, "sectors_n": RNG_SECTORS,
+                "receivers": [{"lat": lat0, "lon": lon0, "src": src, "sectors": sectors,
+                               "outline": outline if len(outline) >= 3 else [],
+                               "farthest": far}]}
+
     def snapshot(self, window_min: int = 10, db=None, week_trend: bool = False) -> dict:
         """The statistics of the last window_min minutes (1–60, 1440 = 24 h, or
         WEEK_MIN = 7 d with db: the stored hours older than the 24 h are read

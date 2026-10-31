@@ -29,6 +29,19 @@
  * calibration, frozen / jumping positions removed, QNH below FL050, ± 1 000 ft),
  * drawn in colour by speed (the Wind Map colours) and faint where only one or
  * two aircraft are behind a cell; MEPS and Mode S can be shown together.
+ *
+ * 2.5 km detail (from 2026-10-31): as on the Weather page, zoomed in to
+ * FINE_ZOOM or closer with the box around the receiver in view, the MEPS
+ * fields inside the box come from the full 2.5 km grid (same run as the
+ * 10 km hour; /api/weather/frames?fine=1, WxLayer.setFine).  Off with the
+ * "2.5 km detail" tick box.
+ *
+ * Receiver coverage (from 2026-10-31): a thin light-blue line around the area
+ * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
+ * sector, all heights (/api/coverage, the Statistics page's range data).  The
+ * API gives a list of receivers; the line is the outline of their union
+ * (each outline stroked twice as wide, then all insides cleared), so more
+ * receivers later give their combined coverage.  Independent of the source.
  */
 'use strict';
 
@@ -36,7 +49,9 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180 };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false };
+  const FINE_ZOOM = 7;                 // as the Weather page
+  const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
   const MODES_CELL_KM = 50, MODES_TOL_FT = 1000;
   const WIND_LEVELS = [['off', 'Off'], ['sfc', '10 m'], ['50', 'FL50'], ['100', 'FL100'], ['200', 'FL200'],
@@ -114,6 +129,69 @@
     };
   })();
 
+  // ── Receiver coverage: the outline of the union of the receivers' areas ──
+  const COV_COL = { dark: 'rgba(191,219,254,0.9)', light: 'rgba(29,78,216,0.75)' };
+  const covLayer = (() => {
+    const paneName = 'wxCovPane';
+    if (!map.getPane(paneName)) { const p = map.createPane(paneName); p.style.zIndex = 368; p.style.pointerEvents = 'none'; }
+    const canvas = L.DomUtil.create('canvas', 'wx-canvas');
+    canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0'; canvas.style.pointerEvents = 'none';
+    map.getPane(paneName).appendChild(canvas);
+    let data = null, on = false, segs = [];      // [[x, y, sector] …] per receiver, for the hover
+    function place() {
+      const size = map.getSize(), dpr = window.devicePixelRatio || 1;
+      L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+      canvas.width = Math.round(size.x * dpr); canvas.height = Math.round(size.y * dpr);
+      canvas.style.width = size.x + 'px'; canvas.style.height = size.y + 'px';
+      draw();
+    }
+    function draw() {
+      const ctx = canvas.getContext('2d'), dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+      segs = [];
+      if (!on || !data) return;
+      const rings = data.receivers.filter(r => r.outline && r.outline.length >= 3).map(r => {
+        const ring = r.outline.map(([la, lo]) => map.latLngToContainerPoint([la, lo]));
+        const sec = r.sectors.filter(Boolean);
+        segs.push(ring.map((p, k) => [p.x, p.y, sec[k]]));
+        return ring;
+      });
+      if (!rings.length) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const path = () => { ctx.beginPath(); for (const ring of rings) { ring.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); } };
+      // stroke twice the width, then clear every inside: the outer half is the union's edge
+      path();
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+      ctx.lineWidth = 2.6; ctx.stroke();
+      ctx.globalCompositeOperation = 'destination-out';
+      path(); ctx.fillStyle = '#000'; ctx.fill('nonzero');
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    map.on('zoomstart', () => { canvas.style.visibility = 'hidden'; });
+    map.on('zoomend moveend resize', () => { canvas.style.visibility = ''; place(); });
+    place();
+    return {
+      set(d) { data = d; draw(); },
+      show(v) { on = !!v; canvas.style.display = on ? '' : 'none'; draw(); },
+      redraw: draw,
+      at(pt, r = 6) {                       // on the line: the sector of the nearer corner
+        if (!on) return null;
+        let best = null, bd = r;
+        for (const ring of segs) {
+          for (let k = 0; k < ring.length; k++) {
+            const a = ring[k], b = ring[(k + 1) % ring.length];
+            const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+            const u = l2 ? Math.max(0, Math.min(1, ((pt.x - a[0]) * dx + (pt.y - a[1]) * dy) / l2)) : 0;
+            const d = Math.hypot(a[0] + u * dx - pt.x, a[1] + u * dy - pt.y);
+            if (d <= bd) { bd = d; best = u < 0.5 ? a[2] : b[2]; }
+          }
+        }
+        return best;
+      },
+    };
+  })();
+
   // ── Control ──────────────────────────────────────────────────────────────
   let el = null;
   const Ctl = L.Control.extend({
@@ -135,6 +213,7 @@
             <label title="Low cloud cover (grey, denser with more cloud)"><input type="checkbox" data-k="low"> Low cloud</label>
             <label title="Fog (yellow)"><input type="checkbox" data-k="fog"> Fog</label>
             <label title="Sea-level pressure: isobars every 4 hPa, highs H and lows L"><input type="checkbox" data-k="pres"> Isobars</label>
+            <label title="Zoomed in near the airport (zoom 7 or closer): the MEPS fields inside the box around the receiver from the model's full 2.5 km grid instead of the stored 10 km grid (faint dotted edge), as on the Weather page"><input type="checkbox" class="lwx-fine"> 2.5 km detail</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Wind</span>
             <select class="lwx-wind" title="MEPS model wind barbs: the 10 m wind (whole map) or the wind at a flight level (± 300 km around the receiver; pressure altitude, ISA)">
@@ -148,6 +227,9 @@
             <select class="lwx-per" title="Period of the Mode S winds: the last 1, 3, 6, 12 or 24 hours">
               ${PERIODS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
             </select>
+          </div>
+          <div class="lwx-row"><span class="lwx-lbl">Receiver</span>
+            <label title="A thin light-blue line around the area the receiver heard in the last 24 hours: the farthest ADS-B position in each 10° direction, any height (the range data of the Statistics page). With more receivers, their combined coverage"><input type="checkbox" class="lwx-cov"> Coverage (24 h)</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
             <input type="range" class="lwx-op" min="10" max="100" step="5"> <span class="lwx-opv"></span>
@@ -178,6 +260,8 @@
   q('.lwx-wm').addEventListener('change', e => { st.wMeps = e.target.checked; save(); windKey = ''; sync(); refresh(true); });
   q('.lwx-ws').addEventListener('change', e => { st.wModes = e.target.checked; save(); modesKey = ''; sync(); refresh(true); });
   q('.lwx-per').addEventListener('change', e => { st.wPer = parseInt(e.target.value, 10); save(); modesKey = ''; sync(); refresh(true); });
+  q('.lwx-fine').addEventListener('change', e => { st.fine = e.target.checked; save(); fineKey = ''; sync(); refresh(true); });
+  q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
 
   // ── State → page ─────────────────────────────────────────────────────────
   const useMeps = () => st.src === 'meps' || st.src === 'both';
@@ -213,6 +297,7 @@
     const parts = [];
     if (st.src !== 'off') parts.push(WxLayer.legendHtml(options()));
     if (mepsWind()) parts.push(WxLayer.legendHtml(windOptions()));
+    if (st.cov) parts.push(`<span style="display:inline-block;width:16px;border-top:1.5px solid ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h`);
     if (modesWind()) parts.push('Mode S barbs (aircraft, last ' + perTxt() + '): ' +
       MODES_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']
         .map((c, i) => `<span class="wx-key" style="background:${c}"></span> ${['< 15', '15–30', '30–50', '≥ 50'][i]}`).join(' ') +
@@ -242,6 +327,10 @@
     q('.lwx-per').disabled = !st.wModes || st.wind === 'sfc';
     windLayer.show(mepsWind());
     modesLayer.show(modesWind());
+    q('.lwx-fine').checked = !!st.fine;
+    q('.lwx-fine').disabled = !useMeps();
+    q('.lwx-cov').checked = !!st.cov;
+    covLayer.show(st.cov);
     const chip = q('.lwx-chip');
     const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
     const rTxt = () => radarShown ? `Radar ${fmtUtc(radarShown.ts)}` : 'Radar …';
@@ -255,18 +344,21 @@
       const who = [mepsWind() ? 'MEPS' : '', modesWind() ? 'Mode S ' + perTxt() : ''].filter(Boolean).join(' + ');
       txt += (txt ? ' · ' : '') + `Wind ${lvl} (${who})`;
     }
+    if (st.cov) txt = txt === 'Weather' ? 'Coverage 24 h' : txt + (txt ? ' · ' : '') + 'Coverage 24 h';
     chip.textContent = txt;
-    el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off');
+    el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off' || !!st.cov);
     applyOptions();
   }
 
   // ── Data ─────────────────────────────────────────────────────────────────
   let index = null, indexAt = 0, busy = false, fetchedKey = '';
   let radarAt = 0, radarTs = null;
-  let mepsStatus = '', radarStatus = '', windStatus = '', modesStatus = '';
+  let mepsStatus = '', radarStatus = '', windStatus = '', modesStatus = '', covStatus = '';
+  let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = '', fineOn = false;
+  let covAt = 0;
   let modesKey = '', modesAt = 0;
   let windShown = null, windKey = '', windAt = 0;     // {ts, run, lead, p} of the wind shown
-  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus, windStatus, modesStatus].filter(Boolean).join('<br>'); };
+  const showStatus = () => { q('.lwx-status').innerHTML = [radarStatus, mepsStatus, windStatus, modesStatus, covStatus].filter(Boolean).join('<br>'); };
 
   async function loadRadar(force) {
     const nowMs = Date.now();
@@ -292,7 +384,11 @@
   async function getIndex(force) {
     const nowMs = Date.now();
     if (force || !index || nowMs - indexAt > 5 * 60 * 1000) {
-      index = (await (await fetch('/api/weather/index', { cache: 'no-store' })).json()).hours || [];
+      const d = await (await fetch('/api/weather/index', { cache: 'no-store' })).json();
+      index = d.hours || [];
+      const fg = d.fine && d.fine.grid;
+      if (JSON.stringify(fg) !== JSON.stringify(fineInfo.grid)) fineBox = null;
+      fineInfo = d.fine || { hours: [], grid: null };
       indexAt = nowMs;
     }
     return index;
@@ -354,6 +450,73 @@
       ' · measured by the aircraft, averaged as on the Wind Map page';
   }
 
+  // the 2.5 km box: wanted when ticked, zoomed in and the box in view
+  function fineBounds() {
+    const g = fineInfo.grid;
+    if (!g) return null;
+    if (!fineBox) {
+      const xs = [g.x[0] - g.x[1] / 2, g.x[0] + (g.x[2] - 0.5) * g.x[1]], ys = [g.y[0] - g.y[1] / 2, g.y[0] + (g.y[2] - 0.5) * g.y[1]];
+      fineBox = L.latLngBounds(xs.flatMap(x => ys.map(y => WxLayer.LCC.latlon(x, y))));
+    }
+    return fineBox;
+  }
+  function fineWanted() {
+    const b = fineBounds();
+    return useMeps() && !!st.fine && !!b && map.getZoom() >= FINE_ZOOM && map.getBounds().intersects(b);
+  }
+  async function loadFine(force) {
+    if (!shown || !fineWanted()) { fineOn = false; layer.setFine(null); return; }
+    const fh = (fineInfo.hours || []).find(h => h[0] === shown.ts);
+    if (!fh || fh[1] !== shown.run) { fineOn = false; layer.setFine(null); return; }   // same run as the 10 km hour only
+    const key = `${fh[0]}|${fh[1]}|${fh[2]}|${fields()}`;
+    if (!force && key === fineKey) { fineOn = true; return; }
+    const d = await (await fetch(`/api/weather/frames?ts=${fh[0]}&fields=${fields()}&fine=1`)).json();
+    const f = (d.frames || [])[0];
+    if (f && fineWanted()) { layer.setFine(f, fineInfo.grid); fineKey = key; fineOn = true; }
+    else { fineOn = false; layer.setFine(null); }
+  }
+  // a load only when the box comes into view (the layer redraws itself on a move)
+  let fineWas = false;
+  map.on('zoomend moveend', () => {
+    const w = fineWanted();
+    if (w === fineWas) return;
+    fineWas = w;
+    if (!w) { fineOn = false; layer.setFine(null); mepsLine(); showStatus(); return; }
+    loadFine(false).then(() => { mepsLine(); showStatus(); }).catch(e => console.warn('Weather 2.5 km:', e));
+  });
+
+  // the receiver coverage of the last 24 h (every 5 minutes)
+  async function loadCov(force) {
+    const nowMs = Date.now();
+    if (!force && covAt && nowMs - covAt < 5 * 60 * 1000) return;
+    covAt = nowMs;
+    const d = await (await fetch(`/api/coverage?hours=${COV_HOURS}`, { cache: 'no-store' })).json();
+    covLayer.set(d);
+    const rx = (d.receivers || []).filter(r => r.outline && r.outline.length);
+    if (!rx.length) { covStatus = 'Receiver coverage: no ADS-B positions yet.'; return; }
+    const far = rx.map(r => r.farthest).filter(Boolean).sort((a, b) => b.nm - a.nm)[0];
+    const hrs = Math.min(COV_HOURS, (d.now - d.since) / 3600);
+    covStatus = `Receiver coverage, last ${hrs >= COV_HOURS - 0.05 ? COV_HOURS + ' h' : hrs.toFixed(1) + ' h (since the start)'}: ` +
+      `the farthest ADS-B position in each 10° direction, any height` +
+      (far ? ` · farthest ${Math.round(far.nm)} NM at ${String(Math.round(far.brg - 5)).padStart(3, '0')}–${String(Math.round(far.brg + 5)).padStart(3, '0')}°` : '') +
+      (rx.length > 1 ? ` · ${rx.length} receivers combined` : '');
+  }
+
+  function mepsLine() {
+    if (!shown) return;
+    const now = Date.now() / 1000;
+    const r = new Date(shown.run * 1000), t = new Date(shown.ts * 1000);
+    const stale = shown.ts < now - 3600;
+    mepsStatus =
+      `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${shown.lead} h · ` +
+      `hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
+      (stale ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
+      (st.src === 'both' && radarShown ? ' · rain outside the radar area, outlined inside it' : '') +
+      (fineOn ? ' · 2.5 km near the airport (dotted box), 10 km elsewhere'
+        : st.fine && fineInfo.grid ? ` · 10 km grid (2.5 km near the airport when zoomed in)` : ' · 10 km grid') +
+      ' · model, not radar · MET Norway, CC BY 4.0';
+  }
+
   async function loadMeps(force) {
     const nowMs = Date.now();
     await getIndex(force);
@@ -368,18 +531,11 @@
     if (force || key !== fetchedKey) {
       const d = await (await fetch(`/api/weather/frames?ts=${h[0]}&step=1&fields=${fields()}`)).json();
       const f = (d.frames || [])[0];
-      if (f) { layer.setFrame(f, d.grid); fetchedKey = key; shown = { ts: f.ts, run: f.run, lead: f.lead }; }
+      if (f) { layer.setFrame(f, d.grid); fetchedKey = key; fineKey = ''; shown = { ts: f.ts, run: f.run, lead: f.lead }; }
     }
-    if (shown) {
-      const r = new Date(shown.run * 1000), t = new Date(shown.ts * 1000);
-      const stale = shown.ts < now - 3600;
-      mepsStatus =
-        `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${shown.lead} h · ` +
-        `hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
-        (stale ? ' · <span style="color:#f59e0b">old: no newer model hours stored</span>' : '') +
-        (st.src === 'both' && radarShown ? ' · rain outside the radar area, outlined inside it' : '') +
-        ' · model, not radar · MET Norway, CC BY 4.0';
-    }
+    try { await loadFine(force); } catch (e) { console.warn('Weather 2.5 km:', e); fineOn = false; layer.setFine(null); }
+    fineWas = fineWanted();
+    mepsLine();
   }
 
   let pending = false;
@@ -387,7 +543,7 @@
     if (busy) { pending = true; return; }          // a change during a load: load again after it
     busy = true;
     try {
-      if (!useMeps()) { shown = null; fetchedKey = ''; mepsStatus = ''; layer.setFrame(null); }
+      if (!useMeps()) { shown = null; fetchedKey = ''; mepsStatus = ''; layer.setFrame(null); fineKey = ''; fineOn = false; layer.setFine(null); }
       if (!useRadar()) { radarShown = null; radarTs = null; radarStatus = ''; layer.setOverlay(null); }
       // radar, model weather and model wind load side by side (a slow radar does not hold up the rest)
       const jobs = [];
@@ -400,6 +556,9 @@
       if (!mepsWind()) { windShown = null; windKey = ''; windStatus = ''; windLayer.setFrame(null); }
       else jobs.push(loadWind(force).catch(e => {
         console.warn('Wind overlay:', e); windStatus = 'MEPS wind: loading failed, trying again in a minute.'; }));
+      if (!st.cov) { covAt = 0; covStatus = ''; covLayer.set(null); }
+      else jobs.push(loadCov(force).catch(e => {
+        console.warn('Coverage:', e); covAt = 0; covStatus = 'Receiver coverage: loading failed, trying again in a minute.'; }));
       await Promise.all(jobs);
       showStatus(); sync();
     } finally {
@@ -412,7 +571,7 @@
 
   // the page's Light / Dark button: redraw with the other colours too
   const prevTheme = window.onThemeChange;
-  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); applyOptions(); };
+  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); covLayer.redraw(); applyOptions(); };
 
   // hover a model barb: its wind (and temperature at a flight level)
   const tip = L.DomUtil.create('div', 'lwx-tip', map.getContainer());
@@ -425,6 +584,14 @@
       tip.innerHTML = `<b>Mode S FL${m.fl}</b> (aircraft, last ${m.per}): ${String(Math.round(c.wind_dir) % 360 || 360).padStart(3, '0')}°/${Math.round(c.wind_spd)} kt` +
         (c.temp != null ? `, ${c.temp.toFixed(0)} °C` : '') +
         `<br><span>${c.ac} aircraft, ${c.obs} observations${c.wind_sd != null ? `, spread ${Math.round(c.wind_sd)} kt` : ''} · ${MODES_CELL_KM} km cell at ${c.lat.toFixed(2)}°N ${c.lon.toFixed(2)}°E</span>`;
+      place(e);
+      return;
+    }
+    const cv = st.cov ? covLayer.at(e.containerPoint) : null;           // the coverage line
+    if (cv) {
+      const a = String(Math.round(cv.brg - 5)).padStart(3, '0'), b = String(Math.round(cv.brg + 5) % 360 || 360).padStart(3, '0');
+      tip.innerHTML = `<b>Receiver coverage</b>, last ${COV_HOURS} h: ${Math.round(cv.nm)} NM at ${a}–${b}°` +
+        `<br><span>the farthest ADS-B position in this 10° direction${cv.alt != null ? `, at ${cv.alt >= 10000 ? 'FL' + String(Math.round(cv.alt / 100)).padStart(3, '0') : cv.alt.toLocaleString('en').replace(',', ' ') + ' ft'}` : ''}</span>`;
       place(e);
       return;
     }

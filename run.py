@@ -754,6 +754,40 @@ def _on_go_around(ev: dict) -> None:
         log.warning("go_arounds DB write failed: %s", exc)
 
 
+def _ga_fix_landings() -> None:
+    """Landings stored with go_arounds 0 although the go_arounds table has a
+    go-around of the same aircraft in the 2 h before (and after its previous
+    landing) get that count (from 2026-10-31).  Before, the count was kept in
+    RAM only and a restart between the go-around and the landing lost it
+    (FIN20, 31 Oct 2026).  Runs at every start before the history is pre-loaded;
+    only a few rows are checked (aircraft that had a go-around)."""
+    from database.db import get_db
+    try:
+        db = get_db()
+        g0 = db.execute("SELECT MIN(ts) FROM go_arounds").fetchone()[0]
+        if g0 is None:
+            return
+        rows = db.execute(
+            "SELECT id, ts, icao, callsign FROM approach_history "
+            "WHERE ts > ? AND COALESCE(go_arounds, 0) = 0 "
+            "AND icao IN (SELECT DISTINCT icao FROM go_arounds)", (g0,)).fetchall()
+        fixed = []
+        for rid, ts, icao, cs in rows:
+            prev = db.execute("SELECT MAX(ts) FROM approach_history WHERE icao = ? AND ts < ?",
+                              (icao, ts)).fetchone()[0] or 0.0
+            n = db.execute("SELECT COUNT(*) FROM go_arounds WHERE icao = ? AND ts < ? AND ts > ?",
+                           (icao, ts, max(prev, ts - 7200))).fetchone()[0]
+            if n:
+                db.execute("UPDATE approach_history SET go_arounds = ? WHERE id = ?", (n, rid))
+                fixed.append(f"{cs or icao} {time.strftime('%d.%m %H:%M', time.gmtime(ts))} ×{n}")
+        if fixed:
+            db.commit()
+            log.info("Go-arounds: count restored for %d stored landing(s): %s",
+                     len(fixed), ", ".join(fixed))
+    except Exception as exc:                              # noqa: BLE001
+        log.warning("Go-around count repair skipped: %s", exc)
+
+
 def _preload_ga_events(ws_tracker) -> None:
     """Go-arounds of the last 24 h → the tracker's event list, so the
     Windshear page's alert log shows them also after a restart."""
@@ -1219,6 +1253,7 @@ def main() -> None:
 
     # Pre-populate RAM approach history from the last 24 h of DB records so
     # the list is immediately available without waiting for the first landing.
+    _ga_fix_landings()
     _preload_approach_history(ws_tracker, cfg.DB_PATH, hours=24)
     # Windshear reports (detection v2) for stored landings that have none
     threading.Thread(target=_shear_startup, args=(ws_tracker,),

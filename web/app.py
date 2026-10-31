@@ -597,6 +597,18 @@ def create_app(
         out["radarcape"] = rc.public() if rc is not None else None
         return _gzip_json(out)
 
+    @app.route("/api/coverage")
+    def coverage_api():
+        """The receiver coverage of the last ?hours= (1–24, default 24) for the
+        Live Map's coverage line (from 2026-10-31; collector/msg_stats.py
+        coverage): the farthest ADS-B position per 10° sector, all heights."""
+        from collector import msg_stats
+        try:
+            hours = int(request.args.get("hours", 24))
+        except ValueError:
+            hours = 24
+        return _gzip_json(msg_stats.get().coverage(hours))
+
     @app.route("/api/traffic")
     def traffic_api():
         """Data transfer counters (collector/traffic.py, from 2026-10-27):
