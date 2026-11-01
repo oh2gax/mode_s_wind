@@ -53,8 +53,8 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.9
-date: 2026-10-31
+version: 3.10
+date: 2026-11-01
 pages: 49
 open: sounding, windmap@30
 
@@ -68,7 +68,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.36
+version: 2.37
 date: 2026-11-01
 pages: 29
 open: windshear
@@ -115,7 +115,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.9
+version: 1.10
 date: 2026-11-01
 pages: 26
 
@@ -127,11 +127,11 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
 - **Phase 7: the ADS-B ground speed and the BDS 6,0 airspeed** in the headwind — timing, temperature, agreement of the two registers, noise and density, the replay of the ramps and whether the extra short ramps are real; detection v8 running in shadow beside v7
 - **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
-- The dated log of the database checks (the latest of 1 November 2026: the first day of v8 as the detection), the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
+- The dated log of the database checks (the latest of 1 November 2026: the first day of v8 as the detection, and the landings that GNSS jamming leaves without a record), the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
-version: 1.1
+version: 1.2
 date: 2026-11-01
 pages: 12
 open: edr

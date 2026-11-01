@@ -2298,6 +2298,8 @@ The system mitigates this in two ways:
 
 The interference itself is monitored on the [GPS Quality](#gps-quality--gps) page (hourly statistics per altitude band) and the [GPS Episodes](#gps-episodes--gps-episodes) page (where individual aircraft lost and regained GPS), and GNSS quality on final approach is stored with every landing in Approach History (`gnss_json`).
 
+
+**What the jamming does to the data** (re-checked 1 Nov 2026; noted in the Windshear, Sounding and EDR guides and the windshear study log): the winds and temperatures come from the aircraft's air data and heading, not from GNSS, but a jammed aircraft's wind is about 2 kt noisier (21 Oct 2026 case), and the GNSS-height products leave jammed aircraft out, so their night hours are thin. An arrival whose GNSS is still jammed at touchdown broadcasts a frozen or wrong position, is never placed in an approach corridor and gets **no Approach History record** (no bands, windshear report, EDR or ACI): 5.6 % of the arrivals on 7 Oct – 1 Nov 2026, 11–14 % at 21–02 UTC and 13 % at 18 UTC, 1–2 % around midday, mostly arrivals from the jammed directions. The recorded landings are not affected: with the positions of 4 280 clean landings hidden, the windshear analysis gave the same level for all (the ramps use the distance from the integrated ground speed); a position-free fallback record was tested but not built, because it would need its own live buffer of the replies beside the capture. If the jamming ends, all of this recovers by itself — the date would then be a breakpoint for before/after comparisons.
 ---
 
 ## Project Structure

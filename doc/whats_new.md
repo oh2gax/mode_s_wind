@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **GNSS jamming in the guides** — the Windshear, Sounding and EDR guides and the windshear study log now say what the jamming does to the data: about one landing in twenty, and one in eight at night, gets no Approach History record because its GNSS is still jammed at touchdown; the recorded landings are not affected.
 - **Go-around mark on the Windshear map** — the red GA after a go-around's callsign flashes for the first minute and then stays steady until the next approach; it is now shown also with *Departures*, *All 30NM* and *All 100NM*.
 - **Registrations and aircraft types kept up to date** — every morning the aircraft database is updated from the open tar1090-db database, so new and re-registered aircraft show their registration and type (on the maps, in the lists and in the Approach History) — also the first time they are heard.
 - **Phone: EDR · WS · ACI · ST** — the view formerly called *ACI · WS · ST* has its new name, and its list of flights looks like the History view: a card per flight with its ACI, windshear, EDR and GA chips.
