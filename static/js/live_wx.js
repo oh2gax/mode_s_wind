@@ -42,6 +42,12 @@
  * tick box shows the total cloud cover (field c; before 31 Oct 2026 the low cloud,
  * l — the setting keeps its key "low").
  *
+ * Weather values on hover (from 2026-11-01, Off by default): with the Hover tick box,
+ * moving the mouse over the map shows the weather values at the pointer — the
+ * MEPS hour (as the Weather page's hover read-out: the fields of the layers
+ * shown), the radar's rain rate and the MEPS wind of the Wind row.  Hover only
+ * (no click); a barb, the coverage line or an aircraft keeps its own read-out.
+ *
  * Receiver coverage (from 2026-10-31): a thin light-blue line around the area
  * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
  * sector, all heights (/api/coverage, the Statistics page's range data).  The
@@ -56,7 +62,7 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true, hover: false };
   const FINE_ZOOM = 7;                 // as the Weather page
   const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
@@ -248,6 +254,9 @@
           <div class="lwx-row"><span class="lwx-lbl">Receiver</span>
             <label title="A thin light-blue line around the area the receiver heard in the last 24 hours: the farthest ADS-B position in each 10° direction, any height (the range data of the Statistics page). With more receivers, their combined coverage"><input type="checkbox" class="lwx-cov"> Coverage (24 h)</label>
           </div>
+          <div class="lwx-row"><span class="lwx-lbl">Hover</span>
+            <label title="Move the mouse over the map for the weather values at the pointer: the MEPS hour shown (pressure, rain or snow, clouds, cloud base and fog, as ticked above), the radar's rain rate and the MEPS wind of the Wind row. Off: only the barbs and the coverage line have a read-out"><input type="checkbox" class="lwx-hover"> Weather values</label>
+          </div>
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
             <input type="range" class="lwx-op" min="10" max="100" step="5"> <span class="lwx-opv"></span>
           </div>
@@ -279,6 +288,7 @@
   q('.lwx-per').addEventListener('change', e => { st.wPer = parseInt(e.target.value, 10); save(); modesKey = ''; sync(); refresh(true); });
   q('.lwx-smooth').addEventListener('change', e => { st.smooth = e.target.checked; save(); sync(); });
   q('.lwx-fine').addEventListener('change', e => { st.fine = e.target.checked; save(); fineKey = ''; sync(); refresh(true); });
+  q('.lwx-hover').addEventListener('change', e => { st.hover = e.target.checked; save(); sync(); if (!st.hover) tip.style.display = 'none'; });
   q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
 
   // ── State → page ─────────────────────────────────────────────────────────
@@ -350,6 +360,7 @@
     q('.lwx-smooth').checked = !!st.smooth;
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
+    q('.lwx-hover').checked = !!st.hover;
     covLayer.show(st.cov);
     const chip = q('.lwx-chip');
     const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
@@ -594,11 +605,41 @@
   const prevTheme = window.onThemeChange;
   window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); covLayer.redraw(); applyOptions(); };
 
+  // Values on hover (from 2026-11-01): the weather at the pointer, '' when nothing is shown there
+  function valuesTip(ll) {
+    const rows = [];
+    const hh = ts => { const h = new Date(ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)} UTC`; };
+    if (useMeps() && shown) {
+      const v = layer.valuesAt(ll);                         // with Both also the model's rain (to compare)
+      const txt = v ? layer.describe(v) : '';
+      if (txt) rows.push(`<b>MEPS ${hh(shown.ts)}</b>: ${txt}`);
+    }
+    if (useRadar() && radarShown) {
+      const ra = layer.radarAt(ll);
+      if (ra) rows.push(`<b>Radar ${fmtUtc(radarShown.ts)} UTC</b>: ` +
+        (!ra.in ? 'outside the radar coverage' : ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry'));
+    }
+    if (mepsWind() && windShown) {
+      const v = windLayer.valuesAt(ll);
+      if (v && v.u != null && v.v != null) {
+        const sp = Math.hypot(v.u, v.v);
+        const w = sp < 1 ? 'calm' : `${String(Math.round(WxLayer.windDir(v.u, v.v)) % 360 || 360).padStart(3, '0')}°/${Math.round(sp)} kt`;
+        const lvl = st.wind === 'sfc' ? `10 m, ${hh(windShown.ts)}` : `FL${st.wind}`;
+        rows.push(`<b>MEPS wind ${lvl}</b>: ${w}` + (v.g != null ? `, gust ${Math.round(v.g)} kt` : '') +
+          (st.wind !== 'sfc' && v.t != null ? `, ${v.t.toFixed(0)} °C` : ''));
+      }
+    }
+    if (!rows.length) return '';
+    return rows.join('<br>') + `<br><span>${ll.lat.toFixed(2)}°N ${ll.lng.toFixed(2)}°E · model values of the hour, not measured</span>`;
+  }
+
   // hover a model barb: its wind (and temperature at a flight level)
   const tip = L.DomUtil.create('div', 'lwx-tip', map.getContainer());
   tip.style.display = 'none';
   const place = e => { tip.style.display = ''; tip.style.left = (e.containerPoint.x + 14) + 'px'; tip.style.top = (e.containerPoint.y + 10) + 'px'; };
   map.on('mousemove', e => {
+    const tg = e.originalEvent && e.originalEvent.target;
+    if (tg && tg.closest && tg.closest('.leaflet-control, .leaflet-marker-icon, .leaflet-tooltip')) { tip.style.display = 'none'; return; }
     const c = modesWind() ? modesLayer.at(e.containerPoint) : null;          // a Mode S barb first
     if (c) {
       const m = modesLayer.meta() || {};
@@ -616,9 +657,14 @@
       place(e);
       return;
     }
-    if (!mepsWind() || !windShown) { tip.style.display = 'none'; return; }
-    const b = windLayer.barbAt(e.containerPoint);
-    if (!b) { tip.style.display = 'none'; return; }
+    const b = mepsWind() && windShown ? windLayer.barbAt(e.containerPoint) : null;
+    if (!b) {
+      const txt = st.hover ? valuesTip(e.latlng) : '';
+      if (!txt) { tip.style.display = 'none'; return; }
+      tip.innerHTML = txt;
+      place(e);
+      return;
+    }
     const v = b.values, sp = Math.hypot(v.u, v.v);
     const wTxt = sp < 1 ? 'calm' : `${String(Math.round(b.dir) % 360 || 360).padStart(3, '0')}°/${Math.round(sp)} kt`;
     const r = new Date(windShown.run * 1000);
@@ -631,6 +677,10 @@
     tip.style.top = (e.containerPoint.y + 10) + 'px';
   });
   map.on('mouseout zoomstart movestart', () => { tip.style.display = 'none'; });
+  // an aircraft (its marker stops the map's mousemove): no weather read-out over it
+  map.getContainer().addEventListener('mouseover', ev => {
+    if (ev.target.closest && ev.target.closest('.leaflet-marker-icon, .leaflet-control')) tip.style.display = 'none';
+  });
 
   sync();
   refresh(true);

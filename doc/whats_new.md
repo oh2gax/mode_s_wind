@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **Weather values on the Live Map** — in the ☂ Weather panel tick *Hover: Weather values*, and moving the mouse over the map shows the model's weather (pressure, rain, clouds …), the radar's rain and the model wind at the pointer. Off by default.
 - **Point values on the Weather page** — tick *Point values* and click anywhere on the map: a card gives the model's values at that place (pressure, wind, gust, temperature, rain, cloud …) and follows the time slider, as a tap does on the phone. Off by default.
 - **A steady top bar** — the clock at the top right no longer jumps a few pixels when the number of aircraft changes.
 - **Landing runway after a go-around** — hover a go-around (✈ GA) in the Windshear page's alert log: it now also tells on which runway and when the aircraft landed after it, e.g. *Landed RWY 22R at 14:33 UTC, 10 min after the go-around*.

@@ -322,7 +322,8 @@ map.on('mouseout', () => $('wx-readout').classList.add('wm-hidden'));
 
 // ── Point values (from 2026-11-01, as the phone Weather view's tap) ──────
 // With the switch on, a click on the map pins the place (a ring) and the card
-// beside the zoom buttons lists the model's values there — of the layers shown,
+// next to it (to the lower right, flipped to stay on the map; it moves with
+// the map) lists the model's values there — of the layers shown,
 // as the hover read-out — for the hour of the slider, so they follow the slider
 // and the animation.  A click elsewhere moves the pin; × or Esc closes, and so
 // does turning the switch off.  Off (the default), a click does nothing.
@@ -357,7 +358,26 @@ function showPoint() {
     + `<div class="wx-pc-time">${$('wx-tlabel').innerHTML}</div>${rows}`
     + '<small>follows the time slider · click elsewhere on the map for another place</small>';
   card.hidden = false;
+  placePoint();
 }
+// the card beside the pin: 14 px to the right and below it, or to the left / above
+// it where it would run over the edge of the map (from 2026-11-01)
+function placePoint() {
+  const card = $('wx-point-card');
+  if (!pointLL || card.hidden) return;
+  const mc = map.getContainer(), q = map.latLngToContainerPoint(pointLL);
+  const W = mc.clientWidth, H = mc.clientHeight, w = card.offsetWidth, h = card.offsetHeight, G = 14, M = 6;
+  let x = q.x + G, y = q.y + G;
+  if (x + w > W - M) x = q.x - G - w;
+  if (y + h > H - M) y = q.y - G - h;
+  x = Math.max(M, Math.min(x, W - w - M)); y = Math.max(M, Math.min(y, H - h - M));
+  card.style.left = (mc.offsetLeft + x) + 'px';
+  card.style.top = (mc.offsetTop + y) + 'px';
+  // off the map (panned away): hide the card until the pin is in view again
+  card.style.visibility = q.x < 0 || q.y < 0 || q.x > W || q.y > H ? 'hidden' : '';
+}
+map.on('move zoomend resize', placePoint);
+map.on('zoomstart', () => { $('wx-point-card').style.visibility = 'hidden'; });
 map.on('click', e => {
   if (!pointOn()) return;
   pointLL = e.latlng;

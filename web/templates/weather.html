@@ -132,10 +132,10 @@ const RECEIVER_LON = {{ receiver_lon }};
 .weather-page .wx-step-btn { width:auto; min-width:34px; padding:0 6px; font-size:.78rem; text-align:center; white-space:nowrap; }   /* text inside the button (26 Oct 2026) */
 .weather-page .wx-step-btn:disabled { opacity:.35; cursor:default; }
 .wx-canvas { position:absolute; left:0; top:0; pointer-events:none; }
-/* Point values (from 2026-11-01, as the phone's tap): the card beside the zoom buttons and the pin */
+/* Point values (from 2026-11-01, as the phone's tap): the card next to the pin (placed by weather.js) */
 .weather-page.wx-point-mode .leaflet-container { cursor: crosshair; }
 .weather-page.wx-point-mode .leaflet-container.leaflet-drag-target { cursor: grabbing; }
-.wx-point-card { position:absolute; left:54px; top:10px; z-index:800; min-width:220px; max-width:min(420px, calc(100% - 70px));
+.wx-point-card { position:absolute; left:0; top:0; z-index:800; min-width:220px; max-width:min(420px, calc(100% - 20px));
                  padding:6px 26px 6px 10px; border:1px solid var(--border); border-radius:6px; background:rgba(22, 32, 48, 0.92);
                  font-size:12px; line-height:1.45; color:var(--text-1); box-shadow:0 2px 8px rgba(0,0,0,.35); }
 [data-theme="light"] .wx-point-card { background:rgba(248, 250, 252, 0.96); box-shadow:0 2px 8px rgba(0,0,0,.18); }
