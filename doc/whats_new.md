@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **Windshear reports on the Live Map** — under the METAR at the bottom, the Live Map now lists the METARs with a windshear group (*WS R22L* …) and the pilot reports near the airport of the last 12 hours, as on the Windshear page; when there are none, only the METAR is shown.
 - **Weather values on the Live Map** — in the ☂ Weather panel tick *Hover: Weather values*, and moving the mouse over the map shows the model's weather (pressure, rain, clouds …), the radar's rain and the model wind at the pointer. Off by default.
 - **Point values on the Weather page** — tick *Point values* and click anywhere on the map: a card gives the model's values at that place (pressure, wind, gust, temperature, rain, cloud …) and follows the time slider, as a tap does on the phone. Off by default.
 - **A steady top bar** — the clock at the top right no longer jumps a few pixels when the number of aircraft changes.

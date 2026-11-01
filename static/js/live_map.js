@@ -1326,6 +1326,75 @@ if (typeof ResizeObserver !== 'undefined') {
 fetchWx();
 setInterval(fetchWx, 10 * 60 * 1000);   // refresh every 10 minutes
 
+// ── WS & near reports under the METAR (from 2026-11-01, as the Windshear page) ──
+// The METARs with a windshear group (WS R22L …) and the pilot reports near the
+// airport (ARS / WXREP / SIGMET within the set distance, at or below 10 000 ft) of
+// the last 12 hours, newest first, in the Windshear page's rows (same colours and
+// font; the row code is a copy of windshear.js _repItems / _repRowHtml); nothing
+// is shown when there are none.  The METAR keeps a smaller box above the list.
+const METAR_REPS_HOURS = 12;
+const _REP_KIND_CLS = { METAR: 'ws-rep-k-met', ARS: 'ws-rep-k-ars', WXREP: 'ws-rep-k-wxrep', SIGMET: 'ws-rep-k-sig', AIRMET: 'ws-rep-k-sig' };
+const _repEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function _repHighlight(raw, isMetar) {
+  const h = _repEsc(raw);
+  if (isMetar) return h.replace(/\bWS\s+(ALL\s+RWY|(?:R(?:WY)?\s?\d{2}[LRC]?\s*)+)/g, m => `<span class="ws-rep-ws">${m.trim()}</span> `);
+  return h.replace(/\b((?:FBL|LGT|MOD|SEV|HVY)\s+)?(TURB|ICE|ICG|MTW|LLWS|WS|INVERSION|INV|TSGR|TS|VA|CB)\b/g, m => `<span class="ws-rep-ph">${m}</span>`);
+}
+function _repItems(d) {
+  const items = [];
+  for (const m of (d && d.metars) || []) items.push({ ts: m.ts, met: true, kind: 'METAR', sub: m.auto ? 'AUTO' : m.cor ? 'COR' : '', raw: m.raw, ws: m.ws });
+  for (const r of (d && d.reports) || []) items.push({ ts: r.obs_ts || r.ts, met: false, kind: r.kind, raw: r.raw, near: r.near, r });
+  return items.sort((a, b) => b.ts - a.ts);
+}
+function _repRowHtml(i) {
+  const todayMid = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const thisYear = new Date().getUTCFullYear();
+  const dt = new Date(i.ts * 1000), hm = dt.toISOString().slice(11, 16);
+  const tm = i.ts * 1000 >= todayMid ? hm
+    : `${dt.getUTCDate()}.${dt.getUTCMonth() + 1}${dt.getUTCFullYear() !== thisYear ? '.' + String(dt.getUTCFullYear()).slice(2) : ''} ${hm}`;
+  const r = i.r;
+  const tip = i.met
+    ? (i.ws ? `Windshear reported (${i.ws === 'ALL' ? 'all runways' : i.ws}) — manual METAR: windshear met during a landing or take-off between the surface and 1600 ft` : '')
+    : [r.ident ? (r.kind === 'ARS' ? 'Aircraft ' : 'Reported by ') + r.ident : '',
+       r.phen ? 'Phenomena: ' + r.phen : '',
+       r.lo_ft != null ? `Height: ${r.lo_ft === r.hi_ft ? r.lo_ft + ' ft' : r.lo_ft + '–' + r.hi_ft + ' ft'}` : '',
+       r.lat != null ? `Position ${r.lat.toFixed(2)}N ${r.lon.toFixed(2)}E` : '',
+       r.obs_ts && r.obs_ts !== r.ts ? `Message ${new Date(r.ts * 1000).toISOString().slice(11, 16)} UTC` : '',
+       r.near ? 'Near the airport (within the set distance, at or below 10 000 ft)' : ''].filter(Boolean).join('\n');
+  return `<tr${tip ? ` title="${tip.replace(/"/g, '&quot;')}"` : ''}${i.ws || i.near ? ' class="ws-rep-hit"' : ''}>
+  <td class="ws-aphist-cell ws-aphist-time">${tm}</td>
+  <td class="ws-aphist-cell ws-rep-kind ${_REP_KIND_CLS[i.kind] || ''}">${i.kind}${i.sub ? ` <span class="ws-rep-sub">${i.sub}</span>` : ''}${i.near ? ' <span class="ws-rep-near">●</span>' : ''}</td>
+  <td class="ws-aphist-cell ws-rep-txt">${_repHighlight(i.raw, i.met)}</td>
+</tr>`;
+}
+async function fetchMetarReps() {
+  const box = document.getElementById('wx-metar-reps'), body = document.getElementById('wx-metar-reps-body');
+  const nEl = document.getElementById('wx-metar-reps-n');
+  if (!box || !body) return;
+  try {
+    const r = await fetch(`/api/wx/reports?hours=${METAR_REPS_HOURS}&ws=1&near=1&limit=200`);
+    if (!r.ok) return;
+    const list = _repItems(await r.json());
+    const sec = box.parentElement, had = sec.classList.contains('ws-wx-has-reps');
+    if (!list.length) {
+      box.style.display = 'none'; body.innerHTML = ''; sec.classList.remove('ws-wx-has-reps');
+      if (nEl) { nEl.textContent = ''; nEl.title = ''; }
+    } else {
+      body.innerHTML = list.map(_repRowHtml).join('');
+      box.style.display = ''; sec.classList.add('ws-wx-has-reps');
+      if (nEl) {
+        const nMet = list.filter(i => i.met).length, nRep = list.length - nMet;
+        nEl.textContent = ` · WS & near ${METAR_REPS_HOURS} h: ` +
+          [nMet ? `${nMet} METAR${nMet === 1 ? '' : 's'} with WS` : '', nRep ? `${nRep} pilot report${nRep === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+        nEl.title = `The METARs with a windshear group and the pilot reports near the airport of the last ${METAR_REPS_HOURS} hours, newest first — as on the Windshear page`;
+      }
+    }
+    if (had !== sec.classList.contains('ws-wx-has-reps')) fitWxText();   // the METAR's box changed size
+  } catch (_) { /* silent */ }
+}
+fetchMetarReps();
+setInterval(fetchMetarReps, 3 * 60 * 1000);   // the pilot reports are fetched every few minutes on the server
+
 // ── Start ──────────────────────────────────────────────────────────────────
 connectSSE();
 

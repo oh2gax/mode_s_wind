@@ -2051,6 +2051,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-wx-reps .ws-aphist-time { width: 1%; }
 .ws-wx-reps-n { text-transform: none; letter-spacing: 0; font-weight: 400; color: #fbbf24; }
 [data-theme="light"] .ws-wx-reps-n { color: #b45309; }
+/* the same under the Live Map's METAR (from 2026-11-01): the METAR keeps a smaller box
+   (fitWxText shrinks its text into it) and the list scrolls below */
+.wx-section.ws-wx-has-reps .wx-text { flex: none; max-height: 62px; }
+.wx-label .ws-wx-reps-n { color: #fbbf24; }
+[data-theme="light"] .wx-label .ws-wx-reps-n { color: #b45309; }
 
 /* ── Map aircraft marker labels ─────────────────────────────────────────── */
 .ws-ac-label {
