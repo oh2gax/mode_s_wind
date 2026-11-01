@@ -143,6 +143,34 @@
     <div id="app-aci-list" class="app-list"></div>
   </section>
 
+  <!-- Mast (from 2026-11-01 night): the Kivenlahti mast — EFHK now, profile, boundary layer
+       with the mast's 10-minute steps, comparison (static/js/app_mast.js) -->
+  <section id="v-mast" class="app-view app-mast" hidden>
+    <div id="am-apt" class="lwx-apt am-apt"></div>
+    <div id="am-apt-note" class="app-pick am-note" hidden></div>
+    <div id="am-tiles" class="am-tiles"></div>
+    <div class="am-hd" id="am-prof-hd">Profile</div>
+    <div id="am-prof" class="am-prof"></div>
+    <div id="am-prof-lg" class="app-meta"></div>
+    <div id="am-prof-note" class="app-pick am-note">Tap a point or a barb for its values.</div>
+    <div class="am-hd">Boundary layer · temperature</div>
+    <div class="app-aci-box"><canvas id="am-blt"></canvas></div>
+    <div class="app-aci-box"><canvas id="am-dt"></canvas></div>
+    <div id="am-blt-pick" class="app-pick">Tap the chart for its values; a tap on the mast (below the amber line) also shows its profile of that time.</div>
+    <div id="am-blt-ro" class="app-meta app-aci-readout"></div>
+    <div class="am-hd">Boundary layer · wind</div>
+    <div class="app-aci-box"><canvas id="am-blw"></canvas></div>
+    <div id="am-blw-pick" class="app-pick">Tap the chart for its values.</div>
+    <div id="am-blw-ro" class="app-meta app-aci-readout"></div>
+    <div class="am-hd">Comparison with the mast</div>
+    <div class="am-cmp-bar">
+      <div class="app-chips" id="am-cmp-k"><button type="button" class="app-chip" data-v="t">Temperature</button><button type="button" class="app-chip" data-v="w">Wind</button></div>
+      <div class="app-chips" id="am-cmp-d"><button type="button" class="app-chip" data-v="7">7 d</button><button type="button" class="app-chip" data-v="30">30 d</button><button type="button" class="app-chip" data-v="90">90 d</button></div>
+    </div>
+    <div id="am-cmp"></div>
+    <div class="app-small am-disc">Research data — the FMI's Kivenlahti mast (Espoo, 327 m, 24 km south-west of the airport; FMI open data, CC BY 4.0) with the Mode S boundary layer of the airport and the MEPS model. Not an official observation: for flight operations use the METAR / ATIS.</div>
+  </section>
+
   <!-- History: landings / departures as cards (from 2026-10-28) -->
   <section id="v-hist" class="app-view app-hist" hidden>
     <div class="app-hist-bar">
@@ -205,6 +233,7 @@
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
     <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
     <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
+    <button type="button" class="app-tile" data-view="mast"><b>Mast</b><small>Kivenlahti · lowest 300 m</small></button>
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -286,6 +315,8 @@
       <label class="app-switch"><span>Max wind</span><input type="checkbox" id="th-vmax"></label>
       <label class="app-switch"><span>Sonde</span><input type="checkbox" id="th-sondecol"></label>
       <label class="app-switch"><span>Boundary layer</span><input type="checkbox" id="th-bl"></label>
+      <label class="app-switch"><span>Mast strip</span><input type="checkbox" id="th-mast"></label>
+      <label class="app-switch"><span>Mast in graph</span><input type="checkbox" id="th-mastov"></label>
     </div>
     <button id="th-png" class="app-btn app-btn-wide" type="button">Save picture (PNG)</button>
   </details>
@@ -334,6 +365,8 @@
       <select id="app-ils-wsh" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option></select></div>
     <div class="app-field"><span>Boundary layer below</span>
       <select id="app-ils-wsbl" data-chips><option value="off">Off</option><option value="bl">BL wind</option><option value="blt">BL temp</option><option value="blh">BL headwind</option><option value="bld">BL Δ headwind</option><option value="bls">BL shear</option></select></div>
+    <div class="app-field"><span>Mast in the BL wind / temp chart</span>
+      <select id="app-ils-blmast" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
     <div class="app-field"><span>Approach history under the strips</span>
       <select id="app-ils-histopt" data-chips><option value="off">Off</option><option value="3">3 h</option><option value="6">6 h</option></select></div>
     <div class="app-field"><span>Approach history shows</span>
@@ -349,7 +382,25 @@
       <select id="app-aci-ws" data-chips><option value="ws">ACI + windshear</option><option value="cond">ACI only</option><option value="edr">ACI + EDR + WS</option><option value="ew">EDR + WS</option><option value="st">Space–time</option><option value="bl" data-short="BL wind">Boundary layer · wind</option><option value="blt" data-short="BL temp">Boundary layer · temperature</option><option value="blh" data-short="BL headwind">Boundary layer · headwind per flight</option><option value="bld" data-short="BL Δ headwind">Boundary layer · headwind change per flight</option><option value="bls" data-short="BL shear">Boundary layer · wind shear per flight</option></select></div>
     <div class="app-field"><span>Boundary layer below</span>
       <select id="app-aci-bl2" data-chips><option value="off">Off</option><option value="bl">BL wind</option><option value="blt">BL temp</option><option value="blh">BL headwind</option><option value="bld">BL Δ headwind</option><option value="bls">BL shear</option></select></div>
+    <div class="app-field"><span>Mast in the BL wind / temp charts</span>
+      <select id="app-aci-blmast" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
     <div class="app-small">ACI + EDR + WS (research): between the ACI and the windshear the turbulence (EDR) of each landing (dot) and departure (ring) from its own Mode S replies, with the ICAO lines light 0.10, moderate 0.20 and severe 0.45; tap a flight to mark it in all three. EDR + WS: the same without the ACI. Boundary layer below (with ACI only, ACI + windshear, ACI + EDR + WS and EDR + WS): one of the boundary-layer charts under the chart, on the same hours, with its own tap read-out — e.g. EDR + WS with the BL headwind of every flight. Boundary layer (research): the wind (or the temperature against the surface) from 0 to 5000 ft hour by hour, the low-level jet (◆ its nose and speed, joined hour to hour) and the surface inversion (red bar along the bottom); hatched where there were no flights. BL headwind, BL Δ headwind and BL shear (research): the same flight by flight — every landing and departure a column with its headwind, its change against the flights of the previous 45 min, or the wind shear of its own profile; tap a column for the flight. Space–time: the headwind change of every height band of the landings and departures against the flights before them — blue less, red more. A front is a streak through the flights. Tap a cell for its flights.</div>
+  </details>
+
+  <details class="app-sec" data-for="mast">
+    <summary>Mast options</summary>
+    <div class="app-field"><span>Range</span>
+      <select id="app-mast-h" data-chips><option value="12">12 h</option><option value="24">24 h</option><option value="72">3 d</option></select></div>
+    <div class="app-field"><span>Chart top</span>
+      <select id="app-mast-top" data-chips><option value="1500">1 500 ft</option><option value="3000">3 000 ft</option><option value="5000">5 000 ft</option></select></div>
+    <div class="app-field"><span>EFHK now box</span>
+      <select id="app-mast-apt" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
+    <div class="app-switches">
+      <label class="app-switch"><span>Mode S in the profile</span><input type="checkbox" id="app-mast-modes"></label>
+      <label class="app-switch"><span>MEPS in the profile</span><input type="checkbox" id="app-mast-meps"></label>
+      <label class="app-switch"><span>Sonde in the profile</span><input type="checkbox" id="app-mast-sonde"></label>
+    </div>
+    <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
   </details>
 
   <details class="app-sec" data-for="wx">
@@ -509,6 +560,11 @@
   const APP_WX_JS = "{{ url_for('static', filename='js/app_wx.js') }}";
 </script>
 <script src="{{ url_for('static', filename='js/hw_profile.js') }}"></script>
+<!-- the Mast view (from 2026-11-01 night): the airport box shared with the Live Map, the
+     Sounding page's mast profile, the view itself -->
+<script src="{{ url_for('static', filename='js/apt_now.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mast.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app_mast.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

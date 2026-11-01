@@ -140,8 +140,17 @@
     const el = $('mt-profile');
     if (!el) return;
     if (!prof || !prof.found) { el.innerHTML = '<div class="sv-empty">No mast observation yet.</div>'; return; }
-    const K = C(), o = prof.obs, E = elev();
-    const W = 560, H = 430, ml = 52, mr = 172, mt = 16, mb = 38, pw = W - ml - mr, ph = H - mt - mb;
+    const r = profileSvg(prof, st);
+    el.innerHTML = r.svg;
+    $('mt-profile-legend').innerHTML = r.legend.join(' &nbsp; ') + ' &nbsp; <span class="text-dim">- - dry adiabat</span>';
+  }
+  // the profile as SVG (from 2026-11-01 night also the phone's Mast view, app_mast.js):
+  // sel = { modes, meps, sonde } the sources shown; o.compact: the phone's size
+  function profileSvg(prof, sel, o2 = {}) {
+    const K = C(), o = prof.obs, E = prof.elev_m || 44, st = sel;
+    const ftOf = m => Math.round((m + E) * FT);
+    const cp = !!o2.compact, nSrc = 1 + ['modes', 'meps', 'sonde'].filter(k => sel[k]).length, cs = cp ? 34 : 40;
+    const W = cp ? 380 : 560, H = cp ? 360 : 430, ml = cp ? 44 : 52, mr = cp ? 14 + nSrc * cs : 172, mt = 16, mb = 38, pw = W - ml - mr, ph = H - mt - mb;
     const TOP = 1500;                                                  // ft MSL
     const y = ft => mt + ph * (1 - Math.max(0, Math.min(TOP, ft)) / TOP);
     // temperatures of all shown sources → x range
@@ -170,7 +179,7 @@
       s += `<line x1="${x(t)}" x2="${x(t)}" y1="${mt}" y2="${mt + ph}" stroke="${t === 0 ? K.zero : K.grid}"/>` +
            `<text x="${x(t)}" y="${mt + ph + 14}" text-anchor="middle" font-size="11" fill="${K.ink2}">${t}</text>`;
     s += `<text x="${ml + pw / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="${K.ink2}">°C</text>` +
-         `<text x="12" y="${mt + ph / 2}" font-size="11" fill="${K.ink2}" transform="rotate(-90 12 ${mt + ph / 2})" text-anchor="middle">ft MSL (mast site)</text>`;
+         (cp ? '' : `<text x="12" y="${mt + ph / 2}" font-size="11" fill="${K.ink2}" transform="rotate(-90 12 ${mt + ph / 2})" text-anchor="middle">ft MSL (mast site)</text>`);
     s += `<line x1="${ml}" x2="${ml + pw}" y1="${y(E * FT)}" y2="${y(E * FT)}" stroke="${K.ink3}" stroke-dasharray="2 3"/>` +
          `<text x="${ml + 4}" y="${y(E * FT) - 4}" font-size="10" fill="${K.ink3}">mast ground ${Math.round(E)} m</text>`;
     // dry adiabat through the 2 m temperature
@@ -194,32 +203,31 @@
     });
     // wind barbs: one column per source at the right
     const cols = [['Mast', K.mast, true], ['Mode S', K.modes, !!msW.length], ['MEPS', K.meps, !!mp.length], ['Sonde', K.sonde, !!sd.length]].filter(c => c[2]);
-    const cx = i => ml + pw + 26 + i * 40;
+    const cx = i => ml + pw + (cp ? 20 : 26) + i * cs, bl = cp ? 16 : 20;
     cols.forEach((c, i) => { s += `<text x="${cx(i)}" y="${mt + ph + 14}" text-anchor="middle" font-size="10" font-weight="600" fill="${c[1]}">${c[0]}</text>`; });
     const col = name => cols.findIndex(c => c[0] === name);
     o.wl.forEach((h, i) => {
       const yy = y(ftOf(h));
-      s += `<g><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.wd[i] != null ? String(Math.round(o.wd[i])).padStart(3, '0') + '°' : '–'} ${o.ws[i] != null ? Math.round(o.ws[i]) + ' kt' : ''}, gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}</title>${barb(cx(col('Mast')), yy, o.ws[i], o.wd[i], K.mast)}</g>`;
+      s += `<g><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.wd[i] != null ? String(Math.round(o.wd[i])).padStart(3, '0') + '°' : '–'} ${o.ws[i] != null ? Math.round(o.ws[i]) + ' kt' : ''}, gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}</title>${barb(cx(col('Mast')), yy, o.ws[i], o.wd[i], K.mast, bl)}</g>`;
     });
     const thin = (pts, key) => { let last = -1e9; return pts.filter(p => { const yy = y(p[0]); if (Math.abs(yy - last) < 18) return false; last = yy; return true; }); };
     if (msW.length) thin(msW.slice().sort((a, b) => a[0] - b[0])).forEach(r => {
-      s += `<g><title>Mode S (airport) ${Math.round(r[0])} ft: ${String(Math.round(r[2])).padStart(3, '0')}° ${Math.round(r[1])} kt (${r[3]} observations)</title>${barb(cx(col('Mode S')), y(r[0]), r[1], r[2], K.modes)}</g>`;
+      s += `<g><title>Mode S (airport) ${Math.round(r[0])} ft: ${String(Math.round(r[2])).padStart(3, '0')}° ${Math.round(r[1])} kt (${r[3]} observations)</title>${barb(cx(col('Mode S')), y(r[0]), r[1], r[2], K.modes, bl)}</g>`;
     });
     if (mp.length) thin(mp.map(l => [(l[0] + E) * FT, l[2], l[3]])).forEach(r => {
-      s += `<g><title>MEPS ${Math.round(r[0])} ft: ${r[2] != null ? String(Math.round(r[2])).padStart(3, '0') + '°' : '–'} ${r[1] != null ? Math.round(r[1]) + ' kt' : ''}</title>${barb(cx(col('MEPS')), y(r[0]), r[1], r[2], K.meps)}</g>`;
+      s += `<g><title>MEPS ${Math.round(r[0])} ft: ${r[2] != null ? String(Math.round(r[2])).padStart(3, '0') + '°' : '–'} ${r[1] != null ? Math.round(r[1]) + ' kt' : ''}</title>${barb(cx(col('MEPS')), y(r[0]), r[1], r[2], K.meps, bl)}</g>`;
     });
     if (sd.length) thin(sd.map(l => [(l[0] + E) * FT, l[2], l[3]])).forEach(r => {
-      s += `<g><title>Sonde ${Math.round(r[0])} ft: ${r[2] != null ? String(Math.round(r[2])).padStart(3, '0') + '°' : '–'} ${r[1] != null ? Math.round(r[1]) + ' kt' : ''}</title>${barb(cx(col('Sonde')), y(r[0]), r[1], r[2], K.sonde)}</g>`;
+      s += `<g><title>Sonde ${Math.round(r[0])} ft: ${r[2] != null ? String(Math.round(r[2])).padStart(3, '0') + '°' : '–'} ${r[1] != null ? Math.round(r[1]) + ' kt' : ''}</title>${barb(cx(col('Sonde')), y(r[0]), r[1], r[2], K.sonde, bl)}</g>`;
     });
     s += `<rect x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="none" stroke="${K.grid}"/></svg>`;
-    el.innerHTML = s;
     // legend line under the chart
     const L = [`<span style="color:${K.mast}">● Mast ${utc(o.ts)} UTC</span>`];
     if (ms) L.push(`<span style="color:${K.modes}">● Mode S at EFHK, ${utc(ms.ts, false)}–${pad((new Date(ms.ts * 1000).getUTCHours() + 1) % 24)}:00 UTC</span>`);
     else if (st.modes) L.push('<span class="text-dim">Mode S: no boundary-layer hour</span>');
     if (prof.meps && st.meps) L.push(`<span style="color:${K.meps}">● MEPS run ${utc(prof.meps.run, false)} +${prof.meps.lead} h (area mean)</span>`);
     if (prof.sonde && st.sonde) L.push(`<span style="color:${K.sonde}">● ${esc(prof.sonde.station)} ${utc(prof.sonde.launch)} UTC</span>`);
-    $('mt-profile-legend').innerHTML = L.join(' &nbsp; ') + ' &nbsp; <span class="text-dim">- - dry adiabat</span>';
+    return { svg: s, legend: L };
   }
 
   // ── time series ─────────────────────────────────────────────────────────
@@ -400,7 +408,7 @@
     for (const [id, k] of [['mt-modes', 'modes'], ['mt-meps', 'meps'], ['mt-sonde', 'sonde']])
       if ($(id)) $(id).addEventListener('change', e => { st[k] = e.target.checked; lsSet('ms_mast_' + k, st[k]); renderProfile(); });
     if ($('mt-now')) $('mt-now').addEventListener('click', () => loadProfile(null));
-    new ResizeObserver(() => { if (on) renderSeries(); }).observe($('mt-series'));
+    if ($('mt-series')) new ResizeObserver(() => { if (on) renderSeries(); }).observe($('mt-series'));
   }
   function active(v) {
     on = !!v;
@@ -408,5 +416,5 @@
     if (on) timer = setInterval(() => { if (!document.hidden && on) load(); }, 5 * 60 * 1000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  window.MastView = { load, render, active };
+  window.MastView = { load, render, active, profileSvg };
 })();

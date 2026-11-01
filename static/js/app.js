@@ -47,6 +47,7 @@
     hist:         { title: 'History', sec: 'hist', el: 'v-hist' },
     stats:        { title: 'Statistics', sec: 'stats', el: 'v-stats' },
     wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
+    mast:         { title: 'Mast', sec: 'mast', el: 'v-mast' },       // from 2026-11-01 night (app_mast.js)
   };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
@@ -399,7 +400,9 @@
   // ══ ACI & WS ═════════════════════════════════════════════════════════════
   const A = { hours: parseInt(lsGet('ms_app_aci_h', '6'), 10), mode: lsGet('ms_app_aci_mode', 'ws'),
               aph: [], dep: [], ga: [], st: null, wx: null, fetched: 0, dots: [], all: false, cell: null,
-              bl2: lsGet('ms_app_aci_bl2', 'off'), dots2: [] };
+              bl2: lsGet('ms_app_aci_bl2', 'off'), dots2: [],
+              // the Kivenlahti mast on the BL wind / temp charts (from 2026-11-01 night; Off by default)
+              blmast: lsGet('ms_app_aci_blmast', 'off'), mast: null };
   if (![3, 6, 12, 24].includes(A.hours)) A.hours = 6;
   if (!['ws', 'cond', 'st', 'edr', 'ew', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.mode)) A.mode = 'ws';
   if (!['off', 'bl', 'blt', 'blh', 'bld', 'bls'].includes(A.bl2)) A.bl2 = 'off';
@@ -423,6 +426,9 @@
   $('app-aci-ws').value = A.mode;
   $('app-aci-pick').textContent = pickHint();
   $('app-aci-bl2').value = A.bl2;
+  $('app-aci-blmast').value = A.blmast;
+  $('app-aci-blmast').addEventListener('change', e => { A.blmast = e.target.value; lsSet('ms_app_aci_blmast', A.blmast); loadAci(); });
+  const aciMastOn = () => A.blmast === 'on' && ((isBl() && !isBlFl()) || (bl2On() && !bl2Fl()));
   $('app-aci-blpick').textContent = bl2Hint();
   bl2Show();
   $('app-aci-bl2').addEventListener('change', e => {
@@ -463,11 +469,11 @@
       const c2 = cv2.getContext('2d');
       c2.setTransform(dpr, 0, 0, dpr, 0, 0);
       A.dots2 = WsCondChart.drawBoundaryLayer(c2, W, H2, $('app-aci-blro'), {
-        bl: A.bl, fl: A.fl, hours: A.hours, field: bl2Field(), fetchedMs: A.bl ? A.fetched : 0, nowMs, L: 24 });
+        bl: A.bl, fl: A.fl, hours: A.hours, field: bl2Field(), fetchedMs: A.bl ? A.fetched : 0, nowMs, L: 24, mast: aciMastOn() ? A.mast : null });
     } else A.dots2 = [];
     if (isBl()) {                    // boundary layer: no flight list under it
       A.dots = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-aci-readout'), {
-        bl: A.bl, fl: A.fl, hours: A.hours, field: blField(), fetchedMs: A.bl ? A.fetched : 0 });
+        bl: A.bl, fl: A.fl, hours: A.hours, field: blField(), fetchedMs: A.bl ? A.fetched : 0, mast: aciMastOn() ? A.mast : null });
       $('app-aci-list').innerHTML = '';
       return;
     }
@@ -593,10 +599,12 @@
       ]);
       A.st = sp;
       // the flights: one hour more, the reference of the first ones
-      const [bl, fl] = await Promise.all([
+      const [bl, fl, mh] = await Promise.all([
         isBl() || bl2On() ? fetch(`/api/boundary?hours=${A.hours}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
-        isBlFl() || bl2Fl() ? fetch(`/api/boundary/flights?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []) : Promise.resolve(null)]);
+        isBlFl() || bl2Fl() ? fetch(`/api/boundary/flights?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []) : Promise.resolve(null),
+        aciMastOn() ? fetch(`/api/mast/hourly?hours=${A.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null)]);
       A.bl = bl;
+      A.mast = mh && Array.isArray(mh.hours) ? mh.hours : null;
       A.fl = Array.isArray(fl) ? fl : null;
       A.wx = wx;
       A.aph = Array.isArray(aph) ? aph : [];
@@ -953,6 +961,7 @@
               wschart: lsGet('ms_app_ils_wschart', 'edr'),
               // a boundary-layer chart under it (from 2026-10-31): off / bl / blt / blh / bld / bls
               wsbl: lsGet('ms_app_ils_wsbl', 'off'),
+              blmast: lsGet('ms_app_ils_blmast', 'off'),     // the mast on the BL wind / temp chart (from 2026-11-01 night)
               wsh: lsGet('ms_app_ils_wsh', ['3', '6'].includes(lsGet('ms_app_ils_wsaci', '')) ? lsGet('ms_app_ils_wsaci', '') : '3'),
               // speed vectors on the map: off / 30 / 60 / 120 s (from 2026-10-29)
               vec: lsGet('ms_app_ils_vec', 'off'),
@@ -994,7 +1003,7 @@
   const ilsCtl = [['app-ils-rwy', 'rwy', 'ms_app_ils_rwy'], ['app-ils-range', 'range', 'ms_app_ils_range'],
                   ['app-ils-barbs', 'barbs', 'ms_app_ils_barbs'], ['app-ils-comp', 'comp', 'ms_app_ils_comp'],
                   ['app-ils-lvl', 'lvl', 'ms_ws_alert_lvl'], ['app-ils-show', 'show', 'ms_app_ils_show'],
-                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'], ['app-ils-wsbl', 'wsbl', 'ms_app_ils_wsbl'],
+                  ['app-ils-mapac', 'mapac', 'ms_app_ils_mapac'], ['app-ils-wschart', 'wschart', 'ms_app_ils_wschart'], ['app-ils-wsh', 'wsh', 'ms_app_ils_wsh'], ['app-ils-wsbl', 'wsbl', 'ms_app_ils_wsbl'], ['app-ils-blmast', 'blmast', 'ms_app_ils_blmast'],
                   ['app-ils-vec', 'vec', 'ms_app_ils_vec'], ['app-ils-deps', 'deps', 'ms_app_ils_deps'], ['app-ils-edrmap', 'edrmap', 'ms_app_ils_edrmap'], ['app-ils-selalt', 'selalt', 'ms_app_ils_selalt'], ['app-ils-actype', 'actype', 'ms_app_ils_actype'], ['app-ils-lbl', 'lbl', 'ms_app_ils_lbl'], ['app-ils-mapst', 'mapst', 'ms_app_ils_mapst'],
                   ['app-ils-histopt', 'hist', 'ms_app_ils_hist'], ['app-ils-hshow', 'hshow', 'ms_app_ils_hshow']];
   for (const [id, key, ls] of ilsCtl) {
@@ -1002,7 +1011,7 @@
     $(id).addEventListener('change', e => {
       I[key] = e.target.value; lsSet(ls, I[key]); autoSel(); drawIls();
       if (key === 'show' || key === 'mapac' || key === 'deps') loadIls();   // the map needs positions (map=1 / near=1)
-      if (key === 'wschart' || key === 'wsh' || key === 'wsbl') { IW.at = 0; loadIlsWs(); }
+      if (key === 'wschart' || key === 'wsh' || key === 'wsbl' || key === 'blmast') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
       if (key === 'mapst' && I.mapst === 'atc' && window.L) loadAtc().then(drawIls).catch(() => {});
       if (key === 'hist') { IHist.at = 0; IHist.open.clear(); loadIlsHist(); }
@@ -1390,12 +1399,15 @@
     IW.at = Date.now();
     const hours = parseInt(I.wsh, 10) || 3, win = hours * 3600, ws = I.wschart !== 'off', bl = I.wsbl !== 'off';
     try {
-      const [aph, dep, wx, blr, flr] = await Promise.all([
+      const ilsMast = bl && I.blmast === 'on' && !ilsBlFl();
+      const [aph, dep, wx, blr, flr, mh] = await Promise.all([
         ws ? fetch(`/api/windshear/approach-history?lite=1&window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
         ws ? fetch(`/api/windshear/departures?window=${win}`, { cache: 'no-store' }).then(r => r.json()) : Promise.resolve(null),
         ws ? fetch(`/api/wx/reports?hours=${hours + 1}&ws=1&near=1`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
         bl ? fetch(`/api/boundary?hours=${hours}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
-        bl && ilsBlFl() ? fetch(`/api/boundary/flights?hours=${hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null)]);
+        bl && ilsBlFl() ? fetch(`/api/boundary/flights?hours=${hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+        ilsMast ? fetch(`/api/mast/hourly?hours=${hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(null)]);
+      IW.mast = ilsMast && mh && Array.isArray(mh.hours) ? mh.hours : null;
       if (ws) { IW.aph = Array.isArray(aph) ? aph : []; IW.dep = Array.isArray(dep) ? dep : []; IW.wx = wx; IW.fetched = Date.now(); }
       if (bl) { IW.bl = Array.isArray(blr) ? blr : []; IW.fl = Array.isArray(flr) ? flr : null; IW.blAt = Date.now(); }
       IW.hours = hours;
@@ -1431,7 +1443,8 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // left margin 24 px as the chart above, so the hours line up
     IW.dots2 = WsCondChart.drawBoundaryLayer(ctx, W, H, $('app-ils-blro'), {
-      bl: IW.bl, fl: IW.fl, hours: parseInt(I.wsh, 10) || 3, field: ilsBlField(), fetchedMs: IW.bl ? IW.blAt : 0, L: 24 });
+      bl: IW.bl, fl: IW.fl, hours: parseInt(I.wsh, 10) || 3, field: ilsBlField(), fetchedMs: IW.bl ? IW.blAt : 0, L: 24,
+      mast: I.blmast === 'on' && !ilsBlFl() ? IW.mast : null });
   }
   $('app-ils-blpick').textContent = ilsBlHint();
   $('app-ils-wsbl').addEventListener('change', () => { $('app-ils-blpick').textContent = ilsBlHint(); });
@@ -1677,6 +1690,7 @@
     else if (view === 'hist') drawHist();
     else if (view === 'stats' && window.MsStats) window.MsStats.redraw();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.layout();
+    else if (view === 'mast' && window.AppMast) window.AppMast.layout();
     markScroll();
   }
   function refresh() {
@@ -1687,17 +1701,19 @@
     else if (view === 'aci') loadAci();
     else if (view === 'hist' && !H.date) loadHist();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.refresh();
+    else if (view === 'mast' && window.AppMast) window.AppMast.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
     view = VIEWS[v] ? v : 'skewt-now';
     if (view !== 'stats' && window.MsStats) window.MsStats.stop();
     if (view !== 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.hide();
+    if (view !== 'mast' && window.AppMast) window.AppMast.hide();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -1725,6 +1741,7 @@
     else if (view === 'hist') loadHist();
     else if (view === 'stats') openStats();
     else if (view === 'wx') openWx();
+    else if (view === 'mast' && window.AppMast) window.AppMast.show();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }

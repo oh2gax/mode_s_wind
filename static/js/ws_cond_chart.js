@@ -896,13 +896,40 @@ const WsCondChart = (() => {
     return { nA, nD };
   }
 
+  // a wind barb (kt, from dir; the staff towards the wind's origin), as timeheight.js
+  function _barb(g, cx, cy, dir, spd) {
+    const s = Math.round(spd / 5) * 5;
+    const r = dir * Math.PI / 180, ux = Math.sin(r), uy = -Math.cos(r);
+    const L = 14, fx = -uy, fy = ux, tx = cx + ux * L, ty = cy + uy * L;
+    g.beginPath(); g.arc(cx, cy, 1.3, 0, 2 * Math.PI); g.fill();
+    if (s < 5) return;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(tx, ty); g.stroke();
+    let rem = s, pos = 0;
+    while (rem >= 50) {
+      const ax = tx - ux * pos, ay = ty - uy * pos;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 7 - ux * 2, ay + fy * 7 - uy * 2); g.lineTo(ax - ux * 4, ay - uy * 4); g.closePath(); g.fill();
+      pos += 5; rem -= 50;
+    }
+    while (rem >= 10) {
+      const ax = tx - ux * pos, ay = ty - uy * pos;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 7 + ux * 2, ay + fy * 7 + uy * 2); g.stroke();
+      pos += 3.5; rem -= 10;
+    }
+    if (rem >= 5) {
+      const ax = tx - ux * (pos || 3), ay = ty - uy * (pos || 3);
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + fx * 3.5 + ux, ay + fy * 3.5 + uy); g.stroke();
+    }
+  }
+
   function drawBoundaryLayer(ctx, W, H, readout, d) {
     const CT = theme(), light = isLight(), dots = [];
     const hours = d.hours || 24, nowMs = d.nowMs || Date.now(), t0 = nowMs - hours * 3_600_000;
     // d.L: the left margin (from 2026-10-31 24 under the ACI / WS chart of the phone, so the hours line up)
     const L = d.L || 34, R = 8, T = 22, B = 18, PW = W - L - R, PH = H - T - B;
     const xOf = ms => L + (ms - t0) / (hours * 3_600_000) * PW;
-    const yOf = ft => T + PH - Math.max(0, Math.min(BL_TOP, ft)) / BL_TOP * PH;
+    // d.top (from 2026-11-01 night, the phone's Mast view): the chart's top in ft (default 5 000)
+    const TOP = d.top || BL_TOP;
+    const yOf = ft => T + PH - Math.max(0, Math.min(TOP, ft)) / TOP * PH;
     const field = d.field || 'wind';
     ctx.clearRect(0, 0, W, H); ctx.fillStyle = CT.roseBg; ctx.fillRect(0, 0, W, H);
     // hatch for no data
@@ -931,8 +958,44 @@ const WsCondChart = (() => {
       }
     }
     ctx.restore();
+    // the Kivenlahti mast's 10-minute steps filling the plot below its top (from 2026-11-01
+    // night, the phone's Mast view; d.mastSteps = the /api/mast answer): each step from
+    // ts − 10 min to ts, its levels from halfway to the next; the temperature against
+    // the METAR of the hour (else the mast's own 2 m), the wind speed in the kt colours
+    const MS = !isFl && d.mastSteps && Array.isArray(d.mastSteps.rows) ? d.mastSteps : null;
+    const msRows = MS ? MS.rows.filter(r => r[0] * 1000 > t0 && r[0] * 1000 - 600_000 <= nowMs) : [];
+    if (msRows.length) {
+      const E = d.mastElev || 44, mft = m => (m + E) * 3.28084;
+      const blByH = new Map(rows.map(r => [r.ts, r]));
+      const lv = field === 'temp' ? MS.tl : MS.wl;
+      const bands = lv.map((h, i) => [i ? (mft(lv[i - 1]) + mft(h)) / 2 : mft(0),
+                                      i < lv.length - 1 ? (mft(h) + mft(lv[i + 1])) / 2 : mft(h) + (mft(h) - (i ? (mft(lv[i - 1]) + mft(h)) / 2 : mft(0)))]);
+      ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+      for (const r of msRows) {
+        const x = xOf(r[0] * 1000 - 600_000), x1 = xOf(r[0] * 1000);
+        const blr = blByH.get(Math.floor((r[0] - 1) / 3600) * 3600);
+        const ref = field === 'temp' ? (blr && blr.tt != null ? blr.tt : r[1][0]) : null;
+        for (let i = 0; i < lv.length; i++) {
+          const v = field === 'temp' ? r[1][i] : r[4][i];
+          if (v == null || (field === 'temp' && ref == null)) continue;
+          const ya = yOf(bands[i][1]), yb = yOf(bands[i][0]);
+          ctx.fillStyle = field === 'temp' ? _dtCol(v - ref, light) : _spdCol(v);
+          ctx.fillRect(x, ya, x1 - x + 0.6, yb - ya + 0.5);
+          dots.push({ x: (x + x1) / 2, y: (ya + yb) / 2, dotR: Math.max(3, Math.min(x1 - x, yb - ya) / 2), color: light ? '#b45309' : '#f59e0b',
+            label: `${_hm(r[0])}Z Kivenlahti mast ${lv[i]} m (${Math.round(mft(lv[i]))} ft MSL): ` +
+              (field === 'temp' ? `${v.toFixed(1)} °C, ${v - ref >= 0 ? '+' : ''}${(v - ref).toFixed(1)} K against the surface (${blr && blr.tt != null ? `METAR ${blr.tt} °C` : 'its 2 m'})`
+                                : `${r[5][i] != null ? String(Math.round(r[5][i])).padStart(3, '0') + '°/' : ''}${Math.round(v)} kt, gust ${r[6][i] != null ? Math.round(r[6][i]) + ' kt' : '–'}`) +
+              ' (10-min mean)', ts: r[0] });
+        }
+      }
+      // the mast's top: a thin amber line
+      ctx.fillStyle = light ? '#b45309' : '#f59e0b';
+      const xa = xOf(msRows[0][0] * 1000 - 600_000), xb = xOf(msRows[msRows.length - 1][0] * 1000);
+      ctx.fillRect(xa, yOf(bands[bands.length - 1][1]) - 1, xb - xa, 1.5);
+      ctx.restore();
+    }
     // the Kivenlahti mast (from 2026-11-01): a narrow column at the right of each hour
-    const mastRows = !isFl && Array.isArray(d.mast) ? d.mast.filter(m => m.ts * 1000 >= t0 - 3_600_000 && m.ts * 1000 <= nowMs) : [];
+    const mastRows = !isFl && !MS && Array.isArray(d.mast) ? d.mast.filter(m => m.ts * 1000 >= t0 - 3_600_000 && m.ts * 1000 <= nowMs) : [];
     if (mastRows.length) {
       const mc = light ? '#b45309' : '#f59e0b', E = d.mastElev || 44, mft = m => (m + E) * 3.28084;
       const byTs = new Map(rows.map(r => [r.ts, r]));
@@ -962,11 +1025,36 @@ const WsCondChart = (() => {
       }
       ctx.restore();
     }
+    // wind barbs (d.barbs, the wind field; from 2026-11-01 night): the mast's steps at its
+    // levels and the Mode S hours above the mast's top, every 500 ft, spaced ≥ 24 px
+    if (d.barbs && field === 'wind') {
+      const mtop = msRows.length ? (MS.wl[MS.wl.length - 1] + (d.mastElev || 44)) * 3.28084 + 120 : 0;
+      ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+      for (const [col, lw] of [[light ? 'rgba(248,250,252,0.9)' : 'rgba(15,23,42,0.85)', 2.6], [light ? '#0f172a' : '#f8fafc', 1.1]]) {
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw;
+        const everyH = Math.max(1, Math.ceil(24 / cw));
+        for (const r of rows) {
+          if (Math.round(r.ts / 3600) % everyH) continue;
+          const xc = (xOf(r.ts * 1000) + xOf(r.ts * 1000 + 3_600_000)) / 2;
+          for (const [ft, kt, dir] of r.w || []) if (ft % 500 === 0 && ft > mtop && ft <= TOP - 100) _barb(ctx, xc, yOf(ft), dir, kt);
+        }
+        if (msRows.length) {
+          const stepPx = PW / (hours * 6), every = Math.max(1, Math.ceil(24 / stepPx));
+          const E = d.mastElev || 44;
+          for (const r of msRows) {
+            if (Math.round(r[0] / 600) % every) continue;
+            const xc = xOf(r[0] * 1000 - 300_000);
+            MS.wl.forEach((h, i) => { if (r[4][i] != null && r[5][i] != null) _barb(ctx, xc, yOf((h + E) * 3.28084), r[5][i], r[4][i]); });
+          }
+        }
+      }
+      ctx.restore();
+    }
     // axes
     ctx.strokeStyle = CT.roseRing; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
     ctx.font = '9px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let ft = 0; ft <= BL_TOP; ft += 1000) {
-      ctx.fillText(ft ? `${ft / 1000}k` : '0', L - 4, yOf(ft));
+    for (let ft = 0; ft <= TOP; ft += TOP <= 3000 ? 500 : 1000) {
+      ctx.fillText(ft ? (ft % 1000 ? `${(ft / 1000).toFixed(1)}k` : `${ft / 1000}k`) : '0', L - 4, yOf(ft));
       ctx.strokeStyle = CT.roseOuter; ctx.beginPath(); ctx.moveTo(L, Math.round(yOf(ft)) + 0.5); ctx.lineTo(L + PW, Math.round(yOf(ft)) + 0.5); ctx.stroke();
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -1037,7 +1125,8 @@ const WsCondChart = (() => {
                           : `${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h`;
       // the mast's last hour (from 2026-11-01): the stability of its lowest 300 m
       let mastTxt = '';
-      const lm = mastRows.length ? mastRows[mastRows.length - 1] : null;
+      const ls = msRows.length ? msRows[msRows.length - 1] : null;
+      const lm = mastRows.length ? mastRows[mastRows.length - 1] : ls ? { ts: ls[0], t: ls[1], tl: MS.tl } : null;
       if (lm && lm.t && lm.t.length > 1 && lm.t[0] != null && lm.t[lm.t.length - 1] != null) {
         const dT = lm.t[lm.t.length - 1] - lm.t[0], top = lm.tl[lm.tl.length - 1];
         mastTxt = ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">mast ${_hm(lm.ts)}Z: ${top} m ${dT >= 0 ? '+' : ''}${dT.toFixed(1)} K` +
@@ -1045,7 +1134,7 @@ const WsCondChart = (() => {
       }
       readout.innerHTML = `Last hour: ${now}${mastTxt}<br>${second} <span class="ws-research-tag">research</span>` +
         `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key}${isFl ? ' · □ windshear alert' : ''}` +
-        `${mastRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">▯ Kivenlahti mast</span>` : ''} · ▨ no flights</span>`;
+        `${mastRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">▯ Kivenlahti mast</span>` : msRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">— top of the mast (below it: the mast)</span>` : ''} · ▨ no flights</span>`;
     }
     return dots;
   }
