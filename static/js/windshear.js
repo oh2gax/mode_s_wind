@@ -83,7 +83,7 @@ function wsSavedView() {
   return null;
 }
 const _wsView = wsSavedView();
-const map = L.map('ws-map', { zoomControl: true })
+const map = L.map('ws-map', { zoomControl: false })   // zoom added after the ⌂ below: one row ⌂ + − (from 2026-11-01)
              .setView(_wsView ? [_wsView.lat, _wsView.lon] : [WS_AIRPORT_LAT, WS_AIRPORT_LON],
                       _wsView ? _wsView.z : WS_MAP_HOME_ZOOM);
 map.on('moveend', () => {
@@ -115,6 +115,10 @@ map.on('moveend', () => {
     },
   });
   new Home().addTo(map);
+  // From 1 Nov 2026 the ⌂ and the zoom buttons are one row at the top left, in the order
+  // ⌂ + − (before + / − stacked, ⌂ beside them), level with the map bar at the right, so the
+  // Approach History panel can start at the chart panel's top (style.css)
+  L.control.zoom({ position: 'topleft' }).addTo(map);
 })();
 
 // CARTO_API_KEY is injected server-side in base.html (from local api_keys.py);
@@ -1860,7 +1864,9 @@ function wsDrawEdr() {
   // so it hides fully under that panel and keeps clear of the approaches; it wraps), and it
   // sits just above the ATC legend, which now takes two lines
   const lg = document.getElementById('ws-atc-legend');
-  if (box) box.style.bottom = lg && !lg.hidden && lg.offsetHeight ? (10 + lg.offsetHeight + 6) + 'px' : '';
+  // (bottom 24 px from 2026-11-01, was 10: 2 px above the Approach History's bottom edge, which
+  // moved from 8 to 22 px — the box and the legend stay hidden under it; style.css)
+  if (box) box.style.bottom = lg && !lg.hidden && lg.offsetHeight ? (24 + lg.offsetHeight + 6) + 'px' : '';
   if (!wsEdrMin) return;
   const now = Date.now() / 1000, light = wsMapLight();
   // the landings, and with Departures / All 30NM the departures too (from 2026-11-01)
