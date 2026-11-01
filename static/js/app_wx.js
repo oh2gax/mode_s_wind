@@ -54,6 +54,9 @@ window.AppWx = (() => {
   let hours = [], view = [], grid = null, frames = new Map(), loadedKey = '', loadRun = 0, bytes = 0;
   let current = null, playing = false, playRun = 0, indexAt = 0, shown = false;
   let traffic = null, trafficAt = 0, trafficLayer = null, trails = {}, lblPos = {}, tip = null, tipMk = null;
+  // the extended label (from 2026-11-01, as the ILS view's): with Map style ATC a tap on an
+  // aircraft opens its label as the six-line extended label; lblRects: the label boxes drawn
+  let ext = { key: null, data: null, timer: null }, lblRects = {};
   let radar = null, radarAt = 0, radarErr = '', radarOn = false;    // the FMI radar (Rain source)
   const FINE_ZOOM = 7;
   let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = '', fineRun = 0, fineWas = false;
@@ -376,6 +379,14 @@ window.AppWx = (() => {
     // the card at the top of the map when the tap is in its lower half (not over the place)
     $('app-wx-tip').classList.toggle('top', e.containerPoint.y > map.getSize().y / 2);
     const ac = S().traffic === 'on' ? acAt(e.containerPoint) : null;
+    // ATC map style: an aircraft's label opens as the extended label (no card); a tap on
+    // that label keeps it, a tap elsewhere closes it (from 2026-11-01)
+    if (atcMap() && S().traffic === 'on') {
+      const R = ext.key && lblRects[ext.key], q = e.containerPoint;
+      if (R && q.x >= R.x - 4 && q.x <= R.x + R.w + 4 && q.y >= R.y - 3 && q.y <= R.y + R.h + 3) return;
+      if (ac) { closeTip(); extOpen(ac[0]); return; }
+      if (ext.key) { extClose(); return; }
+    }
     if (ac) { tip = { ac: ac[0] }; showAcTip(ac); return; }
     if (!current) return;
     tip = { ll: e.latlng };
@@ -467,6 +478,7 @@ window.AppWx = (() => {
     const atcL = S().tlbl === 'atc', lbls = [];
     const obst = AtcDisplay.domObstacles(m, '.leaflet-control-zoom, .ms-map-home, #app-wx-tip:not([hidden]), #app-wx-loading:not([hidden])');
     const lvl3 = pa => String(Math.round(pa / 100)).padStart(3, '0');
+    let seenExt = false;
     for (const r of traffic.ac) {
       const a = asAc(r), p0 = m.latLngToContainerPoint([a.lat, a.lon]);
       if (p0.x < -200 || p0.y < -200 || p0.x > W + 200 || p0.y > H + 200) continue;
@@ -477,11 +489,39 @@ window.AppWx = (() => {
       g.globalAlpha = 1; g.strokeStyle = c; g.lineWidth = 1.5;
       g.strokeRect(Math.round(p0.x) - 3.5, Math.round(p0.y) - 3.5, 7, 7);
       obst.push({ x: p0.x - 5, y: p0.y - 5, w: 10, h: 10 });
-      lbls.push({ key: a.icao, p: p0, col: c, sel: false, fade: 1, alt: a.altitude ?? 99999,
-                  lines: atcL ? AtcDisplay.labelLines(a, 'full', a.callsign || a.icao, lvl3)
+      const isExt = atcMap() && ext.key === a.icao;
+      if (isExt) seenExt = true;
+      lbls.push({ key: a.icao, p: p0, col: isExt ? AtcDisplay.pal().high : c, sel: false, fade: 1, alt: a.altitude ?? 99999, ext: isExt,
+                  lines: isExt ? AtcDisplay.extLines(a, ext.data, { cs: a.callsign || a.icao, lvl3,
+                                   apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, typeof WS_AIRPORT_NAME !== 'undefined' ? WS_AIRPORT_NAME : 'EFHK'] })
+                       : atcL ? AtcDisplay.labelLines(a, 'full', a.callsign || a.icao, lvl3)
                               : [a.callsign || a.icao, a.altitude == null ? '---' : a.altitude < 5000 ? `${a.altitude} ft` : 'FL' + lvl3(a.altitude)] });
     }
-    if (lbls.length) AtcDisplay.drawLabels(g, lbls, W, H, obst, lblPos, 10);
+    lblRects = lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, lblPos, 10) || {} : {};
+    // the extended label closes when the ATC map style is left or its aircraft has gone
+    if (ext.key && (!atcMap() || !seenExt)) setTimeout(() => extClose(), 0);
+  }
+  // the extended label's values: /api/live/ac/<icao> at once and every 2 s while it is
+  // open and the view shown (as the ILS view and the big pages' Hover)
+  function extPoll() {
+    const k = ext.key;
+    if (!k || document.hidden || !shown) return;
+    fetch(`/api/live/ac/${encodeURIComponent(k)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(d => { if (k !== ext.key) return; ext.data = d; trafficLayer.redraw(); });
+  }
+  function extOpen(icao) {
+    if (ext.key === icao) return;
+    clearInterval(ext.timer);
+    ext = { key: icao, data: null, timer: setInterval(extPoll, 2000) };
+    extPoll();
+    trafficLayer.redraw();
+  }
+  function extClose() {
+    if (!ext.key) return;
+    clearInterval(ext.timer);
+    ext = { key: null, data: null, timer: null };
+    trafficLayer && trafficLayer.redraw();
   }
   // the aircraft under the finger (within 22 px)
   function acAt(pt) {
@@ -520,7 +560,7 @@ window.AppWx = (() => {
     else if (key === 'grid') { bytes = 0; loadFrames(); }
     else if (key === 'load') loadFrames();
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
-    else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; trafficLayer.redraw(); closeTip(); } statusLine(); }
+    else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; extClose(); trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
     else if (key === 'rainop' || key === 'radarop' || key === 'smooth') wx.setOptions(layerOptions());
     else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }

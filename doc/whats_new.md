@@ -6,6 +6,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
 - **Windshear map: Departures, All 30NM and All 100NM** — the *ILS Only* button now steps *ILS Only → Departures → All 30NM → All 100NM*: the climb-outs too, or every aircraft within 30 or 100 NM at any level; the EDR lines then show the departures as well.
+- **Extended label in the phone's Weather view** — with the air traffic on and the ATC map style, tap an aircraft for its six-line extended label (speeds, heading, wind, temperature …), as on the ILS map; tap elsewhere to close it.
 - **A smaller Approach History** — the new **«** button at its top left keeps only the time, callsign, registration, type and runway in a narrow panel, leaving more of the map free, e.g. beside a full-size boundary-layer chart. The chart panel's half-width button uses the same icons now (**»** narrower, **«** wider) instead of ½, at the panel's top right corner.
 - **Windshear map opens in the ATC style** — Dark, Grey and ATC are now one button that steps through them (a narrower button bar); ATC is the default, and the page remembers if you choose Dark or Grey.
 - **Calmer ATC labels** — on the Live Map and the Windshear map in the ATC style the labels are grey for all aircraft; the square stays light below 6 000 ft.

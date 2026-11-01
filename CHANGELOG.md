@@ -7,7 +7,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; grey ATC labels; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+
+### Phone Weather view: the extended label on a tap (ATC map style); Rain source first
+- With *Air traffic: On* and *Map style: ATC* a tap on an aircraft opens its label as the six-line **extended label** (as the ILS view's map and the big pages' Hover; values from `/api/live/ac/<icao>` every 2 s while open); a tap on the label keeps it, a tap elsewhere closes it; on the street map the card as before. `static/js/app_wx.js`. Mobile user guide 1.41: a paragraph and a figure.
+- In the phone's *Weather options* **Rain source** (MEPS model / FMI radar / Both) now comes first and **Rain and snow** under it (were the other way round). `web/templates/app.html`. Mobile user guide 1.41 (the options table and the menu figure). `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ### Windshear map: traffic ILS Only / Departures / All 30NM; ATC labels grey on the Live Map and the Windshear map
 - Approach History: a small **«** icon button at the panel's top left (**»** to widen it again) minimizes it to UTC, callsign, registration, type and runway (about 265 px wide instead of 545; the controls wrap, the column mode and Lo / Hi are hidden) for more room for the map beside a full-size chart; remembered (`ms_ws_aphist_min`). `static/js/windshear.js`, `web/templates/windshear.html`, `static/css/style.css`.

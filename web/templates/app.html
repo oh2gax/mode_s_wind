@@ -354,10 +354,11 @@
 
   <details class="app-sec" data-for="wx">
     <summary>Weather options</summary>
-    <div class="app-field"><span>Rain and snow</span>
-      <select id="app-wx-rain" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
+    <!-- Rain source first, then Rain and snow (order from 2026-11-01) -->
     <div class="app-field"><span>Rain source</span>
       <select id="app-wx-src" data-chips><option value="meps">MEPS model</option><option value="radar">FMI radar</option><option value="both">Both</option></select></div>
+    <div class="app-field"><span>Rain and snow</span>
+      <select id="app-wx-rain" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
     <div class="app-field"><span>Rain opacity (model)</span>
       <select id="app-wx-rainop" data-chips><option value="25">25 %</option><option value="50">50 %</option><option value="75">75 %</option><option value="100">100 %</option></select></div>
     <div class="app-field"><span>Radar opacity</span>
