@@ -168,6 +168,11 @@
     <div id="am-blw-pick" class="app-pick">Tap the chart for its values.</div>
     <div id="am-blw-ro" class="app-meta app-aci-readout"></div>
     <div class="am-hd">Time series</div>
+    <div class="am-cmp-bar am-mfill-bar"><span class="am-lbl">Mode S</span>
+      <div class="app-chips" id="am-ser-ms"><button type="button" class="app-chip" data-v="top">Top</button><button type="button" class="app-chip" data-v="all">All</button><button type="button" class="app-chip" data-v="off">Off</button></div>
+      <span class="am-lbl" style="margin-left:6px">Mast</span>
+      <div class="app-chips" id="am-ser-sm"><button type="button" class="app-chip" data-v="10">10 min</button><button type="button" class="app-chip" data-v="60">1 h</button></div>
+    </div>
     <div id="am-ser" class="am-prof am-ser"></div>
     <div id="am-ser-pick" class="app-pick am-note">Tap the time series for the mast's values at that time; it also shows the profile of that time.</div>
     <div class="am-hd">Comparison with the mast</div>
@@ -408,7 +413,7 @@
       <label class="app-switch"><span>MEPS in the profile</span><input type="checkbox" id="app-mast-meps"></label>
       <label class="app-switch"><span>Sonde in the profile</span><input type="checkbox" id="app-mast-sonde"></label>
     </div>
-    <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it (Mast in the charts: Fill; Columns — the mast's hour means as a narrow column at the right of each hour, beside the aircraft's cells, which can then be seen below 1 200 ft too; Off — the aircraft only) — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
+    <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it (Mast in the charts: Fill; Columns — the mast's hour means as a narrow column at the right of each hour, beside the aircraft's cells, which can then be seen below 1 200 ft too; Off — the aircraft only) — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The time series shows the mast's winds and temperatures (the temperature axis inverted, colder up) and, as hollow circles, the airport's Mode S value of each hour at the same height above the ground (Top: the 327 m wind and 297 m temperature; All: 92–327 m) with the METAR (□); Mast 1 h shows the mast as a running 1-hour mean, closer to the hourly Mode S values. The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
   </details>
 
   <details class="app-sec" data-for="wx">

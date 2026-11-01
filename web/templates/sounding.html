@@ -259,7 +259,16 @@
         <div class="mt-legend" id="mt-profile-legend"></div>
       </div>
       <div class="sv-panel">
-        <div class="panel-header">Time series (click: the profile of that time)</div>
+        <div class="panel-header mt-ser-hd">Time series (click: the profile of that time)
+          <span class="mt-ser-ctl">
+            <select id="mt-ser-ms" class="filter-input" title="The airport's Mode S boundary layer of each hour at the mast's levels (the same height above the ground), as hollow circles joined by a dashed line, with the METAR (□) — Top level: the 327 m wind and the 297 m temperature; All levels: 92–327 m (26 m and below are under the approaches)">
+              <option value="top">Mode S: top level</option><option value="all">Mode S: all levels</option><option value="off">Mode S: off</option>
+            </select>
+            <select id="mt-ser-sm" class="filter-input" title="The mast as its 10-minute steps, or as a running 1-hour mean (±30 min; gusts their highest) — closer to the Mode S hour values">
+              <option value="10">Mast: 10 min</option><option value="60">Mast: 1-h mean</option>
+            </select>
+          </span>
+        </div>
         <div class="sv-chart mt-series-box"><div id="mt-series"></div><div id="mt-tip" class="mini-skewt-tip" style="display:none"></div></div>
       </div>
     </div>
@@ -413,6 +422,9 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 .mt-prof-panel { flex:0 0 520px; max-width:45%; }
 .mt-legend { font-size:11px; padding:0 10px 8px; line-height:1.6; }
 .mt-series-box { position:relative; }
+.mt-ser-hd { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.mt-ser-ctl { margin-left:auto; display:flex; gap:6px; font-weight:400; }
+.mt-ser-ctl select { font-size:12px; padding:2px 6px; }
 @media (max-width: 1100px) { .mt-prof-panel { flex:1 1 100%; max-width:none; } }
 /* Time–height section */
 .snd-th { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; --th-sonde:#f472b6; }

@@ -1293,6 +1293,13 @@ def create_app(
         start, end = _span()
         return _gz(jsonify(_ma.hourly(get_db(), start, end)))
 
+    @app.route("/api/mast/modes")
+    def mast_modes_api():
+        """The airport's Mode S boundary layer at the mast's levels per hour (the time series)."""
+        from web.api import mast as _ma
+        start, end = _span()
+        return _gz(jsonify(_ma.modes(get_db(), start, end)))
+
     @app.route("/api/mast/profile")
     def mast_profile_api():
         """The mast at ?at= (default now) with MEPS, the Mode S boundary layer and the sonde."""

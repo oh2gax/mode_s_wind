@@ -26,8 +26,12 @@
     meps: lsGet('ms_mast_meps', 'true') !== 'false',
     sonde: lsGet('ms_mast_sonde', 'true') !== 'false',
     at: null,                          // profile time (null = the newest)
+    // the time series (from 2026-11-01 night): Mode S lines top / all / off, mast 10-min or 1-h mean
+    msLv: lsGet('ms_mast_ser_ms', 'top'),
+    smooth: parseInt(lsGet('ms_mast_ser_sm', '10'), 10) === 60 ? 60 : 10,
   };
-  let ser = null, prof = null, cmp = null, on = false, timer = null, seq = 0;
+  if (!['top', 'all', 'off'].includes(st.msLv)) st.msLv = 'top';
+  let ser = null, prof = null, cmp = null, msr = null, on = false, timer = null, seq = 0;
 
   const C = () => {
     const L = light();
@@ -84,13 +88,14 @@
     const meta = $('sounding-meta');
     if (meta && !meta.textContent) meta.textContent = 'Loading…';
     try {
-      const [a, b, c] = await Promise.all([
+      const [a, b, c, d] = await Promise.all([
         fetch(`/api/mast?hours=${st.hours}`).then(r => r.json()),
         fetch(`/api/mast/profile${st.at ? '?at=' + st.at : ''}`).then(r => r.json()),
         fetch(`/api/mast/compare?days=${st.days}`).then(r => r.json()),
+        fetch(`/api/mast/modes?hours=${st.hours + 1}`).then(r => r.json()).catch(() => null),
       ]);
       if (my !== seq) return;
-      ser = a; prof = b; cmp = c;
+      ser = a; prof = b; cmp = c; msr = d;
       const n = (ser.rows || []).length;
       if (meta) meta.textContent = n
         ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC · FMI open data`
@@ -237,7 +242,7 @@
     if (!el) return;
     const R = (ser && ser.rows) || [];
     if (!R.length) { el.innerHTML = '<div class="sv-empty">No observations in this period.</div>'; geo = null; return; }
-    const r0 = seriesSvg(ser, prof && prof.found ? prof.obs.ts : null);
+    const r0 = seriesSvg(ser, prof && prof.found ? prof.obs.ts : null, { ms: msr, msLv: st.msLv, smooth: st.smooth });
     el.innerHTML = r0.svg;
     geo = r0.geo;
     const svg = $('mt-series-svg');
@@ -247,9 +252,41 @@
   }
   // the time series as SVG (from 2026-11-01 night also the phone's Mast view, o2.compact);
   // the temperature axis inverted (colder up, from 2026-11-01 night): the levels lie as their heights
+  // o2.ms: the /api/mast/modes answer, o2.msLv 'top' | 'all' | 'off' (from 2026-11-01 night:
+  // the airport's Mode S hours at the mast's levels as hollow circles joined by a dashed line;
+  // top = the 327 m wind and the 297 m temperature), o2.smooth 60: the mast as a running
+  // 1-hour mean (±30 min; the gust its highest) instead of the 10-minute steps
+  function smooth1h(rows, nT, nW) {
+    const out = [];
+    let a = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const ts = rows[i][0];
+      while (rows[a][0] < ts - 1800) a++;
+      const t = Array(nT).fill(0), tn = Array(nT).fill(0), u = Array(nW).fill(0), v = Array(nW).fill(0), wn = Array(nW).fill(0), g = Array(nW).fill(null);
+      for (let j = a; j < rows.length && rows[j][0] <= ts + 1800; j++) {
+        const r = rows[j];
+        for (let k = 0; k < nT; k++) if (r[1][k] != null) { t[k] += r[1][k]; tn[k]++; }
+        for (let k = 0; k < nW; k++) {
+          if (r[4][k] != null && r[5][k] != null) { const q = r[5][k] * Math.PI / 180; u[k] += -r[4][k] * Math.sin(q); v[k] += -r[4][k] * Math.cos(q); wn[k]++; }
+          if (r[6][k] != null) g[k] = Math.max(g[k] == null ? -1 : g[k], r[6][k]);
+        }
+      }
+      out.push([ts, t.map((x, k) => tn[k] ? x / tn[k] : null), rows[i][2], rows[i][3],
+        u.map((x, k) => wn[k] ? Math.hypot(x / wn[k], v[k] / wn[k]) : null),
+        u.map((x, k) => wn[k] ? (Math.atan2(-x / wn[k], -v[k] / wn[k]) * 180 / Math.PI + 360) % 360 : null), g]);
+    }
+    return out;
+  }
   function seriesSvg(ser, pt, o2 = {}) {
-    const R = ser.rows, cp = !!o2.compact;
+    const cp = !!o2.compact, sm = o2.smooth === 60;
     const K = C(), wl = ser.wl, tl = ser.tl;
+    const R = sm ? smooth1h(ser.rows, tl.length, wl.length) : ser.rows;
+    // the Mode S hours and which levels
+    const msOn = o2.ms && Array.isArray(o2.ms.rows) && o2.msLv && o2.msLv !== 'off';
+    const MSR = msOn ? o2.ms.rows.filter(r => r[0] + 3600 > ser.start && r[0] < ser.end) : [];
+    const wI = msOn ? (o2.msLv === 'top' ? [wl.length - 1] : wl.map((h, i) => h >= 60 ? i : -1).filter(i => i >= 0)) : [];
+    const tI = msOn ? (o2.msLv === 'top' ? [tl.length - 1] : tl.map((h, i) => h >= 60 ? i : -1).filter(i => i >= 0)) : [];
+    const msDt = r => r[1][tl.length - 1] != null && r[4] != null ? r[1][tl.length - 1] - r[4] : null;
     const W = cp ? 380 : 900, ml = cp ? 34 : 52, mr = cp ? 62 : 70, pw = W - ml - mr;
     const P = [{ k: 'ws', h: cp ? 110 : 150, label: 'Wind speed (kt)' }, { k: 'wd', h: cp ? 80 : 110, label: 'Direction (°)' },
                { k: 't', h: cp ? 140 : 150, label: 'Temperature (°C) · inverted, colder up' }, { k: 'dt', h: cp ? 70 : 90, label: `T(${tl[tl.length - 1]} m) − T(${tl[0]} m) (K)` }];
@@ -264,9 +301,12 @@
     const panels = [];
     for (const p of P) {
       let vals = [];
-      if (p.k === 'ws') { R.forEach(r => { r[4].forEach(v => v != null && vals.push(v)); r[6].forEach(v => v != null && vals.push(v)); }); }
-      else if (p.k === 't') R.forEach(r => r[1].forEach(v => v != null && vals.push(v)));
-      else if (p.k === 'dt') R.forEach(r => { if (r[1][tl.length - 1] != null && r[1][0] != null) vals.push(r[1][tl.length - 1] - r[1][0]); });
+      if (p.k === 'ws') { R.forEach(r => { r[4].forEach(v => v != null && vals.push(v)); r[6].forEach(v => v != null && vals.push(v)); });
+                          MSR.forEach(r => wI.forEach(i => r[2][i] != null && vals.push(r[2][i]))); }
+      else if (p.k === 't') { R.forEach(r => r[1].forEach(v => v != null && vals.push(v)));
+                              MSR.forEach(r => { tI.forEach(i => r[1][i] != null && vals.push(r[1][i])); if (r[4] != null) vals.push(r[4]); }); }
+      else if (p.k === 'dt') { R.forEach(r => { if (r[1][tl.length - 1] != null && r[1][0] != null) vals.push(r[1][tl.length - 1] - r[1][0]); });
+                               MSR.forEach(r => { const v = msDt(r); if (v != null) vals.push(v); }); }
       let lo = p.k === 'wd' ? 0 : Math.min(...vals), hi = p.k === 'wd' ? 360 : Math.max(...vals);
       if (p.k === 'ws') lo = 0;
       if (p.k === 'dt') { lo = Math.min(lo, -3); hi = Math.max(hi, 1); }
@@ -298,7 +338,7 @@
       if (p.k === 'ws') {
         wl.forEach((h, i) => {
           const c = ramp(i / Math.max(1, wl.length - 1));
-          s += `<path d="${path(r => r[6][i])}" fill="none" stroke="${c}" stroke-width="0.9" stroke-dasharray="2 3" opacity="0.7"/>`;
+          s += `<path d="${path(r => r[6][i])}" fill="none" stroke="${c}" stroke-width="0.9" stroke-dasharray="2 3" opacity="${MSR.length ? 0.3 : 0.7}"/>`;
           s += `<path d="${path(r => r[4][i])}" fill="none" stroke="${c}" stroke-width="1.6"/>`;
         });
       } else if (p.k === 'wd') {
@@ -320,6 +360,42 @@
           s += `<rect x="${x(r[0]).toFixed(1)}" y="${Math.min(ya(v), ya(0)).toFixed(1)}" width="${bw.toFixed(2)}" height="${Math.max(0.5, Math.abs(ya(v) - ya(0))).toFixed(1)}" fill="${col}" opacity="0.85"/>`;
         });
       }
+      // the Mode S hours: hollow circles at the hour's centre, a dashed line across consecutive hours
+      if (MSR.length) {
+        const xc = r => x(r[0] + 1800);
+        const mpath = get => {
+          let d = '', prev = null;
+          for (const r of MSR) {
+            const v = get(r);
+            if (v == null) { prev = null; continue; }
+            d += `${prev != null && r[0] - prev <= 3600 ? 'L' : 'M'}${xc(r).toFixed(1)},${ya(v).toFixed(1)}`; prev = r[0];
+          }
+          return d;
+        };
+        const hh = r => `${pad(new Date(r[0] * 1000).getUTCHours())}–${pad(new Date(r[0] * 1000 + 3600e3).getUTCHours())} UTC`;
+        const dot = (r, v, c, ttl) => `<circle cx="${xc(r).toFixed(1)}" cy="${ya(v).toFixed(1)}" r="${cp ? 2.4 : 2.8}" fill="${K.bg}" stroke="${c}" stroke-width="1.5"><title>Mode S at the airport ${hh(r)}: ${ttl}</title></circle>`;
+        if (p.k === 'ws' || p.k === 'wd' || p.k === 't') {
+          const idx = p.k === 't' ? tI : wI, lv = p.k === 't' ? tl : wl, col = p.k === 't' ? 1 : p.k === 'ws' ? 2 : 3;
+          idx.forEach(i => {
+            const c = ramp(i / Math.max(1, lv.length - 1));
+            if (p.k !== 'wd') s += `<path d="${mpath(r => r[col][i])}" fill="none" stroke="${c}" stroke-width="1.1" stroke-dasharray="3 3" opacity="0.9"/>`;
+            MSR.forEach(r => {
+              const v = r[col][i];
+              if (v == null) return;
+              s += dot(r, v, c, p.k === 't' ? `${lv[i]} m (same height above the ground) ${v.toFixed(1)} °C`
+                : `${lv[i]} m (same height above the ground) ${r[3][i] != null ? String(Math.round(r[3][i])).padStart(3, '0') + '° ' : ''}${Math.round(r[2][i])} kt`);
+            });
+          });
+          if (p.k === 't') MSR.forEach(r => {
+            if (r[4] == null) return;
+            const c = ramp(0), xx = xc(r), y0 = ya(r[4]);
+            s += `<rect x="${(xx - 2.6).toFixed(1)}" y="${(y0 - 2.6).toFixed(1)}" width="5.2" height="5.2" fill="${K.bg}" stroke="${c}" stroke-width="1.4"><title>METAR ${hh(r)}: ${r[4]} °C</title></rect>`;
+          });
+        } else if (p.k === 'dt') {
+          s += `<path d="${mpath(msDt)}" fill="none" stroke="${K.modes}" stroke-width="1.1" stroke-dasharray="3 3"/>`;
+          MSR.forEach(r => { const v = msDt(r); if (v != null) s += dot(r, v, K.modes, `T(${tl[tl.length - 1]} m above the ground) − METAR ${v >= 0 ? '+' : ''}${v.toFixed(1)} K`); });
+        }
+      }
       s += `<rect x="${ml}" y="${yy}" width="${pw}" height="${p.h}" fill="none" stroke="${K.grid}"/>`;
       yy += p.h + gap;
     }
@@ -329,13 +405,33 @@
     const kRow = (n, i) => n - 1 - i;
     wl.forEach((h, i) => { const ky = keyY + kRow(wl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
     s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + 6}" font-size="9" fill="${K.ink3}">- - gust</text>`;
+    if (MSR.length) s += `<circle cx="${ml + pw + 12}" cy="${keyY + wl.length * 16 + 18}" r="2.6" fill="${K.bg}" stroke="${K.ink2}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${keyY + wl.length * 16 + 21}" font-size="9" fill="${K.ink3}">Mode S</text>`;
+    if (sm) s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + (MSR.length ? 34 : 20)}" font-size="9" fill="${K.ink3}">mast 1-h mean</text>`;
     const keyT = panels[2].y0 + 6;
     tl.forEach((h, i) => { const ky = keyT + kRow(tl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, tl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
+    if (MSR.length) {
+      const ky = keyT + tl.length * 16 + 4;
+      s += `<circle cx="${ml + pw + 12}" cy="${ky}" r="2.6" fill="${K.bg}" stroke="${K.ink2}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${ky + 3}" font-size="9" fill="${K.ink3}">Mode S</text>` +
+           `<rect x="${ml + pw + 9.4}" y="${ky + 9.4}" width="5.2" height="5.2" fill="${K.bg}" stroke="${ramp(0)}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${ky + 15}" font-size="9" fill="${K.ink3}">METAR</text>`;
+    }
     // cursor line (moved by the hover) and the chosen profile time
     s += `<line id="mt-cur" x1="0" x2="0" y1="${mt}" y2="${H - 30}" stroke="${K.ink2}" stroke-width="1" visibility="hidden"/>`;
     if (pt && pt >= t0 && pt <= t1) s += `<line x1="${x(pt)}" x2="${x(pt)}" y1="${mt}" y2="${H - 30}" stroke="${K.mast}" stroke-width="1.2" stroke-dasharray="3 3"><title>the profile shown</title></line>`;
     s += '</svg>';
-    return { svg: s, geo: { x, t0, t1, ml, pw, W, R, wl, tl, panels } };
+    const msBy = new Map(MSR.map(r => [r[0], r]));
+    return { svg: s, geo: { x, t0, t1, ml, pw, W, R, wl, tl, panels, sm, ms: msBy, wI, tI } };
+  }
+  // the Mode S hour of a time (a 10-minute step at ts covers ts − 10 min … ts) as one line
+  function msLine(g, ts) {
+    if (!g || !g.ms || !g.ms.size) return '';
+    const h = Math.floor((ts - 600) / 3600) * 3600, r = g.ms.get(h);
+    const hh = `${pad(new Date(h * 1000).getUTCHours())}–${pad(new Date(h * 1000 + 3600e3).getUTCHours())}`;
+    if (!r) return `Mode S ${hh} UTC: no flights at these heights`;
+    const parts = [];
+    g.wI.slice().reverse().forEach(i => { if (r[2][i] != null) parts.push(`${g.wl[i]} m ${r[3][i] != null ? String(Math.round(r[3][i])).padStart(3, '0') + '° ' : ''}${Math.round(r[2][i])} kt`); });
+    g.tI.slice().reverse().forEach(i => { if (r[1][i] != null) parts.push(`${g.tl[i]} m ${r[1][i] > 0 ? '+' : r[1][i] < 0 ? '−' : ''}${Math.abs(r[1][i]).toFixed(1)} °C`); });
+    if (r[4] != null) parts.push(`METAR ${r[4]} °C`);
+    return `Mode S ${hh} UTC: ${parts.join(' · ') || 'no values at these heights'}`;
   }
   function nearest(ev) {
     if (!geo) return null;
@@ -355,7 +451,9 @@
     const wl = geo.wl, tl = geo.tl;
     const w = wl.map((h, i) => `${h} m: ${r[5][i] != null ? String(Math.round(r[5][i])).padStart(3, '0') + '°' : '–'} ${r[4][i] != null ? Math.round(r[4][i]) : '–'} kt <span class="mini-tip-dim">G${r[6][i] != null ? Math.round(r[6][i]) : '–'}</span>`).reverse().join('<br>');
     const t = tl.map((h, i) => `${h} m ${r[1][i] != null ? r[1][i].toFixed(1) : '–'} °C <span class="mini-tip-dim">${r[2][i] != null ? Math.round(r[2][i]) + ' %' : ''}</span>`).reverse().join('<br>');
-    tip.innerHTML = `<b>${utc(r[0])} UTC</b> <span class="mini-tip-dim">· click: this profile</span><br>${w}<br>${t}`;
+    const ml = msLine(geo, r[0]);
+    tip.innerHTML = `<b>${utc(r[0])} UTC</b>${geo.sm ? ' <span class="mini-tip-dim">(1-h mean)</span>' : ''} <span class="mini-tip-dim">· click: this profile</span><br>${w}<br>${t}` +
+      (ml ? `<br><span style="color:${C().modes}">${esc(ml)}</span>` : '');
     const box = $('mt-series').getBoundingClientRect();
     tip.style.display = '';
     const left = ev.clientX - box.left + 14, tw = tip.offsetWidth;
@@ -414,6 +512,8 @@
     for (const [id, k] of [['mt-modes', 'modes'], ['mt-meps', 'meps'], ['mt-sonde', 'sonde']])
       if ($(id)) $(id).addEventListener('change', e => { st[k] = e.target.checked; lsSet('ms_mast_' + k, st[k]); renderProfile(); });
     if ($('mt-now')) $('mt-now').addEventListener('click', () => loadProfile(null));
+    if ($('mt-ser-ms')) { $('mt-ser-ms').value = st.msLv; $('mt-ser-ms').addEventListener('change', e => { st.msLv = e.target.value; lsSet('ms_mast_ser_ms', st.msLv); renderSeries(); }); }
+    if ($('mt-ser-sm')) { $('mt-ser-sm').value = String(st.smooth); $('mt-ser-sm').addEventListener('change', e => { st.smooth = +e.target.value; lsSet('ms_mast_ser_sm', st.smooth); renderSeries(); }); }
     if ($('mt-series')) new ResizeObserver(() => { if (on) renderSeries(); }).observe($('mt-series'));
   }
   function active(v) {
@@ -422,5 +522,5 @@
     if (on) timer = setInterval(() => { if (!document.hidden && on) load(); }, 5 * 60 * 1000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  window.MastView = { load, render, active, profileSvg, seriesSvg };
+  window.MastView = { load, render, active, profileSvg, seriesSvg, msLine };
 })();

@@ -45,6 +45,9 @@
     // steps fill the plot below its top; cols — narrow hourly columns at the right of each
     // hour (as the Windshear page), the Mode S cells beside them; off — Mode S only
     mfill: lsGet('ms_app_mast_fill', 'fill'),
+    // the time series (from 2026-11-01 night): Mode S lines top / all / off, the mast 10-min or 1-h mean
+    msLv: lsGet('ms_app_mast_ser_ms', 'top'),
+    smooth: parseInt(lsGet('ms_app_mast_ser_sm', '10'), 10) === 60 ? 60 : 10,
     // the profile's sources: shared with the Sounding page's Mast tab
     modes: lsGet('ms_mast_modes', 'true') !== 'false',
     meps: lsGet('ms_mast_meps', 'true') !== 'false',
@@ -55,7 +58,9 @@
   if (![1500, 3000, 5000].includes(S.top)) S.top = 3000;
   if (![7, 30, 90].includes(S.days)) S.days = 7;
   if (!['fill', 'cols', 'off'].includes(S.mfill)) S.mfill = 'fill';
+  if (!['top', 'all', 'off'].includes(S.msLv)) S.msLv = 'top';
   let on = false, seq = 0, busy = false;
+  let msr = null;
   let ser = null, prof = null, bl = null, cmp = null, cmpAt = 0, cmpDays = 0, apt = null, fetched = 0;
   let dotsT = [], dotsW = [], dotsD = [];
 
@@ -67,15 +72,16 @@
     const sub = $('app-sub');
     try {
       const needCmp = !cmp || cmpDays !== S.days || Date.now() - cmpAt > 15 * 60e3;
-      const [a, p, b, c, box] = await Promise.all([
+      const [a, p, b, c, box, m] = await Promise.all([
         fetch(`/api/mast?hours=${S.hours}`, { cache: 'no-store' }).then(r => r.json()),
         fetch(`/api/mast/profile${S.at ? '?at=' + S.at : ''}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         fetch(`/api/boundary?hours=${S.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         needCmp ? fetch(`/api/mast/compare?days=${S.days}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve(cmp),
         S.apt === 'on' && window.AptNow ? AptNow.load().catch(() => ({ d: { error: 'loading failed — trying again in a few minutes' } })) : Promise.resolve(apt),
+        fetch(`/api/mast/modes?hours=${S.hours + 1}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
       ]);
       if (my !== seq) return;
-      ser = a; prof = p; bl = Array.isArray(b) ? b : null; apt = box; fetched = Date.now();
+      ser = a; prof = p; bl = Array.isArray(b) ? b : null; apt = box; msr = m; fetched = Date.now();
       if (needCmp && c) { cmp = c; cmpAt = Date.now(); cmpDays = S.days; }
       const n = (ser.rows || []).length;
       if (sub && on) sub.textContent = n ? `Kivenlahti · newest ${hm(ser.rows[n - 1][0])} UTC · 24 km SW of the airport` : 'Kivenlahti · no observations yet';
@@ -154,7 +160,9 @@
   function renderSeries() {
     const el = $('am-ser');
     if (!ser || !ser.rows || !ser.rows.length || !window.MastView || !MastView.seriesSvg) { el.innerHTML = '<div class="app-small">No observations in this period.</div>'; sgeo = null; return; }
-    const r = MastView.seriesSvg(ser, prof && prof.found ? prof.obs.ts : null, { compact: true });
+    document.querySelectorAll('#am-ser-ms .app-chip').forEach(b => b.classList.toggle('on', b.dataset.v === S.msLv));
+    document.querySelectorAll('#am-ser-sm .app-chip').forEach(b => b.classList.toggle('on', +b.dataset.v === S.smooth));
+    const r = MastView.seriesSvg(ser, prof && prof.found ? prof.obs.ts : null, { compact: true, ms: msr, msLv: S.msLv, smooth: S.smooth });
     el.innerHTML = r.svg; sgeo = r.geo;
   }
   function pickSeries(e, load) {
@@ -173,7 +181,8 @@
     const n = sgeo.tl.length - 1;
     const tt = [n, Math.floor(n / 2), 0].map(i => `${sgeo.tl[i]} m ${f1(best[1][i], 1, true)} °C`).join(' · ');
     const dT = best[1][n] != null && best[1][0] != null ? best[1][n] - best[1][0] : null;
-    $('am-ser-pick').textContent = `${hm(best[0])} UTC (10-min mean)\n${w}\n${tt}${dT != null ? ` · ΔT ${f1(dT, 1, true)} K` : ''}`;
+    const ml = MastView.msLine ? MastView.msLine(sgeo, best[0]) : '';
+    $('am-ser-pick').textContent = `${hm(best[0])} UTC (${sgeo.sm ? '1-h mean' : '10-min mean'})\n${w}\n${tt}${dT != null ? ` · ΔT ${f1(dT, 1, true)} K` : ''}${ml ? '\n' + ml : ''}`;
     if (load && best[0] !== S.at) loadProfile(best[0]);
   }
 
@@ -304,6 +313,10 @@
     bindCv('am-dt', () => dotsD, 'am-blt-pick', HINT);
     bindCv('am-blw', () => dotsW, 'am-blw-pick', HINT);
     $('am-ser').addEventListener('pointerdown', e => pickSeries(e, true));
+    document.querySelectorAll('#am-ser-ms .app-chip').forEach(b => b.addEventListener('click', () => {
+      S.msLv = b.dataset.v; lsSet('ms_app_mast_ser_ms', S.msLv); renderSeries(); }));
+    document.querySelectorAll('#am-ser-sm .app-chip').forEach(b => b.addEventListener('click', () => {
+      S.smooth = +b.dataset.v; lsSet('ms_app_mast_ser_sm', S.smooth); renderSeries(); }));
     $('am-ser').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickSeries(e, false); });
     $('am-apt').addEventListener('click', e => {
       if (e.target.closest('.lwx-apt-min')) {

@@ -11,6 +11,8 @@ profile()  one observation with the other sources at the same heights:
            boundary layer of the hour at the airport (bl_hours: winds in
            250-ft bins, temperatures in 200-ft bands) and the newest
            Jokioinen sounding of the last 12 h
+modes()    the Mode S boundary layer at the mast's levels hour by hour (the
+           time series' Mode S lines, from 2026-11-01 night)
 compare()  every hour of the period: source − mast per mast level — Mode S
            (bl_hours against the hour mean), MEPS model levels and the
            weather-map surface values (against the observation at the full
@@ -235,6 +237,44 @@ def profile(db, at: float | None = None) -> dict:
     if meta:
         out["sonde"] = dict(meta, lv=[[round(z), t, ws, wd] for z, t, ws, wd in pts])
     return out
+
+
+def modes(db, start: float, end: float) -> dict:
+    """The airport's Mode S boundary layer (bl_hours) at the mast's levels, hour by hour
+    (from 2026-11-01 night: the Mast tab's time series): per hour the wind (kt, direction)
+    and the temperature at the same height above the ground as each mast level — winds
+    from the 250-ft bins (gaps up to 260 ft bridged), temperatures from the 200-ft bands
+    (up to 420 ft) — and the METAR temperature tt.  Levels below 60 m are left out (the
+    approaches rarely reach them).  rows: [hour ts, [t per tl], [kt per wl], [dir per wl], tt]."""
+    rs = _m.rows(db, max(start, end - 86400 * 2), end, _fmisid())
+    tl = rs[-1][1].get("tl") if rs else [2, 26, 49, 92, 141, 217, 265, 297]
+    wl = rs[-1][1].get("wl") if rs else [26, 92, 217, 327]
+    h0 = int(start // 3600 * 3600)
+    try:
+        q = db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts", (h0, float(end))).fetchall()
+    except Exception:                                 # noqa: BLE001
+        q = []
+    out = []
+    for ts, data in q:
+        try:
+            bl = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        wpts = [(x[0] - APT_ELEV_FT, x[1], x[2]) for x in bl.get("w") or []]
+        tpts = [(x[0] - APT_ELEV_FT, x[1]) for x in bl.get("t") or []]
+        ws, wd = [], []
+        for hm in wl:
+            w = _wind_at(wpts, hm * FT, 260) if hm >= 60 else None
+            ws.append(None if not w else round(w[0], 1))
+            wd.append(None if not w else round(w[1]))
+        t = []
+        for hm in tl:
+            v = _interp(tpts, hm * FT, 420) if hm >= 60 else None
+            t.append(None if v is None else round(v, 2))
+        if any(v is not None for v in ws + t) or bl.get("tt") is not None:
+            out.append([int(ts), t, ws, wd, bl.get("tt")])
+    return {"tl": tl, "wl": wl, "apt_elev_ft": APT_ELEV_FT, "start": int(start), "end": int(end),
+            "cols": ["ts", "t", "ws_kt", "wd", "tt"], "rows": out}
 
 
 def _stats(ds: list) -> dict | None:
