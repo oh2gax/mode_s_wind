@@ -353,7 +353,7 @@
     else {
       const m = d.meps || {}, ra = d.radar || {}, { rows, short } = aptRows(d);
       const hh = m.ts ? (() => { const h = new Date(m.ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)}`; })() : '';
-      if (st.aptMin) html = `${btn}<b>${esc(d.name || APT)}</b> ${short || '<span>no data</span>'}`;
+      if (st.aptMin) html = `${btn}<b>MEPS ${esc(d.name || APT)}</b> ${short || '<span>no data</span>'}`;   // "MEPS EFHK 214/7G12kt …" (2026-11-01)
       else {
         const r = m.run ? new Date(m.run * 1000) : null;
         html = `${btn}<b>${esc(d.name || APT)} now</b>`
