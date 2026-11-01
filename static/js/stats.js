@@ -288,7 +288,9 @@
     const st = Object.entries(j.stations || {}).sort((a, b) => a[0].localeCompare(b[0]));
     $('mst-meteo').innerHTML = '<table class="mst-table mst-kv"><tbody>'
       + `<tr><td title="New BDS 5,0 / 6,0 replies that completed a wind (with the other register within the pairing limit)">Winds computed</td><td class="num">${fmt(m.wind / s, 1)} /min</td><td class="num">${pct(m.wind, pairs)}</td></tr>`
-      + `<tr><td title="… and with them a Mach/TAS temperature">with temperature</td><td class="num">${fmt(m.temp / s, 1)} /min</td><td></td></tr>`
+      // the share of the computed winds that also gave a temperature (from 2026-11-01)
+      + `<tr><td title="… and with them a Mach/TAS temperature">with temperature</td><td class="num">${fmt(m.temp / s, 1)} /min</td>`
+      + `<td class="num" title="Share of the computed winds that also gave a Mach/TAS temperature (per wind, not per aircraft)">${pct(m.temp, m.wind)}</td></tr>`
       + `<tr><td title="The partner reply was older than WIND_MAX_AGE_SEC: the wind is not stored">Partner too old</td><td class="num">${fmt(m.wind_old / s, 1)} /min</td><td class="num">${pct(m.wind_old, pairs)}</td></tr>`
       + `<tr><td title="No partner within WIND_MAX_PAIR_AGE, or rejected by the checks (roll, track rate, speed)">No wind</td><td class="num">${fmt(m.nowind / s, 1)} /min</td><td class="num">${pct(m.nowind, pairs)}</td></tr>`
       + `<tr><td>MRAR (BDS 4,4) / MHR (BDS 4,5)</td><td class="num">${m.mrar} / ${m.mhr}</td><td></td></tr>`

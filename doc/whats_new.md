@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **Statistics: winds with a temperature in %** — the Meteo yield panel now shows what share of the computed winds also gave a temperature.
 - **Weather at EFHK now on the Live Map** — tick *Airport: Current MEPS & radar wx at EFHK* in the ☂ Weather panel: a box at the top left shows the model's wind, gust, temperature, pressure, rain, clouds (total, low, medium, high, cloud base) and fog at the airport, and the radar's rain there; a third column shows how the newest METAR differs from the model (+ = the METAR higher or warmer, − = lower or colder; wind, gust, temperature, pressure, cloud base, and the METAR's rain and fog codes), large differences in amber; « makes it one line.
 - **Phone: up to date when opened again** — after the screen has been off or you have used other apps, MODE-S Wind refreshes itself: the Weather view goes to the present hour, and after more than an hour away (or after an update of the system) the page reloads itself — no need for the browser's Refresh.
 - **Windshear reports on the Live Map** — under the METAR at the bottom, the Live Map now lists the METARs with a windshear group (*WS R22L* …) and the pilot reports near the airport of the last 12 hours, as on the Windshear page; when there are none, only the METAR is shown.
