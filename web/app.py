@@ -1602,6 +1602,12 @@ def create_app(
             skip = set(a.get("icao") for a in state.get("aircraft") or [] if a.get("in_corridor"))
             state = dict(state)
             state["near"] = _ws_near(skip, near_nm, near_all_alt)
+        if request.args.get("lite", "0") not in ("1", "true", "yes") and isinstance(state, dict) \
+                and state.get("ga_events"):
+            # the landing after each go-around (from 2026-11-01, the alert log of the
+            # Windshear page): runway and time of the next landing record of the aircraft
+            state = dict(state)
+            state["ga_events"] = _ga_landings(state["ga_events"])
         if request.args.get("lite", "0") in ("1", "true", "yes") and isinstance(state, dict):
             want_map = request.args.get("map") == "1"
             want_near = want_map and request.args.get("near") == "1"
@@ -1623,6 +1629,42 @@ def create_app(
                 acs += _ws_near(set(a["icao"] for a in acs), near_nm, near_all_alt)
             state = {"aircraft": acs, "ws_events": state.get("ws_events") or [], "lite": 1}
         return _gzip_json(state)
+
+    _ga_land_cache: dict = {}
+
+    def _ga_landings(events: list) -> list:
+        """The go-around events of /api/windshear/state with the landing that
+        followed (from 2026-11-01): "land_rwy" / "land_ts" of the aircraft's next
+        approach record within 2 h of the go-around (also after a further
+        go-around); none while it has not landed (or left).  A found landing (and
+        a go-around past the 2 h without one) is cached, so the 3-s poll queries
+        only the open ones."""
+        out = []
+        db = None
+        for e in events:
+            e = dict(e)
+            key = (e.get("icao"), round(e.get("ts") or 0))
+            hit = _ga_land_cache.get(key)
+            if hit is None and e.get("icao") and e.get("ts"):
+                try:
+                    db = db or get_db()
+                    r = db.execute("SELECT ts, runway FROM approach_history WHERE icao = ? AND ts > ? "
+                                   "AND ts <= ? ORDER BY ts LIMIT 1",
+                                   (e["icao"], e["ts"], e["ts"] + 7200)).fetchone()
+                except Exception:                      # noqa: BLE001
+                    r = None
+                if r:
+                    hit = (r[0], r[1])
+                elif time.time() > e["ts"] + 7800:     # no landing within the 2 h: settled
+                    hit = False
+                if hit is not None:
+                    _ga_land_cache[key] = hit
+                    if len(_ga_land_cache) > 500:
+                        _ga_land_cache.pop(next(iter(_ga_land_cache)))
+            if hit:
+                e["land_ts"], e["land_rwy"] = hit
+            out.append(e)
+        return out
 
     def _ws_near(skip: set, r_nm: float | None = None, all_alt: bool = False) -> list:
         """The other aircraft of the mobile ILS map (from 2026-10-30): all of

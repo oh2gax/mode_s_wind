@@ -2082,8 +2082,14 @@ function renderWsLog() {
     if (e._type === 'go_around') {
       const lowTxt = e.low ? '\nClimb-out at / after the threshold (low go-around or touch-and-go)' : '';
       const wsTxt = e.ws && e.ws !== 'none' && WS_LEVEL[e.ws] ? `\n${WS_LEVEL[e.ws].name} active at that moment` : '';
-      const tip = `${A.full} ${e._time} UTC  ·  ${A.ago}\nRWY ${e.rwy}  ·  ✈ Go-Around  ·  ${e._ordinal} go-around of this flight\nAlt: ${e.alt_ft} ft${lowTxt}${wsTxt}\nAircraft: ${e.callsign || e.icao}${e.ac_type ? '  ' + e.ac_type : ''}`;
-      // HH:MM as the alerts (the seconds are in the hover), with the date from an earlier day
+      // the landing that followed (from 2026-11-01; the server's next approach record of
+      // the aircraft within 2 h — the runway may differ from the go-around's)
+      const landTxt = e.land_rwy
+        ? `\nLanded RWY ${e.land_rwy} at ${_hms(e.land_ts).slice(0, 5)} UTC, ${Math.max(1, Math.round((e.land_ts - e._ts / 1000) / 60))} min after the go-around`
+        : (Date.now() - e._ts > 7200e3 ? '\nNo landing recorded within 2 h' : '\nNo landing recorded yet');
+      const tip = `${A.full} ${e._time} UTC  ·  ${A.ago}\nRWY ${e.rwy}  ·  ✈ Go-Around  ·  ${e._ordinal} go-around of this flight\nAlt: ${e.alt_ft} ft${lowTxt}${wsTxt}${landTxt}\nAircraft: ${e.callsign || e.icao}${e.ac_type ? '  ' + e.ac_type : ''}`;
+      // HH:MM as the alerts, with the date from an earlier day (the seconds and the landing
+      // that followed are in the hover)
       return `<div class="ws-log-entry-compact ws-log-ga${A.cls}"
   data-tip="${tip.replace(/"/g,'&quot;')}"
 >${A.date}${e._time.slice(0, 5)} ✈ GA ${e.rwy}${e.low ? ' low' : ''}  ${e.callsign || e.icao}</div>`;
@@ -2371,7 +2377,11 @@ function addGaToWsLog(events) {
   for (const ev of events) {
     if (ev.ts < Date.now() / 1000 - 86400) continue;   // older than the 24 h log
     const key = `ga:${ev.icao}:${Math.round(ev.ts)}`;
-    if (wsGaSeenKeys.has(key)) continue;   // already seen — don't re-add after clear
+    if (wsGaSeenKeys.has(key)) {           // already seen — don't re-add after clear, but take
+      const old = wsLog.find(x => x._key === key);   // the landing that followed (from 2026-11-01)
+      if (old && ev.land_rwy && !old.land_rwy) { old.land_rwy = ev.land_rwy; old.land_ts = ev.land_ts; }
+      continue;
+    }
     wsGaSeenKeys.add(key);
 
     const n = ev.count;

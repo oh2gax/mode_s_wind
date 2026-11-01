@@ -1537,7 +1537,7 @@ The state machine works in three stages:
 When a go-around fires:
 
 - A blinking **✈ GO-AROUND** label appears on the flight strip (flashes for up to 60 seconds, configurable via `WINDSHEAR_GA_FLASH_SEC`)
-- The event is appended to the **windshear event log** with a timestamp, runway, altitude at detection, and ordinal count (1st / 2nd / 3rd go-around of this flight); a climb-out at or after the threshold is marked `low` (`✈ GA 22L low`); the hover also gives the aircraft type and a windshear level active at that moment for the aircraft or its runway
+- The event is appended to the **windshear event log** with a timestamp, runway, altitude at detection, and ordinal count (1st / 2nd / 3rd go-around of this flight); a climb-out at or after the threshold is marked `low` (`✈ GA 22L low`); the hover also gives the aircraft type, a windshear level active at that moment for the aircraft or its runway and (from 1 Nov 2026) the landing that followed — `Landed RWY 22R at 14:33 UTC, 10 min after the go-around` (the aircraft's next Approach History record within 2 h; the runway may differ from the go-around's), `No landing recorded yet` while it is still in the air, or `No landing recorded within 2 h` (diverted, or its GNSS still jammed at touchdown)
 - The server keeps the go-arounds of the last 24 h (at most 50) and writes each one to the **`go_arounds`** table (a few rows a day), so the log shows them also when the page is opened later or after a restart — and the table is a go-around history for the windshear validation (go-arounds after alerts)
 - Go-around log entries are always recorded, also when the windshear alert banner is off
 
