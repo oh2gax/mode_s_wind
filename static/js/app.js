@@ -11,7 +11,7 @@
  *                       /api/windshear/state?lite=1 every 5 s (only the
  *                       corridor aircraft and the alerts, gzipped), with
  *                       the strips below
- *   ACI · WS · ST       ws_cond_chart.js (the Windshear page's chart) with
+ *   EDR · WS · ACI · ST (was ACI · WS · ST)  ws_cond_chart.js (the Windshear page's chart) with
  *                       the landings, departures and go-arounds of 3 h … 1 d;
  *                       Space–time: drawSpaceTime of /api/windshear/spacetime
  *                       (from 2026-10-28)
@@ -43,7 +43,7 @@
     'skewt-hour': { title: 'Skew-T · Area hour', sec: 'skewt', el: 'v-skewt' },
     th:           { title: 'Time–height', sec: 'th', el: 'v-th' },
     ils:          { title: 'ILS approach', sec: 'ils', el: 'v-ils' },
-    aci:          { title: 'ACI · WS · ST', sec: 'aci', el: 'v-aci' },
+    aci:          { title: 'EDR · WS · ACI · ST', sec: 'aci', el: 'v-aci' },   // (was ACI · WS · ST until 2026-11-01)
     hist:         { title: 'History', sec: 'hist', el: 'v-hist' },
     stats:        { title: 'Statistics', sec: 'stats', el: 'v-stats' },
     wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
@@ -499,9 +499,9 @@
       });
     }
     const out = A.aph.map(e => ({ ts: e.ts, dep: false, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.runway,
-      aci: e.cond && e.cond.idx != null ? e.cond.idx : null, lvl: e.shear && e.shear.lvl }));
+      aci: e.cond && e.cond.idx != null ? e.cond.idx : null, lvl: e.shear && e.shear.lvl, e }));
     if (hasWs()) for (const e of A.dep) {
-      out.push({ ts: e.ts, dep: true, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.shear && e.shear.rwy, aci: null, lvl: e.shear && e.shear.lvl });
+      out.push({ ts: e.ts, dep: true, cs: e.callsign || e.icao, type: e.aircraft_type, rwy: e.shear && e.shear.rwy, aci: null, lvl: e.shear && e.shear.lvl, e });
     }
     return out;
   }
@@ -529,6 +529,26 @@
     const hd = fl.length
       ? `${cut ? `Latest ${ACI_LIST_N} of ` : ''}${fl.length} ${noun}${split} · last ${rangeTxt(A.hours)}`
       : `No ${both ? 'flights' : 'landings'} in the last ${rangeTxt(A.hours)}`;
+    // the flights as the History view's cards (from 2026-11-01; before a table): time,
+    // ↓ landing / ↑ departure, callsign, type, runway and the chips ACI, windshear level,
+    // EDR and GA (histChips) — the Space–time list keeps its table (band changes)
+    if (A.mode !== 'st') {
+      const today = new Date().toISOString().slice(0, 10);
+      const cards = (cut ? fl.slice(0, ACI_LIST_N) : fl).map(f => {
+        const d = new Date(f.ts * 1000), day = d.toISOString().slice(0, 10);
+        const tm = (day !== today ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + hhmm(f.ts);
+        return `<div class="app-card"><div class="hd"><span class="l1"><span class="t">${esc(tm)}</span>` +
+          `<span class="ph" title="${f.dep ? 'departure' : 'landing'}">${f.dep ? '↑' : '↓'}</span><b>${esc(f.cs || '')}</b>` +
+          `<span class="ty">${esc(f.type || '')}</span><span class="rw">${esc(f.rwy || '')}</span>` +
+          `<span class="chs">${f.e ? histChips(f.e, { kind: f.dep ? 'dep' : 'arr' }) : ''}</span></span></div></div>`;
+      });
+      const more = fl.length > ACI_LIST_N
+        ? `<button type="button" class="app-btn" data-more="1">${A.all ? `Show the latest ${ACI_LIST_N}` : `Show all ${fl.length}`}</button>` : '';
+      el.innerHTML = `<div class="app-list-hd"><span>${hd}</span></div>` +
+        (fl.length ? `<div class="app-hist-list app-aci-cards">${cards.join('')}</div>` : '') +
+        histBtns.replace('<div class="app-list-act">', `<div class="app-list-act">${more}`);
+      return;
+    }
     const rows = (cut ? fl.slice(0, ACI_LIST_N) : fl).map(f =>
       `<tr><td>${hhmm(f.ts)}</td>${both ? phCell(f.dep) : ''}<td>${esc(f.cs || '')}</td><td>${esc(f.type || '')}</td><td>${esc(f.rwy || '')}</td>` +
       (A.mode === 'st'

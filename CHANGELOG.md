@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; the phone's EDR · WS · ACI · ST with History cards; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+
+### Phone: the view EDR · WS · ACI · ST (was ACI · WS · ST) and its flight list as History cards
+- The phone view *ACI · WS · ST* is named **EDR · WS · ACI · ST** (title, menu tile and its options), as its charts show the turbulence too. Its flight list (ACI only, ACI + windshear, ACI + EDR + WS, EDR + WS) shows each flight as a card of the History view — time, ↓ / ↑, callsign, type, runway and the chips **ACI**, windshear level, **EDR** and **GA** — instead of a table with an ACI and a WS column; the Space–time list keeps its table. `static/js/app.js`, `web/templates/app.html`, `static/css/app.css`. Mobile user guide 1.43 (the name and a new list figure); *The receiving station* (EN / FI, A4 / A3, v.01112026) page 5 with the new name.
 
 ### Weather page and phone: one Opacity setting
 - **Opacity** 25 / 50 / **75** / 100 % on the Weather page (new) and in the phone's Weather view, where it replaces *Rain opacity (model)* and *Radar opacity*: it sets all the filled layers — rain / snow, the radar, gusts, clouds, fog, temperature colours (`WxLayer` option `opacity`: each layer's own opacity × op / 75, so 75 % looks as before; lines, barbs and numbers unchanged). With *Both* the model's rain outside the radar area is drawn a third fainter than the radar, so the radar stands out. A phone starts from its former radar opacity (with a radar source) or rain opacity. `static/js/wx_layer.js`, `static/js/weather.js`, `web/templates/weather.html`, `static/js/app.js`, `static/js/app_wx.js`, `web/templates/app.html`. Mobile user guide 1.42.

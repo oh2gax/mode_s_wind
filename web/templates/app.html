@@ -134,7 +134,7 @@
     <div id="app-aci-box" class="app-aci-box"><canvas id="app-aci"></canvas></div>
     <div id="app-aci-pick" class="app-pick">Tap a dot for the landing.</div>
     <div id="app-aci-readout" class="app-meta app-aci-readout"></div>
-    <!-- the boundary layer under the chart (from 2026-10-31; ACI · WS · ST options → Boundary layer below) -->
+    <!-- the boundary layer under the chart (from 2026-10-31; EDR · WS · ACI · ST options → Boundary layer below) -->
     <div id="app-aci-bl2box" style="margin-top:6px" hidden>
       <div id="app-aci-blbox" class="app-aci-box"><canvas id="app-aci-blcv"></canvas></div>
       <div id="app-aci-blpick" class="app-pick">Tap a cell, a jet ◆ or the inversion bar.</div>
@@ -201,7 +201,7 @@
     <button type="button" class="app-tile" data-view="skewt-hour"><b>Skew-T</b><small>Area · hour</small></button>
     <button type="button" class="app-tile" data-view="th"><b>Time–height</b><small>hourly profiles</small></button>
     <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
-    <button type="button" class="app-tile" data-view="aci"><b>ACI · WS · ST</b><small>conditions · windshear</small></button>
+    <button type="button" class="app-tile" data-view="aci"><b>EDR · WS · ACI · ST</b><small>turbulence · windshear · conditions</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
     <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
     <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
@@ -342,7 +342,7 @@
   </details>
 
   <details class="app-sec" data-for="aci">
-    <summary>ACI · WS · ST options</summary>
+    <summary>EDR · WS · ACI · ST options</summary>
     <div class="app-field"><span>Range</span>
       <select id="app-aci-hours" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">1 day</option></select></div>
     <div class="app-field"><span>Show</span>
