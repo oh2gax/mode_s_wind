@@ -7,9 +7,20 @@ The user guides listed in the **User guides** tab of the What's new window
 opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats; `windmap@30` opens it at PDF page 30)
 — then a blank line and the description (bullets, **bold**, `code`).
 
+## The receiving station (brochure)
+file: MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf
+version: 1.0
+date: 2026-11-01
+pages: 2
+
+A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The eight-page overview below has the details.
+
+- **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape and the workstation), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
+- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with four screens and a QR code, the pages in the browser, and how to see it live — a research system, not for flight operations
+
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.11
+version: 1.12
 date: 2026-11-01
 pages: 8
 
@@ -24,17 +35,6 @@ An eight-page overview of the station behind MODE-S Wind — poster style, for p
 - **Turbulence and the boundary layer** (page 6): EDR from the headwind replies of every landing and departure, with the ICAO classes and the first results; the low-level jet and the surface inversion hour by hour, and how they relate to the windshear levels
 - **The ATC-style map** (page 7, research): the Live Map and the Windshear map as a radar display for readers with an air traffic control background — how a full label is read (callsign / level, trend and selected level / ground speed and type), history plots, speed vectors, labels kept apart, the selected altitude (BDS 4,0 / ADS-B), **Hover** — the six-line extended label of the aircraft under the mouse (airspeeds, Mach, heading, drift, bank, wind components, AP / APP) — with live traffic of 30 Oct 2026 drawn in the style; not for air traffic control
 - **Windshear v8 and the boundary layer per flight** (page 8): the headwind every 0.5 s from the aircraft's own ADS-B ground speed (detection v8, from 31 Oct 2026) with one landing's headwind profile, and the headwind, its change and the wind shear of every landing and departure as its own column
-
-## The receiving station (brochure)
-file: MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf
-version: 1.0
-date: 2026-11-01
-pages: 2
-
-A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The eight-page overview above has the details.
-
-- **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape and the workstation), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
-- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with four screens and a QR code, the pages in the browser, and how to see it live — a research system, not for flight operations
 
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
@@ -115,9 +115,9 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.8
-date: 2026-10-31
-pages: 25
+version: 1.9
+date: 2026-11-01
+pages: 26
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -127,13 +127,13 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
 - **Phase 7: the ADS-B ground speed and the BDS 6,0 airspeed** in the headwind — timing, temperature, agreement of the two registers, noise and density, the replay of the ramps and whether the extra short ramps are real; detection v8 running in shadow beside v7
 - **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
-- The dated log of the database checks, the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
+- The dated log of the database checks (the latest of 1 November 2026: the first day of v8 as the detection), the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
-version: 1.0
-date: 2026-10-30
-pages: 11
+version: 1.1
+date: 2026-11-01
+pages: 12
 open: edr
 
 The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation meteorologists and atmospheric scientists — with a first section in plain words for everyone. Updated whenever the MODE-S Wind calculation changes.
@@ -142,8 +142,8 @@ The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation me
 - **The physics**: Kolmogorov's cascade and inertial subrange, the structure function, why EDR describes the air and not the aircraft, mean and peak
 - **History and use in aviation**: from pilot reports and gust loads to MacCready, the NCAR in-situ algorithms and the ICAO standard (2001; the limits of Amendment 79, 2020, and PANS-MET), WAFS and GTG forecasts in EDR
 - **Hong Kong International Airport**: the Hong Kong Observatory's anemometer, lidar and flight-data EDR and ADS-B turbulence detection
-- **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters and the scale problem
-- **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown; limitations, calibration and the version history
+- **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters (method v2 from 31 October 2026: repeated and out-of-order reply times dropped) and the scale problem
+- **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown (also the Windshear map and one flight's headwind profile); limitations, calibration (the first pilot reports) and the version history
 
 ## Windshear detection v1 — retired algorithms (legacy)
 file: Windshear_Algorithms_v1_Legacy.pdf
