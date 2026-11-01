@@ -247,8 +247,13 @@ loadOverlays(currentTheme);
 
 // ── Theme switching ───────────────────────────────────────────────────────────
 
+// one button for the map style (from 2026-11-01; before Dark · Grey · ATC side by side):
+// it shows the style in use and steps ATC → Dark → Grey → ATC; ATC is the default (a first
+// visit, or no choice stored) — Dark / Grey only once chosen (ms_ws_style 'meteo')
+const WS_STYLE_TXT = { dark: 'Dark', grey: 'Grey', atc: 'ATC' };
 function updateThemeButtons() {
-  document.querySelectorAll('.ws-theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === currentTheme));
+  const sb = document.getElementById('ws-style-btn');
+  if (sb) { sb.textContent = WS_STYLE_TXT[currentTheme] || 'Dark'; sb.dataset.theme = currentTheme; sb.classList.add('active'); }
   const rb = document.getElementById('ws-rings-btn');
   if (rb) rb.hidden = !wsIsAtc();
   const hb = document.getElementById('ws-hover-btn');
@@ -288,9 +293,8 @@ function applyTheme(theme) {
   drawIlsProfile(lastAircraft);
 }
 
-document.querySelectorAll('.ws-theme-btn').forEach(btn => {
-  btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
-});
+document.getElementById('ws-style-btn')?.addEventListener('click', () =>
+  applyTheme({ atc: 'dark', dark: 'grey', grey: 'atc' }[currentTheme] || 'atc'));
 updateThemeButtons();   // initial style may be Grey (light page theme)
 
 // ── Aircraft markers on map ───────────────────────────────────────────────────
@@ -1817,6 +1821,10 @@ function wsDrawEdr() {
   wsEdrLayer.clearLayers();
   const box = document.getElementById('ws-edr-sum');
   if (box) box.hidden = !wsEdrMin;
+  // as wide as the ATC legend under it ("Research display — not for air traffic control"),
+  // from 2026-11-01: the box wraps instead of reaching towards the approaches
+  const lg = document.getElementById('ws-atc-legend'), lw = lg && !lg.hidden ? lg.offsetWidth : 0;
+  if (box) { box.style.width = lw ? lw + 'px' : ''; box.style.maxWidth = lw ? 'none' : ''; }
   if (!wsEdrMin) return;
   const now = Date.now() / 1000, light = wsMapLight();
   // the landings, and with Departures / All 30NM the departures too (from 2026-11-01)
@@ -2840,24 +2848,27 @@ async function fetchSpaceTime() {
 
 // The parts of the chart views (from 2026-10-30): ACI = ACI + EDR, WS = windshear only, EDR = EDR + windshear
 const WR_PARTS = { cond: ['aci', 'edr'], ws: ['ws'], edr: ['edr', 'ws'] };
+// the » / « half-width button sits at the panel's top right (from 2026-11-01, as the Approach
+// History's at its top left): the charts keep their range label clear of it
+var WR_HALF_ROOM = 24;      // var: drawn before this line may run
 function drawCondChart() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
   if (wrView === 'bl') {
     wrHistDots = WsCondChart.drawBoundaryLayer(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0 });
+      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM });
     return;
   }
   if (wrView === 'st') {
     wrHistDots = WsCondChart.drawSpaceTime(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      st: wrStData, hours: wrCondHours, fetchedMs: wrStData ? wrCondFetchedMs : 0 });
+      st: wrStData, hours: wrCondHours, fetchedMs: wrStData ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM });
     return;
   }
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
     aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
     met: wrWxRep ? wrWxRep.metars : [], rep: wrWxRep ? wrWxRep.reports : [],
     // the views (from 2026-10-30): ACI = ACI + EDR, WS = windshear only, EDR = EDR + windshear
-    hours: wrCondHours, parts: WR_PARTS[wrView] || ['aci'], fetchedMs: wrCondFetchedMs });
+    hours: wrCondHours, parts: WR_PARTS[wrView] || ['aci'], fetchedMs: wrCondFetchedMs, labelR: WR_HALF_ROOM });
 }
 
 function _syncWrViewBtns() {
@@ -4529,5 +4540,6 @@ window.onThemeChange = function () {
   drawWindrose();
 };
 
-// The ATC style chosen last time (from 30 Oct 2026; ms_ws_style)
-try { if (localStorage.getItem('ms_ws_style') === 'atc') applyTheme('atc'); } catch (_) { /* private mode */ }
+// The ATC style: the default from 2026-11-01 (before only when chosen last time, ms_ws_style);
+// Dark / Grey when that was the last choice ('meteo')
+try { if (localStorage.getItem('ms_ws_style') !== 'meteo') applyTheme('atc'); } catch (_) { applyTheme('atc'); }

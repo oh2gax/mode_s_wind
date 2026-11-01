@@ -929,8 +929,9 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-map-wrap .ws-atc-legend { bottom: 10px; }
 /* Turbulence on the map (EDR button, from 30 Oct 2026): the key and summary at the
    lower left, over the ATC legend when that is shown */
-.ws-map-wrap .ws-edr-sum { bottom: 10px; display: block; max-width: min(560px, calc(100% - 20px));
-                           line-height: 1.55; }
+.ws-map-wrap .ws-edr-sum { bottom: 10px; display: block; max-width: min(400px, calc(100% - 20px));
+                           line-height: 1.55; box-sizing: border-box; }   /* narrower from 2026-11-01 (was 560 px): the
+                           text wraps, clear of the EFHK approaches; in the ATC style as wide as its legend (JS) */
 .ws-map-wrap .ws-atc-legend:not([hidden]) ~ .ws-edr-sum { bottom: 44px; }
 .ws-map-wrap .ws-edr-sum[hidden] { display: none; }   /* after the display: block above (fix 30 Oct 2026 evening: an empty box showed with EDR off) */
 .ws-edr-sum .ws-edr-key { display: inline-block; width: 14px; height: 3px; border-radius: 2px;
@@ -1163,6 +1164,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
    tall as the others in the row */
 #ws-wr-half-btn { font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 400;
                   line-height: 15.4px; padding: 1px 7px; }
+/* at the panel's top right corner, over the chart's title line (from 2026-11-01) */
+#ws-wr-half-btn { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 0 5px; }
 .ws-windrose-hist-badge {
   font-size: 11px;
   font-family: 'Courier New', monospace;
