@@ -56,7 +56,7 @@
  * FMI radar's rain rate there (/api/weather/point).  « minimizes it to one line
  * (» opens it again); refreshed every 5 minutes and when the hour changes.
  * A third column (from 2026-11-01 evening) gives the difference to the newest
- * METAR of the airport (/api/wx): MEPS − METAR for the wind, gust, temperature,
+ * METAR of the airport (/api/wx): METAR − MEPS for the wind, gust, temperature,
  * pressure (MSL against the QNH) and cloud base, and the METAR's precipitation
  * and fog / mist codes beside the model's rain and fog; large ones in amber.
  *
@@ -276,6 +276,10 @@
   }
   const sgn = (n, d = 0) => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toFixed(d);
   const dCell = (txt, big, title) => ({ txt, big, title });
+  // the difference column is METAR − MEPS (from 2026-11-01 evening; first MEPS − METAR,
+  // which read the wrong way round): +1 = the METAR 1 higher than the model
+  const vsMeps = (dv, unit, up, down, d = 0) => dv === 0 ? 'the same as MEPS'
+    : `${Math.abs(dv).toFixed(d)}${unit} ${dv > 0 ? up : down} than MEPS`;
 
   // narrow rows (from 2026-11-01 evening: about half the first width): short labels,
   // kt only (m/s in the hover title), the radar's time and the run in the last lines
@@ -287,31 +291,32 @@
       dir = Math.round(WxLayer.windDir(v.u, v.v)) % 360 || 360;
       let dc = null;
       if (M && M.spd != null) {
-        const ds = Math.round(sp) - M.spd;
+        const ds = M.spd - Math.round(sp);
         const mTxt = M.spd === 0 ? 'calm' : `${M.dir == null ? 'VRB' : String(M.dir).padStart(3, '0') + '°'} ${M.spd} kt`;
         let dd = null;
-        if (M.dir != null && sp >= 3 && M.spd >= 3) dd = ((dir - M.dir + 540) % 360) - 180;
+        if (M.dir != null && sp >= 3 && M.spd >= 3) dd = ((M.dir - dir + 540) % 360) - 180;   // + = the METAR veered (clockwise)
         dc = dCell(dd != null ? `${sgn(dd)}°/${sgn(ds)}` : sgn(ds), (dd != null && Math.abs(dd) >= 40 && M.spd >= 5) || Math.abs(ds) >= 5,
-                   `METAR ${mTxt}; MEPS − METAR: ${dd != null ? sgn(dd) + '° direction, ' : ''}${sgn(ds)} kt speed`);
+                   `METAR ${mTxt}: ${dd != null ? (dd === 0 ? 'the same direction' : `${Math.abs(dd)}° ${dd > 0 ? 'clockwise (veered)' : 'anticlockwise (backed)'} from MEPS`) + ', ' : ''}`
+                   + `${vsMeps(ds, ' kt', 'stronger', 'weaker')} (METAR − MEPS)`);
       }
       rows.push(['Wind', sp < 1 ? 'calm' : `${String(dir).padStart(3, '0')}° ${Math.round(sp)} kt`, sp < 1 ? '' : `10 m wind ${ms(sp)} m/s`, dc]);
       short.push(sp < 1 ? 'calm' : `${String(dir).padStart(3, '0')}/${Math.round(sp)}${v.g != null ? 'G' + Math.round(v.g) : ''}kt`);
     }
     if (v.g != null) {
       const dc = !M || M.spd == null ? null : M.gust != null
-        ? dCell(sgn(Math.round(v.g) - M.gust), Math.abs(Math.round(v.g) - M.gust) >= 8, `METAR gust ${M.gust} kt; MEPS − METAR`)
+        ? dCell(sgn(M.gust - Math.round(v.g)), Math.abs(M.gust - Math.round(v.g)) >= 8, `METAR gust ${M.gust} kt: ${vsMeps(M.gust - Math.round(v.g), ' kt', 'stronger', 'weaker')}`)
         : dCell('–', false, 'no gust in the METAR (gusts are reported when 10 kt or more above the mean)');
       rows.push(['Gust', `${Math.round(v.g)} kt`, `10 m gust ${ms(v.g)} m/s`, dc]);
     }
     if (v.t != null) {
       const t = Math.round(v.t / 10), tt = `${t < 0 ? '−' : t > 0 ? '+' : ''}${Math.abs(t)} °C`;
-      const dc = M && M.t != null ? dCell(sgn(t - M.t), Math.abs(t - M.t) >= 3, `METAR ${M.t} °C; MEPS − METAR`) : null;
+      const dc = M && M.t != null ? dCell(sgn(M.t - t), Math.abs(M.t - t) >= 3, `METAR ${M.t} °C: ${vsMeps(M.t - t, ' °C', 'warmer', 'colder')}`) : null;
       rows.push(['Temp', tt, '2 m temperature', dc]); short.push(tt);
     }
     if (v.p != null) {
       const p = 1000 + v.p / 10;
-      const dc = M && M.q != null ? dCell(sgn(p - M.q, 1), Math.abs(p - M.q) >= 2,
-        `METAR QNH ${M.q} hPa; MEPS (sea-level pressure) − QNH — the two are reduced to sea level in different ways, a few tenths apart`) : null;
+      const dc = M && M.q != null ? dCell(sgn(M.q - p, 1), Math.abs(M.q - p) >= 2,
+        `METAR QNH ${M.q} hPa: ${vsMeps(M.q - p, ' hPa', 'higher', 'lower', 1)} (sea-level pressure) — the two are reduced to sea level in different ways, a few tenths apart`) : null;
       rows.push(['Pressure', `${p.toFixed(1)} hPa`, 'sea-level pressure (MSL)', dc]);
     }
     let mRain = null;
@@ -331,7 +336,7 @@
     if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20))) {
       const bf = Math.round(v.b * 3.2808 / 100) * 100;
       const dc = !M ? null : M.base != null
-        ? dCell(sgn(bf - M.base), Math.abs(bf - M.base) >= 1000, `METAR lowest cloud ${M.base.toLocaleString('en').replace(/,/g, ' ')} ft; MEPS − METAR (ft)`)
+        ? dCell(sgn(M.base - bf), Math.abs(M.base - bf) >= 1000, `METAR lowest cloud ${M.base.toLocaleString('en').replace(/,/g, ' ')} ft: ${vsMeps(M.base - bf, ' ft', 'higher', 'lower')}`)
         : dCell(M.cavok ? 'CAVOK' : 'nil', false, M.cavok ? 'CAVOK: no cloud below 5 000 ft in the METAR' : 'no cloud layer in the METAR');
       rows.push(['Base', `${bf.toLocaleString('en').replace(/,/g, ' ')} ft`, 'cloud base', dc]);
     }
@@ -357,7 +362,7 @@
       else {
         const r = m.run ? new Date(m.run * 1000) : null;
         html = `${btn}<b>${esc(d.name || APT)} now</b>`
-          + `<table>${aptMet ? `<tr class="lwx-apt-h"><td></td><td>MEPS</td><td title="The difference MEPS − METAR to the newest METAR of ${esc(d.name || APT)}${aptMet.time ? ' (' + aptMet.time + ')' : ''}; the METAR's own value in the hover of each difference. Amber: a large difference">Δ METAR${aptMet.time ? ' ' + aptMet.time.slice(0, 4) : ''}</td></tr>` : ''}`
+          + `<table>${aptMet ? `<tr class="lwx-apt-h"><td></td><td>MEPS</td><td title="The newest METAR of ${esc(d.name || APT)} against the model, METAR − MEPS: +1 = the METAR 1 higher (warmer, stronger, higher base), − = lower${aptMet.time ? ' (' + aptMet.time + ')' : ''}; the METAR's own value in the hover of each difference. Amber: a large difference">Δ METAR${aptMet.time ? ' ' + aptMet.time.slice(0, 4) : ''}</td></tr>` : ''}`
           + `${rows.map(([k, x, t, dc]) => `<tr${t ? ` title="${t}"` : ''}><td>${k}</td><td>${x}</td>`
             + (aptMet ? `<td class="lwx-apt-d${dc && dc.big ? ' big' : ''}"${dc && dc.title ? ` title="${esc(dc.title)}"` : ''}>${dc ? esc(dc.txt) : ''}</td>` : '')
             + '</tr>').join('')}</table>`
