@@ -46,6 +46,7 @@
         <div class="maint-stat-row" id="stat-depseries" title="Raw reply series of each climb-out (from 27 Oct 2026; for the trial departure ramps) — kept APPROACH_SERIES_DAYS (default 90) days, purged automatically (archived first when Archive before purge is on)"><span>departure_series</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row" id="stat-hseries" title="Dense pressure-altitude / GNSS − baro series per aircraft visit (research data) — kept HEIGHT_SERIES_DAYS (default 30) days, purged automatically (archived first when Archive before purge is on)"><span>height_series</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row" id="stat-msgstats" title="Statistics page history: one row per clock hour (counts, histograms, signal, range rings) — kept MSG_STATS_DAYS (default 7) days, purged automatically; Clear deletes it now (the counts in memory stay)"><span>msg_stats_hours <button id="msgstats-clear-btn" class="maint-btn maint-btn-sm maint-btn-danger">Clear</button></span><span>—</span><span>—</span><span>—</span><span>—</span></div>
+        <div class="maint-stat-row" id="stat-spvisits" title="Military / government visit log (research data for the GNSS study) — kept as set in Aircraft Database below (default 365 days), purged automatically"><span>special_visits</span><span>—</span><span>—</span><span>—</span><span>—</span></div>
         <div class="maint-stat-row maint-stat-size" id="stat-dbsize"><span>DB file size</span><span id="stat-dbsize-val">—</span><span></span><span></span><span></span></div>
       </div>
     </div>
@@ -312,6 +313,78 @@
         <div class="maint-hint">Episodes are selected by their start time (UTC). Use the same date in both fields to delete a single day.</div>
         <div id="episodes-date-preview-result" class="maint-preview"></div>
         <div id="episodes-date-purge-result"   class="maint-op-status"></div>
+      </div>
+    </div>
+
+    <!-- ── Aircraft database (collector/regdb_update.py, 2026-11-01) ──────── -->
+    <div class="maint-section" id="regdb-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Aircraft Database (BaseStation.sqb)</span>
+        <span class="maint-section-note">Registrations and aircraft types. The daily update needs internet — when it is off or fails, the station keeps using the files it has.</span>
+        <button id="regdb-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+
+      <div class="maint-panel">
+        <div class="maint-panel-title">Status</div>
+        <div class="regdb-kv" id="regdb-status"><span class="maint-hint">—</span></div>
+      </div>
+
+      <div class="maint-panel">
+        <div class="maint-panel-title">Automatic Daily Update</div>
+        <div class="maint-row">
+          <label class="maint-check"><input type="checkbox" id="regdb-enabled"> Enabled</label>
+          <span class="maint-label">at</span>
+          <input type="text" id="regdb-time" class="maint-input maint-input-num" value="04:30" maxlength="5">
+          <span class="maint-label">UTC</span>
+          <span class="maint-label regdb-gap">Sources</span>
+          <label class="maint-check"><input type="checkbox" id="regdb-src-tar1090"> tar1090-db (registrations, types)</label>
+          <label class="maint-check"><input type="checkbox" id="regdb-src-alert"> plane-alert-db (military / government)</label>
+        </div>
+        <div class="maint-row regdb-row2">
+          <span class="maint-label">Aircraft types</span>
+          <select id="regdb-types" class="maint-select">
+            <option value="correct">Fill empty + correct differing types</option>
+            <option value="fill">Fill empty only</option>
+          </select>
+          <span class="maint-label">Registrations: fill empty only — differences listed below</span>
+          <button id="regdb-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="regdb-run-btn" class="maint-btn">Update now</button>
+          <button id="regdb-undo-btn" class="maint-btn" disabled>Undo last changes</button>
+        </div>
+        <div class="maint-hint">Only aircraft MODE-S Wind has heard in the last <span id="regdb-heard-days">30</span> days are written into BaseStation.sqb; tar1090-db itself is kept in its own file (data/aircraft_ref.db) and used for aircraft not yet in BaseStation.sqb. Off: no network requests at all — the off-grid station runs exactly as before.</div>
+        <div id="regdb-op-status" class="maint-op-status"></div>
+      </div>
+
+      <div class="maint-panel">
+        <div class="maint-panel-title">Last Update</div>
+        <div id="regdb-last" class="maint-preview">—</div>
+        <div id="regdb-history" class="maint-hint"></div>
+      </div>
+
+      <div class="maint-panel">
+        <div class="maint-panel-title">Registration Differences <span id="regdb-diffs-n"></span></div>
+        <div class="maint-hint">A different registration usually means the address now belongs to another aircraft. Such rows are not changed automatically (not even the type); <b>Use tar1090-db value</b> takes tar1090-db's registration and type, <b>Keep mine</b> hides the difference until tar1090-db's value changes.</div>
+        <div id="regdb-diffs"><span class="maint-hint">—</span></div>
+        <div class="maint-row regdb-row2">
+          <button id="regdb-use-btn" class="maint-btn" disabled>Use tar1090-db value</button>
+          <button id="regdb-keep-btn" class="maint-btn" disabled>Keep mine</button>
+          <span class="maint-hint regdb-inline" id="regdb-hidden"></span>
+        </div>
+      </div>
+
+      <div class="maint-panel">
+        <div class="maint-panel-title">Military / Government Visit Log</div>
+        <div class="maint-row">
+          <label class="maint-check"><input type="checkbox" id="mil-enabled"> Log visits of military, government and police aircraft</label>
+          <span class="maint-label">Keep</span>
+          <input type="number" id="mil-days" class="maint-input maint-input-num" min="1" max="3650" value="365">
+          <span class="maint-label">days</span>
+          <button id="mil-save-btn" class="maint-btn">Save</button>
+        </div>
+        <div class="maint-hint">Research data for the GNSS interference study — shown only here, never on the public pages. Aircraft with a privacy flag in tar1090-db (PIA / LADD) are never logged.</div>
+        <div id="mil-days-table" class="regdb-tbl-wrap"></div>
+        <div class="maint-panel-title regdb-subtitle">Recent Visits</div>
+        <div id="mil-recent" class="regdb-tbl-wrap"></div>
       </div>
     </div>
 

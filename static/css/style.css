@@ -3526,3 +3526,23 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .hwp-pop canvas.hwp { display: block; width: 100%; height: 300px; border-radius: 4px; }
 .hwp-pop .hwp-leg { font-size: 11px; color: var(--text-2); margin-top: 6px; line-height: 1.45; }
 .hwp-ref { color: var(--text-3); }
+
+/* ── Maintenance: Aircraft Database section (2026-11-01) ───────────────────── */
+.regdb-kv { display: grid; grid-template-columns: 190px 1fr; gap: 0.25rem 0.8rem; font-size: 12px; color: var(--text-2); }
+.regdb-kv b { color: var(--text-3); font-weight: 600; }
+.regdb-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.regdb-dot.ok { background: #10b981; } .regdb-dot.warn { background: #d97706; }
+.regdb-dot.off { border: 1.5px solid var(--text-3); width: 6px; height: 6px; }
+.regdb-gap { margin-left: 1rem; }
+.regdb-row2 { margin-top: 0.5rem; }
+.regdb-inline { margin: 0; }
+.regdb-subtitle { margin-top: 0.8rem; }
+.regdb-tbl-wrap { max-height: 320px; overflow-y: auto; margin-top: 0.4rem; }
+.regdb-tbl { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.regdb-tbl th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); text-align: left; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; position: sticky; top: 0; background: var(--bg-1); }
+.regdb-tbl td { padding: 0.25rem 0.4rem; border-bottom: 1px solid var(--border); }
+.regdb-pill { font-size: 10px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); }
+.regdb-pill.mil { background: rgba(59, 130, 246, 0.18); color: #60a5fa; border-color: rgba(59, 130, 246, 0.4); }
+.regdb-pill.gov, .regdb-pill.pol { background: rgba(16, 185, 129, 0.16); color: #34d399; border-color: rgba(16, 185, 129, 0.4); }
+[data-theme="light"] .regdb-pill.mil { color: #1d4ed8; }
+[data-theme="light"] .regdb-pill.gov, [data-theme="light"] .regdb-pill.pol { color: #047857; }

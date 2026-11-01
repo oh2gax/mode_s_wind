@@ -2349,6 +2349,61 @@ def create_app(
         out["archive"] = _arc.is_enabled(get_db())
         return jsonify(out)
 
+    # ── Aircraft database: daily BaseStation.sqb update + military /
+    #    government visit log (collector/regdb_update.py,
+    #    collector/special_traffic.py; maintenance login only, 2026-11-01) ──
+
+    @app.route("/api/maintenance/regdb/status", methods=["POST"])
+    def maintenance_regdb_status():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import regdb_update as _rdu, special_traffic as _spt
+        upd = _rdu.get()
+        out = upd.status() if upd else {"error": "not running"}
+        try:
+            out["visits"] = _spt.summary(get_db())
+            out["visits"]["settings"] = _spt.get_settings(get_db())
+            tr = _spt.get()
+            out["visits"]["open"] = tr.open_count() if tr else 0
+        except Exception as exc:                       # noqa: BLE001
+            out["visits"] = {"error": str(exc)}
+        return jsonify(out)
+
+    @app.route("/api/maintenance/regdb/config", methods=["POST"])
+    def maintenance_regdb_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import regdb_update as _rdu, special_traffic as _spt
+        kw = {k: data[k] for k in ("enabled", "time", "src_tar1090", "src_alert", "types") if k in data}
+        out = {"ok": True, "settings": _rdu.set_settings(get_db(), **kw)}
+        if "mil_enabled" in data or "mil_days" in data:
+            out["mil"] = _spt.set_settings(
+                get_db(),
+                enabled=bool(data["mil_enabled"]) if "mil_enabled" in data else None,
+                days=int(data["mil_days"]) if "mil_days" in data else None)
+        return jsonify(out)
+
+    @app.route("/api/maintenance/regdb/run", methods=["POST"])
+    def maintenance_regdb_run():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import regdb_update as _rdu
+        upd = _rdu.get()
+        if not upd:
+            return jsonify({"ok": False, "error": "not running"})
+        act = data.get("action") or "update"
+        if act == "update":
+            return jsonify({"ok": upd.update_async("manual"), "busy": upd.running})
+        if act == "undo":
+            n = upd.undo_last()
+            return jsonify({"ok": n >= 0, "rows": max(n, 0), "busy": n < 0})
+        if act in ("use", "keep", "unhide"):
+            return jsonify({"ok": True, "n": upd.diffs_action(act, data.get("icaos") or [])})
+        return jsonify({"ok": False, "error": "unknown action"}), 400
+
     # ── Web users (web/users.py; maintenance login only) ──────────────────
 
     @app.route("/api/maintenance/users/list", methods=["POST"])

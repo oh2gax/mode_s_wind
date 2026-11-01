@@ -116,6 +116,10 @@ def get_stats(conn, db_path: str) -> dict:
         msh = _table_stats("msg_stats_hours", "ts", "date(ts, 'unixepoch')")
     except Exception:
         msh = dict(empty)
+    try:
+        spv = _table_stats("special_visits", "t_first", "date(t_first, 'unixepoch')")  # from 2026-11-01
+    except Exception:
+        spv = dict(empty)
 
     try:
         db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
@@ -137,6 +141,7 @@ def get_stats(conn, db_path: str) -> dict:
         "kinematics_hours":      kinh,
         "gnss_hours":            gnsh,
         "msg_stats_hours":       msh,
+        "special_visits":        spv,
         "db_size_mb":            db_size_mb,
     }
 

@@ -675,10 +675,12 @@ def run_collector(
                     # ── Registration from BaseStation.sqb (optional) ────────
                     # The JSON poller provides the registration for most
                     # aircraft; when it has not (yet), use the optional
-                    # BaseStation.sqb aircraft database (cached lookup).
-                    if not merged.get("registration"):
+                    # BaseStation.sqb aircraft database (cached lookup; from
+                    # 2026-11-01 also when only the type is missing, and with
+                    # the daily-updated reference data as the fallback).
+                    if not merged.get("registration") or not merged.get("aircraft_type"):
                         _bs_reg, _bs_typ = aircraft_db.lookup(icao)
-                        if _bs_reg:
+                        if _bs_reg and not merged.get("registration"):
                             merged["registration"] = _bs_reg
                             merged["reg_src"]      = "BS"
                         if _bs_typ and not merged.get("aircraft_type"):

@@ -333,6 +333,9 @@ def _rc_item(now: float, up: float) -> dict:
 
 # ── evaluation ──────────────────────────────────────────────────────────────
 
+REGDB_STALE_DAYS = 3
+
+
 def _regdb_item(now: float) -> dict:
     """BaseStation.sqb (from 2026-10-29): in use / not installed / unreadable."""
     from collector import aircraft_db
@@ -345,8 +348,33 @@ def _regdb_item(now: float) -> dict:
         where = rel if not rel.startswith("..") else os.path.join(os.path.basename(os.path.dirname(os.path.abspath(path))), os.path.basename(path))
     det = []
     if st["lookups"]:
-        det.append(f"{st['lookups']} aircraft without a registration in the receiver's list looked up "
-                   f"since the start, {st['found']} found")
+        det.append(f"{st['lookups']} aircraft without a registration or type in the receiver's list "
+                   f"looked up since the start, {st['found']} registrations found"
+                   + (f" ({st['found_ref']} from the daily-updated tar1090-db)" if st.get("found_ref") else ""))
+    # daily update (collector/regdb_update.py, from 2026-11-01): amber when it
+    # is on but has not succeeded for STALE_DAYS — the files in use stay valid
+    upd_warn = None
+    try:
+        from collector import regdb_update
+        u = regdb_update.get()
+        h = u.health() if u else None
+    except Exception:
+        h = None
+    if h is not None:
+        if not h["enabled"]:
+            det.append("daily update off (no network requests)")
+        else:
+            ok_ts = h.get("ok_ts")
+            if ok_ts:
+                det.append(f"daily update: last success {time.strftime('%Y-%m-%d %H:%M', time.gmtime(ok_ts))} UTC")
+            if (ok_ts and now - ok_ts > REGDB_STALE_DAYS * 86400) or \
+                    (not ok_ts and now - h.get("started", now) > REGDB_STALE_DAYS * 86400):
+                upd_warn = (f"Daily update has not succeeded for over {REGDB_STALE_DAYS} days — "
+                            "the existing files stay in use")
+                if h.get("error"):
+                    det.append(f"last error: {h['error']}")
+        if st.get("ref_open") and st.get("ref_aircraft"):
+            det.append(f"reference data: tar1090-db {st['ref_aircraft']:,} aircraft".replace(",", " "))
     if st["open"]:
         n = st.get("aircraft")
         txt = f"In use — {n:,} aircraft".replace(",", " ") if n is not None else "In use"
@@ -354,6 +382,8 @@ def _regdb_item(now: float) -> dict:
             det.insert(0, f"file of {time.strftime('%Y-%m-%d', time.gmtime(st['mtime']))}")
         if where:
             det.insert(0, where)
+        if upd_warn:
+            return _item("regdb", "warn", upd_warn, [txt] + det)
         return _item("regdb", "ok", txt, det)
     if st["exists"]:
         return _item("regdb", "warn", "File found but it could not be opened — registrations from the receiver's list only",

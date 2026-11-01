@@ -281,11 +281,13 @@ def _gps_quality_sweep(
     live_lock: threading.RLock,
     tracker: GpsQualityTracker,
     sweep_sec: float = 5.0,
+    special=None,
 ) -> None:
     """
     Background daemon: sweeps live_state every sweep_sec seconds, feeds
     each aircraft into the GPS quality tracker, then rebuilds the live
-    degraded-aircraft list.
+    degraded-aircraft list.  The military / government visit log
+    (collector/special_traffic.py, from 2026-11-01) runs in the same sweep.
     """
     while True:
         try:
@@ -295,8 +297,15 @@ def _gps_quality_sweep(
             recent = [ac for ac in snapshot if now - ac.get("last_seen", 0) < 60]
             for ac in recent:
                 tracker.update(ac)
+                if special is not None:
+                    try:
+                        special.update(ac, tracker.current_flags(ac.get("icao", "")))
+                    except Exception as exc:
+                        log.debug("Visit log error: %s", exc)
             tracker.prune_stale()
             tracker.rebuild_live(recent)
+            if special is not None:
+                special.flush()
             health.beat("gps_sweep", sweep=sweep_sec)
         except Exception as exc:
             log.debug("GPS quality sweep error: %s", exc)
@@ -1153,8 +1162,19 @@ def main() -> None:
     # Optional BaseStation.sqb aircraft database (registrations / types for
     # aircraft the Radarcape JSON feed has none for) — default: next to the
     # main database (data/BaseStation.sqb); used only if the file exists.
+    # From 2026-11-01 also the reference data of the daily aircraft database
+    # update (data/aircraft_ref.db, collector/regdb_update.py), which completes
+    # BaseStation.sqb every morning (Maintenance page; on by default, no
+    # network requests when switched off).
+    _data_dir = os.path.dirname(os.path.abspath(cfg.DB_PATH))
+    _ref_path = getattr(cfg, "AIRCRAFT_REF_DB_PATH", None) or os.path.join(_data_dir, "aircraft_ref.db")
     aircraft_db.init(getattr(cfg, "BASESTATION_DB_PATH", None)
-                     or os.path.join(os.path.dirname(os.path.abspath(cfg.DB_PATH)), "BaseStation.sqb"))
+                     or os.path.join(_data_dir, "BaseStation.sqb"), _ref_path)
+    from collector import regdb_update
+    from database.db import get_db as _get_db_rd
+    _rd = regdb_update.init(cfg, _ref_path, _get_db_rd)
+    threading.Thread(target=_rd.run, name="regdb_update", daemon=True).start()
+    log.info("Aircraft database: daily update thread started (settings on the Maintenance page)")
 
     # ── Per-airframe heading calibration (collector/heading_cal.py) ───────
     hc = heading_cal.init(cfg)
@@ -1318,9 +1338,12 @@ def main() -> None:
         airport_lon    = cfg.WINDSHEAR_AIRPORT_LON,
         episode_radius_nm = getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
     )
+    from collector import special_traffic
+    from database.db import get_db as _get_db_sp
+    sp_tracker = special_traffic.init(_get_db_sp, cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON)
     gps_thread = threading.Thread(
         target=_gps_quality_sweep,
-        args=(live_state, live_lock, gps_tracker, cfg.GPS_SWEEP_SEC),
+        args=(live_state, live_lock, gps_tracker, cfg.GPS_SWEEP_SEC, sp_tracker),
         name="gps_sweep",
         daemon=True,
     )
@@ -1484,6 +1507,11 @@ def main() -> None:
             log.info("GPS quality: final checkpoint written")
         except Exception as exc:
             log.warning("GPS quality: final checkpoint failed: %s", exc)
+        # Military / government visits still open (visit log, from 2026-11-01)
+        try:
+            sp_tracker.flush(force=True)
+        except Exception as exc:
+            log.warning("Visit log: final write failed: %s", exc)
         try:
             if hc.enabled:
                 from database.db import get_db as _get_db

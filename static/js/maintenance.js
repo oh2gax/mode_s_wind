@@ -69,6 +69,7 @@ async function loadStats() {
     if (d.departure_series) _fill('stat-depseries', d.departure_series);
     if (d.height_series) _fill('stat-hseries', d.height_series);
     if (d.msg_stats_hours) _fill('stat-msgstats', d.msg_stats_hours);
+    if (d.special_visits) _fill('stat-spvisits', d.special_visits);
     const sizeEl = document.getElementById('stat-dbsize-val');
     if (sizeEl) sizeEl.textContent = d.db_size_mb != null ? `${d.db_size_mb} MB` : '—';
   } catch (e) {
@@ -501,6 +502,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadAutopurgeConfig();
     await loadArchives();
     await loadUsers();
+    await loadRegdb();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
@@ -803,3 +805,210 @@ document.getElementById('shared-exp-now-btn').addEventListener('click', () => {
   _sharedSet('now');
 });
 document.getElementById('shared-exp-none-btn').addEventListener('click', () => _sharedSet(''));
+
+// ── Aircraft database: daily BaseStation.sqb update + visit log (2026-11-01) ──
+
+let _regdbPoll = null;
+
+function _num(n) { return n != null ? Number(n).toLocaleString('fi-FI') : '—'; }
+
+function _regdbLine(label, dot, html) {
+  return `<b>${label}</b><span>${dot ? `<span class="regdb-dot ${dot}"></span>` : ''}${html}</span>`;
+}
+
+function _runText(r) {
+  if (!r) return 'No update has run yet.';
+  const f = r.fill;
+  const parts = [];
+  if (f) {
+    parts.push(`${_num(f.heard)} aircraft heard in the last ${document.getElementById('regdb-heard-days').textContent} days checked: `
+      + `<b>${_num(f.regs)}</b> registrations and <b>${_num(f.types)}</b> types filled, `
+      + `<b>${_num(f.fixed)}</b> types corrected${f.examples && f.examples.length ? ` (e.g. ${_esc(f.examples.slice(0, 3).join(', '))})` : ''}`
+      + ` · ${_num(f.unknown)} still without a registration · ${_num(f.diffs)} registration differences`);
+  }
+  if (r.notes && r.notes.length) parts.push(_esc(r.notes.join(' · ')));
+  if (r.errors && r.errors.length) parts.push(`<span class="maint-status-error">${_esc(r.errors.join(' · '))} — the existing files stay in use</span>`);
+  return `${_esc(r.utc || '')} (${_esc(r.reason || '')}, ${r.dur} s) — ${parts.join('. ')}`;
+}
+
+function renderRegdb(d) {
+  const s = d.settings || {};
+  document.getElementById('regdb-enabled').checked = !!s.enabled;
+  document.getElementById('regdb-time').value = s.time || '04:30';
+  document.getElementById('regdb-src-tar1090').checked = !!s.src_tar1090;
+  document.getElementById('regdb-src-alert').checked = !!s.src_alert;
+  document.getElementById('regdb-types').value = s.types || 'correct';
+  document.getElementById('regdb-heard-days').textContent = d.heard_days || 30;
+
+  const bs = d.bs || {}, m = d.meta || {};
+  let h = '';
+  if (bs.open) {
+    const dt = bs.mtime ? new Date(bs.mtime * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '';
+    h += _regdbLine('BaseStation.sqb', 'ok', `In use — ${_esc(bs.path || '')} · ${_num(bs.aircraft)} aircraft · file ${dt}`);
+  } else if (bs.exists) {
+    h += _regdbLine('BaseStation.sqb', 'warn', `Found but could not be opened${bs.error ? ' (' + _esc(bs.error) + ')' : ''}`);
+  } else {
+    h += _regdbLine('BaseStation.sqb', 'off', `Not found (${_esc(bs.path || '—')}) — created by the first update`);
+  }
+  h += _regdbLine('Reference: tar1090-db', m.ac_entries ? 'ok' : 'off',
+    m.ac_entries ? `${_num(m.ac_entries)} aircraft (${_num(m.ac_mil)} military) · downloaded ${_esc(m.ac_downloaded || '—')}`
+                 : 'Not downloaded yet');
+  h += _regdbLine('Military / government list', m.alert_entries ? 'ok' : 'off',
+    m.alert_entries ? `plane-alert-db ${_num(m.alert_entries)} aircraft · downloaded ${_esc(m.alert_downloaded || '—')}`
+                    : 'plane-alert-db not downloaded yet (tar1090-db military flag used)');
+  const upd = d.running ? `<span class="maint-status-ok">Running — ${_esc(d.phase || '…')}</span>`
+    : (!s.enabled ? 'Off — no network requests'
+      : `Daily at ${_esc(s.time)} UTC · last success ${_esc(m.ok || '—')}`
+        + (m.last_ok === '0' ? ' · <span class="maint-status-error">last attempt failed</span>' : ''));
+  h += _regdbLine('Daily update', d.running ? 'ok' : (!s.enabled ? 'off' : (m.last_ok === '0' ? 'warn' : 'ok')), upd);
+  h += _regdbLine('Lookups since start', '',
+    `${_num(bs.lookups)} aircraft without a registration or type in the receiver's list · ${_num(bs.found)} registrations found`
+    + (bs.found_ref ? ` (${_num(bs.found_ref)} from tar1090-db)` : ''));
+  document.getElementById('regdb-status').innerHTML = h;
+
+  document.getElementById('regdb-last').innerHTML = _runText(d.last_run);
+  const hist = (d.history || []).slice(1, 6).map(r =>
+    `${_esc((r.utc || '').replace(' UTC', ''))} ${r.ok ? '✓' : '✗ ' + _esc((r.errors || [])[0] || '')}`);
+  document.getElementById('regdb-history').textContent = hist.length ? 'Previous runs: ' + hist.join(' · ') : '';
+  const undoBtn = document.getElementById('regdb-undo-btn');
+  undoBtn.disabled = !d.undo || d.running;
+  undoBtn.title = d.undo ? `Restore the ${d.undo.rows} BaseStation.sqb rows changed by the run of ${d.undo.utc}` : 'Nothing to undo';
+  document.getElementById('regdb-run-btn').disabled = !!d.running;
+
+  // registration differences
+  const diffs = d.diffs || [];
+  document.getElementById('regdb-diffs-n').textContent = `(${d.diffs_total != null ? d.diffs_total : diffs.length})`;
+  const dEl = document.getElementById('regdb-diffs');
+  if (!diffs.length) {
+    dEl.innerHTML = '<span class="maint-hint">No differences between BaseStation.sqb and tar1090-db for the aircraft heard.</span>';
+  } else {
+    dEl.innerHTML = `<div class="regdb-tbl-wrap"><table class="regdb-tbl"><thead><tr><th><input type="checkbox" id="regdb-diff-all"></th>
+      <th>ICAO24</th><th>BaseStation.sqb</th><th>tar1090-db</th><th>Type in tar1090-db</th><th>Last heard</th></tr></thead><tbody>`
+      + diffs.map(x => `<tr><td><input type="checkbox" class="regdb-diff-cb" value="${_esc(x.icao)}"></td>
+        <td>${_esc(x.icao)}</td><td>${_esc(x.ours)}</td><td>${_esc(x.theirs)}</td><td>${_esc(x.type || '')}</td><td>${_esc(x.heard || '')}</td></tr>`).join('')
+      + '</tbody></table></div>';
+    document.getElementById('regdb-diff-all').addEventListener('change', e => {
+      dEl.querySelectorAll('.regdb-diff-cb').forEach(cb => { cb.checked = e.target.checked; });
+      _regdbSel();
+    });
+    dEl.querySelectorAll('.regdb-diff-cb').forEach(cb => cb.addEventListener('change', _regdbSel));
+  }
+  _regdbSel();
+  const hid = document.getElementById('regdb-hidden');
+  hid.innerHTML = d.hidden ? `${d.hidden} kept earlier are hidden · <a href="#" id="regdb-unhide">show again</a>` : '';
+  const un = document.getElementById('regdb-unhide');
+  if (un) un.addEventListener('click', async ev => { ev.preventDefault(); await _regdbAction('unhide', []); });
+
+  renderVisits(d.visits || {});
+
+  clearTimeout(_regdbPoll);
+  if (d.running) _regdbPoll = setTimeout(loadRegdb, 3000);
+}
+
+function _regdbSel() {
+  const n = document.querySelectorAll('.regdb-diff-cb:checked').length;
+  document.getElementById('regdb-use-btn').disabled = !n;
+  document.getElementById('regdb-keep-btn').disabled = !n;
+}
+
+function _clsPill(c) {
+  const t = { mil: 'Military', gov: 'Government', pol: 'Police' }[c] || c;
+  return `<span class="regdb-pill ${_esc(c)}">${_esc(t)}</span>`;
+}
+
+function renderVisits(v) {
+  const st = v.settings || {};
+  document.getElementById('mil-enabled').checked = st.enabled !== false;
+  if (st.days) document.getElementById('mil-days').value = st.days;
+  const dEl = document.getElementById('mil-days-table');
+  const rEl = document.getElementById('mil-recent');
+  if (v.error) { dEl.innerHTML = `<span class="maint-status-error">${_esc(v.error)}</span>`; rEl.innerHTML = ''; return; }
+  const days = v.days || [];
+  dEl.innerHTML = !days.length
+    ? `<span class="maint-hint">No visits logged yet${v.open ? ` (${v.open} visit${v.open === 1 ? '' : 's'} in progress)` : ''}.</span>`
+    : `<table class="regdb-tbl"><thead><tr><th>Day (UTC)</th><th>Visits</th><th>Aircraft</th><th>Military</th><th>Government / police</th>
+        <th>Closest</th><th>Own GNSS degraded</th></tr></thead><tbody>`
+      + days.map(x => `<tr><td>${_esc(x.day)}</td><td>${x.visits}</td><td>${x.aircraft}</td><td>${x.mil}</td><td>${x.gov}</td>
+        <td>${x.closest != null ? x.closest.toFixed(0) + ' NM' : '—'}</td><td>${x.deg}</td></tr>`).join('')
+      + '</tbody></table>';
+  const rec = v.recent || [];
+  const t = s => new Date(s * 1000).toISOString().slice(5, 16).replace('T', ' ');
+  const fl = a => a == null ? '' : (a >= 10000 ? 'FL' + String(Math.round(a / 100)).padStart(3, '0') : Math.round(a) + ' ft');
+  rEl.innerHTML = !rec.length ? '<span class="maint-hint">—</span>'
+    : `<table class="regdb-tbl"><thead><tr><th>First heard</th><th>Min</th><th>Callsign</th><th>Class</th><th>Operator / type</th>
+        <th>Country</th><th>Closest</th><th>Altitude</th><th>Own GNSS</th></tr></thead><tbody>`
+      + rec.map(x => `<tr><td>${t(x.t_first)}</td><td>${Math.max(1, Math.round((x.t_last - x.t_first) / 60))}</td>
+        <td>${_esc(x.callsign || x.registration || '')}</td><td>${_clsPill(x.cls)}</td>
+        <td>${_esc([x.operator, x.ac_type || x.descr].filter(Boolean).join(' · '))}</td><td>${_esc(x.country || '')}</td>
+        <td>${x.min_dist_nm != null ? x.min_dist_nm.toFixed(0) + ' NM' : '—'}</td>
+        <td>${_esc([fl(x.min_alt), fl(x.max_alt)].filter(Boolean).filter((a, i, arr) => arr.indexOf(a) === i).join('–'))}</td>
+        <td>${x.sweeps ? (x.deg_sweeps ? Math.round(100 * x.deg_sweeps / x.sweeps) + ' % degraded' : (x.pos_sweeps ? 'normal' : 'no ADS-B position'))
+                       : '—'}${x.min_nacp != null ? ` · NACp ≥ ${x.min_nacp}` : ''}</td></tr>`).join('')
+      + '</tbody></table>';
+}
+
+async function loadRegdb() {
+  try {
+    renderRegdb(await _api('/api/maintenance/regdb/status'));
+  } catch (e) {
+    _setStatus('regdb-op-status', `Status not available: ${e.message}`, true);
+  }
+}
+
+async function _regdbAction(action, icaos) {
+  try {
+    const r = await _api('/api/maintenance/regdb/run', { action, icaos });
+    if (action === 'update') _setStatus('regdb-op-status', r.ok ? 'Update started…' : 'An update is already running.', !r.ok);
+    else if (action === 'undo') _setStatus('regdb-op-status', r.busy ? 'An update is running — try again when it has finished.' : `${r.rows} rows restored.`, !!r.busy);
+    else _setStatus('regdb-op-status', `${r.n} difference${r.n === 1 ? '' : 's'} ${action === 'use' ? 'updated in BaseStation.sqb' : action === 'keep' ? 'hidden' : 'listed again after the next update'}.`);
+  } catch (e) {
+    _setStatus('regdb-op-status', e.message, true);
+  }
+  await loadRegdb();
+}
+
+function _selDiffs() {
+  return [...document.querySelectorAll('.regdb-diff-cb:checked')].map(cb => cb.value);
+}
+
+document.getElementById('regdb-refresh-btn').addEventListener('click', loadRegdb);
+document.getElementById('regdb-save-btn').addEventListener('click', async () => {
+  const time = document.getElementById('regdb-time').value.trim();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { _setStatus('regdb-op-status', 'Time as HH:MM (UTC), e.g. 04:30', true); return; }
+  try {
+    const r = await _api('/api/maintenance/regdb/config', {
+      enabled: document.getElementById('regdb-enabled').checked, time,
+      src_tar1090: document.getElementById('regdb-src-tar1090').checked,
+      src_alert: document.getElementById('regdb-src-alert').checked,
+      types: document.getElementById('regdb-types').value,
+    });
+    const s = r.settings;
+    _setStatus('regdb-op-status', s.enabled ? `Saved — daily update at ${s.time} UTC.` : 'Saved — the daily update is off (no network requests).');
+  } catch (e) { _setStatus('regdb-op-status', e.message, true); }
+  await loadRegdb();
+});
+document.getElementById('regdb-run-btn').addEventListener('click', () => _regdbAction('update', []));
+document.getElementById('regdb-undo-btn').addEventListener('click', () => {
+  if (confirmInline('regdb-undo-btn', 'Undo?')) _regdbAction('undo', []);
+});
+document.getElementById('regdb-use-btn').addEventListener('click', () => _regdbAction('use', _selDiffs()));
+document.getElementById('regdb-keep-btn').addEventListener('click', () => _regdbAction('keep', _selDiffs()));
+document.getElementById('mil-save-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/regdb/config', {
+      mil_enabled: document.getElementById('mil-enabled').checked,
+      mil_days: parseInt(document.getElementById('mil-days').value, 10) || 365,
+    });
+    _setStatus('regdb-op-status', r.mil.enabled ? `Visit log on, kept ${r.mil.days} days.` : 'Visit log off.');
+  } catch (e) { _setStatus('regdb-op-status', e.message, true); }
+  await loadRegdb();
+});
+
+// two-click confirmation without a browser dialog
+function confirmInline(btnId, label) {
+  const b = document.getElementById(btnId);
+  if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.orig; return true; }
+  b.dataset.orig = b.textContent; b.dataset.armed = '1'; b.textContent = label + ' Click again';
+  setTimeout(() => { if (b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.orig; } }, 4000);
+  return false;
+}

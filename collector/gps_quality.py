@@ -1239,6 +1239,15 @@ class GpsQualityTracker:
                     ep["gmb_min"] = g if ep.get("gmb_min") is None else min(ep["gmb_min"], g)
                     ep["gmb_max"] = g if ep.get("gmb_max") is None else max(ep["gmb_max"], g)
 
+    def current_flags(self, icao: str) -> list[str]:
+        """Degradation signals of this aircraft in the latest sweep ([] when
+        clean or not tracked) — for the military / government visit log
+        (collector/special_traffic.py, from 2026-11-01)."""
+        st = self._ac_state.get(icao)
+        if not st or time.time() - st.get("flags_ts", 0) > 10:
+            return []
+        return list(st.get("flags") or [])
+
     def prune_stale(self, max_age_sec: float = 90.0) -> None:
         """Remove aircraft not updated for max_age_sec seconds."""
         now    = time.time()

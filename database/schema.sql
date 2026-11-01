@@ -553,3 +553,34 @@ CREATE TABLE IF NOT EXISTS bl_hours (
     ts   INTEGER PRIMARY KEY,   -- hour start (UTC, Unix s)
     data TEXT    NOT NULL
 );
+
+-- ── special_visits ───────────────────────────────────────────────────────────
+-- Military / government visit log (collector/special_traffic.py, from
+-- 2026-11-01): one row per visit of a military, government or police
+-- aircraft heard by the receiver (class from plane-alert-db's #CMPG or
+-- tar1090-db's military flag; aircraft with a PIA / LADD privacy flag are
+-- never logged).  Research data for the GNSS interference study, shown only
+-- on the Maintenance page.  Kept mil_log_days (Maintenance page, default 365).
+CREATE TABLE IF NOT EXISTS special_visits (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    icao         TEXT    NOT NULL,
+    callsign     TEXT,
+    cls          TEXT    NOT NULL,          -- mil | gov | pol
+    src          TEXT,                      -- pad (plane-alert-db) | tar1090
+    operator     TEXT,
+    ac_type      TEXT,
+    descr        TEXT,
+    registration TEXT,
+    country      TEXT,                      -- country of the ICAO address block
+    t_first      INTEGER NOT NULL,
+    t_last       INTEGER NOT NULL,
+    min_dist_nm  REAL,                      -- closest distance to the airport
+    cl_lat       REAL, cl_lon REAL,         -- position at the closest point (0.01°)
+    min_alt      INTEGER, max_alt INTEGER,
+    sweeps       INTEGER,                   -- 5-s sweeps heard
+    pos_sweeps   INTEGER,                   -- … with the aircraft's own ADS-B position
+    deg_sweeps   INTEGER,                   -- … with a GNSS degradation signal
+    min_nacp     INTEGER,
+    UNIQUE(icao, t_first)
+);
+CREATE INDEX IF NOT EXISTS idx_special_visits_t ON special_visits(t_first);
