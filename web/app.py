@@ -1580,16 +1580,17 @@ def create_app(
         departures for the map's *Departures: Shown*.
         From 2026-11-01 the full answer (the Windshear page) takes &near=1
         (with &nm= / &alt=all) too: the other traffic as a separate list
-        ``near`` (the map's Departures / All 30NM).
+        ``near`` (the map's Departures / All 30NM / All 100NM).
         """
         if ws_tracker is None:
             return jsonify([])
         state = ws_tracker.get_state()
-        # &nm= (1 … 60) and &alt=all (from 2026-10-31, the map's "All tracked (30 NM)"):
+        # &nm= (1 … 100; 60 until 2026-11-01, the Windshear map's All 100NM) and &alt=all
+        # (from 2026-10-31, the map's "All tracked (30 NM)"):
         # a wider radius and every level; without them WINDSHEAR_RADIUS_NM and
         # below WINDSHEAR_MAX_ALT_FT (the departures of "Departures: Shown")
         try:
-            near_nm = min(60.0, max(1.0, float(request.args.get("nm")))) if request.args.get("nm") else None
+            near_nm = min(100.0, max(1.0, float(request.args.get("nm")))) if request.args.get("nm") else None
         except ValueError:
             near_nm = None
         near_all_alt = request.args.get("alt") == "all"

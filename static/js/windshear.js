@@ -508,9 +508,9 @@ function updateMapMarkers(aircraft) {
     if (ac.lat == null || ac.lon == null) continue;
 
     // The map's traffic (from 2026-11-01): ILS Only — the aircraft in an ILS corridor;
-    // Departures — also the climb-outs (marked dep by the server); All 30NM — every
-    // aircraft within 30 NM at any level (the list comes from wsMapAircraft)
-    if (!ac.in_corridor && !(wsMapMode === 'all' || (wsMapMode === 'dep' && ac.dep))) {
+    // Departures — also the climb-outs (marked dep by the server); All 30NM / All 100NM —
+    // every aircraft within 30 / 100 NM at any level (the list comes from wsMapAircraft)
+    if (!ac.in_corridor && !(wsMapMode === 'all' || wsMapMode === 'all100' || (wsMapMode === 'dep' && ac.dep))) {
       // Remove existing marker if present so it disappears immediately
       if (acMarkers[ac.icao]) {
         map.removeLayer(acMarkers[ac.icao].marker);
@@ -1707,13 +1707,15 @@ setInterval(fetchWx,       10 * 60 * 1000);
 setInterval(checkMetarAge,      60 * 1000);  // re-check age every minute for timely colour transitions
 
 // ── The map's traffic (from 2026-11-01; before an ILS Only on / off toggle) ───────
-// The button steps ILS Only → Departures → All 30NM (ms_ws_mapac, default ILS Only),
+// The button steps ILS Only → Departures → All 30NM → All 100NM (ms_ws_mapac, default ILS Only;
+// All 100NM from 2026-11-01 later the same morning, to follow the traffic of a wider area),
 // as the phone's approach map: Departures adds the climb-outs within the windshear
 // radius (15 NM, below 5 000 ft), All 30NM every aircraft within 30 NM at any level
 // (/api/windshear/state &near=1, the list "near"); with either of them the EDR lines
 // also show the departures.
-const WS_MAP_MODES = ['ils', 'dep', 'all'];
-const WS_MAP_TXT = { ils: 'ILS Only', dep: 'Departures', all: 'All 30NM' };
+const WS_MAP_MODES = ['ils', 'dep', 'all', 'all100'];
+const WS_MAP_TXT = { ils: 'ILS Only', dep: 'Departures', all: 'All 30NM', all100: 'All 100NM' };
+const WS_MAP_NM = { all: 30, all100: 100 };
 let wsMapMode = (() => { try { const v = localStorage.getItem('ms_ws_mapac'); return WS_MAP_MODES.includes(v) ? v : 'ils'; } catch (_) { return 'ils'; } })();
 let wsNear = [];                                    // the other traffic of the last poll
 const ilsFilterBtn  = document.getElementById('ws-ils-filter');
@@ -2989,7 +2991,7 @@ function wsLandedFilter(list) {
 
 async function fetchApproachState() {
   try {
-    const r = await fetch('/api/windshear/state' + (wsMapMode === 'all' ? '?near=1&nm=30&alt=all' : wsMapMode === 'dep' ? '?near=1' : ''));
+    const r = await fetch('/api/windshear/state' + (WS_MAP_NM[wsMapMode] ? `?near=1&nm=${WS_MAP_NM[wsMapMode]}&alt=all` : wsMapMode === 'dep' ? '?near=1' : ''));
     if (!r.ok) return;
     const data     = await r.json();
     wsNear = wsMapMode !== 'ils' && data && Array.isArray(data.near) ? data.near : [];
@@ -3232,7 +3234,7 @@ async function fetchApproachState() {
     document.getElementById('ws-map-count').textContent =
       wsMapMode === 'ils' ? `${nCorridor} ILS corridor`
         : wsMapMode === 'dep' ? `${nCorridor} on ILS  ·  ${nDepMap} departing`
-        : `${nCorridor + wsNear.length} within 30 NM  ·  ${nCorridor} on ILS`;
+        : `${nCorridor + wsNear.length} within ${WS_MAP_NM[wsMapMode] || 30} NM  ·  ${nCorridor} on ILS`;
 
   } catch (e) {
     console.warn('Windshear state fetch error:', e);
