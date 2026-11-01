@@ -55,6 +55,10 @@
  * medium / high cloud, cloud base, fog; the 2.5 km grid when available) and the
  * FMI radar's rain rate there (/api/weather/point).  « minimizes it to one line
  * (» opens it again); refreshed every 5 minutes and when the hour changes.
+ * A third column (from 2026-11-01 evening) gives the difference to the newest
+ * METAR of the airport (/api/wx): MEPS − METAR for the wind, gust, temperature,
+ * pressure (MSL against the QNH) and cloud base, and the METAR's precipitation
+ * and fog / mist codes beside the model's rain and fog; large ones in amber.
  *
  * Receiver coverage (from 2026-10-31): a thin light-blue line around the area
  * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
@@ -228,16 +232,18 @@
   aptBox.style.display = 'none';
   L.DomEvent.disableClickPropagation(aptBox);
   L.DomEvent.disableScrollPropagation(aptBox);
-  let aptData = null, aptAt = 0, aptBusy = false;
+  let aptData = null, aptAt = 0, aptBusy = false, aptMet = null;
   async function loadApt(force) {
     if (!st.apt || aptBusy || document.hidden) return;
     const m = aptData && aptData.meps;
     if (!force && aptData && Date.now() - aptAt < 5 * 60 * 1000 && !(m && m.ts && Date.now() / 1000 > m.ts)) return;
     aptBusy = true;
     try {
-      const r = await fetch('/api/weather/point', { cache: 'no-store' });
+      const [r, w] = await Promise.all([fetch('/api/weather/point', { cache: 'no-store' }),
+                                        fetch('/api/wx', { cache: 'no-store' }).catch(() => null)]);
       if (!r.ok) throw new Error(r.status);
       aptData = await r.json(); aptAt = Date.now();
+      try { aptMet = w && w.ok ? parseMetar((await w.json()).metar) : aptMet; } catch (_) { /* keep the last one */ }
     } catch (e) {
       console.warn('Airport weather:', e);
       if (!aptData) aptData = { error: 'loading failed — trying again in a few minutes' };
@@ -246,42 +252,94 @@
   }
   const ms = kt => (kt * 0.514444).toFixed(0);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  function aptRows(d) {
-    const v = (d.meps && d.meps.v) || {}, rows = [];
-    let wind = '', short = [];
-    if (v.u != null && v.v != null) {
-      const sp = Math.hypot(v.u, v.v);
-      const dir = String(Math.round(WxLayer.windDir(v.u, v.v)) % 360 || 360).padStart(3, '0');
-      wind = sp < 1 ? 'calm' : `${dir}° ${Math.round(sp)} kt (${ms(sp)} m/s)`;
-      short.push(sp < 1 ? 'calm' : `${dir}°/${Math.round(sp)}${v.g != null ? ' G' + Math.round(v.g) : ''} kt`);
-      rows.push(['Wind 10 m', wind]);
+  // the newest METAR of the airport for the difference column (from 2026-11-01 evening):
+  // time, wind (kt), gust, temperature, QNH, the lowest cloud layer, precipitation and
+  // fog / mist codes — only the observation, not the trend (NOSIG / TEMPO / BECMG) or RMK
+  function parseMetar(raw) {
+    if (!raw || raw[0] === '[') return null;
+    let s = ` ${String(raw).replace(/=\s*$/, '')} `;
+    const cut = s.search(/ (NOSIG|TEMPO|BECMG|RMK) /);
+    if (cut > 0) s = s.slice(0, cut + 1);
+    const o = { time: null, dir: null, spd: null, gust: null, t: null, q: null, base: null, cavok: / CAVOK /.test(s), pcp: [], fog: [] };
+    let x = s.match(/ \d{2}(\d{4})Z /); if (x) o.time = x[1] + 'Z';
+    x = s.match(/ (\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?(KT|MPS) /);
+    if (x) { const f = x[4] === 'MPS' ? 1.94384 : 1; o.dir = x[1] === 'VRB' ? null : +x[1]; o.spd = Math.round(+x[2] * f); o.gust = x[3] ? Math.round(+x[3] * f) : null; }
+    x = s.match(/ (M?\d{2})\/(M?\d{2})? /); if (x) o.t = +x[1].replace('M', '-');
+    x = s.match(/ Q(\d{4}) /); if (x) o.q = +x[1];
+    x = s.match(/ (FEW|SCT|BKN|OVC|VV)(\d{3})/); if (x) o.base = +x[2] * 100;
+    for (const tk of s.trim().split(/\s+/)) {
+      if (!/^(\+|-|VC)?(MI|BC|PR|DR|BL|SH|TS|FZ)?(DZ|RA|SN|SG|PL|GR|GS|UP|BR|FG)+$/.test(tk) || tk === 'WS') continue;
+      if (/DZ|RA|SN|SG|PL|GR|GS|UP/.test(tk)) o.pcp.push(tk);
+      if (/BR|FG/.test(tk)) o.fog.push(tk);
     }
-    if (v.g != null) rows.push(['Gust', `${Math.round(v.g)} kt (${ms(v.g)} m/s)`]);
+    return o;
+  }
+  const sgn = (n, d = 0) => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n).toFixed(d);
+  const dCell = (txt, big, title) => ({ txt, big, title });
+
+  // narrow rows (from 2026-11-01 evening: about half the first width): short labels,
+  // kt only (m/s in the hover title), the radar's time and the run in the last lines
+  function aptRows(d) {
+    const v = (d.meps && d.meps.v) || {}, M = aptMet, rows = [], short = [];
+    let sp = null, dir = null;
+    if (v.u != null && v.v != null) {
+      sp = Math.hypot(v.u, v.v);
+      dir = Math.round(WxLayer.windDir(v.u, v.v)) % 360 || 360;
+      let dc = null;
+      if (M && M.spd != null) {
+        const ds = Math.round(sp) - M.spd;
+        const mTxt = M.spd === 0 ? 'calm' : `${M.dir == null ? 'VRB' : String(M.dir).padStart(3, '0') + '°'} ${M.spd} kt`;
+        let dd = null;
+        if (M.dir != null && sp >= 3 && M.spd >= 3) dd = ((dir - M.dir + 540) % 360) - 180;
+        dc = dCell(dd != null ? `${sgn(dd)}°/${sgn(ds)}` : sgn(ds), (dd != null && Math.abs(dd) >= 40 && M.spd >= 5) || Math.abs(ds) >= 5,
+                   `METAR ${mTxt}; MEPS − METAR: ${dd != null ? sgn(dd) + '° direction, ' : ''}${sgn(ds)} kt speed`);
+      }
+      rows.push(['Wind', sp < 1 ? 'calm' : `${String(dir).padStart(3, '0')}° ${Math.round(sp)} kt`, sp < 1 ? '' : `10 m wind ${ms(sp)} m/s`, dc]);
+      short.push(sp < 1 ? 'calm' : `${String(dir).padStart(3, '0')}/${Math.round(sp)}${v.g != null ? 'G' + Math.round(v.g) : ''}kt`);
+    }
+    if (v.g != null) {
+      const dc = !M || M.spd == null ? null : M.gust != null
+        ? dCell(sgn(Math.round(v.g) - M.gust), Math.abs(Math.round(v.g) - M.gust) >= 8, `METAR gust ${M.gust} kt; MEPS − METAR`)
+        : dCell('–', false, 'no gust in the METAR (gusts are reported when 10 kt or more above the mean)');
+      rows.push(['Gust', `${Math.round(v.g)} kt`, `10 m gust ${ms(v.g)} m/s`, dc]);
+    }
     if (v.t != null) {
       const t = Math.round(v.t / 10), tt = `${t < 0 ? '−' : t > 0 ? '+' : ''}${Math.abs(t)} °C`;
-      rows.push(['Temperature 2 m', tt]); short.push(tt);
+      const dc = M && M.t != null ? dCell(sgn(t - M.t), Math.abs(t - M.t) >= 3, `METAR ${M.t} °C; MEPS − METAR`) : null;
+      rows.push(['Temp', tt, '2 m temperature', dc]); short.push(tt);
     }
-    if (v.p != null) rows.push(['Pressure (MSL)', `${(1000 + v.p / 10).toFixed(1)} hPa`]);
+    if (v.p != null) {
+      const p = 1000 + v.p / 10;
+      const dc = M && M.q != null ? dCell(sgn(p - M.q, 1), Math.abs(p - M.q) >= 2,
+        `METAR QNH ${M.q} hPa; MEPS (sea-level pressure) − QNH — the two are reduced to sea level in different ways, a few tenths apart`) : null;
+      rows.push(['Pressure', `${p.toFixed(1)} hPa`, 'sea-level pressure (MSL)', dc]);
+    }
     let mRain = null;
     if (v.r != null) {
       const snow = v.s != null && v.r > 0 && v.s >= 0.5 * v.r;
       mRain = v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h` : 'dry';
-      rows.push(['Rain / snow (MEPS)', mRain]);
+      const dc = M ? dCell(M.pcp.length ? M.pcp.join(' ') : 'nil', (v.r >= 5) !== (M.pcp.length > 0),
+        M.pcp.length ? 'precipitation in the METAR' : 'no precipitation in the METAR') : null;
+      rows.push(['MEPS', mRain, 'the model\'s rain or snow of the hour', dc]);
     }
     const ra = d.radar || {};
-    let rTxt = null;
-    if (ra.error || !ra.ts) rTxt = 'not available';
-    else if (!ra.in) rTxt = 'outside the radar coverage';
-    else rTxt = ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry';
-    rows.push(['Rain (FMI radar)', rTxt + (ra.ts ? ` <span>${fmtUtc(ra.ts)} UTC</span>` : '')]);
+    const rTxt = ra.error || !ra.ts ? 'n/a' : !ra.in ? 'outside' : ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry';
+    rows.push(['Radar', rTxt, ra.error || !ra.ts ? 'the FMI radar is not available' : !ra.in ? 'outside the radar coverage' : 'the FMI radar\'s observed rain rate', null]);
     short.push(ra.ts && ra.in ? (ra.r >= 10 ? `radar ${(ra.r / 100).toFixed(1)} mm/h` : 'radar dry') : mRain || '');
-    if (v.c != null) rows.push(['Cloud total', `${v.c} %`]);
-    if (v.l != null) rows.push(['Low cloud', `${v.l} %`]);
-    if (v.m != null) rows.push(['Medium cloud', `${v.m} %`]);
-    if (v.h != null) rows.push(['High cloud', `${v.h} %`]);
-    if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20)))
-      rows.push(['Cloud base', `${(Math.round(v.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`]);
-    if (v.f != null) rows.push(['Fog', `${v.f} %`]);
+    const cl = [['Cloud', 'c', 'total cloud cover'], ['Low', 'l', 'low cloud'], ['Medium', 'm', 'medium cloud'], ['High', 'h', 'high cloud']];
+    for (const [k, f, t] of cl) if (v[f] != null) rows.push([k, `${v[f]} %`, t, null]);
+    if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20))) {
+      const bf = Math.round(v.b * 3.2808 / 100) * 100;
+      const dc = !M ? null : M.base != null
+        ? dCell(sgn(bf - M.base), Math.abs(bf - M.base) >= 1000, `METAR lowest cloud ${M.base.toLocaleString('en').replace(/,/g, ' ')} ft; MEPS − METAR (ft)`)
+        : dCell(M.cavok ? 'CAVOK' : 'nil', false, M.cavok ? 'CAVOK: no cloud below 5 000 ft in the METAR' : 'no cloud layer in the METAR');
+      rows.push(['Base', `${bf.toLocaleString('en').replace(/,/g, ' ')} ft`, 'cloud base', dc]);
+    }
+    if (v.f != null) {
+      const dc = M ? dCell(M.fog.length ? M.fog.join(' ') : 'nil', (v.f >= 50) !== M.fog.some(x => /FG/.test(x)),
+        M.fog.length ? 'fog (FG) or mist (BR) in the METAR' : 'no fog or mist in the METAR') : null;
+      rows.push(['Fog', `${v.f} %`, 'fog', dc]);
+    }
     return { rows, short: short.filter(Boolean).join(' · ') };
   }
   function renderApt() {
@@ -290,18 +348,22 @@
     const btn = `<button type="button" class="ws-aphist-ctrl-btn ws-aphist-min-btn lwx-apt-min${st.aptMin ? ' active' : ''}" `
       + `title="${st.aptMin ? 'Show all the values' : 'Minimize to one line'}" aria-label="${st.aptMin ? 'Expand' : 'Minimize'}">${st.aptMin ? '&raquo;' : '&laquo;'}</button>`;
     let html;
-    if (!d) html = `${btn}<b>${esc(APT)} now</b> <span>loading…</span>`;
-    else if (d.error) html = `${btn}<b>${esc(APT)} now</b> <span>${esc(d.error)}</span>`;
+    if (!d) html = `${btn}<b>${esc(APT)}</b> <span>loading…</span>`;
+    else if (d.error) html = `${btn}<b>${esc(APT)}</b> <span>${esc(d.error)}</span>`;
     else {
-      const m = d.meps || {}, { rows, short } = aptRows(d);
-      const hh = m.ts ? (() => { const h = new Date(m.ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)} UTC`; })() : '';
+      const m = d.meps || {}, ra = d.radar || {}, { rows, short } = aptRows(d);
+      const hh = m.ts ? (() => { const h = new Date(m.ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)}`; })() : '';
       if (st.aptMin) html = `${btn}<b>${esc(d.name || APT)}</b> ${short || '<span>no data</span>'}`;
       else {
         const r = m.run ? new Date(m.run * 1000) : null;
-        html = `${btn}<b>${esc(d.name || APT)} now</b>` + (hh ? ` <span>· MEPS ${hh}</span>` : '')
-          + `<table>${rows.map(([k, x]) => `<tr><td>${k}</td><td>${x}</td></tr>`).join('')}</table>`
+        html = `${btn}<b>${esc(d.name || APT)} now</b>`
+          + `<table>${aptMet ? `<tr class="lwx-apt-h"><td></td><td>MEPS</td><td title="The difference MEPS − METAR to the newest METAR of ${esc(d.name || APT)}${aptMet.time ? ' (' + aptMet.time + ')' : ''}; the METAR's own value in the hover of each difference. Amber: a large difference">Δ METAR${aptMet.time ? ' ' + aptMet.time.slice(0, 4) : ''}</td></tr>` : ''}`
+          + `${rows.map(([k, x, t, dc]) => `<tr${t ? ` title="${t}"` : ''}><td>${k}</td><td>${x}</td>`
+            + (aptMet ? `<td class="lwx-apt-d${dc && dc.big ? ' big' : ''}"${dc && dc.title ? ` title="${esc(dc.title)}"` : ''}>${dc ? esc(dc.txt) : ''}</td>` : '')
+            + '</tr>').join('')}</table>`
           + (m.error ? `<span>MEPS: ${esc(m.error)}</span><br>` : '')
-          + `<span>MEPS ${r ? `${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${m.lead} h` : ''}${m.km ? `, ${m.km} km grid` : ''} — forecast; radar — observed</span>`;
+          + `<span title="the model's forecast; the radar is observed">MEPS ${hh} UTC${r ? ` (${pad2(r.getUTCHours())} +${m.lead} h${m.km ? ', ' + m.km + ' km' : ''})` : ''}`
+          + `${ra.ts ? `<br>radar ${fmtUtc(ra.ts)} UTC` : ''}</span>`;
       }
     }
     aptBox.innerHTML = html;
