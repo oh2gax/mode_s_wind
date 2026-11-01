@@ -305,10 +305,12 @@
     }
     // level keys at the right
     const keyY = panels[0].y0 + 6;
-    wl.forEach((h, i) => { s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${keyY + i * 16}" y2="${keyY + i * 16}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${keyY + i * 16 + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
+    // highest level at the top, lowest at the bottom, as the heights go (2026-11-01)
+    const kRow = (n, i) => n - 1 - i;
+    wl.forEach((h, i) => { const ky = keyY + kRow(wl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
     s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + 6}" font-size="9" fill="${K.ink3}">- - gust</text>`;
     const keyT = panels[2].y0 + 6;
-    tl.forEach((h, i) => { s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${keyT + i * 16}" y2="${keyT + i * 16}" stroke="${ramp(i / Math.max(1, tl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${keyT + i * 16 + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
+    tl.forEach((h, i) => { const ky = keyT + kRow(tl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, tl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
     // cursor line (moved by the hover) and the chosen profile time
     s += `<line id="mt-cur" x1="0" x2="0" y1="${mt}" y2="${H - 30}" stroke="${K.ink2}" stroke-width="1" visibility="hidden"/>`;
     const pt = prof && prof.found ? prof.obs.ts : null;

@@ -389,21 +389,23 @@
     };
     const tCell = (v, src, name) => src == null || v == null ? dCell('–', false, `no ${name} temperature at this height`)
       : dCell(sgn(v - src, 1), Math.abs(v - src) >= 2, `${name} ${src.toFixed(1)} °C; the mast ${Math.abs(v - src).toFixed(1)} °C ${v - src > 0 ? 'warmer' : v - src < 0 ? 'colder' : 'the same'}`);
-    const rows = [];
+    const rows = [];          // [label, value, hover, Δ MEPS, Δ Mode S, height m] — sorted by height below
     for (const i of [top, 0]) {
       const hm = o.wl[i], kt = o.ws[i], dir = o.wd[i];
       rows.push([`${hm} m`, kt != null ? `${String(Math.round(dir)).padStart(3, '0')}° ${Math.round(kt)} kt` : '–',
         `mast wind at ${hm} m (${Math.round((hm + (M.elev_m || 44)) * FT)} ft MSL), gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}`,
         wCell(mWindAt(meps.map(l => [l[0], l[2], l[3]]), hm, 60), hm, kt, dir, 'MEPS'),
-        wCell(mWindAt(msW, hm * FT, 260), hm, kt, dir, 'Mode S')]);
+        wCell(mWindAt(msW, hm * FT, 260), hm, kt, dir, 'Mode S'), hm]);
     }
     const mT = h => h <= 2 ? (M.meps_sfc && M.meps_sfc.t != null ? M.meps_sfc.t : null) : lerp(meps.map(l => [l[0], l[1]]), h, 60);
     const sT = h => h < 60 ? null : lerp(msT, h * FT, 420);
     for (const i of [tt, 0]) {
       const hm = o.tl[i], v = o.t[i];
       rows.push([`${hm} m`, v != null ? `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} °C` : '–', `mast temperature at ${hm} m`,
-        tCell(v, mT(hm), 'MEPS'), tCell(v, sT(hm), 'Mode S')]);
+        tCell(v, mT(hm), 'MEPS'), tCell(v, sT(hm), 'Mode S'), hm]);
     }
+    // highest at the top, as a profile (327 m wind, 297 m T, 26 m wind, 2 m T; 2026-11-01)
+    rows.sort((a, b) => b[5] - a[5]);
     // the inversion: T(top) − T(2 m), and the same difference of the sources
     const dT = o.t[tt] != null && o.t[0] != null ? o.t[tt] - o.t[0] : null;
     const mdT = mT(o.tl[tt]) != null && mT(o.tl[0]) != null ? mT(o.tl[tt]) - mT(o.tl[0]) : null;
