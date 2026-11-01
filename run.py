@@ -1374,6 +1374,15 @@ def main() -> None:
     log.info("Hourly jobs thread started (profile archive, approach series %g days)",
              float(getattr(cfg, "APPROACH_SERIES_DAYS", 90)))
 
+    # ── Kivenlahti mast (FMI open data → mast_obs, from 2026-11-01) ───────
+    # every 10 min, back-filled up to 7 days after a start; on / off on the
+    # Maintenance page (no network requests when off)
+    from collector import mast as _mast
+    from database.db import get_db as _get_db_mast
+    _mf = _mast.init(cfg, _get_db_mast)
+    threading.Thread(target=_mf.run, name="mast", daemon=True).start()
+    log.info("Kivenlahti mast fetcher started (fmisid %d; settings on the Maintenance page)", _mf.fmisid)
+
     # ── Radiosonde soundings (FMI open data → data/soundings) ─────────────
     # (store created before the hourly jobs thread, which runs the verification)
     if sonde_store.enabled:

@@ -72,9 +72,9 @@ from collector import wx_reports as _wxr
 
 log = logging.getLogger("modes.health")
 
-ORDER = ("feed", "json", "regdb", "rc", "decode", "db", "ws", "gps", "meps", "sondes", "calib", "metar", "pi")
+ORDER = ("feed", "json", "regdb", "rc", "decode", "db", "ws", "gps", "meps", "sondes", "mast", "calib", "metar", "pi")
 LABEL = {"feed": "Feed", "json": "Aircraft list", "regdb": "Reg. DB", "rc": "Radarcape", "decode": "Decoding", "db": "Database",
-         "ws": "Windshear", "gps": "GPS", "meps": "MEPS", "sondes": "Soundings",
+         "ws": "Windshear", "gps": "GPS", "meps": "MEPS", "sondes": "Soundings", "mast": "Mast",
          "calib": "Calibrations", "metar": "METAR", "pi": "Pi"}
 TITLE = {"feed": "Radarcape Beast feed (Mode S messages)",
          "json": "Radarcape aircraft list (MLAT positions, registrations)",
@@ -87,6 +87,7 @@ TITLE = {"feed": "Radarcape Beast feed (Mode S messages)",
          "gps": "GPS quality monitor",
          "meps": "MEPS weather model data (optional)",
          "sondes": "Jokioinen radiosoundings",
+         "mast": "Kivenlahti mast (FMI open data: wind and temperature up to 327 m every 10 min; optional)",
          "calib": "Calibrations (temperature correction, heading calibration, magnetic declination)",
          "metar": "METAR / QNH of the airport",
          "pi": "Raspberry Pi (temperature, power, memory, disk, load)"}
@@ -95,11 +96,11 @@ RANK = {"off": 0, "ok": 1, "warn": 2, "err": 3}
 # thread name → indicator (threads started in run.py / web/app.py)
 THREADS = {"collector": "feed", "json_poller": "json", "ws_sweep": "ws", "gps_sweep": "gps",
            "housekeeping": "db", "hourly_jobs": "db", "autopurge": "db",
-           "sondes": "sondes", "meps": "meps", "wx_poll": "metar", "rc_status": "rc",
+           "sondes": "sondes", "meps": "meps", "wx_poll": "metar", "rc_status": "rc", "mast": "mast",
            "pilot_reports": "metar"}
 TASK = {"collector": "Feed reader", "json_poller": "Aircraft list poller", "ws_sweep": "Windshear sweep",
         "gps_sweep": "GPS sweep", "housekeeping": "Memory clean-up", "hourly_jobs": "Hourly jobs",
-        "autopurge": "Purge check", "sondes": "Sounding fetcher", "meps": "MEPS fetcher",
+        "autopurge": "Purge check", "sondes": "Sounding fetcher", "meps": "MEPS fetcher", "mast": "Mast fetcher",
         "wx_poll": "METAR fetcher", "rc_status": "Radarcape status reader",
         "pilot_reports": "Pilot report fetcher"}
 
@@ -597,6 +598,33 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
                 items["sondes"] = _item("sondes", "warn", f"Newest {txt}" + (" — fetch failing" if failed else ""), det)
             else:
                 items["sondes"] = _item("sondes", "err", f"Newest {txt}" + (" — fetch failing" if failed else ""), det)
+
+    # Kivenlahti mast (collector/mast.py, from 2026-11-01): newest step ≤ 30 min old OK,
+    # ≤ 2 h amber, older red; off when switched off on the Maintenance page
+    try:
+        from collector import mast as _mast
+        mf = _mast.get()
+        if mf is None:
+            items["mast"] = _item("mast", "off", "Not available")
+        else:
+            on = _cached("mast_on", 60, lambda: _mast.get_settings(get_db())["enabled"])
+            newest = _cached("mast_newest", 60, lambda: mf.newest(get_db()))
+            det = []
+            if mf.last:
+                det.append(f"last look {_ago(now - mf.last[0])} ago — {mf.last[2]}")
+            if on is False:
+                items["mast"] = _item("mast", "off", "Fetching off (Maintenance page)"
+                                      + (f"; newest step {_ago(now - newest)} old" if newest else ""), det)
+            elif newest is None:
+                items["mast"] = _item("mast", "warn" if up > 900 else "ok",
+                                      "No observations stored yet" if up > 900 else "Starting (first fetch about a minute after the start)", det)
+            else:
+                age = now - newest
+                txt = f"Newest step {time.strftime('%H:%M', time.gmtime(newest))} UTC ({_ago(age)} old)"
+                items["mast"] = _item("mast", "ok" if age <= 1800 else "warn" if age <= 7200 else "err",
+                                      txt + ("" if age <= 1800 or not (mf.last and not mf.last[1]) else " — fetch failing"), det)
+    except Exception as exc:                          # noqa: BLE001
+        items["mast"] = _item("mast", "off", f"Not available ({exc})")
 
     # calibrations
     det, st, txt = [], "ok", []

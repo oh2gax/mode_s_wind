@@ -503,6 +503,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadArchives();
     await loadUsers();
     await loadRegdb();
+    await loadMast();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
@@ -1002,6 +1003,43 @@ document.getElementById('mil-save-btn').addEventListener('click', async () => {
     _setStatus('regdb-op-status', r.mil.enabled ? `Visit log on, kept ${r.mil.days} days.` : 'Visit log off.');
   } catch (e) { _setStatus('regdb-op-status', e.message, true); }
   await loadRegdb();
+});
+
+// ── Kivenlahti mast (collector/mast.py, 2026-11-01) ──────────────────────────
+function _utcTs(t) { return t ? new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '—'; }
+async function loadMast() {
+  try {
+    const d = await _api('/api/maintenance/mast/status');
+    const s = d.settings || {};
+    document.getElementById('mast-enabled').checked = !!s.enabled;
+    const st = d.station || {};
+    let h = _regdbLine('Station', '', `${_esc(st.name || '—')} · fmisid ${_esc(String(d.fmisid || '—'))} · ${st.lat != null ? st.lat.toFixed(3) + ' N ' + st.lon.toFixed(3) + ' E' : ''} · ground ${st.elev ?? '—'} m`);
+    const age = d.newest ? Date.now() / 1000 - d.newest : null;
+    h += _regdbLine('Observations', d.rows ? (age != null && age < 1800 ? 'ok' : 'warn') : 'off',
+      d.rows ? `${_num(d.rows)} steps · ${_utcTs(d.first)} … ${_utcTs(d.newest)}` : 'None stored yet');
+    const l = d.last;
+    h += _regdbLine('Fetching', !s.enabled ? 'off' : (l && !l.ok ? 'warn' : 'ok'),
+      !s.enabled ? 'Off — no network requests'
+        : (d.running ? 'Fetching…' : l ? `Last look ${_utcTs(l.ts)}: ${_esc(l.text)}` : 'Not looked yet (about a minute after the start)'));
+    document.getElementById('mast-status').innerHTML = h;
+  } catch (e) {
+    _setStatus('mast-op-status', `Status not available: ${e.message}`, true);
+  }
+}
+document.getElementById('mast-refresh-btn').addEventListener('click', loadMast);
+document.getElementById('mast-save-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/mast/config', { enabled: document.getElementById('mast-enabled').checked });
+    _setStatus('mast-op-status', r.settings.enabled ? 'Saved — fetching every 10 minutes.' : 'Saved — fetching is off (no network requests).');
+  } catch (e) { _setStatus('mast-op-status', e.message, true); }
+  await loadMast();
+});
+document.getElementById('mast-now-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/mast/config', { fetch_now: true });
+    _setStatus('mast-op-status', r.settings.enabled ? 'Fetching…' : 'Fetching is off — switch it on first.', !r.settings.enabled);
+  } catch (e) { _setStatus('mast-op-status', e.message, true); }
+  setTimeout(loadMast, 4000);
 });
 
 // two-click confirmation without a browser dialog

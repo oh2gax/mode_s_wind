@@ -28,6 +28,10 @@
  *            profile averaged into the Mode S layers (skewtSondeLayers of
  *            skewt_indices.js) with its own surface point; falls back to
  *            Mode S when that profile is not shown (tag at the top left)
+ *   mast     the Kivenlahti mast (from 2026-11-01; Sounding page): {levels:
+ *            [{pressure, temp, dewpoint, wind_spd, wind_dir, h_m}], ts, label}
+ *            — amber temperature line with its points and barbs, the lowest
+ *            300 m only (best seen with Airport: Zoom)
  *   rh       RH strip on/off: a narrow strip between the plot and the wind
  *            barbs with the trial moisture indicator (moist = the "moisture"
  *            of /api/sounding?moist=1 or /api/sounding/hour, collector/
@@ -102,6 +106,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       sondeRef = null,    // time (Unix s) the sonde age is counted to; null = now
       sondeNote = null,   // "no sounding" text when switched on but none found
       miniMeps = null,    // MEPS model profile (/api/meps/profile) or null
+      miniMast = null,    // Kivenlahti mast profile (from 2026-11-01) or null
       mepsNote = null,    // "no model data" lines when switched on but none found
       anaSrc = 'modes',   // analysis source: 'modes' | 'meps' | 'sonde'
       anaSfc = null,      // surface point of the analysis source (set per draw)
@@ -651,6 +656,39 @@ function createSkewT(canvas, tip, cfg = {}) {
       const y = mskY(l.pressure);
       if (y < MT + 4 || y > MT + PH - 2 || (lastY != null && Math.abs(y - lastY) < 17)) continue;
       drawMiniBarb(ctx, ML + PW - 14, y, l.wind_spd, l.wind_dir, T.sonde);
+      lastY = y;
+    }
+    ctx.restore();
+  }
+  // ── Kivenlahti mast (FMI open data, from 2026-11-01): the lowest 300 m ────
+  // An amber temperature line with a point at each of its 8 levels and its 4
+  // winds as amber barbs inside the plot, a little left of the sonde's; a small
+  // label at its top.  Short on the full diagram, clear with Airport: Zoom.
+  function drawMastProfile(ctx, T) {
+    if (!miniMast) return;
+    const { ML, PW, MT, PH } = MSK;
+    const col = document.documentElement.dataset.theme === 'light' ? '#b45309' : '#f59e0b';
+    const L = miniMast.levels.filter(l => l.pressure != null);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ML, MT, PW, PH); ctx.clip();
+    const pts = L.filter(l => l.temp != null);
+    if (pts.length > 1) {
+      ctx.strokeStyle = col; ctx.lineWidth = 2.2; ctx.setLineDash([]);
+      ctx.beginPath();
+      pts.forEach((l, i) => { const x = mskX(l.temp, l.pressure), y = mskY(l.pressure); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      ctx.fillStyle = col;
+      for (const l of pts) { ctx.beginPath(); ctx.arc(mskX(l.temp, l.pressure), mskY(l.pressure), 2.2, 0, 2 * Math.PI); ctx.fill(); }
+      const top = pts[pts.length - 1];
+      ctx.font = '9px system-ui'; ctx.textAlign = 'left';
+      ctx.fillText(miniMast.label || 'mast', mskX(top.temp, top.pressure) + 6, mskY(top.pressure) - 4);
+    }
+    let lastY = null;
+    for (const l of L.slice().reverse()) {
+      if (l.wind_spd == null || l.wind_dir == null) continue;
+      const y = mskY(l.pressure);
+      if (y < MT + 4 || y > MT + PH - 2 || (lastY != null && Math.abs(y - lastY) < 12)) continue;
+      drawMiniBarb(ctx, ML + PW - 40, y, l.wind_spd, l.wind_dir, col);
       lastY = y;
     }
     ctx.restore();
@@ -1495,6 +1533,7 @@ function createSkewT(canvas, tip, cfg = {}) {
     // ── Radiosonde (when switched on) under the Mode S profiles ─────────────
     drawSondeProfile(ctx, T);
     drawMepsProfile(ctx, T);
+    drawMastProfile(ctx, T);
 
     // ── Area profile (all aircraft within the sounding radius, last 60 min) ──
     // Grey background reference; with no aircraft selected it is the profile
@@ -1885,6 +1924,7 @@ function createSkewT(canvas, tip, cfg = {}) {
       miniMeps = o.meps && o.meps.found && o.meps.levels && o.meps.levels.length ? o.meps : null;
       mepsNote = o.meps && !miniMeps ? mepsMissing(o.meps) : null;
     }
+    if ('mast' in o)         miniMast = o.mast && o.mast.levels && o.mast.levels.length ? o.mast : null;
     if ('rh' in o)           rhOn = !!o.rh;
     if ('moist' in o)        miniMoist = o.moist || null;
   }

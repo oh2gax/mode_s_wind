@@ -549,6 +549,18 @@ CREATE INDEX IF NOT EXISTS idx_pilot_reports_ts ON pilot_reports(ts);
 -- low-level temperatures 400–3000 ft, "tt" / "q" METAR temperature / QNH,
 -- "llj" low-level jet {ft, kt, dir, drop, sh} or null, "inv" surface inversion
 -- {dT, top} or null}.  About 1–1.5 kB a row; never purged.
+-- ── mast_obs ─────────────────────────────────────────────────────────────────
+-- The Kivenlahti mast (collector/mast.py, from 2026-11-01): FMI open data
+-- every 10 min — temperature, RH, dewpoint at 2 … 297 m and wind speed,
+-- direction and gust (m/s) at 26, 92, 217 and 327 m above the ground (44 m
+-- MSL).  One row per step (~300 bytes, 144 a day), never purged.
+CREATE TABLE IF NOT EXISTS mast_obs (
+    fmisid INTEGER NOT NULL,
+    ts     INTEGER NOT NULL,      -- observation time (UTC, Unix s)
+    data   TEXT    NOT NULL,      -- {"tl": [m], "t", "rh", "td": [per tl], "wl": [m], "ws", "wd", "wg": [per wl]}
+    PRIMARY KEY (fmisid, ts)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS bl_hours (
     ts   INTEGER PRIMARY KEY,   -- hour start (UTC, Unix s)
     data TEXT    NOT NULL

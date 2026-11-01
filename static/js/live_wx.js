@@ -55,6 +55,11 @@
  * medium / high cloud, cloud base, fog; the 2.5 km grid when available) and the
  * FMI radar's rain rate there (/api/weather/point).  « minimizes it to one line
  * (» opens it again); refreshed every 5 minutes and when the hour changes.
+ * Mast rows (from 2026-11-01 evening): the Kivenlahti mast's newest observation
+ * (/api/mast/profile; 24 km SW) — wind at 327 and 26 m, temperature at 297 and
+ * 2 m and their difference (the inversion) — with mast − MEPS (the model levels
+ * there, its 2 m temperature at the mast) and mast − Mode S (the airport's
+ * boundary layer of the hour, same height above the ground).
  * A third column (from 2026-11-01 evening) gives the difference to the newest
  * METAR of the airport (/api/wx): METAR − MEPS for the wind, gust, temperature,
  * pressure (MSL against the QNH) and cloud base, and the METAR's precipitation
@@ -232,17 +237,19 @@
   aptBox.style.display = 'none';
   L.DomEvent.disableClickPropagation(aptBox);
   L.DomEvent.disableScrollPropagation(aptBox);
-  let aptData = null, aptAt = 0, aptBusy = false, aptMet = null;
+  let aptData = null, aptAt = 0, aptBusy = false, aptMet = null, aptMast = null;
   async function loadApt(force) {
     if (!st.apt || aptBusy || document.hidden) return;
     const m = aptData && aptData.meps;
     if (!force && aptData && Date.now() - aptAt < 5 * 60 * 1000 && !(m && m.ts && Date.now() / 1000 > m.ts)) return;
     aptBusy = true;
     try {
-      const [r, w] = await Promise.all([fetch('/api/weather/point', { cache: 'no-store' }),
-                                        fetch('/api/wx', { cache: 'no-store' }).catch(() => null)]);
+      const [r, w, mp] = await Promise.all([fetch('/api/weather/point', { cache: 'no-store' }),
+                                            fetch('/api/wx', { cache: 'no-store' }).catch(() => null),
+                                            fetch('/api/mast/profile', { cache: 'no-store' }).catch(() => null)]);
       if (!r.ok) throw new Error(r.status);
       aptData = await r.json(); aptAt = Date.now();
+      try { const j = mp && mp.ok ? await mp.json() : null; aptMast = j && j.found ? j : null; } catch (_) { aptMast = null; }
       try { aptMet = w && w.ok ? parseMetar((await w.json()).metar) : aptMet; } catch (_) { /* keep the last one */ }
     } catch (e) {
       console.warn('Airport weather:', e);
@@ -347,6 +354,76 @@
     }
     return { rows, short: short.filter(Boolean).join(' · ') };
   }
+  // ── mast rows: mast − MEPS and mast − Mode S at the mast's heights (from 2026-11-01) ──
+  const lerp = (pts, h, gap) => {                          // pts [[h, v]] sorted, linear, null outside
+    pts = pts.filter(p => p[1] != null);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [h0, v0] = pts[i], [h1, v1] = pts[i + 1];
+      if (h0 <= h && h <= h1) return h1 - h0 > gap ? null : v0 + (v1 - v0) * (h1 === h0 ? 0 : (h - h0) / (h1 - h0));
+    }
+    const near = pts.find(p => Math.abs(p[0] - h) <= gap / 2);
+    return near ? near[1] : null;
+  };
+  const uvOf = (kt, d) => [-kt * Math.sin(d * Math.PI / 180), -kt * Math.cos(d * Math.PI / 180)];
+  function mWindAt(pts, h, gap) {                          // pts [[h, kt, dir]]
+    const ok = pts.filter(p => p[1] != null && p[2] != null).map(p => [p[0], ...uvOf(p[1], p[2])]);
+    const u = lerp(ok.map(p => [p[0], p[1]]), h, gap), v = lerp(ok.map(p => [p[0], p[2]]), h, gap);
+    return u == null || v == null ? null : [Math.hypot(u, v), (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360];
+  }
+  function mastRows() {
+    const M = aptMast;
+    if (!M || !M.obs) return null;
+    const o = M.obs, FT = 3.28084, top = o.wl.length - 1, tt = o.tl.length - 1;
+    const meps = (M.meps && M.meps.lv) || [];                  // [h_m, t, kt, dir]
+    const ms = M.modes, ae = ms ? (ms.apt_elev_ft || 179) : 179;
+    const msW = ms ? (ms.w || []).map(r => [r[0] - ae, r[1], r[2]]) : [];   // ft above the airport
+    const msT = ms ? (ms.t || []).map(r => [r[0] - ae, r[1]]) : [];
+    const wd = (a, b) => ((a - b + 540) % 360) - 180;
+    const wCell = (src, hm, kt, dir, name) => {
+      if (kt == null || dir == null || !src) return dCell('–', false, `no ${name} wind at this height`);
+      const dd = kt >= 3 && src[0] >= 3 ? Math.round(wd(dir, src[1])) : null, ds = Math.round(kt - src[0]);
+      return dCell(dd != null ? `${sgn(dd)}°/${sgn(ds)}` : sgn(ds), (dd != null && Math.abs(dd) >= 40 && kt >= 5) || Math.abs(ds) >= 5,
+        `${name} ${String(Math.round(src[1])).padStart(3, '0')}° ${Math.round(src[0])} kt; mast − ${name}: ` +
+        (dd != null ? `${Math.abs(dd)}° ${dd > 0 ? 'clockwise (veered)' : dd < 0 ? 'anticlockwise (backed)' : ''} from ${name}, ` : '') +
+        `${Math.abs(ds)} kt ${ds > 0 ? 'stronger' : ds < 0 ? 'weaker' : 'the same'}`);
+    };
+    const tCell = (v, src, name) => src == null || v == null ? dCell('–', false, `no ${name} temperature at this height`)
+      : dCell(sgn(v - src, 1), Math.abs(v - src) >= 2, `${name} ${src.toFixed(1)} °C; the mast ${Math.abs(v - src).toFixed(1)} °C ${v - src > 0 ? 'warmer' : v - src < 0 ? 'colder' : 'the same'}`);
+    const rows = [];
+    for (const i of [top, 0]) {
+      const hm = o.wl[i], kt = o.ws[i], dir = o.wd[i];
+      rows.push([`${hm} m`, kt != null ? `${String(Math.round(dir)).padStart(3, '0')}° ${Math.round(kt)} kt` : '–',
+        `mast wind at ${hm} m (${Math.round((hm + (M.elev_m || 44)) * FT)} ft MSL), gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}`,
+        wCell(mWindAt(meps.map(l => [l[0], l[2], l[3]]), hm, 60), hm, kt, dir, 'MEPS'),
+        wCell(mWindAt(msW, hm * FT, 260), hm, kt, dir, 'Mode S')]);
+    }
+    const mT = h => h <= 2 ? (M.meps_sfc && M.meps_sfc.t != null ? M.meps_sfc.t : null) : lerp(meps.map(l => [l[0], l[1]]), h, 60);
+    const sT = h => h < 60 ? null : lerp(msT, h * FT, 420);
+    for (const i of [tt, 0]) {
+      const hm = o.tl[i], v = o.t[i];
+      rows.push([`${hm} m`, v != null ? `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} °C` : '–', `mast temperature at ${hm} m`,
+        tCell(v, mT(hm), 'MEPS'), tCell(v, sT(hm), 'Mode S')]);
+    }
+    // the inversion: T(top) − T(2 m), and the same difference of the sources
+    const dT = o.t[tt] != null && o.t[0] != null ? o.t[tt] - o.t[0] : null;
+    const mdT = mT(o.tl[tt]) != null && mT(o.tl[0]) != null ? mT(o.tl[tt]) - mT(o.tl[0]) : null;
+    const sdT = sT(o.tl[tt]) != null && ms && ms.tt != null ? sT(o.tl[tt]) - ms.tt : null;
+    const stab = dT == null ? '' : dT > 0.3 ? 'inversion' : dT < -0.0098 * (o.tl[tt] - o.tl[0]) - 0.6 ? 'unstable' : 'no inversion';
+    rows.push([`ΔT ${o.tl[tt]}−${o.tl[0]}`, dT != null ? `${sgn(dT, 1)} K` : '–', `temperature difference ${o.tl[tt]} m − ${o.tl[0]} m: ${stab} (+ = warmer aloft, an inversion; dry-adiabatic ${(-0.0098 * (o.tl[tt] - o.tl[0])).toFixed(1)} K)`,
+      mdT == null || dT == null ? dCell('–', false, 'no MEPS values') : dCell(sgn(dT - mdT, 1), Math.abs(dT - mdT) >= 1.5, `MEPS ${sgn(mdT, 1)} K (model levels − its 2 m at the mast); the mast's inversion ${Math.abs(dT - mdT).toFixed(1)} K ${dT - mdT > 0 ? 'stronger' : 'weaker'}`),
+      sdT == null || dT == null ? dCell('–', false, 'no Mode S temperatures of the hour') : dCell(sgn(dT - sdT, 1), Math.abs(dT - sdT) >= 1.5, `Mode S ${sgn(sdT, 1)} K (aircraft at the same height − the METAR); the mast's ${Math.abs(dT - sdT).toFixed(1)} K ${dT - sdT > 0 ? 'more' : 'less'}`)]);
+    return { rows, o, ms };
+  }
+  function mastHtml() {
+    const R = mastRows();
+    if (!R) return '';
+    const t = new Date(R.o.ts * 1000), hh = `${pad2(t.getUTCHours())}:${pad2(t.getUTCMinutes())}`;
+    const cell = dc => `<td class="lwx-apt-d${dc && dc.big ? ' big' : ''}"${dc && dc.title ? ` title="${esc(dc.title)}"` : ''}>${dc ? esc(dc.txt) : ''}</td>`;
+    return `<table class="lwx-apt-mast"><tr class="lwx-apt-h"><td title="The Kivenlahti mast (FMI open data), 24 km south-west of the airport; heights above its ground">Mast ${hh}</td><td></td>`
+      + `<td title="Mast − MEPS (the model levels around the receiver; the 2 m temperature at the mast): + = the mast higher (warmer, stronger)">Δ MEPS</td>`
+      + `<td title="Mast − Mode S (the airport's boundary layer of the hour${R.ms ? ', ' + pad2(new Date(R.ms.ts * 1000).getUTCHours()) + ' UTC' : ''}, at the same height above the ground): + = the mast higher">Δ Mode S</td></tr>`
+      + R.rows.map(([k, x, t2, a, b]) => `<tr title="${esc(t2)}"><td>${k}</td><td>${x}</td>${cell(a)}${cell(b)}</tr>`).join('') + '</table>';
+  }
   function renderApt() {
     if (!st.apt) return;
     const d = aptData;
@@ -366,6 +443,7 @@
           + `${rows.map(([k, x, t, dc]) => `<tr${t ? ` title="${t}"` : ''}><td>${k}</td><td>${x}</td>`
             + (aptMet ? `<td class="lwx-apt-d${dc && dc.big ? ' big' : ''}"${dc && dc.title ? ` title="${esc(dc.title)}"` : ''}>${dc ? esc(dc.txt) : ''}</td>` : '')
             + '</tr>').join('')}</table>`
+          + mastHtml()
           + (m.error ? `<span>MEPS: ${esc(m.error)}</span><br>` : '')
           + `<span title="the model's forecast; the radar is observed">MEPS ${hh} UTC${r ? ` (${pad2(r.getUTCHours())} +${m.lead} h${m.km ? ', ' + m.km + ' km' : ''})` : ''}`
           + `${ra.ts ? `<br>radar ${fmtUtc(ra.ts)} UTC` : ''}</span>`;

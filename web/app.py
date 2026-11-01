@@ -1262,6 +1262,72 @@ def create_app(
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    # ── Kivenlahti mast (collector/mast.py, web/api/mast.py; from 2026-11-01) ──
+
+    def _gz(resp):
+        import gzip as _gzip
+        if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+            resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
+            resp.headers["Content-Encoding"] = "gzip"
+            resp.headers["Vary"] = "Accept-Encoding"
+        return resp
+
+    def _span():
+        """?hours= (default 24, at most 31 days) ending at ?end= (default now)."""
+        end = request.args.get("end", type=float) or time.time()
+        hrs = max(1.0, min(744.0, request.args.get("hours", 24.0, type=float)))
+        start = request.args.get("start", type=float) or end - hrs * 3600
+        return start, end
+
+    @app.route("/api/mast")
+    def mast_api():
+        """The mast's 10-minute observations of a period (Mast tab charts)."""
+        from web.api import mast as _ma
+        start, end = _span()
+        return _gz(jsonify(_ma.series(get_db(), start, end)))
+
+    @app.route("/api/mast/hourly")
+    def mast_hourly_api():
+        """Hour means of the mast (the Time–height strip)."""
+        from web.api import mast as _ma
+        start, end = _span()
+        return _gz(jsonify(_ma.hourly(get_db(), start, end)))
+
+    @app.route("/api/mast/profile")
+    def mast_profile_api():
+        """The mast at ?at= (default now) with MEPS, the Mode S boundary layer and the sonde."""
+        from web.api import mast as _ma
+        return jsonify(_ma.profile(get_db(), request.args.get("at", type=float)))
+
+    @app.route("/api/mast/compare")
+    def mast_compare_api():
+        """Source − mast per level over ?days= (1–90, default 7)."""
+        from web.api import mast as _ma
+        days = max(1.0, min(90.0, request.args.get("days", 7.0, type=float)))
+        return jsonify(_ma.compare(get_db(), days))
+
+    @app.route("/api/maintenance/mast/status", methods=["POST"])
+    def maintenance_mast_status():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import mast as _mast
+        f = _mast.get()
+        return jsonify(f.status(get_db()) if f else {"error": "not running",
+                                                    "settings": _mast.get_settings(get_db())})
+
+    @app.route("/api/maintenance/mast/config", methods=["POST"])
+    def maintenance_mast_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import mast as _mast
+        s = _mast.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None)
+        f = _mast.get()
+        if data.get("fetch_now") and f and s["enabled"]:
+            threading.Thread(target=f.look, args=("manual",), name="mast_now", daemon=True).start()
+        return jsonify({"ok": True, "settings": s})
+
     @app.route("/api/radar/latest")
     def radar_latest_api():
         """The newest FMI radar composite (rain rate, web/api/radar.py): fetched

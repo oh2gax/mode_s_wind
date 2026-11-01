@@ -16,6 +16,7 @@
         <button class="snd-mode-btn" data-mode="th" title="Time–height cross-section: the hourly area profiles side by side (time across, height up) — fronts, inversions, jets and the daily cycle at a glance">Time–height</button>
         <button class="snd-mode-btn" data-mode="verif" title="Automatic verification: the Mode S area profile compared with every stored Jokioinen radiosonde, and how the difference grows as a sounding ages">Sonde check</button>
         <button class="snd-mode-btn" data-mode="meps" title="The Mode S area profile compared every hour with the MEPS weather model (MET Norway open data) over the same area: temperature, wind and heights of the pressure surfaces by level — also at night and between the soundings — and, at each sounding, how much of the difference to the radiosonde is the distance to Jokioinen">MEPS check</button>
+        <button class="snd-mode-btn" data-mode="mast" title="The Kivenlahti mast (FMI open data, every 10 minutes): wind at 26, 92, 217 and 327 m and temperature at 2–297 m above the ground, 24 km south-west of the airport — its profile with the Mode S boundary layer at the airport, the MEPS model and the sounding, the time series, and how the three compare with it">Mast</button>
       </span>
 
       <span class="snd-ctl" id="snd-verif-ctl">
@@ -37,6 +38,24 @@
         <label class="toggle-label" title="Only hours with at least 8 aircraft behind the area profile (daytime traffic): the comparison is then about the measurement, less about the sampling of the few night-time aircraft"><input type="checkbox" id="mc-busy"> ≥ 8 aircraft</label>
       </span>
 
+      <span class="snd-ctl" id="snd-mast-ctl" style="display:none">
+        <span class="snd-mode-btns" id="mt-hours-btns" title="Period of the time series">
+          <button class="snd-mode-btn" data-h="24">24 h</button>
+          <button class="snd-mode-btn" data-h="72">3 d</button>
+          <button class="snd-mode-btn" data-h="168">7 d</button>
+        </span>
+        <span class="th-ctl-lbl">Profile with</span>
+        <label class="toggle-label" title="The Mode S boundary layer at the airport (24 km north-east): winds in 250-ft bins and temperatures in 200-ft bands of the hour, at the same height above the ground"><input type="checkbox" id="mt-modes"> Mode S</label>
+        <label class="toggle-label" title="The MEPS model on its own levels (the area mean around the receiver; heights above the ground) and its 2 m temperature at the mast (□)"><input type="checkbox" id="mt-meps"> MEPS</label>
+        <label class="toggle-label" title="The newest Jokioinen sounding of the last 12 hours (100 km north-west, inland), heights above its ground"><input type="checkbox" id="mt-sonde"> Sonde</label>
+        <button id="mt-now" class="snd-mode-btn" type="button" title="The newest observation (a click on the time series picks another)">Newest</button>
+        <span class="th-ctl-lbl">Compare</span>
+        <span class="snd-mode-btns" id="mt-days-btns" title="Period of the comparison tables">
+          <button class="snd-mode-btn" data-days="7">7 d</button>
+          <button class="snd-mode-btn" data-days="30">30 d</button>
+          <button class="snd-mode-btn" data-days="90">90 d</button>
+        </span>
+      </span>
       <span class="snd-ctl" id="snd-th-ctl">
         <select id="th-hours" class="filter-input" title="Length of the section">
           <option value="24">24 h</option>
@@ -75,6 +94,8 @@
         <label class="toggle-label" title="Tropopause (magenta dashed): the lowest level above 5 km where the lapse rate falls to 2 K/km or less and stays so for 2 km (WMO), from the ±1 h smoothed layer temperatures — only where the aircraft data reach above it"><input type="checkbox" id="th-tp"> Tropopause</label>
         <label class="toggle-label" title="Height of the strongest wind above 10 000 ft in each hour (yellow), when it is at least 50 kt — the jet core"><input type="checkbox" id="th-vmax"> Max wind</label>
         <label class="toggle-label" title="Each Jokioinen sounding as its own narrow column at its launch time (pink frame), in the same colour field — temperature anomaly, wind speed, lapse rate, height of the pressure surfaces or moisture; hover for the sonde values against the aircraft"><input type="checkbox" id="th-sondecol"> Sonde</label>
+        <label class="toggle-label" title="The Kivenlahti mast in its own strip under the section (from 1 Nov 2026): hourly wind barbs at 26, 92, 217 and 327 m and the stability of the lowest 300 m as the background (violet: inversion, blue: stable, none: well mixed, orange: unstable); hover for the values"><input type="checkbox" id="th-mast"> Mast</label>
+        <label class="toggle-label" title="The mast inside the section (from 1 Nov 2026): with the boundary-layer fields a narrow column at the right of each hour in the field's colours — its temperature against the METAR at 2–297 m, or its wind speed at 26–327 m — with an amber cap; with Barbs on, its hourly winds as amber barbs at their heights (ft MSL) on any field"><input type="checkbox" id="th-mastov"> Mast in graph</label>
         <label class="toggle-label" title="Boundary layer at the airport on any field: the low-level jet (◆ with its speed in kt, joined hour to hour) and the surface inversion (red, from the ground to its top; red bar along the bottom) — research"><input type="checkbox" id="th-bl"> Boundary layer</label>
         <button id="th-png" class="snd-mode-btn" type="button" title="Save the picture as a PNG file">PNG</button>
       </span>
@@ -228,6 +249,40 @@
     </div>
   </div>
 
+  <!-- Mast: the Kivenlahti mast (collector/mast.py, static/js/mast.js; from 2026-11-01) -->
+  <div id="snd-mast" class="snd-verif" style="display:none">
+    <div class="sv-tiles" id="mt-tiles"></div>
+    <div class="sv-row">
+      <div class="sv-panel mt-prof-panel">
+        <div class="panel-header" title="One mast observation (amber: temperature at its 8 levels, wind barbs at its 4) with the other sources at the same height above the ground, in ft MSL of the mast site; the dashed grey line is the dry adiabat through the 2 m temperature — steeper is unstable, to the right of it stable, warmer aloft an inversion">Profile, 0–1 500 ft</div>
+        <div class="sv-chart" id="mt-profile"></div>
+        <div class="mt-legend" id="mt-profile-legend"></div>
+      </div>
+      <div class="sv-panel">
+        <div class="panel-header">Time series (click: the profile of that time)</div>
+        <div class="sv-chart mt-series-box"><div id="mt-series"></div><div id="mt-tip" class="mini-skewt-tip" style="display:none"></div></div>
+      </div>
+    </div>
+    <div class="sv-row">
+      <div class="sv-panel">
+        <div class="panel-header" title="Source − mast at each mast level: Mode S = the airport's boundary-layer hour (hour mean against the mast's hour mean, same height above the ground, 24 km apart); MEPS = the model levels at the full hour (area mean around the receiver); Sonde = Jokioinen at the launch (100 km). Amber: speed 5 kt or more, vector 10 kt or more">Wind: source − mast</div>
+        <div class="sv-scroll"><table class="data-table compact" id="mt-compare"></table></div>
+      </div>
+      <div class="sv-panel">
+        <div class="panel-header" title="Source − mast temperature (K) at each mast level; Mode S from 400 ft MSL up (the airport's 200-ft bands), MEPS from its lowest model level (about 12 m). Amber: 1.5 K or more">Temperature: source − mast</div>
+        <div class="sv-scroll"><table class="data-table compact" id="mt-compare-t"></table></div>
+      </div>
+    </div>
+    <div class="sounding-note">
+      <span id="mt-compare-sfc"></span><br>
+      The Kivenlahti mast (FMI station Espoo Latokaski, 327 m) stands 24 km south-west of the airport, near the extended
+      centreline of runways 04: the aircraft pass it at about 4 000 ft, so the Mode S comparison is with the boundary layer
+      measured near the airport at the same height above the ground — the same air, but a coastal site against an inland
+      one (sea breeze, night inversions). Heights: mast metres above its ground (44 m MSL); ft MSL = (m + 44) × 3.28.
+      Every 10 minutes from FMI open data (CC BY 4.0), fetched by the server and kept for good.
+    </div>
+  </div>
+
   <div class="sounding-layout">
 
     <!-- Skew-T: the same diagram as the Live Map Atmosphere Profile (skewt_chart.js) -->
@@ -241,6 +296,7 @@
           <option value="auto">Auto</option>
         </select>
         <label class="toggle-label" title="MEPS weather model (MET Norway open data, 2.5 km; the mean over the same area as the Mode S profile): temperature (teal line), dewpoint (teal dashed) and winds (teal barbs inside the right edge) on the model levels (the 10 standard pressure levels when those are missing). Area · now: the newest model hours (a forecast of up to +5 h, marked in the label); Area · hour and Flight: the model at that time. The label gives the run and the difference of the area profile from the model. The setting is shared with the Live Map."><input type="checkbox" id="skewt-meps"> MEPS</label>
+        <label class="toggle-label" title="The Kivenlahti mast (FMI open data, 24 km south-west of the airport): its temperature at 2–297 m above the ground (amber line and points) and its winds at 26–327 m (amber barbs) — the lowest 300 m only, so best seen with Airport: Zoom. Area · now: the newest observation; Area · hour: the middle of the hour; Flight: the flight's time. Pressures from the METAR QNH"><input type="checkbox" id="skewt-mast"> Mast</label>
         <label class="toggle-label" title="Trial moisture indicator: a narrow RH strip between the diagram and the wind barbs. Brown / green / blue bars = dry / moist / humid for 1 000–5 000, 5 000–10 000 and 10 000–15 000 ft from the aircraft themselves (index ≈ relative humidity, from the thickness of climbs and descents minus the Mach/TAS temperature, flights of ±1–2 h, offsets learnt from the MEPS model humidity, or without it from the soundings; faint: uncertain). With Sonde on, the radiosonde's relative humidity is drawn as a pink line in the strip, with MEPS on the model's as a teal line. A first trial — hover the strip for the values. Not for a single flight. The setting is shared with the Live Map."><input type="checkbox" id="skewt-rh"> RH</label>
         <button id="skewt-ana-btn" class="skewt-ana-btn" type="button"
                 title="Automatic analysis of the shown profile. Click (or scroll the mouse wheel over the button) to step: Off → Levels (tropopause, 0 °C level, max wind / jet, low-level jet) → Stability (+ −10 / −20 °C levels, inversions, stability strip at the left: red unstable, amber conditionally unstable, green stable, violet inversion) → Turbulence (+ wind shear / turbulence risk from the Richardson number) → Advection (+ warm / cold air advection from the wind turning with height, contrail formation levels and Schmidt–Appleman threshold curves) → Full (+ dry thermal top: the METAR surface temperature lifted along the dry adiabat; with the METAR dewpoint the surface parcel: LCL / cumulus base compared with the METAR cloud group, CAPE / CIN, Lifted Index, equilibrium level; Area · now, and Area · hour from 11 Oct 2026 when a METAR was stored with the hour). Temperature and wind only — no humidity data. With 'Analysis of' MEPS or Sonde (below the diagram) the same analysis is computed from the model or the sounding instead, with its own surface point and humidity. The setting is shared with the Live Map.">Analysis: Off</button>
@@ -326,6 +382,7 @@
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/timeheight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mast.js') }}"></script>
 <script src="{{ url_for('static', filename='js/sounding.js') }}"></script>
 
 <style>
@@ -352,6 +409,11 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 [data-theme="light"] .snd-dev { color:#b45309; }
 #sonde-pick { display:none; }
 .snd-verif { display:flex; flex-direction:column; gap:14px; }
+/* Mast tab (from 2026-11-01) */
+.mt-prof-panel { flex:0 0 520px; max-width:45%; }
+.mt-legend { font-size:11px; padding:0 10px 8px; line-height:1.6; }
+.mt-series-box { position:relative; }
+@media (max-width: 1100px) { .mt-prof-panel { flex:1 1 100%; max-width:none; } }
 /* Time–height section */
 .snd-th { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; --th-sonde:#f472b6; }
 [data-theme="light"] .snd-th { --th-sonde:#be185d; }

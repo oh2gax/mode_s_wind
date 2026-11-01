@@ -31,6 +31,11 @@
  * draws the boundary layer (BL view, from 2026-10-29, see below); from
  * 2026-10-31 also flight by flight (field 'blh' / 'bld' / 'bls', fl from
  * /api/boundary/flights) as in the Sounding page's Time–height section.
+ * d.mast (from 2026-11-01, the Windshear page's Mast button): the Kivenlahti
+ * mast's hour means (/api/mast/hourly) drawn on the wind and temperature fields
+ * as a narrow column at the right of each hour (its speeds, or its temperature
+ * against the surface — the METAR of the hour, else its own 2 m — at its
+ * heights, ft MSL of the mast site), with an amber cap on top.
  */
 'use strict';
 
@@ -926,6 +931,37 @@ const WsCondChart = (() => {
       }
     }
     ctx.restore();
+    // the Kivenlahti mast (from 2026-11-01): a narrow column at the right of each hour
+    const mastRows = !isFl && Array.isArray(d.mast) ? d.mast.filter(m => m.ts * 1000 >= t0 - 3_600_000 && m.ts * 1000 <= nowMs) : [];
+    if (mastRows.length) {
+      const mc = light ? '#b45309' : '#f59e0b', E = d.mastElev || 44, mft = m => (m + E) * 3.28084;
+      const byTs = new Map(rows.map(r => [r.ts, r]));
+      ctx.save(); ctx.beginPath(); ctx.rect(L, T, PW, PH); ctx.clip();
+      for (const m of mastRows) {
+        const x = xOf(m.ts * 1000), x1 = xOf(m.ts * 1000 + 3_600_000), w = Math.max(3, (x1 - x) * 0.38), x0 = x1 - w;
+        const lv = field === 'temp' ? m.tl : m.wl;
+        const blr = byTs.get(m.ts), ref = field === 'temp' ? (blr && blr.tt != null ? blr.tt : m.t[0]) : null;
+        for (let i = 0; i < lv.length; i++) {
+          const v = field === 'temp' ? m.t[i] : m.ws[i];
+          if (v == null || (field === 'temp' && ref == null)) continue;
+          const fa = i ? (mft(lv[i - 1]) + mft(lv[i])) / 2 : mft(0);
+          const fb = i < lv.length - 1 ? (mft(lv[i]) + mft(lv[i + 1])) / 2 : mft(lv[i]) + (mft(lv[i]) - fa);
+          const ya = yOf(fb), yb = yOf(fa);
+          ctx.fillStyle = field === 'temp' ? _dtCol(v - ref, light) : _spdCol(v);
+          ctx.fillRect(x0, ya, w, yb - ya + 0.5);
+          dots.push({ x: x0 + w / 2, y: (ya + yb) / 2, dotR: Math.max(3, Math.min(w, yb - ya) / 2), color: mc,
+            label: `${_hm(m.ts)}–${_hm(m.ts + 3600)}Z Kivenlahti mast ${lv[i]} m (${Math.round(mft(lv[i]))} ft MSL): ` +
+              (field === 'temp' ? `${v.toFixed(1)} °C, ${v - ref >= 0 ? '+' : ''}${(v - ref).toFixed(1)} K against the surface (${blr && blr.tt != null ? `METAR ${blr.tt} °C` : 'its 2 m'})`
+                                : `${m.wd[i] != null ? String(Math.round(m.wd[i])).padStart(3, '0') + '°/' : ''}${Math.round(v)} kt, gust ${m.wg[i] != null ? Math.round(m.wg[i]) + ' kt' : '–'}`) +
+              ' (hour mean; 24 km SW of the airport)' });
+        }
+        // a thin gap on the left and an amber cap on top mark the column as the mast's
+        const top = yOf(mft(lv[lv.length - 1]) + 60), bot = yOf(mft(0));
+        ctx.fillStyle = CT.roseBg; ctx.fillRect(x0 - 1, top, 1, bot - top);
+        ctx.fillStyle = mc; ctx.fillRect(x0, top - 1, w, 2);
+      }
+      ctx.restore();
+    }
     // axes
     ctx.strokeStyle = CT.roseRing; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, PW, PH);
     ctx.font = '9px "Courier New",monospace'; ctx.fillStyle = CT.roseLabel; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -999,8 +1035,17 @@ const WsCondChart = (() => {
         : `shear ${sw(_shFill(-3))}−3 ${sw(_shFill(-1.5))}−1.5 ±0.7 ${sw(_shFill(1.5))}+1.5 ${sw(_shFill(3))}+3 kt / 100 ft`;
       const second = isFl ? `${wrRangeLabel(hours)}: ${flN.nA} landings · ${flN.nD} departures · jet ${nj} h · inversion ${ni} h`
                           : `${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h`;
-      readout.innerHTML = `Last hour: ${now}<br>${second} <span class="ws-research-tag">research</span>` +
-        `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key}${isFl ? ' · □ windshear alert' : ''} · ▨ no flights</span>`;
+      // the mast's last hour (from 2026-11-01): the stability of its lowest 300 m
+      let mastTxt = '';
+      const lm = mastRows.length ? mastRows[mastRows.length - 1] : null;
+      if (lm && lm.t && lm.t.length > 1 && lm.t[0] != null && lm.t[lm.t.length - 1] != null) {
+        const dT = lm.t[lm.t.length - 1] - lm.t[0], top = lm.tl[lm.tl.length - 1];
+        mastTxt = ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">mast ${_hm(lm.ts)}Z: ${top} m ${dT >= 0 ? '+' : ''}${dT.toFixed(1)} K` +
+          `${dT > 0.3 ? ' (inversion)' : ''}</span>`;
+      }
+      readout.innerHTML = `Last hour: ${now}${mastTxt}<br>${second} <span class="ws-research-tag">research</span>` +
+        `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key}${isFl ? ' · □ windshear alert' : ''}` +
+        `${mastRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">▯ Kivenlahti mast</span>` : ''} · ▨ no flights</span>`;
     }
     return dots;
   }

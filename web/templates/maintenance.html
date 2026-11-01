@@ -388,6 +388,26 @@
       </div>
     </div>
 
+    <!-- ── Kivenlahti mast (collector/mast.py, 2026-11-01) ───────────────── -->
+    <div class="maint-section" id="mast-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Kivenlahti Mast (FMI open data)</span>
+        <span class="maint-section-note">Wind at 26–327 m and temperature at 2–297 m every 10 minutes for the Sounding page's Mast tab, the Time–height strip and the Live Map's airport box. Needs internet — when it is off or fails, the stored observations stay.</span>
+        <button id="mast-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-panel-title">Status</div>
+        <div class="regdb-kv" id="mast-status"><span class="maint-hint">—</span></div>
+        <div class="maint-row regdb-row2">
+          <label class="maint-check"><input type="checkbox" id="mast-enabled"> Fetch every 10 minutes</label>
+          <button id="mast-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="mast-now-btn" class="maint-btn">Fetch now</button>
+        </div>
+        <div class="maint-hint">After a start or a break the last 7 days are fetched (6-hour pieces); the observations are kept for good (about 15 MB a year). Off: no network requests at all — the off-grid station runs exactly as before.</div>
+        <div id="mast-op-status" class="maint-op-status"></div>
+      </div>
+    </div>
+
   </div><!-- #maint-body -->
 
 </div>

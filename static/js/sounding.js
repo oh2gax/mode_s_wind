@@ -16,6 +16,7 @@ const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Ful
 const MODE_NOTES = {
   th:     'Time–height: the hourly area profiles side by side.',
   verif:  'Sonde check: the Mode-S area profile compared with the radiosonde — at launch (±1 h) and hour by hour as the sounding ages.',
+  mast:   'Mast: the Kivenlahti mast (FMI open data) against the Mode S boundary layer, MEPS and the sounding.',
   meps:   'MEPS check: the Mode-S area profile compared with the MEPS weather model every hour, by pressure level, and the distance effect at the soundings.',
   area:   'Area: all aircraft within the radius over the selected window.',
   hour:   'Hourly archive: stored once per completed UTC hour (from 9 Oct 2026), also after the observations are purged.',
@@ -42,6 +43,8 @@ let sndSondeSeq = 0;     // request counter
 let sndLastTable = null; // [levels, header] of the table (refilled when the sonde arrives)
 let dqShow     = _lsGet('ms_skewtDq', 'true') !== 'false';   // data-validity indicator
 let mepsShow   = _lsGet('ms_skewtMeps', 'false') === 'true';   // MEPS model profile (default off)
+let mastShow   = _lsGet('ms_skewtMast', 'false') === 'true';   // Kivenlahti mast (from 2026-11-01, default off)
+let sndMast = null, sndMastSeq = 0;
 let sndMeps    = null;   // /api/meps/profile response for the shown profile
 let sndMepsAt  = null;   // time the model profile is taken at (Unix s; null = now)
 let sndMepsSeq = 0;
@@ -67,7 +70,7 @@ function syncChart() {
   skewt.set({ area: sndProfile, low: sndLow, aptMode, anaLevel, anaSrc, smooth: areaSmooth,
               sfc: sndSfc, ac: null, profileTitle: sndTitle, hint: sndHint, dq: dqShow,
               sonde: sondeShow ? sndSonde : null, sondeRef: sndSondeRef,
-              meps: mepsShow ? sndMeps : null,
+              meps: mepsShow ? sndMeps : null, mast: mastShow ? sndMast : null,
               rh: rhShow, moist: rhShow && sndProfile && sndMode !== 'flight' ? sndProfile.moisture || null : null });
 }
 function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
@@ -247,7 +250,7 @@ async function fetchLow(qs) {
 
 // ── Source selection (area now / hourly archive / flight) ─────────────────
 function setMode(mode) {
-  sndMode = ['area', 'hour', 'flight', 'th', 'verif', 'meps'].includes(mode) ? mode : 'area';
+  sndMode = ['area', 'hour', 'flight', 'th', 'verif', 'meps', 'mast'].includes(mode) ? mode : 'area';
   _lsSet('ms_snd_mode', sndMode);
   document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === sndMode));
@@ -256,16 +259,20 @@ function setMode(mode) {
   document.getElementById('snd-flight-ctl').style.display = sndMode === 'flight' ? '' : 'none';
   document.getElementById('snd-verif-ctl').style.display  = sndMode === 'verif'  ? '' : 'none';
   document.getElementById('snd-meps-ctl').style.display   = sndMode === 'meps'   ? '' : 'none';
+  document.getElementById('snd-mast-ctl').style.display   = sndMode === 'mast'   ? '' : 'none';
   document.getElementById('snd-th-ctl').style.display     = sndMode === 'th'     ? '' : 'none';
   // Sonde check and Time–height replace the diagram and the level table
-  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th' || sndMode === 'meps') ? 'none' : '';
+  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th' || sndMode === 'meps' || sndMode === 'mast') ? 'none' : '';
   document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
   document.getElementById('snd-meps').style.display = sndMode === 'meps' ? '' : 'none';
+  document.getElementById('snd-mast').style.display = sndMode === 'mast' ? '' : 'none';
+  if (window.MastView) MastView.active(sndMode === 'mast');
   document.getElementById('snd-th').style.display = sndMode === 'th' ? '' : 'none';
   document.getElementById('sounding-meta').textContent = '';
   document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
   if (sndMode === 'verif') { loadVerification(); return; }
   if (sndMode === 'meps') { loadMepsCheck(); return; }
+  if (sndMode === 'mast') { MastView.load(); return; }
   document.getElementById('flight-banner').classList.add('hidden');
   if (sndMode === 'th') { TimeHeight.load(); return; }
   if (sndMode === 'hour') loadHourList();
@@ -292,6 +299,7 @@ function metaLoading(meta) {
 function loadCurrent() {
   if (sndMode === 'verif')  return loadVerification();
   if (sndMode === 'meps')   return loadMepsCheck();
+  if (sndMode === 'mast')   return MastView.load();
   if (sndMode === 'th')     return TimeHeight.load();
   if (sndMode === 'area')   return loadAreaSounding();
   if (sndMode === 'hour')   return loadHourSounding();
@@ -369,6 +377,7 @@ async function fetchSonde(at, ref) {
 // (null = now: the newest model hours, a forecast of up to +5 h)
 async function fetchMeps(at) {
   sndMepsAt = at != null ? at : null;
+  fetchMast(sndMepsAt);
   if (!mepsShow) { sndMeps = null; drawChart(); return; }
   const req = ++sndMepsSeq;
   try {
@@ -377,6 +386,32 @@ async function fetchMeps(at) {
     if (req !== sndMepsSeq) return;
     sndMeps = d;
   } catch (_) { sndMeps = null; }
+  drawChart();
+}
+
+// The Kivenlahti mast at the time of the shown profile (from 2026-11-01): the
+// observation at or before it; pressures from the METAR QNH (standard atmosphere
+// from the mast's height above sea level)
+async function fetchMast(at) {
+  if (!mastShow) { sndMast = null; return; }
+  const req = ++sndMastSeq;
+  try {
+    const d = await (await fetch('/api/mast/profile' + (at != null ? `?at=${Math.round(at)}` : ''))).json();
+    if (req !== sndMastSeq) return;
+    if (!d.found) { sndMast = null; drawChart(); return; }
+    const o = d.obs, e = d.elev_m || 44;
+    const qnh = (sndSfc && sndSfc.qnh) || (wxSfc && wxSfc.qnh) || 1013.25;
+    const p = m => qnh * Math.pow(1 - 2.25577e-5 * (m + e), 5.25588);
+    const lv = [];
+    const hs = [...new Set([...o.tl, ...o.wl])].sort((a, b) => a - b);
+    for (const h of hs) {
+      const i = o.tl.indexOf(h), k = o.wl.indexOf(h);
+      lv.push({ pressure: p(h), h_m: h, temp: i >= 0 ? o.t[i] : null, dewpoint: i >= 0 ? o.td[i] : null,
+                wind_spd: k >= 0 ? o.ws[k] : null, wind_dir: k >= 0 ? o.wd[k] : null });
+    }
+    const t = new Date(o.ts * 1000);
+    sndMast = { levels: lv, ts: o.ts, label: `mast ${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}` };
+  } catch (_) { sndMast = null; }
   drawChart();
 }
 
@@ -643,6 +678,15 @@ if (rhChk) {
     else drawChart();
   });
 }
+const mastChk = document.getElementById('skewt-mast');
+if (mastChk) {
+  mastChk.checked = mastShow;
+  mastChk.addEventListener('change', e => {
+    mastShow = e.target.checked;
+    _lsSet('ms_skewtMast', String(mastShow));
+    if (mastShow) fetchMast(sndMepsAt); else { sndMast = null; drawChart(); }
+  });
+}
 const mepsChk = document.getElementById('skewt-meps');
 if (mepsChk) {
   mepsChk.checked = mepsShow;
@@ -682,6 +726,7 @@ window.onThemeChange = () => {
   drawChart();
   if (sndMode === 'verif') renderVerification();
   if (sndMode === 'meps') renderMepsCheck();
+  if (sndMode === 'mast') MastView.render();
   if (sndMode === 'th') TimeHeight.render();
 };
 

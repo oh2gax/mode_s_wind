@@ -3173,6 +3173,7 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .lwx-apt tr.lwx-apt-h td:last-child { text-align: right; }
 .lwx-apt td.lwx-apt-d { color: var(--text-2); text-align: right; padding-left: 4px; }
 .lwx-apt td.lwx-apt-d.big { color: #fbbf24; }
+.lwx-apt table.lwx-apt-mast { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 2px; }   /* the mast rows (from 2026-11-01) */
 [data-theme="light"] .lwx-apt td.lwx-apt-d.big { color: #b45309; }
 .lwx-apt td:first-child { color: var(--text-3); }
 .lwx-apt.min { white-space: nowrap; }

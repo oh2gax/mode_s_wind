@@ -62,6 +62,14 @@
  * ground to its top) on any field.  "PNG" saves the
  * picture.  Hover for values; click a column to open that
  * hour on the Skew-T (Area · hour).
+ * Mast (from 2026-11-01, /api/mast/hourly — the Kivenlahti mast, collector/
+ * mast.py): "Mast" adds its own strip under the section (hourly barbs at 26,
+ * 92, 217 and 327 m, the background the stability of the lowest 300 m:
+ * violet inversion, orange super-adiabatic); "Mast in graph" draws its hourly
+ * values inside the section too — on the boundary-layer temperature field a
+ * narrow column at the right of each hour in the field's colours (temperature
+ * − METAR at its 8 levels: the inversions), on the boundary-layer wind field
+ * its speeds, and on every field its barbs (amber) at their heights.
  *
  * window.TimeHeight = { init(opts), load(), render(), setOpenHour(fn) }
  */
@@ -87,11 +95,17 @@
     sondeCol: lsGet('ms_th_sondecol', 'false') === 'true',
     bl: lsGet('ms_th_bl', 'false') === 'true',            // boundary-layer overlay (jet, inversion)
     flk: lsGet('ms_th_flk', 'all'),                         // blh / bld: all flights, landings (a) or departures (d)
+    mast: lsGet('ms_th_mast', 'false') === 'true',          // the mast strip under the section (from 2026-11-01)
+    mastOv: lsGet('ms_th_mastov', 'false') === 'true',      // the mast's values inside the section
     endDate: '',                       // '' = now, else YYYY-MM-DD (period ends at 24 UTC of it)
   };
   let geo = null;                       // last drawn geometry, for hover / click
   // boundary layer (/api/boundary): rows {ts, w: [[ft, kt, dir, n]], t: [[ft, °C, n]], tt, q, llj, inv, partial}
   let blRows = null, blKey = '', blAt = 0;
+  // the Kivenlahti mast, hour means (/api/mast/hourly): {ts, tl, t, rh, td, wl, ws (kt), wd, wg}
+  let mastRows = null, mastKey = '', mastAt = 0, mastElev = 44;
+  const needMast = () => st.mast || st.mastOv;
+  const mastFt = m => (m + mastElev) * 3.28084;
   const BL_TOP = 5000;
   const blTop = () => BL_TOP;   // the temperatures reach 5 000 ft too (the climb-outs, from 30 Oct 2026; 3 000 ft before)
   // wind speed of the boundary layer: the colours of the Windshear page's chart (blue … green … yellow … red)
@@ -403,7 +417,8 @@
     if (!data) { g.fillStyle = C.ink2; g.font = '13px system-ui'; g.fillText('Loading…', 20, 30); return; }
     const P = prep(data);
     const BLF = isBL();
-    const ml = 62, mr = 58, mt = 30, mb = 64, stripH = 22;
+    const MAST_H = 62;
+    const ml = 62, mr = 58, mt = 30, mb = 64 + (st.mast ? MAST_H + 16 : 0), stripH = 22;
     const pw = W - ml - mr, ph = H - mt - mb;
     if (pw < 100 || ph < 100) return;
     let topL = 0, y;
@@ -558,6 +573,8 @@
     };
     if (st.tp && !BLF) runLine('tp', C.tp, 2.2, [7, 4], 'TP');
     if (st.vmax && !BLF) runLine('vm', C.vmax, 2.2, [], 'Vmax');
+    // the mast's values inside the section (from 2026-11-01)
+    if (st.mastOv && BLF) drawMastCols(g, L, C, P);
     // wind barbs
     if (st.barbs && BLF) drawBlBarbs(g, L, C, P);
     else if (st.barbs) {
@@ -581,6 +598,7 @@
         }
       }
     }
+    if (st.mastOv && st.barbs && !isFL()) drawMastBarbs(g, L, C, P, BLF);
     // boundary layer: the low-level jet and the surface inversion
     if (BLF || st.bl) drawBlMarks(g, L, P, BLF);
     // the hour in progress: hatch edge
@@ -611,6 +629,108 @@
     g.fillStyle = C.ink2; g.textAlign = 'right'; g.font = '10px system-ui';
     g.fillText('aircraft', ml - 6, sy + 10); g.fillText(`/h (max ${amax})`, ml - 6, sy + 21);
     geo.strip = [sy, stripH];
+    geo.mast = null;
+    if (st.mast) drawMastStrip(g, L, C, P, sy + stripH + 14, MAST_H);
+  }
+
+  // ── Kivenlahti mast (from 2026-11-01) ───────────────────────────────────
+  const mastIn = P => (mastRows || []).filter(r => r.ts >= P.start && r.ts < P.end);
+  const MAST_C = L => L ? '#b45309' : '#f59e0b';
+  // stability of the lowest 300 m: T(top) − T(2 m) against the dry adiabat
+  function mastStab(r) {
+    const n = (r.tl || []).length;
+    if (n < 2 || r.t[n - 1] == null || r.t[0] == null) return null;
+    const dT = r.t[n - 1] - r.t[0], dry = -0.0098 * (r.tl[n - 1] - r.tl[0]);
+    return { dT, dry, cls: dT > 0.3 ? 'inv' : dT > dry + 0.6 ? 'stable' : dT < dry - 0.6 ? 'unstable' : 'mixed' };
+  }
+  function mastStabFill(s, L) {
+    if (!s) return null;
+    if (s.cls === 'inv') return `rgba(124,58,237,${(0.25 + 0.6 * Math.min(1, s.dT / 4)).toFixed(2)})`;
+    if (s.cls === 'unstable') return `rgba(234,88,12,${(0.25 + 0.5 * Math.min(1, (s.dry - s.dT) / 2)).toFixed(2)})`;
+    if (s.cls === 'stable') return L ? 'rgba(96,165,250,.25)' : 'rgba(96,165,250,.2)';
+    return null;
+  }
+  function drawMastStrip(g, L, C, P, sy, h) {
+    const { ml, pw, cw, x } = geo;
+    geo.mast = [sy, h];
+    g.fillStyle = C.plot; g.fillRect(ml, sy, pw, h);
+    const rows = mastIn(P);
+    for (const r of rows) {
+      const f = mastStabFill(mastStab(r), L);
+      if (f) { g.fillStyle = f; g.fillRect(x(r.ts), sy, cw + 0.5, h); }
+    }
+    // barbs: the 4 levels, the highest at the top
+    const stepC = Math.max(1, Math.ceil(30 / cw));
+    const n = rows.length ? rows[rows.length - 1].wl.length : 4;
+    const yy = i => sy + h - 8 - i * (h - 16) / Math.max(1, n - 1);
+    for (const [col, lw] of [[L ? 'rgba(248,250,252,0.85)' : 'rgba(15,25,35,0.8)', 2.6], [MAST_C(L), 1.1]]) {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw;
+      for (const r of rows) {
+        if (Math.round((r.ts - P.start) / 3600) % stepC) continue;
+        r.wl.forEach((m, i) => { if (r.ws[i] != null && r.wd[i] != null) barb(g, x(r.ts) + cw / 2, yy(i), r.wd[i], r.ws[i]); });
+      }
+    }
+    g.strokeStyle = C.grid; g.lineWidth = 1; g.strokeRect(ml + 0.5, sy + 0.5, pw, h);
+    g.fillStyle = MAST_C(L); g.textAlign = 'right'; g.font = '10px system-ui';
+    g.fillText('mast', ml - 6, sy + h / 2 + 4);
+    g.fillStyle = C.ink2;
+    if (rows.length) { const wl = rows[rows.length - 1].wl; g.fillText(`${wl[wl.length - 1]} m`, ml - 6, yy(wl.length - 1) + 4); g.fillText(`${wl[0]} m`, ml - 6, yy(0) + 4); }
+    if (!rows.length) { g.textAlign = 'left'; g.fillText('no mast data in this period', ml + 8, sy + h / 2 + 4); }
+  }
+  // inside the boundary-layer fields: a narrow column at the right of each hour
+  function drawMastCols(g, L, C, P) {
+    const { ml, mt, pw, ph, cw, x, y } = geo;
+    if (st.field !== 'blt' && st.field !== 'blw') return;
+    g.save(); g.beginPath(); g.rect(ml, mt, pw, ph); g.clip();
+    const bl = new Map((blRows || []).map(r => [r.ts, r]));
+    const w = Math.max(3, cw * 0.38);
+    for (const r of mastIn(P)) {
+      const x0 = x(r.ts) + cw - w;
+      const lv = st.field === 'blt' ? r.tl : r.wl;
+      const ref = st.field === 'blt' ? ((bl.get(r.ts) || {}).tt ?? r.t[0]) : null;
+      for (let i = 0; i < lv.length; i++) {
+        const v = st.field === 'blt' ? r.t[i] : r.ws[i];
+        if (v == null || (st.field === 'blt' && ref == null)) continue;
+        const fa = i ? (mastFt(lv[i - 1]) + mastFt(lv[i])) / 2 : mastFt(0);
+        const fb = i < lv.length - 1 ? (mastFt(lv[i]) + mastFt(lv[i + 1])) / 2 : mastFt(lv[i]) + (mastFt(lv[i]) - fa);
+        const ya = y(fb), yb = y(fa);
+        g.fillStyle = st.field === 'blt' ? divFill(v - ref, 6) : blSpd(v);
+        g.fillRect(x0, ya, w, yb - ya + 0.5);
+      }
+      // a thin gap on the left and an amber cap on top mark the column as the mast's
+      const top = y(mastFt(lv[lv.length - 1]) + 60), bot = y(mastFt(0));
+      g.fillStyle = C.plot; g.fillRect(x0 - 1, top, 1, bot - top);
+      g.fillStyle = MAST_C(L); g.fillRect(x0, top - 1, w, 2);
+    }
+    g.restore();
+  }
+  // the mast's barbs (amber) at their heights, on any field
+  function drawMastBarbs(g, L, C, P, BLF) {
+    const { ml, mt, pw, ph, cw, x, y } = geo;
+    const stepC = Math.max(1, Math.ceil(36 / cw));
+    const xo = BLF ? cw - Math.max(3, cw * 0.38) / 2 : cw / 2;
+    g.save(); g.beginPath(); g.rect(ml, mt, pw, ph); g.clip();
+    for (const [col, lw] of [[L ? 'rgba(248,250,252,0.85)' : 'rgba(15,25,35,0.8)', 2.8], [MAST_C(L), 1.2]]) {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw;
+      for (const r of mastIn(P)) {
+        if (Math.round((r.ts - P.start) / 3600) % stepC) continue;
+        let lastY = Infinity;
+        r.wl.forEach((m, i) => {
+          const yy = y(mastFt(m));
+          if (r.ws[i] == null || r.wd[i] == null || lastY - yy < 14) return;
+          barb(g, x(r.ts) + xo, yy, r.wd[i], r.ws[i]); lastY = yy;
+        });
+      }
+    }
+    g.restore();
+  }
+  function mastTip(r) {
+    if (!r) return '<span class="mini-tip-dim">no mast data for this hour</span>';
+    const s = mastStab(r);
+    const w = r.wl.map((m, i) => `${m} m ${r.wd[i] != null ? String(Math.round(r.wd[i])).padStart(3, '0') + '°' : '–'} ${r.ws[i] != null ? Math.round(r.ws[i]) : '–'} kt <span class="mini-tip-dim">G${r.wg[i] != null ? Math.round(r.wg[i]) : '–'}</span>`).reverse().join(' · ');
+    return `<b style="color:${MAST_C(light())}">Kivenlahti mast</b> (hour mean, ${r.n} obs.)<br>${w}<br>` +
+      `T ${r.t[0] != null ? r.t[0].toFixed(1) : '–'} °C at ${r.tl[0]} m, ${r.t[r.t.length - 1] != null ? r.t[r.t.length - 1].toFixed(1) : '–'} °C at ${r.tl[r.tl.length - 1]} m` +
+      (s ? ` · ${s.dT >= 0 ? '+' : ''}${s.dT.toFixed(1)} K: ${s.cls === 'inv' ? 'inversion' : s.cls === 'unstable' ? 'unstable (super-adiabatic)' : s.cls === 'stable' ? 'stable' : 'well mixed'}` : '');
   }
 
   // ── boundary layer ──────────────────────────────────────────────────────
@@ -930,6 +1050,7 @@
     if (mx < ml || mx > ml + pw || my < mt) return null;
     const ts = P.start + Math.floor((mx - ml) / cw) * 3600;
     const c = P.byTs.get(ts);
+    if (geo.mast && my >= geo.mast[0] && my <= geo.mast[0] + geo.mast[1]) return { mx, my, ts, c, mastStrip: true };
     if (my > mt + ph) return { mx, my, ts, c, strip: true };
     if (geo.bl) return { mx, my, ts, c, blft: (1 - (my - mt) / ph) * blTop() };
     let li = null;
@@ -948,7 +1069,10 @@
     let html;
     const blr = blRows && needBl() ? blRows.find(r => r.ts === h.ts) : null;
     const fc = h.blft != null && isFL() && geo.fcols ? geo.fcols.find(c => h.mx >= c.x0 && h.mx < c.x0 + Math.max(c.w, 2)) : null;
-    if (fc) {
+    const mr = mastRows && needMast() ? mastRows.find(r => r.ts === h.ts) : null;
+    if (h.mastStrip) {
+      html = `<b>${when}</b><br>` + mastTip(mr);
+    } else if (fc) {
       html = flTip(fc, h.blft);
       if (blr && (blr.llj || blr.inv)) html += '<br>' + blTip(blr, null);
     } else if (h.blft != null && isFL()) {
@@ -956,6 +1080,15 @@
     } else if (h.blft != null) {
       html = `<b>${when}</b> · ${fmtFt(Math.max(0, Math.round(h.blft / 50) * 50))} MSL<br>` +
         (blTip(blr, h.blft) || '<span class="mini-tip-dim">no boundary-layer data (no flights)</span>');
+      if (st.mastOv && mr && (st.field === 'blt' || st.field === 'blw')) {
+        // the mast level nearest the pointer's height
+        const lv = st.field === 'blt' ? mr.tl : mr.wl;
+        let k = 0; lv.forEach((m, i) => { if (Math.abs(mastFt(m) - h.blft) < Math.abs(mastFt(lv[k]) - h.blft)) k = i; });
+        const ref = st.field === 'blt' ? ((blr || {}).tt ?? mr.t[0]) : null;
+        html += `<br><span style="color:${MAST_C(light())}">mast ${lv[k]} m (${fmtFt(Math.round(mastFt(lv[k])))} MSL)</span>: ` +
+          (st.field === 'blt' ? `${mr.t[k] != null ? mr.t[k].toFixed(1) + ' °C' : '–'}` + (mr.t[k] != null && ref != null ? ` <span class="mini-tip-dim">(${mr.t[k] - ref >= 0 ? '+' : ''}${(mr.t[k] - ref).toFixed(1)} K against ${blr && blr.tt != null ? 'the METAR' : 'its 2 m'})</span>` : '')
+            : `${mr.wd[k] != null ? String(Math.round(mr.wd[k])).padStart(3, '0') + '°' : '–'} ${mr.ws[k] != null ? Math.round(mr.ws[k]) + ' kt' : '–'}`);
+      }
     } else if (h.sonde && h.li != null) {
       const { P } = geo, s = h.sonde, i = h.li, c = h.c;
       const lt = new Date(s.launch * 1000);
@@ -1045,6 +1178,16 @@
     } catch (e) { blRows = []; }
     blKey = key; blAt = Date.now();
   }
+  async function loadMast() {
+    const key = `${st.hours}|${st.endDate}`;
+    if (mastRows && mastKey === key && (st.endDate || Date.now() - mastAt < 120000)) return;
+    try {
+      const r = await fetch(`/api/mast/hourly?hours=${st.hours + 1}&end=${endTs()}`).then(r => r.json());
+      mastRows = r.hours || [];
+      if (r.station && r.station.elev != null) mastElev = r.station.elev;
+    } catch (e) { mastRows = []; }
+    mastKey = key; mastAt = Date.now();
+  }
   function blMeta() {
     if (!data) return;
     const meta = $('sounding-meta');
@@ -1075,6 +1218,7 @@
         sondes.length ? Promise.resolve(null) : fetch('/api/sondes').then(r => r.json()).catch(() => null),
         needBl() ? loadBl() : null,
         isFL() ? loadFl() : null,
+        needMast() ? loadMast() : null,
       ]);
       if (req !== seq) return;
       data = d;
@@ -1102,6 +1246,8 @@
     $('th-sondecol').checked = st.sondeCol;
     if ($('th-bl')) $('th-bl').checked = st.bl;
     if ($('th-flk')) $('th-flk').value = st.flk;
+    if ($('th-mast')) $('th-mast').checked = st.mast;
+    if ($('th-mastov')) $('th-mastov').checked = st.mastOv;
     $('th-end').value = st.endDate;
     syncDisabled();
     renderLegend();
@@ -1243,6 +1389,12 @@
       if (st.bl) await loadBl();
       render();
     });
+    for (const [id, k, ls] of [['th-mast', 'mast', 'ms_th_mast'], ['th-mastov', 'mastOv', 'ms_th_mastov']])
+      if ($(id)) $(id).addEventListener('change', async e => {
+        st[k] = e.target.checked; lsSet(ls, st[k]);
+        if (needMast()) await loadMast();
+        render();
+      });
     $('th-png').addEventListener('click', savePng);
     $('th-end').addEventListener('change', e => { st.endDate = e.target.value; load(); });
     $('th-now').addEventListener('click', () => { st.endDate = ''; $('th-end').value = ''; load(); });

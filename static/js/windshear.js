@@ -2465,6 +2465,9 @@ const WR_BL_TITLE  = {
 let wrBlField            = (() => { try { const v = localStorage.getItem('ms_ws_bl_field'); return WR_BL_FIELDS.includes(v) ? v : 'wind'; }
                                       catch (_) { return 'wind'; } })();
 let wrBlFl               = null;   // the flights' fine headwind profiles (/api/boundary/flights, from 2026-10-31)
+// the Kivenlahti mast on the BL chart (from 2026-11-01; Mast button, off by default)
+let wrBlMast             = (() => { try { return localStorage.getItem('ms_ws_bl_mast') === '1'; } catch (_) { return false; } })();
+let wrMast               = null, wrMastElev = 44;
 let wrGaEvents           = [];     // go-arounds of the last 24 h (from /api/windshear/state)
 let wrHistMode           = 0;      // 0=off  1=3h  2=6h
 let wrHistDots           = [];     // last-drawn hist dots for hover tooltip: [{x,y,dotR,label,color}]
@@ -2871,11 +2874,13 @@ async function fetchCondData() {
   if (wrView === 'bl') {
     try {
       // the hourly layer and the flights (one hour more: the reference of the first ones)
-      const [r, rf] = await Promise.all([fetch(`/api/boundary?hours=${wrCondHours}`),
-        fetch(`/api/boundary/flights?hours=${wrCondHours + 1}`).catch(() => null)]);
+      const [r, rf, rm] = await Promise.all([fetch(`/api/boundary?hours=${wrCondHours}`),
+        fetch(`/api/boundary/flights?hours=${wrCondHours + 1}`).catch(() => null),
+        wrBlMast ? fetch(`/api/mast/hourly?hours=${wrCondHours + 1}`).catch(() => null) : Promise.resolve(null)]);
       if (!r.ok) return;
       wrBl = await r.json();
       if (rf && rf.ok) { const fl = await rf.json(); wrBlFl = Array.isArray(fl) ? fl : []; }
+      if (rm && rm.ok) { const m = await rm.json(); wrMast = m.hours || []; if (m.station && m.station.elev != null) wrMastElev = m.station.elev; }
       wrCondFetchedMs = Date.now();
       if (windroseEnabled && wrView === 'bl') drawWindrose();
     } catch (_) { /* silent */ }
@@ -2925,7 +2930,8 @@ function drawCondChart() {
   const readout = document.getElementById('ws-windrose-readout');
   if (wrView === 'bl') {
     wrHistDots = WsCondChart.drawBoundaryLayer(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM });
+      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM,
+      mast: wrBlMast ? wrMast : null, mastElev: wrMastElev });
     return;
   }
   if (wrView === 'st') {
@@ -2971,6 +2977,12 @@ function _syncWrViewBtns() {
     blBtn.title         = WR_BL_TITLE[wrBlField] || '';
     blBtn.classList.toggle('active', ['blh', 'bld', 'bls'].includes(wrBlField));
   }
+  const mastBtn = document.getElementById('ws-bl-mast-btn');
+  if (mastBtn) {
+    mastBtn.style.display = wrView === 'bl' ? '' : 'none';
+    mastBtn.classList.toggle('active', wrBlMast);
+    mastBtn.style.opacity = ['wind', 'temp'].includes(wrBlField) ? '' : '0.5';   // drawn on Wind and T only
+  }
 }
 document.querySelectorAll('.ws-wr-view-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2990,6 +3002,15 @@ if (_blFieldBtn) {
     try { localStorage.setItem('ms_ws_bl_field', wrBlField); } catch (_) {}
     _syncWrViewBtns();
     drawWindrose();
+  });
+}
+const _blMastBtn = document.getElementById('ws-bl-mast-btn');
+if (_blMastBtn) {
+  _blMastBtn.addEventListener('click', () => {
+    wrBlMast = !wrBlMast;
+    try { localStorage.setItem('ms_ws_bl_mast', wrBlMast ? '1' : '0'); } catch (_) {}
+    _syncWrViewBtns();
+    if (wrBlMast) fetchCondData(); else drawWindrose();
   });
 }
 const _wrRangeBtn = document.getElementById('ws-wr-range-btn');
