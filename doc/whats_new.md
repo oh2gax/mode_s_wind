@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **Go-around mark on the Windshear map** — the red GA after a go-around's callsign flashes for the first minute and then stays steady until the next approach; it is now shown also with *Departures*, *All 30NM* and *All 100NM*.
 - **Registrations and aircraft types kept up to date** — every morning the aircraft database is updated from the open tar1090-db database, so new and re-registered aircraft show their registration and type (on the maps, in the lists and in the Approach History) — also the first time they are heard.
 - **Phone: EDR · WS · ACI · ST** — the view formerly called *ACI · WS · ST* has its new name, and its list of flights looks like the History view: a card per flight with its ACI, windshear, EDR and GA chips.
 - **One Opacity for the weather maps** — the Weather page and the phone's Weather view have a single *Opacity* (25–100 %, 75 % as before) for rain, radar, gusts, clouds, fog and temperature; the phone's two rain / radar opacities are gone. With *Both* the radar is kept a little stronger than the model's rain.

@@ -372,7 +372,10 @@ function wsAcLabelHtml(ac) {
   // tracker has the aircraft in its go-around phase (ga_phase GO_AROUND: from the
   // detected go-around until it enters a corridor again for the next approach);
   // a climb-out marked as a departure is hidden from the map as before.
-  const ga = ac.ga_phase === 'GO_AROUND' && !ac.landed ? ' <span class="ws-ac-ga">GA</span>' : '';
+  // From 2026-11-01 it flashes for the first 60 s (the server's ga_flash, WINDSHEAR_GA_FLASH_SEC)
+  // and then stays steady until the go-around phase ends.
+  const ga = ac.ga_phase === 'GO_AROUND' && !ac.landed
+    ? ` <span class="ws-ac-ga${ac.ga_flash ? '' : ' ws-ac-ga-steady'}">GA</span>` : '';
   let body;
   if (lv === 'cs')        body = cs + ga;
   else if (lv === 'type') body = (ty || '<span class="ws-ac-notype">—</span>') + ga;
@@ -484,7 +487,7 @@ function wsDrawCanvas(g, m, W, H) {
       // the labels grey (from 2026-11-01, as the Live Map; the square keeps its colour)
       if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: P.high, ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
-                             ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
+                             ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: ac.ga_flash ? wsGaOn : true });
     }
   }
   wsLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos) : {};
@@ -500,7 +503,7 @@ wsHoverSync();
 var wsAtcLines = AtcDisplay.mapLines(map);   // var: the canvas may draw before this line
 // the GA mark blinks as on the street-map labels (only redrawn while one is shown)
 setInterval(() => {
-  if (!wsIsAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed)) return;
+  if (!wsIsAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed && a.ga_flash)) return;
   wsGaOn = !wsGaOn;
   wsCanvas.redraw();
 }, 500);
@@ -1759,7 +1762,14 @@ const ilsFilterBtn  = document.getElementById('ws-ils-filter');
 function wsMapAircraft() {                          // the tracker's corridor aircraft + the others
   if (wsMapMode === 'ils') return lastAircraft;
   const corr = lastAircraft.filter(a => a.in_corridor);
-  return corr.concat(wsMapMode === 'dep' ? wsNear.filter(a => a.dep) : wsNear);
+  // a go-around that has left the corridor comes in the other traffic (live_state),
+  // which has no go-around phase: take it from the tracker, so that its label shows
+  // the red GA in Departures / All 30NM / All 100NM as well (from 2026-11-01)
+  const ga = {};
+  for (const a of lastAircraft) if (!a.in_corridor && a.ga_phase === 'GO_AROUND' && !a.landed) ga[a.icao] = a;
+  const near = (wsMapMode === 'dep' ? wsNear.filter(a => a.dep || ga[a.icao]) : wsNear)
+    .map(a => ga[a.icao] ? Object.assign({}, a, { ga_phase: 'GO_AROUND', ga_flash: !!ga[a.icao].ga_flash }) : a);
+  return corr.concat(near);
 }
 function wsMapModeShow() {
   ilsFilterBtn.textContent = WS_MAP_TXT[wsMapMode];

@@ -2071,6 +2071,8 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
    the strip's blink (ws-ga-blink) at 1 s, so the label's refresh every 3 s does not break the rhythm */
 .ws-ac-label .ws-ac-ga { color: #f87171; font-weight: 700; animation: ws-ga-blink 1s step-end infinite; }
 [data-theme="light"] .ws-ac-label .ws-ac-ga { color: #dc2626; }
+/* after the first 60 s (the server's ga_flash) the GA stays steady (from 2026-11-01) */
+.ws-ac-label .ws-ac-ga.ws-ac-ga-steady { animation: none; }
 
 /* ── Leaflet map theme overrides ────────────────────────────────────────── */
 .ws-theme-black .leaflet-container {
