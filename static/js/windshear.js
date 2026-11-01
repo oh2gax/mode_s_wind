@@ -1823,10 +1823,11 @@ function wsDrawEdr() {
   wsEdrLayer.clearLayers();
   const box = document.getElementById('ws-edr-sum');
   if (box) box.hidden = !wsEdrMin;
-  // as wide as the ATC legend under it ("Research display — not for air traffic control"),
-  // from 2026-11-01: the box wraps instead of reaching towards the approaches
-  const lg = document.getElementById('ws-atc-legend'), lw = lg && !lg.hidden ? lg.offsetWidth : 0;
-  if (box) { box.style.width = lw ? lw + 'px' : ''; box.style.maxWidth = lw ? 'none' : ''; }
+  // its width: 250 px in CSS (from 2026-11-01 — narrower than the minimized Approach History,
+  // so it hides fully under that panel and keeps clear of the approaches; it wraps), and it
+  // sits just above the ATC legend, which now takes two lines
+  const lg = document.getElementById('ws-atc-legend');
+  if (box) box.style.bottom = lg && !lg.hidden && lg.offsetHeight ? (10 + lg.offsetHeight + 6) + 'px' : '';
   if (!wsEdrMin) return;
   const now = Date.now() / 1000, light = wsMapLight();
   // the landings, and with Departures / All 30NM the departures too (from 2026-11-01)
@@ -1849,7 +1850,7 @@ function wsDrawEdr() {
   }
   const md = a => { a = a.slice().sort((x, y) => x - y); return a.length ? a[a.length >> 1].toFixed(2) : '—'; };
   const key = [[0.05, 'smooth'], [0.15, 'light 0.10'], [0.3, 'moderate 0.20'], [0.5, 'severe 0.45']]
-    .map(([v, n]) => `<span class="ws-edr-key" style="background:${wsEdrCol(v)}"></span>${n}`).join(' ');
+    .map(([v, n]) => `<span class="ws-edr-ki"><span class="ws-edr-key" style="background:${wsEdrCol(v)}"></span>${n}</span>`).join(' ');   // a swatch stays with its name
   box.innerHTML = `<div><b>Turbulence (EDR), last ${wsEdrMin < 60 ? wsEdrMin + ' min' : '1 h'}</b> ${key} <span class="ws-research-tag">research</span></div>`
     + (mx ? `<div>${nLdg} landing${nLdg === 1 ? '' : 's'}${withDep ? ` · ${nDep} departure${nDep === 1 ? '' : 's'}` : ''} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
           + ` at ${mx.h} ft (${_wsEsc(mx.cs || '')} ${_wsEsc(mx.rwy || '')}) · median below 1000 ft ${md(lay.lo)}, 1000–3000 ft ${md(lay.hi)}</div>`
