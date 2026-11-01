@@ -30,7 +30,8 @@ writes instead:
            settings, Approach History clear)
   MAINT-PW a wrong maintenance password
   ERROR    a server error (HTTP 5xx)
-  DAILY    a summary of the day (local midnight)
+  DAILY    a summary of the day (local midnight); from 2026-11-01 it includes the
+           lines of the day written before a restart (read back from this file)
   START    the web server started
 
 At most ACCESS_LOG_PER_IP_HOUR lines per address and kind per clock hour;
@@ -127,12 +128,59 @@ class AccessTracker:
         self._hour = int(time.time() // 3600)
         self._day = time.strftime("%Y-%m-%d")
         self._stats = self._new_stats()
+        self.log_path = os.path.join(log_dir, "access.log")
+        if self.enabled:
+            try:                     # the day so far, from before a restart (from 2026-11-01)
+                self._restore_day()
+            except Exception as exc:
+                main_log.debug("access log: today's counts not read back: %s", exc)
         try:
             with open(self.known_path) as f:
                 self._known = json.load(f)
         except Exception:
             self._known = {}
         self._thread = None
+
+    def _restore_day(self) -> None:
+        """Count today's lines already in logs/access.log (and its first backup) into
+        the DAILY summary — from 2026-11-01; before, the counters started from zero at
+        every restart, so after a deploy the day's summary missed what came before it
+        (e.g. 0 logins).  A session that runs on over a restart is counted again, as
+        its new LOGIN line.  Lines like "… 12 more in the last hour not listed" add
+        their number; the "refused (blocked)" lines are not counted."""
+        day, st = self._day, self._stats
+        files = [self.log_path + ".1", self.log_path]
+        for path in files:
+            try:
+                if path.endswith(".1") and \
+                        time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path))) != day:
+                    continue                 # the backup ended before today
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    lines = [ln for ln in f if ln.startswith(day)]
+            except OSError:
+                continue
+            for ln in lines:
+                p = ln.split()
+                if len(p) < 4:
+                    continue
+                kind, ip = p[2], p[3]
+                more = int(p[5]) if len(p) > 6 and p[4] == "\u2026" and p[5].isdigit() else None
+                n = more if more is not None else 1
+                if kind == "LOGIN":
+                    st["sessions"] += 1
+                    st["login_ips"].add(ip)
+                elif kind == "DENIED":
+                    st["denied"] += n
+                    st["denied_ips"].add(ip)
+                elif kind in ("BADPASS", "MAINT-PW"):
+                    st["badpass"] += n
+                elif kind == "BLOCKED" and "wrong logins" in ln and more is None:
+                    st["blocked"] += 1
+                elif kind == "PROBE":
+                    st["probes"] += n
+                    st["probe_ips"].add(ip)
+                elif kind == "ACTION":
+                    st["actions"] += 1
 
     @staticmethod
     def _new_stats():

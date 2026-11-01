@@ -230,7 +230,9 @@ _PHEN_RE  = re.compile(r"\b(?:(FBL|LGT|MOD|SEV|HVY)\s+)?"
                        r"(TURB|ICE|ICG|MTW|LLWS|WS|INVERSION|INV|TSGR|TS|VA|SS|CB|DS|RDOACT CLD)\b")
 _POS_RE   = re.compile(r"\b([NS])(\d{2})(\d{2})?\s?([EW])(\d{3})(\d{2})?\b")
 _FL_RE    = re.compile(r"\b(?:SFC|FL(\d{3}))\s*/\s*(?:FL)?(\d{3})\b|\bFL(\d{3})\b")
-_FT_RE    = re.compile(r"\b(SFC|\d{3,5}\s?FT)\s*/\s*(SFC|\d{3,5}\s?FT)\b|\b(\d{3,5})\s?FT\b")
+# "SFC/2000FT", "1500FT/3000FT" and (from 2026-11-01) "3000/4000FT" — the unit only after the
+# second number (before: read as 4000 ft alone); also with a hyphen, "3000-4000FT"
+_FT_RE    = re.compile(r"\b(SFC|\d{3,5}(?:\s?FT)?)\s*[/-]\s*(SFC|\d{3,5}\s?FT)\b|\b(\d{3,5})\s?FT\b")
 _OBS_RE   = re.compile(r"\bOBS\s+AT\s+(\d{2})(\d{2})Z\b|\bREP\s+(\d{2})(\d{2})\b")
 _NEAR_TOP_FT = 10_000
 
@@ -321,6 +323,26 @@ def insert_pilot_reports(db, recs: list[dict], src: str, fetched: float) -> int:
     return db.total_changes - before
 
 
+_PARSED = ("obs_ts", "kind", "ident", "phen", "place", "lat", "lon", "lo_ft", "hi_ft", "near")
+
+
+def reparse_stored(db, apt: tuple | None = None, near_nm: float = 30.0) -> int:
+    """Parse the stored reports again and update the rows whose parsed fields
+    changed (from 2026-11-01: e.g. "3000/4000FT", stored before as 4000–4000 ft).
+    Writes only the changed rows; returns their number."""
+    rows = db.execute(f"SELECT id, ts, raw, {', '.join(_PARSED)} FROM pilot_reports").fetchall()
+    upd = []
+    for r in rows:
+        rec = parse_pilot_report(r[2], r[1], apt, near_nm)
+        new = tuple(rec[k] for k in _PARSED)
+        if new != tuple(r[3:]):
+            upd.append(new + (r[0],))
+    if upd:
+        db.executemany(f"UPDATE pilot_reports SET {', '.join(k + ' = ?' for k in _PARSED)} WHERE id = ?", upd)
+        db.commit()
+    return len(upd)
+
+
 def _src_time(s: str | None) -> int | None:
     """"2026-10-28 16:18:00" (UTC) → Unix s."""
     try:
@@ -391,6 +413,13 @@ class PilotReportPoller:
 
     def run(self) -> None:
         time.sleep(90)                       # after the start-up rush
+        try:                                 # the stored reports read again with today's parser
+            from database.db import get_db
+            n = reparse_stored(get_db(), self.apt, self.near_nm)
+            if n:
+                log.info("Pilot reports: %d stored report(s) re-read with the current parser", n)
+        except Exception as exc:
+            log.warning("Pilot reports: re-reading the stored reports failed: %s", exc)
         fails = 0
         while True:
             try:
