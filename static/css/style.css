@@ -3155,6 +3155,10 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
            border: 1px solid var(--border); border-radius: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.4; white-space: nowrap; }
 .lwx-tip span { color: var(--text-3); }
 [data-theme="light"] .lwx-tip { background: rgba(241, 245, 249, 0.96); }
+/* Live Map, Hover: Weather values on (from 2026-11-01): a crosshair instead of the hand, as the
+   Weather page's Point values; the hand while dragging; aircraft and controls keep their own cursor */
+.leaflet-container.lwx-cross { cursor: crosshair; }
+.leaflet-container.lwx-cross.leaflet-drag-target, .leaflet-dragging .leaflet-container.lwx-cross { cursor: grabbing; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    GPS Quality / GPS Episodes switch (one GPS link in the navbar, 25 Oct 2026)

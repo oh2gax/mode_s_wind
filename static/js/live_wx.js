@@ -361,6 +361,7 @@
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
     q('.lwx-hover').checked = !!st.hover;
+    map.getContainer().classList.toggle('lwx-cross', !!st.hover);   // crosshair cursor, as the Weather page's Point values
     covLayer.show(st.cov);
     const chip = q('.lwx-chip');
     const mTxt = () => { if (!shown) return 'MEPS …'; const hh = new Date(shown.ts * 1000).getUTCHours(); return `MEPS ${pad2((hh + 23) % 24)}–${pad2(hh)}`; };
