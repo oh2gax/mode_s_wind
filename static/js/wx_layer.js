@@ -536,6 +536,12 @@ const WxLayer = (() => {
       const getter = (a, n) => (i, j) => (a ? a[j * n + i] : null);
       const RAIN_L = RAIN_T.map(t => t * 100);               // the stored rain is mm/h × 100
       // 2 m temperature (from 2026-11-01): colour bands of 2 °C under everything else
+      // Opacity (from 2026-11-01, the Weather page's and the phone's single setting, 0.25 … 1):
+      // a factor on every filled layer's own opacity — 0.75 is the look before, 1 a third
+      // stronger, 0.25 a third of it; lines, numbers and labels stay as they are.  Opacities
+      // given explicitly (rainAlpha / radarAlpha / gustAlpha / tempAlpha) are used as given.
+      const OPF = o.opacity != null ? o.opacity / 0.75 : 1;
+      const opa = a => Math.min(1, a * OPF);
       const tStyle = o.temp === true ? 'fill' : o.temp || null;
       if (hasF && tStyle === 'fill' && f.t) {
         begin();
@@ -561,7 +567,7 @@ const WxLayer = (() => {
           if (SM ? bands(fineGeo, cellsOf(fnx, fny, k => fine.t[k] != null), getter(fine.t, fnx), null, TEMP_L, [TEMP_C], true)
                  : tCells(fnx, fny, fine.t)) any = true;
         }
-        if (any) layer(o.tempAlpha != null ? o.tempAlpha : (isLight() ? 0.55 : 0.68));
+        if (any) layer(o.tempAlpha != null ? o.tempAlpha : opa(isLight() ? 0.55 : 0.68));
       }
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
       for (const key of (hasF ? o.clouds : [])) {
@@ -586,7 +592,7 @@ const WxLayer = (() => {
         if (!any) continue;
         const img = g2.getImageData(0, 0, off.width, off.height), px = img.data;
         const [cr, cg, cb] = key === 'f' ? T.fog : T.cloud;
-        const k = (opts.cloudMax || 0.38) * (key === 'f' ? 1.3 : 1);
+        const k = Math.min(1, (opts.cloudMax || 0.38) * (key === 'f' ? 1.3 : 1) * OPF);
         for (let q = 0; q < px.length; q += 4) {
           const a = px[q + 3] ? px[q] * k * px[q + 3] / 255 : 0;
           px[q] = cr; px[q + 1] = cg; px[q + 2] = cb; px[q + 3] = a;
@@ -610,13 +616,13 @@ const WxLayer = (() => {
           if (SM) { if (fine.g && bands(fineGeo, cellsOf(fnx, fny, k => fine.g[k] != null && fine.g[k] >= GUST_T[0]), getter(fine.g, fnx), null, GUST_T, [GUST_C])) any = true; }
           else if (fineCells((fr, k) => { const v = fr.g && fr.g[k]; const cl = v == null ? -1 : gustClass(v); return cl >= 0 ? GUST_C[cl] : null; })) any = true;
         }
-        if (any) layer(o.gustAlpha != null ? o.gustAlpha : (opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
+        if (any) layer(o.gustAlpha != null ? o.gustAlpha : opa(opts.gustAlpha || (isLight() ? 0.55 : 0.72)));   // o.gustAlpha: the Live Map opacity slider
       }
       // rain / snow: the model's, cut away inside the radar coverage, then the radar's;
       // o.rainAlpha / o.radarAlpha (the phone's opacity options, from 2026-10-30): each its own opacity,
       // otherwise the two together at opts.rainAlpha (the Live Map, the Weather page)
       const oq = hasO ? quads(ovGeo) : null;
-      const rainA = opts.rainAlpha || 0.72, sepA = o.rainAlpha != null || o.radarAlpha != null;
+      const rainA = opa(opts.rainAlpha || 0.72), sepA = o.rainAlpha != null || o.radarAlpha != null;
       if (o.rain && (f.r || (hasO && ov.r))) {
         begin();
         let any = false;

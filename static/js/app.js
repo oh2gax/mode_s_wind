@@ -1757,9 +1757,15 @@
                     cloud: ['off', 'c', 'l', 'm', 'h', 'f'], traffic: ['off', 'on'], mapst: ['street', 'atc'],
                     tlbl: ['atc', 'std'], fc: ['48', '24'], grid: ['10', '20'], load: ['all', 'near'],
                     speed: ['normal', 'slow', 'fast'], src: ['meps', 'radar', 'both'],
-                    rainop: ['75', '25', '50', '100'], radarop: ['75', '25', '50', '100'], detail: ['auto', 'off'],
+                    op: ['75', '25', '50', '100'], detail: ['auto', 'off'],   // op: one Opacity (2026-11-01; was rainop / radarop)
                     smooth: ['on', 'off'], temp: ['off', 'fill', 'lines'], tnum: ['off', 'on'] };   // the first value is the default (smooth: from 2026-10-31, temp / tnum: 2026-11-01)
   const W = {};
+  // the single Opacity (from 2026-11-01) starts from the phone's former choice: the radar's
+  // with a radar source, the model rain's otherwise
+  if (lsGet('ms_app_wx_op', null) == null) {
+    const was = lsGet(['radar', 'both'].includes(lsGet('ms_app_wx_src', 'meps')) ? 'ms_app_wx_radarop' : 'ms_app_wx_rainop', null);
+    if (['25', '50', '75', '100'].includes(was)) lsSet('ms_app_wx_op', was);
+  }
   for (const [k, vals] of Object.entries(WX_OPTS)) {
     const v = lsGet('ms_app_wx_' + k, vals[0]);
     W[k] = vals.includes(v) ? v : vals[0];

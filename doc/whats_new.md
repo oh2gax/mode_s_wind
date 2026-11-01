@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **One Opacity for the weather maps** — the Weather page and the phone's Weather view have a single *Opacity* (25–100 %, 75 % as before) for rain, radar, gusts, clouds, fog and temperature; the phone's two rain / radar opacities are gone. With *Both* the radar is kept a little stronger than the model's rain.
 - **Windshear map: Departures, All 30NM and All 100NM** — the *ILS Only* button now steps *ILS Only → Departures → All 30NM → All 100NM*: the climb-outs too, or every aircraft within 30 or 100 NM at any level; the EDR lines then show the departures as well.
 - **Extended label in the phone's Weather view** — with the air traffic on and the ATC map style, tap an aircraft for its six-line extended label (speeds, heading, wind, temperature …), as on the ILS map; tap elsewhere to close it.
 - **A smaller Approach History** — the new **«** button at its top left keeps only the time, callsign, registration, type and runway in a narrow panel, leaving more of the map free, e.g. beside a full-size boundary-layer chart. The chart panel's half-width button uses the same icons now (**»** narrower, **«** wider) instead of ½, at the panel's top right corner.

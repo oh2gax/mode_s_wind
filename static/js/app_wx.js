@@ -75,7 +75,10 @@ window.AppWx = (() => {
     return { rain: s.rain === 'on', pres: s.pres === 'on', wind: s.wind === 'on', gust: s.gust === 'on',
              clouds: s.cloud !== 'off' ? [s.cloud] : [],
              modelOutline: radarOn && s.src === 'both', edge: radarOn,
-             rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100,
+             // one Opacity (from 2026-11-01): the filled layers × op / 75 (wx_layer opacity); the radar at
+             // op, the model's rain at op — with Both a third fainter, so the radar stands out
+             opacity: (+s.op || 75) / 100,
+             rainAlpha: (+s.op || 75) / 100 * (radarOn && s.src === 'both' ? 2 / 3 : 1), radarAlpha: (+s.op || 75) / 100,
              fine: !!(wx && wx.fineShown()),
              smooth: s.smooth !== 'off',                    // Shading: Smooth / Cells (from 2026-10-31)
              temp: s.temp === 'fill' || s.temp === 'lines' ? s.temp : false,   // 2 m temperature (from 2026-11-01)
@@ -562,7 +565,7 @@ window.AppWx = (() => {
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; extClose(); trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
-    else if (key === 'rainop' || key === 'radarop' || key === 'smooth') wx.setOptions(layerOptions());
+    else if (key === 'op' || key === 'smooth') wx.setOptions(layerOptions());
     else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }
     else if (key === 'src') {
       if (!useRadar()) { radar = null; radarErr = ''; }

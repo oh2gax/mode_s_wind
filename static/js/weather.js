@@ -88,7 +88,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -115,7 +115,8 @@ function layerOptions() {
            smooth: $('wx-smooth').value !== 'off',
            // 2 m temperature (from 2026-11-01): Off / Colours (fill) / Isotherms (lines), numbers with Colours
            temp: $('wx-temp').value === 'off' ? false : $('wx-temp').value,
-           tempNum: $('wx-temp').value === 'fill' && $('wx-tnum').checked };          // Shading: Smooth / Cells (from 2026-10-31)
+           tempNum: $('wx-temp').value === 'fill' && $('wx-tnum').checked,
+           opacity: (+$('wx-op').value || 75) / 100 };       // one Opacity for the filled layers (from 2026-11-01)          // Shading: Smooth / Cells (from 2026-10-31)
 }
 function fieldList() {
   const f = ['p', 'r', 's'], c = cloudKey();
@@ -360,6 +361,7 @@ $('wx-temp').addEventListener('change', tnumState);
 tnumState();
 function tnumState() { $('wx-tnum').closest('label').style.opacity = $('wx-temp').value === 'fill' ? '' : '0.45'; $('wx-tnum').disabled = $('wx-temp').value !== 'fill'; }
 $('wx-smooth').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
+$('wx-op').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));
 $('wx-step').addEventListener('change', () => { saveSettings(); loadFrames(); });
 

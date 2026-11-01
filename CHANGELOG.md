@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize)
+
+### Weather page and phone: one Opacity setting
+- **Opacity** 25 / 50 / **75** / 100 % on the Weather page (new) and in the phone's Weather view, where it replaces *Rain opacity (model)* and *Radar opacity*: it sets all the filled layers — rain / snow, the radar, gusts, clouds, fog, temperature colours (`WxLayer` option `opacity`: each layer's own opacity × op / 75, so 75 % looks as before; lines, barbs and numbers unchanged). With *Both* the model's rain outside the radar area is drawn a third fainter than the radar, so the radar stands out. A phone starts from its former radar opacity (with a radar source) or rain opacity. `static/js/wx_layer.js`, `static/js/weather.js`, `web/templates/weather.html`, `static/js/app.js`, `static/js/app_wx.js`, `web/templates/app.html`. Mobile user guide 1.42.
 
 ### Phone Weather view: the extended label on a tap (ATC map style); Rain source first
 - With *Air traffic: On* and *Map style: ATC* a tap on an aircraft opens its label as the six-line **extended label** (as the ILS view's map and the big pages' Hover; values from `/api/live/ac/<icao>` every 2 s while open); a tap on the label keeps it, a tap elsewhere closes it; on the street map the card as before. `static/js/app_wx.js`. Mobile user guide 1.41: a paragraph and a figure.
