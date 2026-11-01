@@ -40,6 +40,9 @@
         <option value="f">Fog</option>
       </select>
     </div>
+    <label class="wm-check" title="Point values: click anywhere on the map for the model's values at that place (those of the layers shown) — they follow the time slider and the animation; click elsewhere for another place, × or Esc closes. Off: a click on the map does nothing (the hover read-out at the bottom left works either way)">
+      <input type="checkbox" id="wx-point"> Point values
+    </label>
 
     <div class="wm-group">
       <label class="wm-label">Past</label>
@@ -101,6 +104,7 @@
   <!-- ── Map ─────────────────────────────────────────────────────────── -->
   <div class="windmap-mapwrap">
     <div id="wx-map" class="windmap-map"></div>
+    <div id="wx-point-card" class="wx-point-card" hidden></div>
     <div class="wm-overlay">
       <div class="wm-legend" id="wx-legend"></div>
       <div id="wx-readout" class="wm-status wm-hidden"></div>
@@ -128,6 +132,22 @@ const RECEIVER_LON = {{ receiver_lon }};
 .weather-page .wx-step-btn { width:auto; min-width:34px; padding:0 6px; font-size:.78rem; text-align:center; white-space:nowrap; }   /* text inside the button (26 Oct 2026) */
 .weather-page .wx-step-btn:disabled { opacity:.35; cursor:default; }
 .wx-canvas { position:absolute; left:0; top:0; pointer-events:none; }
+/* Point values (from 2026-11-01, as the phone's tap): the card beside the zoom buttons and the pin */
+.weather-page.wx-point-mode .leaflet-container { cursor: crosshair; }
+.weather-page.wx-point-mode .leaflet-container.leaflet-drag-target { cursor: grabbing; }
+.wx-point-card { position:absolute; left:54px; top:10px; z-index:800; min-width:220px; max-width:min(420px, calc(100% - 70px));
+                 padding:6px 26px 6px 10px; border:1px solid var(--border); border-radius:6px; background:rgba(22, 32, 48, 0.92);
+                 font-size:12px; line-height:1.45; color:var(--text-1); box-shadow:0 2px 8px rgba(0,0,0,.35); }
+[data-theme="light"] .wx-point-card { background:rgba(248, 250, 252, 0.96); box-shadow:0 2px 8px rgba(0,0,0,.18); }
+.wx-point-card[hidden] { display:none; }
+.wx-point-card .wx-pc-head { font-weight:600; }
+.wx-point-card .wx-pc-time { color:var(--text-2); margin-bottom:2px; }
+.wx-point-card .wx-pc-row { white-space:nowrap; }
+.wx-point-card small { display:block; margin-top:3px; color:var(--text-3); font-size:10.5px; }
+.wx-point-card .wx-pc-x { position:absolute; right:4px; top:3px; width:20px; height:20px; padding:0; border:0; border-radius:4px;
+                          background:none; color:var(--text-2); font-size:15px; line-height:20px; cursor:pointer; }
+.wx-point-card .wx-pc-x:hover { background:var(--bg-3); color:var(--text-1); }
+.wx-point-pin { width:14px; height:14px; border:2px solid #fff; border-radius:50%; box-shadow:0 0 0 1px #000; margin:-9px 0 0 -9px; }
 .wx-fc { color:#c084fc; font-weight:bold; }
 [data-theme="light"] .wx-fc { color:#7c3aed; }
 </style>

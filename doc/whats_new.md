@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
+- **Point values on the Weather page** — tick *Point values* and click anywhere on the map: a card gives the model's values at that place (pressure, wind, gust, temperature, rain, cloud …) and follows the time slider, as a tap does on the phone. Off by default.
 - **A steady top bar** — the clock at the top right no longer jumps a few pixels when the number of aircraft changes.
 - **Landing runway after a go-around** — hover a go-around (✈ GA) in the Windshear page's alert log: it now also tells on which runway and when the aircraft landed after it, e.g. *Landed RWY 22R at 14:33 UTC, 10 min after the go-around*.
 - **GNSS jamming in the guides** — the Windshear, Sounding and EDR guides and the windshear study log now say what the jamming does to the data: about one landing in twenty, and one in eight at night, gets no Approach History record because its GNSS is still jammed at touchdown; the recorded landings are not affected.

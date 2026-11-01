@@ -14,6 +14,8 @@
  *   pressure — isobars every 4 hPa (marching squares on the smoothed field)
  *              with labels, highs H and lows L with their central pressure
  * The hover read-out adds the cloud base, the wind and the gust.
+ * Point values (switch, Off by default; from 2026-11-01, as the phone's tap):
+ * a click pins a place, and a card gives its values, following the slider.
  * The slider steps hour by hour from the chosen past to the end of the
  * forecast; ▶ animates.  Frames are loaded in chunks, the ones near the
  * slider first, and kept while the grid stays the same.
@@ -88,7 +90,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op', 'wx-point'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -268,10 +270,11 @@ function showFrame() {
     current = null; wx.setFrame(null); renderLegend();
     $('wx-status').textContent = hours.length ? 'No model hours in the chosen period.' :
       'No weather maps stored yet — after a start the first ones arrive within minutes (back-fill), later with each MEPS run (every 3 h, about 2–3 h after it). The page looks again every minute.';
+    showPoint();
     return;
   }
   const f = frames.get(h[0]);
-  if (!f) { $('wx-status').textContent = 'Loading…'; return; }
+  if (!f) { $('wx-status').textContent = 'Loading…'; showPoint(); return; }
   current = f;
   const ff = fineWanted() ? fineFrames.get(h[0]) : null;
   wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
@@ -280,6 +283,7 @@ function showFrame() {
   const noWind = ($('wx-wind').checked && !f.u) || ($('wx-gust').checked && !f.g);
   renderLegend();
   statusLine(f, noWind, $('wx-temp').value !== 'off' && !f.t);
+  showPoint();
 }
 function updateLabel(h) {
   const el = $('wx-tlabel');
@@ -315,6 +319,60 @@ map.on('mousemove', e => {
   ro.classList.toggle('wm-hidden', !txt);
 });
 map.on('mouseout', () => $('wx-readout').classList.add('wm-hidden'));
+
+// ── Point values (from 2026-11-01, as the phone Weather view's tap) ──────
+// With the switch on, a click on the map pins the place (a ring) and the card
+// beside the zoom buttons lists the model's values there — of the layers shown,
+// as the hover read-out — for the hour of the slider, so they follow the slider
+// and the animation.  A click elsewhere moves the pin; × or Esc closes, and so
+// does turning the switch off.  Off (the default), a click does nothing.
+let pointLL = null, pointMk = null;
+const pointOn = () => $('wx-point').checked;
+function closePoint() {
+  pointLL = null;
+  if (pointMk) { pointMk.remove(); pointMk = null; }
+  $('wx-point-card').hidden = true;
+}
+function showPoint() {
+  if (!pointLL) return;
+  const card = $('wx-point-card'), ll = pointLL;
+  if (pointMk) pointMk.setLatLng(ll);
+  else pointMk = L.marker(ll, { interactive: false, keyboard: false,
+    icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="wx-point-pin"></div>' }) }).addTo(map);
+  const h = view[parseInt($('wx-t').value, 10)];
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let rows;
+  if (!h) rows = '<div class="wx-pc-row">No model hour shown</div>';
+  else if (!current || current.ts !== h[0]) rows = '<div class="wx-pc-row">Loading…</div>';
+  else {
+    const v = wx.valuesAt(ll), parts = v ? wx.describe(v).split(' · ').filter(Boolean) : [];
+    const fine = parts.includes('2.5 km grid');
+    const vals = parts.filter(p => p !== '2.5 km grid');
+    rows = vals.length ? vals.map(p => `<div class="wx-pc-row">${esc(p)}</div>`).join('')
+                       : '<div class="wx-pc-row">Outside the model area</div>';
+    if (fine) rows += '<small>from the 2.5 km grid near the airport</small>';
+  }
+  card.innerHTML = '<button class="wx-pc-x" type="button" title="Close (Esc)" aria-label="Close">×</button>'
+    + `<div class="wx-pc-head">${ll.lat.toFixed(2)}°N ${ll.lng.toFixed(2)}°E</div>`
+    + `<div class="wx-pc-time">${$('wx-tlabel').innerHTML}</div>${rows}`
+    + '<small>follows the time slider · click elsewhere on the map for another place</small>';
+  card.hidden = false;
+}
+map.on('click', e => {
+  if (!pointOn()) return;
+  pointLL = e.latlng;
+  showPoint();
+});
+$('wx-point-card').addEventListener('click', e => { if (e.target.closest('.wx-pc-x')) closePoint(); });
+L.DomEvent.disableClickPropagation($('wx-point-card'));
+L.DomEvent.disableScrollPropagation($('wx-point-card'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && pointLL) closePoint(); });
+function pointMode() {
+  document.querySelector('.weather-page').classList.toggle('wx-point-mode', pointOn());
+  if (!pointOn()) closePoint();
+}
+$('wx-point').addEventListener('change', () => { saveSettings(); pointMode(); });
+pointMode();
 
 // ── Animation and controls ────────────────────────────────────────────────
 let playing = false, playRun = 0;
