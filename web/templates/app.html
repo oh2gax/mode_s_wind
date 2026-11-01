@@ -488,6 +488,9 @@
   const APP_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
   // the version of doc/whats_new.md / CHANGELOG.md (What's new, from 2026-10-28)
   const APP_VERSION = {{ app_version | tojson }};
+  // the build of the phone view (from 2026-11-01): the page reloads itself when the
+  // server has a newer one (a deploy) — app.js, back on the page
+  const APP_BUILD = {{ app_build | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/skewt_analysis.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>

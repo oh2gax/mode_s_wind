@@ -17,6 +17,9 @@
  *    the whole area).  Load: all hours at once (nearest the slider first, in
  *    chunks of 12) or only those within ±6 h of the slider.  The loaded hours
  *    are kept while the view is open; the index is read again every 10 min.
+ *    Back on the page (from 2026-11-01, app.js calls wake): when the slider was
+ *    on the present hour, or the page was away over 30 min, the index is read
+ *    again and the slider goes to the new present hour (radar and traffic now).
  *  - Slider, −1h / ▶ / +1h / Now; ▶ plays the loaded hours (Speed).
  *  - A tap on the map: the values of that place (WxLayer.describe; they
  *    follow the slider), or the aircraft under the finger; a tap on the card
@@ -181,15 +184,15 @@ window.AppWx = (() => {
   }
 
   // ── hours and frames ──────────────────────────────────────────────────
-  async function loadIndex() {
+  async function loadIndex(toPresent = false) {
     indexAt = Date.now();
     try {
       const d = await (await fetch('/api/weather/index', { cache: 'no-store' })).json();
       hours = d.hours || [];
       fineInfo = d.fine || { hours: [], grid: null };
       fineBox = null;
-    } catch (_) { status('Could not load the weather map index.'); return; }
-    buildView();
+    } catch (_) { status('Could not load the weather map index.'); if (toPresent) buildView(true); return; }
+    buildView(toPresent);
   }
 
   // ── 2.5 km detail ─────────────────────────────────────────────────────
@@ -238,12 +241,12 @@ window.AppWx = (() => {
     view.forEach((h, i) => { if (h[0] <= now) k = i; });
     return k;
   }
-  function buildView() {
+  function buildView(toPresent = false) {
     const now = nowTs(), el = $('app-wx-t');
     const cur = view.length ? view[+el.value]?.[0] : null;
     view = hours.filter(h => h[0] >= now - PAST_H * HOUR && h[0] <= now + (+S().fc) * HOUR);
     el.max = Math.max(0, view.length - 1);
-    let k = cur != null ? view.findIndex(h => h[0] === cur) : -1;
+    let k = cur != null && !toPresent ? view.findIndex(h => h[0] === cur) : -1;
     if (k < 0) k = presentIndex();
     el.value = Math.max(0, k);
     ticks();
@@ -547,6 +550,20 @@ window.AppWx = (() => {
     loadRadar();
   }
   function hide() { shown = false; if (playing) play(); }
+  // back on the page (from 2026-11-01): the slider was on the present hour when the page
+  // was left, or the page was away over 30 min → the new present hour, with the radar
+  // and the traffic of now; a chosen other hour after a short break stays
+  let wasPresent = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && shown && view.length) wasPresent = +$('app-wx-t').value === presentIndex();
+  });
+  function wake(awayMs) {
+    if (!shown || !(wasPresent || awayMs > 30 * 60e3)) return;
+    if (playing) play();
+    loadIndex(true);
+    if (S().traffic === 'on') loadTraffic(true);
+    loadRadar(true);
+  }
   function layout() { if (map) { map.invalidateSize(); trafficLayer && trafficLayer.redraw(); } }
   function refresh() {                                     // every 6 s while the view is shown
     if (!shown) return;
@@ -579,5 +596,5 @@ window.AppWx = (() => {
     applyMapStyle();                                       // the street tiles or the ATC lines in the theme's colours
     wx.redraw(); renderLegend(); trafficLayer.redraw();
   }
-  return { init, show, hide, layout, refresh, option, theme, ready: () => !!map };
+  return { init, show, hide, wake, layout, refresh, option, theme, ready: () => !!map };
 })();

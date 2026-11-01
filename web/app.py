@@ -543,7 +543,7 @@ def create_app(
         ILS approach and ACI & WS, one at a time, all choices in a ☰ menu
         (static/js/app.js)."""
         from web import whats_new
-        return render_template("app.html", receiver_lat=cfg.RECEIVER_LAT,
+        return render_template("app.html", receiver_lat=cfg.RECEIVER_LAT, app_build=_app_build(),
                                mobile_guide_url=whats_new.guide_url("Mobile_User_Guide.pdf"),
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
                                airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
@@ -551,6 +551,40 @@ def create_app(
                                radius_nm=cfg.WINDSHEAR_RADIUS_NM,
                                thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
                                gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
+
+    _app_build_cache = {"t": 0.0, "v": ""}
+
+    def _app_build() -> str:
+        """The build of the phone view (from 2026-11-01): the newest modification
+        time of its template and of the static scripts and style sheets.  A
+        deploy that changes any of them (git writes the files anew) gives a new
+        build, so a page left open on a phone can tell that it is old and reload
+        itself (static/js/app.js).  Cached 30 s."""
+        now = time.time()
+        if _app_build_cache["v"] and now - _app_build_cache["t"] < 30:
+            return _app_build_cache["v"]
+        newest = 0.0
+        try:
+            newest = os.stat(os.path.join(app.root_path, app.template_folder or "templates", "app.html")).st_mtime
+        except OSError:
+            pass
+        for sub in ("js", "css"):
+            try:
+                with os.scandir(os.path.join(app.static_folder, sub)) as it:
+                    for e in it:
+                        if e.name.endswith((".js", ".css")) and e.is_file():
+                            newest = max(newest, e.stat().st_mtime)
+            except OSError:
+                pass
+        _app_build_cache.update(t=now, v=str(int(newest)) if newest else "")
+        return _app_build_cache["v"]
+
+    @app.route("/api/app/build")
+    def app_build_api():
+        """The phone view's build (see _app_build), never cached."""
+        resp = jsonify({"build": _app_build()})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/app/manifest.webmanifest")
     def app_manifest():

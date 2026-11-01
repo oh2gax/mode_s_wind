@@ -1732,9 +1732,37 @@
 
   let rt = null;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => layout(), 120); });
+  // ── Back on the page (from 2026-11-01) ───────────────────────────────────
+  // Away (hidden) for over an hour, or the server has a newer build of the phone
+  // view (a deploy, /api/app/build): the page reloads itself, as the browser's
+  // Refresh — the view and all options are kept in localStorage.  Otherwise the
+  // view's data is refreshed; the Weather view also goes to the present hour
+  // (AppWx.wake).
+  const RELOAD_AFTER_MS = 3600e3;
+  let hiddenAt = document.hidden ? Date.now() : 0, reloading = false;
+  async function newBuild() {
+    if (typeof APP_BUILD === 'undefined' || !APP_BUILD) return false;
+    try {
+      const r = await fetch('/api/app/build', { cache: 'no-store' });
+      if (!r.ok) return false;
+      const d = await r.json();
+      return !!d.build && d.build !== APP_BUILD;
+    } catch (_) { return false; }
+  }
+  async function wake() {
+    if (reloading) return;
+    const away = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = 0;
+    if (away > RELOAD_AFTER_MS || await newBuild()) { reloading = true; location.reload(); return; }
+    if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.wake(away);
+    refresh(); pollHealth(); fetchWx();
+  }
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refresh(); pollHealth(); fetchWx(); }
+    if (document.hidden) { if (!hiddenAt) hiddenAt = Date.now(); }
+    else wake();
   });
+  window.addEventListener('pagehide', () => { if (!hiddenAt) hiddenAt = Date.now(); });
+  window.addEventListener('pageshow', e => { if (e.persisted) wake(); });   // back from the browser's page cache
 
   // ══ Statistics (from 2026-10-28) ═════════════════════════════════════════
   // The Statistics page's panels (stats.js, reused) in one column.  Chart.js and

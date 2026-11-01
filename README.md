@@ -2056,6 +2056,10 @@ User guide: [`doc/Mobile_User_Guide.pdf`](doc/Mobile_User_Guide.pdf) (also linke
 
 Tap (or drag) over a diagram for the read-out the desktop pages show on hover; when a view is taller than the screen (e.g. ACI & WS with its list, or a Skew-T in landscape) an up-down drag scrolls the page also when it starts on the diagram; on the ACI & WS chart a tap shows the nearest landing, departure or go-around in the box under the chart, on the space–time diagram the flights of the cell. Only the view on the screen is refreshed, and nothing while the phone's screen is off or another app is in front; returning refreshes at once. The theme (Dark / Light) is in the menu with a link to the full site.
 
+**Back on the page** (from 1 Nov 2026): while the phone's screen is off or another app is used, nothing is fetched. When the page is shown again, the view's data is refreshed at once (also the health dot, the METAR and the clock), and:
+- **away for over an hour**, or the server has a **newer build** of the phone view (a deploy changed its template, scripts or styles — `/api/app/build`, the newest modification time of `app.html` and `static/js|css`, compared with the build the page was loaded with) — the page **reloads itself**, as the browser's *Refresh*; the view and all options are kept (they are stored on the phone), the Weather slider starts at the present hour;
+- **Weather view** — when the slider was on the present hour when the page was left, or the page was away over 30 minutes, it goes to the **new present hour** (the hour list read again, the radar and the traffic of now); an hour chosen on purpose stays after a short break.
+
 **Add to Home Screen** (the browser's menu; on an iPhone Safari's Share → *Add to Home Screen*) puts a MODE-S Wind icon on the phone; it opens `/app` full screen like an app. The login is the same as for the other pages (the phone remembers it like the browser); only the web-app manifest and the icon files are served without a login, as the phone fetches them on its own.
 
 ## Database
@@ -2552,6 +2556,7 @@ The web server exposes a REST JSON API used by the frontend. All endpoints requi
 | GET | `/gps-episodes` | GPS Episodes page (HTML) |
 | GET | `/stats` | Mode S & ADS-B Statistics page (HTML) |
 | GET | `/app` | Mobile view (HTML; from 26 Oct 2026) |
+| GET | `/api/app/build` | The mobile view's build (from 1 Nov 2026): `{"build"}`, the newest modification time of `app.html` and the static scripts and styles; a page left open reloads itself when it differs |
 | GET | `/app/manifest.webmanifest` | Web-app manifest of the mobile view (name, icons, start URL `/app`, full screen) — served without a login, like the three icons in `static/icons/` |
 | GET | `/shared-login` | Notice page of the shared test login (`shared_ended.html`; HTTP 403 after its end date, else 200) |
 | GET | `/switch-user` | Makes the browser ask for the login again (HTTP 401 without credentials or with the shared login; with other credentials redirects to the Live Map) |
