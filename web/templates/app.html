@@ -154,6 +154,11 @@
     <div id="am-prof-lg" class="app-meta"></div>
     <div id="am-prof-note" class="app-pick am-note">Tap a point or a barb for its values.</div>
     <div class="am-hd">Boundary layer · temperature</div>
+    <!-- the mast in the two charts (from 2026-11-01 night): its 10-minute steps filling the plot
+         below its top, narrow hourly columns beside the Mode S cells, or off -->
+    <div class="am-cmp-bar am-mfill-bar"><span class="am-lbl">Mast in the charts</span>
+      <div class="app-chips" id="am-mfill"><button type="button" class="app-chip" data-v="fill">Fill</button><button type="button" class="app-chip" data-v="cols">Columns</button><button type="button" class="app-chip" data-v="off">Off</button></div>
+    </div>
     <div class="app-aci-box"><canvas id="am-blt"></canvas></div>
     <div class="app-aci-box"><canvas id="am-dt"></canvas></div>
     <div id="am-blt-pick" class="app-pick">Tap the chart for its values; a tap on the mast (below the amber line) also shows its profile of that time.</div>
@@ -162,6 +167,9 @@
     <div class="app-aci-box"><canvas id="am-blw"></canvas></div>
     <div id="am-blw-pick" class="app-pick">Tap the chart for its values.</div>
     <div id="am-blw-ro" class="app-meta app-aci-readout"></div>
+    <div class="am-hd">Time series</div>
+    <div id="am-ser" class="am-prof am-ser"></div>
+    <div id="am-ser-pick" class="app-pick am-note">Tap the time series for the mast's values at that time; it also shows the profile of that time.</div>
     <div class="am-hd">Comparison with the mast</div>
     <div class="am-cmp-bar">
       <div class="app-chips" id="am-cmp-k"><button type="button" class="app-chip" data-v="t">Temperature</button><button type="button" class="app-chip" data-v="w">Wind</button></div>
@@ -400,7 +408,7 @@
       <label class="app-switch"><span>MEPS in the profile</span><input type="checkbox" id="app-mast-meps"></label>
       <label class="app-switch"><span>Sonde in the profile</span><input type="checkbox" id="app-mast-sonde"></label>
     </div>
-    <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
+    <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it (Mast in the charts: Fill; Columns — the mast's hour means as a narrow column at the right of each hour, beside the aircraft's cells, which can then be seen below 1 200 ft too; Off — the aircraft only) — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
   </details>
 
   <details class="app-sec" data-for="wx">

@@ -466,7 +466,10 @@ body.app-body {
 .am-hd .app-list-x { margin-left: auto; }
 .am-prof svg { display: block; width: 100%; height: auto; }
 .am-dim { color: var(--text-3); }
+.am-ser svg { touch-action: pan-y; }
 .am-cmp-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin: 2px 2px 6px; }
+.am-mfill-bar { align-items: center; justify-content: flex-start; }
+.am-lbl { font-size: 12px; color: var(--text-2); margin-right: 4px; }
 .am-cmp-bar .app-chip { min-height: 30px; padding: 4px 11px; font-size: 12.5px; }
 .app-list.am-cmp { width: 100%; border-collapse: collapse; }
 .app-list.am-cmp td { vertical-align: top; line-height: 1.3; }

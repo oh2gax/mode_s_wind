@@ -41,6 +41,10 @@
     aptMin: lsGet('ms_app_mast_aptmin', 'false') === 'true',
     days: parseInt(lsGet('ms_app_mast_days', '7'), 10),
     ck: lsGet('ms_app_mast_ck', 't'),
+    // the mast in the boundary-layer charts (from 2026-11-01 night): fill — its 10-minute
+    // steps fill the plot below its top; cols — narrow hourly columns at the right of each
+    // hour (as the Windshear page), the Mode S cells beside them; off — Mode S only
+    mfill: lsGet('ms_app_mast_fill', 'fill'),
     // the profile's sources: shared with the Sounding page's Mast tab
     modes: lsGet('ms_mast_modes', 'true') !== 'false',
     meps: lsGet('ms_mast_meps', 'true') !== 'false',
@@ -50,6 +54,7 @@
   if (![12, 24, 72].includes(S.hours)) S.hours = 24;
   if (![1500, 3000, 5000].includes(S.top)) S.top = 3000;
   if (![7, 30, 90].includes(S.days)) S.days = 7;
+  if (!['fill', 'cols', 'off'].includes(S.mfill)) S.mfill = 'fill';
   let on = false, seq = 0, busy = false;
   let ser = null, prof = null, bl = null, cmp = null, cmpAt = 0, cmpDays = 0, apt = null, fetched = 0;
   let dotsT = [], dotsW = [], dotsD = [];
@@ -83,13 +88,13 @@
   async function loadProfile(at) {
     S.at = at;
     try { prof = await (await fetch(`/api/mast/profile${at ? '?at=' + at : ''}`, { cache: 'no-store' })).json(); } catch (_) { /* keep */ }
-    renderTiles(); renderProfile();
+    renderTiles(); renderProfile(); renderSeries();
   }
 
   // ── render ──────────────────────────────────────────────────────────────
   function render() {
     if (!on) return;
-    renderApt(); renderTiles(); renderProfile(); renderCharts(); renderCompare();
+    renderApt(); renderTiles(); renderProfile(); renderCharts(); renderSeries(); renderCompare();
   }
   function renderApt() {
     const el = $('am-apt'), note = $('am-apt-note');
@@ -136,10 +141,71 @@
   }
   function renderCharts() {
     const W = viewW(), H = Math.round(Math.max(230, Math.min(360, W * 0.72))), nowMs = Date.now();
-    const base = { bl: bl, hours: S.hours, fetchedMs: fetched, nowMs, top: S.top, mastSteps: ser, mastElev: (ser && ser.station && ser.station.elev) || 44 };
+    document.querySelectorAll('#am-mfill .app-chip').forEach(b => b.classList.toggle('on', b.dataset.v === S.mfill));
+    const base = { bl: bl, hours: S.hours, fetchedMs: fetched, nowMs, top: S.top, mastElev: (ser && ser.station && ser.station.elev) || 44,
+                   mastSteps: S.mfill === 'fill' ? ser : null, mast: S.mfill === 'cols' ? hourlyOf(ser) : null };
     dotsT = WsCondChart.drawBoundaryLayer(sizeCv($('am-blt'), W, H), W, H, $('am-blt-ro'), { ...base, field: 'temp' });
     dotsD = drawDt(sizeCv($('am-dt'), W, 64), W, 64, nowMs);
     dotsW = WsCondChart.drawBoundaryLayer(sizeCv($('am-blw'), W, H), W, H, $('am-blw-ro'), { ...base, field: 'wind', barbs: true });
+  }
+  // the time series (mast.js seriesSvg, compact; from 2026-11-01 night): wind speed, direction,
+  // temperature (inverted, colder up) and ΔT; a tap gives the step's values and its profile
+  let sgeo = null;
+  function renderSeries() {
+    const el = $('am-ser');
+    if (!ser || !ser.rows || !ser.rows.length || !window.MastView || !MastView.seriesSvg) { el.innerHTML = '<div class="app-small">No observations in this period.</div>'; sgeo = null; return; }
+    const r = MastView.seriesSvg(ser, prof && prof.found ? prof.obs.ts : null, { compact: true });
+    el.innerHTML = r.svg; sgeo = r.geo;
+  }
+  function pickSeries(e, load) {
+    if (!sgeo) return;
+    const svg = $('am-ser').querySelector('svg');
+    if (!svg) return;
+    const b = svg.getBoundingClientRect(), sx = (e.clientX - b.left) * sgeo.W / b.width;
+    if (sx < sgeo.ml || sx > sgeo.ml + sgeo.pw) return;
+    const t = sgeo.t0 + (sx - sgeo.ml) / sgeo.pw * (sgeo.t1 - sgeo.t0);
+    let best = null, bd = Infinity;
+    for (const r of sgeo.R) { const d = Math.abs(r[0] - t); if (d < bd) { bd = d; best = r; } }
+    if (!best || bd > 1800) return;
+    const cur = svg.querySelector('#mt-cur');
+    if (cur) { const xx = sgeo.x(best[0]); cur.setAttribute('x1', xx); cur.setAttribute('x2', xx); cur.setAttribute('visibility', 'visible'); }
+    const w = sgeo.wl.map((h, i) => `${h} m ${best[5][i] != null ? String(Math.round(best[5][i])).padStart(3, '0') + '°' : '–'} ${best[4][i] != null ? Math.round(best[4][i]) : '–'} kt G${best[6][i] != null ? Math.round(best[6][i]) : '–'}`).reverse().join(' · ');
+    const n = sgeo.tl.length - 1;
+    const tt = [n, Math.floor(n / 2), 0].map(i => `${sgeo.tl[i]} m ${f1(best[1][i], 1, true)} °C`).join(' · ');
+    const dT = best[1][n] != null && best[1][0] != null ? best[1][n] - best[1][0] : null;
+    $('am-ser-pick').textContent = `${hm(best[0])} UTC (10-min mean)\n${w}\n${tt}${dT != null ? ` · ΔT ${f1(dT, 1, true)} K` : ''}`;
+    if (load && best[0] !== S.at) loadProfile(best[0]);
+  }
+
+  // the hour means of the 10-minute steps (a step at ts covers ts − 10 min … ts): mean
+  // temperatures, vector-mean wind, the highest gust — the shape of /api/mast/hourly
+  let hCache = null;
+  function hourlyOf(sr) {
+    if (!sr || !sr.rows) return null;
+    if (hCache && hCache.src === sr) return hCache.v;
+    const by = new Map(), nT = sr.tl.length, nW = sr.wl.length;
+    for (const r of sr.rows) {
+      const h = Math.floor((r[0] - 600) / 3600) * 3600;
+      let a = by.get(h);
+      if (!a) { a = { n: 0, t: Array(nT).fill(0), tn: Array(nT).fill(0), u: Array(nW).fill(0), v: Array(nW).fill(0), wn: Array(nW).fill(0), g: Array(nW).fill(null) }; by.set(h, a); }
+      a.n++;
+      for (let i = 0; i < nT; i++) if (r[1][i] != null) { a.t[i] += r[1][i]; a.tn[i]++; }
+      for (let i = 0; i < nW; i++) {
+        if (r[4][i] != null && r[5][i] != null) {
+          const rad = r[5][i] * Math.PI / 180;
+          a.u[i] += -r[4][i] * Math.sin(rad); a.v[i] += -r[4][i] * Math.cos(rad); a.wn[i]++;
+        }
+        if (r[6][i] != null) a.g[i] = Math.max(a.g[i] == null ? -1 : a.g[i], r[6][i]);
+      }
+    }
+    const out = [...by.entries()].sort((x, y) => x[0] - y[0]).map(([ts, a]) => ({
+      ts, n: a.n, tl: sr.tl, wl: sr.wl,
+      t: a.t.map((x, i) => a.tn[i] ? x / a.tn[i] : null),
+      ws: a.u.map((x, i) => a.wn[i] ? Math.hypot(x / a.wn[i], a.v[i] / a.wn[i]) : null),
+      wd: a.u.map((x, i) => a.wn[i] ? (Math.atan2(-x / a.wn[i], -a.v[i] / a.wn[i]) * 180 / Math.PI + 360) % 360 : null),
+      wg: a.g }));
+    hCache = { src: sr, v: out };
+    return out;
   }
   // ΔT top − 2 m per 10-minute step, on the charts' time axis (L 34, R 8 as drawBoundaryLayer)
   function drawDt(g, W, H, nowMs) {
@@ -237,6 +303,8 @@
     bindCv('am-blt', () => dotsT, 'am-blt-pick', HINT);
     bindCv('am-dt', () => dotsD, 'am-blt-pick', HINT);
     bindCv('am-blw', () => dotsW, 'am-blw-pick', HINT);
+    $('am-ser').addEventListener('pointerdown', e => pickSeries(e, true));
+    $('am-ser').addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' || e.buttons) pickSeries(e, false); });
     $('am-apt').addEventListener('click', e => {
       if (e.target.closest('.lwx-apt-min')) {
         S.aptMin = !S.aptMin; lsSet('ms_app_mast_aptmin', S.aptMin);
@@ -253,6 +321,8 @@
       $('am-prof-note').textContent = ti ? ti.textContent : 'Tap a point or a barb for its values.';
     });
     $('v-mast').addEventListener('click', e => { if (e.target.id === 'am-now') loadProfile(null); });
+    document.querySelectorAll('#am-mfill .app-chip').forEach(b => b.addEventListener('click', () => {
+      S.mfill = b.dataset.v; lsSet('ms_app_mast_fill', S.mfill); renderCharts(); }));
     document.querySelectorAll('#am-cmp-k .app-chip').forEach(b => b.addEventListener('click', () => {
       S.ck = b.dataset.v; lsSet('ms_app_mast_ck', S.ck); renderCompare(); }));
     document.querySelectorAll('#am-cmp-d .app-chip').forEach(b => b.addEventListener('click', async () => {

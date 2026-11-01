@@ -237,10 +237,22 @@
     if (!el) return;
     const R = (ser && ser.rows) || [];
     if (!R.length) { el.innerHTML = '<div class="sv-empty">No observations in this period.</div>'; geo = null; return; }
+    const r0 = seriesSvg(ser, prof && prof.found ? prof.obs.ts : null);
+    el.innerHTML = r0.svg;
+    geo = r0.geo;
+    const svg = $('mt-series-svg');
+    svg.addEventListener('mousemove', hover);
+    svg.addEventListener('mouseleave', () => { $('mt-tip').style.display = 'none'; const c = $('mt-cur'); if (c) c.setAttribute('visibility', 'hidden'); });
+    svg.addEventListener('click', ev => { const r = nearest(ev); if (r) loadProfile(r[0]); });
+  }
+  // the time series as SVG (from 2026-11-01 night also the phone's Mast view, o2.compact);
+  // the temperature axis inverted (colder up, from 2026-11-01 night): the levels lie as their heights
+  function seriesSvg(ser, pt, o2 = {}) {
+    const R = ser.rows, cp = !!o2.compact;
     const K = C(), wl = ser.wl, tl = ser.tl;
-    const W = 900, ml = 52, mr = 70, pw = W - ml - mr;
-    const P = [{ k: 'ws', h: 150, label: 'Wind speed (kt)' }, { k: 'wd', h: 110, label: 'Direction (°)' },
-               { k: 't', h: 150, label: 'Temperature (°C)' }, { k: 'dt', h: 90, label: `T(${tl[tl.length - 1]} m) − T(${tl[0]} m) (K)` }];
+    const W = cp ? 380 : 900, ml = cp ? 34 : 52, mr = cp ? 62 : 70, pw = W - ml - mr;
+    const P = [{ k: 'ws', h: cp ? 110 : 150, label: 'Wind speed (kt)' }, { k: 'wd', h: cp ? 80 : 110, label: 'Direction (°)' },
+               { k: 't', h: cp ? 140 : 150, label: 'Temperature (°C) · inverted, colder up' }, { k: 'dt', h: cp ? 70 : 90, label: `T(${tl[tl.length - 1]} m) − T(${tl[0]} m) (K)` }];
     const gap = 26, mt = 10;
     const H = mt + P.reduce((s, p) => s + p.h + gap, 0) + 6;
     const t0 = ser.start, t1 = ser.end;
@@ -261,7 +273,7 @@
       if (p.k === 't') { lo = Math.floor(lo - 0.5); hi = Math.ceil(hi + 0.5); }
       if (p.k === 'ws') hi = Math.max(10, Math.ceil(hi / 5) * 5);
       if (!isFinite(lo) || !isFinite(hi) || hi === lo) { lo = 0; hi = 1; }
-      const ya = v => yy + p.h * (1 - (v - lo) / (hi - lo));
+      const ya = p.k === 't' ? v => yy + p.h * (v - lo) / (hi - lo) : v => yy + p.h * (1 - (v - lo) / (hi - lo));
       panels.push({ ...p, y0: yy, lo, hi, ya });
       s += `<text x="${ml}" y="${yy - 2}" font-size="11" font-weight="600" fill="${K.ink2}">${p.label}</text>`;
       // horizontal grid
@@ -321,15 +333,9 @@
     tl.forEach((h, i) => { const ky = keyT + kRow(tl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, tl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
     // cursor line (moved by the hover) and the chosen profile time
     s += `<line id="mt-cur" x1="0" x2="0" y1="${mt}" y2="${H - 30}" stroke="${K.ink2}" stroke-width="1" visibility="hidden"/>`;
-    const pt = prof && prof.found ? prof.obs.ts : null;
     if (pt && pt >= t0 && pt <= t1) s += `<line x1="${x(pt)}" x2="${x(pt)}" y1="${mt}" y2="${H - 30}" stroke="${K.mast}" stroke-width="1.2" stroke-dasharray="3 3"><title>the profile shown</title></line>`;
     s += '</svg>';
-    el.innerHTML = s;
-    geo = { x, t0, t1, ml, pw, W, R, wl, tl, panels };
-    const svg = $('mt-series-svg');
-    svg.addEventListener('mousemove', hover);
-    svg.addEventListener('mouseleave', () => { $('mt-tip').style.display = 'none'; const c = $('mt-cur'); if (c) c.setAttribute('visibility', 'hidden'); });
-    svg.addEventListener('click', ev => { const r = nearest(ev); if (r) loadProfile(r[0]); });
+    return { svg: s, geo: { x, t0, t1, ml, pw, W, R, wl, tl, panels } };
   }
   function nearest(ev) {
     if (!geo) return null;
@@ -416,5 +422,5 @@
     if (on) timer = setInterval(() => { if (!document.hidden && on) load(); }, 5 * 60 * 1000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  window.MastView = { load, render, active, profileSvg };
+  window.MastView = { load, render, active, profileSvg, seriesSvg };
 })();
