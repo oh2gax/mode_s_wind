@@ -16,9 +16,11 @@ const AtcDisplay = (() => {
     // dark: a little darker from 31 Oct 2026 (bg #1b2027 before)
     dark:  { bg: '#161a20', apt: '#5b6573', ils: '#46566a', rnp: '#6b5a3c', coast: '#36414e', ring: '#2c3540', ringTxt: '#4f5a67',
              low: '#d1fae5', high: '#9ca3af', sel: '#facc15', leader: '#7b8594', ga: '#ef4444', extBg: '#0c1015' },
-    // light: a darker mid grey from 31 Oct 2026 (bg #cfd2d5, ring #b3b8be, ringTxt #8a9099, coast #8b9bb0 before)
-    light: { bg: '#b7bbc0', apt: '#59626e', ils: '#2a4a7a', rnp: '#8a5a1c', coast: '#7a899e', ring: '#9ea4ab', ringTxt: '#737a84',
-             low: '#0b3b2c', high: '#4b5563', sel: '#1d4ed8', leader: '#5d6672', ga: '#dc2626', extBg: '#e9ebed' },
+    // light: a very light grey from 1 Nov 2026 — nearly white but still grey beside the white
+    // panels (bg #b7bbc0, ring #9ea4ab, ringTxt #737a84, coast #7a899e, extBg #e9ebed from
+    // 31 Oct; bg #cfd2d5, ring #b3b8be, ringTxt #8a9099, coast #8b9bb0 before that)
+    light: { bg: '#e2e4e7', apt: '#59626e', ils: '#2a4a7a', rnp: '#8a5a1c', coast: '#8d9bb0', ring: '#c6cad0', ringTxt: '#808892',
+             low: '#0b3b2c', high: '#4b5563', sel: '#1d4ed8', leader: '#5d6672', ga: '#dc2626', extBg: '#f6f7f8' },
   };
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const pal = () => PAL[isLight() ? 'light' : 'dark'];

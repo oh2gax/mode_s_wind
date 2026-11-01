@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; the phone's EDR · WS · ACI · ST with History cards; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize, the chart panel level with it, ⌂ + − in one row; WS & near reports under the METAR; pilot-report heights like 3000/4000FT)
+## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; the phone's EDR · WS · ACI · ST with History cards; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize, the chart panel level with it, ⌂ + − in one row; WS & near reports under the METAR; pilot-report heights like 3000/4000FT; a very light grey ATC map in the Light theme)
+
+### ATC map style, Light theme: a very light grey background
+- The ATC style's Light-theme background (Live Map, Windshear map, the phone's ATC maps) is a very light grey `#e2e4e7` (was the mid grey `#b7bbc0` of 31 Oct) — nearly white, still grey beside the white panels; the range rings `#c6cad0`, ring labels `#808892`, coastline `#8d9bb0` and the extended label's background `#f6f7f8` lightened to match. Symbols, labels, approach lines and the airport unchanged; the Dark theme unchanged. `static/js/atc_display.js`, `web/templates/windshear.html` (the style button's tooltip).
 
 ### Pilot reports: heights like 3000/4000FT; the access log's daily summary over a restart
 - Pilot reports: a height range with the unit only after the second number (`3000/4000FT`, also `3000-4000FT`) is read as 3 000–4 000 ft (was 4 000 ft alone — e.g. the ARS of FIN68P on 31 Oct, shown as *Height: 4000 ft*). The stored reports are read again once at start and the changed rows updated. `collector/wx_reports.py`.
