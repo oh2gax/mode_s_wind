@@ -1704,6 +1704,39 @@ async function fetchWx() {
 
 fetchWx();
 setInterval(fetchWx,       10 * 60 * 1000);
+
+// ── WS & near reports in the METAR box (from 2026-11-01) ──────────────────────
+// Under the METAR, the METARs with a windshear group (WS R22L …) and the pilot
+// reports near the airport (ARS / WXREP / SIGMET within the set distance, at or
+// below 10 000 ft) of the last 12 hours — the Approach History's Reports list
+// "WS & near" with the same colours and font; nothing is shown when there are none.
+const METAR_REPS_HOURS = 12;
+async function fetchMetarReps() {
+  const box = document.getElementById('ws-metar-reps'), body = document.getElementById('ws-metar-reps-body');
+  const nEl = document.getElementById('ws-metar-reps-n');
+  if (!box || !body) return;
+  try {
+    const r = await fetch(`/api/wx/reports?hours=${METAR_REPS_HOURS}&ws=1&near=1&limit=200`);
+    if (!r.ok) return;
+    const list = _repItems(await r.json());
+    const sec = box.parentElement;
+    if (!list.length) {
+      box.style.display = 'none'; body.innerHTML = ''; sec.classList.remove('ws-wx-has-reps');
+      if (nEl) { nEl.textContent = ''; nEl.title = ''; }
+      return;
+    }
+    body.innerHTML = list.map(_repRowHtml).join('');
+    box.style.display = ''; sec.classList.add('ws-wx-has-reps');
+    if (nEl) {
+      const nMet = list.filter(i => i.met).length, nRep = list.length - nMet;
+      nEl.textContent = ` · WS & near ${METAR_REPS_HOURS} h: ` +
+        [nMet ? `${nMet} METAR${nMet === 1 ? '' : 's'} with WS` : '', nRep ? `${nRep} pilot report${nRep === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      nEl.title = `The METARs with a windshear group and the pilot reports near the airport of the last ${METAR_REPS_HOURS} hours, newest first — as the Approach History's Reports list with "WS & near"`;
+    }
+  } catch (_) { /* silent */ }
+}
+fetchMetarReps();
+setInterval(fetchMetarReps, 3 * 60 * 1000);  // the pilot reports are fetched every few minutes on the server
 setInterval(checkMetarAge,      60 * 1000);  // re-check age every minute for timely colour transitions
 
 // ── The map's traffic (from 2026-11-01; before an ILS Only on / off toggle) ───────
@@ -2761,8 +2794,8 @@ const COND_CLASS_COLORS_LIGHT = { N: '#334155', R: '#7c3aed', T: '#0891b2', W: '
  * bar (counter digits) are ignored so the chart does not jitter.
  */
 const WR_ROSE_SIZE = 265;
-const WR_WS_EXTRA  = 95;     // chart views: up to this much taller where the map has room below the panel
 const WR_CHART_MIN = 180;    // chart views: not lower than this on a low map
+const WR_BOTTOM_GAP = 22;    // chart views end this far above the map's bottom edge — the Approach History panel's bottom (style.css)
 function sizeWindroseCanvas() {
   const canvas = document.getElementById('ws-windrose-canvas');
   if (!canvas) return;
@@ -2776,14 +2809,21 @@ function sizeWindroseCanvas() {
     // from the edge, so a read-out of one more line pushed them over the Windshear
     // alert title below the map.  Where the map is low the chart may get smaller
     // than the rose (down to WR_CHART_MIN) rather than cover what is below the map.
+    // From 1 Nov 2026 the panel ends exactly at the Approach History panel's bottom
+    // level (both WR_BOTTOM_GAP px above the map's bottom edge, clear of the map
+    // attribution) in every chart view: measured with fractional pixels and rounded,
+    // no 4-px tolerance (it could leave the two bottoms up to 4 px apart) and no
+    // upper cap any more (WR_WS_EXTRA = 95 px over the rose stopped e.g. the ST view
+    // 11 px short on a 1080-px-high window).
     const panel = canvas.parentElement, box = panel && panel.offsetParent;
     if (box) {
-      const rest = panel.offsetHeight - canvas.height;          // buttons + readout + padding
-      const room = box.clientHeight - panel.offsetTop - rest - 22;
-      h = Math.max(WR_CHART_MIN, Math.min(WR_ROSE_SIZE + WR_WS_EXTRA, Math.floor(room)));
+      const pr = panel.getBoundingClientRect(), br = box.getBoundingClientRect();
+      const rest = pr.height - canvas.getBoundingClientRect().height;   // buttons + readout + padding + border
+      const room = br.bottom - (box.clientTop || 0) - WR_BOTTOM_GAP - pr.top - rest;
+      h = Math.max(WR_CHART_MIN, Math.round(room));
     }
-  }
-  if (Math.abs(canvas.height - h) > 4 || h === WR_ROSE_SIZE) { if (canvas.height !== h) canvas.height = h; }
+    if (canvas.height !== h) canvas.height = h;
+  } else if (canvas.height !== h) canvas.height = h;
   if (wrIsChart()) {
     const ctrl = document.querySelector('.ws-map-controls');
     // panel = canvas + 2 × 5 px padding + 2 × 1 px border
@@ -4305,15 +4345,41 @@ function _repHighlight(raw, isMetar) {
   if (isMetar) return h.replace(/\bWS\s+(ALL\s+RWY|(?:R(?:WY)?\s?\d{2}[LRC]?\s*)+)/g, m => `<span class="ws-rep-ws">${m.trim()}</span> `);
   return h.replace(/\b((?:FBL|LGT|MOD|SEV|HVY)\s+)?(TURB|ICE|ICG|MTW|LLWS|WS|INVERSION|INV|TSGR|TS|VA|CB)\b/g, m => `<span class="ws-rep-ph">${m}</span>`);
 }
+// The messages of a /api/wx/reports answer as one list, newest first, and one row of
+// it (shared by the Reports list and, from 2026-11-01, the METAR box below the profile)
+function _repItems(d) {
+  const items = [];
+  for (const m of (d && d.metars) || []) items.push({ ts: m.ts, met: true, kind: 'METAR', sub: m.auto ? 'AUTO' : m.cor ? 'COR' : '', raw: m.raw, ws: m.ws });
+  for (const r of (d && d.reports) || []) items.push({ ts: r.obs_ts || r.ts, met: false, kind: r.kind, raw: r.raw, near: r.near, r });
+  return items.sort((a, b) => b.ts - a.ts);
+}
+function _repRowHtml(i) {
+  const todayMid = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const thisYear = new Date().getUTCFullYear();
+  const dt = new Date(i.ts * 1000), hm = dt.toISOString().slice(11, 16);
+  const tm = i.ts * 1000 >= todayMid ? hm
+    : `${dt.getUTCDate()}.${dt.getUTCMonth() + 1}${dt.getUTCFullYear() !== thisYear ? '.' + String(dt.getUTCFullYear()).slice(2) : ''} ${hm}`;
+  const r = i.r;
+  const tip = i.met
+    ? (i.ws ? `Windshear reported (${i.ws === 'ALL' ? 'all runways' : i.ws}) — manual METAR: windshear met during a landing or take-off between the surface and 1600 ft` : '')
+    : [r.ident ? (r.kind === 'ARS' ? 'Aircraft ' : 'Reported by ') + r.ident : '',
+       r.phen ? 'Phenomena: ' + r.phen : '',
+       r.lo_ft != null ? `Height: ${r.lo_ft === r.hi_ft ? r.lo_ft + ' ft' : r.lo_ft + '–' + r.hi_ft + ' ft'}` : '',
+       r.lat != null ? `Position ${r.lat.toFixed(2)}N ${r.lon.toFixed(2)}E` : '',
+       r.obs_ts && r.obs_ts !== r.ts ? `Message ${new Date(r.ts * 1000).toISOString().slice(11, 16)} UTC` : '',
+       r.near ? 'Near the airport (within the set distance, at or below 10 000 ft)' : ''].filter(Boolean).join('\n');
+  return `<tr${tip ? ` title="${tip.replace(/"/g, '&quot;')}"` : ''}${i.ws || i.near ? ' class="ws-rep-hit"' : ''}>
+  <td class="ws-aphist-cell ws-aphist-time">${tm}</td>
+  <td class="ws-aphist-cell ws-rep-kind ${_REP_KIND_CLS[i.kind] || ''}">${i.kind}${i.sub ? ` <span class="ws-rep-sub">${i.sub}</span>` : ''}${i.near ? ' <span class="ws-rep-near">●</span>' : ''}</td>
+  <td class="ws-aphist-cell ws-rep-txt">${_repHighlight(i.raw, i.met)}</td>
+</tr>`;
+}
 let _aphRepFetched = 0;
 function renderReports(d) {
   const tbody = document.getElementById('ws-aphist-table-body');
   if (!tbody) return;
   _aphLastEntries = d || {};
-  const items = [];
-  for (const m of (d && d.metars) || []) items.push({ ts: m.ts, met: true, kind: 'METAR', sub: m.auto ? 'AUTO' : m.cor ? 'COR' : '', raw: m.raw, ws: m.ws });
-  for (const r of (d && d.reports) || []) items.push({ ts: r.obs_ts || r.ts, met: false, kind: r.kind, raw: r.raw, near: r.near, r });
-  items.sort((a, b) => b.ts - a.ts);
+  const items = _repItems(d);
   const list = _aphRegFilter ? items.filter(i => _aphNormReg(i.raw).includes(_aphRegFilter)) : items;
   const nMet = list.filter(i => i.met).length, nRep = list.length - nMet, nWs = list.filter(i => i.ws).length;
   const countEl = document.getElementById('ws-aphist-count');
@@ -4334,27 +4400,7 @@ function renderReports(d) {
     tbody.innerHTML = `<tr><td colspan="3" class="ws-aphist-empty">${msg}</td></tr>`;
     return;
   }
-  const todayMid = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
-  const thisYear = new Date().getUTCFullYear();
-  tbody.innerHTML = list.slice(0, 1500).map(i => {
-    const dt = new Date(i.ts * 1000), hm = dt.toISOString().slice(11, 16);
-    const tm = i.ts * 1000 >= todayMid ? hm
-      : `${dt.getUTCDate()}.${dt.getUTCMonth() + 1}${dt.getUTCFullYear() !== thisYear ? '.' + String(dt.getUTCFullYear()).slice(2) : ''} ${hm}`;
-    const r = i.r;
-    const tip = i.met
-      ? (i.ws ? `Windshear reported (${i.ws === 'ALL' ? 'all runways' : i.ws}) — manual METAR: windshear met during a landing or take-off between the surface and 1600 ft` : '')
-      : [r.ident ? (r.kind === 'ARS' ? 'Aircraft ' : 'Reported by ') + r.ident : '',
-         r.phen ? 'Phenomena: ' + r.phen : '',
-         r.lo_ft != null ? `Height: ${r.lo_ft === r.hi_ft ? r.lo_ft + ' ft' : r.lo_ft + '–' + r.hi_ft + ' ft'}` : '',
-         r.lat != null ? `Position ${r.lat.toFixed(2)}N ${r.lon.toFixed(2)}E` : '',
-         r.obs_ts && r.obs_ts !== r.ts ? `Message ${new Date(r.ts * 1000).toISOString().slice(11, 16)} UTC` : '',
-         r.near ? 'Near the airport (within the set distance, at or below 10 000 ft)' : ''].filter(Boolean).join('\n');
-    return `<tr${tip ? ` title="${tip.replace(/"/g, '&quot;')}"` : ''}${i.ws || i.near ? ' class="ws-rep-hit"' : ''}>
-  <td class="ws-aphist-cell ws-aphist-time">${tm}</td>
-  <td class="ws-aphist-cell ws-rep-kind ${_REP_KIND_CLS[i.kind] || ''}">${i.kind}${i.sub ? ` <span class="ws-rep-sub">${i.sub}</span>` : ''}${i.near ? ' <span class="ws-rep-near">●</span>' : ''}</td>
-  <td class="ws-aphist-cell ws-rep-txt">${_repHighlight(i.raw, i.met)}</td>
-</tr>`;
-  }).join('');
+  tbody.innerHTML = list.slice(0, 1500).map(_repRowHtml).join('');
 }
 
 // ── Windrose server buffer fetch ─────────────────────────────────────────────

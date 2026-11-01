@@ -1232,7 +1232,7 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-aphist-panel {
   position: absolute;
   top: 90px;
-  bottom: 8px;
+  bottom: 22px;    /* level with the bottom of the chart panel at the right (WR_BOTTOM_GAP in windshear.js), clear of the map attribution; was 8px until 2026-11-01 */
   left: 8px;
   z-index: 800;
   background: rgba(22, 32, 48, 0.93);
@@ -2022,6 +2022,16 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
    time parsed from the raw METAR string is ≥ 60 or ≥ 90 minutes old. */
 .ws-metar-stale-orange { color: #fb923c !important; }
 .ws-metar-stale-red    { color: #f87171 !important; }
+/* WS & near reports of the last 12 h under the METAR (from 2026-11-01): the
+   Approach History's Reports rows (.ws-aphist-cell, .ws-rep-*) in a small scrolling
+   list; the METAR keeps its own height above it */
+.ws-wx-section.ws-wx-has-reps .ws-wx-text { flex: none; max-height: 72px; }
+.ws-wx-reps { flex: 1; min-height: 0; overflow-y: auto; margin-top: 3px; border-top: 1px solid var(--border); }
+.ws-wx-reps .ws-aphist-table { font-size: 10px; }
+.ws-wx-reps .ws-aphist-cell.ws-rep-kind,
+.ws-wx-reps .ws-aphist-time { width: 1%; }
+.ws-wx-reps-n { text-transform: none; letter-spacing: 0; font-weight: 400; color: #fbbf24; }
+[data-theme="light"] .ws-wx-reps-n { color: #b45309; }
 
 /* ── Map aircraft marker labels ─────────────────────────────────────────── */
 .ws-ac-label {

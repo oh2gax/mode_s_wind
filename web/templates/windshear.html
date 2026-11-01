@@ -183,8 +183,13 @@
         <!-- METAR + TAF strip — inside left column, below ILS canvas -->
         <div class="ws-wx-strip">
           <div class="ws-wx-section">
-            <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span></div>
+            <div class="ws-wx-label">METAR <span id="ws-metar-station">{{ airport_icao }}</span><span class="ws-wx-reps-n" id="ws-metar-reps-n"></span></div>
             <pre class="ws-wx-text" id="ws-metar-text">Loading…</pre>
+            <!-- the METARs with a windshear group and the pilot reports near the airport of the
+                 last 12 h, as the Approach History's Reports list "WS & near" (from 2026-11-01) -->
+            <div class="ws-wx-reps" id="ws-metar-reps" style="display:none">
+              <table class="ws-aphist-table"><tbody id="ws-metar-reps-body"></tbody></table>
+            </div>
           </div>
           <div class="ws-wx-section ws-taf-narrow">
             <div class="ws-wx-label">TAF <span id="ws-taf-station">{{ airport_icao }}</span></div>
