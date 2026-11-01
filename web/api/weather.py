@@ -8,6 +8,9 @@ over the MEPS area (table meps_wx_hours; compressed int16 planes, 7 days of
 history plus the newest forecast up to +48 h).
 
 index()  — the stored hours (ts, run, lead) and the grid, for the time slider.
+point()  — (from 2026-11-01, the Live Map's airport weather box) all the fields
+           of the hour containing now at one place: the 2.5 km box's nearest
+           cell when it has that hour of the same run, else the 10 km grid's.
 frames() — the fields of chosen hours for the browser, on the 10 km grid or
            averaged to 20 / 40 km (step 2 / 4) to keep the download small:
            p = (hPa − 1000) × 10, r / s = mm × 100 (rain / snow of the hour),
@@ -37,6 +40,7 @@ from __future__ import annotations
 import array
 import json
 import sys
+import time
 import zlib
 from math import atan2, cos, pi, radians, sin, tan
 
@@ -122,6 +126,53 @@ def _lcc_xy(lat: float, lon: float):
     rho = _R * _F / tan(pi / 4 + radians(lat) / 2) ** _N
     th = _N * radians(lon - _LON0)
     return rho * sin(th), _RHO0 - rho * cos(th)
+
+
+_point_cache: dict = {}       # (table, ts, run, lead, lat, lon) → values
+
+
+def point(db, lat: float, lon: float, now: float = None) -> dict:
+    """All the fields (ALL, as frames() encodes them) of the model hour that
+    contains now — the hour ending at the next full hour, as the Live Map's
+    overlay — at the nearest grid cell of (lat, lon): from the 2.5 km box when
+    it has that hour of the same run, else from the 10 km grid.  {ts, run, lead,
+    km, v: {field: value}}, or {error}."""
+    now = time.time() if now is None else now
+    try:
+        r = (db.execute("SELECT ts, run, lead FROM meps_wx_hours WHERE ts >= ? ORDER BY ts LIMIT 1", (int(now),)).fetchone()
+             or db.execute("SELECT ts, run, lead FROM meps_wx_hours ORDER BY ts DESC LIMIT 1").fetchone())
+    except Exception:                                    # noqa: BLE001  (table missing)
+        r = None
+    if not r:
+        return {"error": "no MEPS weather maps stored yet"}
+    ts, run, lead = r
+    x, y = _lcc_xy(lat, lon)
+    for table, km in (("meps_wx25_hours", 2.5), ("meps_wx_hours", 10)):
+        key = (table, ts, run, lead, round(lat, 4), round(lon, 4))
+        hit = _point_cache.get(key)
+        if hit is None:
+            try:
+                row = db.execute(f"SELECT run, lead, meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
+            except Exception:                            # noqa: BLE001  (table missing)
+                row = None
+            if not row or row[0] != run:
+                continue                                 # the 2.5 km box only of the same run
+            meta = json.loads(row[2])
+            planes = _decode(meta, row[3])
+            if planes is None:
+                continue
+            (x0, dx, nx), (y0, dy, ny) = meta["x"], meta["y"]
+            i, j = round((x - x0) / dx), round((y - y0) / dy)
+            if not (0 <= i < nx and 0 <= j < ny):
+                continue                                 # outside this grid
+            k = j * nx + i
+            hit = {f: int(planes[f][k]) for f in ALL if f in planes and planes[f][k] != FILL}
+            if len(_point_cache) > 64:
+                _point_cache.clear()
+            _point_cache[key] = hit
+        return {"ts": ts, "run": run, "lead": lead, "km": km, "v": hit,
+                "source": "MEPS (MET Norway, CC BY 4.0)"}
+    return {"error": "the place is outside the MEPS area", "ts": ts, "run": run, "lead": lead}
 
 
 def _window(meta: dict, bbox, step: int):

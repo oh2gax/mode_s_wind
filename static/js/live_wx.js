@@ -48,6 +48,14 @@
  * shown), the radar's rain rate and the MEPS wind of the Wind row.  Hover only
  * (no click); a barb, the coverage line or an aircraft keeps its own read-out.
  *
+ * Airport weather box (from 2026-11-01, Off by default): "Current MEPS & radar wx
+ * at <airport>" opens a box at the top left of the map, in the look of the hover
+ * read-out, with the airport's weather of now — the MEPS hour containing now
+ * (10 m wind, gust, 2 m temperature, pressure, rain or snow, total / low /
+ * medium / high cloud, cloud base, fog; the 2.5 km grid when available) and the
+ * FMI radar's rain rate there (/api/weather/point).  « minimizes it to one line
+ * (» opens it again); refreshed every 5 minutes and when the hour changes.
+ *
  * Receiver coverage (from 2026-10-31): a thin light-blue line around the area
  * the receiver heard in the last 24 h — the farthest ADS-B position per 10°
  * sector, all heights (/api/coverage, the Statistics page's range data).  The
@@ -62,7 +70,7 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true, hover: false };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true, hover: false, apt: false, aptMin: false };
   const FINE_ZOOM = 7;                 // as the Weather page
   const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
@@ -79,6 +87,7 @@
   const windLayer = WxLayer.create(map, { pane: 'wxWindPane', zIndex: 360, gustAlpha: 0.5,
                                           barb: ['rgba(186,198,214,0.85)', 'rgba(51,65,85,0.8)'] });
   const pad2 = n => String(n).padStart(2, '0');
+  const APT = typeof AIRPORT_NAME !== 'undefined' && AIRPORT_NAME ? AIRPORT_NAME : 'the airport';
 
   // ── Mode S wind barbs: cells of the Wind Map at the level ────────────────
   const MODES_COL = { dark: ['#6ee7b7', '#3b82f6', '#f59e0b', '#ef4444'], light: ['#047857', '#1d4ed8', '#b45309', '#b91c1c'] };
@@ -214,6 +223,95 @@
     };
   })();
 
+  // ── Airport weather box: the weather of now at the airport (from 2026-11-01) ─
+  const aptBox = L.DomUtil.create('div', 'lwx-apt', map.getContainer());
+  aptBox.style.display = 'none';
+  L.DomEvent.disableClickPropagation(aptBox);
+  L.DomEvent.disableScrollPropagation(aptBox);
+  let aptData = null, aptAt = 0, aptBusy = false;
+  async function loadApt(force) {
+    if (!st.apt || aptBusy || document.hidden) return;
+    const m = aptData && aptData.meps;
+    if (!force && aptData && Date.now() - aptAt < 5 * 60 * 1000 && !(m && m.ts && Date.now() / 1000 > m.ts)) return;
+    aptBusy = true;
+    try {
+      const r = await fetch('/api/weather/point', { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      aptData = await r.json(); aptAt = Date.now();
+    } catch (e) {
+      console.warn('Airport weather:', e);
+      if (!aptData) aptData = { error: 'loading failed — trying again in a few minutes' };
+    } finally { aptBusy = false; }
+    renderApt();
+  }
+  const ms = kt => (kt * 0.514444).toFixed(0);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function aptRows(d) {
+    const v = (d.meps && d.meps.v) || {}, rows = [];
+    let wind = '', short = [];
+    if (v.u != null && v.v != null) {
+      const sp = Math.hypot(v.u, v.v);
+      const dir = String(Math.round(WxLayer.windDir(v.u, v.v)) % 360 || 360).padStart(3, '0');
+      wind = sp < 1 ? 'calm' : `${dir}° ${Math.round(sp)} kt (${ms(sp)} m/s)`;
+      short.push(sp < 1 ? 'calm' : `${dir}°/${Math.round(sp)}${v.g != null ? ' G' + Math.round(v.g) : ''} kt`);
+      rows.push(['Wind 10 m', wind]);
+    }
+    if (v.g != null) rows.push(['Gust', `${Math.round(v.g)} kt (${ms(v.g)} m/s)`]);
+    if (v.t != null) {
+      const t = Math.round(v.t / 10), tt = `${t < 0 ? '−' : t > 0 ? '+' : ''}${Math.abs(t)} °C`;
+      rows.push(['Temperature 2 m', tt]); short.push(tt);
+    }
+    if (v.p != null) rows.push(['Pressure (MSL)', `${(1000 + v.p / 10).toFixed(1)} hPa`]);
+    let mRain = null;
+    if (v.r != null) {
+      const snow = v.s != null && v.r > 0 && v.s >= 0.5 * v.r;
+      mRain = v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h` : 'dry';
+      rows.push(['Rain / snow (MEPS)', mRain]);
+    }
+    const ra = d.radar || {};
+    let rTxt = null;
+    if (ra.error || !ra.ts) rTxt = 'not available';
+    else if (!ra.in) rTxt = 'outside the radar coverage';
+    else rTxt = ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry';
+    rows.push(['Rain (FMI radar)', rTxt + (ra.ts ? ` <span>${fmtUtc(ra.ts)} UTC</span>` : '')]);
+    short.push(ra.ts && ra.in ? (ra.r >= 10 ? `radar ${(ra.r / 100).toFixed(1)} mm/h` : 'radar dry') : mRain || '');
+    if (v.c != null) rows.push(['Cloud total', `${v.c} %`]);
+    if (v.l != null) rows.push(['Low cloud', `${v.l} %`]);
+    if (v.m != null) rows.push(['Medium cloud', `${v.m} %`]);
+    if (v.h != null) rows.push(['High cloud', `${v.h} %`]);
+    if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20)))
+      rows.push(['Cloud base', `${(Math.round(v.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`]);
+    if (v.f != null) rows.push(['Fog', `${v.f} %`]);
+    return { rows, short: short.filter(Boolean).join(' · ') };
+  }
+  function renderApt() {
+    if (!st.apt) return;
+    const d = aptData;
+    const btn = `<button type="button" class="ws-aphist-ctrl-btn ws-aphist-min-btn lwx-apt-min${st.aptMin ? ' active' : ''}" `
+      + `title="${st.aptMin ? 'Show all the values' : 'Minimize to one line'}" aria-label="${st.aptMin ? 'Expand' : 'Minimize'}">${st.aptMin ? '&raquo;' : '&laquo;'}</button>`;
+    let html;
+    if (!d) html = `${btn}<b>${esc(APT)} now</b> <span>loading…</span>`;
+    else if (d.error) html = `${btn}<b>${esc(APT)} now</b> <span>${esc(d.error)}</span>`;
+    else {
+      const m = d.meps || {}, { rows, short } = aptRows(d);
+      const hh = m.ts ? (() => { const h = new Date(m.ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)} UTC`; })() : '';
+      if (st.aptMin) html = `${btn}<b>${esc(d.name || APT)}</b> ${short || '<span>no data</span>'}`;
+      else {
+        const r = m.run ? new Date(m.run * 1000) : null;
+        html = `${btn}<b>${esc(d.name || APT)} now</b>` + (hh ? ` <span>· MEPS ${hh}</span>` : '')
+          + `<table>${rows.map(([k, x]) => `<tr><td>${k}</td><td>${x}</td></tr>`).join('')}</table>`
+          + (m.error ? `<span>MEPS: ${esc(m.error)}</span><br>` : '')
+          + `<span>MEPS ${r ? `${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${m.lead} h` : ''}${m.km ? `, ${m.km} km grid` : ''} — forecast; radar — observed</span>`;
+      }
+    }
+    aptBox.innerHTML = html;
+    aptBox.classList.toggle('min', !!st.aptMin);
+  }
+  aptBox.addEventListener('click', e => {
+    if (!e.target.closest('.lwx-apt-min')) return;
+    st.aptMin = !st.aptMin; save(); renderApt();
+  });
+
   // ── Control ──────────────────────────────────────────────────────────────
   let el = null;
   const Ctl = L.Control.extend({
@@ -254,6 +352,9 @@
           <div class="lwx-row"><span class="lwx-lbl">Receiver</span>
             <label title="A thin light-blue line around the area the receiver heard in the last 24 hours: the farthest ADS-B position in each 10° direction, any height (the range data of the Statistics page). With more receivers, their combined coverage"><input type="checkbox" class="lwx-cov"> Coverage (24 h)</label>
           </div>
+          <div class="lwx-row"><span class="lwx-lbl">Airport</span>
+            <label title="A box at the top left of the map with the weather of now at ${APT}: the MEPS model's hour (10 m wind and gust, 2 m temperature, pressure, rain or snow, total / low / medium / high cloud, cloud base and fog; the 2.5 km grid near the airport) and the FMI radar's rain rate there. « in the box makes it one line. Independent of the overlay shown"><input type="checkbox" class="lwx-apt-cb"> Current MEPS &amp; radar wx at ${APT}</label>
+          </div>
           <div class="lwx-row"><span class="lwx-lbl">Hover</span>
             <label title="Move the mouse over the map for the weather values at the pointer: the MEPS hour shown (pressure, rain or snow, clouds, cloud base and fog, as ticked above), the radar's rain rate and the MEPS wind of the Wind row. Off: only the barbs and the coverage line have a read-out"><input type="checkbox" class="lwx-hover"> Weather values</label>
           </div>
@@ -288,6 +389,7 @@
   q('.lwx-per').addEventListener('change', e => { st.wPer = parseInt(e.target.value, 10); save(); modesKey = ''; sync(); refresh(true); });
   q('.lwx-smooth').addEventListener('change', e => { st.smooth = e.target.checked; save(); sync(); });
   q('.lwx-fine').addEventListener('change', e => { st.fine = e.target.checked; save(); fineKey = ''; sync(); refresh(true); });
+  q('.lwx-apt-cb').addEventListener('change', e => { st.apt = e.target.checked; save(); sync(); if (st.apt) loadApt(true); });
   q('.lwx-hover').addEventListener('change', e => { st.hover = e.target.checked; save(); sync(); if (!st.hover) tip.style.display = 'none'; });
   q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
 
@@ -361,6 +463,8 @@
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
     q('.lwx-hover').checked = !!st.hover;
+    q('.lwx-apt-cb').checked = !!st.apt;
+    aptBox.style.display = st.apt ? '' : 'none';
     map.getContainer().classList.toggle('lwx-cross', !!st.hover);   // crosshair cursor, as the Weather page's Point values
     covLayer.show(st.cov);
     const chip = q('.lwx-chip');
@@ -379,7 +483,7 @@
     // "Receiver coverage" without the period, so it is not read as the time of the weather (from 2026-10-31)
     if (st.cov) txt = txt === 'Weather' ? 'Receiver coverage' : txt + (txt ? ' · ' : '') + 'Receiver coverage';
     chip.textContent = txt;
-    el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off' || !!st.cov);
+    el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off' || !!st.cov || !!st.apt);
     applyOptions();
   }
 
@@ -589,6 +693,7 @@
       if (!mepsWind()) { windShown = null; windKey = ''; windStatus = ''; windLayer.setFrame(null); }
       else jobs.push(loadWind(force).catch(e => {
         console.warn('Wind overlay:', e); windStatus = 'MEPS wind: loading failed, trying again in a minute.'; }));
+      if (st.apt) jobs.push(loadApt(false).catch(e => console.warn('Airport weather:', e)));
       if (!st.cov) { covAt = 0; covStatus = ''; covLayer.set(null); }
       else jobs.push(loadCov(force).catch(e => {
         console.warn('Coverage:', e); covAt = 0; covStatus = 'Receiver coverage: loading failed, trying again in a minute.'; }));
@@ -604,21 +709,22 @@
 
   // the page's Light / Dark button: redraw with the other colours too
   const prevTheme = window.onThemeChange;
-  window.onThemeChange = function () { if (prevTheme) prevTheme(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); covLayer.redraw(); applyOptions(); };
+  window.onThemeChange = function () { if (prevTheme) prevTheme(); renderApt(); layer.redraw(); windLayer.redraw(); modesLayer.redraw(); covLayer.redraw(); applyOptions(); };
 
   // Values on hover (from 2026-11-01): the weather at the pointer, '' when nothing is shown there
   function valuesTip(ll) {
     const rows = [];
+    let model = false, radar = false;                  // which rows: for the last line
     const hh = ts => { const h = new Date(ts * 1000).getUTCHours(); return `${pad2((h + 23) % 24)}–${pad2(h)} UTC`; };
     if (useMeps() && shown) {
       const v = layer.valuesAt(ll);                         // with Both also the model's rain (to compare)
       const txt = v ? layer.describe(v) : '';
-      if (txt) rows.push(`<b>MEPS ${hh(shown.ts)}</b>: ${txt}`);
+      if (txt) { rows.push(`<b>MEPS ${hh(shown.ts)}</b>: ${txt}`); model = true; }
     }
     if (useRadar() && radarShown) {
       const ra = layer.radarAt(ll);
-      if (ra) rows.push(`<b>Radar ${fmtUtc(radarShown.ts)} UTC</b>: ` +
-        (!ra.in ? 'outside the radar coverage' : ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry'));
+      if (ra) { rows.push(`<b>Radar ${fmtUtc(radarShown.ts)} UTC</b>: ` +
+        (!ra.in ? 'outside the radar coverage' : ra.r >= 10 ? `rain ${(ra.r / 100).toFixed(1)} mm/h` : 'dry')); radar = !!ra.in; }
     }
     if (mepsWind() && windShown) {
       const v = windLayer.valuesAt(ll);
@@ -628,10 +734,15 @@
         const lvl = st.wind === 'sfc' ? `10 m, ${hh(windShown.ts)}` : `FL${st.wind}`;
         rows.push(`<b>MEPS wind ${lvl}</b>: ${w}` + (v.g != null ? `, gust ${Math.round(v.g)} kt` : '') +
           (st.wind !== 'sfc' && v.t != null ? `, ${v.t.toFixed(0)} °C` : ''));
+        model = true;
       }
     }
     if (!rows.length) return '';
-    return rows.join('<br>') + `<br><span>${ll.lat.toFixed(2)}°N ${ll.lng.toFixed(2)}°E · model values of the hour, not measured</span>`;
+    // the last line says what is a model value and what is measured (from 2026-11-01: with
+    // Both it said "model values" also under the radar's observed rain)
+    const kind = model && radar ? 'MEPS: model values of the hour · radar: observed'
+      : radar ? 'radar: observed rain rate' : model ? 'model values of the hour, not measured' : 'FMI radar';
+    return rows.join('<br>') + `<br><span>${ll.lat.toFixed(2)}°N ${ll.lng.toFixed(2)}°E · ${kind}</span>`;
   }
 
   // hover a model barb: its wind (and temperature at a flight level)

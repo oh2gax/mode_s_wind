@@ -17,6 +17,8 @@ to disk).  latest() returns the rainy cells only (sparse), the grid and the
 time, and the radar coverage as runs of cells per row (so the page can tell
 "dry" from "not seen" and, with Both on the Live Map, draw the model's rain
 only outside the radar area); the page draws them itself (static/js/wx_layer.js).
+point() (from 2026-11-01, the Live Map's airport weather box): the newest
+composite's rain rate at one place, or "outside the radar coverage".
 """
 
 from __future__ import annotations
@@ -142,6 +144,49 @@ def _fetch(now: float) -> dict:
             "grid": {"proj": "tm35fin", "x": [x0 + dx / 2, dx, w], "y": [y0 + dy / 2, dy, h]},
             "rs": sparse, "cov": cov, "covered": covered, "km": round(dx / 1000, 2),
             "source": "FMI radar composite (FMI open data, CC BY 4.0)"}
+
+
+def _tm35_xy(lat: float, lon: float):
+    """ETRS-TM35FIN easting / northing of a WGS84 position (as wx_layer.js TM35.xy)."""
+    from math import cos, radians, sin, sqrt, tan
+    a, f, k0, lon0 = 6378137.0, 1 / 298.257222101, 0.9996, radians(27.0)
+    e2 = f * (2 - f)
+    ep2 = e2 / (1 - e2)
+    p, lm = radians(lat), radians(lon)
+    sp, cp, tp = sin(p), cos(p), tan(p)
+    N = a / sqrt(1 - e2 * sp * sp)
+    T, C, A = tp * tp, ep2 * cp * cp, (lm - lon0) * cp
+    M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256) * p
+             - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 ** 3 / 1024) * sin(2 * p)
+             + (15 * e2 * e2 / 256 + 45 * e2 ** 3 / 1024) * sin(4 * p) - (35 * e2 ** 3 / 3072) * sin(6 * p))
+    E = 500000 + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120)
+    Nn = k0 * (M + N * tp * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24
+                             + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720))
+    return E, Nn
+
+
+def point(lat: float, lon: float, now: float = None) -> dict:
+    """The newest composite at one place: {ts, age_s, in: covered by the radars,
+    r: rain rate mm/h × 100 (0 = below 0.1 mm/h)}, or {error}."""
+    d = latest(now)
+    if not d.get("ts") or not d.get("grid"):
+        return {"error": d.get("error") or "no radar composite"}
+    g = d["grid"]
+    E, N = _tm35_xy(lat, lon)
+    i, j = round((E - g["x"][0]) / g["x"][1]), round((N - g["y"][0]) / g["y"][1])
+    out = {"ts": d["ts"], "age_s": d.get("age_s"), "in": False, "r": 0,
+           "source": "FMI radar composite (FMI open data, CC BY 4.0)"}
+    if not (0 <= i < g["x"][2] and 0 <= j < g["y"][2]):
+        return out
+    cov = d.get("cov") or []
+    out["in"] = any(cov[q] == j and cov[q + 1] <= i <= cov[q + 2] for q in range(0, len(cov), 3))
+    if out["in"]:
+        k, rs = j * g["x"][2] + i, d.get("rs") or []
+        for q in range(0, len(rs), 2):
+            if rs[q] == k:
+                out["r"] = rs[q + 1]
+                break
+    return out
 
 
 def latest(now: float = None) -> dict:

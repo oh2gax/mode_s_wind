@@ -1240,6 +1240,28 @@ def create_app(
             resp.headers["Vary"] = "Accept-Encoding"
         return resp
 
+    @app.route("/api/weather/point")
+    def weather_point_api():
+        """The weather of now at the airport (from 2026-11-01, the Live Map's
+        airport weather box) or at ?lat=&lon=: the MEPS hour containing now (all
+        fields, web/api/weather.py point) and the newest FMI radar composite's
+        rain rate there (web/api/radar.py point)."""
+        from web.api import weather as _wx
+        from web.api import radar as _radar
+        lat = request.args.get("lat", type=float)
+        lon = request.args.get("lon", type=float)
+        name = None
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            lat, lon, name = cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON, cfg.AIRPORT_ICAO
+        try:
+            rad = _radar.point(lat, lon)
+        except Exception as exc:                          # noqa: BLE001
+            rad = {"error": str(exc)}
+        resp = jsonify({"name": name, "lat": lat, "lon": lon, "now": int(time.time()),
+                        "meps": _wx.point(get_db(), lat, lon), "radar": rad})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     @app.route("/api/radar/latest")
     def radar_latest_api():
         """The newest FMI radar composite (rain rate, web/api/radar.py): fetched

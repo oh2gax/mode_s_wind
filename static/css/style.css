@@ -3160,6 +3160,18 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
            border: 1px solid var(--border); border-radius: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.4; white-space: nowrap; }
 .lwx-tip span { color: var(--text-3); }
 [data-theme="light"] .lwx-tip { background: rgba(241, 245, 249, 0.96); }
+/* Live Map: the airport weather box (from 2026-11-01) — the look of the hover read-out,
+   at the top left of the map beside the zoom buttons; « / » as the Windshear page's minimize */
+.lwx-apt { position: absolute; left: 52px; top: 10px; z-index: 800; background: rgba(22, 32, 48, 0.94); color: var(--text-1);
+           border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px 5px; font-size: 11px; line-height: 1.4;
+           max-width: calc(100% - 120px); }
+.lwx-apt span { color: var(--text-3); }
+.lwx-apt table { border-collapse: collapse; margin: 3px 0 2px; }
+.lwx-apt td { padding: 0 10px 0 0; white-space: nowrap; vertical-align: top; }
+.lwx-apt td:first-child { color: var(--text-3); }
+.lwx-apt.min { white-space: nowrap; }
+.lwx-apt .lwx-apt-min { margin-right: 6px; vertical-align: 1px; }
+[data-theme="light"] .lwx-apt { background: rgba(241, 245, 249, 0.96); }
 /* Live Map, Hover: Weather values on (from 2026-11-01): a crosshair instead of the hand, as the
    Weather page's Point values; the hand while dragging; aircraft and controls keep their own cursor */
 .leaflet-container.lwx-cross { cursor: crosshair; }
