@@ -74,13 +74,16 @@ window.AppWx = (() => {
              modelOutline: radarOn && s.src === 'both', edge: radarOn,
              rainAlpha: (+s.rainop || 75) / 100, radarAlpha: (+s.radarop || 75) / 100,
              fine: !!(wx && wx.fineShown()),
-             smooth: s.smooth !== 'off' };                  // Shading: Smooth / Cells (from 2026-10-31)
+             smooth: s.smooth !== 'off',                    // Shading: Smooth / Cells (from 2026-10-31)
+             temp: s.temp === 'fill' || s.temp === 'lines' ? s.temp : false,   // 2 m temperature (from 2026-11-01)
+             tempNum: s.temp === 'fill' && s.tnum === 'on' };
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
     if (s.cloud !== 'off') f.push(s.cloud, 'b');
     if (s.wind === 'on') f.push('u', 'v');
     if (s.gust === 'on') f.push('g');
+    if (s.temp === 'fill' || s.temp === 'lines') f.push('t');
     return f.join(',');
   }
 
@@ -321,7 +324,7 @@ window.AppWx = (() => {
     wx.setFrame(on && S().src === 'radar' ? Object.assign({}, f, { r: null, s: null }) : f, grid);
     if (on) { const t = new Date(radar.ts * 1000); $('app-wx-rel').innerHTML = `now · <span class="rd">radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}</span>`; }
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
-    statusLine();
+    statusLine((S().temp === 'fill' || S().temp === 'lines') && !f.t ? 'no temperature stored for this hour (runs from 1 Nov 2026)' : '');
   }
   function statusLine(extra) {
     const n = view.filter(fresh).length;
@@ -509,9 +512,9 @@ window.AppWx = (() => {
     if (!playing && Date.now() - indexAt > 10 * 60 * 1000) loadIndex();
   }
   function option(key) {                                   // a Weather option changed in the menu
-    if (['rain', 'pres', 'wind', 'gust', 'cloud'].includes(key)) {
+    if (['rain', 'pres', 'wind', 'gust', 'cloud', 'temp', 'tnum'].includes(key)) {
       wx.setOptions(layerOptions()); renderLegend();
-      if (key !== 'rain' && key !== 'pres') { loadFrames(); loadFine(); }
+      if (key !== 'rain' && key !== 'pres' && key !== 'tnum') { loadFrames(); loadFine(); }
       else showFrame();
     } else if (key === 'fc') buildView();
     else if (key === 'grid') { bytes = 0; loadFrames(); }

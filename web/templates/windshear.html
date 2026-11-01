@@ -45,7 +45,7 @@
         <!-- Map controls overlay -->
         <div class="ws-map-controls">
           <span class="ws-map-count" id="ws-map-count">0 on approach</span>
-          <button class="ws-ils-filter-btn" id="ws-ils-filter" title="Show only aircraft inside an ILS corridor">ILS Only</button>
+          <button class="ws-ils-filter-btn" id="ws-ils-filter" title="The traffic on the map — click to step: ILS Only (the aircraft inside an ILS corridor) → Departures (also the climb-outs within 15 NM below 5 000 ft) → All 30NM (every aircraft within 30 NM of the airport at any level). With Departures and All 30NM the EDR lines show the departures too. Remembered in the browser.">ILS Only</button>
           <button class="ws-ils-filter-btn ws-vec-btn" id="ws-vec-btn" title="Speed vectors: where each aircraft will be after 30 s, 1 min or 2 min at its ground speed — click to step Off → 30 s → 1 min → 2 min">Vec</button>
           <button class="ws-ils-filter-btn ws-lbl-btn" id="ws-lbl-btn" title="Aircraft labels on the map — click to step: callsign · type · callsign + altitude · callsign + type + altitude · full (also the selected altitude of the autopilot panel, MCP / FCU, signed + climbing, - descending, = level: A023+A050, FL120-A030, FL390=FL390)">Lbl</button>
           <button class="ws-ils-filter-btn ws-hist-btn" id="ws-hist-btn" title="History plots: the aircraft's earlier positions as small squares, one per about 6 s, older ones fainter — click to step Off → 5 → 10 → 20 plots (about 30 s · 1 min · 2 min). Remembered in the browser.">Hist</button>
@@ -73,7 +73,7 @@
             <button id="ws-windrose-hist-btn" class="ws-windrose-hist-btn" title="Show historical wind trend — cycles Off → 3h → 6h">Hist</button>
             <button id="ws-bl-field-btn" class="ws-windrose-hist-btn" style="display:none" title="Boundary layer field: Wind → T → HW → ΔHW → Shear (click for the next)">Wind</button>
             <button id="ws-wr-range-btn" class="ws-windrose-hist-btn" style="display:none" title="Chart range (ACI / WS / ST) — cycles 3h → 6h → 12h → 1d (up to 12h at half width)">3h</button>
-            <button id="ws-wr-half-btn" class="ws-windrose-hist-btn" style="display:none" title="Half width — the chart half as wide, so more of the map is free (range up to 12 h); click again for the full width. Remembered in the browser.">½</button>
+            <button id="ws-wr-half-btn" class="ws-windrose-hist-btn" style="display:none" title="Half width — the chart half as wide, so more of the map is free (range up to 12 h); click again for the full width. Remembered in the browser." aria-label="Half width">&raquo;</button>
             <span id="ws-windrose-hist-badge" class="ws-windrose-hist-badge"></span>
           </div>
           <div id="ws-windrose-readout" class="ws-windrose-readout"></div>
@@ -84,6 +84,7 @@
         <!-- Approach History panel — absolute overlay top-left of map -->
         <div class="ws-aphist-panel ws-aphist-hidden" id="ws-aphist-panel">
           <div class="ws-aphist-header">
+            <button class="ws-aphist-ctrl-btn ws-aphist-min-btn" id="ws-aphist-min-btn" title="Minimize: only the time, callsign, registration, type and runway of each landing (or departure) in a narrow panel — more room for the map, e.g. beside a full-size boundary-layer chart. Click again for the full table. Remembered in the browser." aria-label="Minimize the Approach History">&laquo;</button>
             <span class="ws-aphist-title">Approach History</span>
             <span class="ws-aphist-count" id="ws-aphist-count" title="Flights in the selected time window or date"></span>
             <span class="ws-aphist-kind">

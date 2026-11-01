@@ -13,7 +13,9 @@ frames() — the fields of chosen hours for the browser, on the 10 km grid or
            p = (hPa − 1000) × 10, r / s = mm × 100 (rain / snow of the hour),
            c / l / m / h = total / low / medium / high cloud %, f = fog %,
            b = cloud base m, u / v = 10 m wind towards east / north (kt),
-           g = 10 m gust (kt; hours stored from 24 Oct 2026), as plain integer
+           g = 10 m gust (kt; hours stored from 24 Oct 2026), t = 2 m
+           temperature (°C × 10, whole degrees; hours stored from 1 Nov 2026;
+           the 20 / 40 km means in tenths), as plain integer
            lists (null = missing); only the fields asked for (default p, r,
            s, c).  Averaged blocks take the mean, the gust the block maximum.
 The page draws them itself (static/js/weather.js), so the Pi only reads,
@@ -40,7 +42,7 @@ from math import atan2, cos, pi, radians, sin, tan
 
 FILL = -32768
 FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
-ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g")
+ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t")   # t: 2 m temperature (from 2026-11-01)
 BLOCK_MAX = ("g",)                    # averaged blocks: the strongest gust, not the mean
 SEND = ("p", "r", "s", "c")          # default
 

@@ -1578,21 +1578,32 @@ def create_app(
         climb-out capture — because the windshear tracker turns away every
         aircraft first seen climbing (its entry gate), so it had almost no
         departures for the map's *Departures: Shown*.
+        From 2026-11-01 the full answer (the Windshear page) takes &near=1
+        (with &nm= / &alt=all) too: the other traffic as a separate list
+        ``near`` (the map's Departures / All 30NM).
         """
         if ws_tracker is None:
             return jsonify([])
         state = ws_tracker.get_state()
+        # &nm= (1 … 60) and &alt=all (from 2026-10-31, the map's "All tracked (30 NM)"):
+        # a wider radius and every level; without them WINDSHEAR_RADIUS_NM and
+        # below WINDSHEAR_MAX_ALT_FT (the departures of "Departures: Shown")
+        try:
+            near_nm = min(60.0, max(1.0, float(request.args.get("nm")))) if request.args.get("nm") else None
+        except ValueError:
+            near_nm = None
+        near_all_alt = request.args.get("alt") == "all"
+        if request.args.get("lite", "0") not in ("1", "true", "yes") and isinstance(state, dict) \
+                and request.args.get("near") == "1":
+            # the full answer of the Windshear page (from 2026-11-01, its map's
+            # Departures / All 30NM): the other traffic as a separate list "near",
+            # beside the tracker's aircraft (the strips and the profile use those)
+            skip = set(a.get("icao") for a in state.get("aircraft") or [] if a.get("in_corridor"))
+            state = dict(state)
+            state["near"] = _ws_near(skip, near_nm, near_all_alt)
         if request.args.get("lite", "0") in ("1", "true", "yes") and isinstance(state, dict):
             want_map = request.args.get("map") == "1"
             want_near = want_map and request.args.get("near") == "1"
-            # &nm= (1 … 60) and &alt=all (from 2026-10-31, the map's "All tracked (30 NM)"):
-            # a wider radius and every level; without them WINDSHEAR_RADIUS_NM and
-            # below WINDSHEAR_MAX_ALT_FT (the departures of "Departures: Shown")
-            try:
-                near_nm = min(60.0, max(1.0, float(request.args.get("nm")))) if request.args.get("nm") else None
-            except ValueError:
-                near_nm = None
-            near_all_alt = request.args.get("alt") == "all"
             t_trail = time.time() - _WS_TRAIL_SEC
             acs = []
             for a in state.get("aircraft") or []:
@@ -1641,9 +1652,11 @@ def create_app(
             pos_ts = a.get("last_pos_update_ts") or a.get("last_seen") or 0
             if now - pos_ts > _WS_NEAR_POS_SEC or now - (a.get("last_seen") or 0) > _WS_NEAR_POS_SEC:
                 continue
-            if _haversine_nm(lat0, lon0, lat, lon) > r_max:
+            d_nm = _haversine_nm(lat0, lon0, lat, lon)
+            if d_nm > r_max:
                 continue
             x = {k: a.get(k) for k in _WS_NEAR_KEYS if k in a and k not in ("dep", "dep_rwy", "sel_alt")}
+            x["dist_apt_nm"] = round(d_nm, 1)                  # the tooltip of the Windshear map (2026-11-01)
             if a.get("sel_alt") and now - (a.get("sel_alt_ts") or 0) <= 120:
                 x["sel_alt"] = a["sel_alt"]
             x["in_corridor"] = False

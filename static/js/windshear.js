@@ -281,7 +281,7 @@ function applyTheme(theme) {
   loadOverlays(theme);
   wsAtcLines.show(atc);
   updateThemeButtons();
-  updateMapMarkers(lastAircraft);          // symbols, labels and vectors in the style's colours
+  updateMapMarkers(wsMapAircraft());          // symbols, labels and vectors in the style's colours
   try { wsDrawEdr(); } catch (_) { /* before the EDR layer exists */ }   // the turbulence lines' colours
 
   // Redraw ILS canvas with updated colours
@@ -473,7 +473,8 @@ function wsDrawCanvas(g, m, W, H) {
       const lines = ext ? AtcDisplay.extLines(ac, hov ? wsHov.data() : wsSelExt.data, { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
                                                                  apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] })
                         : AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: selExt ? P.high : col, ext,
+      // the labels grey (from 2026-11-01, as the Live Map; the square keeps its colour)
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: P.high, ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
                              ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: wsGaOn });
     }
@@ -502,9 +503,10 @@ function updateMapMarkers(aircraft) {
   for (const ac of aircraft) {
     if (ac.lat == null || ac.lon == null) continue;
 
-    // When ILS filter is active, hide non-corridor aircraft; departures
-    // (climb-outs, marked by the server from 29 Oct 2026) are never shown here
-    if ((ilsFilterActive && !ac.in_corridor) || (ac.dep && !ac.in_corridor)) {
+    // The map's traffic (from 2026-11-01): ILS Only — the aircraft in an ILS corridor;
+    // Departures — also the climb-outs (marked dep by the server); All 30NM — every
+    // aircraft within 30 NM at any level (the list comes from wsMapAircraft)
+    if (!ac.in_corridor && !(wsMapMode === 'all' || (wsMapMode === 'dep' && ac.dep))) {
       // Remove existing marker if present so it disappears immediately
       if (acMarkers[ac.icao]) {
         map.removeLayer(acMarkers[ac.icao].marker);
@@ -524,11 +526,11 @@ function updateMapMarkers(aircraft) {
 
     const tip = [
       `${ac.callsign || ac.icao}${ac.aircraft_type ? ' ' + ac.aircraft_type : ''}${ac.ga_phase === 'GO_AROUND' ? ' · GO-AROUND' : ''}`,
-      ac.approach_runway ? `RWY ${ac.approach_runway}` : 'No ILS match',
+      ac.approach_runway ? `RWY ${ac.approach_runway}` : ac.dep ? `departure${ac.dep_rwy ? ' RWY ' + ac.dep_rwy : ''}` : 'No ILS match',
       `${ac.altitude?.toLocaleString()} ft`,
       ac.dist_thr_nm != null
         ? `${ac.dist_thr_nm.toFixed(1)} NM`
-        : `${ac.dist_apt_nm?.toFixed(1)} NM (apt)`,
+        : ac.dist_apt_nm != null ? `${ac.dist_apt_nm.toFixed(1)} NM (apt)` : '',
     ].filter(Boolean).join(' · ');
 
     if (acMarkers[ac.icao]) {
@@ -1700,14 +1702,35 @@ fetchWx();
 setInterval(fetchWx,       10 * 60 * 1000);
 setInterval(checkMetarAge,      60 * 1000);  // re-check age every minute for timely colour transitions
 
-// ── ILS corridor filter toggle ────────────────────────────────────────────────
-let ilsFilterActive = true;                          // ON by default
+// ── The map's traffic (from 2026-11-01; before an ILS Only on / off toggle) ───────
+// The button steps ILS Only → Departures → All 30NM (ms_ws_mapac, default ILS Only),
+// as the phone's approach map: Departures adds the climb-outs within the windshear
+// radius (15 NM, below 5 000 ft), All 30NM every aircraft within 30 NM at any level
+// (/api/windshear/state &near=1, the list "near"); with either of them the EDR lines
+// also show the departures.
+const WS_MAP_MODES = ['ils', 'dep', 'all'];
+const WS_MAP_TXT = { ils: 'ILS Only', dep: 'Departures', all: 'All 30NM' };
+let wsMapMode = (() => { try { const v = localStorage.getItem('ms_ws_mapac'); return WS_MAP_MODES.includes(v) ? v : 'ils'; } catch (_) { return 'ils'; } })();
+let wsNear = [];                                    // the other traffic of the last poll
 const ilsFilterBtn  = document.getElementById('ws-ils-filter');
-ilsFilterBtn.classList.add('active');                // reflect initial state
+function wsMapAircraft() {                          // the tracker's corridor aircraft + the others
+  if (wsMapMode === 'ils') return lastAircraft;
+  const corr = lastAircraft.filter(a => a.in_corridor);
+  return corr.concat(wsMapMode === 'dep' ? wsNear.filter(a => a.dep) : wsNear);
+}
+function wsMapModeShow() {
+  ilsFilterBtn.textContent = WS_MAP_TXT[wsMapMode];
+  ilsFilterBtn.classList.add('active');
+}
+wsMapModeShow();
 ilsFilterBtn.addEventListener('click', () => {
-  ilsFilterActive = !ilsFilterActive;
-  ilsFilterBtn.classList.toggle('active', ilsFilterActive);
-  updateMapMarkers(lastAircraft);
+  wsMapMode = WS_MAP_MODES[(WS_MAP_MODES.indexOf(wsMapMode) + 1) % WS_MAP_MODES.length];
+  try { localStorage.setItem('ms_ws_mapac', wsMapMode); } catch (_) {}
+  wsMapModeShow();
+  if (wsMapMode === 'ils') wsNear = [];
+  updateMapMarkers(wsMapAircraft());
+  wsDrawEdr();
+  fetchApproachState();
 });
 
 // ── Speed vectors button (from 29 Oct 2026) ───────────────────────────────────
@@ -1723,7 +1746,7 @@ ilsFilterBtn.addEventListener('click', () => {
     wsVecSec = WS_VEC_STEPS[(WS_VEC_STEPS.indexOf(wsVecSec) + 1) % WS_VEC_STEPS.length];
     try { localStorage.setItem('ms_ws_vec', String(wsVecSec)); } catch (_) {}
     show();
-    updateMapMarkers(lastAircraft);
+    updateMapMarkers(wsMapAircraft());
   });
 })();
 
@@ -1737,7 +1760,7 @@ ilsFilterBtn.addEventListener('click', () => {
     wsLblLvl = WS_LBL_STEPS[(WS_LBL_STEPS.indexOf(wsLblLvl) + 1) % WS_LBL_STEPS.length];
     try { localStorage.setItem('ms_ws_lbl', wsLblLvl); } catch (_) {}
     show();
-    updateMapMarkers(lastAircraft);
+    updateMapMarkers(wsMapAircraft());
   });
 })();
 
@@ -1796,7 +1819,10 @@ function wsDrawEdr() {
   if (box) box.hidden = !wsEdrMin;
   if (!wsEdrMin) return;
   const now = Date.now() / 1000, light = wsMapLight();
-  const ET = WE.tracks.filter(t => t.ph !== 'dep' && now - t.ts < wsEdrMin * 60);   // the landings
+  // the landings, and with Departures / All 30NM the departures too (from 2026-11-01)
+  const withDep = wsMapMode !== 'ils';
+  const ET = WE.tracks.filter(t => (t.ph !== 'dep' || withDep) && now - t.ts < wsEdrMin * 60);
+  const nDep = ET.filter(t => t.ph === 'dep').length, nLdg = ET.length - nDep;
   const SG = []; for (const t of ET) for (const g of t.seg) if (g.p && g.p.length > 1) SG.push(g);
   SG.sort((x, y) => x.e - y.e);
   const halo = wsIsAtc() ? AtcDisplay.pal().bg : light ? '#ffffff' : '#0b1220';
@@ -1815,9 +1841,9 @@ function wsDrawEdr() {
   const key = [[0.05, 'smooth'], [0.15, 'light 0.10'], [0.3, 'moderate 0.20'], [0.5, 'severe 0.45']]
     .map(([v, n]) => `<span class="ws-edr-key" style="background:${wsEdrCol(v)}"></span>${n}`).join(' ');
   box.innerHTML = `<div><b>Turbulence (EDR), last ${wsEdrMin < 60 ? wsEdrMin + ' min' : '1 h'}</b> ${key} <span class="ws-research-tag">research</span></div>`
-    + (mx ? `<div>${ET.length} landing${ET.length === 1 ? '' : 's'} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
+    + (mx ? `<div>${nLdg} landing${nLdg === 1 ? '' : 's'}${withDep ? ` · ${nDep} departure${nDep === 1 ? '' : 's'}` : ''} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
           + ` at ${mx.h} ft (${_wsEsc(mx.cs || '')} ${_wsEsc(mx.rwy || '')}) · median below 1000 ft ${md(lay.lo)}, 1000–3000 ft ${md(lay.hi)}</div>`
-          : `<div>No landings with EDR in the last ${wsEdrMin < 60 ? wsEdrMin + ' min' : 'hour'}</div>`);
+          : `<div>No ${withDep ? 'flights' : 'landings'} with EDR in the last ${wsEdrMin < 60 ? wsEdrMin + ' min' : 'hour'}</div>`);
 }
 (function () {
   const btn = document.getElementById('ws-edr-btn');
@@ -2851,6 +2877,12 @@ function _syncWrViewBtns() {
   if (halfBtn) {
     halfBtn.style.display = chart ? '' : 'none';
     halfBtn.classList.toggle('active', wrHalf);
+    // an icon (from 2026-11-01, was ½), as the Approach History's: the panel is at the
+    // right, so » narrows it towards the right edge and « widens it again
+    halfBtn.innerHTML = wrHalf ? '&laquo;' : '&raquo;';
+    halfBtn.title = wrHalf ? 'Full width — the chart over the whole panel width again (range up to 1 day). Remembered in the browser.'
+                           : 'Half width — the chart half as wide, so more of the map is free (range up to 12 h); click again for the full width. Remembered in the browser.';
+    halfBtn.setAttribute('aria-label', wrHalf ? 'Full width' : 'Half width');
   }
   const blBtn = document.getElementById('ws-bl-field-btn');
   if (blBtn) {
@@ -2891,7 +2923,7 @@ if (_wrRangeBtn) {
     fetchCondData();          // the request window follows the range
   });
 }
-// ½: the chart views half as wide (up to 12 h); again: full width
+// » (½ until 2026-11-01): the chart views half as wide (up to 12 h); « again: full width
 const _wrHalfBtn = document.getElementById('ws-wr-half-btn');
 if (_wrHalfBtn) {
   _wrHalfBtn.addEventListener('click', () => {
@@ -2946,9 +2978,10 @@ function wsLandedFilter(list) {
 
 async function fetchApproachState() {
   try {
-    const r = await fetch('/api/windshear/state');
+    const r = await fetch('/api/windshear/state' + (wsMapMode === 'all' ? '?near=1&nm=30&alt=all' : wsMapMode === 'dep' ? '?near=1' : ''));
     if (!r.ok) return;
     const data     = await r.json();
+    wsNear = wsMapMode !== 'ils' && data && Array.isArray(data.near) ? data.near : [];
     // API returns {aircraft, ga_events}; fall back to plain list for compat
     const aircraft = wsLandedFilter(Array.isArray(data) ? data : (data.aircraft || []));
     const gaEvents = Array.isArray(data) ? [] : (data.ga_events  || []);
@@ -3162,7 +3195,7 @@ async function fetchApproachState() {
     runAutoBarbSelection(corridor, aircraft);
 
     renderStrips(aircraft, lastShearEvents);
-    updateMapMarkers(aircraft);
+    updateMapMarkers(wsMapAircraft());
     drawIlsProfile(corridor, lastShearEvents);
     updateAlertBanner(lastShearEvents);
     updateSqkAlarm(aircraft);
@@ -3184,10 +3217,11 @@ async function fetchApproachState() {
     document.getElementById('ws-ac-summary').textContent =
       nCorridor === 0 ? 'No aircraft inside ILS corridor'
                       : `${nCorridor} on ILS${rwySummary ? '  ·  ' + rwySummary : ''}${nTotal > nCorridor ? `  (${nTotal - nCorridor} other)` : ''}`;
+    const nDepMap = wsNear.filter(a => a.dep).length;
     document.getElementById('ws-map-count').textContent =
-      ilsFilterActive
-        ? `${nCorridor} ILS corridor`
-        : `${nTotal} tracked  ·  ${nCorridor} on ILS`;
+      wsMapMode === 'ils' ? `${nCorridor} ILS corridor`
+        : wsMapMode === 'dep' ? `${nCorridor} on ILS  ·  ${nDepMap} departing`
+        : `${nCorridor + wsNear.length} within 30 NM  ·  ${nCorridor} on ILS`;
 
   } catch (e) {
     console.warn('Windshear state fetch error:', e);
@@ -3623,6 +3657,28 @@ document.querySelectorAll('.ws-aphist-kind-btn').forEach(btn => {
   });
 });
 _syncAphKindBtns();
+// Minimize (from 2026-11-01; ms_ws_aphist_min): only time, callsign, registration, type
+// and runway in a narrow panel (style.css .ws-aphist-min) — for the Reports list no change
+(function () {
+  const btn = document.getElementById('ws-aphist-min-btn'), panel = document.getElementById('ws-aphist-panel');
+  if (!btn || !panel) return;
+  let on = false;
+  try { on = localStorage.getItem('ms_ws_aphist_min') === '1'; } catch (_) {}
+  // an icon instead of a word (2026-11-01): « narrows the panel, » widens it again
+  const show = () => {
+    btn.classList.toggle('active', on); panel.classList.toggle('ws-aphist-min', on);
+    btn.innerHTML = on ? '&raquo;' : '&laquo;';
+    btn.title = on ? 'Full table: all the columns of the chosen view again. Remembered in the browser.'
+                   : 'Minimize: only the time, callsign, registration, type and runway of each landing (or departure) in a narrow panel — more room for the map, e.g. beside a full-size boundary-layer chart. Remembered in the browser.';
+    btn.setAttribute('aria-label', on ? 'Show the full Approach History' : 'Minimize the Approach History');
+  };
+  show();
+  btn.addEventListener('click', () => {
+    on = !on;
+    try { localStorage.setItem('ms_ws_aphist_min', on ? '1' : '0'); } catch (_) {}
+    show();
+  });
+})();
 document.getElementById('ws-aphist-rep-sel').addEventListener('change', e => {
   aphRepFilter = e.target.value;
   try { localStorage.setItem('ms_ws_aphist_rep', aphRepFilter); } catch (_) {}

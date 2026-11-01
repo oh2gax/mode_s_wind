@@ -105,7 +105,9 @@ WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r")
            ("medium_type_cloud_area_fraction", "m"), ("high_type_cloud_area_fraction", "h"),
            ("fog_area_fraction", "f"), ("cloud_base_altitude", "b"),
            # 10 m wind (grid x / y components, turned to true north) and the gust (from 2026-10-24)
-           ("x_wind_10m", "u"), ("y_wind_10m", "v"), ("wind_speed_of_gust", "g"))
+           ("x_wind_10m", "u"), ("y_wind_10m", "v"), ("wind_speed_of_gust", "g"),
+           # 2 m temperature (°C × 10 in whole degrees; from 2026-11-01)
+           ("air_temperature_2m", "t"))
 WX_STRIDE = 4                # every 4th cell: 10 km
 WX_FINE_TABLE = "meps_wx25_hours"   # the 2.5 km detail box around the receiver (from 2026-10-31, MEPS_WX_FINE_KM)
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
@@ -390,8 +392,9 @@ class MepsFetcher:
         ((hPa − 1000) × 10), the rain and the snow of the hour ending then
         (mm water × 100, from the accumulated amounts), total, low, medium
         and high cloud and fog (% in 5 % steps), cloud base (m in 50 m steps;
-        missing where no cloud), the 10 m wind u / v towards east / north and
-        the 10 m gust (kt in 2-kt steps); compressed int16 arrays, rows older
+        missing where no cloud), the 10 m wind u / v towards east / north,
+        the 10 m gust (kt in 2-kt steps) and the 2 m temperature (°C × 10 in
+        whole degrees, from 2026-11-01); compressed int16 arrays, rows older
         than wx_days removed.  The field list of each row is in its meta "f"
         (older rows have no wind)."""
         xs, ys = list(d["x"]), list(d["y"])
@@ -403,6 +406,7 @@ class MepsFetcher:
         FRAC = [d[v] for v, k in WX_VARS if k in "clmhf"]
         B = d["cloud_base_altitude"]
         XW, YW, GU = d["x_wind_10m"], d["y_wind_10m"], d["wind_speed_of_gust"]
+        TT = d["air_temperature_2m"]
         rot = self._wx_rot(xs, ys)
         KT2 = KT / 2.0
         F = MAP_FILL
@@ -431,6 +435,8 @@ class MepsFetcher:
             a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else int(round((y * c - x * sn) * KT2)) * 2
                                        for x, y, (c, sn) in zip(xw, yw, rot)]))
             a.extend(array.array("h", [F if v > 1e30 or v < 0 else int(round(v * KT2)) * 2 for v in GU[o1:o1 + np_]]))
+            # 2 m temperature in whole °C (stored × 10; about a tenth more per row)
+            a.extend(array.array("h", [F if v > 1e30 or v < 150 else int(round(v - 273.15)) * 10 for v in TT[o1:o1 + np_]]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(

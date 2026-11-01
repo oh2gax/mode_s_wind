@@ -3,6 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
+
+- **Windshear map: Departures and All 30NM** — the *ILS Only* button now steps *ILS Only → Departures → All 30NM*, as on the phone: the climb-outs too, or every aircraft within 30 NM at any level; the EDR lines then show the departures as well.
+- **A smaller Approach History** — the new **«** button at its top left keeps only the time, callsign, registration, type and runway in a narrow panel, leaving more of the map free, e.g. beside a full-size boundary-layer chart. The chart panel's half-width button uses the same icons now (**»** narrower, **«** wider) instead of ½.
+- **Calmer ATC labels** — on the Live Map and the Windshear map in the ATC style the labels are grey for all aircraft; the square stays light below 6 000 ft.
+- **2 m temperature** — the Weather page and the phone's Weather view can show the MEPS model's temperature near the ground: *Colours* (bands of 2 °C, blue below freezing, then green, yellow, orange and red, with the 0 °C line) and, if you like, the whole degrees as small numbers, or *Isotherms* — lines every 2 °C, which go well together with the rain. Hover or tap for the value. It is stored from today's model runs on.
+
 ## v.31102026 — Sharper weather maps near the airport, tidier labels on the phone's approach map
 
 - **Phone: turbulence, windshear and the boundary layer together** — *ACI · WS · ST* has a new *EDR + WS* chart, and *Boundary layer below* puts one of the boundary-layer charts (wind, temperature, headwind, its change or shear per flight) under it on the same hours — in the ILS approach view too, under its turbulence and windshear chart.

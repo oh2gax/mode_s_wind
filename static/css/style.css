@@ -1158,10 +1158,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 }
 .ws-windrose-hist-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-windrose-hist-btn.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
-/* The ½ (half width) button (from 30 Oct 2026 evening): the ½ glyph is tiny in an 11-px
-   monospaced font, so it gets a larger, bolder sans-serif glyph; the line height stays
-   15.4 px (11 px × 1.4) so the button is as tall as the others in the row */
-#ws-wr-half-btn { font-family: Inter, system-ui, sans-serif; font-size: 15px; font-weight: 600;
+/* The half-width button (from 30 Oct 2026 evening; » / « from 2026-11-01, before ½): a
+   larger sans-serif glyph; the line height stays 15.4 px (11 px × 1.4) so the button is as
+   tall as the others in the row */
+#ws-wr-half-btn { font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 400;
                   line-height: 15.4px; padding: 1px 7px; }
 .ws-windrose-hist-badge {
   font-size: 11px;
@@ -1247,6 +1247,23 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
   width: max-content;
 }
 .ws-aphist-panel.ws-aphist-hidden { display: none; }
+/* Minimize (from 2026-11-01): time, callsign, registration, type and runway only, a narrow
+   panel; the controls wrap and the column mode, its filter and Lo / Hi are hidden
+   (the METAR & pilot reports list keeps its width) */
+.ws-aphist-min-btn { margin-right: 6px; font-size: 12px; line-height: 1; padding: 1px 6px 2px; }   /* « / » at the top left of the panel */
+.ws-aphist-min-btn.active { background: #0369a1; color: #fff; border-color: #0369a1; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) { min-width: 0; max-width: none; width: max-content; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-header,
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-timerow { flex-wrap: wrap; row-gap: 3px; max-width: 250px; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-kind { margin-left: 0; padding-left: 0; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-header .ws-aphist-count { flex-basis: 100%; margin-left: 0; order: 1; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-kind { order: 2; margin-top: 2px; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) #ws-aphist-mode-sel,
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) #ws-aphist-edr-sel,
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) #ws-aphist-hi-btn,
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-sep { display: none !important; }
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-th:nth-child(n+6),
+.ws-aphist-panel.ws-aphist-min:not(.ws-aphist-rep) .ws-aphist-cell:nth-child(n+6) { display: none; }
 /* METAR & pilot reports (from 2026-10-29): a fixed width, the messages wrap */
 .ws-aphist-panel.ws-aphist-rep { width: 640px; max-width: calc(100% - 300px); }
 .ws-aphist-th.ws-rep-th { text-align: left; }

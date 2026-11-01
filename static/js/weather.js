@@ -88,7 +88,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -112,13 +112,17 @@ const cloudKey = () => { const v = $('wx-cloud').value; return v === 'off' ? nul
 function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
            wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown(),
-           smooth: $('wx-smooth').value !== 'off' };          // Shading: Smooth / Cells (from 2026-10-31)
+           smooth: $('wx-smooth').value !== 'off',
+           // 2 m temperature (from 2026-11-01): Off / Colours (fill) / Isotherms (lines), numbers with Colours
+           temp: $('wx-temp').value === 'off' ? false : $('wx-temp').value,
+           tempNum: $('wx-temp').value === 'fill' && $('wx-tnum').checked };          // Shading: Smooth / Cells (from 2026-10-31)
 }
 function fieldList() {
   const f = ['p', 'r', 's'], c = cloudKey();
   if (c) f.push(c, 'b');
   if ($('wx-wind').checked) f.push('u', 'v');
   if ($('wx-gust').checked) f.push('g');
+  if ($('wx-temp').value !== 'off') f.push('t');
   return f.join(',');
 }
 
@@ -274,7 +278,7 @@ function showFrame() {
   // hours stored before 24 Oct 2026 have no wind / gust
   const noWind = ($('wx-wind').checked && !f.u) || ($('wx-gust').checked && !f.g);
   renderLegend();
-  statusLine(f, noWind);
+  statusLine(f, noWind, $('wx-temp').value !== 'off' && !f.t);
 }
 function updateLabel(h) {
   const el = $('wx-tlabel');
@@ -285,14 +289,15 @@ function updateLabel(h) {
   const relTxt = h[0] > now ? `<span class="wx-fc">forecast +${rel} h</span>` : rel === 0 ? 'present hour' : `${rel} h`;
   el.innerHTML = `${wd} ${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad2(d.getUTCHours())} UTC · ${relTxt}`;
 }
-function statusLine(f, noWind = false) {
+function statusLine(f, noWind = false, noTemp = false) {
   const r = new Date(f.run * 1000), t = new Date(f.ts * 1000);
   const loaded = view.filter(h => frames.has(h[0])).length;
   $('wx-status').textContent =
     `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${f.lead} h` +
     ` · rain / snow of the hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
     ` · grid ${grid ? Math.round(grid.x[1] / 1000) : '—'} km${wx.fineShown() ? ' (2.5 km near the airport)' : ''} · ${loaded} / ${view.length} hours loaded · MET Norway, CC BY 4.0` +
-    (noWind ? ' · no wind stored for this hour (wind from 24 Oct 2026)' : '');
+    (noWind ? ' · no wind stored for this hour (wind from 24 Oct 2026)' : '') +
+    (noTemp ? ' · no temperature stored for this hour (from the runs fetched after 1 Nov 2026)' : '');
 }
 
 function renderLegend() {
@@ -346,10 +351,14 @@ function stepButtons() {
 $('wx-prev').addEventListener('click', () => stepHour(-1));
 $('wx-next').addEventListener('click', () => stepHour(1));
 ['wx-pres', 'wx-rain'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); renderLegend(); }));
-['wx-cloud', 'wx-wind', 'wx-gust'].forEach(id => $(id).addEventListener('change', () => {
+['wx-cloud', 'wx-wind', 'wx-gust', 'wx-temp'].forEach(id => $(id).addEventListener('change', () => {
   saveSettings(); wx.setOptions(layerOptions()); renderLegend(); loadFrames(); loadFine();
 }));
 $('wx-fine').addEventListener('change', () => { saveSettings(); showFrame(); loadFine(); });
+$('wx-tnum').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
+$('wx-temp').addEventListener('change', tnumState);
+tnumState();
+function tnumState() { $('wx-tnum').closest('label').style.opacity = $('wx-temp').value === 'fill' ? '' : '0.45'; $('wx-tnum').disabled = $('wx-temp').value !== 'fill'; }
 $('wx-smooth').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));
 $('wx-step').addEventListener('change', () => { saveSettings(); loadFrames(); });

@@ -19,6 +19,17 @@
       <input type="checkbox" id="wx-gust"> Gusts
     </label>
     <div class="wm-group">
+      <label class="wm-label">Temperature</label>
+      <select id="wx-temp" class="wm-select" title="The model's 2 m temperature: Colours — bands of 2 °C (purple, blue below freezing, cyan at 0 °C, green, yellow, orange, red) with the 0 °C line; Isotherms — lines every 2 °C (every 4 °C zoomed out), 0 °C thick. The hover read-out gives the value">
+        <option value="off" selected>Off</option>
+        <option value="fill">Colours</option>
+        <option value="lines">Isotherms</option>
+      </select>
+    </div>
+    <label class="wm-check" title="With Colours: the temperature in whole degrees (°C) as small numbers about every 110 px">
+      <input type="checkbox" id="wx-tnum"> Numbers
+    </label>
+    <div class="wm-group">
       <label class="wm-label">Clouds</label>
       <select id="wx-cloud" class="wm-select" title="Cloud layer drawn as grey shading, denser with more cover (fog in yellow); the hover read-out adds the cloud base">
         <option value="off" selected>Off</option>

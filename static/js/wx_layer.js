@@ -5,9 +5,14 @@
  * A frame (from /api/weather/frames) holds integer lists on a regular grid in
  * the MEPS Lambert projection: p (hPa − 1000) × 10, r / s rain / snow of the
  * hour (mm × 100), c / l / m / h total / low / medium / high cloud %, f fog %,
- * b cloud base (m), u / v 10 m wind towards east / north and g 10 m gust
- * (kt).  WxLayer.create(map, opts) puts a canvas into its own pane (under
- * the aircraft on the Live Map) and draws:
+ * b cloud base (m), u / v 10 m wind towards east / north, g 10 m gust
+ * (kt) and t 2 m temperature (°C × 10, whole degrees; from 2026-11-01).
+ * WxLayer.create(map, opts) puts a canvas into its own pane (under the
+ * aircraft on the Live Map) and draws:
+ *   temp     — the 2 m temperature (o.temp 'fill': colour bands of 2 °C with
+ *              the 0 °C line; 'lines': isotherms every 2 °C, 4 °C zoomed
+ *              out; o.tempNum: whole degrees about 110 px apart), under
+ *              everything else
  *   clouds   — the chosen cloud fields as grey (fog: yellow), denser with
  *              more cover (cells drawn opaque on an offscreen canvas, then
  *              the cover turned into transparency: no seams between cells)
@@ -105,6 +110,25 @@ const WxLayer = (() => {
   // 10 m gust (kt): Beaufort 6 / gale 8 / strong gale 9 / storm 10 / violent storm 11 / hurricane 12
   const GUST_T = [25, 34, 41, 48, 56, 64];
   const GUST_C = ['#fde68a', '#fdba74', '#f97316', '#dc2626', '#9d174d', '#581c87'];
+  // 2 m temperature (from 2026-11-01): °C → colour (purple, blue, cyan at 0 °C, green,
+  // yellow, orange, red), drawn in bands of 2 °C (limits in °C × 10, as the frames)
+  const TEMP_STOPS = [[-40, [60, 10, 80]], [-30, [120, 50, 160]], [-20, [70, 70, 200]], [-10, [40, 120, 230]],
+                      [-4, [70, 170, 240]], [0, [120, 210, 230]], [2, [100, 200, 170]], [5, [90, 185, 100]],
+                      [10, [190, 210, 70]], [15, [245, 205, 60]], [20, [250, 150, 50]], [25, [230, 80, 40]],
+                      [30, [180, 25, 40]], [40, [100, 10, 60]]];
+  const tempRGB = t => {
+    if (t <= TEMP_STOPS[0][0]) return TEMP_STOPS[0][1];
+    for (let k = 1; k < TEMP_STOPS.length; k++) {
+      const [t1, c1] = TEMP_STOPS[k];
+      if (t <= t1) { const [t0, c0] = TEMP_STOPS[k - 1], w = (t - t0) / (t1 - t0); return c0.map((v, n) => Math.round(v + (c1[n] - v) * w)); }
+    }
+    return TEMP_STOPS[TEMP_STOPS.length - 1][1];
+  };
+  const TEMP_L = [];
+  for (let t = -500; t <= 480; t += 20) TEMP_L.push(t);
+  const TEMP_C = TEMP_L.map(l => `rgb(${tempRGB((l + 10) / 10).join(',')})`);   // the colour of the band's middle
+  const tempClass = v => v < TEMP_L[0] ? -1 : Math.min(TEMP_L.length - 1, Math.floor((v - TEMP_L[0]) / 20));
+  const tempLine = L => `rgb(${tempRGB(L / 10).join(',')})`;
   const gustClass = kt => { let k = -1; for (let i = 0; i < GUST_T.length; i++) if (kt >= GUST_T[i]) k = i; return k; };
   const BARB_PX = 50;                                                      // barb spacing on screen
   // meteorological wind barb at (cx, cy), staff pointing to where the wind comes from
@@ -360,7 +384,10 @@ const WxLayer = (() => {
       const cellsOf = (gnx, gny, keep) => { const out = []; for (let k = 0; k < gnx * gny; k++) if (keep(k)) out.push(k); return out; };
       // contour bands: R value getter (i, j); Sn (snow) getter or null; limits ascending;
       // pals [rain colours, snow colours] (one family without Sn); filled into g2
-      const bands = (gg, cells, R, Sn, limits, pals) => {
+      // opaque (the temperature, from 2026-11-01): a square wholly inside many classes is
+      // added only to its two highest — the lower ones lie under them on the opaque
+      // offscreen canvas anyway (one class below keeps the edges between classes closed)
+      const bands = (gg, cells, R, Sn, limits, pals, opaque) => {
         const paths = pals.map(() => limits.map(() => null));
         // squares wholly inside a class are merged into strips along the row (up to 24),
         // through every lattice point of the row so that neighbouring strips and squares
@@ -381,7 +408,9 @@ const WxLayer = (() => {
           if (vmax < limits[0]) return;
           let fam = 0;
           if (Sn && pals.length > 1) { const sv = vals(Sn), rs = v[0] + v[1] + v[2] + v[3]; if (rs > 0 && sv[0] + sv[1] + sv[2] + sv[3] >= 0.5 * rs) fam = 1; }
-          for (let k = 0; k < limits.length; k++) {
+          let kTop = -1;
+          if (opaque) while (kTop + 1 < limits.length && limits[kTop + 1] <= vmin) kTop++;
+          for (let k = opaque ? Math.max(0, kTop - 1) : 0; k < limits.length; k++) {
             const T = limits[k];
             if (vmax < T) break;
             if (vmin >= T) {                                 // wholly inside: extend the strip
@@ -427,6 +456,33 @@ const WxLayer = (() => {
           for (let q = 0; q + 1 < pts.length; q += 2) { path.moveTo(pts[q][0], pts[q][1]); path.lineTo(pts[q + 1][0], pts[q + 1][1]); any = true; }
         });
         return any ? path : null;
+      };
+      // contour lines at many limits in one pass (the isotherms, from 2026-11-01):
+      // Map limit → {path, mids: [x, y] of the pieces (for the labels)}
+      const isolinesMulti = (gg, cells, R, lims) => {
+        const out = new Map();
+        lattice(gg, cells).each((pq, vals) => {
+          const v = vals(R), vmin = Math.min(v[0], v[1], v[2], v[3]), vmax = Math.max(v[0], v[1], v[2], v[3]);
+          if (vmin === vmax) return;
+          for (const T of lims) {
+            if (T <= vmin || T > vmax) continue;
+            const pts = [];
+            for (let e = 0; e < 4; e++) {
+              const e1 = (e + 1) & 3, va = v[e], vb = v[e1];
+              if ((va >= T) !== (vb >= T)) {
+                const t = (T - va) / (vb - va);
+                pts.push(pq[e].x + (pq[e1].x - pq[e].x) * t, pq[e].y + (pq[e1].y - pq[e].y) * t);
+              }
+            }
+            let r = out.get(T);
+            if (!r) out.set(T, r = { path: new Path2D(), mids: [] });
+            for (let q = 0; q + 3 < pts.length; q += 4) {
+              r.path.moveTo(pts[q], pts[q + 1]); r.path.lineTo(pts[q + 2], pts[q + 3]);
+              r.mids.push([(pts[q] + pts[q + 2]) / 2, (pts[q + 1] + pts[q + 3]) / 2]);
+            }
+          }
+        });
+        return out;
       };
       // shaded fields: bilinear in sub-cells of about 4 px (runs of one colour merged)
       const shade = (q, gnx, gny, G, colour, keep) => {
@@ -479,6 +535,34 @@ const WxLayer = (() => {
       const greyOf = c => { if (c < 15) return null; const g = Math.round(255 * Math.min(100, Math.round(c / 4) * 4) / 100); return `rgb(${g},${g},${g})`; };
       const getter = (a, n) => (i, j) => (a ? a[j * n + i] : null);
       const RAIN_L = RAIN_T.map(t => t * 100);               // the stored rain is mm/h × 100
+      // 2 m temperature (from 2026-11-01): colour bands of 2 °C under everything else
+      const tStyle = o.temp === true ? 'fill' : o.temp || null;
+      if (hasF && tStyle === 'fill' && f.t) {
+        begin();
+        let any = false;
+        const tCells = (gnx, gny, tv) => {               // Cells: runs of one class along a row
+          let n = false;                                 // (at most 6 cells: the rows are curved)
+          for (let j = 0; j < gny; j++) {
+            let i0 = -1, c0 = -1;
+            for (let i = 0; i <= gnx; i++) {
+              const v = i < gnx ? tv[j * gnx + i] : null, cl = v == null ? -1 : tempClass(v);
+              if (cl !== c0 || i - i0 >= 6) {
+                if (c0 >= 0) { (tv === f.t ? quad : fq)(i0, j, TEMP_C[c0], i - 1); n = true; }
+                i0 = i; c0 = cl;
+              }
+            }
+          }
+          return n;
+        };
+        if (SM) any = bands(geo, cellsOf(nx, ny, k => f.t[k] != null), getter(f.t, nx), null, TEMP_L, [TEMP_C], true);
+        else any = tCells(nx, ny, f.t);
+        if (hasFine && fine.t) {
+          fineCut();
+          if (SM ? bands(fineGeo, cellsOf(fnx, fny, k => fine.t[k] != null), getter(fine.t, fnx), null, TEMP_L, [TEMP_C], true)
+                 : tCells(fnx, fny, fine.t)) any = true;
+        }
+        if (any) layer(o.tempAlpha != null ? o.tempAlpha : (isLight() ? 0.55 : 0.68));
+      }
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
       for (const key of (hasF ? o.clouds : [])) {
         const v = f[key];
@@ -648,8 +732,85 @@ const WxLayer = (() => {
         ctx.beginPath(); pts.forEach((q, k) => k ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath();
         ctx.strokeStyle = T.fineEdge; ctx.lineWidth = 1; ctx.setLineDash([1.5, 3]); ctx.stroke(); ctx.setLineDash([]);
       }
+      if (hasF && tStyle && f.t) drawIsotherms(ctx, tStyle);
+      if (hasF && tStyle && f.t && o.tempNum) drawTempNumbers(ctx);
       if (hasF && o.wind && f.u && f.v) drawBarbs(ctx, f, T, P);
       if (hasF && o.pres && f.p) drawPressure(ctx, f, T, P);
+
+      // isotherms: 'lines' every 2 °C (zoom 7 and closer, else every 4 °C) in the colours
+      // of the scale, 0 °C thick and labelled; 'fill' only the 0 °C line.  From a 3 × 3
+      // mean of the field (the 2 m temperature follows the terrain: without it the lines
+      // break into many small rings over hills and lakes); the 2.5 km box from its own grid
+      function drawIsotherms(c, style) {
+        const z = map.getZoom(), sz = map.getSize();
+        const lims = style === 'lines' ? TEMP_L.filter(l => z >= 7 || l % 40 === 0) : [0];
+        const sets = [[geo, nx, ny, f.t, false]];
+        if (hasFine && fine.t) sets.push([fineGeo, fnx, fny, fine.t, true]);
+        const labels = [], halo = isLight() ? 'rgba(255,255,255,.9)' : 'rgba(10,15,25,.85)', zeroCol = isLight() ? '#1d4ed8' : '#e0f2fe';
+        for (const [gg, gnx, gny, tv, inBox] of sets) {
+          c.save();
+          if (hasFine) {                                 // the main grid outside the box, the box's inside it
+            const pts = fineRing();
+            c.beginPath();
+            if (!inBox) c.rect(0, 0, sz.x, sz.y);
+            pts.forEach((q, k) => k ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y)); c.closePath();
+            c.clip(inBox ? 'nonzero' : 'evenodd');
+          }
+          const sm = smooth3(tv, gnx, gny);
+          const lines = isolinesMulti(gg, cellsOf(gnx, gny, k => sm[k] != null), getter(sm, gnx), lims);
+          for (const L of lims) {
+            const r = lines.get(L);
+            if (!r) continue;
+            const zero = L === 0;
+            if (zero) { c.strokeStyle = halo; c.lineWidth = 4; c.stroke(r.path); }
+            c.strokeStyle = zero ? zeroCol : tempLine(L); c.lineWidth = zero ? 2 : 1.2;
+            c.stroke(r.path);
+            for (const m of r.mids) if (m[0] > 20 && m[1] > 20 && m[0] < sz.x - 20 && m[1] < sz.y - 20
+                                       && labels.every(q => (q[0] - m[0]) ** 2 + (q[1] - m[1]) ** 2 > 150 * 150)) labels.push([m[0], m[1], L]);
+          }
+          c.restore();
+        }
+        c.font = '10px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        for (const [x, y, L] of labels) {
+          const txt = `${L < 0 ? '−' : ''}${Math.abs(L / 10)}`;
+          c.lineWidth = 2.5; c.strokeStyle = halo; c.strokeText(txt, x, y);
+          c.fillStyle = L === 0 ? zeroCol : tempLine(L); c.fillText(txt, x, y);
+        }
+      }
+      // the temperature in whole °C (plain numbers, no ° sign) on grid points about 110 px apart (the 2.5 km
+      // box's values inside it)
+      function drawTempNumbers(c) {
+        const mid = Math.floor(ny / 2) * nx + Math.floor(nx / 2), a = P(geo.pt(mid)), b = P(geo.pt(mid + 1));
+        const st = Math.max(1, Math.round(110 / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)))), sz = map.getSize();
+        c.font = '11px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        const halo = isLight() ? 'rgba(255,255,255,.9)' : 'rgba(10,15,25,.85)', ink = isLight() ? '#111827' : '#f1f5f9';
+        for (let j = Math.floor(st / 2); j < ny; j += st) for (let i = Math.floor(st / 2); i < nx; i += st) {
+          const ll = geo.pt(j * nx + i), q = P(ll);
+          if (q.x < 12 || q.y < 12 || q.x > sz.x - 12 || q.y > sz.y - 12) continue;
+          const v = valuesAt({ lat: ll[0], lng: ll[1] });
+          if (!v || v.t == null) continue;
+          const d = Math.round(v.t / 10), txt = `${d < 0 ? '−' : ''}${Math.abs(d)}`;   // plain, thin numbers
+          c.lineWidth = 2.5; c.strokeStyle = halo; c.strokeText(txt, q.x, q.y);
+          c.fillStyle = ink; c.fillText(txt, q.x, q.y);
+        }
+      }
+    }
+    // a 3 × 3 mean of a field (null stays null), kept per field array
+    const smCache = new WeakMap();
+    function smooth3(tv, gnx, gny) {
+      let sm = smCache.get(tv);
+      if (sm) return sm;
+      sm = new Array(tv.length);
+      for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) {
+        if (tv[j * gnx + i] == null) { sm[j * gnx + i] = null; continue; }
+        let sum = 0, n = 0;
+        for (let b = Math.max(0, j - 1); b <= Math.min(gny - 1, j + 1); b++) for (let a = Math.max(0, i - 1); a <= Math.min(gnx - 1, i + 1); a++) {
+          const x = tv[b * gnx + a]; if (x != null) { sum += x; n++; }
+        }
+        sm[j * gnx + i] = sum / n;
+      }
+      smCache.set(tv, sm);
+      return sm;
     }
 
     // barbs of the 10 m wind on every n-th grid point (about BARB_PX apart on
@@ -805,6 +966,7 @@ const WxLayer = (() => {
         parts.push(sp < 1 ? 'wind calm' : `wind ${String(Math.round(windDir(v.u, v.v)) % 360).padStart(3, '0')}° ${Math.round(sp)} kt (${(sp * 0.514444).toFixed(0)} m/s)`);
       }
       if (v.g != null) parts.push(`gust ${v.g} kt (${(v.g * 0.514444).toFixed(0)} m/s)`);
+      if (v.t != null) parts.push(`2 m temperature ${v.t < 0 ? '−' : v.t > 0 ? '+' : ''}${Math.abs(Math.round(v.t / 10))} °C`);
       if (v.r != null) {
         const snow = v.s != null && v.r > 0 && v.s >= 0.5 * v.r;
         parts.push(v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h` : 'dry');
@@ -891,6 +1053,11 @@ const WxLayer = (() => {
       parts.push('snow ' + SNOW_C.map(key).join(''));
     }
     const T = theme();
+    if (o.temp) {
+      const g = TEMP_L.filter(l => l >= -300 && l <= 340).map(l => `rgb(${tempRGB(l / 10).join(',')}) ${((l + 300) / 640 * 100).toFixed(1)}%`).join(',');
+      parts.push(`2 m temperature ${o.temp === 'lines' ? 'isotherms ' : ''}<span style="display:inline-block;width:110px;height:8px;vertical-align:middle;border-radius:2px;background:linear-gradient(90deg,${g})"></span> −30 … 0 … +30 °C` +
+                 (o.temp === 'lines' ? ' every 2 °C (4 °C zoomed out)' : ' in steps of 2 °C') + ' · <b>━</b> 0 °C');
+    }
     if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
     if (o.wind) parts.push(`barbs: ${o.windLabel || '10 m wind'} (kt; half feather 5, feather 10, pennant 50)`);
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);

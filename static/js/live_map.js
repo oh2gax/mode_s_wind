@@ -464,8 +464,9 @@ function drawPlotCanvas(g, m, W, H) {
                             cs: callsignCache[icao] || ac.callsign || icao, lvl3: atcLvl3,
                             apt: [AIRPORT_LAT, AIRPORT_LON, AIRPORT_NAME] })
                         : atcLabelLines(ac);
-      // the selected aircraft's extended label in the palette's grey (from 2026-10-31; before yellow / blue)
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: sel ? atcPal().high : col, alt: ac.altitude ?? 99999 });
+      // the labels in the palette's grey (from 2026-11-01; the square keeps its colour — light
+      // below 6 000 ft — before the label had it too; the selected one grey from 2026-10-31)
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: atcPal().high, alt: ac.altitude ?? 99999 });
     }
   }
   atcLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos) : {};
