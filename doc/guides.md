@@ -129,6 +129,20 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
 - The dated log of the database checks (the latest of 1 November 2026: the first day of v8 as the detection, and the landings that GNSS jamming leaves without a record), the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
 
+## Mode S and the Kivenlahti mast (study log)
+file: EFHK_Mode_S_Mast_Wind_Study.pdf
+version: 1.0
+date: 2026-11-02
+pages: 10
+
+The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-m weather mast at Kivenlahti, Espoo (24 km south-west of the airport), with the MEPS model and the Jokioinen radiosonde — a study log for aviation meteorologists and atmospheric scientists, updated as the data grow.
+
+- The mast and how it is matched with the Mode S boundary layer, MEPS and the soundings (at the same height above the ground)
+- **Temperature** level by level: Mode S within 0.1 K of the mast at 217–297 m, colder below 200 m; MEPS within 0.12 K
+- **Stability and inversions**: the aircraft's T(297 m) − METAR against the mast's T(297 m) − T(2 m) (r 0.83), the shallow evening and night inversions the aircraft do not see, and the case of 29 October 2026 — with MEPS too warm near the ground
+- **Wind**: speeds that follow the mast closely, direction differences at the mast's 217 and 327 m shared by all three other sources, the speed profile and the low-level jet
+- What the mast adds, the dated log of the checks (the first of 2 November 2026), limits and next steps
+
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
 version: 1.2

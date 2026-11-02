@@ -478,6 +478,11 @@ body.app-body {
 .am-ser svg { touch-action: pan-y; }
 .am-cmp-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin: 2px 2px 6px; }
 .am-mfill-bar { align-items: center; justify-content: flex-start; }
+/* a label with its chips, kept together on one row (from 2026-11-02); the labels share a width so the chips line up */
+.am-ctl { display: flex; align-items: center; gap: 6px; margin: 2px 2px 6px; }
+.am-ctl .am-lbl { flex: none; min-width: 84px; margin-right: 0; }
+.am-ctl .app-chips { flex-wrap: nowrap; }
+.am-ctl .app-chip { min-height: 30px; padding: 4px 11px; font-size: 12.5px; }
 .am-lbl { font-size: 12px; color: var(--text-2); margin-right: 4px; }
 .am-cmp-bar .app-chip { min-height: 30px; padding: 4px 11px; font-size: 12.5px; }
 .app-list.am-cmp { width: 100%; border-collapse: collapse; }

@@ -7,7 +7,15 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series)
+## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series; a study log of Mode S and the Kivenlahti mast)
+
+### Mast: a 2-day period on the Sounding page; the phone's time-series choices on their own rows
+- The Sounding page's Mast tab: the period buttons are now 24 h / **2 d** / 3 d / 7 d (`data-h="48"`; `web/templates/sounding.html`).
+- The Mode S choice says that its values are hour values: *Mode S hourly: top level / all levels* (Sounding page, with the select's tooltip explaining that one value per hour needs no further mean; the select now as wide as its text) and the phone's row label *Mode S hourly* (the labels 84 px wide).
+- The phone's Mast view: each choice above the time series (*Mode S*, *Mast*) and above the boundary-layer charts (*Mast in the charts*) is now a label with its chips kept on one row (`.am-ctl`), the labels of the same width so the chips line up. Before, on a narrow phone in portrait the row wrapped between the groups, leaving the *Mast* label after the Mode S *Off* chip and its chips on the next row. `web/templates/app.html`, `static/css/app.css`.
+
+### Documents: a study log of Mode S and the Kivenlahti mast (version 1.0)
+- New `doc/EFHK_Mode_S_Mast_Wind_Study.pdf` (10 pages), in the *User guides* tab (`doc/guides.md`) and linked from the README's Mast section: the mast and its matching with the Mode S boundary layer, MEPS and the soundings, and the first 7.4 days (25 Oct 20 UTC – 2 Nov 06 UTC 2026, 179 hours, the snapshot of 2 Nov): temperature by level (Mode S −0.1…+0.06 K at 217–297 m, −0.47 K at 92 m; MEPS within 0.12 K), the temperature difference of the lowest 300 m (Mode S T(297 m) − METAR against the mast, r 0.83), the inversions (shallow, 24 hours; 7 of 21 seen by the Mode S criterion) with the case of 29 October, wind by level (r 0.92–0.95; the mast's 217-m and 327-m directions 10–16° and 8–13° off all three other sources), the low-level jet, what the mast adds, the check of 2 November, limits and next steps. Figures from the stored data only.
 
 ### Mast time series: the mast can be switched off (Mode S only)
 - The Sounding page's Mast tab: the select in the time series' title gets **Mast: off** beside *10 min* and *1-h mean* (`ms_mast_ser_sm` 0): the mast's lines, gusts, direction dots and ΔT bars are left out and only the Mode S hours (with the METAR) are drawn, the axes scaled to them; the hover then gives the Mode S hour; with both off a note says so. The phone's Mast view: the *Mast* chips get **Off** (`ms_app_mast_ser_sm`). `static/js/mast.js` (`seriesSvg` option `smooth: 0`), `static/js/app_mast.js`, `web/templates/sounding.html`, `web/templates/app.html`.

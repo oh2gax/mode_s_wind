@@ -156,7 +156,7 @@
     <div class="am-hd">Boundary layer · temperature</div>
     <!-- the mast in the two charts (from 2026-11-01 night): its 10-minute steps filling the plot
          below its top, narrow hourly columns beside the Mode S cells, or off -->
-    <div class="am-cmp-bar am-mfill-bar"><span class="am-lbl">Mast in the charts</span>
+    <div class="am-ctl"><span class="am-lbl">Mast in the charts</span>
       <div class="app-chips" id="am-mfill"><button type="button" class="app-chip" data-v="fill">Fill</button><button type="button" class="app-chip" data-v="cols">Columns</button><button type="button" class="app-chip" data-v="off">Off</button></div>
     </div>
     <div class="app-aci-box"><canvas id="am-blt"></canvas></div>
@@ -168,9 +168,11 @@
     <div id="am-blw-pick" class="app-pick">Tap the chart for its values.</div>
     <div id="am-blw-ro" class="app-meta app-aci-readout"></div>
     <div class="am-hd">Time series</div>
-    <div class="am-cmp-bar am-mfill-bar"><span class="am-lbl">Mode S</span>
+    <!-- one row per choice (from 2026-11-02: on a narrow phone the two groups wrapped apart) -->
+    <div class="am-ctl"><span class="am-lbl">Mode S hourly</span>
       <div class="app-chips" id="am-ser-ms"><button type="button" class="app-chip" data-v="top">Top</button><button type="button" class="app-chip" data-v="all">All</button><button type="button" class="app-chip" data-v="off">Off</button></div>
-      <span class="am-lbl" style="margin-left:6px">Mast</span>
+    </div>
+    <div class="am-ctl"><span class="am-lbl">Mast</span>
       <div class="app-chips" id="am-ser-sm"><button type="button" class="app-chip" data-v="10">10 min</button><button type="button" class="app-chip" data-v="60">1 h</button><button type="button" class="app-chip" data-v="0">Off</button></div>
     </div>
     <div id="am-ser" class="am-prof am-ser"></div>
