@@ -616,19 +616,30 @@ def create_app(
         (collector/msg_stats.py; RAM, and for 7 d also the stored hours of
         msg_stats_hours; the page polls every 10 s).  ?trend=7d adds the 7 d
         chart series per 10 min (trend_week).  gzip-compressed when the
-        browser accepts it (from 2026-10-26)."""
-        from collector import msg_stats
+        browser accepts it (from 2026-10-26).  ?rx= one of the other receivers
+        (EXTRA_RECEIVERS, collector/multirx.py; from 2026-11-02): its own
+        statistics; "receivers" lists them for the page's selector."""
+        from collector import msg_stats, multirx
         try:
             window = int(request.args.get("window", 10))
         except ValueError:
             window = 10
         week_trend = request.args.get("trend") == "7d"
         db = get_db() if (window >= msg_stats.WEEK_MIN or week_trend) else None
-        out = msg_stats.get().snapshot(window, db=db, week_trend=week_trend)
-        # the Radarcape's own status (systemstatus.json, collector/radarcape_status.py)
-        from collector import radarcape_status as _rcs
-        rc = _rcs.get()
-        out["radarcape"] = rc.public() if rc is not None else None
+        rx_id = request.args.get("rx") or ""
+        xr = multirx.get(rx_id) if rx_id else None
+        if xr is not None:
+            out = xr.ms.snapshot(window, db=db, week_trend=week_trend)
+            out["radarcape"] = None
+            out["rx"] = xr.public(min(window, 1440))
+        else:
+            out = msg_stats.get().snapshot(window, db=db, week_trend=week_trend)
+            # the Radarcape's own status (systemstatus.json, collector/radarcape_status.py)
+            from collector import radarcape_status as _rcs
+            rc = _rcs.get()
+            out["radarcape"] = rc.public() if rc is not None else None
+            out["rx"] = multirx.main_public()
+        out["receivers"] = multirx.receivers()
         return _gzip_json(out)
 
     @app.route("/api/coverage")

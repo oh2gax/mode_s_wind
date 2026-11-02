@@ -110,7 +110,8 @@ def _housekeeping_thread(
             # Statistics page: closed hours → msg_stats_hours (one row an hour)
             try:
                 from database.db import get_db as _get_db
-                msg_stats.get().persist(_get_db())
+                for _msi in msg_stats.all_stats():          # also the other receivers' (multirx)
+                    _msi.persist(_get_db())
             except Exception as exc:
                 hk_log.warning("Statistics history write failed: %s", exc)
             if stale or n_bds:
@@ -1202,6 +1203,20 @@ def main() -> None:
     except Exception as exc:
         log.warning("Statistics page: history not restored: %s", exc)
 
+    # ── Other receivers, watched (collector/multirx.py, from 2026-11-02) ──
+    # EXTRA_RECEIVERS (config_local.py): own Beast readers, statistics and
+    # the comparison with this receiver; the weather stays this receiver's
+    from collector import multirx as _mrx
+    _extra_rx = _mrx.init(cfg)
+    for _xr in _extra_rx:
+        try:
+            from database.db import get_db as _get_db
+            log.info("Statistics page, %s: restored %s", _xr.id,
+                     _xr.ms.restore(_get_db()) or "nothing (no history yet)")
+        except Exception as exc:
+            log.warning("Statistics page, %s: history not restored: %s", _xr.id, exc)
+    _mrx.start(_extra_rx)
+
     # ── Radarcape receiver status (systemstatus.json, collector/radarcape_status.py)
     from collector import radarcape_status as _rcs
     _rc = _rcs.init(cfg)
@@ -1505,7 +1520,9 @@ def main() -> None:
         # Statistics page: the hour in progress and the recent series
         try:
             from database.db import get_db as _get_db
-            n_ms = msg_stats.get().save_state(_get_db())
+            n_ms = 0
+            for _msi in msg_stats.all_stats():              # also the other receivers' (multirx)
+                n_ms += _msi.save_state(_get_db())
             log.info("Statistics page: state saved at shutdown (%d kB)", n_ms // 1024)
         except Exception as exc:
             log.warning("Statistics page: state not saved: %s", exc)

@@ -62,7 +62,7 @@
 
 {% macro meteo(fold=false) %}
       <div class="mst-panel" id="mst-meteo-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Meteo yield · Radarcape aircraft list</span></div>
+        <div class="gps-panel-hdr"><span class="gps-panel-title" id="mst-meteo-title">Meteo yield · Radarcape aircraft list</span></div>
         <div class="mst-table-wrap" id="mst-meteo"></div>
       </div>
 {% endmacro %}
@@ -113,7 +113,7 @@
           <b>en route</b>: the rest. Replies closer than 0.5 s (ADS-B squitters: 0.15 s) are counted as near-duplicates (the same
           register answered twice, e.g. to two interrogators), gaps over 60 s are not intervals. The
           receiver hears the aircraft's replies (1090 MHz), not the interrogations (1030 MHz): a longer
-          interval can also be a reply that did not reach Tuusula.</div>{% if fold %}</details>{% endif %}
+          interval can also be a reply that did not reach this receiver.</div>{% if fold %}</details>{% endif %}
       </div>
 {% endmacro %}
 
@@ -129,7 +129,7 @@
 
 {% macro rc(fold=false) %}
       <div class="mst-panel" id="mst-rc-panel">
-        <div class="gps-panel-hdr"><span class="gps-panel-title">Radarcape receiver</span>
+        <div class="gps-panel-hdr"><span class="gps-panel-title" id="mst-rc-title">Radarcape receiver</span>
           <span class="mst-hdr-note" id="mst-rc-note"></span></div>
         <div class="mst-table-wrap"><table class="mst-table mst-kv" id="mst-rc"></table></div>
         {% if fold %}<details class="mst-fold"><summary>About this panel</summary>{% endif %}<div class="mst-foot" id="mst-rc-foot"></div>{% if fold %}</details>{% endif %}

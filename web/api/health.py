@@ -396,6 +396,55 @@ def _regdb_item(now: float) -> dict:
                   "it is looked for every 5 minutes, no restart needed"] + det)
 
 
+def _short_rx(rx_id: str) -> str:
+    """MODES-RX-02 → RX-02 (the dot's label)."""
+    return rx_id[6:] if rx_id.upper().startswith("MODES-") else rx_id
+
+
+def _extra_rx_items(items: dict, now: float, up: float) -> list:
+    """Health items of the other receivers (EXTRA_RECEIVERS); [] when none.
+    With them the main receiver's dot is labelled with its id as well."""
+    from collector import multirx
+    if not multirx.active():
+        return []
+    m = multirx.main_public()
+    items["feed"]["label"] = "Feed " + _short_rx(m["id"])
+    items["feed"]["title"] = f"{m['id']} {m['name']}: " + TITLE["feed"]
+    alive = {t.name for t in threading.enumerate()}
+    keys = []
+    for xr in multirx.extras():
+        key = "rx:" + xr.id
+        p = xr.public(10)
+        f, ck, cm = p["feed"], p["clock"], p["cmp"]
+        age = f["last_frame_age"]
+        det = []
+        if f["connected_ts"]:
+            det.append(f"connected {_ago(now - f['connected_ts'])}, {f['connects']} connection(s) since the server started")
+        det.append({"sync": f"clock lined up with {m['id']} ({ck['pairs']} ADS-B pairs)",
+                    "own": "own clock (no GPS time from " + m["id"] + " now)",
+                    "starting": "clock starting"}.get(ck["state"], ck["state"]))
+        if cm["compared"]:
+            det.append(f"{100 * cm['only'] / cm['compared']:.1f} % of its replies heard only here (10 min)")
+        label, title = "Feed " + _short_rx(xr.id), f"{xr.id} {xr.name}: {xr.type} receiver, watched (statistics only)"
+        if f"rx_{xr.id}" not in alive and up > 30:
+            st, text = "err", "Reader stopped — restart the server"
+        elif f["down_sec"] is not None and f["down_sec"] > 1800:
+            # a station switched off (e.g. the mobile one between deployments): grey, not a warning
+            st, text = "off", f"Not connected for {_ago(f['down_sec'])} — station or its tunnel off"
+        elif age is None:
+            st = "warn"
+            text = (f["err"] or "No messages yet") if up > 30 else "Starting"
+        elif age < 60:
+            r = xr.rate_now()
+            st, text = "ok", f"Live — {r:.0f} messages/s" if r is not None else "Live"
+        else:
+            st, text = "warn", f"Silent for {_ago(age)}" + (f" — {f['err']}" if f["err"] else "")
+        text = text[:1].upper() + text[1:]
+        items[key] = {"key": key, "label": label, "title": title, "state": st, "text": text, "detail": det}
+        keys.append(key)
+    return keys
+
+
 def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
     from collector import msg_stats, meps, sondes, tcorr, heading_cal
     from database.db import get_db
@@ -422,6 +471,10 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         items["feed"] = _item("feed", "warn", f"Silent for {_ago(age)}", det)
     else:
         items["feed"] = _item("feed", "err", f"No messages for {_ago(age)} — receiver or network down?", det)
+
+    # the other receivers, watched (collector/multirx.py, from 2026-11-02): one
+    # dot each; never red (the weather does not depend on them)
+    extra_keys = _extra_rx_items(items, now, up)
 
     # aircraft list (JSON poller)
     j = hb.get("json")
@@ -767,17 +820,17 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
     # state changes
     out = []
     with _lock:
-        for key in ORDER:
+        for key in ORDER[:1] + tuple(extra_keys) + ORDER[1:]:
             it = items[key]
             prev = _last.get(key)
             if prev is None:
                 _last[key] = (it["state"], now)
             elif prev[0] != it["state"]:
-                hb.CHANGES.appendleft({"ts": now, "key": key, "label": LABEL[key], "from": prev[0],
+                hb.CHANGES.appendleft({"ts": now, "key": key, "label": it["label"], "from": prev[0],
                                      "to": it["state"], "text": it["text"]})
                 _last[key] = (it["state"], now)
                 (log.warning if it["state"] == "err" else log.info)(
-                    "Health: %s %s → %s (%s)", LABEL[key], prev[0], it["state"], it["text"])
+                    "Health: %s %s → %s (%s)", it["label"], prev[0], it["state"], it["text"])
             it["since"] = _last[key][1]
             out.append(it)
         changes = list(hb.CHANGES)

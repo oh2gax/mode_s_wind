@@ -586,10 +586,11 @@ def run_autopurge_if_needed(conn, db_path: str) -> None:
 
 
 def purge_msg_stats(conn) -> dict:
-    """Delete the stored Statistics page history (msg_stats_hours and the
-    saved state); the counts in memory are not changed."""
+    """Delete the stored Statistics page history (msg_stats_hours, the other
+    receivers' msg_stats_rx_hours and the saved state); the counts in memory
+    are not changed."""
     n = 0
-    for t in ("msg_stats_hours", "msg_stats_state"):
+    for t in ("msg_stats_hours", "msg_stats_rx_hours", "msg_stats_state"):
         try:
             n += conn.execute(f"DELETE FROM {t}").rowcount or 0
         except Exception:                      # noqa: BLE001  (no table yet)

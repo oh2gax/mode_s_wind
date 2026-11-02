@@ -65,6 +65,12 @@ RAM for the hour plus up to ~10–15 MB for the 24 hourly records in daytime
 traffic.  The counting costs a few microseconds per message (dictionary
 increments; one CRC per DF11 reply; one distance per ADS-B position).
 
+Other receivers (from 2026-11-02, collector/multirx.py): each receiver of
+EXTRA_RECEIVERS has a MsgStats of its own (MsgStats(rx=id), add_receiver /
+get(rx)), filled by its own reader; its closed hours go to msg_stats_rx_hours
+(rx, ts) and its state at a stop to msg_stats_state under 'state:<id>'.  The
+main receiver's instance (get()) is unchanged.
+
 Thread safety: the collector thread and the JSON poller write, the web thread
 reads a snapshot (one lock; held only for increments and the snapshot copy).
 """
@@ -245,6 +251,12 @@ def ensure_tables(db) -> None:
     db.execute("""CREATE TABLE IF NOT EXISTS msg_stats_hours (
                       ts   INTEGER PRIMARY KEY,   -- clock hour (UTC, Unix s)
                       data BLOB    NOT NULL)""")   # zlib(JSON {v, rec, trend})
+    # the other receivers' hours (from 2026-11-02, collector/multirx.py)
+    db.execute("""CREATE TABLE IF NOT EXISTS msg_stats_rx_hours (
+                      rx   TEXT    NOT NULL,      -- receiver id, e.g. MODES-RX-02
+                      ts   INTEGER NOT NULL,      -- clock hour (UTC, Unix s)
+                      data BLOB    NOT NULL,      -- as in msg_stats_hours
+                      PRIMARY KEY (rx, ts))""")
     db.execute("""CREATE TABLE IF NOT EXISTS msg_stats_state (
                       k     TEXT PRIMARY KEY,     -- 'state'
                       saved REAL NOT NULL,        -- time of the save
@@ -296,7 +308,12 @@ def _hist_quantile(hist: list, q: float, lo: float = CAD_DUP_SEC) -> float | Non
 
 
 class MsgStats:
-    def __init__(self) -> None:
+    def __init__(self, rx: str | None = None) -> None:
+        # rx: None = the main receiver (the one the weather is computed from;
+        # its hours in msg_stats_hours), else the id of another receiver
+        # watched by collector/multirx.py (its hours in msg_stats_rx_hours)
+        self.rx = rx
+        self.site_round = None                       # decimals of the position shown (None: as is)
         self._lock = threading.Lock()
         self.airport = _EFHK
         self.started = time.time()
@@ -820,9 +837,12 @@ class MsgStats:
             "json": js,
             "signal": {"state": sig_state, "lo_db": SIG_LO_DB, "step_db": SIG_STEP_DB, "bins": SIG_BINS,
                        "strong_db": -3.0, "zero": c["sig0"], "cats": sig_cats,
-                       "parser": _sig_parser_state()},
-            "range": {"site": list(site), "site_src": self.site_src, "site_alt": self.site_alt,
-                      "site_cfg": list(self.site_cfg) if self.site_cfg else None, "site_rc_why": self.site_rc_why,
+                       "parser": (self.sig_parser() if getattr(self, "sig_parser", None)
+                                  else _sig_parser_state())},
+            "range": {"site": self._pub_site(site), "site_src": self.site_src,
+                      "site_alt": self.site_alt if self.site_round is None else None,
+                      "site_cfg": (self._pub_site(self.site_cfg) if self.site_cfg else None),
+                      "site_rc_why": self.site_rc_why,
                       "sectors": RNG_SECTORS, "max": agg["r"], "rows": rows,
                       "n": c["rng_n"], "jumps": c["rng_jump"], "far_rejected": c["rng_far"],
                       "farthest": far, "max_nm": RNG_MAX_NM},
@@ -832,6 +852,25 @@ class MsgStats:
                                "rows": self._week_rows(week, trend, now)}}
                if week_trend and week is not None else {}),
         }
+
+    def _pub_site(self, site) -> list:
+        """The antenna position as shown on the pages: rounded for a receiver
+        at a private address (site_round = 2: about 1 km)."""
+        if site is None:
+            return None
+        if self.site_round is None:
+            return list(site)
+        return [round(float(site[0]), self.site_round), round(float(site[1]), self.site_round)]
+
+    # the stored hours of this instance: SQL pieces
+    def _hq(self):
+        """(table, extra WHERE condition, its parameters) of the stored hours."""
+        if self.rx is None:
+            return "msg_stats_hours", "", ()
+        return "msg_stats_rx_hours", " AND rx = ?", (self.rx,)
+
+    def _state_key(self) -> str:
+        return "state" if self.rx is None else "state:" + self.rx
 
     # ── 7 d (from 2026-10-26) ────────────────────────────────────────────────
     def _week(self, db, now: float) -> dict:
@@ -845,14 +884,15 @@ class MsgStats:
         w0 = cur_h - (WEEK_MIN // 60 - 1) * 3600
         with self._week_lock:
             ensure_tables(db)
-            n, last = db.execute("SELECT COUNT(*), MAX(ts) FROM msg_stats_hours WHERE ts >= ? AND ts < ?",
-                                 (int(w0), int(cutoff))).fetchone()
+            tbl, cond, par = self._hq()
+            n, last = db.execute(f"SELECT COUNT(*), MAX(ts) FROM {tbl} WHERE ts >= ? AND ts < ?{cond}",
+                                 (int(w0), int(cutoff)) + par).fetchone()
             key = (cutoff, n, last)
             wc = self._week_cache
             if wc is None or wc["key"] != key:
                 base, bins, have, since = _new_minute(0.0), {}, set(), None
-                for ts, blob in db.execute("SELECT ts, data FROM msg_stats_hours WHERE ts >= ? AND ts < ? "
-                                           "ORDER BY ts", (int(w0), int(cutoff))):
+                for ts, blob in db.execute(f"SELECT ts, data FROM {tbl} WHERE ts >= ? AND ts < ?{cond} "
+                                           "ORDER BY ts", (int(w0), int(cutoff)) + par):
                     try:
                         d = _unpack(blob)
                         _merge(base, _rec_dec(d["rec"]))
@@ -929,11 +969,16 @@ def _persist(self, db) -> int:
         return 0
     try:
         ensure_tables(db)
+        tbl, cond, par = self._hq()
         for h, tr in rows:
-            db.execute("INSERT OR REPLACE INTO msg_stats_hours (ts, data) VALUES (?, ?)",
-                       (int(h["t0"]), _pack({"v": 1, "rec": _rec_enc(h), "trend": tr,
-                                             "since": max(since, h["t0"])})))
-        db.execute("DELETE FROM msg_stats_hours WHERE ts < ?", (int(time.time() - self.keep_days * 86400),))
+            blob = _pack({"v": 1, "rec": _rec_enc(h), "trend": tr, "since": max(since, h["t0"])})
+            if self.rx is None:
+                db.execute("INSERT OR REPLACE INTO msg_stats_hours (ts, data) VALUES (?, ?)",
+                           (int(h["t0"]), blob))
+            else:
+                db.execute("INSERT OR REPLACE INTO msg_stats_rx_hours (rx, ts, data) VALUES (?, ?, ?)",
+                           (self.rx, int(h["t0"]), blob))
+        db.execute(f"DELETE FROM {tbl} WHERE ts < ?{cond}", (int(time.time() - self.keep_days * 86400),) + par)
         db.commit()
     except Exception:
         with self._lock:                         # try again at the next round
@@ -959,10 +1004,11 @@ def _save_state(self, db) -> int:
               "trend": list(self._trend) + [self._compact(self._min)],
               "ten": [list(t) for t in self._ten] + [list(self._ten_cur)],
               "iid_seen": [[list(k), v] for k, v in self._iid_seen.items()],
-              "health": _hb.export_changes()}
+              "health": _hb.export_changes() if self.rx is None else []}
     blob = _pack(st)
     ensure_tables(db)
-    db.execute("INSERT OR REPLACE INTO msg_stats_state (k, saved, data) VALUES ('state', ?, ?)", (now, blob))
+    db.execute("INSERT OR REPLACE INTO msg_stats_state (k, saved, data) VALUES (?, ?, ?)",
+               (self._state_key(), now, blob))
     db.commit()
     return len(blob)
 
@@ -976,8 +1022,9 @@ def _restore(self, db) -> str:
     cur_h = float(int(now // 3600) * 3600)
     h_from = cur_h - (HOURS_DETAIL - 1) * 3600
     hours, trends, first = {}, {}, {}
-    for ts, blob in db.execute("SELECT ts, data FROM msg_stats_hours WHERE ts >= ? ORDER BY ts",
-                               (int(h_from),)).fetchall():
+    tbl, cond, par = self._hq()
+    for ts, blob in db.execute(f"SELECT ts, data FROM {tbl} WHERE ts >= ?{cond} ORDER BY ts",
+                               (int(h_from),) + par).fetchall():
         try:
             d = _unpack(blob)
             hours[float(ts)] = _rec_dec(d["rec"])
@@ -986,14 +1033,14 @@ def _restore(self, db) -> str:
         except Exception as exc:                 # noqa: BLE001
             log.warning("Statistics history: hour %s unreadable (%s)", ts, exc.__class__.__name__)
     st = None
-    row = db.execute("SELECT saved, data FROM msg_stats_state WHERE k = 'state'").fetchone()
+    row = db.execute("SELECT saved, data FROM msg_stats_state WHERE k = ?", (self._state_key(),)).fetchone()
     if row and now - float(row[0]) < 86400:
         try:
             st = _unpack(row[1])
         except Exception as exc:                 # noqa: BLE001
             log.warning("Statistics state unreadable (%s)", exc.__class__.__name__)
-    if row:                                      # used once
-        db.execute("DELETE FROM msg_stats_state")
+    if row:                                      # used once (only this receiver's row: from 2026-11-02)
+        db.execute("DELETE FROM msg_stats_state WHERE k = ?", (self._state_key(),))
         db.commit()
     gap_marker = lambda t: [t] + [None] * len(TREND_KEYS)      # noqa: E731
     with self._lock:
@@ -1028,7 +1075,8 @@ def _restore(self, db) -> str:
             self._ten = deque(ten, maxlen=360)
             for k, v in st.get("iid_seen") or []:
                 self._iid_seen[tuple(k)] = list(v)
-            _hb.import_changes(st.get("health") or [], stop, now)
+            if self.rx is None:
+                _hb.import_changes(st.get("health") or [], stop, now)
         else:
             trend = []
             for ts in sorted(trends):
@@ -1037,7 +1085,8 @@ def _restore(self, db) -> str:
             if hours:
                 stop = max(hours) + 3600
                 self._gaps = [(stop, now)]
-                _hb.import_changes([], None, now)
+                if self.rx is None:
+                    _hb.import_changes([], None, now)
         for h in closed:
             hours[h["t0"]] = h
         self._hours = deque((hours[t] for t in sorted(hours) if t >= h_from and t < cur_h),
@@ -1073,7 +1122,7 @@ MsgStats.save_state = _save_state
 MsgStats.restore = _restore
 
 
-def _sig_parser_state() -> dict:
+def _sig_parser_state(self=None) -> dict:
     try:
         from collector import beast_sig
         return beast_sig.state()
@@ -1082,7 +1131,25 @@ def _sig_parser_state() -> dict:
 
 
 _STATS = MsgStats()
+_OTHERS: dict = {}          # id → MsgStats of the other receivers (collector/multirx.py)
 
 
-def get() -> MsgStats:
-    return _STATS
+def get(rx: str | None = None) -> MsgStats | None:
+    """The main receiver's statistics, or (rx = an id of another receiver)
+    that receiver's; None for an unknown id."""
+    if rx is None:
+        return _STATS
+    return _OTHERS.get(rx)
+
+
+def add_receiver(rx: str) -> MsgStats:
+    """A MsgStats for another receiver (from 2026-11-02)."""
+    ms = _OTHERS.get(rx)
+    if ms is None:
+        ms = _OTHERS[rx] = MsgStats(rx=rx)
+    return ms
+
+
+def all_stats() -> list:
+    """The main one first, then the other receivers'."""
+    return [_STATS] + list(_OTHERS.values())

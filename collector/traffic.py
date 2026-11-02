@@ -11,6 +11,9 @@ the receiver site carries.  Counted kinds:
   status  the Radarcape's status page (systemstatus.json, once a minute)
   web     the web pages and data served to the users (response bodies plus
           their headers, the Live Map's live stream included)
+  beast2  the Beast streams of the other receivers (from 2026-11-02,
+          collector/multirx.py: MODES-RX-02 and later ones)
+  status2 their status files (readsb's receiver.json / stats.json)
   rx, tx  the machine's network interface totals, received / sent
           (/proc/net/dev of the default-route interface; Linux only).  They
           include everything: the tunnel's encryption, HTTPS, the model,
@@ -40,9 +43,10 @@ from collections import deque
 
 log = logging.getLogger(__name__)
 
-KINDS = ("beast", "json", "status", "web", "rx", "tx")
+KINDS = ("beast", "json", "status", "web", "rx", "tx", "beast2", "status2")
 _IDX = {k: i for i, k in enumerate(KINDS)}
-APP_IN = ("beast", "json", "status")          # received by MODE-S Wind from the receiver
+APP_IN = ("beast", "json", "status", "beast2", "status2")   # received by MODE-S Wind from the receivers
+_COLS = ", ".join(KINDS)
 TRAFFIC_DAYS = 400                            # traffic_hours kept (days)
 SAVE_PARTIAL_SEC = 900                        # the hour in progress written this often
 TICK_SEC = 60.0
@@ -148,6 +152,13 @@ class Traffic:
         c.execute("""CREATE TABLE IF NOT EXISTS traffic_hours (
                         ts INTEGER PRIMARY KEY, beast INTEGER, json INTEGER, status INTEGER,
                         web INTEGER, rx INTEGER, tx INTEGER)""")
+        if not getattr(self, "_cols_ok", False):    # the other receivers' columns (from 2026-11-02)
+            have = {r[1] for r in c.execute("PRAGMA table_info(traffic_hours)")}
+            for k in KINDS:
+                if k not in have:
+                    c.execute(f"ALTER TABLE traffic_hours ADD COLUMN {k} INTEGER")
+            c.commit()
+            self._cols_ok = True
         return c
 
     def init(self, db_path: str) -> None:
@@ -156,7 +167,7 @@ class Traffic:
         self.ifaces = _default_ifaces()
         try:
             c = self._conn()
-            row = c.execute("SELECT beast, json, status, web, rx, tx FROM traffic_hours WHERE ts = ?",
+            row = c.execute(f"SELECT {_COLS} FROM traffic_hours WHERE ts = ?",
                             (self._hour_t,)).fetchone()
             c.close()
             if row:
@@ -182,8 +193,8 @@ class Traffic:
             return
         try:
             c = self._conn()
-            c.executemany("INSERT OR REPLACE INTO traffic_hours (ts, beast, json, status, web, rx, tx) "
-                          "VALUES (?, ?, ?, ?, ?, ?, ?)", [(t, *v) for t, v in rows])
+            c.executemany(f"INSERT OR REPLACE INTO traffic_hours (ts, {_COLS}) "
+                          f"VALUES (?{', ?' * len(KINDS)})", [(t, *v) for t, v in rows])
             c.commit()
             c.close()
             self._cache = (0.0, None)
@@ -234,7 +245,7 @@ class Traffic:
         if self.db_path:
             try:
                 c = self._conn()
-                for r in c.execute("SELECT ts, beast, json, status, web, rx, tx FROM traffic_hours "
+                for r in c.execute(f"SELECT ts, {_COLS} FROM traffic_hours "
                                    "WHERE ts >= ?", (time.time() - 62 * 86400,)):
                     rows[int(r[0])] = [int(x or 0) for x in r[1:]]
                 c.close()

@@ -3587,3 +3587,22 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .regdb-pill.gov, .regdb-pill.pol { background: rgba(16, 185, 129, 0.16); color: #34d399; border-color: rgba(16, 185, 129, 0.4); }
 [data-theme="light"] .regdb-pill.mil { color: #1d4ed8; }
 [data-theme="light"] .regdb-pill.gov, [data-theme="light"] .regdb-pill.pol { color: #047857; }
+
+/* ── Statistics: the receiver selector (from 2026-11-02; more receivers, collector/multirx.py) ── */
+.mst-rx-bar { display: flex; align-items: center; gap: 10px; padding: 5px 1rem; background: var(--bg-1);
+              border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.mst-rx-bar[hidden] { display: none; }
+.mst-rx-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+.mst-rx-btn { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; align-items: center; text-align: left;
+              background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border); border-radius: 5px;
+              padding: 3px 10px 3px 8px; cursor: pointer; line-height: 1.25; font: inherit; }
+.mst-rx-btn b { font-size: 11.5px; font-weight: 600; color: var(--text-1); }
+.mst-rx-btn small { grid-column: 2; font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.mst-rx-btn:hover { background: var(--bg-4, var(--bg-2)); }
+.mst-rx-btn.active { background: var(--accent); border-color: var(--accent); }
+.mst-rx-btn.active b, .mst-rx-btn.active small { color: #fff; }
+.mst-rx-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.mst-rx-dot.ok { background: var(--green); }
+.mst-rx-dot.warn { background: var(--amber); }
+.mst-rx-btn.active .mst-rx-dot { box-shadow: 0 0 0 1.5px #fff; }
+.mst-rx-note { margin-left: auto; font-size: 11px; color: var(--text-3); }

@@ -3,8 +3,9 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.02112026 — A study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
+## v.02112026 — A second receiver on the Statistics page, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
+- **A second receiver** — MODE-S Wind now also listens to a second receiver, *MODES-RX-02* (an AirSpy, later also a mobile station). On the Statistics page a row of buttons above the figures switches between *MODES-RX-01* (the Radarcape, from which the weather is computed) and *MODES-RX-02*: every panel then shows what that receiver hears, and its own panel tells how much of it the Radarcape heard too and how much only it heard. The weather still comes from the Radarcape alone; combining the receivers comes next. Also in the phone's Statistics view.
 - **Mast study log 1.1** — a new section on the mast's own data quality: its wind directions at 217 m and 327 m are off by a nearly constant amount in every wind direction, so the large turn of the wind between them is not real; its 92-m wind reads low in south-westerly winds. The temperatures look right.
 - **Mast tab steady** — the status line beside Refresh no longer pushes the page down when an older time is shown.
 - **Mast profile of any time** — on the Sounding page's Mast tab, pick a date and the hour and minute (UTC) from the dropdowns, or step by 10 minutes or an hour, to see the mast's profile of that moment beside the aircraft, the model and the sounding; the time series follows. *Now* returns to the present.

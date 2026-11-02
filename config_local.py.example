@@ -22,6 +22,23 @@ RADARCAPE_PORT = 10003
 RADARCAPE_JSON_URL = "http://127.0.0.1:8080/aircraftlist.json"
 RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 
+# Other receivers, watched (from 2026-11-02; README: Running in the cloud →
+# 5. More receivers): their own Beast streams through their own tunnels; a
+# tab each on the Statistics page; the weather stays the main receiver's
+# (RECEIVER_ID / RECEIVER_NAME, by default MODES-RX-01 / Tuusula).
+# Empty or missing: nothing changes.
+# type: "airspy" (airspy_adsb + readsb) / "readsb" / "radarcape"; clock:
+# "12mhz" / "20mhz" / "24mhz" (airspy_adsb's SAMPLE_RATE) or "gps" (a
+# Radarcape); status_url (optional): readsb's JSON folder (receiver.json
+# gives the position); lat / lon: used when readsb gives none; private:
+# True (default) shows the position only to about 1 km.
+# RECEIVER_ID = "MODES-RX-01"
+# RECEIVER_NAME = "Tuusula"
+# EXTRA_RECEIVERS = [{"id": "MODES-RX-02", "name": "Vantaa", "type": "airspy",
+#                     "host": "127.0.0.1", "port": 30105, "clock": "12mhz",
+#                     "status_url": "http://127.0.0.1:8105/tar1090/data/",
+#                     "lat": 60.30, "lon": 24.90, "private": True}]
+
 WEB_HOST = "127.0.0.1"       # reachable only through nginx on this machine
 WEB_PORT = 8000
 WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 127.0.0.1)

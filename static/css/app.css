@@ -491,3 +491,7 @@ body.app-body {
 .app-list.am-cmp .am-big { color: #fbbf24; }
 [data-theme="light"] .app-list.am-cmp .am-big { color: #b45309; }
 .am-disc { margin: 14px 4px 0; color: var(--text-3); }
+/* the receiver selector of the Statistics view (from 2026-11-02) */
+.app-stats .mst-rx-bar { padding: 6px 8px; gap: 6px; }
+.app-stats .mst-rx-btns { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.app-stats .mst-rx-btn small { white-space: normal; }

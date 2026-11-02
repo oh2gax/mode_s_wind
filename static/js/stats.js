@@ -28,6 +28,9 @@
   'use strict';
   // the chart's range: 24 h by default (from 30 Oct 2026; before 1 h)
   let win = 10, range = '24h', series = 'rate', cadKind = '5,0', sigCat = 'all';
+  // the receiver shown (from 2026-11-02): '' = the main receiver, else the id of
+  // another receiver (EXTRA_RECEIVERS, collector/multirx.py)
+  let rxSel = '';
   // Message rate / Data transfer tabs of the chart panel (from 2026-10-27)
   let tab = 'msgs', trView = 'app', trData = null, chartType = null;
   const EMBED = window.MST_EMBED || null;      // the mobile view (from 2026-10-28)
@@ -43,6 +46,7 @@
     trView = localStorage.getItem('ms_statsTrView') === 'net' ? 'net' : 'app';
     cadKind = localStorage.getItem('ms_statsCad') || '5,0';
     sigCat = localStorage.getItem('ms_statsSig') || 'all';
+    rxSel = localStorage.getItem('ms_statsRx') || '';
   } catch (e) { /* private mode */ }
   if (![1, 10, 60, 1440, 10080].includes(win)) win = 10;
   if (EMBED) range = '24h';
@@ -222,6 +226,8 @@
   function renderRc(d) {
     const rc = d.radarcape, tb = $('mst-rc'), foot = $('mst-rc-foot');
     if (!tb) return;
+    if (d.rx && !d.rx.main) { renderXr(d); return; }
+    if ($('mst-rc-title')) $('mst-rc-title').textContent = 'Radarcape receiver';
     if (!rc || !rc.enabled) {
       tb.innerHTML = '<tbody><tr><td class="mst-empty">Not read (RADARCAPE_STATUS = False, or no RADARCAPE_HOST)</td></tr></tbody>';
       $('mst-rc-note').textContent = '';
@@ -282,7 +288,102 @@
       + 'Network details are not shown.';
   }
 
+  // ── another receiver (EXTRA_RECEIVERS, collector/multirx.py; from 2026-11-02) ──
+  const RX_TYPE = { radarcape: 'Radarcape', airspy: 'AirSpy (airspy_adsb + readsb)', readsb: 'readsb' };
+  const RX_TYPE_SHORT = { radarcape: 'Radarcape', airspy: 'AirSpy', readsb: 'readsb' };
+  const CLOCK_NAME = { gps: 'GPS time', '12mhz': '12 MHz counter', '20mhz': '20 MHz counter', '24mhz': '24 MHz counter' };
+  const nfmt = v => v == null ? '—' : Number(v).toLocaleString('en');
+  function renderXr(d) {
+    const x = d.rx, tb = $('mst-rc'), foot = $('mst-rc-foot');
+    const mainId = (d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver';
+    if ($('mst-rc-title')) $('mst-rc-title').textContent = `${RX_TYPE_SHORT[x.type] || 'Receiver'} receiver · ${x.id}`;
+    const f = x.feed, ck = x.clock, cm = x.cmp, rs = x.readsb, dl = x.delay;
+    const rows = [];
+    const row = (k, v, t) => rows.push(`<tr${t ? ` title="${esc(t)}"` : ''}><td>${esc(k)}</td><td>${v}</td></tr>`);
+    row('Receiver', `<b>${esc(x.id)}</b> · ${esc(x.name)} · ${esc(RX_TYPE[x.type] || x.type)}`);
+    const age = f.last_frame_age;
+    row('Feed', (age != null && age < 60 ? '<span class="mst-ok">live</span>' : `<span class="mst-rc-warn">${age == null ? esc(f.err || 'no messages yet') : 'silent ' + ago(age) + (f.err ? ' — ' + esc(f.err) : '')}</span>`)
+      + (f.connected_ts ? ` · connected ${ago(d.now - f.connected_ts)}` : '') + ` · ${f.connects} connection(s) since the server started`
+      + ` · ${nfmt(f.frames)} frames${f.skipped && f.skipped.heartbeat ? ` (+${nfmt(f.skipped.heartbeat)} heartbeats skipped)` : ''}`,
+      'Its Beast stream, read through its own tunnel; the frames counted here are the Mode S frames');
+    const sp = x.site || {}, pos = sp.pos;
+    row('Position', (pos ? `${pos[0].toFixed(sp.private ? 2 : 3)}° N ${pos[1].toFixed(sp.private ? 2 : 3)}° E${sp.private ? ' (shown to about 1 km)' : ''}` : '—')
+      + ` · ${{ readsb: 'set in its readsb (receiver.json)', config: 'from EXTRA_RECEIVERS', centre: 'not known — the map centre in use' }[sp.src] || ''}`,
+      'The centre of the range rings. A mobile station: set the position in readsb at the site (readsb-set-location); it is read once a minute');
+    const cst = ck.state === 'sync'
+      ? `<span class="mst-ok">lined up with ${esc(mainId)}'s GPS time</span> (${ck.pairs} ADS-B pairs${ck.spread_us != null ? `, spread ${fmt(ck.spread_us, 0)} µs` : ''}${ck.ppm != null ? `, drift ${ck.ppm > 0 ? '+' : ''}${fmt(ck.ppm, 1)} ppm` : ''})`
+      : ck.state === 'own' ? `<span class="mst-rc-warn">own clock</span> — ${ck.main_gps ? 'not yet lined up' : `no GPS time from ${esc(mainId)} now`}; accurate to some tens of ms`
+      : 'starting';
+    row('Clock', `${esc(CLOCK_NAME[ck.kind] || ck.kind)} · ${cst}${ck.resets ? ` · ${ck.resets} counter restart${ck.resets > 1 ? 's' : ''}` : ''}`,
+      'The receiver stamps each reply with a free-running counter, not real time. It is lined up with the main receiver\'s GPS time from the ADS-B messages both heard; the spread is mostly the different distance from the aircraft to the two antennas');
+    if (dl) row('Delay to this server', `min ${fmt(dl.min, 0)} · median ${fmt(dl.p50, 0)} · p99 ${fmt(dl.p99, 0)} · max ${fmt(dl.max, 0)} ms`,
+      'From the reply (its lined-up time) to its arrival here: the receiver\'s own buffering plus the tunnel');
+    const wtxt = cm.window_min < d.window_min ? ' (last 24 h)' : '';
+    if (cm.compared) {
+      const only = Object.entries(cm.only_df || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `DF${k} ${nfmt(v)}`).join(' · ');
+      row(`Heard also by ${mainId}`, `<b>${pct(cm.both, cm.compared)}</b> of ${nfmt(cm.compared)} replies${wtxt}`,
+        `The same 56 / 112 bits within ${'5 ms'} of the lined-up time in ${mainId}'s stream`);
+      row('Heard only here', `<b>${pct(cm.only, cm.compared)}</b> (${nfmt(cm.only)})${only ? ' · ' + only : ''}`,
+        `Replies ${mainId} did not hear: what this receiver adds`);
+      row(`BDS 5,0 below ${nfmt(cm.low_ft)} ft`, `${nfmt(cm.b50_low_only)} of ${nfmt(cm.b50_low)} heard only here`,
+        'Track and turn reports of aircraft low on the approach or the climb-out (altitude from the replies)');
+    } else {
+      row(`Compared with ${mainId}`, cm.frames ? `not now — no GPS-timed frames from ${esc(mainId)}` : '—');
+    }
+    if (rs) {
+      const parts = [];
+      if (rs.version) parts.push(esc(rs.version.split(' ')[0]));
+      if (rs.msgs_1min != null) parts.push(`${nfmt(rs.msgs_1min)} messages in the last minute`);
+      if (rs.ac_pos != null) parts.push(`${rs.ac_pos} aircraft with a position${rs.ac_nopos != null ? `, ${rs.ac_nopos} without` : ''}`);
+      if (rs.max_dist_nm != null) parts.push(`farthest ${fmt(rs.max_dist_nm, 0)} NM (1 min)`);
+      row('readsb', (parts.join(' · ') || '—') + (rs.err ? ` · <span class="mst-rc-warn">${esc(rs.err)}</span>` : rs.age != null ? ` · read ${ago(rs.age)} ago` : ''),
+        'The receiver\'s own decoder, its status files (receiver.json, stats.json) read once a minute');
+    }
+    tb.innerHTML = `<tbody>${rows.join('')}</tbody>`;
+    $('mst-rc-note').textContent = '';
+    foot.innerHTML = `This receiver is watched: its own Beast stream is decoded for these statistics and compared with ${esc(mainId)}'s, `
+      + `whose replies alone give the weather. Each of its replies is looked up in ${esc(mainId)}'s stream (after waiting 0.6 s for it to arrive): `
+      + 'the same bits at the same time are the same transmission heard by both, the rest is what this receiver adds. '
+      + 'Its signal levels are on its own scale, not comparable with the Radarcape\'s. Network details are not shown.';
+  }
+  // the receiver selector (shown with more than one receiver)
+  function renderRx(d) {
+    const el = $('mst-rx');
+    if (!el) return;
+    const list = d.receivers || [];
+    if (list.length < 2) { el.hidden = true; return; }
+    el.hidden = false;
+    const cur = d.rx && !d.rx.main ? d.rx.id : list[0].id;
+    const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur;
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    el.innerHTML = (EMBED ? '' : '<span class="gps-summary-label mst-rx-lbl">Receiver</span>')
+      + '<span class="mst-rx-btns">' + list.map(r => {
+        const sub = [RX_TYPE_SHORT[r.type] || r.type, r.main ? 'GPS time' : (r.clock === 'gps' ? 'GPS time' : 'own clock'), r.name].filter(Boolean).join(' · ');
+        const tip = r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
+        return `<button type="button" class="mst-rx-btn${r.id === cur ? ' active' : ''}" data-rx="${esc(r.main ? '' : r.id)}" title="${esc(tip)}">`
+          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.id)}</b><small>${esc(sub)}</small></button>`;
+      }).join('') + '</span>'
+      + (EMBED ? '' : `<span class="mst-rx-note">The weather is computed from ${esc(list[0].id)}; the other receivers are watched</span>`);
+    el.querySelectorAll('.mst-rx-btn').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.rx === rxSel) return;
+      rxSel = b.dataset.rx;
+      try { if (rxSel) localStorage.setItem('ms_statsRx', rxSel); else localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ }
+      el.querySelectorAll('.mst-rx-btn').forEach(x => x.classList.toggle('active', x === b));
+      if ($('mst-updated')) $('mst-updated').textContent = 'Loading…';
+      poll();
+    }));
+  }
+
   function renderMeteo(d) {
+    if ($('mst-meteo-title')) $('mst-meteo-title').textContent = d.rx && !d.rx.main ? 'Meteo yield' : 'Meteo yield · Radarcape aircraft list';
+    if (d.rx && !d.rx.main) {
+      const mainId = (d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver';
+      $('mst-meteo').innerHTML = `<div class="mst-foot">The weather (winds, temperatures, windshear, turbulence …) is computed from ${esc(mainId)}'s replies only. `
+        + `${esc(d.rx.id)} is watched: its replies are decoded for these statistics and compared with ${esc(mainId)}'s (the receiver panel), `
+        + 'but not yet used for the weather. The aircraft list (MLAT positions, registrations) is the main receiver\'s.</div>';
+      return;
+    }
     const m = d.meteo, s = d.window_sec / 60, j = d.json || {};
     const pairs = m.wind + m.wind_old + m.nowind;
     const st = Object.entries(j.stations || {}).sort((a, b) => a[0].localeCompare(b[0]));
@@ -455,9 +556,12 @@
     $('mst-rng-note').title = f ? `${f.icao}${f.alt != null ? ', ' + f.alt.toLocaleString('en') + ' ft' : ''}` : '';
     const leg = ['high', 'mid', 'low'].map(b => `<span class="mst-legend"><i style="background:${COL[b]}"></i>${BAND_NAME[b]}</span>`).join('');
     const site = rg.site || [];
+    const xr = d.rx && !d.rx.main ? d.rx : null, sdec = xr && xr.site && xr.site.private ? 2 : 3;
     $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
-      + `(${site.length ? site[0].toFixed(3) + '° N ' + site[1].toFixed(3) + '° E' : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
-      + `${{ radarcape: 'the Radarcape\'s own GPS position' + (rg.site_cfg ? ', ANTENNA_LAT / ANTENNA_LON as the fallback' : ''),
+      + `(${site.length ? site[0].toFixed(sdec) + '° N ' + site[1].toFixed(sdec) + '° E' + (sdec === 2 ? ', shown to about 1 km' : '') : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
+      + `${xr ? { readsb: 'the position set in the receiver\'s readsb (receiver.json)', config: 'lat / lon of its EXTRA_RECEIVERS entry',
+                  centre: 'the map centre — the receiver gives no position and its EXTRA_RECEIVERS entry has no lat / lon' }[rg.site_src] || ''
+         : { radarcape: 'the Radarcape\'s own GPS position' + (rg.site_cfg ? ', ANTENNA_LAT / ANTENNA_LON as the fallback' : ''),
              config: 'ANTENNA_LAT / ANTENNA_LON in config.py' + (rg.site_rc_why ? ' — the Radarcape\'s GPS position not used: ' + rg.site_rc_why : ''),
              centre: 'the map centre — the Radarcape\'s GPS position not available; ANTENNA_LAT / ANTENNA_LON in config.py would be the fallback' }[rg.site_src] || 'ANTENNA_LAT / ANTENNA_LON in config.py'}); `
       + `rings every ${step} NM. Only positions decoded from our own reception count, and only when they fit the aircraft's previous position, `
@@ -581,7 +685,8 @@
   function trRow(name, x, perSec, title) {
     const n = v => perSec ? fmtRateB(v) : fmtB(v);
     if (!x || (!perSec && !x.hours)) return `<tr><th>${esc(name)}</th><td colspan="4" class="mst-tr-none">no data yet</td></tr>`;
-    const tip = `Beast stream ${n(x.beast)} · aircraft list ${n(x.json)} · receiver status ${n(x.status)}`;
+    const tip = `Beast stream ${n(x.beast)} · aircraft list ${n(x.json)} · receiver status ${n(x.status)}`
+      + (x.beast2 || x.status2 ? ` · other receivers ${n((x.beast2 || 0) + (x.status2 || 0))}` : '');
     const net = trData.iface_ok;
     return `<tr${title ? ` title="${esc(title)}"` : ''}><th>${esc(name)}</th>` +
       `<td title="${esc(tip)}">${n(x.app_in)}</td><td>${n(x.web)}</td>` +
@@ -616,6 +721,11 @@
       ? [['Received (interface)', v('rx'), C[0], 'in'], ['Sent (interface)', v('tx'), C[3], 'out']]
       : [['Beast stream', v('beast'), C[0], 'in'], ['Aircraft list', v('json'), C[1], 'in'],
          ['Receiver status', v('status'), C[2], 'in'], ['Web pages served', v('web'), C[3], 'out']];
+    // the other receivers' Beast streams and status files (from 2026-11-02), when there are any
+    if (trView !== 'net' && t.kinds.includes('beast2')) {
+      const o = bins.map(b => { const a = b[col('beast2')], c = b[col('status2')]; return a == null && c == null ? null : (a || 0) + (c || 0); });
+      if (o.some(x => x)) sets.splice(3, 0, ['Other receivers', o, css('--red') || '#dc2626', 'in']);
+    }
     let max = 0;
     bins.forEach((b, i) => { const s = { in: 0, out: 0 }; sets.forEach(x => { s[x[3]] += x[1][i] || 0; }); max = Math.max(max, s.in, s.out); });
     const [unit, f] = max >= 2e9 ? ['GB', 1e9] : max >= 2e6 ? ['MB', 1e6] : ['kB', 1e3];
@@ -683,7 +793,7 @@
   // ── polling ───────────────────────────────────────────────────────────────
   function renderAll() {
     if (!data) return;
-    const parts = [renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
+    const parts = [renderRx, renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
     for (const f of parts) { try { f(data); } catch (e) { console.error('stats', f.name, e); } }
     fitIid();
   }
@@ -709,8 +819,10 @@
     pollHealth();
     try {
       const wk = range === '7d' && tab === 'msgs';
-      const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : ''));
+      const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : '') + (rxSel ? '&rx=' + encodeURIComponent(rxSel) : ''));
       data = await r.json();
+      // a receiver no longer configured: back to the main one
+      if (rxSel && !(data.rx && data.rx.id === rxSel)) { rxSel = ''; try { localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ } }
       if (tab === 'traffic') await pollTraffic(false);
       renderAll();
     } catch (e) {

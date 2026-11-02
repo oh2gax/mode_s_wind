@@ -29,6 +29,7 @@ MSG_STATS_SIGNAL = False in config.py.
 from __future__ import annotations
 
 import logging
+import time
 from collections import deque
 
 from collector import traffic
@@ -36,6 +37,11 @@ from collector import traffic
 log = logging.getLogger(__name__)
 
 _Q: deque = deque(maxlen=4096)
+# The frames of the main receiver with their Beast time stamp, for the
+# comparison with the other receivers (from 2026-11-02, collector/multirx.py):
+# set_tap(fn) → fn(frames, wall_time) per receive burst, frames as pyModeS
+# parsed them ([(48-bit time stamp, hex), …]).
+_TAP = None
 _STATE = {"installed": False, "reason": "not installed", "bursts": 0, "skipped": 0, "signal": True,
           "misaligned": 0}
 
@@ -136,6 +142,11 @@ def install(signal: bool = True) -> bool:
             traffic.add("beast", len(buf) - len(remainder))
         except Exception:                       # noqa: BLE001
             pass
+        if frames and _TAP is not None:
+            try:
+                _TAP(frames, time.time())
+            except Exception:                   # noqa: BLE001  (never disturbs the decoding)
+                pass
         if frames and _STATE["signal"]:
             _STATE["bursts"] += 1
             try:
@@ -157,6 +168,12 @@ def install(signal: bool = True) -> bool:
     log.info("Beast %s enabled for the Statistics page",
              "signal levels and byte counts" if signal else "byte counts")
     return True
+
+
+def set_tap(fn) -> None:
+    """Hand the main receiver's frames to fn(frames, wall_time) (None: stop)."""
+    global _TAP
+    _TAP = fn
 
 
 def reset() -> None:
