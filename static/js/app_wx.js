@@ -56,6 +56,7 @@ window.AppWx = (() => {
   let map = null, wx = null, tiles = null, tileTheme = null, atcLines = null, border = null, borderGeo = null;
   let hours = [], view = [], grid = null, frames = new Map(), loadedKey = '', loadRun = 0, bytes = 0;
   let current = null, playing = false, playRun = 0, indexAt = 0, shown = false;
+  let rxLayer = null;          // the receivers' triangles (rx_markers.js)
   let traffic = null, trafficAt = 0, trafficLayer = null, trails = {}, lblPos = {}, tip = null, tipMk = null;
   // the extended label (from 2026-11-01, as the ILS view's): with Map style ATC a tap on an
   // aircraft opens its label as the six-line extended label; lblRects: the label boxes drawn
@@ -132,6 +133,11 @@ window.AppWx = (() => {
     });
     new Home().addTo(map);
     wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
+    // the receivers as small triangles (rx_markers.js, as the full site's maps; from 2026-11-02 evening):
+    // option Receivers On (default) / Off
+    // a tap on a triangle shows its card, as an aircraft's (onTap → rxAt)
+    rxLayer = typeof window.msRxMarkers === 'function' ? window.msRxMarkers(map, { passive: true }) : null;
+    if (rxLayer && S().rxmk !== 'off') rxLayer.addTo(map);
     wx.setOptions(layerOptions());
     trafficLayer = AtcDisplay.canvasLayer(map, drawTraffic);
     map.on('click', onTap);
@@ -381,9 +387,26 @@ window.AppWx = (() => {
   }
 
   // ── tap read-out ──────────────────────────────────────────────────────
+  // the receiver triangle within 14 px of a tap (the triangles take no taps themselves)
+  function rxAt(pt) {
+    if (!rxLayer || S().rxmk === 'off') return null;
+    let best = null, bd = 14;
+    rxLayer.eachLayer(m => {
+      const p = map.latLngToContainerPoint(m.getLatLng()), d = Math.hypot(p.x - pt.x, p.y - pt.y);
+      if (d <= bd) { bd = d; best = m.options; }
+    });
+    return best;
+  }
   function onTap(e) {
     // the card at the top of the map when the tap is in its lower half (not over the place)
     $('app-wx-tip').classList.toggle('top', e.containerPoint.y > map.getSize().y / 2);
+    const rx = rxAt(e.containerPoint);
+    if (rx) {
+      closeTip(); if (ext.key) extClose();
+      $('app-wx-tip').innerHTML = `<b>${C.esc(rx.rxText)}</b><small>receiver, position to about 1 km · tap here to close</small>`;
+      $('app-wx-tip').hidden = false;
+      return;
+    }
     const ac = S().traffic === 'on' ? acAt(e.containerPoint) : null;
     // ATC map style: an aircraft's label opens as the extended label (no card); a tap on
     // that label keeps it, a tap elsewhere closes it (from 2026-11-01)
@@ -582,6 +605,7 @@ window.AppWx = (() => {
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; extClose(); trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
+    else if (key === 'rxmk') { if (rxLayer) { if (S().rxmk !== 'off') rxLayer.addTo(map); else rxLayer.remove(); } }
     else if (key === 'op' || key === 'smooth') wx.setOptions(layerOptions());
     else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }
     else if (key === 'src') {

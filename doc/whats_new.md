@@ -5,6 +5,9 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A second receiver, now part of the weather, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
+- **Receivers on the phone's Weather map** — the receivers are small triangles on the map, as on the full site; tap one for its name. *Receivers (triangles)* in the Weather options switches them off.
+- **The receiving station, page 9** — now a short explanation of how several receivers make one weather: the merge in four steps, what it gives and how a receiver joins.
+- **Guides: more receivers** — the Statistics guide (1.11) explains the receiver row, how the receivers are merged and who sees which receiver; the phone guide (1.44) the same in the phone's Statistics view, whose receiver panels now also fit a narrow screen.
 - **Your own receiver on the Statistics page** — everyone sees *All receivers*. If a receiver is yours, its own tab appears beside it with a **yours** badge — on the phone too — with its feed in the system health and, on the Live Map (Coverage → *Per receiver*), its own coverage line beside the line of all receivers combined. Users with Full view see every receiver.
 - **The receiving station: two receivers** — the station overview in the User guides has a new page 9 on the second receiver: how the two receivers are merged into one weather in the cloud, how far each one hears, and how many more replies come in low on the approach. The two-page brochure mentions the second receiver too.
 - **Receivers on or off** — in the Live Map's ☂ Weather panel, *Receiver → Markers* shows or hides the receivers' triangles, with or without the coverage line; on the Weather page the new **Receivers** box does the same. The Live Map's weather panel also keeps its size now when you tick options.
