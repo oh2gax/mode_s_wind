@@ -1849,6 +1849,19 @@ ilsFilterBtn.addEventListener('click', () => {
 const WS_EDR_STEPS = [0, 30, 60];
 let wsEdrMin = (() => { try { const v = parseInt(localStorage.getItem('ms_ws_edrmap') ?? '0', 10); return WS_EDR_STEPS.includes(v) ? v : 0; } catch (_) { return 0; } })();
 const WE = { tracks: [], at: 0, min: 0 };
+// Which phases the lines show while both are drawn (Departures / All 30NM / All 100NM;
+// from 2026-11-02): the button next to EDR steps All → App (landings) → Dep
+// (departures), ms_ws_edrph; with ILS Only only the landings, as before
+const WS_EDR_PH = ['all', 'app', 'dep'];
+const WS_EDR_PH_TXT = { all: 'All', app: 'App', dep: 'Dep' };   // short: it sits right after the EDR button (the bar fits at 1280 px)
+let wsEdrPh = (() => { try { const v = localStorage.getItem('ms_ws_edrph'); return WS_EDR_PH.includes(v) ? v : 'all'; } catch (_) { return 'all'; } })();
+function wsEdrPhShow() {
+  const b = document.getElementById('ws-edrph-btn');
+  if (!b) return;
+  b.hidden = !wsEdrMin || wsMapMode === 'ils';
+  b.textContent = WS_EDR_PH_TXT[wsEdrPh];
+  b.classList.toggle('active', wsEdrPh !== 'all');
+}
 map.createPane('wsEdrPane').style.zIndex = 420;            // over the finals, under the aircraft
 map.getPane('wsEdrPane').style.pointerEvents = 'none';
 const wsEdrLayer = L.layerGroup().addTo(map);
@@ -1868,6 +1881,7 @@ async function wsLoadEdrTracks(force) {
 }
 function wsDrawEdr() {
   wsEdrLayer.clearLayers();
+  wsEdrPhShow();
   const box = document.getElementById('ws-edr-sum');
   if (box) box.hidden = !wsEdrMin;
   // its width: 250 px in CSS (from 2026-11-01 — narrower than the minimized Approach History,
@@ -1880,8 +1894,10 @@ function wsDrawEdr() {
   if (!wsEdrMin) return;
   const now = Date.now() / 1000, light = wsMapLight();
   // the landings, and with Departures / All 30NM the departures too (from 2026-11-01)
-  const withDep = wsMapMode !== 'ils';
-  const ET = WE.tracks.filter(t => (t.ph !== 'dep' || withDep) && now - t.ts < wsEdrMin * 60);
+  // (the All / App / Dep button after EDR, from 2026-11-02, chooses among them)
+  const ph = wsMapMode === 'ils' ? 'app' : wsEdrPh;
+  const withLdg = ph !== 'dep', withDep = ph !== 'app';
+  const ET = WE.tracks.filter(t => (t.ph === 'dep' ? withDep : withLdg) && now - t.ts < wsEdrMin * 60);
   const nDep = ET.filter(t => t.ph === 'dep').length, nLdg = ET.length - nDep;
   const SG = []; for (const t of ET) for (const g of t.seg) if (g.p && g.p.length > 1) SG.push(g);
   SG.sort((x, y) => x.e - y.e);
@@ -1901,9 +1917,9 @@ function wsDrawEdr() {
   const key = [[0.05, 'smooth'], [0.15, 'light 0.10'], [0.3, 'moderate 0.20'], [0.5, 'severe 0.45']]
     .map(([v, n]) => `<span class="ws-edr-ki"><span class="ws-edr-key" style="background:${wsEdrCol(v)}"></span>${n}</span>`).join(' ');   // a swatch stays with its name
   box.innerHTML = `<div><b>Turbulence (EDR), last ${wsEdrMin < 60 ? wsEdrMin + ' min' : '1 h'}</b> ${key} <span class="ws-research-tag">research</span></div>`
-    + (mx ? `<div>${nLdg} landing${nLdg === 1 ? '' : 's'}${withDep ? ` · ${nDep} departure${nDep === 1 ? '' : 's'}` : ''} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
+    + (mx ? `<div>${[withLdg ? `${nLdg} landing${nLdg === 1 ? '' : 's'}` : '', withDep ? `${nDep} departure${nDep === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} · max <b style="color:${wsEdrCol(mx.e)}">${mx.e.toFixed(2)} ${wsEdrName(mx.e)}</b>`
           + ` at ${mx.h} ft (${_wsEsc(mx.cs || '')} ${_wsEsc(mx.rwy || '')}) · median below 1000 ft ${md(lay.lo)}, 1000–3000 ft ${md(lay.hi)}</div>`
-          : `<div>No ${withDep ? 'flights' : 'landings'} with EDR in the last ${wsEdrMin < 60 ? wsEdrMin + ' min' : 'hour'}</div>`);
+          : `<div>No ${withDep ? (withLdg ? 'flights' : 'departures') : 'landings'} with EDR in the last ${wsEdrMin < 60 ? wsEdrMin + ' min' : 'hour'}</div>`);
 }
 (function () {
   const btn = document.getElementById('ws-edr-btn');
@@ -1922,6 +1938,12 @@ function wsDrawEdr() {
   });
   wsLoadEdrTracks(true);
   setInterval(() => { if (wsEdrMin && !document.hidden) wsLoadEdrTracks(); }, 60_000);
+  const pb = document.getElementById('ws-edrph-btn');
+  if (pb) pb.addEventListener('click', () => {
+    wsEdrPh = WS_EDR_PH[(WS_EDR_PH.indexOf(wsEdrPh) + 1) % WS_EDR_PH.length];
+    try { localStorage.setItem('ms_ws_edrph', wsEdrPh); } catch (_) {}
+    wsDrawEdr();
+  });
 })();
 
 // ── Wind Rose toggle ──────────────────────────────────────────────────────────

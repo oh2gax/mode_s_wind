@@ -80,10 +80,9 @@ let currentTile = L.tileLayer(
   TILE_OPTS
 ).addTo(map);
 
-// Receiver marker (hidden in the ATC style)
-const receiverMarker = L.circleMarker([RECEIVER_LAT, RECEIVER_LON], {
-  radius: 7, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2,
-}).bindTooltip('Receiver (EFHK area)').addTo(map);
+// Receiver markers (hidden in the ATC style): from 2026-11-02 each receiver at its own
+// position (rounded to 0.01°, base.html msRxMarkers) — before one dot at the map centre
+const receiverMarker = msRxMarkers(map, { radius: 7 }).addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────
 const markers        = {};   // icao → L.Marker (aircraft symbol)

@@ -81,8 +81,7 @@ const TILES = {
 const isLight = () => document.documentElement.dataset.theme === 'light';
 let tileTheme = isLight() ? 'light' : 'dark';
 TILES[tileTheme].addTo(map);
-L.circleMarker([RECEIVER_LAT, RECEIVER_LON], { radius: 5, color: '#fff', fillColor: '#1d4ed8', fillOpacity: 1, weight: 2 })
-  .bindTooltip('Receiver').addTo(map);
+msRxMarkers(map, { radius: 5 }).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
 
 const $ = id => document.getElementById(id);
 const pad2 = n => String(n).padStart(2, '0');

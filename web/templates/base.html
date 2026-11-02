@@ -100,6 +100,43 @@
 <script>
 const CARTO_API_KEY = {{ carto_api_key | tojson }};
 </script>
+<script>
+// ── The receivers on the maps (from 2026-11-02) ────────────────────────────────
+// Before, a blue dot at RECEIVER_LAT / RECEIVER_LON — the map centre at the airport, not
+// the antenna.  Now one dot per receiver at its own position as the Statistics page uses
+// it (the Radarcape's GPS, readsb's receiver.json or ANTENNA_LAT / LON), rounded to 0.01°
+// (/api/coverage); refreshed every 10 min; the old dot only until a position is known.
+// Live Map, Weather and Wind Map: msRxMarkers(map, {radius}) returns a layer group.
+window.msRxMarkers = function (map, opt) {
+  opt = opt || {};
+  var COLS = ['#1d4ed8', '#7c3aed', '#0d9488', '#d97706'];   // RX-01 blue, RX-02 violet … (the Live Map coverage)
+  var TYPE = { radarcape: 'Radarcape', airspy: 'AirSpy', readsb: 'readsb' };
+  var esc = function (v) { return String(v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var dot = function (lat, lon, col) {
+    return L.circleMarker([lat, lon], { radius: opt.radius || 6, color: '#fff', fillColor: col, fillOpacity: 1, weight: 2 });
+  };
+  var g = L.layerGroup([dot(RECEIVER_LAT, RECEIVER_LON, COLS[0]).bindTooltip('Receiver (EFHK area)')]);
+  var load = function () {
+    fetch('/api/coverage?hours=1', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      // a receiver whose position is not known yet (src "centre": the map centre) is left
+      // out; the colours stay with the receivers' order
+      var all = (d && d.receivers) || [];
+      var ok = function (r) { return r.lat != null && r.lon != null && r.src !== 'centre'; };
+      if (!all.some(ok)) return;
+      g.clearLayers();
+      all.forEach(function (r, i) {
+        if (!ok(r)) return;
+        g.addLayer(dot(r.lat, r.lon, COLS[i % COLS.length]).bindTooltip(
+          esc(r.id || 'Receiver') + (r.name ? ' · ' + esc(r.name) : '') +
+          (r.type ? ' — ' + esc(TYPE[r.type] || r.type) : '') + ' (position to about 1 km)'));
+      });
+    }).catch(function () {});
+  };
+  load();
+  setInterval(function () { if (!document.hidden) load(); }, 600000);
+  return g;
+};
+</script>
 {% block scripts %}{% endblock %}
 <script>
 // ── Theme toggle ────────────────────────────────────────────────────────────

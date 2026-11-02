@@ -93,10 +93,7 @@ const pageIsLight = () => document.documentElement.dataset.theme === 'light';
 let tileTheme = pageIsLight() ? 'light' : 'dark';
 TILES[tileTheme].addTo(map);
 
-L.circleMarker([RECEIVER_LAT, RECEIVER_LON], {
-  radius: 6, color: '#fff', fillColor: '#1d4ed8',
-  fillOpacity: 1, weight: 2,
-}).bindTooltip('Receiver').addTo(map);
+msRxMarkers(map, { radius: 6 }).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
 
 // Layers, bottom to top: cell tints, analysis lines, compare arrows + barbs, sonde
 const cellLayer  = L.layerGroup().addTo(map);
