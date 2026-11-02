@@ -54,7 +54,11 @@ kept apart as before).  A reply leaves MERGE_HOLD_SEC after its time t
 (arrival delays measured on 2 Nov: up to 0.43 s through the tunnels), in time
 order; a copy arriving after its reply left is dropped (counted), a reply
 arriving later than the hold is passed on at once with its time set to the
-last one passed (counted).  The weather then has a delay of under a second.
+last one passed (counted).  A frame arriving more than MERGE_STALE_SEC
+(2.5 s) after its time — a burst after a stall of its tunnel, e.g. a mobile
+station on 4G — is dropped (counted "stale"): its copy from the other
+receiver may already be forgotten, and it would be taken twice.  The weather
+then has a delay of under a second.
 """
 
 from __future__ import annotations
@@ -77,6 +81,8 @@ HOLD_SEC = 0.6            # a frame of another receiver waits this long for the 
 DUP_SEC = 0.005           # same bytes within this (lined-up time): heard by both
 DUP_SEC_LOOSE = 0.25      # … when one of the two times is on a fallback clock (merger)
 MERGE_HOLD_SEC = 0.8      # the merger passes a reply on this long after its time
+MERGE_STALE_SEC = 2.5     # a frame older than this on arrival is dropped (counted "stale")
+MERGE_DONE_SEC = 3.0      # passed-on replies remembered this long for late copies (> MERGE_STALE_SEC)
 PAIR_SEC_SYNCED = 0.05    # DF17 pair window once lined up
 PAIR_SEC_START = 2.0      # … before that (the counter plus the arrival delay)
 PAIR_N = 101              # time differences in the running median
@@ -189,7 +195,7 @@ class Merger:
         self.cv = threading.Condition()
         self.heap: list = []                       # (t, seq, entry)
         self.pend: dict = {}                       # hex → [entry, …] waiting
-        self.done: dict = {}                       # hex → [(t, mask), …] passed on (last 3 s)
+        self.done: dict = {}                       # hex → [(t, mask), …] passed on (last MERGE_DONE_SEC)
         self.done_order: deque = deque()
         self.seq = 0
         self.last_t = 0.0
@@ -211,6 +217,13 @@ class Merger:
         """A frame of receiver `bit` (reader threads)."""
         b = 1 << bit
         with self.cv:
+            # a frame delivered in a burst after a stall of its tunnel (a 4G
+            # link, a congested cell): its copy from the other receiver may
+            # already have been passed on and forgotten (MERGE_DONE_SEC), so it
+            # would go out a second time with a wrong time — drop it instead
+            if t < time.time() - MERGE_STALE_SEC:
+                self._count("stale")
+                return
             # only a copy from ANOTHER receiver is a duplicate: one receiver
             # often hears the same bits twice within a fraction of a second
             # (separate replies to two interrogators: a third of the frames
@@ -270,7 +283,7 @@ class Merger:
                     self.done.setdefault(e[1], []).append(dn)
                     self.done_order.append((dn, e[1]))
                     out.append(e)
-                cut = now - 3.0
+                cut = now - MERGE_DONE_SEC
                 while self.done_order and self.done_order[0][0][0] < cut:
                     td, hd = self.done_order.popleft()
                     lst = self.done.get(hd)
@@ -301,7 +314,8 @@ class Merger:
                     tot.update(c)
         masks = {str(k[1]): v for k, v in tot.items() if isinstance(k, tuple) and k[0] == "mask"}
         return {"window_min": w, "out": tot["out"], "dup": tot["dup"], "late_dup": tot["late_dup"],
-                "late": tot["late"], "masks": masks, "hold_sec": MERGE_HOLD_SEC}
+                "late": tot["late"], "stale": tot["stale"], "masks": masks, "hold_sec": MERGE_HOLD_SEC,
+                "stale_sec": MERGE_STALE_SEC}
 
 
 _MERGER: Merger | None = None

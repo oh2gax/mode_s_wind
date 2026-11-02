@@ -374,7 +374,7 @@
       + `<tbody>${rows.join('')}<tr class="mst-sep"><td><b>Replies passed on</b></td><td class="num"><b>${nfmt(out)}</b></td><td class="num">100 %</td><td></td></tr>`
       + mrows.join('')
       + `<tr><td title="Copies of a reply already taken from another receiver">Duplicates removed</td><td class="num">${nfmt(mg.dup)}</td><td class="num">${pct(mg.dup, out + (mg.dup || 0))}</td><td></td></tr>`
-      + `<tr><td title="A copy that arrived after its reply had been passed on (dropped) / a reply that arrived later than the hold (passed on at once)">Late copies / late replies</td><td class="num">${nfmt(mg.late_dup)} / ${nfmt(mg.late)}</td><td></td><td></td></tr>`
+      + `<tr><td title="A copy that arrived after its reply had been passed on (dropped) / a reply that arrived later than the hold (passed on at once) / a frame that arrived more than ${mg.stale_sec ?? 2.5} s after it was sent, e.g. in a burst after a stall of a 4G link (dropped)">Late copies / late replies / too late</td><td class="num">${nfmt(mg.late_dup)} / ${nfmt(mg.late)} / ${nfmt(mg.stale ?? 0)}</td><td></td><td></td></tr>`
       + '</tbody>';
     $('mst-rc-note').textContent = mg.window_min && mg.window_min < d.window_min ? 'last 24 h' : '';
     foot.innerHTML = 'The replies of all receivers go into the weather together. Each receiver\'s frames are put on one time scale '

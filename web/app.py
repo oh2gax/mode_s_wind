@@ -651,13 +651,38 @@ def create_app(
     def coverage_api():
         """The receiver coverage of the last ?hours= (1–24, default 24) for the
         Live Map's coverage line (from 2026-10-31; collector/msg_stats.py
-        coverage): the farthest ADS-B position per 10° sector, all heights."""
-        from collector import msg_stats
+        coverage): the farthest ADS-B position per 10° sector, all heights.
+        With more receivers (EXTRA_RECEIVERS, from 2026-11-02) one record per
+        receiver, each from its own statistics and measured from its own
+        antenna (id, name, type; the position rounded to 0.01°); the page
+        draws the outline of their union, or each outline (per receiver), and
+        the receivers' markers."""
+        from collector import msg_stats, multirx
         try:
             hours = int(request.args.get("hours", 24))
         except ValueError:
             hours = 24
-        return _gzip_json(msg_stats.get().coverage(hours))
+        out = msg_stats.get().coverage(hours)
+        main = {"id": multirx.main_id(), "name": (multirx.main_public() or {}).get("name") or "",
+                "type": "radarcape"}
+        if not multirx.active():
+            for r in out["receivers"]:
+                r.update(main)
+            return _gzip_json(out)
+        mrx = multirx.main_rx()                 # merged: the Radarcape's own statistics
+        srcs = [(main, mrx.ms if mrx is not None else msg_stats.get())] + \
+               [({"id": x.id, "name": x.name, "type": x.type}, x.ms) for x in multirx.extras()]
+        recs, since = [], None
+        for info, ms in srcs:
+            c = ms.coverage(hours)
+            for r in c["receivers"]:
+                r.update(info)
+                recs.append(r)
+            since = c["since"] if since is None else min(since, c["since"])
+        out["receivers"] = recs
+        out["since"] = since if since is not None else out["since"]
+        out["merged"] = multirx.merging()
+        return _gzip_json(out)
 
     @app.route("/api/traffic")
     def traffic_api():

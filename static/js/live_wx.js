@@ -72,6 +72,12 @@
  * (each outline drawn 1 px dashed, as thin as the radar edge, with its parts
  * inside the other receivers' areas cleared), so more receivers later give
  * their combined coverage.  Independent of the source.
+ * More receivers (from 2026-11-02, EXTRA_RECEIVERS): /api/coverage gives one
+ * record per receiver, each from its own reception and measured from its own
+ * antenna; the line is the outline of their union as before, or with
+ * "Per receiver" each receiver's own outline in its colour (MODES-RX-01 light
+ * blue, MODES-RX-02 violet, …).  A small triangle marks each receiver (its
+ * position to 0.01°), with its name on hover.
  */
 'use strict';
 
@@ -79,7 +85,7 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, smooth: true, hover: false, apt: false, aptMin: false };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, covPer: false, smooth: true, hover: false, apt: false, aptMin: false };
   const FINE_ZOOM = 7;                 // as the Weather page
   const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
@@ -162,13 +168,20 @@
 
   // ── Receiver coverage: the outline of the union of the receivers' areas ──
   const COV_COL = { dark: 'rgba(191,219,254,0.75)', light: 'rgba(29,78,216,0.7)' };
+  // per receiver (from 2026-11-02): MODES-RX-01 as before, then violet, teal, amber
+  const COV_COLS = [COV_COL, { dark: 'rgba(196,181,253,0.9)', light: 'rgba(109,40,217,0.8)' },
+                    { dark: 'rgba(94,234,212,0.85)', light: 'rgba(15,118,110,0.8)' },
+                    { dark: 'rgba(253,230,138,0.85)', light: 'rgba(180,83,9,0.8)' }];
+  const covCol = k => COV_COLS[k % COV_COLS.length][document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+  const rxShort = id => (id || '').replace(/^MODES-/, '') || 'Receiver';
+  let covData = null;                       // the last /api/coverage answer
   const covLayer = (() => {
     const paneName = 'wxCovPane';
     if (!map.getPane(paneName)) { const p = map.createPane(paneName); p.style.zIndex = 368; p.style.pointerEvents = 'none'; }
     const canvas = L.DomUtil.create('canvas', 'wx-canvas');
     canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0'; canvas.style.pointerEvents = 'none';
     map.getPane(paneName).appendChild(canvas);
-    let data = null, on = false, segs = [], off = null;      // [[x, y, sector] …] per receiver, for the hover
+    let data = null, on = false, per = false, segs = [], marks = [], off = null;   // [[x, y, sector, receiver] …] per receiver, for the hover
     function place() {
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
       L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
@@ -179,19 +192,51 @@
     function draw() {
       const ctx = canvas.getContext('2d'), dpr = window.devicePixelRatio || 1;
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
-      segs = [];
+      segs = []; marks = [];
       if (!on || !data) return;
-      const rings = data.receivers.filter(r => r.outline && r.outline.length >= 3).map(r => {
+      const all = data.receivers || [];
+      const rings = [], ringCol = [];
+      all.forEach((r, ri) => {
+        if (!(r.outline && r.outline.length >= 3)) return;
         const ring = r.outline.map(([la, lo]) => map.latLngToContainerPoint([la, lo]));
         const sec = r.sectors.filter(Boolean);
-        segs.push(ring.map((p, k) => [p.x, p.y, sec[k]]));
-        return ring;
+        segs.push(ring.map((p, k) => [p.x, p.y, sec[k], r]));
+        rings.push(ring); ringCol.push(covCol(ri));
       });
-      if (!rings.length) return;
+      // the receivers: a small triangle each (with more than one receiver, in its colour), drawn last
+      const drawMarks = () => {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const light = document.documentElement.dataset.theme === 'light';
+        all.forEach((r, ri) => {
+          if (r.lat == null || r.lon == null) return;
+          const p = map.latLngToContainerPoint([r.lat, r.lon]);
+          marks.push([p.x, p.y, r]);
+          ctx.beginPath(); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x + 5, p.y + 3.5); ctx.lineTo(p.x - 5, p.y + 3.5); ctx.closePath();
+          ctx.fillStyle = all.length > 1 ? covCol(ri) : COV_COL[light ? 'light' : 'dark'];
+          ctx.strokeStyle = light ? '#fff' : '#0f172a'; ctx.lineWidth = 1;
+          ctx.fill(); ctx.stroke();
+          if (all.length > 1) {
+            ctx.font = '600 10px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+            ctx.lineWidth = 3; ctx.strokeText(rxShort(r.id), p.x + 7, p.y);
+            ctx.fillStyle = covCol(ri); ctx.fillText(rxShort(r.id), p.x + 7, p.y);
+          }
+        });
+      };
+      if (!rings.length) { drawMarks(); return; }
+      const trace = (c, ring) => { ring.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); };
+      if (per && rings.length > 1) {
+        // each receiver's own outline, in its colour (from 2026-11-02)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        rings.forEach((ring, k) => {
+          ctx.beginPath(); trace(ctx, ring);
+          ctx.strokeStyle = ringCol[k]; ctx.lineWidth = 1.2; ctx.lineJoin = 'round'; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+        });
+        drawMarks();
+        return;
+      }
       // each outline 1 px dashed (as the radar edge), with the parts inside the
       // other receivers' areas cleared: the edge of the union
       const col = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
-      const trace = (c, ring) => { ring.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); };
       if (!off) off = document.createElement('canvas');
       off.width = canvas.width; off.height = canvas.height;
       const o = off.getContext('2d');
@@ -205,8 +250,10 @@
           o.beginPath(); rings.forEach((r, j) => { if (j !== k) trace(o, r); }); o.fill('nonzero');
           o.globalCompositeOperation = 'source-over';
         }
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.drawImage(off, 0, 0);
       });
+      drawMarks();
     }
     map.on('zoomstart', () => { canvas.style.visibility = 'hidden'; });
     map.on('zoomend moveend resize', () => { canvas.style.visibility = ''; place(); });
@@ -214,8 +261,10 @@
     return {
       set(d) { data = d; draw(); },
       show(v) { on = !!v; canvas.style.display = on ? '' : 'none'; draw(); },
+      perRx(v) { per = !!v; draw(); },
+      count() { return data && data.receivers ? data.receivers.length : 0; },
       redraw: draw,
-      at(pt, r = 6) {                       // on the line: the sector of the nearer corner
+      at(pt, r = 6) {                       // on the line: the sector of the nearer corner (and its receiver)
         if (!on) return null;
         let best = null, bd = r;
         for (const ring of segs) {
@@ -224,10 +273,15 @@
             const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
             const u = l2 ? Math.max(0, Math.min(1, ((pt.x - a[0]) * dx + (pt.y - a[1]) * dy) / l2)) : 0;
             const d = Math.hypot(a[0] + u * dx - pt.x, a[1] + u * dy - pt.y);
-            if (d <= bd) { bd = d; best = u < 0.5 ? a[2] : b[2]; }
+            if (d <= bd) { bd = d; const s = u < 0.5 ? a[2] : b[2]; best = s ? Object.assign({ rx: a[3] }, s) : null; }
           }
         }
         return best;
+      },
+      markAt(pt, r = 8) {                   // a receiver's triangle
+        if (!on) return null;
+        for (const m of marks) if (Math.hypot(m[0] - pt.x, m[1] - pt.y) <= r) return m[2];
+        return null;
       },
     };
   })();
@@ -308,6 +362,7 @@
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Receiver</span>
             <label title="A thin light-blue line around the area the receiver heard in the last 24 hours: the farthest ADS-B position in each 10° direction, any height (the range data of the Statistics page). With more receivers, their combined coverage"><input type="checkbox" class="lwx-cov"> Coverage (24 h)</label>
+            <label class="lwx-covper-l" title="With more than one receiver: each receiver's own coverage outline in its colour (MODES-RX-01 light blue, MODES-RX-02 violet), each measured from its own antenna, instead of the outline of their combined coverage. The triangles mark the receivers (to about 1 km)"><input type="checkbox" class="lwx-covper"> Per receiver</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Airport</span>
             <label title="A box at the top left of the map with the weather of now at ${APT}: the MEPS model's hour (10 m wind and gust, 2 m temperature, pressure, rain or snow, total / low / medium / high cloud, cloud base and fog; the 2.5 km grid near the airport) and the FMI radar's rain rate there. « in the box makes it one line. Independent of the overlay shown"><input type="checkbox" class="lwx-apt-cb"> Current MEPS &amp; radar wx at ${APT}</label>
@@ -349,6 +404,7 @@
   q('.lwx-apt-cb').addEventListener('change', e => { st.apt = e.target.checked; save(); sync(); if (st.apt) loadApt(true); });
   q('.lwx-hover').addEventListener('change', e => { st.hover = e.target.checked; save(); sync(); if (!st.hover) tip.style.display = 'none'; });
   q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
+  q('.lwx-covper').addEventListener('change', e => { st.covPer = e.target.checked; save(); covLayer.perRx(st.covPer); applyOptions(); covAt = 0; refresh(false); });
 
   // ── State → page ─────────────────────────────────────────────────────────
   const useMeps = () => st.src === 'meps' || st.src === 'both';
@@ -385,7 +441,11 @@
     const parts = [];
     if (st.src !== 'off') parts.push(WxLayer.legendHtml(options()));
     if (mepsWind()) parts.push(WxLayer.legendHtml(windOptions()));
-    if (st.cov) parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h`);
+    if (st.cov) {
+      const rx = covLayer.count() > 1 && covData ? covData.receivers : null;
+      if (rx && st.covPer) parts.push(rx.map((r, k) => `<span style="display:inline-block;width:16px;border-top:1px dashed ${covCol(k)};vertical-align:middle"></span> ${rxShort(r.id)}`).join(' ') + ' coverage, last 24 h');
+      else parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h${rx ? ' (' + rx.length + ' receivers combined)' : ''}`);
+    }
     if (modesWind()) parts.push('Mode S barbs (aircraft, last ' + perTxt() + '): ' +
       MODES_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']
         .map((c, i) => `<span class="wx-key" style="background:${c}"></span> ${['< 15', '15–30', '30–50', '≥ 50'][i]}`).join(' ') +
@@ -419,6 +479,10 @@
     q('.lwx-smooth').checked = !!st.smooth;
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
+    q('.lwx-covper').checked = !!st.covPer;
+    q('.lwx-covper').disabled = !st.cov;
+    q('.lwx-covper-l').style.display = covLayer.count() > 1 ? '' : 'none';
+    covLayer.perRx(st.covPer);
     q('.lwx-hover').checked = !!st.hover;
     q('.lwx-apt-cb').checked = !!st.apt;
     aptBox.style.display = st.apt ? '' : 'none';
@@ -585,7 +649,10 @@
     if (!force && covAt && nowMs - covAt < 5 * 60 * 1000) return;
     covAt = nowMs;
     const d = await (await fetch(`/api/coverage?hours=${COV_HOURS}`, { cache: 'no-store' })).json();
+    covData = d;
     covLayer.set(d);
+    q('.lwx-covper-l').style.display = covLayer.count() > 1 ? '' : 'none';
+    applyOptions();
     const rx = (d.receivers || []).filter(r => r.outline && r.outline.length);
     if (!rx.length) { covStatus = 'Receiver coverage: no ADS-B positions yet.'; return; }
     const far = rx.map(r => r.farthest).filter(Boolean).sort((a, b) => b.nm - a.nm)[0];
@@ -593,7 +660,8 @@
     covStatus = `Receiver coverage, last ${hrs >= COV_HOURS - 0.05 ? COV_HOURS + ' h' : hrs.toFixed(1) + ' h (since the start)'}: ` +
       `the farthest ADS-B position in each 10° direction, any height` +
       (far ? ` · farthest ${Math.round(far.nm)} NM at ${String(Math.round(far.brg - 5)).padStart(3, '0')}–${String(Math.round(far.brg + 5)).padStart(3, '0')}°` : '') +
-      (rx.length > 1 ? ` · ${rx.length} receivers combined` : '');
+      (rx.length > 1 ? ` · ${rx.length} receivers (the line ${st.covPer ? 'per receiver' : 'of their combined coverage'}): ` +
+        rx.map(r => `${rxShort(r.id)} ${r.farthest ? Math.round(r.farthest.nm) + ' NM' : '—'}`).join(', ') : '');
   }
 
   function mepsLine() {
@@ -718,10 +786,19 @@
       place(e);
       return;
     }
+    const rm = st.cov ? covLayer.markAt(e.containerPoint) : null;       // a receiver's triangle
+    if (rm) {
+      const TY = { radarcape: 'Radarcape (GPS time)', airspy: 'AirSpy (airspy_adsb + readsb)', readsb: 'readsb' };
+      tip.innerHTML = `<b>${rm.id || 'Receiver'}</b>${rm.name ? ' · ' + rm.name : ''}` +
+        `<br><span>${TY[rm.type] || ''}${TY[rm.type] ? ' · ' : ''}position to about 1 km${rm.farthest ? ` · farthest ${Math.round(rm.farthest.nm)} NM in ${COV_HOURS} h` : ''}</span>`;
+      place(e);
+      return;
+    }
     const cv = st.cov ? covLayer.at(e.containerPoint) : null;           // the coverage line
     if (cv) {
       const a = String(Math.round(cv.brg - 5)).padStart(3, '0'), b = String(Math.round(cv.brg + 5) % 360 || 360).padStart(3, '0');
-      tip.innerHTML = `<b>Receiver coverage</b>, last ${COV_HOURS} h: ${Math.round(cv.nm)} NM at ${a}–${b}°` +
+      const multi = covLayer.count() > 1 && cv.rx && cv.rx.id;
+      tip.innerHTML = `<b>Receiver coverage</b>${multi ? ' · ' + rxShort(cv.rx.id) : ''}, last ${COV_HOURS} h: ${Math.round(cv.nm)} NM at ${a}–${b}° from ${multi ? 'its antenna' : 'the antenna'}` +
         `<br><span>the farthest ADS-B position in this 10° direction${cv.alt != null ? `, at ${cv.alt >= 10000 ? 'FL' + String(Math.round(cv.alt / 100)).padStart(3, '0') : cv.alt.toLocaleString('en').replace(',', ' ') + ' ft'}` : ''}</span>`;
       place(e);
       return;
