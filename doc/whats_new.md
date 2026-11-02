@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A second receiver, now part of the weather, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
+- **Your own receiver on the Statistics page** — everyone sees *All receivers*. If a receiver is yours, its own tab appears beside it with a **yours** badge — on the phone too — with its feed in the system health and, on the Live Map (Coverage → *Per receiver*), its own coverage line beside the line of all receivers combined. Users with Full view see every receiver.
 - **The receiving station: two receivers** — the station overview in the User guides has a new page 9 on the second receiver: how the two receivers are merged into one weather in the cloud, how far each one hears, and how many more replies come in low on the approach. The two-page brochure mentions the second receiver too.
 - **Receivers on or off** — in the Live Map's ☂ Weather panel, *Receiver → Markers* shows or hides the receivers' triangles, with or without the coverage line; on the Weather page the new **Receivers** box does the same. The Live Map's weather panel also keeps its size now when you tick options.
 - **Follow one aircraft on the Live Map** — tick **Solo** at the top of the aircraft list and select an aircraft on the map or in the list: the other traffic is hidden, its track is drawn and the map follows it. Deselect it (Esc) or untick Solo to see all traffic again.

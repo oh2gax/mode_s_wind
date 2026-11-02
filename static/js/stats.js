@@ -23,6 +23,12 @@
  * in one column, the window chosen in the app's menu, polling only while the
  * view is shown (window.MsStats.start / stop / setWindow / redraw), short
  * format names, a narrower range table and the health panel shown inline.
+ *
+ * Receiver rights (from 2026-11-02, web/rights.py): the server sends only the
+ * tabs the logged-in user may see — All receivers for everyone, a user's own
+ * receivers (marked "yours") and with Full view every receiver; on the All
+ * receivers tab the other receivers are summed up.  The row is shown whenever
+ * the server has more than one receiver, even with one tab.
  */
 (function () {
   'use strict';
@@ -358,14 +364,21 @@
     const list = x.receivers || [];
     const byBit = {};
     list.forEach(r => { byBit[r.bit] = r.id; });
+    const nVis = list.filter(r => r.type !== 'other').length;
     const rows = list.map(r => {
-      const ck = { gps: 'GPS time', sync: 'lined up', own: 'own clock', nogps: 'no GPS time', starting: 'starting' }[r.clock] || r.clock;
+      const ck = { gps: 'GPS time', sync: 'lined up', own: 'own clock', nogps: 'no GPS time', starting: 'starting', merged: 'merged' }[r.clock] || r.clock;
+      if (r.type === 'other') {
+        // the receivers this user may not see one by one, summed up (web/rights.py, from 2026-11-02)
+        const lbl = nVis ? `${r.other} other receiver${r.other === 1 ? '' : 's'}` : `${r.other} receiver${r.other === 1 ? '' : 's'}`;
+        return `<tr><td><i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}" style="display:inline-block;margin-right:6px"></i><b>${esc(lbl)}</b> <span class="mst-dim2">${r.n_live} live</span></td>`
+          + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td><td>${esc(ck)}</td><td class="num">—</td></tr>`;
+      }
       return `<tr><td><i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}" style="display:inline-block;margin-right:6px"></i><b>${esc(r.id)}</b> <span class="mst-dim2">${esc(r.name)}</span></td>`
         + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td><td>${esc(ck)}</td>`
         + `<td class="num">${r.delay ? fmt(r.delay.p50, 0) + ' ms' : '—'}</td></tr>`;
     });
     const out = mg.out || 0;
-    const masks = Object.entries(mg.masks || {}).map(([m, n]) => {
+    const masks = mg.groups ? mg.groups.slice() : Object.entries(mg.masks || {}).map(([m, n]) => {
       const ids = Object.keys(byBit).filter(b => (+m >> +b) & 1).map(b => byBit[b]);
       return [ids.length > 1 ? 'heard by ' + ids.join(' + ') : 'only ' + (ids[0] || '?'), n, ids.length];
     }).sort((a, b) => b[2] - a[2] || b[1] - a[1]);
@@ -381,17 +394,30 @@
       + '(the Radarcape\'s GPS time; the other receivers\' clocks lined up with it) and a reply heard by more than one receiver is taken once: '
       + 'the same bits within 5 ms. The replies are passed on in time order ' + fmt(mg.hold_sec || 0.8, 1) + ' s after they were sent, '
       + 'so the copies coming through the slower tunnel are in time. The statistics on this tab count each reply once; '
-      + 'choose a receiver above for what it alone hears, its signal levels and the Radarcape\'s own status.';
+      + ((d.receivers || []).length > 1 ? 'choose a receiver above for what it alone hears, its signal levels and its own status.'
+        : 'a receiver\'s own statistics are shown to its owners.');
+  }
+  // who sees which receivers (web/rights.py): Full view, own receivers or All receivers only
+  function accNote(d, acc) {
+    const own = (acc.own || []);
+    if (acc.level === 'full') return ' · Full view' + (own.length ? ` · your receiver${own.length > 1 ? 's' : ''}: ${esc(own.join(', '))}` : '');
+    if (acc.level === 'own') return ` · your receiver${own.length > 1 ? 's' : ''}: ${esc(own.join(', '))}`;
+    return d.rx_count ? ` · ${d.rx_count} receivers, ${d.rx_live ?? 0} live` : '';
   }
   // the receiver selector (shown with more than one receiver)
   function renderRx(d) {
     const el = $('mst-rx');
     if (!el) return;
     const list = d.receivers || [];
-    if (list.length < 2) { el.hidden = true; return; }
+    // with more receivers on this server the row is shown even with one tab:
+    // the users who may not see the receivers one by one (web/rights.py, from
+    // 2026-11-02) see All receivers only; "yours" marks the user's own receivers
+    if (Math.max(list.length, d.rx_count || 0) < 2) { el.hidden = true; return; }
+    const acc = d.access || { level: 'full', own: [] };
+    const own = new Set(acc.own || []);
     el.hidden = false;
     const cur = rxSel;
-    const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur;
+    const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur + '#' + acc.level + (d.rx_live ?? '');
     if (el.dataset.key === key) return;
     el.dataset.key = key;
     el.innerHTML = (EMBED ? '' : '<span class="gps-summary-label mst-rx-lbl">Receiver</span>')
@@ -403,10 +429,11 @@
           : d.merged ? `${r.id}: what this receiver alone hears (its replies also go into the weather)`
           : r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
         return `<button type="button" class="mst-rx-btn${sel === cur ? ' active' : ''}" data-rx="${esc(sel)}" title="${esc(tip)}">`
-          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}</b><small>${esc(sub)}</small></button>`;
+          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}`
+          + `${own.has(r.id) ? '<em class="mst-rx-own" title="Your receiver: you see its own statistics">yours</em>' : ''}</b><small>${esc(sub)}</small></button>`;
       }).join('') + '</span>'
       + (EMBED ? '' : `<span class="mst-rx-note">${d.merged ? 'The weather is computed from all receivers together'
-          : `The weather is computed from ${esc(list[0].id)}; the other receivers are watched`}</span>`);
+          : `The weather is computed from ${esc(list[0].id)}; the other receivers are watched`}${accNote(d, acc)}</span>`);
     el.querySelectorAll('.mst-rx-btn').forEach(b => b.addEventListener('click', () => {
       if (b.dataset.rx === rxSel) return;
       rxSel = b.dataset.rx;

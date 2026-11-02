@@ -33,6 +33,7 @@ from web import access_log
 from web import users as web_users
 from web import shared_login
 from web import session_cookie
+from web import rights as rx_rights
 from collector import traffic as _traffic
 
 log = logging.getLogger("modes.web")
@@ -465,6 +466,22 @@ def create_app(
     # Compact access / misuse log (logs/access.log, see web/access_log.py)
     access_log.init_app(app)
 
+    def _user_rights() -> dict:
+        """The logged-in user's receiver rights (web/rights.py, from 2026-11-02)."""
+        try:
+            return rx_rights.of_user(cfg, g.get("auth_user") if g.get("auth_state") == "ok" else None)
+        except Exception as exc:                      # noqa: BLE001  (fail closed: All receivers only)
+            log.warning("Receiver rights not read: %s", exc)
+            return {"full": False, "own": [], "maint": False}
+
+    def _private(resp):
+        """An answer that depends on the logged-in user: never reused by a
+        browser or a proxy for another user."""
+        resp.headers["Cache-Control"] = "private, no-store"
+        resp.headers.add("Vary", "Cookie")
+        resp.headers.add("Vary", "Authorization")
+        return resp
+
     # ── Page routes ───────────────────────────────────────────────────────
 
     @app.route("/")
@@ -630,6 +647,11 @@ def create_app(
         # receivers merged, the main receiver has its own ?rx= tab)
         from collector import radarcape_status as _rcs
         rx_id = request.args.get("rx") or ""
+        # who may see which receiver one by one (web/rights.py, from 2026-11-02):
+        # a tab the user may not see gives the default view
+        rr = _user_rights()
+        if rx_id and not rx_rights.visible(rr, rx_id):
+            rx_id = ""
         xr = multirx.get(rx_id) if rx_id else None
         if xr is not None:
             out = xr.ms.snapshot(window, db=db, week_trend=week_trend)
@@ -645,7 +667,9 @@ def create_app(
         out["receivers"] = multirx.receivers()
         out["main_id"] = multirx.main_id()
         out["merged"] = multirx.merging()
-        return _gzip_json(out)
+        if multirx.active():
+            out = rx_rights.filter_msgstats(out, rr, [multirx.main_id()] + [x.id for x in multirx.extras()])
+        return _private(_gzip_json(out))
 
     @app.route("/api/coverage")
     def coverage_api():
@@ -682,7 +706,10 @@ def create_app(
         out["receivers"] = recs
         out["since"] = since if since is not None else out["since"]
         out["merged"] = multirx.merging()
-        return _gzip_json(out)
+        # the receivers' own outlines only for their owners / Full view; the
+        # others get one combined outline (web/rights.py, from 2026-11-02)
+        out = rx_rights.filter_coverage(out, _user_rights())
+        return _private(_gzip_json(out))
 
     @app.route("/api/traffic")
     def traffic_api():
@@ -712,7 +739,12 @@ def create_app(
     def health_api():
         """System health: 11 indicators (green / amber / red / grey) with a
         plain-language reason and details, and the last 50 state changes."""
-        return jsonify(_health.get(cfg, ws_tracker, _wx_snapshot()))
+        h = _health.get(cfg, ws_tracker, _wx_snapshot())
+        from collector import multirx
+        if multirx.active():
+            # the receivers' own feed dots only for their owners / Full view (web/rights.py)
+            h = rx_rights.filter_health(h, _user_rights(), multirx.main_id(), [x.id for x in multirx.extras()])
+        return _private(jsonify(h))
 
     # ── Overlay file server ────────────────────────────────────────────────
     # Serves GeoJSON files from the project-level overlays/ directory.
@@ -2625,6 +2657,37 @@ def create_app(
             return jsonify({"error": "Unauthorized"}), 401
         out = web_users.list_users(cfg, data.get("password", ""))
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        out["receivers"] = _rx_list()
+        return jsonify(out)
+
+    def _rx_list() -> list:
+        """The receivers of this server, for the rights on the Maintenance page."""
+        from collector import multirx
+        if not multirx.active():
+            m = multirx.main_public() if hasattr(multirx, "main_public") else {}
+            return [{"id": multirx.main_id(), "name": (m or {}).get("name") or "", "type": (m or {}).get("type") or ""}]
+        m = multirx.main_public()
+        return [{"id": multirx.main_id(), "name": m.get("name") or "", "type": m.get("type") or ""}] + \
+            [{"id": x.id, "name": x.name, "type": x.type} for x in multirx.extras()]
+
+    @app.route("/api/maintenance/users/rights", methods=["POST"])
+    def maintenance_users_rights():
+        """A personal user's receiver rights (web/rights.py, from 2026-11-02):
+        {"target": user, "full": bool, "own": [receiver ids]}."""
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        try:
+            rx_rights.set_rights(cfg, str(data.get("target", "")), bool(data.get("full")), data.get("own") or [])
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except OSError as exc:
+            log.warning("Rights file not written: %s", exc)
+            return jsonify({"ok": False, "error": "the file could not be written (permissions? MAINTENANCE_AUTH_FILE set?)"}), 500
+        out = web_users.list_users(cfg, data.get("password", ""))
+        out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        out["receivers"] = _rx_list()
+        out["ok"] = True
         return jsonify(out)
 
     @app.route("/api/maintenance/users/shared", methods=["POST"])
@@ -2642,6 +2705,7 @@ def create_app(
             return jsonify({"ok": False, "error": "the file could not be written (permissions? MAINTENANCE_AUTH_FILE set?)"}), 500
         out = web_users.list_users(cfg, data.get("password", ""))
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        out["receivers"] = _rx_list()
         out["ok"] = True
         return jsonify(out)
 
@@ -2680,6 +2744,7 @@ def create_app(
             return jsonify({"ok": False, "error": "the file could not be written (permissions?)"}), 500
         out = web_users.list_users(cfg, new_mpw or mpw)
         out["shared"] = dict(shared_login.state(cfg), usage=shared_login.usage(cfg))
+        out["receivers"] = _rx_list()
         out.update(ok=True, kind=kind)
         return jsonify(out)
 

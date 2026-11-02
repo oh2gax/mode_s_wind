@@ -335,13 +335,82 @@ function renderUsers(d) {
       ? `<button class="maint-btn maint-btn-sm" data-act="pw" data-user="${_esc(u.user)}">New password</button>` : '';
     const del = u.kind === 'user'
       ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
+    const rxBtn = u.kind === 'user'
+      ? `<button class="maint-btn maint-btn-sm" data-act="rx" data-user="${_esc(u.user)}" title="What ${_esc(u.user)} sees on the Statistics page: own receivers and / or Full view">Receivers</button>` : '';
     return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>${nm}` +
       `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}${u.kind === 'config' && d.shared && d.shared.phase !== 'none' ? (d.shared.phase === 'ended' ? ' · shared, ended' : ` · shared, until ${_esc(d.shared.expires)}`) : ''}</span>` +
-      `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${nameBtn}${edit}${del}</span></div>`;
+      `<span class="maint-rx-chips">${_rxChips(u, d)}</span>` +
+      `<span>${u.changed ? _utc(u.changed) : '—'}</span><span class="maint-user-actions">${rxBtn}${nameBtn}${edit}${del}</span></div>`;
   }).join('');
+  _rxOverview(d);
   if (!d.writable) _setStatus('users-status', 'The folder of the users file is not writable — users cannot be changed.', true);
   if (d.shared) renderShared(d.shared);
 }
+
+// ── Receiver rights (web/rights.py, from 2026-11-02) ──────────────────────────
+// Everyone sees All receivers on the Statistics page; a user's own receivers and
+// Full view (every receiver) are set here; the maintenance user always has Full view.
+let _rxUser = null;
+function _rxName(d, id) {
+  const r = (d.receivers || []).find(x => x.id === id);
+  return r ? (r.name ? `${id} · ${r.name}` : id) : null;
+}
+function _rxChips(u, d) {
+  if (u.kind === 'config') return '<span class="maint-rx-chip dim" title="The built-in user always sees All receivers only">All receivers</span>';
+  const ch = [];
+  if (u.full) ch.push(`<span class="maint-rx-chip full" title="Every receiver's own statistics${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Full view</span>`);
+  (u.own || []).forEach(id => {
+    const known = (d.receivers || []).some(x => x.id === id);
+    ch.push(`<span class="maint-rx-chip${known ? '' : ' gone'}" title="${known ? 'Own receiver: ' + _esc(_rxName(d, id)) : _esc(id) + ': not configured on this server (kept)'}">${_esc(id)}</span>`);
+  });
+  if (!ch.length) ch.push('<span class="maint-rx-chip dim">All receivers</span>');
+  return ch.join('');
+}
+function _rxOverview(d) {
+  const el = document.getElementById('users-rx-overview');
+  if (!el) return;
+  const rx = d.receivers || [], users = d.users || [];
+  if (!rx.length) { el.innerHTML = ''; return; }
+  const own = id => users.filter(u => (u.own || []).includes(id)).map(u => `<b>${_esc(u.user)}</b>`);
+  const full = users.filter(u => u.full).map(u => `<b>${_esc(u.user)}</b>${u.kind === 'maintenance' ? ' (always)' : ''}`);
+  el.innerHTML = `<b>Receivers on this server:</b> ` + rx.map(r => {
+      const o = own(r.id);
+      return `${_esc(r.id)}${r.name ? ' · ' + _esc(r.name) : ''} — ${o.length ? 'owner' + (o.length > 1 ? 's ' : ' ') + o.join(', ') : '<i>no owner</i>'}`;
+    }).join(' &nbsp;·&nbsp; ')
+    + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'}. `
+    + (rx.length < 2 ? 'With one receiver everyone sees its statistics; the rights take effect when more receivers are added. '
+                     : 'Everyone else sees only <i>All receivers</i> on the Statistics page and the phone. ')
+    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights.';
+}
+function _closeRx() {
+  _rxUser = null;
+  document.getElementById('users-rx-row').style.display = 'none';
+}
+function _openRx(name) {
+  const d = _usersData || {}, u = (d.users || []).find(x => x.user === name) || {};
+  _rxUser = name;
+  document.getElementById('users-rx-user').textContent = name;
+  document.getElementById('users-rx-full').checked = !!u.full;
+  const ids = (d.receivers || []).map(r => r.id);
+  (u.own || []).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+  document.getElementById('users-rx-list').innerHTML = ids.map(id => {
+    const nm = _rxName(d, id);
+    return `<label><input type="checkbox" value="${_esc(id)}"${(u.own || []).includes(id) ? ' checked' : ''}> ${_esc(nm || id + ' (not on this server)')}</label>`;
+  }).join('') || '<span class="maint-user-kind">no receivers</span>';
+  document.getElementById('users-rx-row').style.display = '';
+}
+document.getElementById('users-rx-cancel-btn').addEventListener('click', _closeRx);
+document.getElementById('users-rx-save-btn').addEventListener('click', async () => {
+  if (!_rxUser) return;
+  const own = [...document.querySelectorAll('#users-rx-list input:checked')].map(x => x.value);
+  const full = document.getElementById('users-rx-full').checked;
+  try {
+    renderUsers(await _usersCall('rights', _rxUser, '', { full, own }));
+    _setStatus('users-status', `✓ Statistics rights saved for ${_rxUser}: ` + (full ? 'Full view' : '') + (full && own.length ? ' + ' : '')
+      + (own.length ? 'own ' + own.join(', ') : '') + (!full && !own.length ? 'All receivers only' : ''));
+    _closeRx();
+  } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+});
 
 // ── Shared test login: end date (web/shared_login.py) ────────────────────────
 function renderShared(sh) {
@@ -427,8 +496,13 @@ document.getElementById('users-list').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const name = b.dataset.user;
+  if (b.dataset.act === 'rx') {
+    _closeEdit(); _closeName();
+    _openRx(name);
+    return;
+  }
   if (b.dataset.act === 'name') {
-    _closeEdit();
+    _closeEdit(); _closeRx();
     _nameUser = name;
     const u = (_usersData && _usersData.users || []).find(x => x.user === name) || {};
     document.getElementById('users-name-user').textContent = name;
@@ -439,7 +513,7 @@ document.getElementById('users-list').addEventListener('click', async e => {
     return;
   }
   if (b.dataset.act === 'pw') {
-    _closeName();
+    _closeName(); _closeRx();
     _editUser = name;
     document.getElementById('users-edit-name').textContent = name;
     document.getElementById('users-edit-row').style.display = '';
@@ -452,6 +526,7 @@ document.getElementById('users-list').addEventListener('click', async e => {
     _setStatus('users-status', `✓ ${name} removed`);
     if (_editUser === name) _closeEdit();
     if (_nameUser === name) _closeName();
+    if (_rxUser === name) _closeRx();
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
 });
 document.getElementById('users-edit-cancel-btn').addEventListener('click', _closeEdit);

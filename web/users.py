@@ -27,6 +27,10 @@ First and last names of the users (from 2026-10-28) are kept encrypted in
 webnames.txt next to the users file, with a key from the maintenance password
 (web/user_names.py): shown only on the Maintenance page.
 
+Which receivers a user may see one by one on the Statistics page (own
+receivers, Full view; from 2026-11-02) is kept in webrights.json beside the
+users file (web/rights.py); the maintenance user always has Full view.
+
 Basic authentication sends the password with every request, so a checked
 username / password pair is remembered in memory (as a salted digest, for the
 current file contents) and the slow hash is computed only once per pair.
@@ -235,6 +239,18 @@ def login_fingerprint(cfg, username: str) -> Optional[str]:
     return u["hash"] if u else None
 
 
+def is_maint(cfg, username: str) -> bool:
+    """Whether username is the maintenance user (from 2026-11-02: Full view of
+    the receivers, web/rights.py)."""
+    m = _load(cfg)["maint"]
+    return bool(m and username and hmac.compare_digest(username.encode(), m[0].encode()))
+
+
+def is_file_user(cfg, username: str) -> bool:
+    """Whether username is a personal user of the users file."""
+    return bool(username) and username in _load(cfg)["users"]
+
+
 def check_maint(cfg, username: str, password: str) -> bool:
     """Maintenance page: the maintenance user only."""
     m = _load(cfg)["maint"]
@@ -273,8 +289,13 @@ def list_users(cfg, maint_password: Optional[str] = None) -> dict:
             mch = None
         rows.append({"user": st["maint"][0], "kind": "maintenance", "changed": mch,
                      "hashed": st["maint"][1].startswith(HASH_PREFIX)})
+    from web import rights
+    rr = rights.all_rights(cfg)
+    if st["maint"]:
+        rows[-1].update(full=True, own=rr.get(st["maint"][0], {}).get("own", []))
     for name in sorted(st["users"], key=str.lower):
-        row = {"user": name, "kind": "user", "changed": st["users"][name]["changed"]}
+        row = {"user": name, "kind": "user", "changed": st["users"][name]["changed"],
+               "full": bool(rr.get(name, {}).get("full")), "own": rr.get(name, {}).get("own", [])}
         n = nm["names"].get(name)
         if n:
             row.update(first=n["first"], last=n["last"])
@@ -379,4 +400,9 @@ def remove_user(cfg, username: str) -> None:
     _save_users(cfg, users)
     _load(cfg, force=True)
     user_names.remove(names_file(cfg), username, _write_atomic)
+    try:
+        from web import rights
+        rights.remove(cfg, username)          # its receiver rights (from 2026-11-02)
+    except OSError as exc:
+        log.warning("Rights file not written: %s", exc)
     log.info("Web user removed: %s", username)

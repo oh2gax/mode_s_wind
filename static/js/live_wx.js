@@ -78,6 +78,11 @@
  * "Per receiver" each receiver's own outline in its colour (MODES-RX-01 light
  * blue, MODES-RX-02 violet, …).  A small triangle marks each receiver (its
  * position to 0.01°), with its name on hover.
+ * Rights (from 2026-11-02, web/rights.py): a user who may not see a receiver
+ * one by one gets no outline of it, but one outline of all receivers
+ * combined ("combined", computed on the server from the main antenna); Per
+ * receiver then draws the user's own receivers' lines beside it (greyed
+ * without own receivers).  The markers stay for everyone.
  */
 'use strict';
 
@@ -223,8 +228,26 @@
           }
         });
       };
-      if (!rings.length) { drawMarks(); return; }
       const trace = (c, ring) => { ring.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); };
+      const cb = data.combined;
+      if (cb && cb.outline && cb.outline.length >= 3) {
+        // all receivers combined (the server's outline) — with Per receiver also the user's own receivers' lines
+        const ring = cb.outline.map(([la, lo]) => map.latLngToContainerPoint([la, lo]));
+        const cseg = ring.map((p, k) => [p.x, p.y, cb.sectors[k], cb]);
+        if (!(per && rings.length)) segs = [];
+        segs.push(cseg);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (per && rings.length) rings.forEach((rg, k) => {
+          ctx.beginPath(); trace(ctx, rg);
+          ctx.strokeStyle = ringCol[k]; ctx.lineWidth = 1.2; ctx.lineJoin = 'round'; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+        });
+        ctx.beginPath(); trace(ctx, ring);
+        ctx.strokeStyle = COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+        ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+        drawMarks();
+        return;
+      }
+      if (!rings.length) { drawMarks(); return; }
       if (per && rings.length > 1) {
         // each receiver's own outline, in its colour (from 2026-11-02)
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -265,6 +288,12 @@
       perRx(v) { per = !!v; draw(); },
       marks(v) { mk = !!v; draw(); },
       count() { return data && data.receivers ? data.receivers.length : 0; },
+      // Per receiver possible: more receivers' lines, or (rights) the combined line and an own receiver's
+      perOk() {
+        const n = data && data.receivers ? data.receivers.filter(r => r.outline && r.outline.length >= 3).length : 0;
+        return data && data.combined ? n >= 1 : n >= 2;
+      },
+      restricted() { return !!(data && data.restricted); },
       redraw: draw,
       at(pt, r = 6) {                       // on the line: the sector of the nearer corner (and its receiver)
         if (!on) return null;
@@ -448,7 +477,12 @@
     if (mepsWind()) parts.push(WxLayer.legendHtml(windOptions()));
     if (st.cov) {
       const rx = covLayer.count() > 1 && covData ? covData.receivers : null;
-      if (rx && st.covPer) parts.push(rx.map((r, k) => `<span style="display:inline-block;width:16px;border-top:1px dashed ${covCol(k)};vertical-align:middle"></span> ${rxShort(r.id)}`).join(' ') + ' coverage, last 24 h');
+      if (rx && covData.combined) {
+        const mine = rx.map((r, k) => [r, k]).filter(([r]) => r.outline && r.outline.length);
+        parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> all ${rx.length} receivers combined`
+          + (st.covPer && mine.length ? ' ' + mine.map(([r, k]) => `<span style="display:inline-block;width:16px;border-top:1px dashed ${covCol(k)};vertical-align:middle"></span> ${rxShort(r.id)}`).join(' ') : '')
+          + ', coverage last 24 h');
+      } else if (rx && st.covPer) parts.push(rx.map((r, k) => `<span style="display:inline-block;width:16px;border-top:1px dashed ${covCol(k)};vertical-align:middle"></span> ${rxShort(r.id)}`).join(' ') + ' coverage, last 24 h');
       else parts.push(`<span style="display:inline-block;width:16px;border-top:1px dashed ${COV_COL[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']};vertical-align:middle"></span> receiver coverage, last 24 h${rx ? ' (' + rx.length + ' receivers combined)' : ''}`);
     }
     if (modesWind()) parts.push('Mode S barbs (aircraft, last ' + perTxt() + '): ' +
@@ -487,7 +521,10 @@
     q('.lwx-covper').checked = !!st.covPer;
     // always in the panel (from 2026-11-02; before shown only once more receivers were known,
     // which changed the panel's size): greyed without the coverage line or with one receiver
-    q('.lwx-covper').disabled = !st.cov || covLayer.count() < 2;
+    q('.lwx-covper').disabled = !st.cov || !covLayer.perOk();
+    q('.lwx-covper-l').title = covLayer.restricted() && !covLayer.perOk()
+      ? 'Each receiver\'s own coverage line is shown to its owners and to the users with Full view; you see the line of all receivers combined'
+      : q('.lwx-covper-l').dataset.t || (q('.lwx-covper-l').dataset.t = q('.lwx-covper-l').title);
     covLayer.perRx(st.covPer);
     // the receivers' markers (from 2026-11-02): the coverage triangles here, the street map's
     // triangles in live_map.js (setRxMarks)
@@ -665,6 +702,15 @@
     covLayer.set(d);
     applyOptions();
     const rx = (d.receivers || []).filter(r => r.outline && r.outline.length);
+    if (d.combined) {
+      // rights (web/rights.py): the line of all receivers combined, and the user's own receivers
+      const far = d.combined.farthest, hrs = Math.min(COV_HOURS, (d.now - d.since) / 3600);
+      covStatus = `Receiver coverage, last ${hrs >= COV_HOURS - 0.05 ? COV_HOURS + ' h' : hrs.toFixed(1) + ' h (since the start)'}: ` +
+        `the farthest ADS-B position in each direction, any height, of all ${(d.receivers || []).length} receivers combined` +
+        (far ? ` · farthest ${Math.round(far.nm)} NM from the main antenna` : '') +
+        (rx.length ? ` · your receiver${rx.length > 1 ? 's' : ''}: ` + rx.map(r => `${rxShort(r.id)} ${r.farthest ? Math.round(r.farthest.nm) + ' NM' : '—'}`).join(', ') : '');
+      return;
+    }
     if (!rx.length) { covStatus = 'Receiver coverage: no ADS-B positions yet.'; return; }
     const far = rx.map(r => r.farthest).filter(Boolean).sort((a, b) => b.nm - a.nm)[0];
     const hrs = Math.min(COV_HOURS, (d.now - d.since) / 3600);
@@ -808,8 +854,11 @@
     const cv = st.cov ? covLayer.at(e.containerPoint) : null;           // the coverage line
     if (cv) {
       const a = String(Math.round(cv.brg - 5)).padStart(3, '0'), b = String(Math.round(cv.brg + 5) % 360 || 360).padStart(3, '0');
-      const multi = covLayer.count() > 1 && cv.rx && cv.rx.id;
-      tip.innerHTML = `<b>Receiver coverage</b>${multi ? ' · ' + rxShort(cv.rx.id) : ''}, last ${COV_HOURS} h: ${Math.round(cv.nm)} NM at ${a}–${b}° from ${multi ? 'its antenna' : 'the antenna'}` +
+      const comb = cv.rx && cv.rx.id === 'ALL';
+      const multi = !comb && covLayer.count() > 1 && cv.rx && cv.rx.id;
+      const hs = comb ? (cv.rx.step || 10) / 2 : 5;
+      const a2 = comb ? String(Math.round(cv.brg - hs)).padStart(3, '0') : a, b2 = comb ? String(Math.round(cv.brg + hs) % 360 || 360).padStart(3, '0') : b;
+      tip.innerHTML = `<b>Receiver coverage</b>${comb ? ' · all receivers combined' : multi ? ' · ' + rxShort(cv.rx.id) : ''}, last ${COV_HOURS} h: ${Math.round(cv.nm)} NM at ${a2}–${b2}° from ${comb ? 'the main antenna' : multi ? 'its antenna' : 'the antenna'}` +
         `<br><span>the farthest ADS-B position in this 10° direction${cv.alt != null ? `, at ${cv.alt >= 10000 ? 'FL' + String(Math.round(cv.alt / 100)).padStart(3, '0') : cv.alt.toLocaleString('en').replace(',', ' ') + ' ft'}` : ''}</span>`;
       place(e);
       return;

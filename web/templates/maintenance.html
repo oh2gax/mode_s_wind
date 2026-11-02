@@ -71,7 +71,7 @@
             <button id="users-names-reset-btn" class="maint-btn maint-btn-sm maint-btn-danger">Start the names again</button>
           </div>
           <div class="maint-stat-row maint-stat-hdr maint-user-row">
-            <span>User</span><span>Name</span><span>Type</span><span>Password changed (UTC)</span><span></span>
+            <span>User</span><span>Name</span><span>Type</span><span title="What the user sees on the Statistics page (and the phone): All receivers, its own receivers or Full view">Statistics</span><span>Password changed (UTC)</span><span></span>
           </div>
           <div id="users-list"><div class="maint-stat-row maint-user-row"><span>—</span></div></div>
         </div>
@@ -89,6 +89,15 @@
           <button id="users-name-save-btn" class="maint-btn maint-btn-primary">Save</button>
           <button id="users-name-cancel-btn" class="maint-btn">Cancel</button>
         </div>
+        <div class="maint-row maint-rx-row" id="users-rx-row" style="display:none">
+          <span class="maint-label">Statistics of <b id="users-rx-user"></b></span>
+          <label class="maint-label maint-rx-opt" title="Every receiver's own statistics, feed and coverage line"><input type="checkbox" id="users-rx-full"> <b>Full view</b> — every receiver</label>
+          <span class="maint-label maint-rx-ownlbl">Own receivers</span>
+          <span id="users-rx-list" class="maint-rx-list"></span>
+          <button id="users-rx-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="users-rx-cancel-btn" class="maint-btn">Cancel</button>
+        </div>
+        <div id="users-rx-overview" class="maint-hint maint-rx-overview"></div>
       </div>
       <div class="maint-panel">
         <div class="maint-panel-title">Shared test login</div>
@@ -117,7 +126,7 @@
           <button id="users-add-btn" class="maint-btn maint-btn-primary">Add</button>
         </div>
         <div id="users-status" class="maint-op-status"></div>
-        <div class="maint-hint">Usernames: 1–32 letters, digits and <code>. _ @ -</code>; passwords 8–128 characters. A new user can log in at once; a removed user, or one whose password was changed, is asked to log in again at the next page load. Passwords are stored only as hashes and never shown. First and last names (required for a new user; <b>Name</b> adds or corrects them) are shown only here: they are stored encrypted in <code>webnames.txt</code> beside the users file, with a key made from the maintenance password — changing that password here re-encrypts them; if it is ever replaced by hand in the maintenance login file, the names cannot be read any more and must be entered again. The users are kept in <code id="users-file">webusers.txt</code> next to the maintenance login file (outside the database). The <b>built-in</b> user is set in <code>config.py</code> (<code>WEB_USER</code> / <code>WEB_PASS</code>) and cannot be changed here; the <b>maintenance</b> user can also open the web pages, and changing its password here also changes the Maintenance login.</div>
+        <div class="maint-hint">Usernames: 1–32 letters, digits and <code>. _ @ -</code>; passwords 8–128 characters. A new user can log in at once; a removed user, or one whose password was changed, is asked to log in again at the next page load. Passwords are stored only as hashes and never shown. First and last names (required for a new user; <b>Name</b> adds or corrects them) are shown only here: they are stored encrypted in <code>webnames.txt</code> beside the users file, with a key made from the maintenance password — changing that password here re-encrypts them; if it is ever replaced by hand in the maintenance login file, the names cannot be read any more and must be entered again. The users are kept in <code id="users-file">webusers.txt</code> next to the maintenance login file (outside the database). The <b>built-in</b> user is set in <code>config.py</code> (<code>WEB_USER</code> / <code>WEB_PASS</code>) and cannot be changed here; the <b>maintenance</b> user can also open the web pages, and changing its password here also changes the Maintenance login. <b>Receivers</b> sets what a personal user sees of the receivers on the Statistics page (and the phone): everyone sees <i>All receivers</i>; a user's <b>own receivers</b> and <b>Full view</b> (every receiver; always for the maintenance user) add the receivers' own tabs, feeds and coverage lines — both can be set together. Kept in <code>webrights.json</code> next to the users file; removing a user removes them.</div>
       </div>
     </div>
 

@@ -6,6 +6,9 @@ webusers.txt
 webnames.txt
 .webnames.txt.tmp
 websession.key
+# the users' receiver rights (web/rights.py; next to the users file)
+webrights.json
+.webrights.json.tmp
 api_keys.py
 
 # This machine's own settings (config_local.py.example is the template)
