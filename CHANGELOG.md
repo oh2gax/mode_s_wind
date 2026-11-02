@@ -9,6 +9,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series; a study log of Mode S and the Kivenlahti mast)
 
+### Mast tab: the profile of any stored time (history)
+- The profile's title on the Sounding page's Mast tab gets a **date**, a **time in UTC** (a text field in 24-hour `HH:MM`, also `1920` or `19.20` — the browser's own time field would show AM / PM in some locales) and the steps **−1 h / −10 min / +10 min / +1 h**: the profile of any stored time with the Mode S hour, MEPS and the sounding of that time (`/api/mast/profile?at=`). A time outside the shown time series moves the series to it (`st.end`, centred and not past now; `/api/mast` and `/api/mast/modes` with `&end=`), the title then says *history*; **Newest** returns to now; a click on the series and the steps keep the fields in step with the profile shown. A pick made while a load is still running restarts the load, so an older answer cannot overwrite it. `static/js/mast.js`, `web/templates/sounding.html`.
+
 ### Mast: a 2-day period on the Sounding page; the phone's time-series choices on their own rows
 - The Sounding page's Mast tab: the period buttons are now 24 h / **2 d** / 3 d / 7 d (`data-h="48"`; `web/templates/sounding.html`).
 - The Mode S choice says that its values are hour values: *Mode S hourly: top level / all levels* (Sounding page, with the select's tooltip explaining that one value per hour needs no further mean; the select now as wide as its text) and the phone's row label *Mode S hourly* (the labels 84 px wide).

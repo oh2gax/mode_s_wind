@@ -26,6 +26,7 @@
     meps: lsGet('ms_mast_meps', 'true') !== 'false',
     sonde: lsGet('ms_mast_sonde', 'true') !== 'false',
     at: null,                          // profile time (null = the newest)
+    end: null,                         // end of the time series (null = now; from 2026-11-02, the profile's history)
     // the time series (from 2026-11-01 night): Mode S lines top / all / off, mast 10-min or 1-h mean
     msLv: lsGet('ms_mast_ser_ms', 'top'),
     // 10 / 60 (1-h mean) / 0 (the mast off: Mode S only, from 2026-11-02)
@@ -83,41 +84,65 @@
   }
 
   // ── data ────────────────────────────────────────────────────────────────
+  let inflight = 0;
   async function load() {
     const my = ++seq;
+    inflight++;
     syncControls();
     const meta = $('sounding-meta');
     if (meta && !meta.textContent) meta.textContent = 'Loading…';
     try {
       const [a, b, c, d] = await Promise.all([
-        fetch(`/api/mast?hours=${st.hours}`).then(r => r.json()),
+        fetch(`/api/mast?hours=${st.hours}${st.end ? '&end=' + st.end : ''}`).then(r => r.json()),
         fetch(`/api/mast/profile${st.at ? '?at=' + st.at : ''}`).then(r => r.json()),
         fetch(`/api/mast/compare?days=${st.days}`).then(r => r.json()),
-        fetch(`/api/mast/modes?hours=${st.hours + 1}`).then(r => r.json()).catch(() => null),
+        fetch(`/api/mast/modes?hours=${st.hours + 1}${st.end ? '&end=' + st.end : ''}`).then(r => r.json()).catch(() => null),
       ]);
       if (my !== seq) return;
       ser = a; prof = b; cmp = c; msr = d;
       const n = (ser.rows || []).length;
       if (meta) meta.textContent = n
-        ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC · FMI open data`
+        ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC${st.end ? ' (history — Newest returns to now)' : ''} · FMI open data`
         : 'Kivenlahti mast · no observations stored yet — the first ones arrive about a minute after the start (7 days back-filled)';
       render();
     } catch (e) {
       if (meta) meta.textContent = 'Error loading the mast data.';
       console.error(e);
-    }
+    } finally { inflight--; }
   }
+  // the profile of a time (null = the newest).  From 2026-11-02 any stored time: when it lies
+  // outside the shown time series, the series moves to show it (centred, not past now)
   async function loadProfile(at) {
+    const now = Date.now() / 1000;
+    if (at && at > now - 300) at = null;
     st.at = at;
+    if (!at && st.end) { st.end = null; return load(); }
+    if (at && ser && (at < ser.start || at > ser.end)) {
+      st.end = Math.round(Math.min(now, at + st.hours * 1800));
+      if (st.end > now - 600) st.end = null;
+      return load();
+    }
+    if (inflight) return load();          // a load still running would show its older time
     try {
       prof = await (await fetch(`/api/mast/profile${at ? '?at=' + at : ''}`)).json();
-      renderProfile(); renderTiles();
+      renderProfile(); renderTiles(); renderSeries(); syncAt();
     } catch (e) { console.error(e); }
+  }
+  // the date / time fields follow the profile shown (UTC)
+  function syncAt() {
+    const d = $('mt-at-d'), t = $('mt-at-t');
+    if (!d || !t) return;
+    const ts = prof && prof.found ? prof.obs.ts : (st.at || Date.now() / 1000);
+    const x = new Date(ts * 1000);
+    d.value = `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}`;
+    t.value = `${pad(x.getUTCHours())}:${pad(x.getUTCMinutes())}`;
+    const today = new Date();
+    d.max = `${today.getUTCFullYear()}-${pad(today.getUTCMonth() + 1)}-${pad(today.getUTCDate())}`;
   }
 
   function render() {
     if (!ser) return;
-    renderTiles(); renderProfile(); renderSeries(); renderCompare();
+    renderTiles(); renderProfile(); renderSeries(); renderCompare(); syncAt();
   }
 
   // ── tiles ───────────────────────────────────────────────────────────────
@@ -126,7 +151,7 @@
     if (!el) return;
     const tile = (v, l) => `<div class="sv-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
     const o = prof && prof.found ? prof.obs : null;
-    if (!o) { el.innerHTML = tile('–', 'no mast observation in the last 3 hours'); return; }
+    if (!o) { el.innerHTML = tile('–', st.at ? `no mast observation in the 3 hours before ${utc(st.at)} UTC` : 'no mast observation in the last 3 hours'); return; }
     const top = o.wl.length - 1, tt = o.tl.length - 1;
     const dT = o.t[tt] != null && o.t[0] != null ? o.t[tt] - o.t[0] : null;
     const dry = -0.0098 * (o.tl[tt] - o.tl[0]);
@@ -518,6 +543,21 @@
     for (const [id, k] of [['mt-modes', 'modes'], ['mt-meps', 'meps'], ['mt-sonde', 'sonde']])
       if ($(id)) $(id).addEventListener('change', e => { st[k] = e.target.checked; lsSet('ms_mast_' + k, st[k]); renderProfile(); });
     if ($('mt-now')) $('mt-now').addEventListener('click', () => loadProfile(null));
+    // history (from 2026-11-02): a date and a time in UTC, or steps of 10 min / 1 h from the profile shown
+    const atFromFields = () => {
+      const d = ($('mt-at-d') || {}).value, t = ($('mt-at-t') || {}).value || '00:00';
+      if (!d) return null;
+      const tm = /^\s*(\d{1,2})[:.]?(\d{2})?\s*$/.exec(t);            // 1920, 19:20, 19.20, 19
+      if (!tm || +tm[1] > 23 || +(tm[2] || 0) > 59) return null;
+      const [y, m, dd] = d.split('-').map(Number), hh = +tm[1], mm = +(tm[2] || 0);
+      return Date.UTC(y, m - 1, dd, hh || 0, mm || 0) / 1000;
+    };
+    for (const id of ['mt-at-d', 'mt-at-t']) if ($(id)) $(id).addEventListener('change', () => { const a = atFromFields(); if (a) loadProfile(a); });
+    if ($('mt-at-t')) $('mt-at-t').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = atFromFields(); if (a) loadProfile(a); else syncAt(); } });
+    document.querySelectorAll('.mt-at-ctl [data-step]').forEach(b => b.addEventListener('click', () => {
+      const base = prof && prof.found ? prof.obs.ts : (st.at || Date.now() / 1000);
+      loadProfile(base + Number(b.dataset.step));
+    }));
     if ($('mt-ser-ms')) { $('mt-ser-ms').value = st.msLv; $('mt-ser-ms').addEventListener('change', e => { st.msLv = e.target.value; lsSet('ms_mast_ser_ms', st.msLv); renderSeries(); }); }
     if ($('mt-ser-sm')) { $('mt-ser-sm').value = String(st.smooth); $('mt-ser-sm').addEventListener('change', e => { st.smooth = +e.target.value; lsSet('ms_mast_ser_sm', st.smooth); renderSeries(); }); }
     if ($('mt-series')) new ResizeObserver(() => { if (on) renderSeries(); }).observe($('mt-series'));
