@@ -437,8 +437,12 @@ def run_collector(
         sse_queue  : queue.Queue for pushing live events to SSE clients
     """
     from collector import multirx
-    merged = multirx.merging()      # RECEIVERS_MERGE: all receivers' replies, merged (from 2026-11-02)
-    if merged:
+    # RECEIVERS_MERGE: all receivers' replies, merged (from 2026-11-02).  Named rx_merged:
+    # `merged` is the live_state record further down — reusing that name (2 Nov) made
+    # the single-receiver collector (the Pi) take the merger path after its first
+    # message and stop decoding ('NoneType' object has no attribute 'cur_mask' / 'frames')
+    rx_merged = multirx.merging()
+    if rx_merged:
         log.info("Collector starting — the merged replies of all receivers (collector/multirx.py)")
     else:
         log.info("Collector starting — connecting to %s:%d",
@@ -478,8 +482,8 @@ def run_collector(
         mstats.sig_state = "on" if sig_on else "unavailable"
     else:
         beast_sig.install(signal=False)
-    mg = multirx.merger() if merged else None
-    if merged:
+    mg = multirx.merger() if rx_merged else None
+    if rx_merged:
         # the signal levels are each receiver's own (their scales differ): on
         # the receivers' tabs, not in the merged statistics
         sig_on = False
@@ -487,7 +491,7 @@ def run_collector(
 
     while True:
         try:
-            if merged:
+            if rx_merged:
                 source = mg.frames()
                 log.info("Reading the merged receivers")
             else:
@@ -547,7 +551,7 @@ def run_collector(
                 # Update BDS 5,0 / 6,0 cache for wind pairing
                 bds = result.get("bds")
                 if bds in ("5,0", "6,0"):
-                    _update_bds_cache(icao, ts, result, mg.cur_mask if merged else None)
+                    _update_bds_cache(icao, ts, result, mg.cur_mask if rx_merged else None)
                 elif tc == 19:
                     _update_vel_samples(icao, ts, result)   # ADS-B ground speed (approach series)
 
