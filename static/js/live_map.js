@@ -463,7 +463,7 @@ function drawPlotCanvas(g, m, W, H) {
   if (!histN && !vecS && !atc && !atcMap) return;
   if (atcMap) AtcDisplay.drawRings(g, m, W, H, ringNm, AIRPORT_LAT, AIRPORT_LON);
   // ATC: the labels, placed last, keep clear of the plots, the vectors and the panels over the map
-  const lbls = [], obst = atc ? AtcDisplay.domObstacles(m, '.map-legend, .leaflet-control-zoom, .leaflet-control-container .leaflet-top.leaflet-right > *') : null;
+  const lbls = [], obst = atc ? AtcDisplay.domObstacles(m, '.map-legend, .leaflet-control-zoom, .leaflet-control-container .leaflet-top.leaflet-right > *, .lin-box') : null;
   for (const [icao, ac] of Object.entries(aircraftData)) {
     if (!markers[icao] || !ac.lat || !ac.lon || soloHide(icao)) continue;
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);

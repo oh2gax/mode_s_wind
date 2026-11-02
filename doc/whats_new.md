@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A second receiver, now part of the weather, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
+- **EFHK close-up on the Live Map** — a small map at the bottom right shows the airport, its approach lines and the traffic about 15 NM around it, with its own zoom (mouse wheel, + / −) and drag; resize it from its top-left corner. It starts minimized: click *EFHK · 15 NM* to open it, ▾ to minimize. It uses the same map and labels as the Live Map, and a click on an aircraft in it selects that aircraft.
 - **Receivers on the phone's Weather map** — the receivers are small triangles on the map, as on the full site; tap one for its name. *Receivers (triangles)* in the Weather options switches them off.
 - **The receiving station, page 9** — now a short explanation of how several receivers make one weather: the merge in four steps, what it gives and how a receiver joins.
 - **Guides: more receivers** — the Statistics guide (1.11) explains the receiver row, how the receivers are merged and who sees which receiver; the phone guide (1.44) the same in the phone's Statistics view, whose receiver panels now also fit a narrow screen.
