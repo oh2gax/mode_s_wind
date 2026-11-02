@@ -354,7 +354,7 @@ function makeIcon(color, selected) {
   const s = selected ? 9 : 8, H = 22, o = (H - s) / 2;
   // ATC style (from 2026-10-31): the selected square keeps its own colour and gets
   // a highlight frame around it (before it turned yellow / blue)
-  const atcSel = selected && liveStyle === 'atc';
+  const atcSel = selected && liveMap === 'atc';
   const frame = atcSel ? `<rect x="${o - 4}" y="${o - 4}" width="${s + 8}" height="${s + 8}" rx="1.5" fill="none"
           stroke="${color}" stroke-width="1" stroke-opacity="0.75"/>` : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${H}" height="${H}" viewBox="0 0 ${H} ${H}">${frame}
@@ -395,12 +395,22 @@ const ATC_LOW_FT = AtcDisplay.LOW_FT;
 // every 5 NM or every 10 NM, to 30 NM
 const RING_STEPS = AtcDisplay.RING_STEPS;
 let ringNm = AtcDisplay.lsInt('ms_liveRings', RING_STEPS, 0);
-let liveStyle = (() => { try { return localStorage.getItem('ms_liveStyle') === 'atc' ? 'atc' : 'meteo'; } catch (_) { return 'meteo'; } })();
+// From 2026-11-02 the map and the labels are chosen apart, all four combinations:
+// liveMap 'street' | 'atc' (the background, the symbol colours, wind lines, rings,
+// legend; ms_liveMap) and liveLbls 'normal' | 'atc' (the HTML labels with the info
+// popup, or the ATC labels on the canvas with Hover and the selected aircraft's
+// extended label; ms_liveLbls).  Before, one Style button (ms_liveStyle) set both —
+// it is the default for the two new keys.
+const _lsGet = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+const _oldStyleAtc = _lsGet('ms_liveStyle') === 'atc';
+let liveMap  = (v => v === 'atc' || v === 'street' ? v : (_oldStyleAtc ? 'atc' : 'street'))(_lsGet('ms_liveMap'));
+let liveLbls = (v => v === 'atc' || v === 'normal' ? v : (_oldStyleAtc ? 'atc' : 'normal'))(_lsGet('ms_liveLbls'));
+const lblAtc = () => liveLbls === 'atc';
 const atcPal = AtcDisplay.pal;
 function acSymColor(ac) {
-  return liveStyle === 'atc' ? AtcDisplay.symColor(ac) : acColor(ac);
+  return liveMap === 'atc' ? AtcDisplay.symColor(ac) : acColor(ac);
 }
-const selColorNow = () => liveStyle === 'atc' ? atcPal().sel : selSymColor();
+const selColorNow = () => liveMap === 'atc' ? atcPal().sel : selSymColor();
 
 // Level in hundreds of feet, three digits: up to the transition altitude on the
 // METAR QNH, above it the flight level (as liveAtcAlt without the A / FL)
@@ -421,7 +431,7 @@ let atcLblRects = {};            // the label boxes of the last draw
 const SEL_EXT_POLL_MS = 2000;
 let selExt = { key: null, data: null, timer: null };
 function selExtSync(redraw = true) {
-  const want = liveStyle === 'atc' && selectedIcao ? selectedIcao : null;
+  const want = lblAtc() && selectedIcao ? selectedIcao : null;
   if (want === selExt.key) return;
   clearInterval(selExt.timer);
   selExt = { key: want, data: null, timer: null };
@@ -437,10 +447,10 @@ function selExtSync(redraw = true) {
 
 // The canvas: range rings (ATC), history plots, speed vectors and the ATC labels
 function drawPlotCanvas(g, m, W, H) {
-  const atc = liveStyle === 'atc';
-  selExtSync(false);                     // the selected aircraft's extended label (ATC)
-  if (!histN && !vecS && !atc) return;
-  if (atc) AtcDisplay.drawRings(g, m, W, H, ringNm, AIRPORT_LAT, AIRPORT_LON);
+  const atc = lblAtc(), atcMap = liveMap === 'atc';   // the ATC labels / the ATC map (from 2026-11-02 apart)
+  selExtSync(false);                     // the selected aircraft's extended label (ATC labels)
+  if (!histN && !vecS && !atc && !atcMap) return;
+  if (atcMap) AtcDisplay.drawRings(g, m, W, H, ringNm, AIRPORT_LAT, AIRPORT_LON);
   // ATC: the labels, placed last, keep clear of the plots, the vectors and the panels over the map
   const lbls = [], obst = atc ? AtcDisplay.domObstacles(m, '.map-legend, .leaflet-control-zoom, .leaflet-control-container .leaflet-top.leaflet-right > *') : null;
   for (const [icao, ac] of Object.entries(aircraftData)) {
@@ -455,7 +465,7 @@ function drawPlotCanvas(g, m, W, H) {
       AtcDisplay.drawPlots(g, m, pts, histN, col, fade, obst);
     }
     // the selected aircraft: in the ATC style its own colour (from 2026-10-31; before yellow / blue)
-    AtcDisplay.drawVector(g, m, p0, ac, vecS, sel && !atc ? selColorNow() : col, 0.9 * fade, 1.3, obst);
+    AtcDisplay.drawVector(g, m, p0, ac, vecS, sel && !atcMap ? selColorNow() : col, 0.9 * fade, 1.3, obst);
     if (atc) {
       // extended: the aircraft under the mouse (Hover) or the selected one
       const hov = liveHov && liveHov.key() === icao, ext = hov || sel;
@@ -465,11 +475,19 @@ function drawPlotCanvas(g, m, W, H) {
                         : atcLabelLines(ac);
       // the labels in the palette's grey (from 2026-11-01; the square keeps its colour — light
       // below 6 000 ft — before the label had it too; the selected one grey from 2026-10-31)
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: atcPal().high, alt: ac.altitude ?? 99999 });
+      // over the street map (from 2026-11-02): a lighter text with an outline, as the phone's map
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel, fade, ext, col: atcMap ? atcPal().high : streetLblCol(), alt: ac.altitude ?? 99999 });
     }
   }
-  atcLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos) : {};
+  atcLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, atcLblPos, 12, atcMap ? {} : streetLblOpt()) : {};
 }
+
+// ATC labels over the street map (from 2026-11-02): the text light (dark theme) or dark
+// (light theme) with an outline under it, as the phone's approach map
+const _pageLight = () => document.documentElement.dataset.theme === 'light';
+const streetLblCol = () => _pageLight() ? '#1f2937' : '#e5e7eb';
+const streetLblOpt = () => ({ halo: _pageLight() ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
+                              leader: _pageLight() ? '#64748b' : '#94a3b8' });
 
 // The ATC map lines (airport, finals, coast): loaded at the first switch to the ATC style
 const atcLines = AtcDisplay.mapLines(map);
@@ -477,7 +495,7 @@ const atcLines = AtcDisplay.mapLines(map);
 const legendEl = document.querySelector('.map-legend');
 const legendMeteoHtml = legendEl ? legendEl.innerHTML : '';
 function applyLiveStyle() {
-  const atc = liveStyle === 'atc', P = atcPal();
+  const atc = liveMap === 'atc', P = atcPal(), atcL = lblAtc();
   if (atc) { if (map.hasLayer(currentTile)) map.removeLayer(currentTile); }
   else if (!map.hasLayer(currentTile)) currentTile.addTo(map);
   map.getContainer().style.background = atc ? P.bg : '';
@@ -492,7 +510,7 @@ function applyLiveStyle() {
     const d = aircraftData[k];
     if (!d) continue;
     m.setIcon(makeIcon(acSymColor(d), k === selectedIcao));
-    if (atc) dropPopup(m);               // Meteo: bound again at the next update
+    if (atcL) dropPopup(m);              // normal labels: bound again at the next update
     updateLabel(k, d.lat, d.lon, d);
     drawWindArrow(k, d.lat, d.lon, d.best_wind_spd, d.best_wind_dir);
   }
@@ -501,7 +519,7 @@ function applyLiveStyle() {
 // created after the style state above (its first draw reads it)
 const plotLayer = AtcDisplay.canvasLayer(map, drawPlotCanvas);
 liveHov = AtcDisplay.hover(map, {
-  active:  () => liveStyle === 'atc' && liveHoverOn,
+  active:  () => lblAtc() && liveHoverOn,
   targets: () => Object.entries(aircraftData).filter(([k, a]) => markers[k] && a.lat && a.lon).map(([k, a]) => [k, a.lat, a.lon]),
   rects:   () => atcLblRects,
   redraw:  () => plotLayer.redraw(),
@@ -510,7 +528,7 @@ liveHov = AtcDisplay.hover(map, {
 // ── Map labels (ATC style, levels of the Lbl button) ──────────────────────
 function updateLabel(icao, lat, lon, ac) {
   // the ATC style draws its labels on the plot canvas (AtcDisplay.drawLabels)
-  const html = liveStyle === 'atc' ? '' : liveLabelHtml(ac || aircraftData[icao] || { icao });
+  const html = lblAtc() ? '' : liveLabelHtml(ac || aircraftData[icao] || { icao });
   if (!html) {
     if (labelMarkers[icao]) { labelMarkers[icao].remove(); delete labelMarkers[icao]; }
     return;
@@ -536,7 +554,7 @@ function updateLabel(icao, lat, lon, ac) {
 // ── Wind arrow ────────────────────────────────────────────────────────────
 function drawWindArrow(icao, lat, lon, windSpd, windDir) {
   if (windArrows[icao]) { windArrows[icao].remove(); delete windArrows[icao]; }
-  if (liveStyle === 'atc') return;                  // no wind lines in the ATC style
+  if (liveMap === 'atc') return;                    // no wind lines on the ATC map
   if (windSpd == null || windDir == null || windSpd < 1) return;
 
   const len     = Math.min(0.012, windSpd / 1000);
@@ -576,7 +594,7 @@ function upsertMarker(ac) {
 
   // the info popup only in the Meteo style; in the ATC style the selected aircraft
   // has the extended label instead (from 2026-10-31: before both at once)
-  const wantPopup = liveStyle !== 'atc';
+  const wantPopup = !lblAtc();
   if (markers[ac.icao]) {
     const mk = markers[ac.icao];
     mk.setLatLng([ac.lat, ac.lon]).setIcon(icon);
@@ -932,7 +950,7 @@ function drawSelectedTrack(icao) {
 // The selected aircraft's dashed track: its meteo-source colour, in the ATC style
 // grey (the palette's grey of the symbols above 6 000 ft; from 2026-10-31, before green)
 function selTrackColor(ac) {
-  if (liveStyle === 'atc') return atcPal().high;
+  if (liveMap === 'atc') return atcPal().high;
   return ac ? acColor(ac) : '#94a3b8';
 }
 
@@ -1096,28 +1114,36 @@ stepBtn('hist-btn', HIST_STEPS, () => histN, v => { histN = v; }, 'ms_liveHist',
 stepBtn('vec-btn', VEC_STEPS, () => vecS, v => { vecS = v; }, 'ms_liveVec',
         v => `Vec ${v === 0 ? 'Off' : v < 60 ? v + 's' : v / 60 + 'm'}`);
 
-// Style: Meteo / ATC
+// The map (Street / ATC map) and the labels (Normal / ATC labels): two buttons from
+// 2026-11-02, any combination (before one Style button Meteo / ATC for both)
 const styleBtn = document.getElementById('style-btn');
-if (styleBtn) {
-  const showStyle = () => {
-    styleBtn.textContent = liveStyle === 'atc' ? 'ATC' : 'Meteo';
-    styleBtn.classList.toggle('active', liveStyle === 'atc');
-  };
-  showStyle();
-  styleBtn.addEventListener('click', () => {
-    liveStyle = liveStyle === 'atc' ? 'meteo' : 'atc';
-    try { localStorage.setItem('ms_liveStyle', liveStyle); } catch (_) { /* private mode */ }
-    showStyle();
-    showRings();
-    showHover();
-    applyLiveStyle();
-  });
-}
+const lblsBtn  = document.getElementById('lbls-btn');
+const showStyle = () => {
+  if (styleBtn) {
+    styleBtn.textContent = liveMap === 'atc' ? 'ATC map' : 'Street';
+    styleBtn.classList.toggle('active', liveMap === 'atc');
+  }
+  if (lblsBtn) {
+    lblsBtn.textContent = lblAtc() ? 'ATC labels' : 'Normal labels';
+    lblsBtn.classList.toggle('active', lblAtc());
+  }
+};
+showStyle();
+if (styleBtn) styleBtn.addEventListener('click', () => {
+  liveMap = liveMap === 'atc' ? 'street' : 'atc';
+  try { localStorage.setItem('ms_liveMap', liveMap); } catch (_) { /* private mode */ }
+  showStyle(); showRings(); applyLiveStyle();
+});
+if (lblsBtn) lblsBtn.addEventListener('click', () => {
+  liveLbls = lblAtc() ? 'normal' : 'atc';
+  try { localStorage.setItem('ms_liveLbls', liveLbls); } catch (_) { /* private mode */ }
+  showStyle(); showHover(); applyLiveStyle();
+});
 // Range rings (ATC style): the Rings button steps Off · 5 NM · 10 NM; shown only in the ATC style
 const ringsBtn = document.getElementById('rings-btn');
 function showRings() {
   if (!ringsBtn) return;
-  ringsBtn.hidden = liveStyle !== 'atc';
+  ringsBtn.hidden = liveMap !== 'atc';
   ringsBtn.textContent = ringNm ? `Rings ${ringNm}` : 'Rings Off';
   ringsBtn.classList.toggle('active', ringNm !== 0);
 }
@@ -1132,10 +1158,10 @@ if (ringsBtn) ringsBtn.addEventListener('click', () => {
 const hoverBtn = document.getElementById('hover-btn');
 function showHover() {
   if (!hoverBtn) return;
-  hoverBtn.hidden = liveStyle !== 'atc';
+  hoverBtn.hidden = !lblAtc();
   hoverBtn.textContent = liveHoverOn ? 'Hover On' : 'Hover Off';
   hoverBtn.classList.toggle('active', liveHoverOn);
-  if (liveStyle !== 'atc' || !liveHoverOn) liveHov.clear();
+  if (!lblAtc() || !liveHoverOn) liveHov.clear();
 }
 showHover();
 if (hoverBtn) hoverBtn.addEventListener('click', () => {
@@ -1143,7 +1169,7 @@ if (hoverBtn) hoverBtn.addEventListener('click', () => {
   try { localStorage.setItem('ms_liveHover', liveHoverOn ? '1' : '0'); } catch (_) { /* private mode */ }
   showHover();
 });
-if (liveStyle === 'atc') applyLiveStyle();
+if (liveMap === 'atc' || lblAtc()) applyLiveStyle();
 
 // ── Wind density slider ───────────────────────────────────────────────────
 const densitySlider = document.getElementById('wind-density');

@@ -843,7 +843,9 @@ The **Vec** button next to it steps the **speed vectors**: **Off · 30 s · 1 mi
 
 All plots and vectors are drawn on **one canvas layer** over the map, under the symbols and labels (`PlotLayer` in `static/js/live_map.js`, `.live-plot-layer`), redrawn once per stream update and after a pan or zoom — not as a map object per plot (100 aircraft × 20 plots every 3 s).
 
-#### Style: Meteo / ATC
+#### Style: Meteo / ATC — the map and the labels chosen apart (from 2 Nov 2026)
+
+**From 2 Nov 2026** two buttons in the list's second filter row choose the map and the labels separately, so every combination works: **Street** / **ATC map** (`ms_liveMap`: the background, the symbol colours, the wind lines, the receiver dots, the Rings button and the legend) and **Normal labels** / **ATC labels** (`ms_liveLbls`: the HTML labels beside the symbols with the info popup on a click, or the canvas ATC labels below — leader lines, kept apart, the **Lbl** levels, the selected aircraft's extended label and the **Hover** button). ATC labels over the street map are drawn lighter (`#e5e7eb` in the Dark theme, `#1f2937` in Light) with an outline under the text (`rgba(0,0,0,0.8)` / `rgba(255,255,255,0.85)`) and a lighter leader line, as on the phone's approach map. Both are remembered in the browser; the first time they follow the former single Style setting (`ms_liveStyle`: ATC → ATC map + ATC labels, else Street + Normal labels). Until 2 Nov 2026 one **Style** button set both, as described below.
 
 The **Style** button (from 30 Oct 2026, in the list's second filter row next to Hist and Vec, labelled *Meteo* or *ATC*; saved as `ms_liveStyle`) switches the map between two looks:
 
