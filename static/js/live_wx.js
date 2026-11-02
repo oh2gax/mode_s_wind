@@ -85,7 +85,7 @@
   if (typeof map === 'undefined' || typeof WxLayer === 'undefined') return;
   const KEY = 'ms_liveWx';
   const DEF = { src: 'off', rain: true, low: false, fog: false, pres: false, op: 60, open: false,
-                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, covPer: false, smooth: true, hover: false, apt: false, aptMin: false };
+                wind: 'off', gust: false, wMeps: true, wModes: false, wPer: 180, fine: true, cov: false, covPer: false, rxMk: true, smooth: true, hover: false, apt: false, aptMin: false };
   const FINE_ZOOM = 7;                 // as the Weather page
   const COV_HOURS = 24;
   const PERIODS = [[60, '1 h'], [180, '3 h'], [360, '6 h'], [720, '12 h'], [1440, '24 h']];
@@ -181,7 +181,7 @@
     const canvas = L.DomUtil.create('canvas', 'wx-canvas');
     canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0'; canvas.style.pointerEvents = 'none';
     map.getPane(paneName).appendChild(canvas);
-    let data = null, on = false, per = false, segs = [], marks = [], off = null;   // [[x, y, sector, receiver] …] per receiver, for the hover
+    let data = null, on = false, per = false, mk = true, segs = [], marks = [], off = null;   // mk: the receivers' triangles (from 2026-11-02 they can be hidden)   // [[x, y, sector, receiver] …] per receiver, for the hover
     function place() {
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
       L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
@@ -205,6 +205,7 @@
       });
       // the receivers: a small triangle each (with more than one receiver, in its colour), drawn last
       const drawMarks = () => {
+        if (!mk) return;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const light = document.documentElement.dataset.theme === 'light';
         all.forEach((r, ri) => {
@@ -262,6 +263,7 @@
       set(d) { data = d; draw(); },
       show(v) { on = !!v; canvas.style.display = on ? '' : 'none'; draw(); },
       perRx(v) { per = !!v; draw(); },
+      marks(v) { mk = !!v; draw(); },
       count() { return data && data.receivers ? data.receivers.length : 0; },
       redraw: draw,
       at(pt, r = 6) {                       // on the line: the sector of the nearer corner (and its receiver)
@@ -362,6 +364,7 @@
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Receiver</span>
             <label title="A thin light-blue line around the area the receiver heard in the last 24 hours: the farthest ADS-B position in each 10° direction, any height (the range data of the Statistics page). With more receivers, their combined coverage"><input type="checkbox" class="lwx-cov"> Coverage (24 h)</label>
+            <label title="The receivers' triangles on the map (on the street map and with the coverage line; to about 1 km) — untick to see the map without them"><input type="checkbox" class="lwx-rxmk"> Markers</label>
             <label class="lwx-covper-l" title="With more than one receiver: each receiver's own coverage outline in its colour (MODES-RX-01 light blue, MODES-RX-02 violet), each measured from its own antenna, instead of the outline of their combined coverage. The triangles mark the receivers (to about 1 km)"><input type="checkbox" class="lwx-covper"> Per receiver</label>
           </div>
           <div class="lwx-row"><span class="lwx-lbl">Airport</span>
@@ -404,6 +407,7 @@
   q('.lwx-apt-cb').addEventListener('change', e => { st.apt = e.target.checked; save(); sync(); if (st.apt) loadApt(true); });
   q('.lwx-hover').addEventListener('change', e => { st.hover = e.target.checked; save(); sync(); if (!st.hover) tip.style.display = 'none'; });
   q('.lwx-cov').addEventListener('change', e => { st.cov = e.target.checked; save(); covAt = 0; sync(); refresh(false); });
+  q('.lwx-rxmk').addEventListener('change', e => { st.rxMk = e.target.checked; save(); sync(); });
   q('.lwx-covper').addEventListener('change', e => { st.covPer = e.target.checked; save(); covLayer.perRx(st.covPer); applyOptions(); covAt = 0; refresh(false); });
 
   // ── State → page ─────────────────────────────────────────────────────────
@@ -483,6 +487,11 @@
     q('.lwx-covper').disabled = !st.cov;
     q('.lwx-covper-l').style.display = covLayer.count() > 1 ? '' : 'none';
     covLayer.perRx(st.covPer);
+    // the receivers' markers (from 2026-11-02): the coverage triangles here, the street map's
+    // triangles in live_map.js (setRxMarks)
+    q('.lwx-rxmk').checked = st.rxMk !== false;
+    covLayer.marks(st.rxMk !== false);
+    if (typeof window.setRxMarks === 'function') window.setRxMarks(st.rxMk !== false);
     q('.lwx-hover').checked = !!st.hover;
     q('.lwx-apt-cb').checked = !!st.apt;
     aptBox.style.display = st.apt ? '' : 'none';

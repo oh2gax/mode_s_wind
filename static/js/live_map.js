@@ -83,6 +83,12 @@ let currentTile = L.tileLayer(
 // Receiver markers (hidden in the ATC style): from 2026-11-02 each receiver at its own
 // position (rounded to 0.01°, base.html msRxMarkers) — before one dot at the map centre
 const receiverMarker = msRxMarkers(map).addTo(map);
+// shown or hidden with the Weather panel's Receiver → Markers (live_wx.js, from 2026-11-02)
+let rxMarksOn = true;
+window.setRxMarks = v => {
+  rxMarksOn = !!v;
+  if (rxMarksOn && liveMap !== 'atc') receiverMarker.addTo(map); else receiverMarker.remove();
+};
 
 // ── State ─────────────────────────────────────────────────────────────────
 const markers        = {};   // icao → L.Marker (aircraft symbol)
@@ -504,7 +510,7 @@ function applyLiveStyle() {
   if (atc) { if (map.hasLayer(currentTile)) map.removeLayer(currentTile); }
   else if (!map.hasLayer(currentTile)) currentTile.addTo(map);
   map.getContainer().style.background = atc ? P.bg : '';
-  if (atc) receiverMarker.remove(); else receiverMarker.addTo(map);
+  if (atc || !rxMarksOn) receiverMarker.remove(); else receiverMarker.addTo(map);
   if (legendEl) {
     legendEl.classList.toggle('atc', atc);
     legendEl.innerHTML = atc ? AtcDisplay.legendHtml({ noSel: true }) : legendMeteoHtml;   // no yellow 'selected' (from 2026-10-31)
