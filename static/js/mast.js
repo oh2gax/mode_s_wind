@@ -102,7 +102,7 @@
       ser = a; prof = b; cmp = c; msr = d;
       const n = (ser.rows || []).length;
       if (meta) meta.textContent = n
-        ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC${st.end ? ' (history — Newest returns to now)' : ''} · FMI open data`
+        ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC${st.end ? ' (history — Now returns to the present)' : ''} · FMI open data`
         : 'Kivenlahti mast · no observations stored yet — the first ones arrive about a minute after the start (7 days back-filled)';
       render();
     } catch (e) {
@@ -137,6 +137,7 @@
     d.value = `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}`;
     h.value = pad(x.getUTCHours());
     mi.value = pad(Math.floor(x.getUTCMinutes() / 10) * 10);
+    if ($('mt-at-now')) $('mt-at-now').classList.toggle('active', !st.at && !st.end);   // lit while showing now
     const today = new Date();
     d.max = `${today.getUTCFullYear()}-${pad(today.getUTCMonth() + 1)}-${pad(today.getUTCDate())}`;
   }
@@ -544,6 +545,7 @@
     for (const [id, k] of [['mt-modes', 'modes'], ['mt-meps', 'meps'], ['mt-sonde', 'sonde']])
       if ($(id)) $(id).addEventListener('change', e => { st[k] = e.target.checked; lsSet('ms_mast_' + k, st[k]); renderProfile(); });
     if ($('mt-now')) $('mt-now').addEventListener('click', () => loadProfile(null));
+    if ($('mt-at-now')) $('mt-at-now').addEventListener('click', () => loadProfile(null));   // in the profile's title (2026-11-02)
     // history (from 2026-11-02): a date and a time in UTC, or steps of 10 min / 1 h from the profile shown
     // history (from 2026-11-02): a date and an hour / minute in UTC (dropdowns, 10-minute steps as the mast)
     const atFromFields = () => {

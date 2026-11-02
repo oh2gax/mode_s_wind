@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
-- **Mast profile of any time** — on the Sounding page's Mast tab, pick a date and the hour and minute (UTC) from the dropdowns, or step by 10 minutes or an hour, to see the mast's profile of that moment beside the aircraft, the model and the sounding; the time series follows. *Newest* returns to now.
+- **Mast profile of any time** — on the Sounding page's Mast tab, pick a date and the hour and minute (UTC) from the dropdowns, or step by 10 minutes or an hour, to see the mast's profile of that moment beside the aircraft, the model and the sounding; the time series follows. *Now* returns to the present.
 - **Mast: 2 days and tidier phone choices** — the Sounding page's Mast tab has a 2-day period too; in the phone's Mast view the time-series choices (Mode S, Mast) each have their own row and no longer wrap oddly.
 - **Study log: Mode S and the Kivenlahti mast** — a new document in the User guides compares the aircraft's winds and temperatures in the lowest 300 m with the FMI weather mast, the MEPS model and the radiosonde over the first week: how well they agree, the shallow evening inversions only the mast sees, and why some of the differences point at the mast itself.
 - **Mast time series: Mode S alone** — the time series can now also hide the mast's own lines (*Mast: off*), so only the aircraft's hourly values and the METAR are shown; also on the phone.
