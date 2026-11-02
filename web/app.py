@@ -626,20 +626,25 @@ def create_app(
             window = 10
         week_trend = request.args.get("trend") == "7d"
         db = get_db() if (window >= msg_stats.WEEK_MIN or week_trend) else None
+        # (RECEIVERS_MERGE, from 2026-11-02 afternoon: the default view is all
+        # receivers merged, the main receiver has its own ?rx= tab)
+        from collector import radarcape_status as _rcs
         rx_id = request.args.get("rx") or ""
         xr = multirx.get(rx_id) if rx_id else None
         if xr is not None:
             out = xr.ms.snapshot(window, db=db, week_trend=week_trend)
-            out["radarcape"] = None
+            rc = _rcs.get() if xr is multirx.main_rx() else None
+            out["radarcape"] = rc.public() if rc is not None else None
             out["rx"] = xr.public(min(window, 1440))
         else:
             out = msg_stats.get().snapshot(window, db=db, week_trend=week_trend)
             # the Radarcape's own status (systemstatus.json, collector/radarcape_status.py)
-            from collector import radarcape_status as _rcs
             rc = _rcs.get()
             out["radarcape"] = rc.public() if rc is not None else None
-            out["rx"] = multirx.main_public()
+            out["rx"] = multirx.all_public(min(window, 1440)) if multirx.merging() else multirx.main_public()
         out["receivers"] = multirx.receivers()
+        out["main_id"] = multirx.main_id()
+        out["merged"] = multirx.merging()
         return _gzip_json(out)
 
     @app.route("/api/coverage")

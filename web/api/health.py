@@ -412,6 +412,41 @@ def _extra_rx_items(items: dict, now: float, up: float) -> list:
     items["feed"]["title"] = f"{m['id']} {m['name']}: " + TITLE["feed"]
     alive = {t.name for t in threading.enumerate()}
     keys = []
+    mrx = multirx.main_rx()
+    if mrx is not None:
+        # receivers merged: the main receiver's dot from its own reader (the
+        # merged statistics stay live while another receiver is heard)
+        p = mrx.public(10)
+        age = p["feed"]["last_frame_age"]
+        others = any(x.last_frame and now - x.last_frame < 60 for x in multirx.extras())
+        det = [f"{p['feed']['connects']} connection(s) since the server started"]
+        if p["feed"]["connected_ts"]:
+            det.insert(0, f"connected {_ago(now - p['feed']['connected_ts'])}")
+        ck = p["clock"]
+        det.append("GPS time" if ck["state"] == "gps" else
+                   f"no GPS time in its stamps ({ck['nogps']} frames) — arrival time used" if ck["state"] == "nogps"
+                   else "clock starting")
+        if f"rx_{mrx.id}" not in alive and up > 30:
+            st, text = "err", "Reader stopped — restart the server"
+        elif age is not None and age < 30:
+            r = mrx.rate_now()
+            st, text = ("ok" if ck["state"] != "nogps" else "warn"), \
+                (f"Live — {r:.0f} messages/s" if r is not None else "Live") + \
+                ("" if ck["state"] != "nogps" else ", no GPS time")
+        elif age is None and up < 60:
+            st, text = "warn", "Starting"
+        elif others:
+            st = "warn"
+            text = (f"Silent for {_ago(age)}" if age is not None else (p["feed"]["err"] or "No messages yet")) + \
+                " — the weather from the other receivers only"
+        elif age is not None and age < 600:
+            st, text = "warn", f"Silent for {_ago(age)}"
+        else:
+            st, text = "err", (f"No messages for {_ago(age)}" if age is not None else
+                               (p["feed"]["err"] or "No messages")) + " — receiver or network down?"
+        items["feed"] = {"key": "feed", "label": "Feed " + _short_rx(mrx.id),
+                         "title": f"{mrx.id} {mrx.name}: Radarcape Beast feed, merged with the other receivers",
+                         "state": st, "text": text, "detail": det}
     for xr in multirx.extras():
         key = "rx:" + xr.id
         p = xr.public(10)
@@ -425,7 +460,9 @@ def _extra_rx_items(items: dict, now: float, up: float) -> list:
                     "starting": "clock starting"}.get(ck["state"], ck["state"]))
         if cm["compared"]:
             det.append(f"{100 * cm['only'] / cm['compared']:.1f} % of its replies heard only here (10 min)")
-        label, title = "Feed " + _short_rx(xr.id), f"{xr.id} {xr.name}: {xr.type} receiver, watched (statistics only)"
+        label = "Feed " + _short_rx(xr.id)
+        title = f"{xr.id} {xr.name}: {xr.type} receiver, " + \
+            ("merged into the weather" if mrx is not None else "watched (statistics only)")
         if f"rx_{xr.id}" not in alive and up > 30:
             st, text = "err", "Reader stopped — restart the server"
         elif f["down_sec"] is not None and f["down_sec"] > 1800:

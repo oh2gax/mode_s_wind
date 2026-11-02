@@ -34,6 +34,8 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 # True (default) shows the position only to about 1 km.
 # RECEIVER_ID = "MODES-RX-01"
 # RECEIVER_NAME = "Tuusula"
+# RECEIVERS_MERGE = True     # merge them into the weather (each reply once;
+#                            # the main receiver then read by an own reader too)
 # EXTRA_RECEIVERS = [{"id": "MODES-RX-02", "name": "Vantaa", "type": "airspy",
 #                     "host": "127.0.0.1", "port": 30105, "clock": "12mhz",
 #                     "status_url": "http://127.0.0.1:8105/tar1090/data/",

@@ -78,6 +78,11 @@ GMB_MAX_AGE_SEC  = 5.0
 NACP_MAX_AGE_SEC = 30.0
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
+# The receivers that heard each BDS 5,0 / 6,0 reply when the receivers are
+# merged (collector/multirx.py, RECEIVERS_MERGE; from 2026-11-02): (icao, time)
+# → bit mask, kept as long as the samples; read by the approach and climb-out
+# series (rx_mask).  Empty otherwise.
+_RX_MASK: dict = {}
 
 
 # ── ADS-B integrity (NIC / containment radius Rc) ─────────────────────────
@@ -125,10 +130,13 @@ def nic_from_position(tc: int, version: int | None,
     return row.get(key, row[0])
 
 
-def _update_bds_cache(icao: str, ts: float, result: dict) -> None:
-    """Store BDS 5,0 or 6,0 fields into the per-ICAO cache."""
+def _update_bds_cache(icao: str, ts: float, result: dict, mask: int | None = None) -> None:
+    """Store BDS 5,0 or 6,0 fields into the per-ICAO cache (mask: the
+    receivers that heard the reply, when merged)."""
     bds = result.get("bds")
     with _CACHE_LOCK:
+        if mask is not None:
+            _RX_MASK[(icao, ts)] = mask
         if bds == "5,0":
             _BDS50_CACHE[icao] = (ts, {
                 "true_track":    result.get("true_track"),
@@ -173,6 +181,13 @@ def get_vel_samples(icao: str, since_ts: float) -> list:
         return [s for s in _VEL_SAMPLES.get(icao, ()) if s[0] > since_ts]
 
 
+def rx_mask(icao: str, ts: float):
+    """The receivers that heard the BDS 5,0 / 6,0 reply of icao at ts (bit
+    mask: 1 = the main receiver, 2 = the first other receiver, …), None when
+    not known (the receivers are not merged)."""
+    return _RX_MASK.get((icao, ts))
+
+
 def get_bds_samples(icao: str, since_ts: float) -> tuple[list, list]:
     """Raw BDS 5,0 and 6,0 samples of one aircraft received after since_ts.
 
@@ -203,6 +218,10 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
         for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES, _VEL_SAMPLES):
             for icao in [k for k, dq in samples.items() if not dq or dq[-1][0] < cutoff]:
                 del samples[icao]
+        if _RX_MASK:                              # kept as long as the samples could be read
+            mcut = cutoff - 600
+            for k in [k for k in _RX_MASK if k[1] < mcut]:
+                del _RX_MASK[k]
     return removed
 
 
@@ -417,8 +436,13 @@ def run_collector(
         live_lock  : RLock protecting live_state
         sse_queue  : queue.Queue for pushing live events to SSE clients
     """
-    log.info("Collector starting — connecting to %s:%d",
-             cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
+    from collector import multirx
+    merged = multirx.merging()      # RECEIVERS_MERGE: all receivers' replies, merged (from 2026-11-02)
+    if merged:
+        log.info("Collector starting — the merged replies of all receivers (collector/multirx.py)")
+    else:
+        log.info("Collector starting — connecting to %s:%d",
+                 cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
 
     writer = BatchWriter(
         write_interval      = cfg.DB_WRITE_INTERVAL,
@@ -454,12 +478,22 @@ def run_collector(
         mstats.sig_state = "on" if sig_on else "unavailable"
     else:
         beast_sig.install(signal=False)
+    mg = multirx.merger() if merged else None
+    if merged:
+        # the signal levels are each receiver's own (their scales differ): on
+        # the receivers' tabs, not in the merged statistics
+        sig_on = False
+        mstats.sig_state = "per_rx"
 
     while True:
         try:
-            source = NetworkSource(cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
-            log.info("Connected to Radarcape at %s:%d",
-                     cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
+            if merged:
+                source = mg.frames()
+                log.info("Reading the merged receivers")
+            else:
+                source = NetworkSource(cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
+                log.info("Connected to Radarcape at %s:%d",
+                         cfg.RADARCAPE_HOST, cfg.RADARCAPE_PORT)
             mstats.connected()
             beast_sig.reset()
 
@@ -513,7 +547,7 @@ def run_collector(
                 # Update BDS 5,0 / 6,0 cache for wind pairing
                 bds = result.get("bds")
                 if bds in ("5,0", "6,0"):
-                    _update_bds_cache(icao, ts, result)
+                    _update_bds_cache(icao, ts, result, mg.cur_mask if merged else None)
                 elif tc == 19:
                     _update_vel_samples(icao, ts, result)   # ADS-B ground speed (approach series)
 

@@ -235,6 +235,16 @@ EFHK_RUNWAYS = [
 
 # ── Geometry helpers ──────────────────────────────────────────────────────────
 
+
+def _rx_mask(icao: str, ts: float):
+    """The receivers that heard this BDS 5,0 / 6,0 reply (a bit mask), None
+    when the receivers are not merged (collector/receiver.py rx_mask)."""
+    try:
+        from collector.receiver import rx_mask
+        return rx_mask(icao, ts)
+    except Exception:                                  # noqa: BLE001
+        return None
+
 def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance in nautical miles."""
     dlat = math.radians(lat2 - lat1)
@@ -1544,7 +1554,7 @@ class WindshearTracker:
             ok50.append((ts, roll, ttrk, bgs, _tas))
             if len(raw5) < SERIES_MAX_ROWS:
                 raw5.append([round(ts, 2), _rd(roll, 2), _rd(trate, 3), _rd(ttrk, 2),
-                             bgs, _tas, alt_r])
+                             bgs, _tas, alt_r, _rx_mask(icao, ts)])
             if P is not None and _tas is not None and bgs is not None:
                 P["hw"].append(_tas - bgs)          # headwind component (TAS − GS)
 
@@ -1572,7 +1582,7 @@ class WindshearTracker:
                     continue
             if len(raw6) < SERIES_MAX_ROWS:
                 raw6.append([round(ts, 2), ias, _rd(mhdg, 2), _rd(vri, 0), _rd(vrb, 0),
-                             _rd(mach, 3), alt_r])
+                             _rd(mach, 3), alt_r, _rx_mask(icao, ts)])
             if P is not None and ok50:
                 # pair with the nearest accepted BDS 5,0 reply of this sweep
                 p5 = min(ok50, key=lambda x: abs(x[0] - ts))
@@ -1750,10 +1760,10 @@ class WindshearTracker:
     SERIES_COLS = {
         "b50": (("t", 100, True), ("roll", 100, False), ("trate", 1000, False),
                 ("trk", 100, False), ("gs", 1, False), ("tas", 1, False),
-                ("alt", 1, True)),
+                ("alt", 1, True), ("rx", 1, False)),
         "b60": (("t", 100, True), ("ias", 1, False), ("hdg", 100, False),
                 ("vri", 1, False), ("vrb", 1, False), ("mach", 1000, False),
-                ("alt", 1, True)),
+                ("alt", 1, True), ("rx", 1, False)),
         "sw":  (("t", 10, True), ("alt", 1, True), ("palt", 1, False),
                 ("dthr", 100, False), ("xt", 100, False), ("lat", 100000, False),
                 ("lon", 100000, False), ("gs", 1, False), ("trk", 10, False),
@@ -1777,6 +1787,10 @@ class WindshearTracker:
           v19  ADS-B airborne velocity (TC 19, from 2026-10-24; about twice a
                second): t, ground speed kt, track °, vertical rate ft/min,
                alt (ft MSL of the sweep) — older series have no v19
+          rx   (b50 / b60, from 2026-11-02) the receivers that heard the
+               reply, a bit mask (1 = the main receiver MODES-RX-01, 2 = the
+               first of EXTRA_RECEIVERS, 3 = both …); None when the receivers
+               are not merged (RECEIVERS_MERGE off) — older series have no rx
         Column values are integers: value × scale, delta-coded where marked
         (see SERIES_COLS) — about 2–3 kB per landing.  Only replies accepted
         while established on final (as the roughness statistics).
@@ -1798,7 +1812,7 @@ class WindshearTracker:
                 vals = []
                 prev = 0
                 for row in rows:
-                    v = row[i]
+                    v = row[i] if i < len(row) else None
                     if i == 0:
                         v = v - t0
                     if v is None:

@@ -226,7 +226,9 @@
   function renderRc(d) {
     const rc = d.radarcape, tb = $('mst-rc'), foot = $('mst-rc-foot');
     if (!tb) return;
-    if (d.rx && !d.rx.main) { renderXr(d); return; }
+    const view = d.rx ? (d.rx.view || (d.rx.main ? 'main' : 'extra')) : 'main';
+    if (view === 'all') { renderMerged(d); return; }
+    if (view === 'extra') { renderXr(d); return; }
     if ($('mst-rc-title')) $('mst-rc-title').textContent = 'Radarcape receiver';
     if (!rc || !rc.enabled) {
       tb.innerHTML = '<tbody><tr><td class="mst-empty">Not read (RADARCAPE_STATUS = False, or no RADARCAPE_HOST)</td></tr></tbody>';
@@ -295,7 +297,7 @@
   const nfmt = v => v == null ? '—' : Number(v).toLocaleString('en');
   function renderXr(d) {
     const x = d.rx, tb = $('mst-rc'), foot = $('mst-rc-foot');
-    const mainId = (d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver';
+    const mainId = d.main_id || ((d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver');
     if ($('mst-rc-title')) $('mst-rc-title').textContent = `${RX_TYPE_SHORT[x.type] || 'Receiver'} receiver · ${x.id}`;
     const f = x.feed, ck = x.clock, cm = x.cmp, rs = x.readsb, dl = x.delay;
     const rows = [];
@@ -341,10 +343,45 @@
     }
     tb.innerHTML = `<tbody>${rows.join('')}</tbody>`;
     $('mst-rc-note').textContent = '';
-    foot.innerHTML = `This receiver is watched: its own Beast stream is decoded for these statistics and compared with ${esc(mainId)}'s, `
-      + `whose replies alone give the weather. Each of its replies is looked up in ${esc(mainId)}'s stream (after waiting 0.6 s for it to arrive): `
+    foot.innerHTML = (d.merged
+        ? `This receiver's replies go into the weather together with ${esc(mainId)}'s (a reply heard by both counted once; the All receivers tab). `
+          + 'Here its own Beast stream is decoded for its own statistics and compared with '
+        : 'This receiver is watched: its own Beast stream is decoded for these statistics and compared with ')
+      + `${esc(mainId)}'s${d.merged ? '' : ', whose replies alone give the weather'}. Each of its replies is looked up in ${esc(mainId)}'s stream (after waiting 0.6 s for it to arrive): `
       + 'the same bits at the same time are the same transmission heard by both, the rest is what this receiver adds. '
       + 'Its signal levels are on its own scale, not comparable with the Radarcape\'s. Network details are not shown.';
+  }
+  // all receivers merged (RECEIVERS_MERGE; from 2026-11-02 afternoon): the receivers and the merger
+  function renderMerged(d) {
+    const x = d.rx, tb = $('mst-rc'), foot = $('mst-rc-foot'), mg = x.merged || {};
+    if ($('mst-rc-title')) $('mst-rc-title').textContent = 'Receivers · merged';
+    const list = x.receivers || [];
+    const byBit = {};
+    list.forEach(r => { byBit[r.bit] = r.id; });
+    const rows = list.map(r => {
+      const ck = { gps: 'GPS time', sync: 'lined up', own: 'own clock', nogps: 'no GPS time', starting: 'starting' }[r.clock] || r.clock;
+      return `<tr><td><i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}" style="display:inline-block;margin-right:6px"></i><b>${esc(r.id)}</b> <span class="mst-dim2">${esc(r.name)}</span></td>`
+        + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td><td>${esc(ck)}</td>`
+        + `<td class="num">${r.delay ? fmt(r.delay.p50, 0) + ' ms' : '—'}</td></tr>`;
+    });
+    const out = mg.out || 0;
+    const masks = Object.entries(mg.masks || {}).map(([m, n]) => {
+      const ids = Object.keys(byBit).filter(b => (+m >> +b) & 1).map(b => byBit[b]);
+      return [ids.length > 1 ? 'heard by ' + ids.join(' + ') : 'only ' + (ids[0] || '?'), n, ids.length];
+    }).sort((a, b) => b[2] - a[2] || b[1] - a[1]);
+    const mrows = masks.map(([lbl, n]) => `<tr><td>${esc(lbl)}</td><td class="num">${nfmt(n)}</td><td class="num">${pct(n, out)}</td><td></td></tr>`);
+    tb.innerHTML = '<thead><tr><th>Receiver</th><th class="num">Frames</th><th>Clock</th><th class="num" title="Median delay from the reply to its arrival on this server">Delay</th></tr></thead>'
+      + `<tbody>${rows.join('')}<tr class="mst-sep"><td><b>Replies passed on</b></td><td class="num"><b>${nfmt(out)}</b></td><td class="num">100 %</td><td></td></tr>`
+      + mrows.join('')
+      + `<tr><td title="Copies of a reply already taken from another receiver">Duplicates removed</td><td class="num">${nfmt(mg.dup)}</td><td class="num">${pct(mg.dup, out + (mg.dup || 0))}</td><td></td></tr>`
+      + `<tr><td title="A copy that arrived after its reply had been passed on (dropped) / a reply that arrived later than the hold (passed on at once)">Late copies / late replies</td><td class="num">${nfmt(mg.late_dup)} / ${nfmt(mg.late)}</td><td></td><td></td></tr>`
+      + '</tbody>';
+    $('mst-rc-note').textContent = mg.window_min && mg.window_min < d.window_min ? 'last 24 h' : '';
+    foot.innerHTML = 'The replies of all receivers go into the weather together. Each receiver\'s frames are put on one time scale '
+      + '(the Radarcape\'s GPS time; the other receivers\' clocks lined up with it) and a reply heard by more than one receiver is taken once: '
+      + 'the same bits within 5 ms. The replies are passed on in time order ' + fmt(mg.hold_sec || 0.8, 1) + ' s after they were sent, '
+      + 'so the copies coming through the slower tunnel are in time. The statistics on this tab count each reply once; '
+      + 'choose a receiver above for what it alone hears, its signal levels and the Radarcape\'s own status.';
   }
   // the receiver selector (shown with more than one receiver)
   function renderRx(d) {
@@ -353,18 +390,23 @@
     const list = d.receivers || [];
     if (list.length < 2) { el.hidden = true; return; }
     el.hidden = false;
-    const cur = d.rx && !d.rx.main ? d.rx.id : list[0].id;
+    const cur = rxSel;
     const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur;
     if (el.dataset.key === key) return;
     el.dataset.key = key;
     el.innerHTML = (EMBED ? '' : '<span class="gps-summary-label mst-rx-lbl">Receiver</span>')
       + '<span class="mst-rx-btns">' + list.map(r => {
-        const sub = [RX_TYPE_SHORT[r.type] || r.type, r.main ? 'GPS time' : (r.clock === 'gps' ? 'GPS time' : 'own clock'), r.name].filter(Boolean).join(' · ');
-        const tip = r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
-        return `<button type="button" class="mst-rx-btn${r.id === cur ? ' active' : ''}" data-rx="${esc(r.main ? '' : r.id)}" title="${esc(tip)}">`
-          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.id)}</b><small>${esc(sub)}</small></button>`;
+        const sel = r.sel != null ? r.sel : (r.main ? '' : r.id);
+        const sub = r.type === 'merged' ? 'merged · each reply once'
+          : [RX_TYPE_SHORT[r.type] || r.type, r.clock === 'gps' ? 'GPS time' : 'own clock', r.name].filter(Boolean).join(' · ');
+        const tip = r.type === 'merged' ? 'All receivers: the replies of every receiver, a reply heard by more than one counted once — the weather is computed from these'
+          : d.merged ? `${r.id}: what this receiver alone hears (its replies also go into the weather)`
+          : r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
+        return `<button type="button" class="mst-rx-btn${sel === cur ? ' active' : ''}" data-rx="${esc(sel)}" title="${esc(tip)}">`
+          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}</b><small>${esc(sub)}</small></button>`;
       }).join('') + '</span>'
-      + (EMBED ? '' : `<span class="mst-rx-note">The weather is computed from ${esc(list[0].id)}; the other receivers are watched</span>`);
+      + (EMBED ? '' : `<span class="mst-rx-note">${d.merged ? 'The weather is computed from all receivers together'
+          : `The weather is computed from ${esc(list[0].id)}; the other receivers are watched`}</span>`);
     el.querySelectorAll('.mst-rx-btn').forEach(b => b.addEventListener('click', () => {
       if (b.dataset.rx === rxSel) return;
       rxSel = b.dataset.rx;
@@ -376,12 +418,17 @@
   }
 
   function renderMeteo(d) {
-    if ($('mst-meteo-title')) $('mst-meteo-title').textContent = d.rx && !d.rx.main ? 'Meteo yield' : 'Meteo yield · Radarcape aircraft list';
-    if (d.rx && !d.rx.main) {
-      const mainId = (d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver';
-      $('mst-meteo').innerHTML = `<div class="mst-foot">The weather (winds, temperatures, windshear, turbulence …) is computed from ${esc(mainId)}'s replies only. `
-        + `${esc(d.rx.id)} is watched: its replies are decoded for these statistics and compared with ${esc(mainId)}'s (the receiver panel), `
-        + 'but not yet used for the weather. The aircraft list (MLAT positions, registrations) is the main receiver\'s.</div>';
+    const view = d.rx ? (d.rx.view || (d.rx.main ? 'main' : 'extra')) : 'main';
+    const full = view === 'all' || (view === 'main' && !d.merged);
+    if ($('mst-meteo-title')) $('mst-meteo-title').textContent = full ? 'Meteo yield · Radarcape aircraft list' : 'Meteo yield';
+    if (!full) {
+      const mainId = d.main_id || ((d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver');
+      $('mst-meteo').innerHTML = d.merged
+        ? '<div class="mst-foot">The weather (winds, temperatures, windshear, turbulence …) is computed from the replies of all receivers together, '
+          + 'each reply once: its yield is on the <i>All receivers</i> tab. This tab shows what ' + esc(d.rx.id) + ' alone hears.</div>'
+        : `<div class="mst-foot">The weather (winds, temperatures, windshear, turbulence …) is computed from ${esc(mainId)}'s replies only. `
+          + `${esc(d.rx.id)} is watched: its replies are decoded for these statistics and compared with ${esc(mainId)}'s (the receiver panel), `
+          + 'but not used for the weather. The aircraft list (MLAT positions, registrations) is the main receiver\'s.</div>';
       return;
     }
     const m = d.meteo, s = d.window_sec / 60, j = d.json || {};
@@ -411,7 +458,8 @@
     const all = cats.all;
     if (!all || !all.n) {
       if (sigChart) { sigChart.destroy(); sigChart = null; }
-      const why = sg.state === 'off' ? 'Signal levels are switched off (MSG_STATS_SIGNAL = False in config.py).'
+      const why = sg.state === 'per_rx' ? 'The signal levels are each receiver\'s own (their scales differ): choose a receiver above.'
+        : sg.state === 'off' ? 'Signal levels are switched off (MSG_STATS_SIGNAL = False in config.py).'
         : sg.state === 'unavailable' ? 'Signal levels are not available with this pyModeS version (its Beast parser was not found).'
         : 'No signal levels in the window yet.';
       table('mst-sig', [['Class']], []);
@@ -556,7 +604,7 @@
     $('mst-rng-note').title = f ? `${f.icao}${f.alt != null ? ', ' + f.alt.toLocaleString('en') + ' ft' : ''}` : '';
     const leg = ['high', 'mid', 'low'].map(b => `<span class="mst-legend"><i style="background:${COL[b]}"></i>${BAND_NAME[b]}</span>`).join('');
     const site = rg.site || [];
-    const xr = d.rx && !d.rx.main ? d.rx : null, sdec = xr && xr.site && xr.site.private ? 2 : 3;
+    const xr = d.rx && d.rx.view === 'extra' ? d.rx : null, sdec = xr && xr.site && xr.site.private ? 2 : 3;
     $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
       + `(${site.length ? site[0].toFixed(sdec) + '° N ' + site[1].toFixed(sdec) + '° E' + (sdec === 2 ? ', shown to about 1 km' : '') : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
       + `${xr ? { readsb: 'the position set in the receiver\'s readsb (receiver.json)', config: 'lat / lon of its EXTRA_RECEIVERS entry',
@@ -822,7 +870,9 @@
       const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : '') + (rxSel ? '&rx=' + encodeURIComponent(rxSel) : ''));
       data = await r.json();
       // a receiver no longer configured: back to the main one
-      if (rxSel && !(data.rx && data.rx.id === rxSel)) { rxSel = ''; try { localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ } }
+      if (rxSel && !(data.rx && data.rx.id === rxSel && (data.receivers || []).some(r => r.sel === rxSel))) {
+        rxSel = ''; try { localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ }
+      }
       if (tab === 'traffic') await pollTraffic(false);
       renderAll();
     } catch (e) {

@@ -173,18 +173,21 @@ class RadarcapeStatus:
     def _set_site(self) -> None:
         """Range-ring centre: the receiver's GPS position while it is good,
         else ANTENNA_LAT / ANTENNA_LON, else the map centre (msg_stats.choose_site)."""
-        from collector import msg_stats
-        ms = msg_stats.get()
+        from collector import msg_stats, multirx
         p = (self.data or {}).get("position") or {}
         why = self.position_problem()
-        if why is None:
-            ms.choose_site((p["lat"], p["lon"]))
-            if isinstance(p.get("alt"), (int, float)):
-                ms.site_alt = p["alt"]                  # antenna height (GPS)
-        else:
-            ms.choose_site(None, why)
-            if ms.site_alt is None and isinstance(p.get("alt"), (int, float)) and p.get("live") is True:
-                ms.site_alt = p["alt"]
+        # the main statistics and (receivers merged, from 2026-11-02) the
+        # Radarcape's own tab
+        mrx = multirx.main_rx()
+        for ms in [msg_stats.get()] + ([mrx.ms] if mrx is not None else []):
+            if why is None:
+                ms.choose_site((p["lat"], p["lon"]))
+                if isinstance(p.get("alt"), (int, float)):
+                    ms.site_alt = p["alt"]              # antenna height (GPS)
+            else:
+                ms.choose_site(None, why)
+                if ms.site_alt is None and isinstance(p.get("alt"), (int, float)) and p.get("live") is True:
+                    ms.site_alt = p["alt"]
 
     def public(self, now: float | None = None) -> dict:
         """For the Statistics page (/api/msgstats → "radarcape")."""

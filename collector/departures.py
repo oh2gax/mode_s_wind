@@ -69,6 +69,16 @@ import time
 from collector.atmos import tm_temp_c, trimmed_mean
 from collector.wind_calc import compute_wind
 
+
+def _rx_mask(icao: str, ts: float):
+    """The receivers that heard this BDS 5,0 / 6,0 reply (a bit mask; None when
+    the receivers are not merged) — collector/receiver.py rx_mask."""
+    try:
+        from collector.receiver import rx_mask
+        return rx_mask(icao, ts)
+    except Exception:                                  # noqa: BLE001
+        return None
+
 log = logging.getLogger("modes.departures")
 
 DEP_BANDS        = tuple(range(200, 5001, 200))   # ft MSL (to 3 000 ft, as the approach profile, until 30 Oct 2026)
@@ -332,14 +342,14 @@ class DepartureTracker:
                 st["l5"] = l5 = t5
                 if len(st["raw5"]) < SERIES_MAX_ROWS:
                     st["raw5"].append([round(t5, 2), _rd(roll5, 2), _rd(trate5, 3), _rd(trk5, 2),
-                                       gs5, tas5, int(round(alt_at(t5)))])
+                                       gs5, tas5, int(round(alt_at(t5))), _rx_mask(icao, t5)])
         if new6:
             st["l6"] = max(smp[0] for smp in new6)
         for smp in new6:
             if len(st["raw6"]) < SERIES_MAX_ROWS:
                 st["raw6"].append([round(smp[0], 2), smp[1], _rd(smp[2], 2), _rd(smp[3], 0),
                                    _rd(smp[4], 0), _rd(smp[5] if len(smp) > 5 else None, 3),
-                                   int(round(alt_at(smp[0])))])
+                                   int(round(alt_at(smp[0]))), _rx_mask(icao, smp[0])])
         if self._vel is not None:
             try:
                 for tv, vgs, vtrk, vvr in self._vel(icao, st.get("vlast", since)):

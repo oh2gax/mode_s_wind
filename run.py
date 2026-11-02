@@ -1205,10 +1205,12 @@ def main() -> None:
 
     # ── Other receivers, watched (collector/multirx.py, from 2026-11-02) ──
     # EXTRA_RECEIVERS (config_local.py): own Beast readers, statistics and
-    # the comparison with this receiver; the weather stays this receiver's
+    # the comparison with this receiver
     from collector import multirx as _mrx
+    # (RECEIVERS_MERGE: their replies merged into the weather, the main
+    # receiver then read by an own reader too — from 2026-11-02 afternoon)
     _extra_rx = _mrx.init(cfg)
-    for _xr in _extra_rx:
+    for _xr in ([_mrx.main_rx()] if _mrx.main_rx() is not None else []) + _extra_rx:
         try:
             from database.db import get_db as _get_db
             log.info("Statistics page, %s: restored %s", _xr.id,
