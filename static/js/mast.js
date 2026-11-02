@@ -130,12 +130,13 @@
   }
   // the date / time fields follow the profile shown (UTC)
   function syncAt() {
-    const d = $('mt-at-d'), t = $('mt-at-t');
-    if (!d || !t) return;
+    const d = $('mt-at-d'), h = $('mt-at-h'), mi = $('mt-at-m');
+    if (!d || !h || !mi) return;
     const ts = prof && prof.found ? prof.obs.ts : (st.at || Date.now() / 1000);
     const x = new Date(ts * 1000);
     d.value = `${x.getUTCFullYear()}-${pad(x.getUTCMonth() + 1)}-${pad(x.getUTCDate())}`;
-    t.value = `${pad(x.getUTCHours())}:${pad(x.getUTCMinutes())}`;
+    h.value = pad(x.getUTCHours());
+    mi.value = pad(Math.floor(x.getUTCMinutes() / 10) * 10);
     const today = new Date();
     d.max = `${today.getUTCFullYear()}-${pad(today.getUTCMonth() + 1)}-${pad(today.getUTCDate())}`;
   }
@@ -544,16 +545,14 @@
       if ($(id)) $(id).addEventListener('change', e => { st[k] = e.target.checked; lsSet('ms_mast_' + k, st[k]); renderProfile(); });
     if ($('mt-now')) $('mt-now').addEventListener('click', () => loadProfile(null));
     // history (from 2026-11-02): a date and a time in UTC, or steps of 10 min / 1 h from the profile shown
+    // history (from 2026-11-02): a date and an hour / minute in UTC (dropdowns, 10-minute steps as the mast)
     const atFromFields = () => {
-      const d = ($('mt-at-d') || {}).value, t = ($('mt-at-t') || {}).value || '00:00';
+      const d = ($('mt-at-d') || {}).value;
       if (!d) return null;
-      const tm = /^\s*(\d{1,2})[:.]?(\d{2})?\s*$/.exec(t);            // 1920, 19:20, 19.20, 19
-      if (!tm || +tm[1] > 23 || +(tm[2] || 0) > 59) return null;
-      const [y, m, dd] = d.split('-').map(Number), hh = +tm[1], mm = +(tm[2] || 0);
-      return Date.UTC(y, m - 1, dd, hh || 0, mm || 0) / 1000;
+      const [y, m, dd] = d.split('-').map(Number);
+      return Date.UTC(y, m - 1, dd, +($('mt-at-h') || {}).value || 0, +($('mt-at-m') || {}).value || 0) / 1000;
     };
-    for (const id of ['mt-at-d', 'mt-at-t']) if ($(id)) $(id).addEventListener('change', () => { const a = atFromFields(); if (a) loadProfile(a); });
-    if ($('mt-at-t')) $('mt-at-t').addEventListener('keydown', e => { if (e.key === 'Enter') { const a = atFromFields(); if (a) loadProfile(a); else syncAt(); } });
+    for (const id of ['mt-at-d', 'mt-at-h', 'mt-at-m']) if ($(id)) $(id).addEventListener('change', () => { const a = atFromFields(); if (a) loadProfile(a); });
     document.querySelectorAll('.mt-at-ctl [data-step]').forEach(b => b.addEventListener('click', () => {
       const base = prof && prof.found ? prof.obs.ts : (st.at || Date.now() / 1000);
       loadProfile(base + Number(b.dataset.step));
