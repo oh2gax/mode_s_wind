@@ -7,7 +7,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark)
+## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series)
+
+### Mast time series: the mast can be switched off (Mode S only)
+- The Sounding page's Mast tab: the select in the time series' title gets **Mast: off** beside *10 min* and *1-h mean* (`ms_mast_ser_sm` 0): the mast's lines, gusts, direction dots and ΔT bars are left out and only the Mode S hours (with the METAR) are drawn, the axes scaled to them; the hover then gives the Mode S hour; with both off a note says so. The phone's Mast view: the *Mast* chips get **Off** (`ms_app_mast_ser_sm`). `static/js/mast.js` (`seriesSvg` option `smooth: 0`), `static/js/app_mast.js`, `web/templates/sounding.html`, `web/templates/app.html`.
 
 ### Phone: the map's + / − buttons no longer turn white after a tap
 - In the Dark theme the zoom buttons of the ILS view's map (and the Weather view's) turned light grey after a tap and stayed so: Leaflet's own CSS, loaded after `app.css`, colours a hovered or focused button `#f4f4f4`, and on a touch screen the tapped button keeps the focus (and the touch "hover"). New, more specific rules in `static/css/app.css` (`.app-view .leaflet-bar a` and its `:hover` / `:focus` / `:active` / `.leaflet-disabled`) keep the theme's colours; a tap only flashes the darker shade; the disabled button at the zoom limit is dimmed. Checked in a phone emulation: after a tap the button stays `rgb(30, 45, 64)` (was `rgb(244, 244, 244)`).

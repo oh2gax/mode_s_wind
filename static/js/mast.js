@@ -28,7 +28,8 @@
     at: null,                          // profile time (null = the newest)
     // the time series (from 2026-11-01 night): Mode S lines top / all / off, mast 10-min or 1-h mean
     msLv: lsGet('ms_mast_ser_ms', 'top'),
-    smooth: parseInt(lsGet('ms_mast_ser_sm', '10'), 10) === 60 ? 60 : 10,
+    // 10 / 60 (1-h mean) / 0 (the mast off: Mode S only, from 2026-11-02)
+    smooth: [10, 60, 0].includes(parseInt(lsGet('ms_mast_ser_sm', '10'), 10)) ? parseInt(lsGet('ms_mast_ser_sm', '10'), 10) : 10,
   };
   if (!['top', 'all', 'off'].includes(st.msLv)) st.msLv = 'top';
   let ser = null, prof = null, cmp = null, msr = null, on = false, timer = null, seq = 0;
@@ -278,7 +279,8 @@
     return out;
   }
   function seriesSvg(ser, pt, o2 = {}) {
-    const cp = !!o2.compact, sm = o2.smooth === 60;
+    // o2.smooth 0 (from 2026-11-02): the mast's own lines off — only the Mode S hours (and the METAR)
+    const cp = !!o2.compact, sm = o2.smooth === 60, mOn = o2.smooth !== 0;
     const K = C(), wl = ser.wl, tl = ser.tl;
     const R = sm ? smooth1h(ser.rows, tl.length, wl.length) : ser.rows;
     // the Mode S hours and which levels
@@ -301,11 +303,11 @@
     const panels = [];
     for (const p of P) {
       let vals = [];
-      if (p.k === 'ws') { R.forEach(r => { r[4].forEach(v => v != null && vals.push(v)); r[6].forEach(v => v != null && vals.push(v)); });
+      if (p.k === 'ws') { if (mOn) R.forEach(r => { r[4].forEach(v => v != null && vals.push(v)); r[6].forEach(v => v != null && vals.push(v)); });
                           MSR.forEach(r => wI.forEach(i => r[2][i] != null && vals.push(r[2][i]))); }
-      else if (p.k === 't') { R.forEach(r => r[1].forEach(v => v != null && vals.push(v)));
+      else if (p.k === 't') { if (mOn) R.forEach(r => r[1].forEach(v => v != null && vals.push(v)));
                               MSR.forEach(r => { tI.forEach(i => r[1][i] != null && vals.push(r[1][i])); if (r[4] != null) vals.push(r[4]); }); }
-      else if (p.k === 'dt') { R.forEach(r => { if (r[1][tl.length - 1] != null && r[1][0] != null) vals.push(r[1][tl.length - 1] - r[1][0]); });
+      else if (p.k === 'dt') { if (mOn) R.forEach(r => { if (r[1][tl.length - 1] != null && r[1][0] != null) vals.push(r[1][tl.length - 1] - r[1][0]); });
                                MSR.forEach(r => { const v = msDt(r); if (v != null) vals.push(v); }); }
       let lo = p.k === 'wd' ? 0 : Math.min(...vals), hi = p.k === 'wd' ? 360 : Math.max(...vals);
       if (p.k === 'ws') lo = 0;
@@ -335,7 +337,8 @@
         }
         return d;
       };
-      if (p.k === 'ws') {
+      if (!mOn) { /* the mast off: only the Mode S hours below */ }
+      else if (p.k === 'ws') {
         wl.forEach((h, i) => {
           const c = ramp(i / Math.max(1, wl.length - 1));
           s += `<path d="${path(r => r[6][i])}" fill="none" stroke="${c}" stroke-width="0.9" stroke-dasharray="2 3" opacity="${MSR.length ? 0.3 : 0.7}"/>`;
@@ -404,7 +407,7 @@
     // highest level at the top, lowest at the bottom, as the heights go (2026-11-01)
     const kRow = (n, i) => n - 1 - i;
     wl.forEach((h, i) => { const ky = keyY + kRow(wl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
-    s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + 6}" font-size="9" fill="${K.ink3}">- - gust</text>`;
+    s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + 6}" font-size="9" fill="${K.ink3}">${mOn ? '- - gust' : 'mast off'}</text>`;
     if (MSR.length) s += `<circle cx="${ml + pw + 12}" cy="${keyY + wl.length * 16 + 18}" r="2.6" fill="${K.bg}" stroke="${K.ink2}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${keyY + wl.length * 16 + 21}" font-size="9" fill="${K.ink3}">Mode S</text>`;
     if (sm) s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + (MSR.length ? 34 : 20)}" font-size="9" fill="${K.ink3}">mast 1-h mean</text>`;
     const keyT = panels[2].y0 + 6;
@@ -414,12 +417,13 @@
       s += `<circle cx="${ml + pw + 12}" cy="${ky}" r="2.6" fill="${K.bg}" stroke="${K.ink2}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${ky + 3}" font-size="9" fill="${K.ink3}">Mode S</text>` +
            `<rect x="${ml + pw + 9.4}" y="${ky + 9.4}" width="5.2" height="5.2" fill="${K.bg}" stroke="${ramp(0)}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${ky + 15}" font-size="9" fill="${K.ink3}">METAR</text>`;
     }
+    if (!mOn && !MSR.length) s += `<text x="${ml + pw / 2}" y="${mt + 60}" text-anchor="middle" font-size="12" fill="${K.ink2}">The mast and Mode S are both off — choose one in the panel title</text>`;
     // cursor line (moved by the hover) and the chosen profile time
     s += `<line id="mt-cur" x1="0" x2="0" y1="${mt}" y2="${H - 30}" stroke="${K.ink2}" stroke-width="1" visibility="hidden"/>`;
     if (pt && pt >= t0 && pt <= t1) s += `<line x1="${x(pt)}" x2="${x(pt)}" y1="${mt}" y2="${H - 30}" stroke="${K.mast}" stroke-width="1.2" stroke-dasharray="3 3"><title>the profile shown</title></line>`;
     s += '</svg>';
     const msBy = new Map(MSR.map(r => [r[0], r]));
-    return { svg: s, geo: { x, t0, t1, ml, pw, W, R, wl, tl, panels, sm, ms: msBy, wI, tI } };
+    return { svg: s, geo: { x, t0, t1, ml, pw, W, R, wl, tl, panels, sm, mOn, ms: msBy, wI, tI } };
   }
   // the Mode S hour of a time (a 10-minute step at ts covers ts − 10 min … ts) as one line
   function msLine(g, ts) {
@@ -452,7 +456,9 @@
     const w = wl.map((h, i) => `${h} m: ${r[5][i] != null ? String(Math.round(r[5][i])).padStart(3, '0') + '°' : '–'} ${r[4][i] != null ? Math.round(r[4][i]) : '–'} kt <span class="mini-tip-dim">G${r[6][i] != null ? Math.round(r[6][i]) : '–'}</span>`).reverse().join('<br>');
     const t = tl.map((h, i) => `${h} m ${r[1][i] != null ? r[1][i].toFixed(1) : '–'} °C <span class="mini-tip-dim">${r[2][i] != null ? Math.round(r[2][i]) + ' %' : ''}</span>`).reverse().join('<br>');
     const ml = msLine(geo, r[0]);
-    tip.innerHTML = `<b>${utc(r[0])} UTC</b>${geo.sm ? ' <span class="mini-tip-dim">(1-h mean)</span>' : ''} <span class="mini-tip-dim">· click: this profile</span><br>${w}<br>${t}` +
+    if (!geo.mOn) tip.innerHTML = `<b>${utc(r[0])} UTC</b> <span class="mini-tip-dim">· click: the profile of this time</span><br>` +
+      `<span style="color:${C().modes}">${esc(ml || 'Mode S: off')}</span>`;
+    else tip.innerHTML = `<b>${utc(r[0])} UTC</b>${geo.sm ? ' <span class="mini-tip-dim">(1-h mean)</span>' : ''} <span class="mini-tip-dim">· click: this profile</span><br>${w}<br>${t}` +
       (ml ? `<br><span style="color:${C().modes}">${esc(ml)}</span>` : '');
     const box = $('mt-series').getBoundingClientRect();
     tip.style.display = '';

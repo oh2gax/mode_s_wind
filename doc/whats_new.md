@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — Thinner lines in the mast profile, dark map buttons on the phone
 
+- **Mast time series: Mode S alone** — the time series can now also hide the mast's own lines (*Mast: off*), so only the aircraft's hourly values and the METAR are shown; also on the phone.
 - **Phone: map buttons stay dark** — in the Dark theme the + and − of the ILS view's and the Weather view's map turned white after a tap; they now keep their colour.
 - **Mast profile with thinner lines** — on the Sounding page's Mast tab (and in the phone's Mast view) the profile's temperature lines and wind barbs are now as fine as in the time series, so the sources are easier to tell apart.
 

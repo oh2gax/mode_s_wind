@@ -47,7 +47,7 @@
     mfill: lsGet('ms_app_mast_fill', 'fill'),
     // the time series (from 2026-11-01 night): Mode S lines top / all / off, the mast 10-min or 1-h mean
     msLv: lsGet('ms_app_mast_ser_ms', 'top'),
-    smooth: parseInt(lsGet('ms_app_mast_ser_sm', '10'), 10) === 60 ? 60 : 10,
+    smooth: [10, 60, 0].includes(parseInt(lsGet('ms_app_mast_ser_sm', '10'), 10)) ? parseInt(lsGet('ms_app_mast_ser_sm', '10'), 10) : 10,   // 0: the mast off (2026-11-02)
     // the profile's sources: shared with the Sounding page's Mast tab
     modes: lsGet('ms_mast_modes', 'true') !== 'false',
     meps: lsGet('ms_mast_meps', 'true') !== 'false',
@@ -182,7 +182,8 @@
     const tt = [n, Math.floor(n / 2), 0].map(i => `${sgeo.tl[i]} m ${f1(best[1][i], 1, true)} °C`).join(' · ');
     const dT = best[1][n] != null && best[1][0] != null ? best[1][n] - best[1][0] : null;
     const ml = MastView.msLine ? MastView.msLine(sgeo, best[0]) : '';
-    $('am-ser-pick').textContent = `${hm(best[0])} UTC (${sgeo.sm ? '1-h mean' : '10-min mean'})\n${w}\n${tt}${dT != null ? ` · ΔT ${f1(dT, 1, true)} K` : ''}${ml ? '\n' + ml : ''}`;
+    $('am-ser-pick').textContent = !sgeo.mOn ? `${hm(best[0])} UTC\n${ml || 'Mode S: off'}`
+      : `${hm(best[0])} UTC (${sgeo.sm ? '1-h mean' : '10-min mean'})\n${w}\n${tt}${dT != null ? ` · ΔT ${f1(dT, 1, true)} K` : ''}${ml ? '\n' + ml : ''}`;
     if (load && best[0] !== S.at) loadProfile(best[0]);
   }
 
