@@ -176,6 +176,11 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .toggle-label { font-size: 11px; color: var(--text-2); display: flex;
                 align-items: center; gap: 4px; cursor: pointer; }
 .toggle-label input { cursor: pointer; }
+/* Live Map list header (from 2026-11-02, with Solo): Meteo only · Track · Solo · Lbl on one line —
+   nothing wraps; a little tighter so that even "Lbl ICAO24" fits the 245-px panel */
+.filter-row:has(#toggle-solo) { gap: 4px; }
+.filter-row .toggle-label { white-space: nowrap; flex-shrink: 0; gap: 3px; }
+.filter-row #lbl-btn { white-space: nowrap; flex-shrink: 0; padding: 1px 6px; }
 
 /* ── Detail strip (bottom) ──────────────────────────────────────────────── */
 .detail-strip { height: 165px; background: var(--bg-1); border-top: 1px solid var(--border);

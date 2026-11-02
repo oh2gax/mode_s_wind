@@ -102,6 +102,11 @@ const MAX_WIND_HIST   = 80;   // wind obs per aircraft (≈ climb/descent profil
 // localStorage.getItem returns null when key is absent; null !== 'false' → true (default ON)
 let meteoOnly   = localStorage.getItem('ms_meteoOnly')  !== 'false';
 let showTrack   = localStorage.getItem('ms_showTrack')  === 'true';   // default OFF
+// Solo (from 2026-11-02): with it on, a selected aircraft is shown alone — the other
+// symbols, labels, wind lines, history plots and vectors are hidden — with its track
+// line (also with Track off), and the map follows it (pans when it nears the edge).
+// Nothing selected: all traffic as usual.  The list keeps every aircraft (to pick another).
+let soloOn      = localStorage.getItem('ms_liveSolo')   === '1';      // default OFF
 // Map labels (from 2026-10-30; before a Labels tick box and a Callsign /
 // Registration / ICAO24 menu): one button steps the levels, as the Windshear
 // map's Lbl button — ATC-style labels (callsign over the altitude).
@@ -454,7 +459,7 @@ function drawPlotCanvas(g, m, W, H) {
   // ATC: the labels, placed last, keep clear of the plots, the vectors and the panels over the map
   const lbls = [], obst = atc ? AtcDisplay.domObstacles(m, '.map-legend, .leaflet-control-zoom, .leaflet-control-container .leaflet-top.leaflet-right > *') : null;
   for (const [icao, ac] of Object.entries(aircraftData)) {
-    if (!markers[icao] || !ac.lat || !ac.lon) continue;
+    if (!markers[icao] || !ac.lat || !ac.lon || soloHide(icao)) continue;
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
     const col  = acSymColor(ac), sel = icao === selectedIcao;
@@ -520,7 +525,7 @@ function applyLiveStyle() {
 const plotLayer = AtcDisplay.canvasLayer(map, drawPlotCanvas);
 liveHov = AtcDisplay.hover(map, {
   active:  () => lblAtc() && liveHoverOn,
-  targets: () => Object.entries(aircraftData).filter(([k, a]) => markers[k] && a.lat && a.lon).map(([k, a]) => [k, a.lat, a.lon]),
+  targets: () => Object.entries(aircraftData).filter(([k, a]) => markers[k] && a.lat && a.lon && !soloHide(k)).map(([k, a]) => [k, a.lat, a.lon]),
   rects:   () => atcLblRects,
   redraw:  () => plotLayer.redraw(),
 });
@@ -768,7 +773,36 @@ function renderList(data) {
 }
 
 // ── Select aircraft ────────────────────────────────────────────────────────
+// Solo: is this aircraft hidden?  (an aircraft is selected and it is another one)
+const soloHide = icao => soloOn && !!selectedIcao && icao !== selectedIcao;
+function applySolo() {
+  for (const [k, m] of Object.entries(markers)) {
+    const hide = soloHide(k);
+    if (hide) {
+      if (map.hasLayer(m)) { m.off('popupclose'); m.remove(); m.on('popupclose', () => { if (!popupDropping && selectedIcao === k) closeDetail(); }); }
+      if (labelMarkers[k] && map.hasLayer(labelMarkers[k])) labelMarkers[k].remove();
+      if (windArrows[k]) { windArrows[k].remove(); delete windArrows[k]; }
+    } else {
+      if (!map.hasLayer(m)) m.addTo(map);
+      if (labelMarkers[k] && !map.hasLayer(labelMarkers[k])) labelMarkers[k].addTo(map);
+      const d = aircraftData[k];
+      if (d && !windArrows[k]) drawWindArrow(k, d.lat, d.lon, d.best_wind_spd, d.best_wind_dir);
+    }
+  }
+  drawSelectedTrack(selectedIcao);
+  plotLayer.redraw();
+}
+// Solo: the map follows the selected aircraft — pans when it leaves the middle 70 % of the view
+function soloFollow() {
+  if (!soloOn || !selectedIcao) return;
+  const ac = aircraftData[selectedIcao];
+  if (!ac || ac.lat == null || ac.lon == null) return;
+  const ll = L.latLng(ac.lat, ac.lon);
+  if (!map.getBounds().pad(-0.15).contains(ll)) map.panTo(ll, { animate: true, duration: 0.6 });
+}
+
 function selectAircraft(icao) {
+  const changed = selectedIcao !== icao;
   selectedIcao = icao;
   const ac = aircraftData[icao];
   if (!ac) return;
@@ -778,6 +812,7 @@ function selectAircraft(icao) {
     if (d) m.setIcon(makeIcon(acSymColor(d), k === icao));
   }
   plotLayer.redraw();                    // the selected aircraft's vector colour
+  if (changed && soloOn) { applySolo(); soloFollow(); }   // Solo: the others hidden, the map on it
 
   document.getElementById('detail-ac-panel').classList.remove('hidden');
 
@@ -928,7 +963,7 @@ function appendSelTrack(ac) {
 }
 
 function drawSelectedTrack(icao) {
-  if (!showTrack || !icao || icao !== selTrackIcao || selTrackPts.length < 2) {
+  if (!(showTrack || soloOn) || !icao || icao !== selTrackIcao || selTrackPts.length < 2) {
     if (selectedTrackLayer) { selectedTrackLayer.remove(); selectedTrackLayer = null; }
     return;
   }
@@ -973,6 +1008,7 @@ function closeDetail() {
     const d = aircraftData[k];
     if (d) m.setIcon(makeIcon(acSymColor(d), false));
   }
+  if (soloOn) applySolo();               // Solo: all traffic back
   plotLayer.redraw();
 }
 
@@ -1041,6 +1077,7 @@ function connectSSE() {
     if (selectedIcao && aircraftData[selectedIcao]) {
       selectAircraft(selectedIcao);
     }
+    if (soloOn && selectedIcao) { applySolo(); soloFollow(); }
   };
 }
 
@@ -1049,6 +1086,16 @@ function connectSSE() {
 // Restore saved state into the DOM controls before first render
 document.getElementById('filter-meteo-only').checked = meteoOnly;
 document.getElementById('toggle-track').checked      = showTrack;
+const soloBox = document.getElementById('toggle-solo');
+if (soloBox) {
+  soloBox.checked = soloOn;
+  soloBox.addEventListener('change', e => {
+    soloOn = e.target.checked;
+    localStorage.setItem('ms_liveSolo', soloOn ? '1' : '0');
+    applySolo();
+    soloFollow();
+  });
+}
 
 // Aircraft list order button: Alt ↑ → Alt ↓ → A–Z
 const acSortBtn = document.getElementById('ac-sort-btn');

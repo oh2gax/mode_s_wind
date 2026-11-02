@@ -19,6 +19,10 @@
         <label class="toggle-label">
           <input type="checkbox" id="toggle-track"> Track
         </label>
+        <!-- Solo (from 2026-11-02): the selected aircraft alone, with its track; the map follows it -->
+        <label class="toggle-label" title="Solo — when on, an aircraft you select (on the map or in the list) is shown alone: the other aircraft are hidden from the map, its track line is drawn (also with Track off) and the map follows it. Deselect it (× in its details, or Esc) or switch Solo off to see all traffic again. The list keeps every aircraft, so you can pick another one. Remembered in the browser.">
+          <input type="checkbox" id="toggle-solo"> Solo
+        </label>
         <!-- map labels (from 2026-10-30, as the Windshear map's Lbl button): one button steps the levels -->
         <button id="lbl-btn" class="skewt-ana-btn" type="button"
                 title="Aircraft labels on the map — click to step: Off · CS (callsign) · Reg (registration) · ICAO24 (the transponder address) · Type (ICAO aircraft type) · CS+Alt (callsign over the altitude as on a controller's radar label: A023 on the METAR QNH up to 5 000 ft, FL061 above, ↑ / ↓ climbing / descending) · +Type (callsign and type over the altitude) · Full (also the altitude selected on the autopilot panel, MCP / FCU, signed + climbing, - descending, = level: A023+A050, FL120-A030). Remembered in the browser.">Lbl CS+Alt</button>

@@ -887,6 +887,8 @@ Lists all currently visible aircraft, by default by altitude with the lowest on 
 
 **Meteo only** checkbox — hides all aircraft that do not currently have any decoded meteo data. Defaults **on**; state persists across browser sessions.
 
+**Solo** checkbox (from 2 Nov 2026; `ms_liveSolo`, default off) — with it on, an aircraft selected on the map or in the list is shown **alone**: the other aircraft's symbols, labels, wind lines, history plots and speed vectors are hidden (`soloHide`, `applySolo` in `static/js/live_map.js`; nothing else changes, the hover ignores them), its **track line** is drawn also with *Track* off, and the **map follows it** — it pans when the aircraft leaves the middle 70 % of the view (`soloFollow`, at each update). With nothing selected all traffic shows as usual; deselecting it (Esc or × of its details) or switching Solo off brings the others back. The list keeps every aircraft, so another one can be picked directly. The first filter row (Meteo only · Track · Solo · Lbl) stays on one line in the 245-px panel (slightly tighter gaps, nothing wraps).
+
 #### Weather overlay
 
 A **☂ Weather** button at the top right of the map opens a small panel (`static/js/live_wx.js`, drawn with the same code as the Weather page, `static/js/wx_layer.js`). The overlay lies in its own layer **under the aircraft**, so symbols, tracks and labels stay on top and clickable; all choices are remembered in the browser, and with the panel closed the button shows what is on (`☂ MEPS 12–13 UTC`, `☂ Radar 11:55 UTC`, `☂ Radar 11:55 + MEPS 12–13 UTC`).
