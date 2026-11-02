@@ -150,6 +150,17 @@ const pageIsLight = () => document.documentElement.dataset.theme === 'light';
 let currentTheme = pageIsLight() ? 'grey' : 'dark';
 TILES[currentTheme].addTo(map);
 const wsIsAtc = () => currentTheme === 'atc';
+// The labels apart from the map (from 2026-11-02, as the Live Map): ATC labels — on the
+// canvas, three lines with leader lines, kept apart, the extended label and Hover — on any
+// map style, or the normal labels beside the squares on any.  ms_ws_lbls 'atc' | 'normal';
+// the first time it follows the style (ATC → ATC labels), as before when the style set both.
+var wsLblsAtc = (() => { try { const v = localStorage.getItem('ms_ws_lbls'); return v === 'atc' ? true : v === 'normal' ? false : localStorage.getItem('ms_ws_style') !== 'meteo'; } catch (_) { return true; } })();
+const wsLblAtc = () => wsLblsAtc;
+// ATC labels over the street maps: a lighter / darker text with an outline (Dark / Grey map)
+const wsStreetLblCol = () => currentTheme === 'grey' ? '#1f2937' : '#e5e7eb';
+const wsStreetLblOpt = () => ({ halo: currentTheme === 'grey' ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
+                                leader: currentTheme === 'grey' ? '#64748b' : '#94a3b8' });
+let wsIlsFeat = null;            // the EFHK finals of the street maps' overlay (label obstacles)
 
 // Airport marker (not in the ATC style)
 const wsAptMarker = L.circleMarker([WS_AIRPORT_LAT, WS_AIRPORT_LON], {
@@ -218,6 +229,7 @@ async function loadOverlays(theme, level = 0) {
         f => f.properties && f.properties.airport === 'EFHK'
       ),
     };
+    wsIlsFeat = efhkIls.features;
     ilsLayer = L.geoJSON(efhkIls, {
       style: f => f.properties?.approach_type === 'RNP' ? rnpStyle(theme) : ilsStyle(theme),
     }).addTo(map);
@@ -258,15 +270,19 @@ const WS_STYLE_TXT = { dark: 'Dark', grey: 'Grey', atc: 'ATC' };
 function updateThemeButtons() {
   const sb = document.getElementById('ws-style-btn');
   if (sb) { sb.textContent = WS_STYLE_TXT[currentTheme] || 'Dark'; sb.dataset.theme = currentTheme; sb.classList.add('active'); }
+  // Rings (ATC map) and Hover (ATC labels) stay in the bar, greyed while they do not apply
+  // (from 2026-11-02; before hidden — the other buttons then moved)
   const rb = document.getElementById('ws-rings-btn');
-  if (rb) rb.hidden = !wsIsAtc();
+  if (rb) rb.disabled = !wsIsAtc();
   const hb = document.getElementById('ws-hover-btn');
-  if (hb) hb.hidden = !wsIsAtc();
+  if (hb) hb.disabled = !wsLblAtc();
+  const lb = document.getElementById('ws-lbls-btn');
+  if (lb) { lb.textContent = wsLblAtc() ? 'ATC lbl' : 'Std lbl'; lb.classList.toggle('active', wsLblAtc()); }
   wsHoverSync();
 }
 // The Hover button's state; the extended label replaces the symbol's tooltip
 function wsHoverSync() {
-  const hb = document.getElementById('ws-hover-btn'), on = wsIsAtc() && wsHoverOn;
+  const hb = document.getElementById('ws-hover-btn'), on = wsLblAtc() && wsHoverOn;
   if (hb) { hb.textContent = wsHoverOn ? 'Hover On' : 'Hover'; hb.classList.toggle('active', wsHoverOn); }
   document.getElementById('ws-map').classList.toggle('ws-atc-hover', on);
   if (!on && wsHov) wsHov.clear();
@@ -299,6 +315,13 @@ function applyTheme(theme) {
 
 document.getElementById('ws-style-btn')?.addEventListener('click', () =>
   applyTheme({ atc: 'dark', dark: 'grey', grey: 'atc' }[currentTheme] || 'atc'));
+// the labels: ATC lbl ↔ Std lbl (from 2026-11-02)
+document.getElementById('ws-lbls-btn')?.addEventListener('click', () => {
+  wsLblsAtc = !wsLblsAtc;
+  try { localStorage.setItem('ms_ws_lbls', wsLblsAtc ? 'atc' : 'normal'); } catch (_) { /* private mode */ }
+  updateThemeButtons();
+  updateMapMarkers(wsMapAircraft());
+});
 updateThemeButtons();   // initial style may be Grey (light page theme)
 
 // ── Aircraft markers on map ───────────────────────────────────────────────────
@@ -385,8 +408,8 @@ function wsAcLabelHtml(ac) {
          `${body}</div>`;
 }
 function wsAcLabelIcon(ac) {
-  // the ATC style draws its labels on the canvas (wsDrawCanvas)
-  if (wsIsAtc()) return L.divIcon({ html: '', className: '', iconSize: [0, 0] });
+  // the ATC labels are drawn on the canvas (wsDrawCanvas)
+  if (wsLblAtc()) return L.divIcon({ html: '', className: '', iconSize: [0, 0] });
   const sel = barbLayerActive && ac.icao === barbSelectedIcao;
   const s = sel ? 8 : ac.in_corridor ? 10 : 8;   // as makeAcIcon
   const left = ac.in_corridor && /R$/.test(ac.approach_runway || '');
@@ -435,7 +458,7 @@ const wsAtcLvl3 = pa => wsAtcAlt(pa).replace(/^(A|FL)/, '');
 // at once and every 2 s while it stays selected.
 const wsSelExtIcao = () => {
   // (the first draw of the canvas comes before the barb state below is declared)
-  try { return (wsIsAtc() && barbLayerActive && !barbAutoActive && barbSelectedIcao) || null; }
+  try { return (wsLblAtc() && barbLayerActive && !barbAutoActive && barbSelectedIcao) || null; }
   catch (_) { return null; }
 };
 let wsSelExt = { key: null, data: null, timer: null };
@@ -454,16 +477,25 @@ function wsSelExtSync(redraw = true) {
   if (redraw) wsCanvas.redraw();
 }
 function wsDrawCanvas(g, m, W, H) {
-  const atc = wsIsAtc();
-  wsSelExtSync(false);                   // the selected aircraft's extended label (ATC)
-  if (!wsHistN && !atc) return;
+  const atc = wsIsAtc(), lblA = wsLblAtc();   // the ATC map / the ATC labels (apart from 2026-11-02)
+  wsSelExtSync(false);                   // the selected aircraft's extended label (ATC labels)
+  if (!wsHistN && !atc && !lblA) return;
   if (atc) AtcDisplay.drawRings(g, m, W, H, wsRingNm, WS_AIRPORT_LAT, WS_AIRPORT_LON);
   const P = AtcDisplay.pal(), lbls = [];
   // the labels keep clear of the plots, the vectors and the panels over the map
-  const obst = atc ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, #ws-edr-sum, .leaflet-control-zoom, .ms-map-home') : null;
+  const obst = lblA ? AtcDisplay.domObstacles(m, '.ws-map-controls, .ws-windrose-panel:not(.ws-windrose-hidden), .ws-aphist-panel:not(.ws-aphist-hidden), #ws-atc-legend, #ws-edr-sum, .leaflet-control-zoom, .ms-map-home') : null;
   // and of the approach lines, so that the leading aircraft on a final does not
-  // put its label straight ahead over the line (from 30 Oct 2026)
-  if (obst && wsAtcLines) obst.push(...wsAtcLines.obstacles(W, H));
+  // put its label straight ahead over the line (from 30 Oct 2026; on the street maps
+  // from their own ILS overlay, from 2026-11-02)
+  if (obst && atc && wsAtcLines) obst.push(...wsAtcLines.obstacles(W, H));
+  if (obst && !atc && wsIlsFeat) obst.push(...AtcDisplay.lineObstacles(m, wsIlsFeat, W, H));
+  // the street maps' speed vectors are map lines (updateMapMarkers): the labels keep clear of them too
+  if (obst && !atc && wsVecSec) for (const ac of Object.values(wsShown)) {
+    if (ac.landed || !(ac.groundspeed > 30) || ac.track == null) continue;
+    const p = m.latLngToContainerPoint([ac.lat, ac.lon]), pe = m.latLngToContainerPoint(wsVecEnd(ac.lat, ac.lon, ac.track, ac.groundspeed, wsVecSec));
+    const dx = pe.x - p.x, dy = pe.y - p.y, L0 = Math.hypot(dx, dy);
+    for (let d = 8; d < L0; d += 8) obst.push({ x: p.x + dx * d / L0 - 2, y: p.y + dy * d / L0 - 2, w: 4, h: 4 });
+  }
   for (const [icao, ac] of Object.entries(wsShown)) {
     const p0 = m.latLngToContainerPoint([ac.lat, ac.lon]);
     if (p0.x < -300 || p0.y < -300 || p0.x > W + 300 || p0.y > H + 300) continue;
@@ -478,23 +510,23 @@ function wsDrawCanvas(g, m, W, H) {
       const pts = (wsTrails[icao] || []).filter(q => q[2] < ac._ts).slice(-wsHistN);   // not the current position
       AtcDisplay.drawPlots(g, m, pts, wsHistN, col, fade, obst);
     }
-    if (atc) {
-      if (!ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
+    if (atc && !ac.landed) AtcDisplay.drawVector(g, m, p0, ac, wsVecSec, col, ac.in_corridor ? 0.95 : 0.7, ac.in_corridor ? 1.6 : 1.3, obst);
+    if (lblA) {
       const hov = wsHov && wsHov.key() === icao, selExt = !hov && wsSelExt.key === icao, ext = hov || selExt;
       const lines = ext ? AtcDisplay.extLines(ac, hov ? wsHov.data() : wsSelExt.data, { cs: ac.callsign || ac.icao, lvl3: wsAtcLvl3,
                                                                  apt: [WS_AIRPORT_LAT, WS_AIRPORT_LON, WS_AIRPORT_NAME] })
                         : AtcDisplay.labelLines(ac, wsLblLvl, ac.callsign || ac.icao, wsAtcLvl3);
       // the labels grey (from 2026-11-01, as the Live Map; the square keeps its colour)
-      if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: P.high, ext,
+      if (lines) lbls.push({ key: icao, p: p0, lines, sel: selExt, fade, col: atc ? P.high : wsStreetLblCol(), ext,
                              alt: (ac.altitude ?? 99999) - (ac.in_corridor ? 100000 : 0),   // the approach traffic placed first
                              ga: ac.ga_phase === 'GO_AROUND' && !ac.landed, gaOn: ac.ga_flash ? wsGaOn : true });
     }
   }
-  wsLblRects = atc && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos) : {};
+  wsLblRects = lblA && lbls.length ? AtcDisplay.drawLabels(g, lbls, W, H, obst, wsLblPos, 12, atc ? {} : wsStreetLblOpt()) : {};
 }
 const wsCanvas   = AtcDisplay.canvasLayer(map, wsDrawCanvas);
 wsHov = AtcDisplay.hover(map, {
-  active:  () => wsIsAtc() && wsHoverOn,
+  active:  () => wsLblAtc() && wsHoverOn,
   targets: () => Object.entries(wsShown).map(([k, a]) => [k, a.lat, a.lon]),
   rects:   () => wsLblRects,
   redraw:  () => wsCanvas.redraw(),
@@ -503,7 +535,7 @@ wsHoverSync();
 var wsAtcLines = AtcDisplay.mapLines(map);   // var: the canvas may draw before this line
 // the GA mark blinks as on the street-map labels (only redrawn while one is shown)
 setInterval(() => {
-  if (!wsIsAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed && a.ga_flash)) return;
+  if (!wsLblAtc() || !Object.values(wsShown).some(a => a.ga_phase === 'GO_AROUND' && !a.landed && a.ga_flash)) return;
   wsGaOn = !wsGaOn;
   wsCanvas.redraw();
 }, 500);
@@ -1858,7 +1890,7 @@ let wsEdrPh = (() => { try { const v = localStorage.getItem('ms_ws_edrph'); retu
 function wsEdrPhShow() {
   const b = document.getElementById('ws-edrph-btn');
   if (!b) return;
-  b.hidden = !wsEdrMin || wsMapMode === 'ils';
+  b.disabled = !wsEdrMin || wsMapMode === 'ils';   // greyed, not hidden: the bar keeps its places (2026-11-02)
   b.textContent = WS_EDR_PH_TXT[wsEdrPh];
   b.classList.toggle('active', wsEdrPh !== 'all');
 }
@@ -3341,10 +3373,12 @@ async function fetchApproachState() {
       nCorridor === 0 ? 'No aircraft inside ILS corridor'
                       : `${nCorridor} on ILS${rwySummary ? '  ·  ' + rwySummary : ''}${nTotal > nCorridor ? `  (${nTotal - nCorridor} other)` : ''}`;
     const nDepMap = wsNear.filter(a => a.dep).length;
-    document.getElementById('ws-map-count').textContent =
+    const mcEl = document.getElementById('ws-map-count');
+    mcEl.textContent =
       wsMapMode === 'ils' ? `${nCorridor} ILS corridor`
         : wsMapMode === 'dep' ? `${nCorridor} on ILS  ·  ${nDepMap} departing`
         : `${nCorridor + wsNear.length} within ${WS_MAP_NM[wsMapMode] || 30} NM  ·  ${nCorridor} on ILS`;
+    mcEl.title = mcEl.textContent;       // the whole text when it is cut short on a narrow window (CSS)
 
   } catch (e) {
     console.warn('Windshear state fetch error:', e);

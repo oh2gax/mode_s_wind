@@ -68,9 +68,9 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.38
+version: 2.39
 date: 2026-11-02
-pages: 29
+pages: 30
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.

@@ -1007,6 +1007,27 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .ws-ils-filter-btn:hover  { background: var(--bg-3); color: var(--text-1); }
 .ws-ils-filter-btn.active { background: #d97706; color: #fff; border-color: #d97706; }
 .ws-vec-btn.active        { background: #0e7490; border-color: #0e7490; }   /* speed vectors on (29 Oct 2026) */
+/* The Windshear map bar keeps its places (from 2026-11-02, as the Live Map): each stepping
+   button as wide as its longest text; EDR All/App/Dep, Rings and Hover always shown, greyed
+   while they do not apply; on a narrow window the traffic count is cut short (its title has it all) */
+.ws-map-controls button { box-sizing: border-box; text-align: center; }
+#ws-ils-filter { min-width: 76px; }
+#ws-vec-btn    { min-width: 67px; }
+#ws-lbl-btn    { min-width: 74px; }
+#ws-hist-btn   { min-width: 53px; }
+#ws-edr-btn    { min-width: 78px; }
+#ws-edrph-btn  { min-width: 39px; }
+#ws-style-btn  { min-width: 46px; }
+#ws-lbls-btn   { min-width: 58px; }
+#ws-rings-btn  { min-width: 62px; }
+#ws-hover-btn  { min-width: 66px; }
+.ws-map-controls button:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 1500px) {
+  .ws-map-count { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 1400px) {
+  .ws-map-count { display: none; }   /* the bar then still clears the zoom buttons (1280 px); the strips' summary has the counts */
+}
 
 /* Wind barb split button group  [ 🌬 Barbs | Auto ] */
 .ws-barb-group {
