@@ -315,7 +315,9 @@ def _pct(vals, q):
 
 
 def _delay_stats(vals) -> dict | None:
-    v = [x for x in vals if x is not None]
+    # list(deque) copies it at once; iterating the deque itself while the
+    # reader thread appends raised "deque mutated during iteration" (2 Nov)
+    v = [x for x in list(vals) if x is not None]
     if len(v) < 20:
         return None
     return {"min": round(min(v) * 1000, 1), "p50": round(_pct(v, 0.5) * 1000, 1),
@@ -568,8 +570,9 @@ class Rx:
         if self.sync_off is not None and self.sync_ts is not None and now - self.sync_ts < SYNC_MAX_AGE \
                 and len(self.pairs) >= SYNC_MIN_PAIRS:
             return self.sync_off, "sync"
-        if self.env:
-            return min(e[1] for e in self.env), "own"
+        env = list(self.env)                       # a copy (the web thread reads this too)
+        if env:
+            return min(e[1] for e in env), "own"
         return None, None
 
     def _reset_clock(self) -> None:
