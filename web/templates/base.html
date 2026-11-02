@@ -103,19 +103,22 @@ const CARTO_API_KEY = {{ carto_api_key | tojson }};
 <script>
 // ── The receivers on the maps (from 2026-11-02) ────────────────────────────────
 // Before, a blue dot at RECEIVER_LAT / RECEIVER_LON — the map centre at the airport, not
-// the antenna.  Now one dot per receiver at its own position as the Statistics page uses
-// it (the Radarcape's GPS, readsb's receiver.json or ANTENNA_LAT / LON), rounded to 0.01°
-// (/api/coverage); refreshed every 10 min; the old dot only until a position is known.
-// Live Map, Weather and Wind Map: msRxMarkers(map, {radius}) returns a layer group.
-window.msRxMarkers = function (map, opt) {
-  opt = opt || {};
-  var COLS = ['#1d4ed8', '#7c3aed', '#0d9488', '#d97706'];   // RX-01 blue, RX-02 violet … (the Live Map coverage)
+// the antenna.  Now each receiver at its own position as the Statistics page uses it (the
+// Radarcape's GPS, readsb's receiver.json or ANTENNA_LAT / LON), rounded to 0.01°
+// (/api/coverage); refreshed every 10 min (every minute until a position is known).
+// The same small triangle as the Live Map's coverage markers (later on 2 Nov 2026; before a
+// filled dot): RX-01 light blue (blue in the Light theme), RX-02 violet, then teal and amber,
+// labelled RX-01 / RX-02 when there are several (colours in style.css .ms-rx-*, so a theme
+// switch needs no redraw).  Live Map, Weather and Wind Map: msRxMarkers(map) returns a layer group.
+window.msRxMarkers = function (map) {
   var TYPE = { radarcape: 'Radarcape', airspy: 'AirSpy', readsb: 'readsb' };
   var esc = function (v) { return String(v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
-  var dot = function (lat, lon, col) {
-    return L.circleMarker([lat, lon], { radius: opt.radius || 6, color: '#fff', fillColor: col, fillOpacity: 1, weight: 2 });
+  var tri = function (r, i, n) {
+    var lbl = n > 1 ? '<span class="ms-rx-lbl">' + esc(String(r.id || '').replace(/^MODES-/, '') || 'Receiver') + '</span>' : '';
+    return L.divIcon({ className: 'ms-rx-tri ms-rx-' + (i % 4), iconSize: [12, 12], iconAnchor: [6, 7],
+      html: '<svg width="12" height="12" viewBox="-6 -7 12 12" aria-hidden="true"><polygon points="0,-6 5,3.5 -5,3.5"/></svg>' + lbl });
   };
-  var g = L.layerGroup([dot(RECEIVER_LAT, RECEIVER_LON, COLS[0]).bindTooltip('Receiver (EFHK area)')]);
+  var g = L.layerGroup(), known = false, timer = null;
   var load = function () {
     fetch('/api/coverage?hours=1', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       // a receiver whose position is not known yet (src "centre": the map centre) is left
@@ -126,14 +129,15 @@ window.msRxMarkers = function (map, opt) {
       g.clearLayers();
       all.forEach(function (r, i) {
         if (!ok(r)) return;
-        g.addLayer(dot(r.lat, r.lon, COLS[i % COLS.length]).bindTooltip(
+        g.addLayer(L.marker([r.lat, r.lon], { icon: tri(r, i, all.length), keyboard: false }).bindTooltip(
           esc(r.id || 'Receiver') + (r.name ? ' · ' + esc(r.name) : '') +
           (r.type ? ' — ' + esc(TYPE[r.type] || r.type) : '') + ' (position to about 1 km)'));
       });
+      if (!known) { known = true; clearInterval(timer); timer = setInterval(function () { if (!document.hidden) load(); }, 600000); }
     }).catch(function () {});
   };
   load();
-  setInterval(function () { if (!document.hidden) load(); }, 600000);
+  timer = setInterval(function () { if (!document.hidden) load(); }, 60000);   // until a position is known
   return g;
 };
 </script>

@@ -81,7 +81,7 @@ const TILES = {
 const isLight = () => document.documentElement.dataset.theme === 'light';
 let tileTheme = isLight() ? 'light' : 'dark';
 TILES[tileTheme].addTo(map);
-msRxMarkers(map, { radius: 5 }).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
+msRxMarkers(map).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
 
 const $ = id => document.getElementById(id);
 const pad2 = n => String(n).padStart(2, '0');

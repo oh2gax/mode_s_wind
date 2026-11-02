@@ -82,7 +82,7 @@ let currentTile = L.tileLayer(
 
 // Receiver markers (hidden in the ATC style): from 2026-11-02 each receiver at its own
 // position (rounded to 0.01°, base.html msRxMarkers) — before one dot at the map centre
-const receiverMarker = msRxMarkers(map, { radius: 7 }).addTo(map);
+const receiverMarker = msRxMarkers(map).addTo(map);
 
 // ── State ─────────────────────────────────────────────────────────────────
 const markers        = {};   // icao → L.Marker (aircraft symbol)
@@ -1143,7 +1143,7 @@ if (lblsBtn) lblsBtn.addEventListener('click', () => {
 const ringsBtn = document.getElementById('rings-btn');
 function showRings() {
   if (!ringsBtn) return;
-  ringsBtn.hidden = liveMap !== 'atc';
+  ringsBtn.disabled = liveMap !== 'atc';   // greyed, not hidden (from 2026-11-02: the buttons keep their places)
   ringsBtn.textContent = ringNm ? `Rings ${ringNm}` : 'Rings Off';
   ringsBtn.classList.toggle('active', ringNm !== 0);
 }
@@ -1158,7 +1158,7 @@ if (ringsBtn) ringsBtn.addEventListener('click', () => {
 const hoverBtn = document.getElementById('hover-btn');
 function showHover() {
   if (!hoverBtn) return;
-  hoverBtn.hidden = !lblAtc();
+  hoverBtn.disabled = !lblAtc();
   hoverBtn.textContent = liveHoverOn ? 'Hover On' : 'Hover Off';
   hoverBtn.classList.toggle('active', liveHoverOn);
   if (!lblAtc() || !liveHoverOn) liveHov.clear();

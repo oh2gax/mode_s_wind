@@ -139,6 +139,36 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .filter-row .skewt-ana-btn[hidden] { display: none; }
 .filter-row-btns { flex-wrap: wrap; row-gap: 4px; }
 .filter-row-btns .skewt-ana-btn { white-space: nowrap; }
+/* Live Map (from 2026-11-02): the buttons keep their places — each as wide as its longest
+   text, and Rings / Hover always shown, greyed while they do not apply (before they came and
+   went with the style, and the texts of different widths moved the others) */
+.filter-row-btns .skewt-ana-btn { box-sizing: border-box; text-align: center; }
+.filter-row-btns #hist-btn  { min-width: 55px; }
+.filter-row-btns #vec-btn   { min-width: 58px; }
+.filter-row-btns #style-btn { min-width: 64px; }
+.filter-row-btns #lbls-btn  { min-width: 86px; }
+.filter-row-btns #rings-btn { min-width: 64px; }
+.filter-row-btns #hover-btn { min-width: 66px; }
+.filter-row-btns .skewt-ana-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* The receivers on the maps (base.html msRxMarkers, from 2026-11-02): the Live Map coverage's
+   small triangle and colours — RX-01 light blue (Light theme blue), RX-02 violet, teal, amber */
+.ms-rx-tri { background: none; border: none; }
+.ms-rx-tri svg { display: block; overflow: visible; }
+.ms-rx-tri polygon { stroke: #0f172a; stroke-width: 1; }
+[data-theme="light"] .ms-rx-tri polygon { stroke: #fff; }
+.ms-rx-lbl { position: absolute; left: 13px; top: 0; font: 600 10px system-ui, sans-serif; line-height: 13px;
+             white-space: nowrap; pointer-events: none;
+             text-shadow: 0 0 2px #0f172a, 0 0 2px #0f172a, 0 0 1px #0f172a; }
+[data-theme="light"] .ms-rx-lbl { text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 1px #fff; }
+.ms-rx-0 polygon { fill: rgba(191,219,254,0.75); } .ms-rx-0 .ms-rx-lbl { color: rgba(191,219,254,0.95); }
+.ms-rx-1 polygon { fill: rgba(196,181,253,0.9); }  .ms-rx-1 .ms-rx-lbl { color: rgba(196,181,253,0.95); }
+.ms-rx-2 polygon { fill: rgba(94,234,212,0.85); }  .ms-rx-2 .ms-rx-lbl { color: rgba(94,234,212,0.95); }
+.ms-rx-3 polygon { fill: rgba(253,230,138,0.85); } .ms-rx-3 .ms-rx-lbl { color: rgba(253,230,138,0.95); }
+[data-theme="light"] .ms-rx-0 polygon { fill: rgba(29,78,216,0.7); }  [data-theme="light"] .ms-rx-0 .ms-rx-lbl { color: rgb(29,78,216); }
+[data-theme="light"] .ms-rx-1 polygon { fill: rgba(109,40,217,0.8); } [data-theme="light"] .ms-rx-1 .ms-rx-lbl { color: rgb(109,40,217); }
+[data-theme="light"] .ms-rx-2 polygon { fill: rgba(15,118,110,0.8); } [data-theme="light"] .ms-rx-2 .ms-rx-lbl { color: rgb(15,118,110); }
+[data-theme="light"] .ms-rx-3 polygon { fill: rgba(180,83,9,0.8); }   [data-theme="light"] .ms-rx-3 .ms-rx-lbl { color: rgb(180,83,9); }
 .map-legend .legend-sq { display: inline-block; width: 8px; height: 8px; border: 1.5px solid; border-radius: 1px;
                          margin-right: -5px; }
 .map-legend .legend-note { margin-left: 6px; color: #f59e0b; cursor: help; pointer-events: auto; }
