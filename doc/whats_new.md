@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.02112026 — Thinner lines in the mast profile, dark map buttons on the phone
+
+- **Phone: map buttons stay dark** — in the Dark theme the + and − of the ILS view's and the Weather view's map turned white after a tap; they now keep their colour.
+- **Mast profile with thinner lines** — on the Sounding page's Mast tab (and in the phone's Mast view) the profile's temperature lines and wind barbs are now as fine as in the time series, so the sources are easier to tell apart.
+
 ## v.01112026 — The temperature on the weather maps, all traffic on the Windshear map
 
 - **Mast view on the phone** — a new *Mast* view in the phone menu: the airport's weather of now (the same box as on the Live Map, on by default), the mast's latest wind, inversion and wind shear, its profile beside the aircraft, the model and the sounding, the boundary layer's temperature and wind with the mast's 10-minute values below about 1 200 ft and the aircraft's above it (up to 3 000 ft), the mast's time series, and how the sources compare with the mast. *Mast in the charts* chooses how the mast is drawn in the boundary-layer charts: filling the lowest 1 200 ft, as narrow columns beside the aircraft's values, or off. Tap the charts for the values; a tap on the mast shows its profile of that moment. The mast can also be switched on in the phone's Time–height, EDR · WS · ACI · ST and ILS boundary-layer charts. Research data — for flight operations use the METAR / ATIS.

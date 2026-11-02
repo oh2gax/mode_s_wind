@@ -7,6 +7,14 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.02112026 — 2026-11-02 (thinner lines in the mast profile; the phone's map + / − stay dark)
+
+### Phone: the map's + / − buttons no longer turn white after a tap
+- In the Dark theme the zoom buttons of the ILS view's map (and the Weather view's) turned light grey after a tap and stayed so: Leaflet's own CSS, loaded after `app.css`, colours a hovered or focused button `#f4f4f4`, and on a touch screen the tapped button keeps the focus (and the touch "hover"). New, more specific rules in `static/css/app.css` (`.app-view .leaflet-bar a` and its `:hover` / `:focus` / `:active` / `.leaflet-disabled`) keep the theme's colours; a tap only flashes the darker shade; the disabled button at the zoom limit is dimmed. Checked in a phone emulation: after a tap the button stays `rgb(30, 45, 64)` (was `rgb(244, 244, 244)`).
+
+### Sounding page Mast tab: thinner lines and barbs in the profile
+- The profile 0–1 500 ft drew its lines and barbs heavier than the time series. Now in the time series' weights: the mast's temperature line 1.6 px (was 2.6) with points of radius 2.8 (was 4), MEPS 1.2 (1.8), Mode S 1.1 dashed (1.6) with points 2.2 (3), the sonde 1.1 (1.6), the MEPS 2 m square 6 px (8); the wind barbs' staffs and feathers 1 px (1.4). The same in the phone's Mast view (the same `MastView.profileSvg`). `static/js/mast.js`.
+
 ## v.01112026 — 2026-11-01 (the 2 m temperature on the Weather page and the phone; one Opacity setting; the phone's EDR · WS · ACI · ST with History cards; grey ATC labels; the phone Weather view's extended label; the Windshear map in the ATC style by default, one style button; the Windshear map's traffic ILS Only / Departures / All 30NM / All 100NM; Approach History minimize, the chart panel level with it, ⌂ + − in one row; WS & near reports under the METAR; pilot-report heights like 3000/4000FT; a very light grey ATC map in the Light theme; a two-page brochure of the receiving station; the documents brought up to date; a daily-updated aircraft database; the GA mark flashes for a minute, then steady, also with All 30NM / 100NM; what GNSS jamming does to the landing sample, in the guides; the landing runway after a go-around in the Windshear log's hover; a steady top bar; Point values on the Weather page; weather values on hover on the Live Map; WS & near reports under the Live Map's METAR; the phone view up to date when it is opened again; the airport's weather of now in a box on the Live Map; the share of winds with a temperature on the Statistics page; the Kivenlahti mast on the Sounding page, in the Time–height section, the Skew-T, the Live Map's airport box and the Windshear page's BL chart; a Mast view on the phone)
 
 ### Phone: a Mast view (the Kivenlahti mast, EFHK now, the boundary layer with the mast's 10-minute steps)

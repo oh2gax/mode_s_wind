@@ -58,10 +58,10 @@
   // wind barb as SVG (from the direction the wind blows from; feathers on the left)
   function barb(x, y, kt, dir, col, len = 20) {
     if (kt == null || dir == null) return '';
-    if (kt < 2.5) return `<circle cx="${x}" cy="${y}" r="3" fill="none" stroke="${col}" stroke-width="1.3"/>`;
+    if (kt < 2.5) return `<circle cx="${x}" cy="${y}" r="3" fill="none" stroke="${col}" stroke-width="1"/>`;
     const a = (dir) * Math.PI / 180, ux = Math.sin(a), uy = -Math.cos(a);       // towards where it comes from
     const ex = x + ux * len, ey = y + uy * len, px = -uy, py = ux;               // feather side
-    let s = `<line x1="${x}" y1="${y}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/>`;
+    let s = `<line x1="${x}" y1="${y}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${col}" stroke-width="1" stroke-linecap="round"/>`;
     let rem = Math.round(kt / 5) * 5, pos = 0;
     while (rem >= 50) {
       const bx = ex - ux * pos, by = ey - uy * pos, cx = ex - ux * (pos + 6), cy = ey - uy * (pos + 6);
@@ -70,13 +70,13 @@
     }
     while (rem >= 10) {
       const bx = ex - ux * pos, by = ey - uy * pos;
-      s += `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${(bx + px * 9 + ux * 3).toFixed(1)}" y2="${(by + py * 9 + uy * 3).toFixed(1)}" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/>`;
+      s += `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${(bx + px * 9 + ux * 3).toFixed(1)}" y2="${(by + py * 9 + uy * 3).toFixed(1)}" stroke="${col}" stroke-width="1" stroke-linecap="round"/>`;
       pos += 4; rem -= 10;
     }
     if (rem >= 5) {
       if (pos === 0) pos = 4;
       const bx = ex - ux * pos, by = ey - uy * pos;
-      s += `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${(bx + px * 5 + ux * 1.5).toFixed(1)}" y2="${(by + py * 5 + uy * 1.5).toFixed(1)}" stroke="${col}" stroke-width="1.4" stroke-linecap="round"/>`;
+      s += `<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${(bx + px * 5 + ux * 1.5).toFixed(1)}" y2="${(by + py * 5 + uy * 1.5).toFixed(1)}" stroke="${col}" stroke-width="1" stroke-linecap="round"/>`;
     }
     return s;
   }
@@ -194,17 +194,17 @@
     }
     const line = (pts, col, w, dash = '') => pts.length > 1 ? `<polyline points="${pts.map(p => `${x(p[1]).toFixed(1)},${y(p[0]).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ''}/>` : '';
     // sonde, MEPS, Mode S, then the mast on top
-    if (sd.length) s += line(sd.filter(l => l[1] != null).map(l => [(l[0] + E) * FT, l[1]]), K.sonde, 1.6);
-    if (mp.length) s += line(mp.map(l => [(l[0] + E) * FT, l[1]]), K.meps, 1.8);
-    if (sfc && sfc.t != null && st.meps) s += `<rect x="${x(sfc.t) - 4}" y="${y(ftOf(2)) - 4}" width="8" height="8" fill="none" stroke="${K.meps}" stroke-width="1.6"><title>MEPS 2 m temperature at the mast ${sfc.t.toFixed(1)} °C (weather maps, ${sfc.km} km)</title></rect>`;
+    if (sd.length) s += line(sd.filter(l => l[1] != null).map(l => [(l[0] + E) * FT, l[1]]), K.sonde, 1.1);
+    if (mp.length) s += line(mp.map(l => [(l[0] + E) * FT, l[1]]), K.meps, 1.2);
+    if (sfc && sfc.t != null && st.meps) s += `<rect x="${x(sfc.t) - 3}" y="${y(ftOf(2)) - 3}" width="6" height="6" fill="none" stroke="${K.meps}" stroke-width="1.1"><title>MEPS 2 m temperature at the mast ${sfc.t.toFixed(1)} °C (weather maps, ${sfc.km} km)</title></rect>`;
     if (msT.length) {
-      s += line(msT.map(r => [r[0], r[1]]), K.modes, 1.6, '4 3');
-      msT.forEach(r => { s += `<circle cx="${x(r[1])}" cy="${y(r[0])}" r="3" fill="${K.modes}"><title>Mode S (airport) ${Math.round(r[0])} ft: ${r[1].toFixed(1)} °C (${r[2]} flights)</title></circle>`; });
+      s += line(msT.map(r => [r[0], r[1]]), K.modes, 1.1, '4 3');
+      msT.forEach(r => { s += `<circle cx="${x(r[1])}" cy="${y(r[0])}" r="2.2" fill="${K.modes}"><title>Mode S (airport) ${Math.round(r[0])} ft: ${r[1].toFixed(1)} °C (${r[2]} flights)</title></circle>`; });
     }
-    s += line(srcT, K.mast, 2.6);
+    s += line(srcT, K.mast, 1.6);
     o.tl.forEach((h, i) => {
       if (o.t[i] == null) return;
-      s += `<circle cx="${x(o.t[i])}" cy="${y(ftOf(h))}" r="4" fill="${K.mast}" stroke="${K.bg}" stroke-width="1.2"><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.t[i].toFixed(1)} °C, RH ${o.rh[i] ?? '–'} %, dewpoint ${o.td[i] != null ? o.td[i].toFixed(1) : '–'} °C</title></circle>`;
+      s += `<circle cx="${x(o.t[i])}" cy="${y(ftOf(h))}" r="2.8" fill="${K.mast}" stroke="${K.bg}" stroke-width="0.8"><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.t[i].toFixed(1)} °C, RH ${o.rh[i] ?? '–'} %, dewpoint ${o.td[i] != null ? o.td[i].toFixed(1) : '–'} °C</title></circle>`;
     });
     // wind barbs: one column per source at the right
     const cols = [['Mast', K.mast, true], ['Mode S', K.modes, !!msW.length], ['MEPS', K.meps, !!mp.length], ['Sonde', K.sonde, !!sd.length]].filter(c => c[2]);
