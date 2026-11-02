@@ -5,6 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
+- **Mast study log 1.1** — a new section on the mast's own data quality: its wind directions at 217 m and 327 m are off by a nearly constant amount in every wind direction, so the large turn of the wind between them is not real; its 92-m wind reads low in south-westerly winds. The temperatures look right.
 - **Mast tab steady** — the status line beside Refresh no longer pushes the page down when an older time is shown.
 - **Mast profile of any time** — on the Sounding page's Mast tab, pick a date and the hour and minute (UTC) from the dropdowns, or step by 10 minutes or an hour, to see the mast's profile of that moment beside the aircraft, the model and the sounding; the time series follows. *Now* returns to the present.
 - **Mast: 2 days and tidier phone choices** — the Sounding page's Mast tab has a 2-day period too; in the phone's Mast view the time-series choices (Mode S, Mast) each have their own row and no longer wrap oddly.

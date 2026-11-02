@@ -131,9 +131,9 @@ The development of the windshear detection as a study log for aviation meteorolo
 
 ## Mode S and the Kivenlahti mast (study log)
 file: EFHK_Mode_S_Mast_Wind_Study.pdf
-version: 1.0
+version: 1.1
 date: 2026-11-02
-pages: 10
+pages: 11
 
 The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-m weather mast at Kivenlahti, Espoo (24 km south-west of the airport), with the MEPS model and the Jokioinen radiosonde — a study log for aviation meteorologists and atmospheric scientists, updated as the data grow.
 
@@ -141,6 +141,7 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 - **Temperature** level by level: Mode S within 0.1 K of the mast at 217–297 m, colder below 200 m; MEPS within 0.12 K
 - **Stability and inversions**: the aircraft's T(297 m) − METAR against the mast's T(297 m) − T(2 m) (r 0.83), the shallow evening and night inversions the aircraft do not see, and the case of 29 October 2026 — with MEPS too warm near the ground
 - **Wind**: speeds that follow the mast closely, direction differences at the mast's 217 and 327 m shared by all three other sources, the speed profile and the low-level jet
+- **Mast data quality** (version 1.1): the wind differences by wind sector — the mast's 217-m and 327-m directions off by a nearly constant +16° / −8° (a sensor alignment, not the flow; a 30° turn between them where the aircraft see 6°), its 92-m speed low in south-westerly winds; temperatures without a fault
 - What the mast adds, the dated log of the checks (the first of 2 November 2026), limits and next steps
 
 ## EDR explained — turbulence intensity
