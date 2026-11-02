@@ -298,6 +298,10 @@ main { position: fixed; top: var(--navbar-h); left: 0; right: 0;
 .sounding-actions { display: flex; align-items: center; gap: 12px; }
 .sounding-meta { font-size: 11px; color: var(--text-3); }
 .sounding-meta.meta-loading { opacity: .45; }   /* refreshing: the previous text, faded (30 Oct 2026) */
+/* Mast tab (from 2026-11-02): the Refresh row takes the room left beside the controls and its text
+   is cut with … (the whole text in its tooltip), so a longer text cannot wrap the row below them */
+.sounding-controls.snd-mode-mast .sounding-actions { flex: 1 1 0; min-width: 240px; justify-content: flex-end; }
+.sounding-controls.snd-mode-mast .sounding-meta { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sounding-info { font-size: 12px; color: var(--text-2); }
 .sounding-note { padding: 8px 12px; font-size: 11px; color: var(--text-3); }
 

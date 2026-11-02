@@ -101,9 +101,12 @@
       if (my !== seq) return;
       ser = a; prof = b; cmp = c; msr = d;
       const n = (ser.rows || []).length;
-      if (meta) meta.textContent = n
-        ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC${st.end ? ' (history — Now returns to the present)' : ''} · FMI open data`
-        : 'Kivenlahti mast · no observations stored yet — the first ones arrive about a minute after the start (7 days back-filled)';
+      if (meta) {
+        meta.textContent = n
+          ? `Kivenlahti mast · ${n} observations, ${utc(ser.rows[0][0])} – ${utc(ser.rows[n - 1][0])} UTC${st.end ? ' · history' : ''} · FMI open data`
+          : 'Kivenlahti mast · no observations stored yet — the first ones arrive about a minute after the start (7 days back-filled)';
+        meta.title = meta.textContent + (st.end ? ' — Now (in the profile) returns to the present' : '');
+      }
       render();
     } catch (e) {
       if (meta) meta.textContent = 'Error loading the mast data.';

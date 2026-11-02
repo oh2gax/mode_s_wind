@@ -266,9 +266,12 @@ function setMode(mode) {
   document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
   document.getElementById('snd-meps').style.display = sndMode === 'meps' ? '' : 'none';
   document.getElementById('snd-mast').style.display = sndMode === 'mast' ? '' : 'none';
+  // Mast: the status text keeps to one line beside Refresh (from 2026-11-02; a longer text
+  // in history moved the whole row below the controls and back)
+  document.querySelector('.sounding-controls').classList.toggle('snd-mode-mast', sndMode === 'mast');
   if (window.MastView) MastView.active(sndMode === 'mast');
   document.getElementById('snd-th').style.display = sndMode === 'th' ? '' : 'none';
-  document.getElementById('sounding-meta').textContent = '';
+  document.getElementById('sounding-meta').textContent = ''; document.getElementById('sounding-meta').title = '';
   document.getElementById('snd-mode-note').textContent = MODE_NOTES[sndMode];
   if (sndMode === 'verif') { loadVerification(); return; }
   if (sndMode === 'meps') { loadMepsCheck(); return; }
