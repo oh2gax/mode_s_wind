@@ -515,6 +515,7 @@
     // "Receiver coverage" without the period, so it is not read as the time of the weather (from 2026-10-31)
     if (st.cov) txt = txt === 'Weather' ? 'Receiver coverage' : txt + (txt ? ' · ' : '') + 'Receiver coverage';
     chip.textContent = txt;
+    q('.lwx-btn').title = (txt && txt !== 'Weather' ? txt + ' — ' : '') + 'Weather overlay: MEPS model rain, snow, cloud cover, fog and isobars under the aircraft';   // the whole text when cut short
     el.classList.toggle('on', st.src !== 'off' || st.wind !== 'off' || !!st.cov || !!st.apt);
     applyOptions();
   }

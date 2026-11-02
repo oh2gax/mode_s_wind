@@ -3200,6 +3200,13 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .lwx-panel { display: none; margin-top: 4px; width: 300px; text-align: left; background: rgba(22, 32, 48, 0.94);
              border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
 .lwx.open .lwx-panel { display: block; }
+/* nothing moves while the panel is open (from 2026-11-02): the button is then as wide as the
+   panel (its text — what is shown — cut short with … when longer, the whole text in its title),
+   so ticking an option no longer changes its width; the panel keeps to the right edge */
+.lwx.open .lwx-btn { width: 300px; box-sizing: border-box; white-space: nowrap; overflow: hidden;
+                     text-overflow: ellipsis; text-align: right; }
+.lwx-btn { max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lwx-panel { margin-left: auto; }
 .lwx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--text-1); }
 .lwx-x { background: none; border: none; color: var(--text-2); cursor: pointer; font-size: 14px; }
 .lwx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 5px; }
