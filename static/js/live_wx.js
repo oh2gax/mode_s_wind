@@ -376,8 +376,9 @@
           <div class="lwx-row"><span class="lwx-lbl">Opacity</span>
             <input type="range" class="lwx-op" min="10" max="100" step="5"> <span class="lwx-opv"></span>
           </div>
-          <div class="lwx-status"></div>
-          <div class="lwx-legend"></div>
+          <!-- legend and status in a box of fixed height (from 2026-11-02): the panel keeps its size
+               when options change (a longer text scrolls inside); the colour keys first -->
+          <div class="lwx-info"><div class="lwx-legend"></div><div class="lwx-status"></div></div>
         </div>`;
       L.DomEvent.disableClickPropagation(el);
       L.DomEvent.disableScrollPropagation(el);
@@ -484,8 +485,9 @@
     q('.lwx-fine').disabled = !useMeps();
     q('.lwx-cov').checked = !!st.cov;
     q('.lwx-covper').checked = !!st.covPer;
-    q('.lwx-covper').disabled = !st.cov;
-    q('.lwx-covper-l').style.display = covLayer.count() > 1 ? '' : 'none';
+    // always in the panel (from 2026-11-02; before shown only once more receivers were known,
+    // which changed the panel's size): greyed without the coverage line or with one receiver
+    q('.lwx-covper').disabled = !st.cov || covLayer.count() < 2;
     covLayer.perRx(st.covPer);
     // the receivers' markers (from 2026-11-02): the coverage triangles here, the street map's
     // triangles in live_map.js (setRxMarks)
@@ -660,7 +662,6 @@
     const d = await (await fetch(`/api/coverage?hours=${COV_HOURS}`, { cache: 'no-store' })).json();
     covData = d;
     covLayer.set(d);
-    q('.lwx-covper-l').style.display = covLayer.count() > 1 ? '' : 'none';
     applyOptions();
     const rx = (d.receivers || []).filter(r => r.outline && r.outline.length);
     if (!rx.length) { covStatus = 'Receiver coverage: no ADS-B positions yet.'; return; }

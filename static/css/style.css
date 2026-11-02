@@ -3210,6 +3210,10 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .lwx-status { color: var(--text-3); line-height: 1.35; margin-top: 2px; }
 .lwx-legend { margin-top: 4px; line-height: 1.6; }
 .lwx-legend:empty { display: none; }
+/* the legend and the status in a box of fixed height (from 2026-11-02): the panel no longer
+   grows and shrinks when options change; a longer text scrolls inside (colour keys first) */
+.lwx-info { height: 160px; overflow-y: auto; overscroll-behavior: contain; margin-top: 2px; }
+.lwx-info .lwx-legend { margin-top: 0; margin-bottom: 3px; }
 [data-theme="light"] .lwx-btn, [data-theme="light"] .lwx-panel { background: rgba(241, 245, 249, 0.95); }
 [data-theme="light"] .lwx.on .lwx-btn { border-color: #0e7490; color: #0e7490; }
 .lwx-note { color: var(--text-3); font-style: normal; }

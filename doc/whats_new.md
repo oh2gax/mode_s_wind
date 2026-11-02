@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.02112026 — A second receiver, now part of the weather, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
-- **Receivers on or off** — in the Live Map's ☂ Weather panel, *Receiver → Markers* shows or hides the receivers' triangles, with or without the coverage line.
+- **Receivers on or off** — in the Live Map's ☂ Weather panel, *Receiver → Markers* shows or hides the receivers' triangles, with or without the coverage line; on the Weather page the new **Receivers** box does the same. The Live Map's weather panel also keeps its size now when you tick options.
 - **Follow one aircraft on the Live Map** — tick **Solo** at the top of the aircraft list and select an aircraft on the map or in the list: the other traffic is hidden, its track is drawn and the map follows it. Deselect it (Esc) or untick Solo to see all traffic again.
 - **The same on the Windshear map** — next to the map style (ATC / Dark / Grey) a new **ATC lbl / Std lbl** button chooses the labels, so the controller-style labels work on the street maps too and the normal labels on the ATC map. The buttons above the map no longer move when you press them. Windshear guide 2.39.
 - **ATC labels on the street map** — the Live Map's former *Meteo / ATC* button is now two: **Street / ATC map** chooses the background and **Normal / ATC labels** the labels, so you can have, for example, the street map with the controller-style labels (with Hover and the extended label of the selected aircraft), or the ATC map with the normal labels. Both choices are remembered, and the buttons now stay in their places when you click them.

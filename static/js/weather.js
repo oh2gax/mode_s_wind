@@ -81,7 +81,7 @@ const TILES = {
 const isLight = () => document.documentElement.dataset.theme === 'light';
 let tileTheme = isLight() ? 'light' : 'dark';
 TILES[tileTheme].addTo(map);
-msRxMarkers(map).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
+const wxRxMarks = msRxMarkers(map).addTo(map);   // the receivers at their own positions (from 2026-11-02; base.html)
 
 const $ = id => document.getElementById(id);
 const pad2 = n => String(n).padStart(2, '0');
@@ -89,7 +89,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op', 'wx-point'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op', 'wx-point', 'wx-rxmk'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -106,6 +106,11 @@ function saveSettings() {
     else if ([...el.options].some(o => o.value === String(s[id]))) el.value = s[id];
   });
 })();
+
+// The receivers' triangles on or off (the Receivers check box, from 2026-11-02)
+function rxMarksSync() { if ($('wx-rxmk').checked) wxRxMarks.addTo(map); else wxRxMarks.remove(); }
+rxMarksSync();
+$('wx-rxmk').addEventListener('change', () => { saveSettings(); rxMarksSync(); });
 
 // ── Weather layer (wx_layer.js) ───────────────────────────────────────────
 const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
