@@ -600,6 +600,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadUsers();
     await loadRegdb();
     await loadMast();
+    await loadJsonFeed();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
@@ -1136,6 +1137,38 @@ document.getElementById('mast-now-btn').addEventListener('click', async () => {
     _setStatus('mast-op-status', r.settings.enabled ? 'Fetching…' : 'Fetching is off — switch it on first.', !r.settings.enabled);
   } catch (e) { _setStatus('mast-op-status', e.message, true); }
   setTimeout(loadMast, 4000);
+});
+
+// ── Local JSON feed for other programs (collector/json_feed.py, 2026-11-03) ──
+function _hms(t) { return t ? new Date(t * 1000).toISOString().slice(11, 19) + ' UTC' : '—'; }
+function _showJsonFeed(d) {
+  const s = d.settings || {};
+  document.getElementById('jfeed-enabled').checked = !!s.enabled;
+  let h = _regdbLine('Feed', d.running ? 'ok' : (s.enabled ? 'warn' : 'off'),
+    d.running ? `On · listening on ${_esc(d.host)}:${d.port} since ${_utcTs(d.started)}`
+      : s.enabled ? `Not open${d.error ? ' — ' + _esc(d.error[1]) : ''}` : `Off — nothing listens on ${_esc(d.host || '127.0.0.1')}:${d.port || 31009}`);
+  const age = d.list_age;
+  h += _regdbLine('Aircraft list', age == null ? 'off' : (age <= d.stale_sec ? 'ok' : 'warn'),
+    age == null ? 'None received yet' : `${age.toFixed(0)} s old${age > d.stale_sec ? ' — sent as an empty list' : ''}`);
+  const l = d.last;
+  h += _regdbLine('Requests', d.requests_total ? 'ok' : 'off',
+    d.requests_total ? `${_num(d.requests_today)} today · ${_num(d.requests_total)} since the start · last ${_hms(l && l[0])} (${_num(l ? l[1] : 0)} bytes)` : 'None since the start');
+  document.getElementById('jfeed-status').innerHTML = h;
+}
+async function loadJsonFeed() {
+  try { _showJsonFeed(await _api('/api/maintenance/json-feed/status')); }
+  catch (e) { _setStatus('jfeed-op-status', `Status not available: ${e.message}`, true); }
+}
+document.getElementById('jfeed-refresh-btn').addEventListener('click', loadJsonFeed);
+document.getElementById('jfeed-save-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/json-feed/config', { enabled: document.getElementById('jfeed-enabled').checked });
+    const st = r.status || {};
+    _setStatus('jfeed-op-status', !r.settings.enabled ? 'Saved — off, the port is closed.'
+      : st.running ? `Saved — on, listening on 127.0.0.1:${st.port}.` : `Saved — but the port could not be opened${st.error ? ': ' + st.error[1] : ''}.`,
+      r.settings.enabled && !st.running);
+  } catch (e) { _setStatus('jfeed-op-status', e.message, true); }
+  await loadJsonFeed();
 });
 
 // two-click confirmation without a browser dialog

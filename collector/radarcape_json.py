@@ -47,6 +47,7 @@ from collector import aircraft_db
 from collector import msg_stats
 from collector import traffic
 from collector import health
+from collector import json_feed
 
 log = logging.getLogger("modes.json_poller")
 
@@ -153,6 +154,9 @@ def run_json_poller(
 
             entries = json_mod.loads(raw)
             now = time.time()
+            # the local feed for other programs (collector/json_feed.py, from 2026-11-03): the list as received
+            if isinstance(entries, list):
+                json_feed.set_snapshot(raw, now)
 
             n_pos_mlat = 0
             n_pos_adsb = 0

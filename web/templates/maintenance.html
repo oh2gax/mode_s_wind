@@ -422,6 +422,25 @@
       </div>
     </div>
 
+    <!-- ── Local JSON feed for other programs (collector/json_feed.py, 2026-11-03) ── -->
+    <div class="maint-section" id="jfeed-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Local JSON Feed (localhost)</span>
+        <span class="maint-section-note">The Radarcape aircraft list for another program on this same machine (e.g. modes_logger): each connection to 127.0.0.1 on the port below gets the newest list as it came from the Radarcape, then the connection closes. Only from this machine — never from the internet.</span>
+        <button id="jfeed-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-panel-title">Status</div>
+        <div class="regdb-kv" id="jfeed-status"><span class="maint-hint">—</span></div>
+        <div class="maint-row regdb-row2">
+          <label class="maint-check"><input type="checkbox" id="jfeed-enabled"> Allow local connections</label>
+          <button id="jfeed-save-btn" class="maint-btn maint-btn-primary">Save</button>
+        </div>
+        <div class="maint-hint">Off by default: then nothing listens on the port. A list older than 10 s (the Radarcape or its connection down) is sent as an empty list <code>[]</code>, so nothing stale is logged. The list is not stored. The port (31009) can be changed with JSON_FEED_PORT in config_local.py.</div>
+        <div id="jfeed-op-status" class="maint-op-status"></div>
+      </div>
+    </div>
+
   </div><!-- #maint-body -->
 
 </div>

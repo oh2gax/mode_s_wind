@@ -1263,6 +1263,15 @@ def main() -> None:
     json_thread.start()
     log.info("JSON poller thread started — %s", cfg.RADARCAPE_JSON_URL)
 
+    # ── Local JSON feed for other programs (collector/json_feed.py, from 2026-11-03) ──
+    # the Radarcape aircraft list on 127.0.0.1:JSON_FEED_PORT (31009) for e.g.
+    # modes_logger on the same machine; switched on / off on the Maintenance page
+    # (off by default: no socket)
+    from collector import json_feed as _jf
+    from database.db import get_db as _get_db_jf
+    _jfeed = _jf.init(cfg, _get_db_jf)
+    log.info("Local JSON feed %s (127.0.0.1:%d)", "on" if _jfeed.running else "off", _jfeed.port)
+
     # ── Start Windshear approach tracker ─────────────────────────────────
     ws_tracker = WindshearTracker(
         airport_lat           = cfg.WINDSHEAR_AIRPORT_LAT,

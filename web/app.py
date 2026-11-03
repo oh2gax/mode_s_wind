@@ -1437,6 +1437,30 @@ def create_app(
             threading.Thread(target=f.look, args=("manual",), name="mast_now", daemon=True).start()
         return jsonify({"ok": True, "settings": s})
 
+    # ── Local JSON feed for other programs (collector/json_feed.py, from 2026-11-03) ──
+    @app.route("/api/maintenance/json-feed/status", methods=["POST"])
+    def maintenance_json_feed_status():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import json_feed as _jf
+        f = _jf.get()
+        if not f:
+            return jsonify({"error": "not running", "settings": _jf.get_settings(get_db())})
+        return jsonify(f.status(get_db()))
+
+    @app.route("/api/maintenance/json-feed/config", methods=["POST"])
+    def maintenance_json_feed_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import json_feed as _jf
+        s = _jf.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None)
+        f = _jf.get()
+        if f:
+            f.apply(s["enabled"])
+        return jsonify({"ok": True, "settings": s, "status": f.status(get_db()) if f else None})
+
     @app.route("/api/radar/latest")
     def radar_latest_api():
         """The newest FMI radar composite (rain rate, web/api/radar.py): fetched
