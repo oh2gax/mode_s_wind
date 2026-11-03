@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{#- The GPS pages (/gps, /gps-episodes) for a user without the Full view right
+    (web/rights.py, from 2026-11-03): no GNSS data, only this notice. -#}
+{% block title %}GPS – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="gnl-wrap">
+  <div class="gnl-box" role="main">
+    <div class="gnl-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="30" height="30"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.2 10.5V7.6a3.8 3.8 0 0 1 7.6 0v2.9" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="15.2" r="1.4" fill="currentColor"/></svg>
+    </div>
+    <h2 class="gnl-h">GPS — Full view needed</h2>
+    <p>The GPS pages (<b>Quality</b> and <b>Episodes</b>) show the GNSS interference seen from the aircraft:
+      degraded GPS, jamming episodes and spoofing indicators. They are open to users with the
+      <b>Full view</b> right; your login does not have it.</p>
+    <p>The right is given by the maintenance user. If you need it, contact the author:</p>
+    <dl class="ab-info gnl-info">
+      {% include "_contact.html" %}
+    </dl>
+    <p class="gnl-small">The user guides stay open to everyone (<i>What's new → User guides</i>).
+      The rest of MODE-S Wind works as before.</p>
+    <a class="gnl-btn" href="/">Live Map</a>
+  </div>
+</div>
+{% endblock %}

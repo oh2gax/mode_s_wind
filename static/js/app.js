@@ -49,6 +49,9 @@
     wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
     mast:         { title: 'Mast', sec: 'mast', el: 'v-mast' },       // from 2026-11-01 night (app_mast.js)
   };
+  // GNSS (from 2026-11-03, app_gnss.js): only for the Full view right — the server leaves
+  // the tile, the view and the script out for everyone else
+  if (window.AppGnss && $('v-gnss')) VIEWS.gnss = { title: 'GNSS', sec: 'gnss', el: 'v-gnss' };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
   let timer = null;
@@ -661,7 +664,9 @@
               rep: lsGet('ms_app_hist_rep', 'all'), wx: null,
               date: '', q: '', rows: [], open: new Set(), fetched: 0, req: 0 };
   // kind 'rep' (from 2026-10-29): the stored METARs and pilot reports, filter all / ws / arch
-  if (!['arr', 'dep', 'rep'].includes(H.kind)) H.kind = 'arr';
+  // 'both' (from 2026-11-03): the landings and the departures in one list, newest first;
+  // a departure's runway box filled light blue
+  if (!['arr', 'dep', 'both', 'rep'].includes(H.kind)) H.kind = 'arr';
   if (!['all', 'ws', 'arch'].includes(H.rep)) H.rep = 'all';
   if (![1, 3, 6, 12, 24].includes(H.hours)) H.hours = 3;
   if (!['hw', 'xw', 'wind', 'aci', 'ws', 'edr'].includes(H.show)) H.show = 'hw';
@@ -881,14 +886,15 @@
   function drawHist() {
     if ($('v-hist').hidden) return;
     if (H.kind === 'rep') return drawRep();
-    const dep = H.kind === 'dep', all = H.rows;
+    const dep = H.kind === 'dep', both = H.kind === 'both', all = H.rows;
     const list = H.q ? all.filter(e => [e.callsign, e.registration, e.aircraft_type, e.icao].some(x => normQ(x).includes(H.q))) : all;
-    const what = dep ? 'departure' : 'landing';
+    const what = both ? 'flight' : dep ? 'departure' : 'landing';
     const unit = { hw: 'HW kt', xw: 'XW kt', wind: 'wind kt' }[H.show];
     $('app-hist-n').textContent = (H.q ? `${list.length} / ${all.length}` : `${all.length}`) + (unit ? ` · ${unit}` : '');
     const range = H.date ? H.date.split('-').reverse().join('.') : `last ${H.hours === 24 ? '24 h' : H.hours + ' h'}`;
     $('app-sub').textContent = H.fetched
-      ? `${dep ? 'Departures' : 'Landings'} · ${range} · ${all.length} ${what}${all.length === 1 ? '' : 's'}` +
+      ? `${both ? 'Landings & departures' : dep ? 'Departures' : 'Landings'} · ${range} · ${all.length} ${what}${all.length === 1 ? '' : 's'}` +
+        (both ? ` (${all.filter(e => e._dep).length} dep., blue runway)` : '') +
         (H.date ? '' : ` · ${new Date(H.fetched).toISOString().slice(11, 16)} UTC`)
       : 'Loading…';
     const bandsShown = ['hw', 'xw', 'wind'].includes(H.show);
@@ -903,11 +909,13 @@
       const k = `${Math.round(e.ts)}|${e.icao}`, open = H.open.has(k);
       const d = new Date(e.ts * 1000), day = isoDay(d);
       const tm = (day !== today && !H.date ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + (e.time_utc || hhmm(e.ts));
+      // Both: each card with its own kind (the chips, the line and the details differ)
+      const S = both ? { kind: e._dep ? 'dep' : 'arr', show: H.show, res: H.res } : H;
       return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
         `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
-        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw">${esc(e.runway || '')}</span><span class="chs">${histChips(e)}</span></span>` +
-        `<span class="l2">${histLine2(e)}</span></button>` +
-        (open ? `<div class="bd">${histBody(e)}</div>` : '') + '</div>';
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${both && e._dep ? ' dep' : ''}"${both && e._dep ? ' title="Departure"' : ''}>${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
+        `<span class="l2">${histLine2(e, S)}</span></button>` +
+        (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
     }).join('') : `<div class="app-empty">${H.fetched ? (H.q && all.length ? `No ${what}s match “${esc($('app-hist-q').value)}”.` : `No ${what}s in this range.`) : 'Loading…'}</div>`;
     if (window.HwProfile) HwProfile.fill($('app-hist-list'));
     markScroll();
@@ -937,12 +945,17 @@
       return;
     }
     const q = H.date ? `date=${H.date}` : `window=${H.hours * 3600}`;
-    const url = dep ? `/api/windshear/departures?full=1&${q}` : `/api/windshear/approach-history?lite=1&${q}`;
+    const uDep = `/api/windshear/departures?full=1&${q}`, uArr = `/api/windshear/approach-history?lite=1&${q}`;
     if (!H.rows.length) { H.fetched = 0; drawHist(); }
     try {
-      const d = await (await fetch(url, { cache: 'no-store' })).json();
+      const get = async u => { const d = await (await fetch(u, { cache: 'no-store' })).json(); return Array.isArray(d) ? d : []; };
+      let rows;
+      if (H.kind === 'both') {
+        const [a, dd] = await Promise.all([get(uArr), get(uDep)]);
+        rows = a.concat(dd.map(e => Object.assign({}, e, { _dep: true })));
+      } else rows = await get(dep ? uDep : uArr);
       if (n !== H.req) return;
-      H.rows = Array.isArray(d) ? d.slice().sort((a, b) => b.ts - a.ts) : [];
+      H.rows = rows.sort((a, b) => b.ts - a.ts);
       H.fetched = Date.now();
     } catch (_) { if (n === H.req) $('app-sub').textContent = 'Could not load the history.'; return; }
     drawHist();
@@ -1691,6 +1704,7 @@
     else if (view === 'stats' && window.MsStats) window.MsStats.redraw();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.layout();
     else if (view === 'mast' && window.AppMast) window.AppMast.layout();
+    else if (view === 'gnss') window.AppGnss.layout();
     markScroll();
   }
   function refresh() {
@@ -1702,11 +1716,12 @@
     else if (view === 'hist' && !H.date) loadHist();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.refresh();
     else if (view === 'mast' && window.AppMast) window.AppMast.refresh();
+    else if (view === 'gnss') window.AppGnss.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, gnss: 30e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
@@ -1714,6 +1729,7 @@
     if (view !== 'stats' && window.MsStats) window.MsStats.stop();
     if (view !== 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.hide();
     if (view !== 'mast' && window.AppMast) window.AppMast.hide();
+    if (view !== 'gnss' && VIEWS.gnss) window.AppGnss.hide();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -1742,6 +1758,7 @@
     else if (view === 'stats') openStats();
     else if (view === 'wx') openWx();
     else if (view === 'mast' && window.AppMast) window.AppMast.show();
+    else if (view === 'gnss') window.AppGnss.show();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
@@ -1857,6 +1874,9 @@
     }
     if (view === 'wx') window.AppWx.show();
   }
+
+  // the GNSS view's options and the sub line (from 2026-11-03, app_gnss.js)
+  if (VIEWS.gnss) window.AppGnss.init({ sub: t => { if (view === 'gnss') $('app-sub').textContent = t; } });
 
   async function openStats() {
     $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;

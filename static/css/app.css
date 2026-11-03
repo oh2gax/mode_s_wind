@@ -282,7 +282,10 @@ body.app-body {
 /* the runway in a thin frame (from 2026-10-28), the same for landings and departures */
 .app-card .l1 .rw { font-weight: 700; font-size: 11px; color: var(--text-1); min-width: 2.9em; text-align: center;
                     padding: 0 4px; border: 1px solid var(--text-3); border-radius: 4px; line-height: 1.35; }
-.app-card .l1 .rw:empty { visibility: hidden; }    /* no runway (a climb off the runway axes): the place is kept */
+.app-card .l1 .rw:empty { visibility: hidden; }
+/* History Both (from 2026-11-03): a departure's runway box filled light blue */
+.app-card .l1 .rw.dep { background: #7dd3fc; border-color: #7dd3fc; color: #0c2a3e; }
+[data-theme="light"] .app-card .l1 .rw.dep { background: #bae6fd; border-color: #7dd3fc; color: #0c4a6e; }    /* no runway (a climb off the runway axes): the place is kept */
 .app-card .chs { margin-left: auto; display: flex; gap: 4px; align-items: baseline; flex: none; }
 .app-card .ch { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 9px; background: var(--bg-3); white-space: nowrap; }
 .app-card .ch.lv { color: #fff; }
@@ -498,3 +501,42 @@ body.app-body {
 .app-stats .mst-rx-bar { padding: 6px 8px; gap: 6px; }
 .app-stats .mst-rx-btns { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .app-stats .mst-rx-btn small { white-space: normal; }
+
+/* ── GNSS view (from 2026-11-03, app_gnss.js): Full view only ── */
+.agn-now { display: flex; align-items: center; gap: 10px; margin: 8px 2px 0; padding: 9px 12px; border-radius: 6px;
+           background: var(--bg-1); border: 1px solid var(--border); border-left-width: 4px; }
+.agn-now > b { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.agn-now > span { font-size: 12.5px; color: var(--text-1); line-height: 1.35; }
+.agn-now small { display: block; font-size: 10.5px; color: var(--text-3); }
+.agn-now em { font-style: normal; font-weight: 600; color: #d48f8f; }
+.agn-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-3); }
+.agn-now.agn-ok  { border-left-color: #6fbf8e; } .agn-now.agn-ok  .agn-dot { background: #6fbf8e; }
+.agn-now.agn-deg { border-left-color: #cf9f6b; } .agn-now.agn-deg .agn-dot { background: #cf9f6b; }
+.agn-now.agn-sev { border-left-color: #d48f8f; } .agn-now.agn-sev .agn-dot { background: #d48f8f; }
+[data-theme="light"] .agn-now.agn-ok  { border-left-color: #2f9e5b; } [data-theme="light"] .agn-now.agn-ok  .agn-dot { background: #2f9e5b; }
+[data-theme="light"] .agn-now.agn-deg { border-left-color: #d9973f; } [data-theme="light"] .agn-now.agn-deg .agn-dot { background: #d9973f; }
+[data-theme="light"] .agn-now.agn-sev { border-left-color: #c0504d; } [data-theme="light"] .agn-now.agn-sev .agn-dot { background: #c0504d; }
+[data-theme="light"] .agn-now em, [data-theme="light"] .agn-sevtxt { color: #c0504d !important; }
+.am-tile > b.agn-sevtxt { color: #d48f8f; }
+.am-tile > span small { font-size: 10px; color: var(--text-3); }
+.agn-leg { margin-left: auto; display: flex; gap: 10px; font-size: 11px; font-weight: 400; color: var(--text-2); }
+.agn-leg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.agn-chart-box { margin: 0 2px; }
+.agn-chart-box canvas { touch-action: pan-y; }
+.agn-list td { white-space: nowrap; }
+.agn-list .agn-cs { font-weight: 600; }
+.agn-list .agn-flags { white-space: normal; }
+.agn-list .agn-flags .gps-flag { font-size: 9.5px; padding: 0 3px; margin: 1px 0; }
+.agn-list tr.agn-sevrow td:first-child { box-shadow: inset 3px 0 0 #d48f8f; color: #d48f8f; }
+.agn-list tr.agn-strong td:first-child { box-shadow: inset 3px 0 0 #c9b26e; }
+.agn-list .agn-t { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.agn-list .agn-ind { color: #c995ad; white-space: normal; }
+[data-theme="light"] .agn-list .agn-ind { color: #a8457a; }
+.agn-list .agn-hit { color: #c995ad; font-weight: 600; }
+.agn-sptab td:first-child { white-space: normal; }
+.agn-sptab tr.agn-multi td { font-weight: 600; }
+.agn-dim { font-size: 10.5px; color: var(--text-3); padding: 3px 4px 0; }
+.agn-sub { font-size: 11.5px; font-weight: 600; color: var(--text-2); margin: 10px 4px 2px; }
+.agn-sub small { font-weight: 400; color: var(--text-3); }
+.agn-none { padding: 10px 4px; color: var(--text-3); font-style: italic; font-size: 12px; }
+[data-theme="light"] .agn-list .agn-hit { color: #a8457a; }

@@ -11,6 +11,11 @@ line on the Live Map are shown only to
   * the users with Full view — every receiver;
   * the maintenance user (dbadmin) — always Full view.
 
+Full view also opens the GNSS data (from 2026-11-03): the GPS pages (Quality
+and Episodes), their APIs (/api/gps/state, /api/gps/detail, /api/gps/episodes)
+and the phone's GNSS view — see gnss().  Others get a notice page, and the
+GPS link and the phone's GNSS tile are not shown to them.
+
 A user can own receivers and have Full view at the same time.  The built-in
 user of config.py (the shared test login) and everyone else see All receivers
 only.  The rights are set on the Maintenance page (maintenance login only) and
@@ -125,6 +130,12 @@ def of_user(cfg, username: Optional[str]) -> dict:
 def visible(r: dict, rx_id: str) -> bool:
     """Whether a user with the rights r may see the receiver rx_id one by one."""
     return bool(r.get("full")) or rx_id in (r.get("own") or [])
+
+
+def gnss(r: dict) -> bool:
+    """Whether a user with the rights r may see the GNSS data (the GPS pages,
+    their APIs and the phone's GNSS view; from 2026-11-03): Full view only."""
+    return bool(r.get("full"))
 
 
 def all_rights(cfg) -> dict:

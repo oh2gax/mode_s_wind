@@ -5,8 +5,10 @@
  * ILS / RNP finals and the airport, about 15 NM around it, with the same air
  * traffic as the big map.  Minimized by default (a small "EFHK · 15 NM" tab);
  * ▴ opens it, ▾ in its bottom-right corner minimizes it again.  It has its own
- * zoom (mouse wheel, + / −) and can be dragged; ⌂ goes back to EFHK at 15 NM.
- * The grip at its top-left corner resizes it (default 330 × 290 px).  The open
+ * zoom (mouse wheel; from 3 Nov 2026 without + / − buttons) and can be dragged;
+ * a small see-through ⌂ goes back to EFHK at 15 NM.
+ * The grip at its top-left corner resizes it (default 330 × 290 px); from 3 Nov 2026
+ * its tag (or, minimized, the tab) moves it anywhere over the map.  The open
  * state, the size and the view are remembered in the browser (ms_liveInset).
  *
  * It follows the Live Map's settings: the map (Street: the street tiles of the
@@ -28,7 +30,8 @@
 (function () {
   if (typeof map === 'undefined' || typeof AtcDisplay === 'undefined' || typeof plotLayer === 'undefined') return;
   const KEY = 'ms_liveInset';
-  const DEF = { open: false, w: 330, h: 290, view: null };
+  // rx / ry: the box's distance from the map's right and bottom edges (from 3 Nov 2026 it can be moved)
+  const DEF = { open: false, w: 330, h: 290, view: null, rx: 10, ry: 22 };
   const MIN_W = 220, MIN_H = 180, RANGE_NM = 15;
   const st = (() => {
     try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (_) { return Object.assign({}, DEF); }
@@ -41,10 +44,9 @@
   box.innerHTML =
       '<div class="lin-map"></div>'
     + '<div class="lin-grip" title="Drag to resize"></div>'
-    + '<div class="lin-ctl leaflet-bar"><a href="#" class="lin-home" role="button" title="Back to EFHK, 15 NM around it" aria-label="Back to EFHK">'
-    +   '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg></a>'
-    +   '<a href="#" class="lin-zin" role="button" title="Zoom in" aria-label="Zoom in">+</a><a href="#" class="lin-zout" role="button" title="Zoom out" aria-label="Zoom out">−</a></div>'
-    + '<div class="lin-tag" title="The EFHK close-up: the same air traffic as the big map, with its own zoom — the map and the labels follow the Live Map\'s settings">EFHK</div>'
+    + '<div class="lin-ctl"><a href="#" class="lin-home" role="button" title="Back to EFHK, 15 NM around it (zoom with the mouse wheel)" aria-label="Back to EFHK">'
+    +   '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></a></div>'
+    + '<div class="lin-tag" title="Drag to move the box. The EFHK close-up: the same air traffic as the big map, with its own zoom (mouse wheel) — the map and the labels follow the Live Map\'s settings">EFHK</div>'
     + '<button type="button" class="lin-min" title="Minimize" aria-label="Minimize the EFHK close-up">▾</button>'
     + '<button type="button" class="lin-open" title="The EFHK close-up: the airport and its finals, about 15 NM around it, with the live traffic — its own zoom and drag; the map and the labels follow the Live Map\'s settings">'
     +   '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2.3 11.5 13.7 4.5" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.5"/></svg>'
@@ -75,16 +77,41 @@
     imap.setView(c, 10 + Math.log2(nmPerPx(imap) / want), { animate: false });
   }
 
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   function layout() {
     const mw = host.clientWidth, mh = host.clientHeight;
-    const w = Math.max(MIN_W, Math.min(st.w, Math.max(MIN_W, mw - 70))), h = Math.max(MIN_H, Math.min(st.h, Math.max(MIN_H, mh - 70)));
+    const w = clamp(st.w, MIN_W, Math.max(MIN_W, mw - 20)), h = clamp(st.h, MIN_H, Math.max(MIN_H, mh - 20));
     box.classList.toggle('open', !!st.open);
     if (st.open) { box.style.width = w + 'px'; box.style.height = h + 'px'; }
     else { box.style.width = ''; box.style.height = ''; }
-    // the big map's legend keeps left of the open box
+    // inside the map wherever it was put (and when the map gets smaller)
+    const bw = st.open ? w : box.offsetWidth, bh = st.open ? h : box.offsetHeight;
+    const rx = clamp(Number.isFinite(st.rx) ? st.rx : DEF.rx, 0, Math.max(0, mw - bw)), ry = clamp(Number.isFinite(st.ry) ? st.ry : DEF.ry, 0, Math.max(0, mh - bh));
+    box.style.right = rx + 'px'; box.style.bottom = ry + 'px';
+    // the big map's legend (bottom left) keeps left of the open box when the box is down there
     const lg = document.querySelector('.map-legend');
-    if (lg) lg.style.maxWidth = st.open ? `calc(100% - ${w + 44}px)` : '';
+    if (lg) lg.style.maxWidth = st.open && ry < 70 ? `calc(100% - ${rx + w + 34}px)` : '';
     if (imap) imap.invalidateSize({ animate: false });
+  }
+  // moving the box: by its tag (open) or by the tab (minimized; a click still opens it)
+  function dragMove(e, onClick) {
+    const x0 = e.clientX, y0 = e.clientY, rx0 = parseFloat(box.style.right) || 0, ry0 = parseFloat(box.style.bottom) || 0;
+    const el = e.currentTarget;
+    let moved = false;
+    el.setPointerCapture(e.pointerId);
+    const mv = ev => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      moved = true;
+      st.rx = Math.round(clamp(rx0 - (ev.clientX - x0), 0, host.clientWidth - box.offsetWidth));
+      st.ry = Math.round(clamp(ry0 - (ev.clientY - y0), 0, host.clientHeight - box.offsetHeight));
+      layout();
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+      if (moved) { save(); plotLayer.redraw(); } else if (onClick) onClick();
+    };
+    el.addEventListener('pointermove', mv);
+    el.addEventListener('pointerup', up);
   }
 
   // ── the map and its style ──────────────────────────────────────────────
@@ -103,7 +130,6 @@
     atcLines = AtcDisplay.mapLines(imap);
     layer = AtcDisplay.canvasLayer(imap, draw);
     imap.on('click', onClick);
-    imap.on('mousemove', e => { imap.getContainer().style.cursor = acAt(e.containerPoint) ? 'pointer' : ''; });
     applyStyle(true);
     tagText();
   }
@@ -227,19 +253,21 @@
     else if (st.open) { applyStyle(false); layer.redraw(); tagText(); }
     plotLayer.redraw();                               // the big map's labels keep clear of the box
   }
-  q('.lin-open').addEventListener('click', () => setOpen(true));
+  q('.lin-open').addEventListener('pointerdown', e => { e.preventDefault(); dragMove(e, () => setOpen(true)); });
+  q('.lin-open').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(true); } });
+  q('.lin-tag').addEventListener('pointerdown', e => { e.preventDefault(); dragMove(e); });
   q('.lin-min').addEventListener('click', () => setOpen(false));
   q('.lin-home').addEventListener('click', e => { e.preventDefault(); homeView(); });
-  q('.lin-zin').addEventListener('click', e => { e.preventDefault(); if (imap) imap.zoomIn(0.5); });
-  q('.lin-zout').addEventListener('click', e => { e.preventDefault(); if (imap) imap.zoomOut(0.5); });
   // the grip at the top-left corner: the box grows up and to the left
   q('.lin-grip').addEventListener('pointerdown', e => {
     e.preventDefault();
     const g = e.currentTarget, x0 = e.clientX, y0 = e.clientY, w0 = box.offsetWidth, h0 = box.offsetHeight;
     g.setPointerCapture(e.pointerId);
     const mv = ev => {
-      st.w = Math.round(Math.max(MIN_W, Math.min(w0 + x0 - ev.clientX, host.clientWidth - 70)));
-      st.h = Math.round(Math.max(MIN_H, Math.min(h0 + y0 - ev.clientY, host.clientHeight - 70)));
+      // the right / bottom edge stays; the box grows up and to the left, inside the map
+      const rx = parseFloat(box.style.right) || 0, ry = parseFloat(box.style.bottom) || 0;
+      st.w = Math.round(clamp(w0 + x0 - ev.clientX, MIN_W, host.clientWidth - rx));
+      st.h = Math.round(clamp(h0 + y0 - ev.clientY, MIN_H, host.clientHeight - ry));
       layout();
     };
     const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); save(); if (imap) { tagText(); layer.redraw(); } plotLayer.redraw(); };

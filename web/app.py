@@ -364,6 +364,8 @@ def create_app(
             "shared_login":      g.get("shared_state"),
             # SITE_MOVED_URL: the "moved to …" notice, None when not shown
             "site_moved":        _site_moved(),
+            # the GPS link / the phone's GNSS view: Full view only (web/rights.py, from 2026-11-03)
+            "gnss_view":         _gnss_ok(),
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -474,6 +476,24 @@ def create_app(
             log.warning("Receiver rights not read: %s", exc)
             return {"full": False, "own": [], "maint": False}
 
+    def _gnss_ok() -> bool:
+        """Whether the logged-in user may see the GNSS data (the GPS pages, their
+        APIs and the phone's GNSS view): Full view only (from 2026-11-03).  A page
+        rendered after this check depends on the user (_user_page)."""
+        g.user_page = True
+        return rx_rights.gnss(_user_rights())
+
+    def _gnss_denied():
+        return _private(jsonify({"error": "The GNSS data needs the Full view right (ask the maintenance user)."})), 403
+
+    @app.after_request
+    def _user_page(resp):
+        """A page whose content depends on the user (the GPS link, the phone's
+        GNSS tile): never reused by a browser or a proxy for another user."""
+        if g.get("user_page") and "Cache-Control" not in resp.headers:
+            _private(resp)
+        return resp
+
     def _private(resp):
         """An answer that depends on the logged-in user: never reused by a
         browser or a proxy for another user."""
@@ -538,6 +558,9 @@ def create_app(
 
     @app.route("/gps")
     def gps_page():
+        # the GNSS data: Full view only (web/rights.py, from 2026-11-03)
+        if not _gnss_ok():
+            return render_template("gnss_locked.html"), 403
         return render_template("gps_quality.html",
                                airport_icao=cfg.AIRPORT_ICAO,
                                nacp_threshold=cfg.GPS_NACP_THRESHOLD,
@@ -545,6 +568,8 @@ def create_app(
 
     @app.route("/gps-episodes")
     def gps_episodes_page():
+        if not _gnss_ok():
+            return render_template("gnss_locked.html"), 403
         return render_template("gps_episodes.html",
                                airport_icao=cfg.AIRPORT_ICAO,
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
@@ -2376,6 +2401,8 @@ def create_app(
                         episode radius, i.e. the aircraft was most likely
                         already degraded when it entered the radius
         """
+        if not _gnss_ok():
+            return _gnss_denied()
         import re as _re
         radius = float(getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0))
         edge   = float(getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
@@ -2412,8 +2439,8 @@ def create_app(
             e["end_class"]  = ec
             e["start_edge"] = (e.get("start_dist_nm") or 0) >= radius - 3.0
             out.append(e)
-        return jsonify({"episodes": out, "radius_nm": radius, "edge_nm": edge,
-                        "t0": t0, "t1": t1})
+        return _private(jsonify({"episodes": out, "radius_nm": radius, "edge_nm": edge,
+                                 "t0": t0, "t1": t1}))
 
     @app.route("/api/gps/state")
     def gps_state_api():
@@ -2428,16 +2455,24 @@ def create_app(
                         breakdown (canvas only ever renders the last 14 days)
           fl_bands    — ordered FL band labels
           stats       — 24-hour summary counts
+        ?lite=1 (the phone's GNSS view, from 2026-11-03): the last 48 hours of
+        time_series only, without heatmap and band_days.
+        Full view only (web/rights.py, from 2026-11-03).
         """
+        if not _gnss_ok():
+            return _gnss_denied()
         if gps_tracker is None:
-            return jsonify({
+            return _private(jsonify({
                 "live": [], "time_series": [], "heatmap": [],
                 "fl_bands": [], "stats": {}, "zone": "all",
-            })
+            }))
         zone = request.args.get("zone", "all")
         if zone not in ("all", "50nm", "20nm"):
             zone = "all"
-        return jsonify(gps_tracker.get_state(zone=zone))
+        st = gps_tracker.get_state(zone=zone)
+        if request.args.get("lite") in ("1", "true"):
+            st = {**st, "time_series": st.get("time_series", [])[-48:], "heatmap": [], "band_days": {}}
+        return _private(jsonify(st))
 
     @app.route("/api/gps/detail")
     def gps_detail_api():
@@ -2447,9 +2482,12 @@ def create_app(
         ?zone=all|50nm|20nm (default all), ?hours=N (1 – 744, default 24).
         Completed hours are read from the database once per hour and cached
         in RAM; the hour in progress comes from the live tracker.
+        Full view only (web/rights.py, from 2026-11-03).
         """
+        if not _gnss_ok():
+            return _gnss_denied()
         if gps_tracker is None:
-            return jsonify({"slots": [], "hours": [], "severity": {}, "spoof": {}, "since": None})
+            return _private(jsonify({"slots": [], "hours": [], "severity": {}, "spoof": {}, "since": None}))
         zone = request.args.get("zone", "all")
         if zone not in ("all", "50nm", "20nm"):
             zone = "all"
@@ -2457,7 +2495,7 @@ def create_app(
             hours = int(request.args.get("hours", 24))
         except ValueError:
             hours = 24
-        return jsonify(gps_tracker.get_detail(zone=zone, hours=hours))
+        return _private(jsonify(gps_tracker.get_detail(zone=zone, hours=hours)))
 
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 

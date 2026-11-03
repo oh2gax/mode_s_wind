@@ -86,14 +86,16 @@ window.AppWx = (() => {
              fine: !!(wx && wx.fineShown()),
              smooth: s.smooth !== 'off',                    // Shading: Smooth / Cells (from 2026-10-31)
              temp: s.temp === 'fill' || s.temp === 'lines' ? s.temp : false,   // 2 m temperature (from 2026-11-01)
-             tempNum: s.temp === 'fill' && s.tnum === 'on' };
+             // Temperature numbers (from 2026-11-03 on its own: with Colours, Isotherms or Off — before only with
+             // Colours), in one colour on a grid about 80 px apart
+             tempNum: s.tnum === 'on', tempNumPx: 80, tempNumFont: '700 12px "Courier New",monospace' };
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
     if (s.cloud !== 'off') f.push(s.cloud, 'b');
     if (s.wind === 'on') f.push('u', 'v');
     if (s.gust === 'on') f.push('g');
-    if (s.temp === 'fill' || s.temp === 'lines') f.push('t');
+    if (s.temp === 'fill' || s.temp === 'lines' || s.tnum === 'on') f.push('t');
     return f.join(',');
   }
 
@@ -597,7 +599,8 @@ window.AppWx = (() => {
   function option(key) {                                   // a Weather option changed in the menu
     if (['rain', 'pres', 'wind', 'gust', 'cloud', 'temp', 'tnum'].includes(key)) {
       wx.setOptions(layerOptions()); renderLegend();
-      if (key !== 'rain' && key !== 'pres' && key !== 'tnum') { loadFrames(); loadFine(); }
+      // the numbers need the temperature field only when neither Colours nor Isotherms load it
+      if (key !== 'rain' && key !== 'pres' && (key !== 'tnum' || S().temp === 'off')) { loadFrames(); loadFine(); }
       else showFrame();
     } else if (key === 'fc') buildView();
     else if (key === 'grid') { bytes = 0; loadFrames(); }

@@ -3,6 +3,15 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view
+
+- **Move the EFHK close-up** — drag the box by its *EFHK* tag (or the minimized tab) anywhere over the Live Map. Zoom it with the mouse wheel; the small ⌂ brings it back to 15 NM.
+- **Crosshair on the Live Map** — the mouse is a crosshair over the map, as on the Weather page, for picking aircraft more precisely.
+- **Landings and departures together** — the phone's History has *List: Both*; the departures have their runway in a light-blue box.
+- **GPS pages for Full view** — the GPS Quality and Episodes pages are now open to users with the *Full view* right; others no longer see the GPS link. The user guides stay open to everyone.
+- **GNSS on the phone** — with Full view, the phone's menu has a new **GNSS** view: how many aircraft have degraded GPS right now, the last 24 hours, degraded aircraft per hour, the live list and the spoofing indicators. Choose the zone and the window in *GNSS options*.
+- **Temperature as numbers** — on the phone, *Temperature numbers* now shows the whole degrees over the whole map on its own, also without the colours; on the Weather page the Temperature menu has *Numbers*.
+
 ## v.02112026 — A second receiver, now part of the weather, a study log of Mode S and the mast, thinner lines in the mast profile, dark map buttons on the phone
 
 - **EFHK close-up on the Live Map** — a small map at the bottom right shows the airport, its approach lines and the traffic about 15 NM around it, with its own zoom (mouse wheel, + / −) and drag; resize it from its top-left corner. It starts minimized: click *EFHK · 15 NM* to open it, ▾ to minimize. It uses the same map and labels as the Live Map, and a click on an aircraft in it selects that aircraft.

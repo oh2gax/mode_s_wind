@@ -11,7 +11,8 @@
  * aircraft on the Live Map) and draws:
  *   temp     — the 2 m temperature (o.temp 'fill': colour bands of 2 °C with
  *              the 0 °C line; 'lines': isotherms every 2 °C, 4 °C zoomed
- *              out; o.tempNum: whole degrees about 110 px apart), under
+ *              out; o.tempNum: whole degrees about 110 px apart — o.tempNumPx; from 3 Nov 2026 also
+ *              without o.temp), under
  *              everything else
  *   clouds   — the chosen cloud fields as grey (fog: yellow), denser with
  *              more cover (cells drawn opaque on an offscreen canvas, then
@@ -739,7 +740,8 @@ const WxLayer = (() => {
         ctx.strokeStyle = T.fineEdge; ctx.lineWidth = 1; ctx.setLineDash([1.5, 3]); ctx.stroke(); ctx.setLineDash([]);
       }
       if (hasF && tStyle && f.t) drawIsotherms(ctx, tStyle);
-      if (hasF && tStyle && f.t && o.tempNum) drawTempNumbers(ctx);
+      // the numbers also without the colours / isotherms (the phone, from 2026-11-03: o.tempNum alone)
+      if (hasF && f.t && o.tempNum) drawTempNumbers(ctx);
       if (hasF && o.wind && f.u && f.v) drawBarbs(ctx, f, T, P);
       if (hasF && o.pres && f.p) drawPressure(ctx, f, T, P);
 
@@ -783,12 +785,12 @@ const WxLayer = (() => {
           c.fillStyle = L === 0 ? zeroCol : tempLine(L); c.fillText(txt, x, y);
         }
       }
-      // the temperature in whole °C (plain numbers, no ° sign) on grid points about 110 px apart (the 2.5 km
-      // box's values inside it)
+      // the temperature in whole °C (plain numbers, no ° sign) on grid points about 110 px apart (o.tempNumPx;
+      // the 2.5 km box's values inside it), in one colour with a halo
       function drawTempNumbers(c) {
         const mid = Math.floor(ny / 2) * nx + Math.floor(nx / 2), a = P(geo.pt(mid)), b = P(geo.pt(mid + 1));
-        const st = Math.max(1, Math.round(110 / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)))), sz = map.getSize();
-        c.font = '11px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        const st = Math.max(1, Math.round((o.tempNumPx || 110) / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)))), sz = map.getSize();
+        c.font = o.tempNumFont || '11px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
         const halo = isLight() ? 'rgba(255,255,255,.9)' : 'rgba(10,15,25,.85)', ink = isLight() ? '#111827' : '#f1f5f9';
         for (let j = Math.floor(st / 2); j < ny; j += st) for (let i = Math.floor(st / 2); i < nx; i += st) {
           const ll = geo.pt(j * nx + i), q = P(ll);
@@ -1063,7 +1065,7 @@ const WxLayer = (() => {
       const g = TEMP_L.filter(l => l >= -300 && l <= 340).map(l => `rgb(${tempRGB(l / 10).join(',')}) ${((l + 300) / 640 * 100).toFixed(1)}%`).join(',');
       parts.push(`2 m temperature ${o.temp === 'lines' ? 'isotherms ' : ''}<span style="display:inline-block;width:110px;height:8px;vertical-align:middle;border-radius:2px;background:linear-gradient(90deg,${g})"></span> −30 … 0 … +30 °C` +
                  (o.temp === 'lines' ? ' every 2 °C (4 °C zoomed out)' : ' in steps of 2 °C') + ' · <b>━</b> 0 °C');
-    }
+    } else if (o.tempNum) parts.push('2 m temperature: the numbers in whole °C');
     if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
     if (o.wind) parts.push(`barbs: ${o.windLabel || '10 m wind'} (kt; half feather 5, feather 10, pennant 50)`);
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);

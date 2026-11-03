@@ -119,9 +119,10 @@ function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
            wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown(),
            smooth: $('wx-smooth').value !== 'off',
-           // 2 m temperature (from 2026-11-01): Off / Colours (fill) / Isotherms (lines), numbers with Colours
-           temp: $('wx-temp').value === 'off' ? false : $('wx-temp').value,
-           tempNum: $('wx-temp').value === 'fill' && $('wx-tnum').checked,
+           // 2 m temperature (from 2026-11-01): Off / Colours (fill) / Isotherms (lines), numbers with Colours;
+           // from 2026-11-03 also Numbers alone (one colour, no bands or lines)
+           temp: ['off', 'numbers'].includes($('wx-temp').value) ? false : $('wx-temp').value,
+           tempNum: $('wx-temp').value === 'numbers' || ($('wx-temp').value === 'fill' && $('wx-tnum').checked),
            opacity: (+$('wx-op').value || 75) / 100 };       // one Opacity for the filled layers (from 2026-11-01)          // Shading: Smooth / Cells (from 2026-10-31)
 }
 function fieldList() {

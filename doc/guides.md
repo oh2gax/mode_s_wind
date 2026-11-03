@@ -9,26 +9,26 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## The receiving station (brochure)
 file: MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf
-version: 1.1
-date: 2026-11-02
+version: 1.2
+date: 2026-11-03
 pages: 2
 
 A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The nine-page overview below has the details.
 
 - **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape and the workstation), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
-- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with four screens and a QR code, the pages in the browser, and how to see it live — a research system, not for flight operations
+- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with four screens and a QR code, the pages in the browser (the GPS page for users with the Full view right), and how to see it live — a research system, not for flight operations
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.14
-date: 2026-11-02
+version: 1.15
+date: 2026-11-03
 pages: 9
 
 A nine-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
 
 - The hardware: the 1090 MHz antenna, the Jetvision Radarcape and the Raspberry Pi 4, and the signal chain from the aircraft's transponder to the browser
 - What the aircraft send: Mode S EHS, the Comm-B registers (BDS 5,0, 6,0 …), ADS-B and the quality gates
-- From replies to weather: the formulas for wind, temperature and the heights of the pressure surfaces; the self-correction and calibration against the soundings and the MEPS model; data storage and the pages
+- From replies to weather: the formulas for wind, temperature and the heights of the pressure surfaces; the self-correction and calibration against the soundings and the MEPS model; data storage and the pages (the GPS pages for users with the Full view right)
 - **Windshear detection and the ongoing study** (page 3): headwind ramps and the band comparison, the alert levels (with the 14-kt rule), the alert message in the controllers' short form with its spoken form, the study phases so far and the results
 - **One system, two sites** (page 4): the off-grid capable local station and the cloud server at https://mode-s-wind.oh2gax.org that serves the users, the tunnel between them, how both are kept up to date, and what comes next
 - **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, the ILS approach with the turbulence (EDR) of the last hour on the approach map, ACI + windshear and Statistics, and the eight views
@@ -88,8 +88,8 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.11
-date: 2026-11-02
+version: 1.12
+date: 2026-11-03
 pages: 18
 open: stats
 
@@ -103,16 +103,16 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.45
-date: 2026-11-02
-pages: 40
+version: 1.47
+date: 2026-11-03
+pages: 44
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
-- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer and its flight-by-flight headwind, change and shear), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, ATC labels placed apart with leader lines and the **extended label** on a tap, **All tracked (30 NM)** and the **ATC map style** of the big pages, the **approach history** of the last 3–6 h under the strips, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **EDR · WS · ACI · ST** with **ACI + EDR + WS**, **EDR + WS** and a **boundary-layer chart below** on the same hours (also under the ILS view's chart), the space–time diagram and the **boundary layer** (low-level jet, inversion, and flight by flight: headwind, its change and the shear; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures with its search and each flight's **headwind profile** chart, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on; with more receivers *All receivers* and, for its owners and Full view, a receiver's own tab marked **yours**), and the **Weather** maps (MEPS, 6 h back to 24 / 48 h ahead, slider and animation, tap for values, the **2.5 km detail** near the airport when zoomed in, **smooth shading** or grid cells, the **2 m temperature** in colours (with numbers) or isotherms, the **FMI radar** at the present hour, one **Opacity** for all the coloured layers, the live air traffic with the ATC map and labels, and the extended label on a tap, and the receivers as small triangles), with their options
+- **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer and its flight-by-flight headwind, change and shear), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, ATC labels placed apart with leader lines and the **extended label** on a tap, **All tracked (30 NM)** and the **ATC map style** of the big pages, the **approach history** of the last 3–6 h under the strips, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **EDR · WS · ACI · ST** with **ACI + EDR + WS**, **EDR + WS** and a **boundary-layer chart below** on the same hours (also under the ILS view's chart), the space–time diagram and the **boundary layer** (low-level jet, inversion, and flight by flight: headwind, its change and the shear; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures (also **Both** in one list, the departures' runway in light blue) with its search and each flight's **headwind profile** chart, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on; with more receivers *All receivers* and, for its owners and Full view, a receiver's own tab marked **yours**), and the **Weather** maps (MEPS, 6 h back to 24 / 48 h ahead, slider and animation, tap for values, the **2.5 km detail** near the airport when zoomed in, **smooth shading** or grid cells, the **2 m temperature** in colours or isotherms, and as **numbers** on their own, the **FMI radar** at the present hour, one **Opacity** for all the coloured layers, the live air traffic with the ATC map and labels, and the extended label on a tap, and the receivers as small triangles), and — for users with the **Full view** right — **GNSS** (degraded GPS now and hour by hour, the live list and the spoofing indicators), with their options
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

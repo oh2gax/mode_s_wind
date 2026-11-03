@@ -7,6 +7,25 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.03112026 — 2026-11-03 (the EFHK close-up moves anywhere over the Live Map, without + / −; a crosshair over the Live Map; landings and departures together in the phone's History; temperature numbers on their own — the phone's Weather view and the Weather page; the GPS pages for Full view only, and a GNSS view on the phone for them)
+
+### Live Map: the EFHK close-up moves; a crosshair over the map
+- The EFHK close-up box can be moved anywhere over the map by its tag (open) or its tab (minimized; a click still opens it); it stays inside the map and its place is remembered. The + / − buttons are gone (the mouse wheel zooms); ⌂ is smaller and see-through. `static/js/live_inset.js`, `static/css/style.css`.
+- Over the Live Map's map — the map, the aircraft and the close-up — the mouse is a crosshair, the same as on the Weather page, instead of the hand. `static/css/style.css`.
+
+### Phone History: Both
+- *List* has **Both**: the landings and the departures in one list, newest first; a departure's runway box is filled light blue, and each card keeps its own chips, line and details. `static/js/app.js`, `web/templates/app.html`, `static/css/app.css`.
+
+### Weather: the temperature as numbers on their own
+- Phone Weather view: *Temperature numbers* works on its own — also with the temperature Off or Isotherms (before only with Colours, so it seemed to do nothing): bold whole degrees in one colour about 80 px apart over the whole map. `static/js/app_wx.js`, `static/js/wx_layer.js` (`tempNumPx`, `tempNumFont`; the numbers drawn without the bands or lines), `web/templates/app.html`.
+- Weather page: the Temperature dropdown has **Numbers** — only the numbers, in one colour, about 110 px apart. `web/templates/weather.html`, `static/js/weather.js`.
+- Mobile user guide 1.46 (42 pp): History *Both* and the temperature numbers, with two new figures from the stored data. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
+
+### GPS pages: Full view only; a GNSS view on the phone
+- The GPS pages (Quality and Episodes) and their data are shown only to users with the Full view right. For others the GPS link is not in the navigation bar, the pages show a short notice and the GPS APIs answer 403; the answers are not cached for other users. `web/rights.py` (`gnss`), `web/app.py`, `web/templates/base.html`, `web/templates/gnss_locked.html` (new), `web/templates/_about_body.html`, `static/css/style.css`.
+- Phone: a new **GNSS** view for the same users — degraded GPS now, the 24-hour figures, degraded aircraft per hour (24 h / 48 h / 7 d, severe and mild), the live list and the spoofing indicators; Zone and Window in the menu. `/api/gps/state` has `?lite=1` for it. `static/js/app_gnss.js` (new), `static/js/app.js`, `web/templates/app.html`, `static/css/app.css`.
+- Guides: the user guides stay open to everyone; those mentioning the GPS pages say that they need Full view — Mobile 1.47 (44 pp; the GNSS view, with figures from the stored data), Statistics 1.12, *The receiving station* 1.15 (also in Finnish) and its brochure 1.2 (still two pages). `doc/*.pdf`, `doc/guides.md`.
+
 ## v.02112026 — 2026-11-02 (a second receiver: watched, then merged into the weather, its coverage on the Live Map; frames seconds late after a tunnel stall dropped; the Windshear map's EDR lines by flight phase; the receiver dots at the receivers' own positions; the Live Map's and the Windshear map's map and labels chosen apart (ATC labels on the street map); Solo on the Live Map (one aircraft alone, its track, the map following it); the receiver markers can be hidden (Live Map, Weather page); the Live Map's weather panel keeps its size; thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series; a study log of Mode S and the Kivenlahti mast; *The receiving station* with a page on the two receivers, and its brochure; each receiver's own statistics for its owners and Full view; the Statistics and Mobile guides with the receivers; the receivers on the phone's Weather map; *The receiving station* page 9 made general; an EFHK close-up box on the Live Map)
 
 ### Live Map: an EFHK close-up box

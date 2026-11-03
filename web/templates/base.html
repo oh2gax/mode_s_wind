@@ -35,8 +35,11 @@
     <a href="/windmap"      class="nav-link {% if request.endpoint == 'windmap_page'      %}active{% endif %}">Wind Map</a>
     <a href="/weather"      class="nav-link {% if request.endpoint == 'weather_page'      %}active{% endif %}">Weather</a>
     <a href="/windshear"    class="nav-link {% if request.endpoint == 'windshear_page'    %}active{% endif %}">Windshear</a>
+    {#- the GPS pages: Full view only (web/rights.py, from 2026-11-03) -#}
+    {% if gnss_view %}
     <a href="/gps"          class="nav-link {% if request.endpoint in ('gps_page', 'gps_episodes_page') %}active{% endif %}"
-       title="GPS Quality and GPS Episodes (switch between them at the top left of the page)">GPS</a>
+       title="GPS Quality and GPS Episodes (switch between them at the top left of the page) — Full view">GPS</a>
+    {% endif %}
     <a href="/stats"        class="nav-link {% if request.endpoint == 'msgstats_page'     %}active{% endif %}"
        title="Mode S &amp; ADS-B Statistics: what the receiver hears — formats, registers, reply cadence, interrogators">Statistics</a>
   </div>
