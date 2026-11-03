@@ -334,7 +334,7 @@ function updateLabel(h) {
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
   const rel = Math.round((h[0] - Math.floor(now / HOUR) * HOUR) / HOUR);
   const relTxt = h[0] > now ? `<span class="wx-fc">forecast +${rel} h</span>` : rel === 0 ? 'present hour' : `${rel} h`;
-  el.innerHTML = `${wd} ${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad2(d.getUTCHours())} UTC · ${relTxt}`;
+  el.innerHTML = `${wd} ${d.getUTCDate()}.${d.getUTCMonth() + 1}. <b>${pad2(d.getUTCHours())} UTC</b> · ${relTxt}`;
 }
 function statusLine(f, noWind = false, noTemp = false) {
   const r = new Date(f.run * 1000), t = new Date(f.ts * 1000);

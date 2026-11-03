@@ -3772,3 +3772,7 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
    button as wide as its longest text (Shear), so stepping Wind → T → HW → ΔHW → Shear
    does not move the buttons after it. */
 #ws-bl-field-btn { min-width: 50px; text-align: center; }
+/* Weather page: the shown hour after ⟲ a little bigger and brighter (from the evening of
+   2026-11-03; was the Wind Map's 11 px grey) — the hour in bold */
+#wx-tlabel { font-size: 14px; color: var(--text-1); min-width: 290px; }
+#wx-tlabel b { font-weight: 700; }
