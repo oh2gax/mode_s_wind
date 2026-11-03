@@ -2471,8 +2471,39 @@ def create_app(
             zone = "all"
         st = gps_tracker.get_state(zone=zone)
         if request.args.get("lite") in ("1", "true"):
-            st = {**st, "time_series": st.get("time_series", [])[-48:], "heatmap": [], "band_days": {}}
+            heat = None
+            if request.args.get("heat") in ("1", "true"):
+                # the phone's FL band heatmap (from 2026-11-03): the events per UTC day and
+                # FL band of the last 31 days (and the counting method), with band_days
+                hd, meth = {}, {}
+                for b in st.get("heatmap", []):
+                    day = str(int(b["ts"] // 86400 * 86400))
+                    row = hd.setdefault(day, {})
+                    for band, n in (b.get("fl_bands") or {}).items():
+                        row[band] = row.get(band, 0) + (n or 0)
+                    meth[day] = b.get("method", 1)
+                heat = {"days": hd, "method": meth}
+            st = {**st, "time_series": st.get("time_series", [])[-48:], "heatmap": [],
+                  "band_days": st.get("band_days", {}) if heat else {}}
+            if heat:
+                st["heat_days"] = heat
         return _private(jsonify(st))
+
+    @app.route("/api/gps/daily")
+    def gps_daily_api():
+        """Per UTC day: aircraft-hours seen and degraded, severe aircraft-hours
+        (from 2026-10-09, else null) and events — the phone's GNSS view, 1 m /
+        3 m (from 2026-11-03).  ?zone=all|50nm|20nm, ?days=1–180 (default 31).
+        Full view only (web/rights.py)."""
+        if not _gnss_ok():
+            return _gnss_denied()
+        if gps_tracker is None:
+            return _private(jsonify({"days": []}))
+        zone = request.args.get("zone", "all")
+        if zone not in ("all", "50nm", "20nm"):
+            zone = "all"
+        n = request.args.get("days", 31, type=int) or 31
+        return _private(jsonify({"zone": zone, "days": gps_tracker.get_daily(zone=zone, days=n)}))
 
     @app.route("/api/gps/detail")
     def gps_detail_api():
@@ -2495,7 +2526,10 @@ def create_app(
             hours = int(request.args.get("hours", 24))
         except ValueError:
             hours = 24
-        return _private(jsonify(gps_tracker.get_detail(zone=zone, hours=hours)))
+        d = gps_tracker.get_detail(zone=zone, hours=hours)
+        if request.args.get("noslots") in ("1", "true"):    # the phone (from 2026-11-03): hours and spoofing only
+            d = {**d, "slots": []}
+        return _private(jsonify(d))
 
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 

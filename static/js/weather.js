@@ -10,7 +10,8 @@
  *   gusts    — the model's 10 m gust, shaded from 25 kt
  *   rain     — the rain of the hour ending at the shown time, radar-like
  *              colours by intensity; snow (at least half of it) in violet
- *   wind     — barbs of the model's 10 m wind
+ *   wind     — barbs of the model's 10 m wind, and / or (from 2026-11-03) its speed
+ *              in colour bands of 5 kt (the Wind menu: Off / Barbs / Colours / both)
  *   pressure — isobars every 4 hPa (marching squares on the smoothed field)
  *              with labels, highs H and lows L with their central pressure
  * The hover read-out adds the cloud base, the wind and the gust.
@@ -103,6 +104,7 @@ function saveSettings() {
     const el = $(id);
     if (s[id] == null) return;
     if (el.type === 'checkbox') el.checked = !!s[id];
+    else if (id === 'wx-wind' && typeof s[id] === 'boolean') el.value = s[id] ? 'barbs' : 'off';   // the former Wind check box (until 2026-11-03)
     else if ([...el.options].some(o => o.value === String(s[id]))) el.value = s[id];
   });
 })();
@@ -117,7 +119,9 @@ const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
 const cloudKey = () => { const v = $('wx-cloud').value; return v === 'off' ? null : v; };
 function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
-           wind: $('wx-wind').checked, gust: $('wx-gust').checked, fine: wx.fineShown(),
+           // Wind (from 2026-11-03 a menu, was a check box): Off / Barbs / Colours (the speed in bands of 5 kt) / both
+           wind: ['barbs', 'both'].includes($('wx-wind').value), windFill: ['colours', 'both'].includes($('wx-wind').value),
+           gust: $('wx-gust').checked, fine: wx.fineShown(),
            smooth: $('wx-smooth').value !== 'off',
            // 2 m temperature (from 2026-11-01): Off / Colours (fill) / Isotherms (lines), numbers with Colours;
            // from 2026-11-03 also Numbers alone (one colour, no bands or lines)
@@ -128,7 +132,7 @@ function layerOptions() {
 function fieldList() {
   const f = ['p', 'r', 's'], c = cloudKey();
   if (c) f.push(c, 'b');
-  if ($('wx-wind').checked) f.push('u', 'v');
+  if ($('wx-wind').value !== 'off') f.push('u', 'v');
   if ($('wx-gust').checked) f.push('g');
   if ($('wx-temp').value !== 'off') f.push('t');
   return f.join(',');
@@ -285,7 +289,7 @@ function showFrame() {
   wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
   wx.setFrame(f, grid);
   // hours stored before 24 Oct 2026 have no wind / gust
-  const noWind = ($('wx-wind').checked && !f.u) || ($('wx-gust').checked && !f.g);
+  const noWind = ($('wx-wind').value !== 'off' && !f.u) || ($('wx-gust').checked && !f.g);
   renderLegend();
   statusLine(f, noWind, $('wx-temp').value !== 'off' && !f.t);
   showPoint();

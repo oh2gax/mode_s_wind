@@ -18,6 +18,7 @@
  *              more cover (cells drawn opaque on an offscreen canvas, then
  *              the cover turned into transparency: no seams between cells)
  *   gusts    — shading of the 10 m gust from 25 kt (Beaufort 6) upwards
+ *   windFill — the 10 m wind speed in colour bands of 5 kt (from 2026-11-03)
  *   rain     — radar-like colours by intensity, snow (≥ half of it) violet
  *   wind     — barbs of the 10 m wind, thinned to about 50 px apart (or of
  *              any u / v frame on the same projection: the Live Map's MEPS
@@ -130,6 +131,17 @@ const WxLayer = (() => {
   const TEMP_C = TEMP_L.map(l => `rgb(${tempRGB((l + 10) / 10).join(',')})`);   // the colour of the band's middle
   const tempClass = v => v < TEMP_L[0] ? -1 : Math.min(TEMP_L.length - 1, Math.floor((v - TEMP_L[0]) / 20));
   const tempLine = L => `rgb(${tempRGB(L / 10).join(',')})`;
+  // 10 m wind speed as colours (from 2026-11-03, the Weather page's Wind: Colours): bands of
+  // 5 kt to 40, then 50 / 60 kt — calm blue-violet, blue, teal, green, yellow, orange, red, magenta
+  const WS_T = [0, 5, 10, 15, 20, 25, 30, 35, 40, 50, 60];
+  const WS_C = ['#5d6fb4', '#3d93c9', '#3fb5b0', '#4fbb73', '#8dc455', '#d6c642', '#eaa23a', '#e3713a', '#d1453f', '#b23a78', '#7e3592'];
+  const wsClass = kt => { let k = -1; for (let i = 0; i < WS_T.length; i++) if (kt >= WS_T[i]) k = i; return k; };
+  // the speed (kt) of a frame's u / v, once per frame
+  const wsOf = fr => {
+    if (!fr || !fr.u || !fr.v) return null;
+    if (!fr._ws) fr._ws = fr.u.map((u, k) => (u == null || fr.v[k] == null ? null : Math.hypot(u, fr.v[k])));
+    return fr._ws;
+  };
   const gustClass = kt => { let k = -1; for (let i = 0; i < GUST_T.length; i++) if (kt >= GUST_T[i]) k = i; return k; };
   const BARB_PX = 50;                                                      // barb spacing on screen
   // meteorological wind barb at (cx, cy), staff pointing to where the wind comes from
@@ -569,6 +581,36 @@ const WxLayer = (() => {
                  : tCells(fnx, fny, fine.t)) any = true;
         }
         if (any) layer(o.tempAlpha != null ? o.tempAlpha : opa(isLight() ? 0.55 : 0.68));
+      }
+      // 10 m wind speed in colour (from 2026-11-03; o.windFill): opaque bands of 5 kt as the
+      // temperature, under everything else (over the temperature colours when both are on)
+      const ws = hasF && o.windFill ? wsOf(f) : null;
+      if (ws) {
+        begin();
+        let any = false;
+        const wCells = (gnx, gny, sv, q) => {          // Cells: runs of one class along a row
+          let n = false;
+          for (let j = 0; j < gny; j++) {
+            let i0 = -1, c0 = -1;
+            for (let i = 0; i <= gnx; i++) {
+              const v = i < gnx ? sv[j * gnx + i] : null, cl = v == null ? -1 : wsClass(v);
+              if (cl !== c0 || i - i0 >= 6) {
+                if (c0 >= 0) { q(i0, j, WS_C[c0], i - 1); n = true; }
+                i0 = i; c0 = cl;
+              }
+            }
+          }
+          return n;
+        };
+        if (SM) any = bands(geo, cellsOf(nx, ny, k => ws[k] != null), getter(ws, nx), null, WS_T, [WS_C], true);
+        else any = wCells(nx, ny, ws, quad);
+        const fws = hasFine ? wsOf(fine) : null;
+        if (fws) {
+          fineCut();
+          if (SM ? bands(fineGeo, cellsOf(fnx, fny, k => fws[k] != null), getter(fws, fnx), null, WS_T, [WS_C], true)
+                 : wCells(fnx, fny, fws, fq)) any = true;
+        }
+        if (any) layer(o.windAlpha != null ? o.windAlpha : opa(isLight() ? 0.55 : 0.68));
       }
       // clouds / fog: grey value = cover, then red → alpha in the field's colour
       for (const key of (hasF ? o.clouds : [])) {
@@ -1066,6 +1108,7 @@ const WxLayer = (() => {
       parts.push(`2 m temperature ${o.temp === 'lines' ? 'isotherms ' : ''}<span style="display:inline-block;width:110px;height:8px;vertical-align:middle;border-radius:2px;background:linear-gradient(90deg,${g})"></span> −30 … 0 … +30 °C` +
                  (o.temp === 'lines' ? ' every 2 °C (4 °C zoomed out)' : ' in steps of 2 °C') + ' · <b>━</b> 0 °C');
     } else if (o.tempNum) parts.push('2 m temperature: the numbers in whole °C');
+    if (o.windFill) parts.push('10 m wind ' + WS_C.map((c, i) => `${key(c)} ${WS_T[i]}`).join(' ') + ' kt');
     if (o.gust) parts.push('gust ' + GUST_C.map((c, i) => `${key(c)} ${GUST_T[i]}`).join(' ') + ' kt');
     if (o.wind) parts.push(`barbs: ${o.windLabel || '10 m wind'} (kt; half feather 5, feather 10, pennant 50)`);
     if (o.pres) parts.push(`isobars every 4 hPa · <b style="color:${T.hi}">H</b> high · <b style="color:${T.lo}">L</b> low`);
@@ -1074,5 +1117,5 @@ const WxLayer = (() => {
     return parts.join(' &nbsp;·&nbsp; ');
   }
 
-  return { create, legendHtml, barb, windDir, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C };
+  return { create, legendHtml, barb, windDir, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C, WS_T, WS_C };
 })();

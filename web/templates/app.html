@@ -195,9 +195,22 @@
     <div class="am-hd"><span id="agn-chart-hd">Degraded aircraft per hour</span><span id="agn-leg" class="agn-leg"></span></div>
     <div class="app-aci-box agn-chart-box"><canvas id="agn-chart"></canvas></div>
     <div id="agn-pick" class="app-pick am-note"></div>
+    <!-- the FL band heatmap (from the evening of 3 Nov 2026; the menu's switch) -->
+    <div id="agn-heat-sec" hidden>
+      <div class="am-hd">FL band heatmap</div>
+      <div class="am-ctl"><span class="am-lbl">Days</span>
+        <div class="app-chips" id="agn-hrange"><button type="button" class="app-chip" data-v="14">14 d</button><button type="button" class="app-chip" data-v="31">1 m</button></div>
+      </div>
+      <div class="am-ctl"><span class="am-lbl">Cells</span>
+        <div class="app-chips" id="agn-hmode"><button type="button" class="app-chip" data-v="events">Events</button><button type="button" class="app-chip" data-v="pct">% aircraft</button></div>
+      </div>
+      <div class="app-aci-box agn-chart-box"><canvas id="agn-heat"></canvas></div>
+      <div id="agn-heat-leg" class="agn-dim"></div>
+      <div id="agn-heat-pick" class="app-pick am-note"></div>
+    </div>
     <div class="am-hd">Live — degraded GPS</div>
     <div id="agn-live" class="app-list agn-list"></div>
-    <div class="am-hd">Spoofing indicators</div>
+    <div class="am-hd" id="agn-spoof-hd">Spoofing indicators</div>
     <div id="agn-spoof" class="app-list agn-list"></div>
     <div class="app-small am-disc">Research data — the GNSS quality the aircraft report in their own ADS-B (NACp, NIC), position freezes and gaps, and checks against MLAT and the barometric altitude. A degraded aircraft is not necessarily jammed. Not for flight operations. Shown to users with the Full view right.</div>
   </section>
@@ -531,8 +544,10 @@
     <div class="app-field"><span>Zone</span>
       <select id="app-gnss-zone" data-chips><option value="all">All</option><option value="50nm">50 NM</option><option value="20nm">20 NM</option></select></div>
     <div class="app-field"><span>Window</span>
-      <select id="app-gnss-win" data-chips><option value="24">24 h</option><option value="48">48 h</option><option value="168">7 d</option></select></div>
-    <div class="app-small">Zone: the distance from the receiver (as the GPS Quality page). Window: the chart and the spoofing indicators; the tiles are always the last 24 h. <i>Severe</i>: the position is unusable (NACp 0, NIC 0 or no own position). Spoofing indicators: the own ADS-B position against MLAT, the GNSS − barometric altitude difference and position jumps — two or more independent ones (<b>2+</b>) are much stronger evidence than one. The full GPS Quality and Episodes pages are on the full site. Remembered on the phone.</div>
+      <select id="app-gnss-win" data-chips><option value="24">24 h</option><option value="48">48 h</option><option value="168">7 d</option><option value="744">1 m</option><option value="2160">3 m</option></select></div>
+    <div class="app-field"><span>FL band heatmap</span>
+      <select id="app-gnss-heat" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
+    <div class="app-small">Zone: the distance from the receiver (as the GPS Quality page). Window: the chart and the spoofing indicators — 24 h to 7 d hour by hour, 1 m (31 days) and 3 m (90 days) day by day as aircraft-hours (the spoofing indicators at most the last 31 days); the tiles are always the last 24 h. FL band heatmap: the GPS Quality page's days × flight levels, 14 d or 1 m, as events or % of the aircraft (chips above it); tap a cell. <i>Severe</i>: the position is unusable (NACp 0, NIC 0 or no own position). Spoofing indicators: the own ADS-B position against MLAT, the GNSS − barometric altitude difference and position jumps — two or more independent ones (<b>2+</b>) are much stronger evidence than one. The full GPS Quality and Episodes pages are on the full site. Remembered on the phone.</div>
   </details>
   {% endif %}
 

@@ -1542,6 +1542,42 @@ class GpsQualityTracker:
                            "gmb_sat_ft": GMB_SAT_FT, "jump_nm": JUMP_MIN_NM},
         }
 
+    def get_daily(self, zone: str = "all", days: int = 31) -> list:
+        """Per UTC day over the last `days` days (1 – 180; the phone's GNSS view,
+        1 m / 3 m windows, from 2026-11-03), from the hourly buckets in RAM:
+        [[day_ts, aircraft-hours seen, degraded aircraft-hours, severe
+        aircraft-hours or None (recorded from 2026-10-09), events], …],
+        oldest first.  Distinct aircraft are counted per hour, so the day
+        sums are aircraft-hours, as the heatmap's % aircraft mode."""
+        days = max(1, min(int(days), 180))
+        with self._lock:
+            buckets = list(self._zone_buckets[zone]) if zone in self._zone_buckets else list(self._buckets)
+        now_day = int(time.time() // 86400 * 86400)
+        t0 = now_day - (days - 1) * 86400
+        out: dict = {}
+        for b in buckets:
+            if b["ts"] < t0:
+                continue
+            d = int(b["ts"] // 86400 * 86400)
+            e = out.setdefault(d, [d, 0, 0, None, 0])
+            e[1] += b.get("total", 0) or 0
+            e[2] += b.get("degraded", 0) or 0
+            e[4] += b.get("events", 0) or 0
+            if b["ts"] < FINE_DETAIL_SINCE:
+                continue
+            det = b.get("band_detail") or {}
+            if "_sev" in b:
+                n = len(b["_sev"])
+            elif det.get("sevn") is not None:
+                n = det["sevn"]
+            elif det.get("sev"):
+                n = max(det["sev"].values())
+            else:
+                n = None
+            if n is not None:
+                e[3] = (e[3] or 0) + n
+        return [out[k] for k in sorted(out)]
+
     def get_state(self, zone: str = "all") -> dict:
         """
         Return a JSON-serialisable snapshot for the API endpoint.

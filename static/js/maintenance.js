@@ -335,8 +335,10 @@ function renderUsers(d) {
       ? `<button class="maint-btn maint-btn-sm" data-act="pw" data-user="${_esc(u.user)}">New password</button>` : '';
     const del = u.kind === 'user'
       ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
+    // Receivers (own receivers) and Permissions (Full view) — two buttons from 2026-11-03
     const rxBtn = u.kind === 'user'
-      ? `<button class="maint-btn maint-btn-sm" data-act="rx" data-user="${_esc(u.user)}" title="What ${_esc(u.user)} sees on the Statistics page: own receivers and / or Full view">Receivers</button>` : '';
+      ? `<button class="maint-btn maint-btn-sm" data-act="perm" data-user="${_esc(u.user)}" title="${_esc(u.user)}'s permissions: Full view — every receiver, the GPS pages and the phone's GNSS view">Permissions</button>`
+        + `<button class="maint-btn maint-btn-sm" data-act="rx" data-user="${_esc(u.user)}" title="${_esc(u.user)}'s own receivers: their own tabs on the Statistics page, feeds and coverage lines">Receivers</button>` : '';
     return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>${nm}` +
       `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}${u.kind === 'config' && d.shared && d.shared.phase !== 'none' ? (d.shared.phase === 'ended' ? ' · shared, ended' : ` · shared, until ${_esc(d.shared.expires)}`) : ''}</span>` +
       `<span class="maint-rx-chips">${_rxChips(u, d)}</span>` +
@@ -358,7 +360,7 @@ function _rxName(d, id) {
 function _rxChips(u, d) {
   if (u.kind === 'config') return '<span class="maint-rx-chip dim" title="The built-in user always sees All receivers only">All receivers</span>';
   const ch = [];
-  if (u.full) ch.push(`<span class="maint-rx-chip full" title="Every receiver's own statistics${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Full view</span>`);
+  if (u.full) ch.push(`<span class="maint-rx-chip full" title="Every receiver, the GPS pages and the phone's GNSS view${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Full view</span>`);
   (u.own || []).forEach(id => {
     const known = (d.receivers || []).some(x => x.id === id);
     ch.push(`<span class="maint-rx-chip${known ? '' : ' gone'}" title="${known ? 'Own receiver: ' + _esc(_rxName(d, id)) : _esc(id) + ': not configured on this server (kept)'}">${_esc(id)}</span>`);
@@ -380,17 +382,28 @@ function _rxOverview(d) {
     + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'}. `
     + (rx.length < 2 ? 'With one receiver everyone sees its statistics; the rights take effect when more receivers are added. '
                      : 'Everyone else sees only <i>All receivers</i> on the Statistics page and the phone. ')
-    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights.';
+    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights. Full view (<b>Permissions</b>) also opens the GPS pages and the phone\'s GNSS view.';
 }
 function _closeRx() {
   _rxUser = null;
   document.getElementById('users-rx-row').style.display = 'none';
+  document.getElementById('users-perm-row').style.display = 'none';
 }
+const _userOf = name => ((_usersData || {}).users || []).find(x => x.user === name) || {};
+// Permissions (from 2026-11-03): Full view only; the own receivers are kept as they are
+function _openPerm(name) {
+  _closeRx();
+  _rxUser = name;
+  document.getElementById('users-perm-user').textContent = name;
+  document.getElementById('users-perm-full').checked = !!_userOf(name).full;
+  document.getElementById('users-perm-row').style.display = '';
+}
+// Receivers: the own receivers only; Full view is kept as it is
 function _openRx(name) {
-  const d = _usersData || {}, u = (d.users || []).find(x => x.user === name) || {};
+  _closeRx();
+  const d = _usersData || {}, u = _userOf(name);
   _rxUser = name;
   document.getElementById('users-rx-user').textContent = name;
-  document.getElementById('users-rx-full').checked = !!u.full;
   const ids = (d.receivers || []).map(r => r.id);
   (u.own || []).forEach(id => { if (!ids.includes(id)) ids.push(id); });
   document.getElementById('users-rx-list').innerHTML = ids.map(id => {
@@ -400,16 +413,24 @@ function _openRx(name) {
   document.getElementById('users-rx-row').style.display = '';
 }
 document.getElementById('users-rx-cancel-btn').addEventListener('click', _closeRx);
-document.getElementById('users-rx-save-btn').addEventListener('click', async () => {
-  if (!_rxUser) return;
-  const own = [...document.querySelectorAll('#users-rx-list input:checked')].map(x => x.value);
-  const full = document.getElementById('users-rx-full').checked;
+async function _saveRights(full, own) {
+  const user = _rxUser;
   try {
-    renderUsers(await _usersCall('rights', _rxUser, '', { full, own }));
-    _setStatus('users-status', `✓ Statistics rights saved for ${_rxUser}: ` + (full ? 'Full view' : '') + (full && own.length ? ' + ' : '')
+    renderUsers(await _usersCall('rights', user, '', { full, own }));
+    _setStatus('users-status', `✓ Rights saved for ${user}: ` + (full ? 'Full view' : '') + (full && own.length ? ' + ' : '')
       + (own.length ? 'own ' + own.join(', ') : '') + (!full && !own.length ? 'All receivers only' : ''));
     _closeRx();
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
+}
+document.getElementById('users-rx-save-btn').addEventListener('click', () => {
+  if (!_rxUser) return;
+  const own = [...document.querySelectorAll('#users-rx-list input:checked')].map(x => x.value);
+  _saveRights(!!_userOf(_rxUser).full, own);
+});
+document.getElementById('users-perm-cancel-btn').addEventListener('click', _closeRx);
+document.getElementById('users-perm-save-btn').addEventListener('click', () => {
+  if (!_rxUser) return;
+  _saveRights(document.getElementById('users-perm-full').checked, _userOf(_rxUser).own || []);
 });
 
 // ── Shared test login: end date (web/shared_login.py) ────────────────────────
@@ -496,9 +517,9 @@ document.getElementById('users-list').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const name = b.dataset.user;
-  if (b.dataset.act === 'rx') {
+  if (b.dataset.act === 'rx' || b.dataset.act === 'perm') {
     _closeEdit(); _closeName();
-    _openRx(name);
+    if (b.dataset.act === 'perm') _openPerm(name); else _openRx(name);
     return;
   }
   if (b.dataset.act === 'name') {

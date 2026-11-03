@@ -540,3 +540,6 @@ body.app-body {
 .agn-sub small { font-weight: 400; color: var(--text-3); }
 .agn-none { padding: 10px 4px; color: var(--text-3); font-style: italic; font-size: 12px; }
 [data-theme="light"] .agn-list .agn-hit { color: #a8457a; }
+/* the chart heading and its legend: the legend goes under the heading, at the right, when both do not fit */
+.app-gnss .am-hd { flex-wrap: wrap; row-gap: 2px; }
+.app-gnss .agn-leg span { white-space: nowrap; }

@@ -3741,3 +3741,22 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .gnl-small { font-size: 12px; color: var(--text-2); }
 .gnl-box a.gnl-btn { display: inline-block; margin-top: 6px; padding: 6px 14px; border-radius: 5px;
                      background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
+
+/* ── Full-site maps: ⌂ and + / − see-through (from 2026-11-03, as the EFHK close-up's ⌂) ──
+   Live Map, Flights, Sounding, Wind Map, Weather, Windshear, GPS Episodes; the phone (/app)
+   keeps its dark buttons (app.css) */
+body:not(.app-body) .leaflet-bar.leaflet-control-zoom, body:not(.app-body) .leaflet-bar.ms-map-home {
+  box-shadow: none; border: 1px solid rgba(148, 163, 184, 0.35); background: transparent;
+  opacity: 0.75; transition: opacity 0.12s; }
+body:not(.app-body) .leaflet-bar.leaflet-control-zoom:hover, body:not(.app-body) .leaflet-bar.ms-map-home:hover { opacity: 1; }
+body:not(.app-body) .leaflet-control-zoom a, body:not(.app-body) .ms-map-home a {
+  background: rgba(15, 23, 42, 0.35); color: var(--text-1); border-color: rgba(148, 163, 184, 0.3); }
+body:not(.app-body) .leaflet-control-zoom a:hover, body:not(.app-body) .ms-map-home a:hover { background: rgba(15, 23, 42, 0.62); }
+body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(15, 23, 42, 0.2); color: var(--text-3); }
+[data-theme="light"] body:not(.app-body) .leaflet-bar.leaflet-control-zoom,
+[data-theme="light"] body:not(.app-body) .leaflet-bar.ms-map-home { border-color: rgba(71, 85, 105, 0.35); }
+[data-theme="light"] body:not(.app-body) .leaflet-control-zoom a, [data-theme="light"] body:not(.app-body) .ms-map-home a {
+  background: rgba(255, 255, 255, 0.45); color: #334155; border-color: rgba(71, 85, 105, 0.3); }
+[data-theme="light"] body:not(.app-body) .leaflet-control-zoom a:hover,
+[data-theme="light"] body:not(.app-body) .ms-map-home a:hover { background: rgba(255, 255, 255, 0.82); }
+[data-theme="light"] body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(255, 255, 255, 0.3); color: #94a3b8; }
