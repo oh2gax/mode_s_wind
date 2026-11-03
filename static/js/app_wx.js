@@ -150,7 +150,7 @@ window.AppWx = (() => {
     // a redraw only when the detail comes or goes (the layer redraws itself on a move)
     map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); prefetchDraw(); });
     $('app-wx-tip').addEventListener('click', closeTip);
-    $('app-wx-t').addEventListener('input', () => { if (playing) play(); lastMove = performance.now(); requestShow(); maybeLoadNear(); });
+    $('app-wx-t').addEventListener('input', () => { if (playing) play(); lastMove = performance.now(); markFollow(); requestShow(); maybeLoadNear(); });
     // while the slider is dragged the hours not drawn before are drawn at half resolution,
     // and the hour is drawn sharp when the finger is lifted (from 2026-11-03)
     $('app-wx-t').addEventListener('pointerdown', () => wx.setDraft(true));
@@ -159,7 +159,7 @@ window.AppWx = (() => {
     $('app-wx-play').addEventListener('click', play);
     $('app-wx-prev').addEventListener('click', () => stepHour(-1));
     $('app-wx-next').addEventListener('click', () => stepHour(1));
-    $('app-wx-now').addEventListener('click', () => { if (playing) play(); $('app-wx-t').value = presentIndex(); showFrame(); maybeLoadNear(); });
+    $('app-wx-now').addEventListener('click', () => { if (playing) play(); $('app-wx-t').value = presentIndex(); follow = true; showFrame(); maybeLoadNear(); });
     applyMapStyle();
     renderLegend();
   }
@@ -404,7 +404,8 @@ window.AppWx = (() => {
     playing = !playing;
     $('app-wx-play').textContent = playing ? '■' : '▶';
     $('app-wx-play').setAttribute('aria-label', playing ? 'Stop' : 'Play');
-    if (!playing) return;
+    if (!playing) { markFollow(); return; }
+    follow = false;
     const run = ++playRun, el = $('app-wx-t');
     while (playing && run === playRun && shown) {
       let v = +el.value + 1;
@@ -419,7 +420,7 @@ window.AppWx = (() => {
     if (playing) play();
     const el = $('app-wx-t'), v = +el.value + dv;
     if (v < 0 || v > +el.max) return;
-    el.value = v; lastMove = performance.now(); requestShow(); maybeLoadNear();
+    el.value = v; lastMove = performance.now(); markFollow(); requestShow(); maybeLoadNear();
   }
 
   // ── tap read-out ──────────────────────────────────────────────────────
@@ -619,13 +620,30 @@ window.AppWx = (() => {
   function wake(awayMs) {
     if (!shown || !(wasPresent || awayMs > 30 * 60e3)) return;
     if (playing) play();
+    follow = true;                                          // on the present hour again: it follows the clock
     loadIndex(true);
     if (S().traffic === 'on') loadTraffic(true);
     loadRadar(true);
   }
   function layout() { if (map) { map.invalidateSize(); trafficLayer && trafficLayer.redraw(); } }
+  // Follow Now (from 2026-11-03 evening): while the slider is on the present hour it moves on to
+  // the new present hour by itself when the clock passes the hour (checked with the 6-s refresh);
+  // moved to another hour (the slider, ±1 h, ▶) it stays there
+  let follow = true;
+  function markFollow() { follow = view.length > 0 && +$('app-wx-t').value === presentIndex(); }
+  function followTick() {
+    if (!follow || playing || !hours.length) return;
+    const now = nowTs();
+    let pt = null;
+    for (const h of hours) if (h[0] <= now) pt = h[0];
+    const cur = view[+$('app-wx-t').value];
+    if (pt == null || (cur && cur[0] === pt)) return;
+    buildView(true);                                       // the window moves with the clock too
+    follow = true;
+  }
   function refresh() {                                     // every 6 s while the view is shown
     if (!shown) return;
+    followTick();
     if (S().traffic === 'on') loadTraffic();
     loadRadar();
     if (!playing && Date.now() - indexAt > 10 * 60 * 1000) loadIndex();

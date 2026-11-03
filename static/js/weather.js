@@ -441,7 +441,8 @@ let playing = false, playRun = 0;
 async function play() {
   playing = !playing;
   $('wx-play').textContent = playing ? '■' : '▶';
-  if (!playing) return;
+  if (!playing) { markFollow(); return; }
+  follow = false;
   const run = ++playRun;
   const el = $('wx-t');
   while (playing && run === playRun) {
@@ -453,8 +454,8 @@ async function play() {
   }
 }
 $('wx-play').addEventListener('click', play);
-$('wx-now').addEventListener('click', () => { $('wx-t').value = presentIndex(); showFrame(); });
-$('wx-t').addEventListener('input', () => { lastMove = performance.now(); requestShow(); });
+$('wx-now').addEventListener('click', () => { $('wx-t').value = presentIndex(); follow = true; showFrame(); });
+$('wx-t').addEventListener('input', () => { lastMove = performance.now(); markFollow(); requestShow(); });
 // while the slider is dragged with the mouse or a finger the hours not drawn before are
 // drawn at half resolution, and the hour is drawn sharp when it is let go (from 2026-11-03)
 $('wx-t').addEventListener('pointerdown', () => wx.setDraft(true));
@@ -468,8 +469,26 @@ function stepHour(d) {
   if (v < 0 || v > parseInt(el.max, 10)) return;
   el.value = v;
   lastMove = performance.now();
+  markFollow();
   requestShow();
 }
+// Follow Now (from 2026-11-03 evening): while the slider is on the present hour (as the page
+// opens, after ⟲ or when moved back to it), it moves on to the new present hour by itself when
+// the clock passes the hour and when the tab is shown again; moved to another hour (the slider,
+// ±1 h, ▶) it stays there
+let follow = true;
+function markFollow() { follow = view.length > 0 && parseInt($('wx-t').value, 10) === presentIndex(); }
+function followTick() {
+  if (!follow || playing || !hours.length) return;
+  const now = nowTs();
+  let pt = null;
+  for (const h of hours) if (h[0] <= now) pt = h[0];
+  const shown = view[parseInt($('wx-t').value, 10)];
+  if (pt == null || (shown && shown[0] === pt)) return;
+  buildView(pt);                                    // the window moves with the clock too
+  follow = true;
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) followTick(); });
 function stepButtons() {
   const el = $('wx-t'), v = parseInt(el.value, 10), max = parseInt(el.max, 10);
   $('wx-prev').disabled = !view.length || v <= 0;
@@ -510,6 +529,7 @@ window.onThemeChange = function () {
 let lastIndex = Date.now();
 setInterval(() => {
   if (document.hidden || playing) return;
+  followTick();
   const sparse = hours.length < 12;
   if (sparse || Date.now() - lastIndex >= 10 * 60 * 1000) { lastIndex = Date.now(); loadIndex().catch(() => {}); }
 }, 60 * 1000);
