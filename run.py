@@ -1271,6 +1271,12 @@ def main() -> None:
     from database.db import get_db as _get_db_jf
     _jfeed = _jf.init(cfg, _get_db_jf)
     log.info("Local JSON feed %s (127.0.0.1:%d)", "on" if _jfeed.running else "off", _jfeed.port)
+    # ── Local Beast feed for other programs (collector/beast_feed.py, from 2026-11-03) ──
+    # every reply (merged receivers on AWS) as a Beast stream on 127.0.0.1:BEAST_FEED_PORT
+    # (31005); switched on / off on the Maintenance page (off by default: no socket)
+    from collector import beast_feed as _bf
+    _bfeed = _bf.init(cfg, _get_db_jf)
+    log.info("Local Beast feed %s (127.0.0.1:%d)", "on" if _bfeed.running else "off", _bfeed.port)
 
     # ── Start Windshear approach tracker ─────────────────────────────────
     ws_tracker = WindshearTracker(

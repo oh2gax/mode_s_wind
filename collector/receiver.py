@@ -29,6 +29,7 @@ from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao,
 from collector.wind_calc import try_compute_wind
 from collector.declination import declination as mag_declination_at
 from collector import aircraft_db
+from collector import beast_feed
 from collector import heading_cal
 from collector import msg_stats
 from collector import beast_sig
@@ -517,7 +518,11 @@ def run_collector(
                 elif ts < wall - TS_MAX_AGE_SEC:
                     ts_behind += 1
                     ts = wall
-                mstats.raw(ts, msg_hex, beast_sig.pop(msg_hex) if sig_on else None)
+                _sig = beast_sig.pop(msg_hex) if sig_on else None
+                mstats.raw(ts, msg_hex, _sig)
+                # the local Beast feed for other programs (collector/beast_feed.py, from
+                # 2026-11-03; nothing is done while no program is connected)
+                beast_feed.publish(msg_hex, ts, mg.cur_sig if rx_merged else _sig, mg.cur_mask if rx_merged else 1)
 
                 # ── Decode with pyModeS PipeDecoder ──────────────────────
                 try:

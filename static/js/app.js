@@ -1850,7 +1850,7 @@
                     tlbl: ['atc', 'std'], fc: ['48', '24'], grid: ['10', '20'], load: ['all', 'near'],
                     speed: ['normal', 'slow', 'fast'], src: ['meps', 'radar', 'both'],
                     op: ['75', '25', '50', '100'], detail: ['auto', 'off'],   // op: one Opacity (2026-11-01; was rainop / radarop)
-                    smooth: ['on', 'off'], temp: ['off', 'fill', 'lines'], tnum: ['off', 'on'],
+                    smooth: ['on', 'off'], temp: ['off', 'fill', 'lines'], tnum: ['off', 'on'], tgrid: ['dense', 'normal', 'vdense'],
                     rxmk: ['on', 'off'] };   // rxmk: the receivers' triangles (from 2026-11-02 evening)   // the first value is the default (smooth: from 2026-10-31, temp / tnum: 2026-11-01)
   const W = {};
   // the single Opacity (from 2026-11-01) starts from the phone's former choice: the radar's

@@ -88,7 +88,9 @@ window.AppWx = (() => {
              temp: s.temp === 'fill' || s.temp === 'lines' ? s.temp : false,   // 2 m temperature (from 2026-11-01)
              // Temperature numbers (from 2026-11-03 on its own: with Colours, Isotherms or Off — before only with
              // Colours), in one colour on a grid about 80 px apart
-             tempNum: s.tnum === 'on', tempNumPx: 80, tempNumFont: '700 12px "Courier New",monospace' };
+             // the numbers' grid (from 2026-11-03): Normal (80 px, as before) / Dense (55 px, the default) / Very dense (40 px)
+             tempNum: s.tnum === 'on', tempNumPx: { normal: 80, dense: 55, vdense: 40 }[s.tgrid] || 55,
+             tempNumFont: '700 12px "Courier New",monospace' };
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
@@ -641,7 +643,7 @@ window.AppWx = (() => {
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; extClose(); trafficLayer.redraw(); closeTip(); } statusLine(); }
     else if (key === 'tlbl') trafficLayer.redraw();
     else if (key === 'rxmk') { if (rxLayer) { if (S().rxmk !== 'off') rxLayer.addTo(map); else rxLayer.remove(); } }
-    else if (key === 'op' || key === 'smooth') wx.setOptions(layerOptions());
+    else if (key === 'op' || key === 'smooth' || key === 'tgrid') wx.setOptions(layerOptions());
     else if (key === 'detail') { showFrame(); renderLegend(); loadFine(); }
     else if (key === 'src') {
       if (!useRadar()) { radar = null; radarErr = ''; }

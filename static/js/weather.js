@@ -90,7 +90,7 @@ const HOUR = 3600;
 
 // ── Settings ──────────────────────────────────────────────────────────────
 const SKEY = 'ms_weather';
-const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op', 'wx-point', 'wx-rxmk'];
+const S_IDS = ['wx-pres', 'wx-rain', 'wx-wind', 'wx-gust', 'wx-temp', 'wx-tnum', 'wx-tgrid', 'wx-cloud', 'wx-past', 'wx-fc', 'wx-step', 'wx-fine', 'wx-smooth', 'wx-op', 'wx-point', 'wx-rxmk'];
 function saveSettings() {
   const s = {};
   S_IDS.forEach(id => { const el = $(id); s[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -132,6 +132,8 @@ function layerOptions() {
            // from 2026-11-03 also Numbers alone (one colour, no bands or lines)
            temp: ['off', 'numbers'].includes($('wx-temp').value) ? false : $('wx-temp').value,
            tempNum: $('wx-temp').value === 'numbers' || ($('wx-temp').value === 'fill' && $('wx-tnum').checked),
+           // the numbers' grid (from 2026-11-03): Normal / Dense (the default) / Very dense
+           tempNumPx: { normal: 110, dense: 70, vdense: 45 }[$('wx-tgrid').value] || 70,
            opacity: (+$('wx-op').value || 75) / 100 };       // one Opacity for the filled layers (from 2026-11-01)          // Shading: Smooth / Cells (from 2026-10-31)
 }
 function fieldList() {
@@ -481,9 +483,16 @@ $('wx-next').addEventListener('click', () => stepHour(1));
 }));
 $('wx-fine').addEventListener('change', () => { saveSettings(); showFrame(); loadFine(); });
 $('wx-tnum').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
+$('wx-tgrid').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
+$('wx-tnum').addEventListener('change', tnumState);
 $('wx-temp').addEventListener('change', tnumState);
 tnumState();
-function tnumState() { $('wx-tnum').closest('label').style.opacity = $('wx-temp').value === 'fill' ? '' : '0.45'; $('wx-tnum').disabled = $('wx-temp').value !== 'fill'; }
+function tnumState() {
+  $('wx-tnum').closest('label').style.opacity = $('wx-temp').value === 'fill' ? '' : '0.45'; $('wx-tnum').disabled = $('wx-temp').value !== 'fill';
+  // the numbers' grid: only while numbers are drawn
+  const on = $('wx-temp').value === 'numbers' || ($('wx-temp').value === 'fill' && $('wx-tnum').checked);
+  $('wx-tgrid').disabled = !on; $('wx-tgrid-wrap').style.opacity = on ? '' : '0.45';
+}
 $('wx-smooth').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
 $('wx-op').addEventListener('change', () => { saveSettings(); wx.setOptions(layerOptions()); });
 ['wx-past', 'wx-fc'].forEach(id => $(id).addEventListener('change', () => { saveSettings(); buildView(); }));

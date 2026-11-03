@@ -26,16 +26,23 @@
     </label>
     <div class="wm-group">
       <label class="wm-label">Temperature</label>
-      <select id="wx-temp" class="wm-select" title="The model's 2 m temperature: Colours — bands of 2 °C (purple, blue below freezing, cyan at 0 °C, green, yellow, orange, red) with the 0 °C line; Isotherms — lines every 2 °C (every 4 °C zoomed out), 0 °C thick; Numbers — only the temperature in whole degrees (°C), in one colour about every 110 px, inland and at sea. The hover read-out gives the value">
+      <select id="wx-temp" class="wm-select" title="The model's 2 m temperature: Colours — bands of 2 °C (purple, blue below freezing, cyan at 0 °C, green, yellow, orange, red) with the 0 °C line; Isotherms — lines every 2 °C (every 4 °C zoomed out), 0 °C thick; Numbers — only the temperature in whole degrees (°C), in one colour on the grid chosen below (about every 110, 70 or 45 px; in the 2.5 km box its own values), inland and at sea. The hover read-out gives the value">
         <option value="off" selected>Off</option>
         <option value="fill">Colours</option>
         <option value="lines">Isotherms</option>
         <option value="numbers">Numbers</option>
       </select>
     </div>
-    <label class="wm-check" title="With Colours: the temperature in whole degrees (°C) as small numbers about every 110 px">
+    <label class="wm-check" title="With Colours: the temperature in whole degrees (°C) as small numbers on the grid chosen beside">
       <input type="checkbox" id="wx-tnum"> Numbers
     </label>
+    <div class="wm-group" id="wx-tgrid-wrap">
+      <select id="wx-tgrid" class="wm-select" title="How close together the temperature numbers are: Normal — about every 110 px; Dense — about every 70 px; Very dense — about every 45 px. Inside the 2.5 km box (zoomed in) the numbers are its own values on its own grid, so they can come as close as its cells">
+        <option value="normal">Grid: normal</option>
+        <option value="dense" selected>Grid: dense</option>
+        <option value="vdense">Grid: very dense</option>
+      </select>
+    </div>
     <div class="wm-group">
       <label class="wm-label">Clouds</label>
       <select id="wx-cloud" class="wm-select" title="Cloud layer drawn as grey shading, denser with more cover (fog in yellow); the hover read-out adds the cloud base">

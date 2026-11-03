@@ -1461,6 +1461,32 @@ def create_app(
             f.apply(s["enabled"])
         return jsonify({"ok": True, "settings": s, "status": f.status(get_db()) if f else None})
 
+    # ── Local Beast feed for other programs (collector/beast_feed.py, from 2026-11-03) ──
+    @app.route("/api/maintenance/beast-feed/status", methods=["POST"])
+    def maintenance_beast_feed_status():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import beast_feed as _bf
+        f = _bf.get()
+        if not f:
+            return jsonify({"error": "not running", "settings": _bf.get_settings(get_db()),
+                            "receivers": _bf.receiver_bits()})
+        return jsonify(f.status(get_db()))
+
+    @app.route("/api/maintenance/beast-feed/config", methods=["POST"])
+    def maintenance_beast_feed_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import beast_feed as _bf
+        s = _bf.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None,
+                             rx=data.get("rx"), ts=data.get("ts"))
+        f = _bf.get()
+        if f:
+            f.apply(s)
+        return jsonify({"ok": True, "settings": s, "status": f.status(get_db()) if f else None})
+
     @app.route("/api/radar/latest")
     def radar_latest_api():
         """The newest FMI radar composite (rain rate, web/api/radar.py): fetched

@@ -601,6 +601,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadRegdb();
     await loadMast();
     await loadJsonFeed();
+    await loadBeastFeed();
   } catch (e) {
     _unlocked = false;
     _user = _pass = '';
@@ -1169,6 +1170,54 @@ document.getElementById('jfeed-save-btn').addEventListener('click', async () => 
       r.settings.enabled && !st.running);
   } catch (e) { _setStatus('jfeed-op-status', e.message, true); }
   await loadJsonFeed();
+});
+
+// ── Local Beast feed for other programs (collector/beast_feed.py, 2026-11-03) ──
+function _bytes(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(0) + ' kB' : `${n || 0} B`; }
+function _showBeastFeed(d) {
+  const s = d.settings || {};
+  document.getElementById('bfeed-enabled').checked = !!s.enabled;
+  const sel = document.getElementById('bfeed-rx');
+  const rxs = d.receivers || [];
+  sel.innerHTML = '<option value="all">All receivers (merged)</option>' +
+    rxs.map(r => `<option value="${_esc(r.id)}">${_esc(r.id)} only${r.name ? ' — ' + _esc(r.name) : ''}</option>`).join('') +
+    (s.rx && s.rx !== 'all' && !rxs.some(r => r.id === s.rx) ? `<option value="${_esc(s.rx)}">${_esc(s.rx)} (not found)</option>` : '');
+  sel.value = s.rx || 'all';
+  document.getElementById('bfeed-ts').value = s.ts || '12mhz';
+  const tsTxt = { '12mhz': '12 MHz counter', gps: 'GPS (Radarcape form)', zero: 'zero' }[d.ts || s.ts] || '';
+  let h = _regdbLine('Feed', d.running ? 'ok' : (s.enabled ? 'warn' : 'off'),
+    d.running ? `On · listening on ${_esc(d.host)}:${d.port} since ${_utcTs(d.started)} · ${d.rx === 'all' ? 'all receivers' : _esc(d.rx) + ' only'}${d.rx_found === false ? ' (not found — all are sent)' : ''} · time stamps ${tsTxt}`
+      : s.enabled ? `Not open${d.error ? ' — ' + _esc(d.error[1]) : ''}` : `Off — nothing listens on ${_esc(d.host || '127.0.0.1')}:${d.port || 31005}`);
+  const cl = d.clients || [];
+  h += _regdbLine('Programs', cl.length ? 'ok' : 'off',
+    cl.length ? cl.map(c => `since ${_hms(c.since)} · ${_num(c.frames)} frames · ${_bytes(c.bytes)}${c.behind > 65536 ? ' · ' + _bytes(c.behind) + ' behind' : ''}`).join('<br>')
+      : `None connected${d.clients_total ? ` · ${_num(d.clients_total)} since the start` : ''}`);
+  h += _regdbLine('Sent', d.frames_total ? 'ok' : 'off',
+    d.frames_total ? `${_num(d.frames_today)} frames today · ${_num(d.frames_total)} since the start (${_bytes(d.bytes_total)}) · now ${d.rate} frames/s`
+      : 'Nothing yet (only while a program is connected)');
+  if (d.dropped || (d.ended || []).length) {
+    const e = (d.ended || []).slice(-1)[0];
+    h += _regdbLine('Left', d.dropped ? 'warn' : 'off',
+      `${d.dropped ? _num(d.dropped) + ' disconnected as too slow · ' : ''}${e ? `last ${_hms(e[0])}: ${_esc(e[1])}` : ''}`);
+  }
+  document.getElementById('bfeed-status').innerHTML = h;
+}
+async function loadBeastFeed() {
+  try { _showBeastFeed(await _api('/api/maintenance/beast-feed/status')); }
+  catch (e) { _setStatus('bfeed-op-status', `Status not available: ${e.message}`, true); }
+}
+document.getElementById('bfeed-refresh-btn').addEventListener('click', loadBeastFeed);
+document.getElementById('bfeed-save-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/beast-feed/config', {
+      enabled: document.getElementById('bfeed-enabled').checked,
+      rx: document.getElementById('bfeed-rx').value, ts: document.getElementById('bfeed-ts').value });
+    const st = r.status || {};
+    _setStatus('bfeed-op-status', !r.settings.enabled ? 'Saved — off, the port is closed.'
+      : st.running ? `Saved — on, listening on 127.0.0.1:${st.port}.` : `Saved — but the port could not be opened${st.error ? ': ' + st.error[1] : ''}.`,
+      r.settings.enabled && !st.running);
+  } catch (e) { _setStatus('bfeed-op-status', e.message, true); }
+  await loadBeastFeed();
 });
 
 // two-click confirmation without a browser dialog

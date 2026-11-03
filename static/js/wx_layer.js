@@ -1023,21 +1023,48 @@ const WxLayer = (() => {
           c.fillStyle = L === 0 ? zeroCol : tempLine(L); c.fillText(txt, x, y);
         }
       }
-      // the temperature in whole °C (plain numbers, no ° sign) on grid points about 110 px apart (o.tempNumPx;
-      // the 2.5 km box's values inside it), in one colour with a halo
+      // the temperature in whole °C (plain numbers, no ° sign) on grid points about o.tempNumPx apart (110 px
+      // by default; the pages' Normal / Dense / Very dense), in one colour with a halo.  From 2026-11-03 the
+      // 2.5 km box has its own numbers on its own grid (before, the 10 / 20 km grid's points showed the box's
+      // value there, so zoomed in they stayed as far apart as the coarse cells); the coarse grid's numbers
+      // leave the box (and half a spacing around it) free
       function drawTempNumbers(c) {
-        const mid = Math.floor(ny / 2) * nx + Math.floor(nx / 2), a = P(geo.pt(mid)), b = P(geo.pt(mid + 1));
-        const st = Math.max(1, Math.round((o.tempNumPx || 110) / Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)))), sz = map.getSize();
+        const px = o.tempNumPx || 110, sz = map.getSize();
         c.font = o.tempNumFont || '11px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
         const halo = isLight() ? 'rgba(255,255,255,.9)' : 'rgba(10,15,25,.85)', ink = isLight() ? '#111827' : '#f1f5f9';
-        for (let j = Math.floor(st / 2); j < ny; j += st) for (let i = Math.floor(st / 2); i < nx; i += st) {
-          const ll = geo.pt(j * nx + i), q = P(ll);
-          if (q.x < 12 || q.y < 12 || q.x > sz.x - 12 || q.y > sz.y - 12) continue;
-          const v = valuesAt({ lat: ll[0], lng: ll[1] });
-          if (!v || v.t == null) continue;
-          const d = Math.round(v.t / 10), txt = `${d < 0 ? '−' : ''}${Math.abs(d)}`;   // plain, thin numbers
+        const put = (q, v) => {
+          const d = Math.round(v / 10), txt = `${d < 0 ? '−' : ''}${Math.abs(d)}`;   // plain, thin numbers
           c.lineWidth = 2.5; c.strokeStyle = halo; c.strokeText(txt, q.x, q.y);
           c.fillStyle = ink; c.fillText(txt, q.x, q.y);
+        };
+        const stepOf = (gg, gnx, gny) => {             // grid cells between two numbers
+          const mid = Math.floor(gny / 2) * gnx + Math.floor(gnx / 2), a = P(gg.pt(mid)), b = P(gg.pt(mid + 1));
+          return Math.max(1, Math.round(px / Math.max(0.5, Math.hypot(b.x - a.x, b.y - a.y))));
+        };
+        const inView = q => q.x >= 12 && q.y >= 12 && q.x <= sz.x - 12 && q.y <= sz.y - 12;
+        let inBox = null;
+        if (hasFine && fine.t) {
+          const sf = stepOf(fineGeo, fnx, fny);
+          for (let j = Math.floor(sf / 2); j < fny; j += sf) for (let i = Math.floor(sf / 2); i < fnx; i += sf) {
+            const k = j * fnx + i, v = fine.t[k];
+            if (v == null) continue;
+            const q = P(fineGeo.pt(k));
+            if (inView(q)) put(q, v);
+          }
+          const m = sf / 2 + 0.5;                       // the box and half a spacing around it, in box cells
+          inBox = ll => {
+            const [x, y] = LCC.xy(ll[0], ll[1]);
+            const fi = (x - fineGrid.x[0]) / fineGrid.x[1], fj = (y - fineGrid.y[0]) / fineGrid.y[1];
+            return fi > -m && fj > -m && fi < fnx - 1 + m && fj < fny - 1 + m;
+          };
+        }
+        const st = stepOf(geo, nx, ny);
+        for (let j = Math.floor(st / 2); j < ny; j += st) for (let i = Math.floor(st / 2); i < nx; i += st) {
+          const k = j * nx + i, v = f.t[k];
+          if (v == null) continue;
+          const ll = geo.pt(k), q = P(ll);
+          if (!inView(q) || (inBox && inBox(ll))) continue;
+          put(q, v);
         }
       }
     }

@@ -441,6 +441,28 @@
       </div>
     </div>
 
+    <!-- ── Local Beast feed for other programs (collector/beast_feed.py, 2026-11-03) ── -->
+    <div class="maint-section" id="bfeed-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">Local Beast Feed (localhost)</span>
+        <span class="maint-section-note">Every reply the receivers hear — with more receivers merged: the same reply once, in time order, about 0.8 s late — as a continuous Beast stream for another program on this same machine (readsb / dump1090 net-connector, pyModeS …). Only from this machine — never from the internet. <b>Not for multilateration</b>: the time stamps of different receivers are only lined up.</span>
+        <button id="bfeed-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-panel-title">Status</div>
+        <div class="regdb-kv" id="bfeed-status"><span class="maint-hint">—</span></div>
+        <div class="maint-row regdb-row2">
+          <label class="maint-check"><input type="checkbox" id="bfeed-enabled"> Allow local connections</label>
+          <label class="maint-label">Replies <select id="bfeed-rx" class="maint-input maint-input-sm" style="width:auto"><option value="all">All receivers (merged)</option></select></label>
+          <label class="maint-label">Time stamps <select id="bfeed-ts" class="maint-input maint-input-sm" style="width:auto">
+            <option value="12mhz">12 MHz counter</option><option value="gps">GPS (Radarcape form)</option><option value="zero">Zero</option></select></label>
+          <button id="bfeed-save-btn" class="maint-btn maint-btn-primary">Save</button>
+        </div>
+        <div class="maint-hint">Off by default: then nothing listens on the port. Each frame: 0x1a, type 2 / 3 (Mode S short / long), 6-byte time stamp, signal byte (of the first receiver that heard it), payload. A program more than 2 MB behind is disconnected. Nothing is stored. The port (31005) can be changed with BEAST_FEED_PORT in config_local.py.</div>
+        <div id="bfeed-op-status" class="maint-op-status"></div>
+      </div>
+    </div>
+
   </div><!-- #maint-body -->
 
 </div>

@@ -128,6 +128,10 @@ class JsonFeed:
             self.started = None
         if s is not None:
             try:
+                s.shutdown(socket.SHUT_RDWR)          # wakes the accept() at once: the port is closed now
+            except OSError:
+                pass
+            try:
                 s.close()
             except Exception:                          # noqa: BLE001
                 pass
