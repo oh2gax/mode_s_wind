@@ -10,12 +10,10 @@
  *  - Tiles: events, affected aircraft and severe aircraft-hours of the last
  *    24 h, and the peak hour.
  *  - Degraded aircraft per hour (24 h / 48 h / 7 d) or degraded
- *    aircraft-hours per day (1 m = 31 days / 3 m = 90 days, from the evening
- *    of 3 Nov 2026): severe and mild as stacked bars; a tap gives the numbers.
- *  - FL band heatmap (optional, the menu's switch; from the evening of
- *    3 Nov 2026): the GPS Quality page's heatmap — days × FL bands, 14 d or
- *    1 m, Events (each row against its own busiest day) or % aircraft; a tap
- *    gives the cell.
+ *    aircraft-hours per day (1 m = 31 days / 3 m = 90 days, from 3 Nov 2026): severe and mild as stacked bars; a tap gives the numbers.
+ *  - FL band heatmap (optional, the menu's switch; from 3 Nov 2026): the GPS Quality page's heatmap — days × FL bands, 14 d or
+ *    1 m, Events (each row against its own busiest day) or % aircraft, in
+ *    colour only (no numbers in the cells); a tap gives the cell.
  *  - Live list: callsign, level, NACp / NIC and the signal flags.
  *  - Spoofing indicators of the window (at most the last 31 days): aircraft
  *    per indicator, those with two or more independent indicators, and the
@@ -46,7 +44,7 @@
   const S = {
     zone: lsGet('ms_app_gnss_zone', 'all'),
     win: parseInt(lsGet('ms_app_gnss_win', '24'), 10),
-    heat: lsGet('ms_app_gnss_heat', 'off'),            // FL band heatmap shown (from the evening of 3 Nov 2026)
+    heat: lsGet('ms_app_gnss_heat', 'off'),            // FL band heatmap shown (from 3 Nov 2026)
     hrange: lsGet('ms_app_gnss_hrange', '14'),         // its days: 14 / 31
     hmode: lsGet('ms_app_gnss_hmode', 'events'),       // events / pct
   };
@@ -76,10 +74,9 @@
   const pal = () => light()
     ? { sev: '#c0504d', mild: '#d9973f', none: '#b8a07a', grid: 'rgba(15,23,42,.10)', txt: '#64748b', sel: 'rgba(15,23,42,.10)', mark: '#d97706' }
     : { sev: '#d48f8f', mild: '#cf9f6b', none: '#8f8170', grid: 'rgba(148,163,184,.13)', txt: '#94a3b8', sel: 'rgba(226,232,240,.10)', mark: '#f59e0b' };
-  // the heatmap (as gps_quality.js HEAT_COLORS / HEAT_COLORS_LIGHT, heatText, HEAT_PCT_STEPS)
+  // the heatmap (as gps_quality.js HEAT_COLORS / HEAT_COLORS_LIGHT, HEAT_PCT_STEPS)
   const HEAT = { dark: ['#1b2433', '#21344a', '#2b4865', '#3b6185', '#5a80a6'],
                  light: ['#eef2f6', '#dbe5ef', '#bfd2e4', '#9cb8d4', '#7899bf'] };
-  const heatTxt = hi => (light() ? (hi ? '#0f172a' : '#475569') : (hi ? '#e2e8f0' : '#8b97a8'));
   const PCT_STEPS = [10, 25, 50];
   const pctStep = p => { if (p <= 0) return 0; let s = 1; for (const t of PCT_STEPS) if (p >= t) s++; return s; };
 
@@ -346,21 +343,17 @@
     const bd = (st && st.band_days) || {};
     days.forEach((d, xi) => bands.forEach((b, yi) => {
       const x = L + xi * cw, y = T + yi * ch;
-      let step, label = null;
+      // colour only, no numbers in the cells (from 2026-11-03): a tap gives the values
+      let step;
       if (S.hmode === 'pct') {
         const e = (bd[String(d)] || {})[b];
         if (!e || !e.ac) { c.strokeStyle = P.grid; c.lineWidth = 0.5; c.strokeRect(x + 1.5, y + 1.5, cw - 3, ch - 3); return; }
-        const p = 100 * e.deg / e.ac; step = pctStep(p); label = Math.round(p);
+        step = pctStep(100 * e.deg / e.ac);
       } else {
         const v = (hd.days[d] || {})[b] || 0;
-        step = Math.min(4, Math.round(v / mx[seg[xi] + '|' + b] * 4)); label = v || null;
+        step = Math.min(4, Math.round(v / mx[seg[xi] + '|' + b] * 4));
       }
       c.fillStyle = cols[step]; c.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
-      const fs = Math.min(10, Math.floor(ch * 0.5), Math.floor(cw / (String(label).length * 0.62)));
-      if (label != null && fs >= 7) {
-        c.fillStyle = heatTxt(step >= 3); c.font = `${fs}px monospace`; c.textAlign = 'center'; c.textBaseline = 'middle';
-        c.fillText(String(label), x + cw / 2, y + ch / 2 + 0.5);
-      }
     }));
     if (hsel) {
       const xi = days.indexOf(hsel[0]), yi = bands.indexOf(hsel[1]);
@@ -388,8 +381,8 @@
     const el = $('agn-heat-pick');
     if (!el || S.heat !== 'on') return;
     $('agn-heat-leg').textContent = S.hmode === 'pct'
-      ? 'Share of the band’s aircraft-hours degraded: 0 · <10 · <25 · <50 · ≥50 % (recorded from 6 Oct 2026)'
-      : 'Events: each row against its own busiest day (None → High); the numbers are the events';
+      ? 'Share of the band’s aircraft-hours degraded: 0 · <10 · <25 · <50 · ≥50 % (recorded from 6 Oct 2026); tap a cell for the values'
+      : 'Events: each row against its own busiest day (None → High); tap a cell for the values';
     if (!hsel || !st || !st.heat_days) { el.textContent = 'Tap a cell for the day and the flight level band.'; return; }
     const [d, b] = hsel, dd = new Date(d * 1000);
     const ev = (st.heat_days.days[d] || {})[b] || 0;
