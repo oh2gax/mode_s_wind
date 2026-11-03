@@ -69,8 +69,8 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.39
-date: 2026-11-02
+version: 2.40
+date: 2026-11-03
 pages: 30
 open: windshear
 
@@ -84,6 +84,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 - **The boundary layer** (research): the low-level jet and the surface inversion hour by hour, the **BL** view (also **flight by flight**: headwind, its change and the wind shear of every landing and departure), and the **LLJ / INV** tag of the windshear alerts and reports
 - **Turbulence (EDR)** (research): the ICAO turbulence measure of every landing and departure from the aircraft's own replies (departures up to 5 000 ft), the **EDR + WS** and **ACI + EDR** views and the Approach History **EDR** view with its filter
 - **METAR and pilot reports**: the METAR windshear groups (`WS R22L`) and the pilot reports (ARS, WXREP) near the airport on the ACI + windshear view, and the Approach History's **Reports** list with the archive of windshear METARs
+- **Any day in the chart window**: the ACI, WS, EDR, BL and ST views for a chosen date (yesterday or any stored day) instead of the last hours, with the WS and ST views of 2 November 2026
 - Cases from October 2026 (the wind change of 17 October, a shear layer on 23 October, turbulence on 26 October), first results and the limitations
 
 ## Mode S & ADS-B and the Statistics page

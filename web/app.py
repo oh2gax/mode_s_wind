@@ -2342,9 +2342,31 @@ def create_app(
         """Space–time diagram of the Windshear page (ST view, from 2026-10-27):
         the headwind change of every 200-ft band of every landing and departure
         of the last ?hours= (3 / 6 / 12 / 24, default 12) against the flights of
-        the previous 45 min (web/api/spacetime.py); gzip-compressed."""
+        the previous 45 min (web/api/spacetime.py); gzip-compressed.  ?end=<Unix s>
+        (from 2026-11-03, a chosen day in the chart window): the hours before it."""
         from web.api import spacetime as _st
-        return _gzip_json(_st.build(get_db(), request.args.get("hours", 12, type=int)))
+        end = request.args.get("end", type=float)
+        return _gzip_json(_st.build(get_db(), request.args.get("hours", 12, type=int), now=end or None))
+
+    @app.route("/api/windshear/go-arounds")
+    def windshear_go_arounds_api():
+        """The go-arounds of one UTC ?date=YYYY-MM-DD (from 2026-11-03, the chart
+        window's date), oldest first, in the form of the live ga_events of
+        /api/windshear/state: [{ts, icao, callsign, ac_type, rwy, alt_ft, count,
+        low, ws}]."""
+        import re as _re
+        date = request.args.get("date") or ""
+        if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+        try:
+            rows = get_db().execute(
+                """SELECT ts, icao, callsign, aircraft_type, runway, alt_ft, count, low, ws FROM go_arounds
+                   WHERE date(ts, 'unixepoch') = ? ORDER BY ts""", (date,)).fetchall()
+        except Exception:                              # noqa: BLE001  (older database)
+            rows = []
+        return jsonify([{"type": "go_around", "ts": r["ts"], "icao": r["icao"], "callsign": r["callsign"],
+                         "ac_type": r["aircraft_type"], "rwy": r["runway"] or "?", "alt_ft": r["alt_ft"],
+                         "count": r["count"], "low": bool(r["low"]), "ws": r["ws"] or "none"} for r in rows])
 
     @app.route("/api/windshear/approach-history/clear", methods=["POST"])
     def windshear_approach_history_clear_api():

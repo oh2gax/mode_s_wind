@@ -3760,3 +3760,11 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
 [data-theme="light"] body:not(.app-body) .leaflet-control-zoom a:hover,
 [data-theme="light"] body:not(.app-body) .ms-map-home a:hover { background: rgba(255, 255, 255, 0.82); }
 [data-theme="light"] body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(255, 255, 255, 0.3); color: #94a3b8; }
+
+/* ── Windshear chart window: a chosen UTC day (from 2026-11-03) ── */
+.ws-windrose-hist-row { flex-wrap: wrap; row-gap: 3px; }
+.ws-wr-date-wrap .ws-wr-date-input { width: 74px; height: 19px; font-family: 'Courier New', monospace; font-size: 10.5px; }
+.ws-wr-date-wrap .ws-aphist-cal-btn { height: 19px; }
+.ws-wr-date-input.ws-wr-date-on { border-color: #0369a1; color: var(--text-1); background: #1a3a6b; }
+[data-theme="light"] .ws-wr-date-input.ws-wr-date-on { background: #dbeafe; color: #0c4a6e; }
+.ws-windrose-hist-btn.ws-wr-live-btn { color: #f59e0b; border-color: rgba(245, 158, 11, 0.6); }

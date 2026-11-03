@@ -2499,6 +2499,13 @@ let wrCondHours          = WR_COND_RANGES.includes(Number(localStorage.getItem('
 // more of the map (and the ATC style) free; their range then goes up to 12 h (3 → 6 → 12 h)
 let wrHalf               = (() => { try { return localStorage.getItem('ms_ws_wr_half') === '1'; } catch (_) { return false; } })();
 const wrRanges           = () => (wrHalf ? WR_COND_RANGES.filter(h => h <= 12) : WR_COND_RANGES);
+// A chosen UTC day in the chart views (from 2026-11-03): '' = live (the rolling range), else
+// 'YYYY-MM-DD' — the ACI, WS, EDR, BL and ST charts then show that day 00–24 UTC (not saved)
+let wrDate               = '';
+let wrDateGa             = [];     // the go-arounds of that day (/api/windshear/go-arounds)
+const wrDayEnd   = () => Date.parse(wrDate + 'T00:00:00Z') / 1000 + 86400;          // Unix s
+const wrHours    = () => (wrDate ? 24 : wrCondHours);
+const wrDayLabel = () => { const [y, m, d] = wrDate.split('-'); return `${+d}.${+m}.${y}`; };
 if (wrHalf && wrCondHours > 12) wrCondHours = 12;
 let wrCondEntries        = [];     // landings with a conditions index (last 6 h), newest first
 let wrCondFetchedMs      = 0;
@@ -2923,15 +2930,19 @@ window.addEventListener('resize', () => { if (windroseEnabled) drawWindrose(); }
 
 const wrRangeLabel = h => (h === 24 ? '1d' : `${h}h`);
 
+let wrCondReq = 0;
 async function fetchCondData() {
   if (wrView === 'st') return fetchSpaceTime();
+  const req = ++wrCondReq, dayQ = wrDate ? `&end=${wrDayEnd()}` : '';
   if (wrView === 'bl') {
     try {
-      // the hourly layer and the flights (one hour more: the reference of the first ones)
-      const [r, rf, rm] = await Promise.all([fetch(`/api/boundary?hours=${wrCondHours}`),
-        fetch(`/api/boundary/flights?hours=${wrCondHours + 1}`).catch(() => null),
-        wrBlMast ? fetch(`/api/mast/hourly?hours=${wrCondHours + 1}`).catch(() => null) : Promise.resolve(null)]);
-      if (!r.ok) return;
+      // the hourly layer and the flights (one hour more: the reference of the first ones);
+      // a chosen day: the 24 hours before its end (from 2026-11-03)
+      const H = wrHours();
+      const [r, rf, rm] = await Promise.all([fetch(`/api/boundary?hours=${H}${dayQ}`),
+        fetch(`/api/boundary/flights?hours=${H + 1}${dayQ}`).catch(() => null),
+        wrBlMast ? fetch(`/api/mast/hourly?hours=${H + 1}${dayQ}`).catch(() => null) : Promise.resolve(null)]);
+      if (!r.ok || req !== wrCondReq) return;
       wrBl = await r.json();
       if (rf && rf.ok) { const fl = await rf.json(); wrBlFl = Array.isArray(fl) ? fl : []; }
       if (rm && rm.ok) { const m = await rm.json(); wrMast = m.hours || []; if (m.station && m.station.elev != null) wrMastElev = m.station.elev; }
@@ -2942,13 +2953,17 @@ async function fetchCondData() {
   }
   try {
     const win = wrCondHours * 3600;
-    const [r, rd, rw] = await Promise.all([
-      fetch(`/api/windshear/approach-history?window=${win}`),
+    // a chosen day (from 2026-11-03): the day's landings, departures, reports and go-arounds
+    const sel = wrDate ? `date=${wrDate}` : `window=${win}`;
+    const [r, rd, rw, rg] = await Promise.all([
+      fetch(`/api/windshear/approach-history?${sel}`),
       // departures: the WS strip and the EDR rings (the ACI view has EDR from 2026-10-30)
-      wrView === 'ws' || wrView === 'edr' || wrView === 'cond' ? fetch(`/api/windshear/departures?window=${win}`) : Promise.resolve(null),
-      wrView === 'ws' || wrView === 'edr' ? fetch(`/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null)]);
-    if (!r.ok) return;
+      wrView === 'ws' || wrView === 'edr' || wrView === 'cond' ? fetch(`/api/windshear/departures?${sel}`) : Promise.resolve(null),
+      wrView === 'ws' || wrView === 'edr' ? fetch(wrDate ? `/api/wx/reports?date=${wrDate}&ws=1&near=1` : `/api/wx/reports?hours=${wrCondHours + 1}&ws=1&near=1`).catch(() => null) : Promise.resolve(null),
+      wrDate ? fetch(`/api/windshear/go-arounds?date=${wrDate}`).catch(() => null) : Promise.resolve(null)]);
+    if (!r.ok || req !== wrCondReq) return;
     const rows = await r.json();
+    if (wrDate) wrDateGa = rg && rg.ok ? await rg.json() : [];
     wrAphEntries    = rows;
     wrCondEntries   = rows.filter(e => e.cond && e.cond.idx != null);
     if (rd && rd.ok) wrDepEntries = await rd.json();
@@ -2966,8 +2981,9 @@ async function fetchCondData() {
 // ST view (from 27 Oct 2026): the space–time diagram of the band changes
 async function fetchSpaceTime() {
   try {
-    const r = await fetch(`/api/windshear/spacetime?hours=${wrCondHours}`);
-    if (!r.ok) return;
+    const req = ++wrCondReq;
+    const r = await fetch(`/api/windshear/spacetime?hours=${wrHours()}${wrDate ? `&end=${wrDayEnd()}` : ''}`);
+    if (!r.ok || req !== wrCondReq) return;
     wrStData = await r.json();
     wrCondFetchedMs = Date.now();
     if (windroseEnabled && wrView === 'st') drawWindrose();
@@ -2979,25 +2995,27 @@ const WR_PARTS = { cond: ['aci', 'edr'], ws: ['ws'], edr: ['edr', 'ws'] };
 // the » / « half-width button sits at the panel's top right (from 2026-11-01, as the Approach
 // History's at its top left): the charts keep their range label clear of it
 var WR_HALF_ROOM = 24;      // var: drawn before this line may run
+// a chosen day: the time axis ends at its 24 UTC and the label at the top right gives the day
+function wrDayOpts() { return wrDate ? { nowMs: wrDayEnd() * 1000, rangeLabel: wrDayLabel() } : {}; }
 function drawCondChart() {
   const canvas  = document.getElementById('ws-windrose-canvas');
   const readout = document.getElementById('ws-windrose-readout');
   if (wrView === 'bl') {
     wrHistDots = WsCondChart.drawBoundaryLayer(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      bl: wrBl, fl: wrBlFl, hours: wrCondHours, field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM,
-      mast: wrBlMast ? wrMast : null, mastElev: wrMastElev });
+      bl: wrBl, fl: wrBlFl, hours: wrHours(), field: wrBlField, fetchedMs: wrBl ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM,
+      mast: wrBlMast ? wrMast : null, mastElev: wrMastElev, ...wrDayOpts() });
     return;
   }
   if (wrView === 'st') {
     wrHistDots = WsCondChart.drawSpaceTime(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-      st: wrStData, hours: wrCondHours, fetchedMs: wrStData ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM });
+      st: wrStData, hours: wrHours(), fetchedMs: wrStData ? wrCondFetchedMs : 0, labelR: WR_HALF_ROOM, ...wrDayOpts() });
     return;
   }
   wrHistDots = WsCondChart.draw(canvas.getContext('2d'), canvas.width, canvas.height, readout, {
-    aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrGaEvents,
+    aph: wrAphEntries, cond: wrCondEntries, dep: wrDepEntries, ga: wrDate ? wrDateGa : wrGaEvents,
     met: wrWxRep ? wrWxRep.metars : [], rep: wrWxRep ? wrWxRep.reports : [],
     // the views (from 2026-10-30): ACI = ACI + EDR, WS = windshear only, EDR = EDR + windshear
-    hours: wrCondHours, parts: WR_PARTS[wrView] || ['aci'], fetchedMs: wrCondFetchedMs, labelR: WR_HALF_ROOM });
+    hours: wrHours(), parts: WR_PARTS[wrView] || ['aci'], fetchedMs: wrCondFetchedMs, labelR: WR_HALF_ROOM, ...wrDayOpts() });
 }
 
 function _syncWrViewBtns() {
@@ -3010,9 +3028,15 @@ function _syncWrViewBtns() {
   if (histBtn)  histBtn.style.display  = chart ? 'none' : '';
   if (histBdg)  histBdg.style.display  = chart ? 'none' : '';
   if (rangeBtn) {
-    rangeBtn.style.display = chart ? '' : 'none';
+    rangeBtn.style.display = chart && !wrDate ? '' : 'none';
     rangeBtn.textContent   = wrRangeLabel(wrCondHours);
   }
+  // the date controls (from 2026-11-03): in the chart views; Live only with a day chosen
+  const dWrap = document.getElementById('ws-wr-date-wrap'), liveBtn = document.getElementById('ws-wr-live-btn');
+  if (dWrap) dWrap.style.display = chart ? '' : 'none';
+  if (liveBtn) { liveBtn.style.display = chart && wrDate ? '' : 'none'; }
+  const dIn = document.getElementById('ws-wr-date');
+  if (dIn) dIn.classList.toggle('ws-wr-date-on', !!wrDate);
   const halfBtn = document.getElementById('ws-wr-half-btn');
   if (halfBtn) {
     halfBtn.style.display = chart ? '' : 'none';
@@ -3095,6 +3119,46 @@ if (_wrHalfBtn) {
     if (typeof wsCanvas !== 'undefined') wsCanvas.redraw();   // the ATC labels keep clear of the panel
   });
 }
+// ── A chosen day in the chart views (from 2026-11-03) ─────────────────────────
+// The same controls as the Approach History's date: dd.mm.yyyy typed (fetched when all
+// eight digits are in) or the calendar; Live goes back to the rolling range.  No day in
+// the future; the live 1-min refresh is off while a day is shown.
+function wrSetDate(iso) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (iso && iso > today) iso = today;
+  wrDate = iso || '';
+  const dIn = document.getElementById('ws-wr-date'), dPk = document.getElementById('ws-wr-date-picker');
+  if (dIn) dIn.value = wrDate ? wrDate.split('-').reverse().join('.') : '';
+  if (dPk) dPk.value = wrDate;
+  wrAphEntries = []; wrCondEntries = []; wrDepEntries = []; wrWxRep = null; wrBl = null; wrBlFl = []; wrStData = null;
+  wrCondFetchedMs = 0;
+  _syncWrViewBtns();
+  drawWindrose();
+  if (wrIsChart()) fetchCondData();
+}
+(function wireWrDate() {
+  const dIn = document.getElementById('ws-wr-date'), dPk = document.getElementById('ws-wr-date-picker');
+  if (!dIn) return;
+  const pk = document.getElementById('ws-wr-date-picker');
+  if (pk) pk.max = new Date().toISOString().slice(0, 10);
+  document.getElementById('ws-wr-cal-btn').addEventListener('click', () => {
+    try { pk.max = new Date().toISOString().slice(0, 10); pk.showPicker(); } catch (_) {}
+  });
+  dPk.addEventListener('change', e => { if (e.target.value) wrSetDate(e.target.value); });
+  dIn.addEventListener('input', e => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+    let f = digits.slice(0, 2);
+    if (digits.length > 2) f += '.' + digits.slice(2, 4);
+    if (digits.length > 4) f += '.' + digits.slice(4, 8);
+    e.target.value = f;
+    if (digits.length < 8) return;
+    const iso = `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
+    if (isNaN(Date.parse(iso + 'T00:00:00Z'))) return;
+    wrSetDate(iso);
+  });
+  dIn.addEventListener('keydown', e => { if (e.key === 'Escape') { e.target.blur(); if (wrDate) wrSetDate(''); } });
+  document.getElementById('ws-wr-live-btn').addEventListener('click', () => wrSetDate(''));
+})();
 _syncWrViewBtns();
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
@@ -4675,7 +4739,7 @@ setInterval(() => fetchApproachHistory(true), 15_000);
 setInterval(fetchWindroseObs,     60_000);  // re-sync server windrose buffer every 60 s
 // Approach-conditions chart data (only while the Cond view is shown)
 fetchCondData();
-setInterval(() => { if (windroseEnabled && wrIsChart()) fetchCondData(); }, 60_000);
+setInterval(() => { if (windroseEnabled && wrIsChart() && !wrDate) fetchCondData(); }, 60_000);   // a chosen day: no refresh
 setInterval(fetchTodayStats,       5 * 60_000);  // today's stats refresh every 5 min
 
 // ── Page Light / Dark theme (navbar button) ─────────────────────────────────

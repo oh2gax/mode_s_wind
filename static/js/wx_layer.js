@@ -40,7 +40,8 @@
  * switch, Smooth by default): the values belong to the cell centres; rain /
  * snow, the radar and the gusts are drawn as contour bands (marching squares
  * on the lattice of the centres, each class filled as one path), clouds and fog
- * as bilinear shading in sub-cells of about 4 px, and the model's outlines over
+ * as bilinear shading (from 2026-11-03 the grid's picture stretched onto the map by
+ * the browser, block by block; before in sub-cells of about 4 px), and the model's outlines over
  * the radar as contour lines.  The values, colour steps and read-outs are the
  * same; a single cell above a limit shows as a smaller, rounded spot.
  *
@@ -642,55 +643,6 @@ const WxLayer = (() => {
         });
         return out;
       };
-      // shaded fields: bilinear in sub-cells of about 4 px (runs of one colour merged)
-      const shade = (q, gnx, gny, G, colour, keep) => {
-        const C = q.C, n1 = gnx + 1, sz = map.getSize();
-        const mi = gnx >> 1, mj = gny >> 1, a0 = C(mj * n1 + mi), b0 = C(mj * n1 + mi + 1);
-        const S = Math.max(1, Math.min(6, Math.round(Math.hypot(b0.x - a0.x, b0.y - a0.y) / 4)));
-        if (S === 1) {                                       // cells of a few px: the plain cells look the same
-          let any1 = false;
-          for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) { const c = G(i, j); const col = c == null ? null : colour(c); if (col) { q(i, j, col); any1 = true; } }
-          return any1;
-        }
-        const near = new Uint8Array(gnx * gny);
-        for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) if (keep(i, j))
-          for (let b = Math.max(0, j - 1); b <= Math.min(gny - 1, j + 1); b++)
-            for (let a = Math.max(0, i - 1); a <= Math.min(gnx - 1, i + 1); a++) near[b * gnx + a] = 1;
-        const val = (i, j) => { i = i < 0 ? 0 : i >= gnx ? gnx - 1 : i; j = j < 0 ? 0 : j >= gny ? gny - 1 : j; const x = G(i, j); return x == null ? 0 : x; };
-        let any = false;
-        for (let j = 0; j < gny; j++) for (let i = 0; i < gnx; i++) {
-          if (!near[j * gnx + i]) continue;
-          const a = C(j * n1 + i), b = C(j * n1 + i + 1), c = C((j + 1) * n1 + i + 1), d = C((j + 1) * n1 + i);
-          if (Math.max(a.x, b.x, c.x, d.x) < -4 || Math.min(a.x, b.x, c.x, d.x) > sz.x + 4 ||
-              Math.max(a.y, b.y, c.y, d.y) < -4 || Math.min(a.y, b.y, c.y, d.y) > sz.y + 4) continue;
-          const pt = (u, w) => { const x1 = a.x + (b.x - a.x) * u, y1 = a.y + (b.y - a.y) * u, x2 = d.x + (c.x - d.x) * u, y2 = d.y + (c.y - d.y) * u;
-                                 return [x1 + (x2 - x1) * w, y1 + (y2 - y1) * w]; };
-          for (let qq = 0; qq < S; qq++) {
-            const w0 = qq / S, w1 = (qq + 1) / S, yc = j + (qq + 0.5) / S - 0.5, j0 = Math.floor(yc), fy = yc - j0;
-            let runCol = null, run0 = 0;
-            for (let p = 0; p <= S; p++) {
-              let col = null;
-              if (p < S) {
-                const xc = i + (p + 0.5) / S - 0.5, i0 = Math.floor(xc), fx = xc - i0;
-                col = colour((val(i0, j0) * (1 - fx) + val(i0 + 1, j0) * fx) * (1 - fy) + (val(i0, j0 + 1) * (1 - fx) + val(i0 + 1, j0 + 1) * fx) * fy);
-              }
-              if (col !== runCol || p === S) {
-                if (runCol) {
-                  const A = pt(run0 / S, w0), B = pt(p / S, w0), D2 = pt(run0 / S, w1), C2 = pt(p / S, w1);
-                  g2.fillStyle = g2.strokeStyle = runCol;
-                  g2.beginPath(); g2.moveTo(A[0], A[1]); g2.lineTo(B[0], B[1]); g2.lineTo(C2[0], C2[1]); g2.lineTo(D2[0], D2[1]); g2.closePath();
-                  g2.fill(); g2.stroke(); any = true;
-                }
-                runCol = col; run0 = p;
-              }
-            }
-          }
-        }
-        return any;
-      };
-      // the smoothed cover in 4 % steps (longer runs of one colour; a step is an alpha
-      // of about 0.015 at the clouds' opacity — not visible)
-      const greyOf = c => { if (c < 15) return null; const g = Math.round(255 * Math.min(100, Math.round(c / 4) * 4) / 100); return `rgb(${g},${g},${g})`; };
       const getter = (a, n) => (i, j) => (a ? a[j * n + i] : null);
       const RAIN_L = RAIN_T.map(t => t * 100);               // the stored rain is mm/h × 100
       // 2 m temperature (from 2026-11-01): colour bands of 2 °C under everything else
@@ -757,33 +709,95 @@ const WxLayer = (() => {
         }
         if (any) layer(o.windAlpha != null ? o.windAlpha : opa(isLight() ? 0.55 : 0.68));
       }
-      // clouds / fog: grey value = cover, then red → alpha in the field's colour
+      // clouds / fog: grey value = cover, then grey → alpha in the field's colour.
+      // From 2026-11-03 (evening of the speed work) the grey is not built from thousands of
+      // small shaded quads any more: the field is a small picture of the grid (one pixel per
+      // cell, cached on the frame) stretched onto the map in blocks of a few cells, each block
+      // an affine map of its projected corners — the browser's own bilinear smoothing (Smooth)
+      // or nearest pixels (Cells) on the GPU, a few dozen drawImage calls instead of the
+      // per-sub-cell paths.  Cover under 15 % stays empty; the steps of 4 % as before.
+      const greyImg = (fr, key2, gnx, gny) => {
+        const cache = fr._gimg || (fr._gimg = {});
+        if (cache[key2]) return cache[key2];
+        const v = fr[key2];
+        if (!v) return null;
+        const cv = document.createElement('canvas'); cv.width = gnx; cv.height = gny;
+        const gc = cv.getContext('2d'), id = gc.createImageData(gnx, gny), px = id.data;
+        // ps: a summed-area table of the cells with cover, so empty blocks are skipped (sparse fog)
+        const n1 = gnx + 1, ps = new Int32Array(n1 * (gny + 1));
+        let any = false;
+        for (let j = 0; j < gny; j++) {
+          let row = 0;
+          for (let i = 0; i < gnx; i++) {
+            const k = j * gnx + i, c = v[k];
+            const g = c == null || c < 15 ? 0 : Math.round(255 * Math.min(100, Math.round(c / 4) * 4) / 100);
+            if (g) { any = true; row++; }
+            px[4 * k] = px[4 * k + 1] = px[4 * k + 2] = g; px[4 * k + 3] = 255;
+            ps[(j + 1) * n1 + i + 1] = ps[j * n1 + i + 1] + row;
+          }
+        }
+        if (!any) return (cache[key2] = false);
+        gc.putImageData(id, 0, 0);
+        return (cache[key2] = { cv, ps });
+      };
+      // the picture of grid gg (its quads q for the projected corners) onto g2, block by block
+      const warpGrey = (gim, q, gnx, gny) => {
+        const img = gim.cv, ps = gim.ps;
+        const C = q.C, n1 = gnx + 1, sz = map.getSize();
+        let drew = false;
+        const mi = gnx >> 1, mj = gny >> 1, a0 = C(mj * n1 + mi), b0 = C(mj * n1 + mi + 1);
+        const cellPx = Math.max(0.5, Math.hypot(b0.x - a0.x, b0.y - a0.y));
+        const B = Math.max(1, Math.min(16, Math.floor(32 / cellPx)));      // blocks of about 32 px or less (the edge of the grid stays straight)
+        g2.imageSmoothingEnabled = SM;
+        if (SM) g2.imageSmoothingQuality = 'medium';
+        for (let j0 = 0; j0 < gny; j0 += B) for (let i0 = 0; i0 < gnx; i0 += B) {
+          const i1 = Math.min(gnx, i0 + B), j1 = Math.min(gny, j0 + B);
+          const p00 = C(j0 * n1 + i0), p10 = C(j0 * n1 + i1), p01 = C(j1 * n1 + i0), p11 = C(j1 * n1 + i1);
+          if (Math.max(p00.x, p10.x, p01.x, p11.x) < -8 || Math.min(p00.x, p10.x, p01.x, p11.x) > sz.x + 8 ||
+              Math.max(p00.y, p10.y, p01.y, p11.y) < -8 || Math.min(p00.y, p10.y, p01.y, p11.y) > sz.y + 8) continue;
+          // one source pixel more to the right and down (where there is one): the blocks overlap a
+          // little, so no seam opens between them (the picture is opaque grey: an overlap is invisible)
+          const wi = Math.min(gnx, i1 + 1) - i0, hj = Math.min(gny, j1 + 1) - j0;
+          // a block (with its overlap and a cell around for the smoothing) without cover: nothing to draw
+          const xa = Math.max(0, i0 - 1), ya = Math.max(0, j0 - 1), xb = Math.min(gnx, i0 + wi + 1), yb = Math.min(gny, j0 + hj + 1);
+          if (ps[yb * n1 + xb] - ps[ya * n1 + xb] - ps[yb * n1 + xa] + ps[ya * n1 + xa] === 0) continue;
+          const a = (p10.x - p00.x) / (i1 - i0), b = (p10.y - p00.y) / (i1 - i0);
+          const c = (p01.x - p00.x) / (j1 - j0), d = (p01.y - p00.y) / (j1 - j0);
+          g2.setTransform(dpr * a, dpr * b, dpr * c, dpr * d, dpr * (p00.x - a * i0 - c * j0), dpr * (p00.y - b * i0 - d * j0));
+          g2.drawImage(img, i0, j0, wi, hj, i0, j0, wi, hj);
+          drew = true;
+          const xs = [p00.x, p10.x, p01.x, p11.x], ys = [p00.y, p10.y, p01.y, p11.y];
+          gb[0] = Math.min(gb[0], ...xs); gb[1] = Math.min(gb[1], ...ys); gb[2] = Math.max(gb[2], ...xs); gb[3] = Math.max(gb[3], ...ys);
+        }
+        g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g2.imageSmoothingEnabled = true;
+        return drew;
+      };
+      let gb = null;                                         // the drawn area (CSS px) of the cloud layer
       for (const key of (hasF ? o.clouds : [])) {
         const v = f[key];
         if (!v) continue;
         begin();
+        gb = [Infinity, Infinity, -Infinity, -Infinity];
         let any = false;
-        if (SM) any = shade(quad, nx, ny, getter(v, nx), greyOf, (i, j) => { const c = v[j * nx + i]; return c != null && c >= 15; });
-        else for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-          const c = v[j * nx + i];
-          if (c == null || c < 15) continue;
-          const g = Math.round(255 * c / 100);
-          quad(i, j, `rgb(${g},${g},${g})`); any = true;
-        }
+        const gi = greyImg(f, key, nx, ny);
+        if (gi) any = warpGrey(gi, quad, nx, ny);
         if (hasFine) {
           fineCut();
-          const fv = fine[key];
-          if (SM) { if (fv && shade(fq, fnx, fny, getter(fv, fnx), greyOf, (i, j) => { const c = fv[j * fnx + i]; return c != null && c >= 15; })) any = true; }
-          else if (fineCells((fr, k) => { const c = fr[key] && fr[key][k]; if (c == null || c < 15) return null;
-                                      const g = Math.round(255 * c / 100); return `rgb(${g},${g},${g})`; })) any = true;
+          const fgi = fine[key] ? greyImg(fine, key, fnx, fny) : null;
+          if (fgi && warpGrey(fgi, fq, fnx, fny)) any = true;
         }
         if (!any) continue;
         const [cr, cg, cb] = key === 'f' ? T.fog : T.cloud;
         const k = Math.min(1, (opts.cloudMax || 0.38) * (key === 'f' ? 1.3 : 1) * OPF);
         const lf = lumFilter(cr, cg, cb, k);
-        if (lf) {                                            // on the GPU (from 2026-11-03)
+        if (lf) {                                            // on the GPU (from 2026-11-03), only over the area drawn
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.filter = lf; ctx.drawImage(off, 0, 0); ctx.filter = 'none';
+          const bx0 = Math.max(0, Math.floor((gb[0] - 2) * dpr)), by0 = Math.max(0, Math.floor((gb[1] - 2) * dpr));
+          const bx1 = Math.min(off.width, Math.ceil((gb[2] + 2) * dpr)), by1 = Math.min(off.height, Math.ceil((gb[3] + 2) * dpr));
+          if (bx1 > bx0 && by1 > by0) {
+            ctx.filter = lf; ctx.drawImage(off, bx0, by0, bx1 - bx0, by1 - by0, bx0, by0, bx1 - bx0, by1 - by0); ctx.filter = 'none';
+          }
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           continue;
         }

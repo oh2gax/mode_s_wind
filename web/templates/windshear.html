@@ -78,6 +78,14 @@
             <button id="ws-bl-field-btn" class="ws-windrose-hist-btn" style="display:none" title="Boundary layer field: Wind → T → HW → ΔHW → Shear (click for the next)">Wind</button>
             <button id="ws-bl-mast-btn" class="ws-windrose-hist-btn" style="display:none" title="The Kivenlahti mast (FMI open data, 24 km south-west) on the Wind and T fields: a narrow column at the right of each hour with its speeds, or its temperature against the surface, at 26–327 m — the inversions. Remembered in the browser">Mast</button>
             <button id="ws-wr-range-btn" class="ws-windrose-hist-btn" style="display:none" title="Chart range (ACI / WS / ST) — cycles 3h → 6h → 12h → 1d (up to 12h at half width)">3h</button>
+            <!-- a chosen UTC day in the chart views (from 2026-11-03), as the Approach History's date -->
+            <span class="ws-aphist-date-wrap ws-wr-date-wrap" id="ws-wr-date-wrap" style="display:none">
+              <input type="text" id="ws-wr-date" class="ws-aphist-date-input ws-wr-date-input" maxlength="10" placeholder="dd.mm.yyyy" autocomplete="off"
+                     title="Show a past UTC day (00–24 UTC) in the ACI, WS, EDR, BL and ST charts: type dd.mm.yyyy or click the calendar button; Live goes back to the rolling range">
+              <button id="ws-wr-cal-btn" class="ws-aphist-cal-btn" title="Open calendar picker">&#128197;</button>
+              <input type="date" id="ws-wr-date-picker" class="ws-aphist-date-picker-hidden" tabindex="-1" aria-hidden="true">
+            </span>
+            <button id="ws-wr-live-btn" class="ws-windrose-hist-btn ws-wr-live-btn" style="display:none" title="Back to the live rolling range">Live</button>
             <span id="ws-windrose-hist-badge" class="ws-windrose-hist-badge"></span>
           </div>
           <div id="ws-windrose-readout" class="ws-windrose-readout"></div>

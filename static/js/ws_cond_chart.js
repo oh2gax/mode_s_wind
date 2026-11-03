@@ -17,6 +17,8 @@
  *                 // (e.g. ['aci', 'edr'], ['edr', 'ws'], ['ws']) — overrides withWs / withEdr
  *     selMs,      // optional: the tapped flight's time — a line through all the strips
  *     fetchedMs,  // when the data arrived (0 = still loading)
+ *     nowMs,      // the right end of the time axis (default now; a chosen day's end, 2026-11-03)
+ *     rangeLabel, // the label at the top right instead of 3h … 1d (e.g. the chosen day)
  *     nowMs });   // optional, default Date.now()
  *   → [{x, y, dotR, label, color}] for the hover / tap read-out
  *
@@ -193,7 +195,7 @@ const WsCondChart = (() => {
     const title = P.map(k => TNAME[k]).join(' + ');
     ctx.fillText(title.charAt(0).toUpperCase() + title.slice(1), 5, 5);
     ctx.textAlign = 'right';
-    ctx.fillText(wrRangeLabel(wrCondHours), W - 5 - (d.labelR || 0), 5);   // d.labelR: room kept at the top right (2026-11-01)
+    ctx.fillText(d.rangeLabel || wrRangeLabel(wrCondHours), W - 5 - (d.labelR || 0), 5);   // d.labelR: room kept at the top right (2026-11-01)
 
     const pts = wrCondEntries
       .filter(e => e.ts * 1000 >= t0 && e.ts * 1000 <= nowMs)
@@ -626,7 +628,7 @@ const WsCondChart = (() => {
     ctx.font = '10px "Courier New",monospace'; ctx.textBaseline = 'top';
     ctx.textAlign = 'left'; ctx.fillStyle = CT.roseLabel;
     ctx.fillText('Headwind change vs previous 45 min (ft MSL)', 5, 5);
-    ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5 - (d.labelR || 0), 5);
+    ctx.textAlign = 'right'; ctx.fillText(d.rangeLabel || wrRangeLabel(hours), W - 5 - (d.labelR || 0), 5);
     // colour key at the right, the cell length at the left — shortened on a
     // narrow canvas (a phone, from 2026-10-28) so the two never overlap
     const binMinK = [5, 10, 15, 20, 30].find(m => m * 60_000 / spanMs * PW >= 6) || 30;
@@ -1103,7 +1105,7 @@ const WsCondChart = (() => {
     const SHORT = { wind: 'BL · wind speed', temp: 'BL · temperature', blh: 'BL · headwind per flight', bld: 'BL · Δ headwind per flight', bls: 'BL · shear per flight' };
     const tt = ctx.measureText(TITLE[field] || TITLE.wind).width + 5 + 24 + (d.labelR || 0) <= W ? TITLE[field] || TITLE.wind : SHORT[field] || SHORT.wind;
     ctx.fillText(tt, 5, 5);
-    ctx.textAlign = 'right'; ctx.fillText(wrRangeLabel(hours), W - 5 - (d.labelR || 0), 5);
+    ctx.textAlign = 'right'; ctx.fillText(d.rangeLabel || wrRangeLabel(hours), W - 5 - (d.labelR || 0), 5);
     // the readout's first line kept short (from 2026-10-30; the inversion's 600–1000 ft is in its hover text):
     // a longer line wrapped and changed the chart's height when an inversion came or went
     if (readout) {

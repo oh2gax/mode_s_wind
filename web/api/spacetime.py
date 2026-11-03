@@ -48,7 +48,8 @@ def build(db, hours: int, now: float | None = None) -> dict:
     b: {band: [change kt, references, wind pairs, wind dir, wind kt]}}]} — flights
     oldest first; ph "arr" / "dep"; lvl the stored windshear level."""
     hours = hours if hours in RANGES_H else 12
-    now = now or time.time()
+    live = not now                                     # now given: a past day (the chart window's date, 2026-11-03)
+    now = min(now or time.time(), time.time())
     t0 = now - hours * 3600
     t_from = t0 - _shear.BAND_WINDOW_SEC
     newest = db.execute("SELECT MAX(ts) FROM approach_history").fetchone()[0] or 0
@@ -56,7 +57,7 @@ def build(db, hours: int, now: float | None = None) -> dict:
         newest = max(newest, db.execute("SELECT MAX(ts) FROM departure_profiles").fetchone()[0] or 0)
     except Exception:                                  # noqa: BLE001  (older database)
         pass
-    key = hours
+    key = hours if live else (hours, int(now))
     with _lock:
         c = _cache.get(key)
         if c and c["newest"] == newest and now - c["at"] < CACHE_SEC:
@@ -112,5 +113,8 @@ def build(db, hours: int, now: float | None = None) -> dict:
             "bands": list(range(_shear.VEC_MIN_FT, int(_shear.BAND_MAX_FT) + 1, 200)),
             "limits": [_shear.BAND_ADVISORY, _shear.BAND_WSA], "flights": flights}
     with _lock:
-        _cache[key] = {"at": now, "newest": newest, "data": data}
+        if len(_cache) > 24:
+            for k in [k for k in _cache if isinstance(k, tuple)]:
+                _cache.pop(k, None)
+        _cache[key] = {"at": now if live else time.time(), "newest": newest, "data": data}
     return data
