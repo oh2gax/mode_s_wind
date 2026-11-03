@@ -115,7 +115,12 @@ rxMarksSync();
 $('wx-rxmk').addEventListener('change', () => { saveSettings(); rxMarksSync(); });
 
 // ── Weather layer (wx_layer.js) ───────────────────────────────────────────
-const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
+// cache: the last 8 drawn hours of this view are kept as pictures, and the hours next to
+// the shown one are drawn ahead while the page is idle (from 2026-11-03, see prefetchDraw)
+const wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350, cache: 8 });
+// the drawing's timers (requestShow, prefetchDraw below; declared here, before any map event)
+let drawRaf = 0, preRun = 0, lastMove = 0;
+const idle = window.requestIdleCallback ? (fn => window.requestIdleCallback(fn, { timeout: 1500 })) : (fn => setTimeout(fn, 120));
 const cloudKey = () => { const v = $('wx-cloud').value; return v === 'off' ? null : v; };
 function layerOptions() {
   return { rain: $('wx-rain').checked, pres: $('wx-pres').checked, clouds: cloudKey() ? [cloudKey()] : [],
@@ -199,7 +204,7 @@ async function loadFine() {
 }
 // a redraw only when the detail comes or goes (the layer redraws itself on a move)
 let fineWas = false;
-map.on('zoomend moveend', () => { const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); });
+map.on('zoomend moveend', () => { const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); prefetchDraw(); });
 
 function nowTs() { return Math.floor(Date.now() / 1000); }
 function buildView(keepTs = null) {
@@ -270,6 +275,31 @@ function drawLoadStrip() {
 
 // ── Drawing ───────────────────────────────────────────────────────────────
 let current = null;        // the frame shown
+// Smoother slider and ±1 h (from 2026-11-03): the label and buttons follow at once, the map
+// is drawn at most once per screen refresh with the newest position (a slow draw no longer
+// queues one draw per slider step)
+function requestShow() {
+  stepButtons(); updateLabel(view[parseInt($('wx-t').value, 10)]);
+  if (!drawRaf) drawRaf = requestAnimationFrame(() => { drawRaf = 0; showFrame(); });
+}
+// the hours next to the shown one (+1, −1, +2, −2) are drawn into the layer's picture cache
+// when the browser is idle, so ±1 h and going back show at once; one hour per idle slot,
+// not while the slider has just moved
+function prefetchDraw() {
+  const run = ++preRun;
+  const step = () => {
+    if (run !== preRun || playing) return;
+    if (performance.now() - lastMove < 250) { idle(step); return; }
+    const k = parseInt($('wx-t').value, 10);
+    for (const d of [1, -1, 2, -2]) {
+      const h = view[k + d], f = h && frames.get(h[0]);
+      if (!f) continue;
+      const ff = fineWanted() ? fineFrames.get(h[0]) : null;
+      if (wx.prerender([{ frame: f, fine: ff && ff.run === f.run ? ff : null }])) { idle(step); return; }
+    }
+  };
+  idle(step);
+}
 function showFrame() {
   stepButtons();
   const k = parseInt($('wx-t').value, 10);
@@ -288,6 +318,7 @@ function showFrame() {
   const ff = fineWanted() ? fineFrames.get(h[0]) : null;
   wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
   wx.setFrame(f, grid);
+  prefetchDraw();
   // hours stored before 24 Oct 2026 have no wind / gust
   const noWind = ($('wx-wind').value !== 'off' && !f.u) || ($('wx-gust').checked && !f.g);
   renderLegend();
@@ -421,7 +452,7 @@ async function play() {
 }
 $('wx-play').addEventListener('click', play);
 $('wx-now').addEventListener('click', () => { $('wx-t').value = presentIndex(); showFrame(); });
-$('wx-t').addEventListener('input', showFrame);
+$('wx-t').addEventListener('input', () => { lastMove = performance.now(); requestShow(); });
 // ±1 h buttons (for a mouse; the slider itself takes the arrow keys): stop an
 // animation and move one model hour, not past the ends
 function stepHour(d) {
@@ -429,7 +460,8 @@ function stepHour(d) {
   const el = $('wx-t'), v = parseInt(el.value, 10) + d;
   if (v < 0 || v > parseInt(el.max, 10)) return;
   el.value = v;
-  showFrame();
+  lastMove = performance.now();
+  requestShow();
 }
 function stepButtons() {
   const el = $('wx-t'), v = parseInt(el.value, 10), max = parseInt(el.max, 10);

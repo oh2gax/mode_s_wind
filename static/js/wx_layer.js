@@ -50,6 +50,19 @@
  * inside the box and drawn from the detail frame there, a faint dotted line
  * marks its edge, and the read-out (valuesAt) takes its values inside it.
  * Isobars and barbs stay those of the main frame.
+ *
+ * Speed (from 2026-11-03):
+ *  - the projected corners of a grid's cells (and the smoothing lattice built
+ *    from them) are kept between draws while the zoom, the pan and the size
+ *    stay the same — every hour of a run shares the grid, so stepping through
+ *    the hours no longer projects them again;
+ *  - clouds and fog are turned from grey cover into their colour and alpha by
+ *    an SVG filter (luminance → alpha) on the GPU instead of reading the whole
+ *    canvas back (getImageData) — the old way stays as a fallback;
+ *  - opts.cache = N keeps the last N drawn pictures (per frame, detail frame,
+ *    radar overlay, options, theme and view): showing one again is a single
+ *    drawImage, and prerender(list) draws hours ahead into that cache while the
+ *    page is idle.  0 (default) = no cache (the Live Map).
  */
 'use strict';
 
@@ -171,6 +184,54 @@ const WxLayer = (() => {
   }
   const windDir = (u, v) => (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360;
   const isLight = () => document.documentElement.dataset.theme === 'light';
+
+  // ── Clouds / fog: grey cover → colour + alpha with an SVG filter (from 2026-11-03) ──
+  // filter(r, g, b, k): the url of a filter whose output is the colour (r, g, b) with
+  // alpha = k × the grey (luminance) of the input × its alpha; null where canvas
+  // filters with SVG urls do not work (then the old getImageData loop is used)
+  let lumSvg = null, lumOk = null;
+  const lumIds = new Map();
+  function lumFilter(r, g, b, k) {
+    if (lumOk === false || typeof document === 'undefined') return null;
+    const key = `${r},${g},${b},${k.toFixed(3)}`;
+    let id = lumIds.get(key);
+    if (!id) {
+      if (!lumSvg) {
+        lumSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        lumSvg.setAttribute('width', '0'); lumSvg.setAttribute('height', '0');
+        lumSvg.setAttribute('aria-hidden', 'true');
+        lumSvg.style.position = 'absolute'; lumSvg.style.width = '0'; lumSvg.style.height = '0';
+        document.body.appendChild(lumSvg);
+      }
+      id = 'wxlum' + lumIds.size;
+      const f = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+      f.setAttribute('id', id); f.setAttribute('color-interpolation-filters', 'sRGB');
+      f.setAttribute('x', '0'); f.setAttribute('y', '0'); f.setAttribute('width', '1'); f.setAttribute('height', '1');
+      f.setAttribute('filterUnits', 'objectBoundingBox');
+      const m = document.createElementNS('http://www.w3.org/2000/svg', 'feColorMatrix');
+      m.setAttribute('type', 'matrix');
+      m.setAttribute('values', `0 0 0 0 ${(r / 255).toFixed(4)}  0 0 0 0 ${(g / 255).toFixed(4)}  0 0 0 0 ${(b / 255).toFixed(4)}  `
+        + `${(0.2126 * k).toFixed(4)} ${(0.7152 * k).toFixed(4)} ${(0.0722 * k).toFixed(4)} 0 0`);
+      m.setAttribute('result', 'c');
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'feComposite');
+      c.setAttribute('in', 'c'); c.setAttribute('in2', 'SourceGraphic'); c.setAttribute('operator', 'in');
+      f.appendChild(m); f.appendChild(c); lumSvg.appendChild(f);
+      lumIds.set(key, id);
+    }
+    if (lumOk === null) {                      // once: does a canvas apply it?
+      try {
+        const a = document.createElement('canvas'); a.width = a.height = 2;
+        const ga = a.getContext('2d'); ga.fillStyle = 'rgb(128,128,128)'; ga.fillRect(0, 0, 2, 2);
+        const t = document.createElement('canvas'); t.width = t.height = 2;
+        const gt = t.getContext('2d', { willReadFrequently: true });
+        gt.filter = `url(#${id})`; gt.drawImage(a, 0, 0); gt.filter = 'none';
+        const px = gt.getImageData(0, 0, 1, 1).data, want = Math.round(128 * k);
+        lumOk = Math.abs(px[3] - want) <= 6 && Math.abs(px[0] - r) <= 6 && Math.abs(px[1] - g) <= 6 && Math.abs(px[2] - b) <= 6;
+      } catch (e) { lumOk = false; }
+      if (!lumOk) return null;
+    }
+    return `url(#${id})`;
+  }
   const theme = () => isLight()
     ? { iso: 'rgba(30,41,59,0.85)', isoLbl: '#1e293b', halo: 'rgba(241,245,249,0.9)', hi: '#1d4ed8', lo: '#b91c1c',
         cloud: [71, 85, 105], fog: [180, 120, 0], radarEdge: 'rgba(15,118,110,0.75)', barb: '#0f172a', fineEdge: 'rgba(30,41,59,0.45)',
@@ -254,13 +315,15 @@ const WxLayer = (() => {
       p.style.zIndex = opts.zIndex || 350;
       p.style.pointerEvents = 'none';
     }
-    const canvas = L.DomUtil.create('canvas', 'wx-canvas');
+    let canvas = L.DomUtil.create('canvas', 'wx-canvas');       // let: prerender draws into another one
+    const shownCanvas = canvas;
     canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0';
     canvas.style.pointerEvents = 'none';
     map.getPane(paneName).appendChild(canvas);
     const off = document.createElement('canvas');
     let frame = null, grid = null, geo = null, gridKey = '';
     let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
+    let ovSrc = null, ovPrep = null;                            // the last radar given and its prepared form
     let fine = null, fineGrid = null, fineGeo = null, fineKey = '';  // the 2.5 km box (setFine)
     let o = { rain: true, clouds: [], pres: true, wind: false, gust: false };
     let drawn = [];            // barbs drawn last: [x, y, dir, spd, grid index] (barbAt)
@@ -281,7 +344,85 @@ const WxLayer = (() => {
       if (k !== gridKey) { gridKey = k; grid = g; geo = g ? buildGeo(g) : null; }
     }
 
+    // the view: zoom, pan, size and pixel density — the projected points depend only on it
+    const viewKey = () => {
+      const po = map.getPixelOrigin(), lp = map.containerPointToLayerPoint([0, 0]), sz = map.getSize();
+      return `${map.getZoom()}|${po.x},${po.y}|${lp.x},${lp.y}|${sz.x}x${sz.y}|${window.devicePixelRatio || 1}`;
+    };
+    // ── picture cache (opts.cache, from 2026-11-03): the last drawn pictures of
+    // this view, keyed by what they show; cleared when the view changes
+    const CACHE_N = Math.max(0, opts.cache | 0);
+    const pics = new Map();                                  // key → {cv, drawn}
+    let picsView = '', optVer = 0;
+    const ids = new WeakMap();
+    let nextId = 1;
+    const idOf = x => { if (!x) return 0; let i = ids.get(x); if (!i) { i = nextId++; ids.set(x, i); } return i; };
+    const picKey = (fr, fn) => `${idOf(fr)}|${idOf(fn)}|${idOf(ov)}|${optVer}|${isLight() ? 1 : 0}|${gridKey.length}|${canvas.width}x${canvas.height}`;
+    function picsFor(vk) { if (vk !== picsView) { for (const e of pics.values()) if (spare.length < 2) spare.push(e.cv); pics.clear(); picsView = vk; } }
+    const spare = [];                                        // canvases of evicted pictures, reused
+    function picCanvas(w, h) {
+      let cv = spare.pop();
+      if (!cv) cv = document.createElement('canvas');
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      return cv;
+    }
+    function picPut(key, cv, drawnNow) {
+      pics.delete(key); pics.set(key, { cv, drawn: drawnNow });
+      while (pics.size > CACHE_N) {
+        const k0 = pics.keys().next().value;
+        spare.push(pics.get(k0).cv); pics.delete(k0);
+      }
+      if (spare.length > 2) spare.length = 2;
+    }
+    function picStore(key, src, drawnNow) {
+      if (!CACHE_N) return;
+      const cv = picCanvas(src.width, src.height), g = cv.getContext('2d');
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(src, 0, 0);
+      picPut(key, cv, drawnNow);
+    }
+
     function draw() {
+      if (CACHE_N) {
+        picsFor(viewKey());
+        const key = picKey(frame, fine), hit = pics.get(key);
+        const ctx0 = canvas.getContext('2d');
+        if (hit) {                                            // shown before in this view: one drawImage
+          pics.delete(key); pics.set(key, hit);
+          ctx0.setTransform(1, 0, 0, 1, 0, 0); ctx0.clearRect(0, 0, canvas.width, canvas.height);
+          ctx0.drawImage(hit.cv, 0, 0);
+          drawn = hit.drawn;
+          return;
+        }
+        render();
+        if (frame || ov) picStore(key, canvas, drawn);
+        return;
+      }
+      render();
+    }
+    // draw the hours `list` ([{frame, fine, ov}]) into the cache without showing them (the
+    // page calls this when idle; ov: the radar overlay of that hour, null = none, left out =
+    // the one shown); returns how many were drawn.  Only with opts.cache.
+    function prerender(list) {
+      if (!CACHE_N || !list || !list.length || shownCanvas.style.display === 'none') return 0;
+      picsFor(viewKey());
+      let n = 0;
+      for (const it of list) {
+        if (!it || !it.frame) continue;
+        const sv = { canvas, frame, fine, drawn, ov };
+        if ('ov' in it) ov = it.ov && ovGrid ? prepRadar(it.ov, ovGrid) : null;
+        if (pics.has(picKey(it.frame, it.fine || null))) { ov = sv.ov; continue; }
+        const cv = picCanvas(shownCanvas.width, shownCanvas.height);
+        try {
+          canvas = cv; frame = it.frame; fine = it.fine || null;
+          render();                                          // (render clears the canvas first)
+          picPut(picKey(frame, fine), cv, drawn);
+          n++;
+        } finally { canvas = sv.canvas; frame = sv.frame; fine = sv.fine; drawn = sv.drawn; ov = sv.ov; }
+      }
+      return n;
+    }
+
+    function render() {
       const ctx = canvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -294,8 +435,12 @@ const WxLayer = (() => {
       const P = ll => map.latLngToContainerPoint(ll);
       const g2 = off.getContext('2d');
       // cell quads of a grid, corners projected when a cell needs them
+      // the projected corners are kept on the grid between draws while the view is the same
+      // (from 2026-11-03: every hour of a run shares the grid)
+      const VK = viewKey();
       const quads = gg => {
-        const nx = gg.nx, corP = new Array((gg.nx + 1) * (gg.ny + 1));
+        if (gg._vk !== VK) { gg._vk = VK; gg._corP = new Array((gg.nx + 1) * (gg.ny + 1)); gg._pos = new Map(); }
+        const nx = gg.nx, corP = gg._corP;
         const C = k => corP[k] || (corP[k] = P(gg.cor(k)));
         const fn = (i, j, col, i1 = i) => {          // cells i … i1 of row j as one quad
           const a = C(j * (nx + 1) + i), b = C(j * (nx + 1) + i1 + 1), c = C((j + 1) * (nx + 1) + i1 + 1), d = C((j + 1) * (nx + 1) + i);
@@ -371,7 +516,7 @@ const WxLayer = (() => {
         // lattice points from the cell corners already projected (cached between draws):
         // a corner where the point lies on one, else the mean of the 2 or 4 around it
         const qd = gg === geo ? quad : gg === fineGeo ? fq : gg === ovGeo ? oq : quads(gg), C = qd.C, n1 = gnx + 1;
-        const pos = new Map();
+        const pos = gg._vk === VK && gg._pos ? gg._pos : new Map();   // kept with the corners
         const PP = (a, b) => {
           const k = b * W + a; let q = pos.get(k);
           if (q) return q;
@@ -633,9 +778,16 @@ const WxLayer = (() => {
                                       const g = Math.round(255 * c / 100); return `rgb(${g},${g},${g})`; })) any = true;
         }
         if (!any) continue;
-        const img = g2.getImageData(0, 0, off.width, off.height), px = img.data;
         const [cr, cg, cb] = key === 'f' ? T.fog : T.cloud;
         const k = Math.min(1, (opts.cloudMax || 0.38) * (key === 'f' ? 1.3 : 1) * OPF);
+        const lf = lumFilter(cr, cg, cb, k);
+        if (lf) {                                            // on the GPU (from 2026-11-03)
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.filter = lf; ctx.drawImage(off, 0, 0); ctx.filter = 'none';
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          continue;
+        }
+        const img = g2.getImageData(0, 0, off.width, off.height), px = img.data;
         for (let q = 0; q < px.length; q += 4) {
           const a = px[q + 3] ? px[q] * k * px[q + 3] / 255 : 0;
           px[q] = cr; px[q + 1] = cg; px[q + 2] = cb; px[q + 3] = a;
@@ -1036,14 +1188,17 @@ const WxLayer = (() => {
         frame = f; draw();
       },
       // the FMI radar over the frame (or alone: setFrame(null))
-      setOverlay(f, g) {
+      setOverlay(f, g, quiet) {
         if (g) {
           const k = JSON.stringify(g);
           if (k !== ovKey) { ovKey = k; ovGrid = g; ovGeo = buildGeo(g); }
         }
-        ov = f && ovGrid ? prepRadar(f, ovGrid) : null; draw();
+        const was = ov;
+        ov = f && ovGrid ? (f === ovSrc && ovPrep ? ovPrep : prepRadar(f, ovGrid)) : null;
+        ovSrc = f; ovPrep = ov;
+        if (ov !== was && !quiet) draw();                  // (from 2026-11-03: no draw when nothing changed, or quiet)
       },
-      setOptions(x) { Object.assign(o, x); draw(); },
+      setOptions(x) { Object.assign(o, x); optVer++; draw(); },
       // the 2.5 km detail frame (null: none) on its grid
       // (quiet: no redraw — a setFrame follows)
       setFine(f, g, quiet) {
@@ -1059,7 +1214,8 @@ const WxLayer = (() => {
       fineShown: () => !!(fine && fineGeo),
       setOpacity(a) { canvas.style.opacity = String(a); },
       show(on) { canvas.style.display = on ? '' : 'none'; },
-      redraw: draw,
+      redraw: () => { optVer++; draw(); },
+      prerender,
       grid: () => grid,
       // the barb drawn nearest to a container point (within r px): {k, dir, spd, values} or null
       barbAt(pt, r = 12) {

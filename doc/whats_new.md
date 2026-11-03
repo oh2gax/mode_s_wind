@@ -3,12 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view, wind in colours
+## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view, wind in colours, smoother weather maps
 
 - **Move the EFHK close-up** — drag the box by its *EFHK* tag (or the minimized tab) anywhere over the Live Map. Zoom it with the mouse wheel; the small ⌂ brings it back to 15 NM.
 - **Crosshair on the Live Map** — the mouse is a crosshair over the map, as on the Weather page, for picking aircraft more precisely.
 - **Landings and departures together** — the phone's History has *List: Both*; the departures have their runway in a light-blue box.
 - **GPS pages for Full view** — the GPS Quality and Episodes pages are now open to users with the *Full view* right; others no longer see the GPS link. The user guides stay open to everyone.
+- **Smoother weather maps** — on the Weather page and the phone's Weather view the slider follows the mouse or finger more smoothly, and −1h / +1h usually show the next hour at once: the hours next to the one shown are drawn ahead while you look.
 - **Wind in colours** — on the Weather page *Wind* is now a menu: *Barbs*, *Colours* (the wind speed in colour bands of 5 kt) or both.
 - **More GNSS on the phone** — the GNSS view has *1 m* and *3 m* (day by day), and *FL band heatmap* in the GNSS options shows the flight levels day by day, as on the GPS Quality page.
 - **Lighter map buttons** — the ⌂ and + / − on the maps are now see-through.

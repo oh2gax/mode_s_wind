@@ -134,7 +134,9 @@ window.AppWx = (() => {
       },
     });
     new Home().addTo(map);
-    wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350 });
+    // cache: the last 4 drawn hours of this view as pictures; the hours next to the shown
+    // one are drawn ahead when idle (from 2026-11-03, prefetchDraw)
+    wx = WxLayer.create(map, { pane: 'wxPane', zIndex: 350, cache: 4 });
     // the receivers as small triangles (rx_markers.js, as the full site's maps; from 2026-11-02 evening):
     // option Receivers On (default) / Off
     // a tap on a triangle shows its card, as an aircraft's (onTap → rxAt)
@@ -144,9 +146,9 @@ window.AppWx = (() => {
     trafficLayer = AtcDisplay.canvasLayer(map, drawTraffic);
     map.on('click', onTap);
     // a redraw only when the detail comes or goes (the layer redraws itself on a move)
-    map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); });
+    map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); prefetchDraw(); });
     $('app-wx-tip').addEventListener('click', closeTip);
-    $('app-wx-t').addEventListener('input', () => { if (playing) play(); showFrame(); maybeLoadNear(); });
+    $('app-wx-t').addEventListener('input', () => { if (playing) play(); lastMove = performance.now(); requestShow(); maybeLoadNear(); });
     $('app-wx-play').addEventListener('click', play);
     $('app-wx-prev').addEventListener('click', () => stepHour(-1));
     $('app-wx-next').addEventListener('click', () => stepHour(1));
@@ -312,6 +314,30 @@ window.AppWx = (() => {
   }
 
   // ── drawing ───────────────────────────────────────────────────────────
+  // Smoother slider and ±1 h (from 2026-11-03): the map is drawn at most once per screen
+  // refresh with the newest slider position, and the hours next to the shown one (+1, −1)
+  // are drawn into the layer's picture cache when the phone is idle
+  let drawRaf = 0, preRun = 0, lastMove = 0;
+  const idle = window.requestIdleCallback ? (fn => window.requestIdleCallback(fn, { timeout: 1500 })) : (fn => setTimeout(fn, 150));
+  function requestShow() {
+    if (!drawRaf) drawRaf = requestAnimationFrame(() => { drawRaf = 0; showFrame(); });
+  }
+  function prefetchDraw() {
+    if (!wx) return;
+    const run = ++preRun;
+    const step = () => {
+      if (run !== preRun || playing || !shown) return;
+      if (performance.now() - lastMove < 300) { idle(step); return; }
+      const k = +$('app-wx-t').value, pi = presentIndex();
+      for (const d of [1, -1]) {
+        const h = view[k + d], f = h && frames.get(h[0]);
+        if (!f || (useRadar() && radar && k + d === pi)) continue;   // the radar hour is drawn as shown
+        const ff = fineWanted() ? fineFrames.get(h[0]) : null;
+        if (wx.prerender([{ frame: f, fine: ff && ff.run === f.run ? ff : null, ov: null }])) { idle(step); return; }
+      }
+    };
+    idle(step);
+  }
   function showFrame() {
     const el = $('app-wx-t'), k = +el.value, h = view[k];
     $('app-wx-prev').disabled = !view.length || k <= 0;
@@ -334,11 +360,12 @@ window.AppWx = (() => {
     // the radar at the present hour only (the newest composite); Radar alone: without the model's rain
     const on = useRadar() && !!radar && k === presentIndex();
     if (on !== radarOn) { radarOn = on; wx.setOptions(layerOptions()); renderLegend(); }
-    wx.setOverlay(on ? radar : null, on ? radar.grid : null);
+    wx.setOverlay(on ? radar : null, on ? radar.grid : null, true);   // quiet: the setFrame below draws (once)
     const ff = fineWanted() ? fineFrames.get(h[0]) : null, hadFine = wx.fineShown();
     wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
     if (hadFine !== wx.fineShown()) renderLegend();
-    wx.setFrame(on && S().src === 'radar' ? Object.assign({}, f, { r: null, s: null }) : f, grid);
+    wx.setFrame(on && S().src === 'radar' ? (f._noRain || (f._noRain = Object.assign({}, f, { r: null, s: null }))) : f, grid);   // one copy per hour (the picture cache knows it again)
+    prefetchDraw();
     if (on) { const t = new Date(radar.ts * 1000); $('app-wx-rel').innerHTML = `now · <span class="rd">radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}</span>`; }
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
     statusLine((S().temp === 'fill' || S().temp === 'lines') && !f.t ? 'no temperature stored for this hour (runs from 1 Nov 2026)' : '');
@@ -385,7 +412,7 @@ window.AppWx = (() => {
     if (playing) play();
     const el = $('app-wx-t'), v = +el.value + dv;
     if (v < 0 || v > +el.max) return;
-    el.value = v; showFrame(); maybeLoadNear();
+    el.value = v; lastMove = performance.now(); requestShow(); maybeLoadNear();
   }
 
   // ── tap read-out ──────────────────────────────────────────────────────
