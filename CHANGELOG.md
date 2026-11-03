@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.03112026 — 2026-11-03 (the EFHK close-up moves anywhere over the Live Map, without + / −; a crosshair over the Live Map; landings and departures together in the phone's History; temperature numbers on their own — the phone's Weather view and the Weather page; the GPS pages for Full view only, and a GNSS view on the phone for them; see-through map buttons; the phone's GNSS view with 1 m / 3 m and the FL band heatmap; the wind speed in colours on the Weather page; a smoother weather slider and ±1 h on the Weather page and the phone; any day in the Windshear chart window, which now keeps one size in every view; the weather colours at half resolution while the slider is dragged, and the weather hours kept in the server's memory; a local aircraft-list feed for other programs on the same machine)
+## v.03112026 — 2026-11-03 (the EFHK close-up moves anywhere over the Live Map, without + / −; a crosshair over the Live Map; landings and departures together in the phone's History; temperature numbers on their own — the phone's Weather view and the Weather page; the GPS pages for Full view only, and a GNSS view on the phone for them; see-through map buttons; the phone's GNSS view with 1 m / 3 m and the FL band heatmap; the wind speed in colours on the Weather page; a smoother weather slider and ±1 h on the Weather page and the phone; any day in the Windshear chart window, which now keeps one size in every view; the weather colours at half resolution while the slider is dragged, and the weather hours kept in the server's memory; a local aircraft-list feed for other programs on the same machine; the departures in the phone's ILS approach history)
 
 ### Live Map: the EFHK close-up moves; a crosshair over the map
 - The EFHK close-up box can be moved anywhere over the map by its tag (open) or its tab (minimized; a click still opens it); it stays inside the map and its place is remembered. The + / − buttons are gone (the mouse wheel zooms); ⌂ is smaller and see-through. `static/js/live_inset.js`, `static/css/style.css`.
@@ -28,6 +28,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### See-through map buttons; more for the phone's GNSS view; the wind in colours
 - Every full-site map's ⌂ and + / − are see-through, as the EFHK close-up's ⌂ (the phone's stay dark). `static/css/style.css`.
+- The phone's map buttons (⌂, + / −; ILS approach and Weather maps) are see-through too. `static/css/app.css`.
 - Phone GNSS view: **1 m** and **3 m** windows (degraded aircraft-hours per day, severe and mild; the spoofing indicators at most 31 days) and an optional **FL band heatmap** (14 d / 1 m, Events / % aircraft, tap a cell). New `/api/gps/daily`; `/api/gps/state` `&heat=1`, `/api/gps/detail` `noslots=1`. `collector/gps_quality.py` (`get_daily`), `web/app.py`, `static/js/app_gnss.js`, `web/templates/app.html`. Mobile guide 1.48.
 - Weather page: **Wind** is a menu — Off, Barbs, **Colours** (the 10 m wind speed in bands of 5 kt) or Barbs + colours; a ticked Wind box is kept as Barbs. `static/js/wx_layer.js` (`windFill`), `static/js/weather.js`, `web/templates/weather.html`.
 - Phone GNSS view: the FL band heatmap in colour only — no numbers in the cells (tap a cell for its values). `static/js/app_gnss.js`. Mobile guide 1.49.
@@ -46,6 +47,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### A local aircraft-list feed for other programs
 - The Radarcape aircraft list can be offered on a localhost-only port to another program on the same machine (e.g. modes_logger), in the format of the JSON relay it reads today; off by default. `collector/json_feed.py` (new), `collector/radarcape_json.py`, `run.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`.
+
+### Phone ILS view: the departures in the approach history
+- With *Departures on the map: Shown* the approach history under the strips also lists the departures, in one list with the landings as History's *List: Both* (the runway in a light-blue box). `static/js/app.js`, `web/templates/app.html`. Mobile user guide 1.51 (46 pp). `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ## v.02112026 — 2026-11-02 (a second receiver: watched, then merged into the weather, its coverage on the Live Map; frames seconds late after a tunnel stall dropped; the Windshear map's EDR lines by flight phase; the receiver dots at the receivers' own positions; the Live Map's and the Windshear map's map and labels chosen apart (ATC labels on the street map); Solo on the Live Map (one aircraft alone, its track, the map following it); the receiver markers can be hidden (Live Map, Weather page); the Live Map's weather panel keeps its size; thinner lines in the mast profile; the phone's map + / − stay dark; the mast's lines can be switched off in the time series; a study log of Mode S and the Kivenlahti mast; *The receiving station* with a page on the two receivers, and its brochure; each receiver's own statistics for its owners and Full view; the Statistics and Mobile guides with the receivers; the receivers on the phone's Weather map; *The receiving station* page 9 made general; an EFHK close-up box on the Live Map)
 

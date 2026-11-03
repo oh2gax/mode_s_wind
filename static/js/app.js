@@ -1027,7 +1027,7 @@
       if (key === 'wschart' || key === 'wsh' || key === 'wsbl' || key === 'blmast') { IW.at = 0; loadIlsWs(); }
       if (key === 'edrmap') { IE.at = 0; loadEdrTracks(); }
       if (key === 'mapst' && I.mapst === 'atc' && window.L) loadAtc().then(drawIls).catch(() => {});
-      if (key === 'hist') { IHist.at = 0; IHist.open.clear(); loadIlsHist(); }
+      if (key === 'hist' || key === 'deps') { IHist.at = 0; IHist.open.clear(); loadIlsHist(); }
     });
   }
   $('app-ils-trails').checked = I.trails;
@@ -1561,15 +1561,21 @@
   // settings: landings, I.hshow, Lo bands) of the landings of the last 3 or 6 h of
   // the runways chosen; fetched at most once a minute while the ILS view is open,
   // the boundary layer of those hours (for the opened cards) every 10 min.
-  const IHist = { rows: [], at: 0, hours: 0, fetched: 0, open: new Set(), blAt: 0 };
+  const IHist = { rows: [], at: 0, hours: 0, deps: '', fetched: 0, open: new Set(), blAt: 0 };
   async function loadIlsHist() {
     const h = parseInt(I.hist, 10) || 0;
-    if (!h || (Date.now() - IHist.at < 60000 && IHist.hours === h)) return;
+    // with Departures on the map: Shown also the departures, in one list with the landings
+    // (newest first; the runway in a light-blue box), as the History view's List: Both
+    // (from 2026-11-03)
+    const deps = I.deps === 'show' ? 'show' : 'hide';
+    if (!h || (Date.now() - IHist.at < 60000 && IHist.hours === h && IHist.deps === deps)) return;
     IHist.at = Date.now();
     try {
-      const d = await (await fetch(`/api/windshear/approach-history?lite=1&window=${h * 3600}`, { cache: 'no-store' })).json();
-      IHist.rows = Array.isArray(d) ? d.slice().sort((a, b) => b.ts - a.ts) : [];
-      IHist.hours = h; IHist.fetched = Date.now();
+      const get = async u => { const d = await (await fetch(u, { cache: 'no-store' })).json(); return Array.isArray(d) ? d : []; };
+      const [a, dd] = await Promise.all([get(`/api/windshear/approach-history?lite=1&window=${h * 3600}`),
+        deps === 'show' ? get(`/api/windshear/departures?full=1&window=${h * 3600}`) : Promise.resolve([])]);
+      IHist.rows = a.concat(dd.map(e => Object.assign({}, e, { _dep: true }))).sort((x, y) => y.ts - x.ts);
+      IHist.hours = h; IHist.deps = deps; IHist.fetched = Date.now();
     } catch (_) { IHist.at = 0; return; }
     drawIlsHist();
     if (Date.now() - IHist.blAt > 600000) {
@@ -1585,26 +1591,30 @@
     const h = parseInt(I.hist, 10) || 0;
     box.hidden = !h;
     if (!h) return;
-    const S = { kind: 'arr', show: I.hshow, res: 'lo' };
+    const S0 = { kind: 'arr', show: I.hshow, res: 'lo' }, S = S0;
+    const both = IHist.deps === 'show';
     const list = IHist.rows.filter(e => !I.rwy || rwyOk(e.runway));
+    const nDep = list.filter(e => e._dep).length, nArr = list.length - nDep;
     const what = { edr: 'turbulence (EDR, research)', hw: 'headwind kt', xw: 'crosswind kt', wind: 'wind kt', aci: 'approach conditions', ws: 'windshear' }[S.show];
-    $('app-ils-histhd').innerHTML = `<b>Approach history</b> · last ${h} h${I.rwy ? ' · ' + esc(I.rwy) : ''} · ` +
-      (IHist.fetched && IHist.hours === h ? `${list.length} landing${list.length === 1 ? '' : 's'} · ${what}` : 'loading…');
+    const nTxt = `${nArr} landing${nArr === 1 ? '' : 's'}` + (both ? `, ${nDep} departure${nDep === 1 ? '' : 's'} (blue runway)` : '');
+    $('app-ils-histhd').innerHTML = `<b>${both ? 'Landings and departures' : 'Approach history'}</b> · last ${h} h${I.rwy ? ' · ' + esc(I.rwy) : ''} · ` +
+      (IHist.fetched && IHist.hours === h ? `${nTxt} · ${what}` : 'loading…');
     const bandsShown = ['hw', 'xw', 'wind'].includes(S.show);
     $('app-ils-histband').innerHTML = bandsShown
       ? `<span class="strip" style="--n:${HB_LO.length}">` + HB_LO.map(b => `<i>${b}</i>`).join('') + '</span>' : '';
     $('app-ils-histband').hidden = !bandsShown || !list.length;
     const today = isoDay(new Date());
     $('app-ils-histlist').innerHTML = list.map(e => {
-      const k = `${Math.round(e.ts)}|${e.icao}`, open = IHist.open.has(k);
+      const k = `${e._dep ? 'd' : 'a'}|${Math.round(e.ts)}|${e.icao}`, open = IHist.open.has(k);
+      const S = e._dep ? { kind: 'dep', show: S0.show, res: S0.res } : S0;
       const d = new Date(e.ts * 1000);
       const tm = (isoDay(d) !== today ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + (e.time_utc || hhmm(e.ts));
       return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
         `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
-        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw">${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${e._dep ? ' dep' : ''}"${e._dep ? ' title="Departure"' : ''}>${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
         `<span class="l2">${histLine2(e, S)}</span></button>` +
         (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
-    }).join('') || (IHist.fetched ? `<div class="app-empty">No landings${I.rwy ? ' on ' + esc(I.rwy) : ''} in the last ${h} h.</div>` : '');
+    }).join('') || (IHist.fetched ? `<div class="app-empty">No ${both ? 'landings or departures' : 'landings'}${I.rwy ? ' on ' + esc(I.rwy) : ''} in the last ${h} h.</div>` : '');
     if (window.HwProfile) HwProfile.fill($('app-ils-histlist'));
   }
   $('app-ils-histlist').addEventListener('click', ev => {

@@ -3744,7 +3744,7 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 
 /* ── Full-site maps: ⌂ and + / − see-through (from 2026-11-03, as the EFHK close-up's ⌂) ──
    Live Map, Flights, Sounding, Wind Map, Weather, Windshear, GPS Episodes; the phone (/app)
-   keeps its dark buttons (app.css) */
+   has its own see-through rules in app.css (from the evening of 2026-11-03; before, dark buttons) */
 body:not(.app-body) .leaflet-bar.leaflet-control-zoom, body:not(.app-body) .leaflet-bar.ms-map-home {
   box-shadow: none; border: 1px solid rgba(148, 163, 184, 0.35); background: transparent;
   opacity: 0.75; transition: opacity 0.12s; }

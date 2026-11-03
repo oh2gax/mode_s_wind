@@ -105,18 +105,27 @@ body.app-body {
 #app-ils-map { width: 100%; height: 100%; background: #0b1622; }
 [data-theme="light"] #app-ils-map { background: #dfe6ee; }
 .app-ils-mapbox .leaflet-bar { border: 1px solid var(--border); box-shadow: none; }
-.app-ils-mapbox .leaflet-bar a { width: 34px; height: 34px; line-height: 34px;      /* Leaflet's CSS loads later: */
-                                background: var(--bg-2); color: var(--text-1); border-bottom-color: var(--border); }
+.app-ils-mapbox .leaflet-bar a { width: 34px; height: 34px; line-height: 34px; }   /* Leaflet's CSS loads later */
 /* the map buttons on a touch screen (from 2026-11-02): Leaflet's own CSS (loaded later) turns a
    hovered / focused button light grey (#f4f4f4) — after a tap the focus (and the touch "hover")
    stays, so in the Dark theme the + / − stayed white.  These rules (more specific) keep the
-   theme's colours; a tap only flashes --bg-3.  Also the disabled button at the zoom limit. */
-.app-view .leaflet-bar a { background: var(--bg-2); color: var(--text-1); border-bottom-color: var(--border); }
+   theme's colours; a tap only flashes darker.  Also the disabled button at the zoom limit.
+   See-through (from 2026-11-03, as the full site's maps): dark (light) glass, the map shows
+   through; ⌂ and + / − on every phone map (ILS approach, Weather, …). */
+.app-view .leaflet-bar { border: 1px solid rgba(148, 163, 184, 0.35); box-shadow: none; background: transparent; }
+.app-view .leaflet-bar a { background: rgba(15, 23, 42, 0.38); color: var(--text-1); border-bottom-color: rgba(148, 163, 184, 0.3); }
 .app-view .leaflet-bar a:hover, .app-view .leaflet-bar a:focus,
-.app-view .leaflet-bar a:focus-visible { background: var(--bg-2); color: var(--text-1); outline: none; }
-.app-view .leaflet-bar a:active { background: var(--bg-3); }
+.app-view .leaflet-bar a:focus-visible { background: rgba(15, 23, 42, 0.38); color: var(--text-1); outline: none; }
+.app-view .leaflet-bar a:active { background: rgba(15, 23, 42, 0.7); }
 .app-view .leaflet-bar a.leaflet-disabled,
-.app-view .leaflet-bar a.leaflet-disabled:hover { background: var(--bg-2); color: var(--text-3); }
+.app-view .leaflet-bar a.leaflet-disabled:hover { background: rgba(15, 23, 42, 0.2); color: var(--text-3); }
+[data-theme="light"] .app-view .leaflet-bar { border-color: rgba(71, 85, 105, 0.35); }
+[data-theme="light"] .app-view .leaflet-bar a,
+[data-theme="light"] .app-view .leaflet-bar a:hover, [data-theme="light"] .app-view .leaflet-bar a:focus,
+[data-theme="light"] .app-view .leaflet-bar a:focus-visible { background: rgba(255, 255, 255, 0.5); color: #334155; border-bottom-color: rgba(71, 85, 105, 0.3); }
+[data-theme="light"] .app-view .leaflet-bar a:active { background: rgba(255, 255, 255, 0.85); }
+[data-theme="light"] .app-view .leaflet-bar a.leaflet-disabled,
+[data-theme="light"] .app-view .leaflet-bar a.leaflet-disabled:hover { background: rgba(255, 255, 255, 0.3); color: #94a3b8; }
 #app-ils-map .leaflet-control-attribution { font-size: 9px; background: rgba(15,25,35,.8); color: var(--text-3); }
 #app-ils-map .leaflet-control-attribution a { color: var(--text-2); }
 [data-theme="light"] #app-ils-map .leaflet-control-attribution { background: rgba(232,237,244,.88); }
