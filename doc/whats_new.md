@@ -12,6 +12,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Landings and departures together** — the phone's History has *List: Both*; the departures have their runway in a light-blue box.
 - **GPS pages for Full view** — the GPS Quality and Episodes pages are now open to users with the *Full view* right; others no longer see the GPS link. The user guides stay open to everyone.
 - **Smoother weather maps** — on the Weather page and the phone's Weather view the slider follows the mouse or finger more smoothly, and −1h / +1h usually show the next hour at once: the hours next to the one shown are drawn ahead while you look. With *Clouds* on the maps are now much quicker too.
+- **Even quicker weather slider** — while you drag the slider, the colours and clouds are drawn a little softer, and sharp again when you let go; weather hours that someone has already opened come from the server's memory, so the page and the phone load them faster.
 - **Wind in colours** — on the Weather page *Wind* is now a menu: *Barbs*, *Colours* (the wind speed in colour bands of 5 kt) or both.
 - **More GNSS on the phone** — the GNSS view has *1 m* and *3 m* (day by day), and *FL band heatmap* in the GNSS options shows the flight levels day by day, as on the GPS Quality page.
 - **Lighter map buttons** — the ⌂ and + / − on the maps are now see-through.

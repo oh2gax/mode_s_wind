@@ -453,6 +453,11 @@ async function play() {
 $('wx-play').addEventListener('click', play);
 $('wx-now').addEventListener('click', () => { $('wx-t').value = presentIndex(); showFrame(); });
 $('wx-t').addEventListener('input', () => { lastMove = performance.now(); requestShow(); });
+// while the slider is dragged with the mouse or a finger the hours not drawn before are
+// drawn at half resolution, and the hour is drawn sharp when it is let go (from 2026-11-03)
+$('wx-t').addEventListener('pointerdown', () => wx.setDraft(true));
+['pointerup', 'pointercancel'].forEach(ev => window.addEventListener(ev, () => wx.setDraft(false)));
+$('wx-t').addEventListener('change', () => wx.setDraft(false));
 // ±1 h buttons (for a mouse; the slider itself takes the arrow keys): stop an
 // animation and move one model hour, not past the ends
 function stepHour(d) {

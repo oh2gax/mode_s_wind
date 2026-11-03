@@ -1331,11 +1331,15 @@ def create_app(
                 bbox = b
         except ValueError:
             bbox = None
-        resp = jsonify(_wx.frames(get_db(), ts, step, fields, bbox, fine=request.args.get("fine") == "1"))
+        # from 2026-11-03 the answer comes compressed from the memory cache of
+        # web/api/weather.py when the same hours (same run and lead) were asked before
+        z = _wx.frames_gz(get_db(), ts, step, fields, bbox, fine=request.args.get("fine") == "1")
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
-            resp.set_data(_gzip.compress(resp.get_data(), compresslevel=5))
+            resp = app.response_class(z, mimetype="application/json")
             resp.headers["Content-Encoding"] = "gzip"
             resp.headers["Vary"] = "Accept-Encoding"
+        else:
+            resp = app.response_class(_gzip.decompress(z), mimetype="application/json")
         return resp
 
     @app.route("/api/weather/point")

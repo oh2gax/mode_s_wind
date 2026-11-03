@@ -149,6 +149,11 @@ window.AppWx = (() => {
     map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); prefetchDraw(); });
     $('app-wx-tip').addEventListener('click', closeTip);
     $('app-wx-t').addEventListener('input', () => { if (playing) play(); lastMove = performance.now(); requestShow(); maybeLoadNear(); });
+    // while the slider is dragged the hours not drawn before are drawn at half resolution,
+    // and the hour is drawn sharp when the finger is lifted (from 2026-11-03)
+    $('app-wx-t').addEventListener('pointerdown', () => wx.setDraft(true));
+    ['pointerup', 'pointercancel', 'touchend'].forEach(ev => window.addEventListener(ev, () => { if (wx) wx.setDraft(false); }));
+    $('app-wx-t').addEventListener('change', () => wx.setDraft(false));
     $('app-wx-play').addEventListener('click', play);
     $('app-wx-prev').addEventListener('click', () => stepHour(-1));
     $('app-wx-next').addEventListener('click', () => stepHour(1));

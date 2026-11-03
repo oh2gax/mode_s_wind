@@ -321,7 +321,7 @@ const WxLayer = (() => {
     canvas.style.position = 'absolute'; canvas.style.left = '0'; canvas.style.top = '0';
     canvas.style.pointerEvents = 'none';
     map.getPane(paneName).appendChild(canvas);
-    const off = document.createElement('canvas');
+    let off = document.createElement('canvas');                 // let: the draft swaps it
     let frame = null, grid = null, geo = null, gridKey = '';
     let ov = null, ovGrid = null, ovGeo = null, ovKey = '';     // the radar (setOverlay)
     let ovSrc = null, ovPrep = null;                            // the last radar given and its prepared form
@@ -382,7 +382,32 @@ const WxLayer = (() => {
       picPut(key, cv, drawnNow);
     }
 
+    // ── draft (from 2026-11-03; setDraft): while the page's time slider is dragged, an hour
+    // not in the picture cache gets its filled fields (temperature, wind and gust colours,
+    // clouds and fog, rain, radar) at half the resolution — a quarter of the pixels to fill,
+    // shade and filter, stretched with smoothing onto the map — while the lines, barbs and
+    // numbers stay sharp; it is not cached, and the hour is drawn fully sharp when the
+    // slider is let go (setDraft(false))
+    let draft = false, draftShown = false, od = 1;              // od: the offscreen's scale
+    let dOff = null;
+    function renderDraft() {
+      const w = Math.max(1, Math.round(canvas.width / 2)), h = Math.max(1, Math.round(canvas.height / 2));
+      if (!dOff) dOff = document.createElement('canvas');
+      if (dOff.width !== w || dOff.height !== h) { dOff.width = w; dOff.height = h; }
+      const sv = off;
+      try { off = dOff; od = w / canvas.width; render(); }
+      finally { off = sv; od = 1; }
+      draftShown = true;
+    }
+    function setDraft(on) {
+      on = !!on;
+      if (on === draft) return;
+      draft = on;
+      if (!on && draftShown) draw();                          // the hour shown, sharp
+    }
+
     function draw() {
+      draftShown = false;
       if (CACHE_N) {
         picsFor(viewKey());
         const key = picKey(frame, fine), hit = pics.get(key);
@@ -394,17 +419,19 @@ const WxLayer = (() => {
           drawn = hit.drawn;
           return;
         }
+        if (draft && (frame || ov)) { renderDraft(); return; }
         render();
         if (frame || ov) picStore(key, canvas, drawn);
         return;
       }
+      if (draft && (frame || ov)) { renderDraft(); return; }
       render();
     }
     // draw the hours `list` ([{frame, fine, ov}]) into the cache without showing them (the
     // page calls this when idle; ov: the radar overlay of that hour, null = none, left out =
     // the one shown); returns how many were drawn.  Only with opts.cache.
     function prerender(list) {
-      if (!CACHE_N || !list || !list.length || shownCanvas.style.display === 'none') return 0;
+      if (!CACHE_N || draft || !list || !list.length || shownCanvas.style.display === 'none') return 0;
       picsFor(viewKey());
       let n = 0;
       for (const it of list) {
@@ -425,7 +452,7 @@ const WxLayer = (() => {
 
     function render() {
       const ctx = canvas.getContext('2d');
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = window.devicePixelRatio || 1, odpr = dpr * od;   // odpr: the offscreen's (a draft: half)
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const hasF = frame && geo, hasO = ov && ovGeo;
@@ -456,12 +483,14 @@ const WxLayer = (() => {
       const nx = hasF ? geo.nx : 0, ny = hasF ? geo.ny : 0;
       const layer = alpha => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalAlpha = alpha; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
+        ctx.globalAlpha = alpha;
+        if (od === 1) ctx.drawImage(off, 0, 0); else ctx.drawImage(off, 0, 0, canvas.width, canvas.height);   // a draft: stretched
+        ctx.globalAlpha = 1;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       };
       const begin = () => {
         g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, off.width, off.height);
-        g2.setTransform(dpr, 0, 0, dpr, 0, 0); g2.lineWidth = 0.8;
+        g2.setTransform(odpr, 0, 0, odpr, 0, 0); g2.lineWidth = 0.8;
       };
       const f = hasF ? frame : {};
       // the 2.5 km box: its outline (corners along the edge, split for the projection),
@@ -763,13 +792,13 @@ const WxLayer = (() => {
           if (ps[yb * n1 + xb] - ps[ya * n1 + xb] - ps[yb * n1 + xa] + ps[ya * n1 + xa] === 0) continue;
           const a = (p10.x - p00.x) / (i1 - i0), b = (p10.y - p00.y) / (i1 - i0);
           const c = (p01.x - p00.x) / (j1 - j0), d = (p01.y - p00.y) / (j1 - j0);
-          g2.setTransform(dpr * a, dpr * b, dpr * c, dpr * d, dpr * (p00.x - a * i0 - c * j0), dpr * (p00.y - b * i0 - d * j0));
+          g2.setTransform(odpr * a, odpr * b, odpr * c, odpr * d, odpr * (p00.x - a * i0 - c * j0), odpr * (p00.y - b * i0 - d * j0));
           g2.drawImage(img, i0, j0, wi, hj, i0, j0, wi, hj);
           drew = true;
           const xs = [p00.x, p10.x, p01.x, p11.x], ys = [p00.y, p10.y, p01.y, p11.y];
           gb[0] = Math.min(gb[0], ...xs); gb[1] = Math.min(gb[1], ...ys); gb[2] = Math.max(gb[2], ...xs); gb[3] = Math.max(gb[3], ...ys);
         }
-        g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g2.setTransform(odpr, 0, 0, odpr, 0, 0);
         g2.imageSmoothingEnabled = true;
         return drew;
       };
@@ -793,10 +822,11 @@ const WxLayer = (() => {
         const lf = lumFilter(cr, cg, cb, k);
         if (lf) {                                            // on the GPU (from 2026-11-03), only over the area drawn
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          const bx0 = Math.max(0, Math.floor((gb[0] - 2) * dpr)), by0 = Math.max(0, Math.floor((gb[1] - 2) * dpr));
-          const bx1 = Math.min(off.width, Math.ceil((gb[2] + 2) * dpr)), by1 = Math.min(off.height, Math.ceil((gb[3] + 2) * dpr));
+          const bx0 = Math.max(0, Math.floor((gb[0] - 2) * odpr)), by0 = Math.max(0, Math.floor((gb[1] - 2) * odpr));
+          const bx1 = Math.min(off.width, Math.ceil((gb[2] + 2) * odpr)), by1 = Math.min(off.height, Math.ceil((gb[3] + 2) * odpr));
           if (bx1 > bx0 && by1 > by0) {
-            ctx.filter = lf; ctx.drawImage(off, bx0, by0, bx1 - bx0, by1 - by0, bx0, by0, bx1 - bx0, by1 - by0); ctx.filter = 'none';
+            const s = 1 / od;                                // a draft: the half-size area stretched
+            ctx.filter = lf; ctx.drawImage(off, bx0, by0, bx1 - bx0, by1 - by0, bx0 * s, by0 * s, (bx1 - bx0) * s, (by1 - by0) * s); ctx.filter = 'none';
           }
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           continue;
@@ -1230,6 +1260,8 @@ const WxLayer = (() => {
       show(on) { canvas.style.display = on ? '' : 'none'; },
       redraw: () => { optVer++; draw(); },
       prerender,
+      // the slider is being dragged (true) or let go (false): draw at half resolution meanwhile
+      setDraft,
       grid: () => grid,
       // the barb drawn nearest to a container point (within r px): {k, dir, spd, values} or null
       barbAt(pt, r = 12) {

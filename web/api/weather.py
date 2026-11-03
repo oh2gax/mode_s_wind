@@ -111,7 +111,6 @@ def _block(plane, nx: int, ny: int, step: int, use_max: bool = False):
     return out
 
 
-_cache: dict = {}             # (ts, run, lead, step) → (grid, frame): repeated views cost nothing
 
 
 # The MEPS Lambert projection (as static/js/wx_layer.js and collector/meps.py):
@@ -210,60 +209,175 @@ def _crop(plane, nx: int, win):
     return out
 
 
-def frames(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> dict:
-    """The fields of the given hours, averaged to step × 10 km; with bbox only
-    the part of the grid over it; fine: the 2.5 km box (every cell)."""
+# ── Memory caches (from 2026-11-03; before, one dict of whole hours per field list,
+# emptied at 400 entries) ─────────────────────────────────────────────────────────
+# _fc: one averaged field of one hour — (table, ts, run, lead, w, step, bbox, field) →
+#      array('h') with FILL for missing, or False when the hour has no such field —
+#      so a page with other fields (e.g. clouds switched on) reuses the rest; least
+#      recently used out first, at most _FC_MAX_VALS values (2 bytes each, ~24 MB).
+# _gc: the grid of each hour key (small).
+# _rc: whole answers of /api/weather/frames as gzip bytes — (table, the hours with
+#      their run / lead, step, fields, bbox) → bytes — so the next page open, the
+#      phone or another user asking for the same hours gets them in about a
+#      millisecond; least recently used out first, at most _RC_MAX_BYTES (32 MB).
+# Everything is in memory only (nothing written); a new run of an hour has another
+# run / lead, so its old entries are simply not asked for again and age out.
+import threading
+from collections import OrderedDict
+
+_lock = threading.Lock()
+_fc: "OrderedDict" = OrderedDict()
+_fc_vals = 0
+_FC_MAX_VALS = 12_000_000
+_gc: dict = {}
+_rc: "OrderedDict" = OrderedDict()
+_rc_bytes = 0
+_RC_MAX_BYTES = 32 * 1024 * 1024
+_stats = {"rc_hit": 0, "rc_miss": 0, "fc_hit": 0, "fc_miss": 0}
+
+
+def _fc_get(key):
+    with _lock:
+        v = _fc.get(key)
+        if v is not None:
+            _fc.move_to_end(key)
+        return v
+
+
+def _fc_put(key, arr):
+    global _fc_vals
+    with _lock:
+        old = _fc.pop(key, None)
+        if old:
+            _fc_vals -= len(old)
+        _fc[key] = arr
+        _fc_vals += len(arr) if arr else 0
+        while _fc_vals > _FC_MAX_VALS and _fc:
+            _, a = _fc.popitem(last=False)
+            _fc_vals -= len(a) if a else 0
+        if len(_gc) > 20000:
+            _gc.clear()
+
+
+def _hours(db, table: str, ts_list):
+    """{ts: (run, lead, 1 when the hour has the 10 m wind)} of the stored hours asked for."""
+    out = {}
+    tl = [int(t) for t in ts_list]
+    for k in range(0, len(tl), 400):
+        part = tl[k:k + 400]
+        try:
+            rows = db.execute(f"SELECT ts, run, lead, instr(meta, '\"u\"') > 0 FROM {table} "
+                              f"WHERE ts IN ({','.join('?' * len(part))})", part).fetchall()
+        except Exception:                                # noqa: BLE001  (table missing)
+            return {}
+        for ts, run, lead, w in rows:
+            out[ts] = (run, lead, 1 if w else 0)
+    return out
+
+
+def _norm(step: int, fields, bbox, fine: bool):
     table = "meps_wx25_hours" if fine else "meps_wx_hours"
     if fine:
         step, bbox = 1, None
     step = 1 if step <= 1 else (2 if step <= 2 else 4)
     send = tuple(f for f in ALL if f in (fields or SEND))
     bkey = tuple(round(v, 2) for v in bbox) if bbox else None
+    return table, step, send, bbox, bkey
+
+
+def frames(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> dict:
+    """The fields of the given hours, averaged to step × 10 km; with bbox only
+    the part of the grid over it; fine: the 2.5 km box (every cell)."""
+    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine)
+    ts_list = [int(t) for t in ts_list[:96]]
+    have = _hours(db, table, ts_list)
+    return _frames(db, table, ts_list, have, step, send, bbox, bkey, fine)
+
+
+def _frames(db, table, ts_list, have, step, send, bbox, bkey, fine) -> dict:
     out, grid = [], None
-    for ts in ts_list[:96]:
-        try:
-            r = db.execute(f"SELECT run, lead, instr(meta, '\"u\"') > 0 FROM {table} WHERE ts = ?",
-                           (int(ts),)).fetchone()
-        except Exception:                                # noqa: BLE001  (table missing)
-            r = None
-        if not r:
+    for ts in ts_list:
+        h = have.get(ts)
+        if not h:
             continue
-        key = (table, int(ts), r[0], r[1], r[2], step, send, bkey)
-        hit = _cache.get(key)
-        if hit:
-            if grid is None:
-                grid = hit[0]
-            if hit[0] == grid:
-                out.append(hit[1])
-            continue
-        r = db.execute(f"SELECT run, lead, meta, data FROM {table} WHERE ts = ?", (int(ts),)).fetchone()
-        if not r:
-            continue
-        meta = json.loads(r[2])
-        planes = _decode(meta, r[3])
-        if planes is None:
-            continue
-        x0, dx, nx = meta["x"]
-        y0, dy, ny = meta["y"]
-        win = _window(meta, bbox, step)
-        if win:                             # only the part over bbox (whole blocks)
-            i0, i1, j0, j1 = win
-            planes = {k: _crop(v, nx, win) for k, v in planes.items()}
-            x0, y0 = x0 + i0 * dx, y0 + j0 * dy
-            nx, ny = i1 - i0, j1 - j0
-        g = {"x": [x0 + (step - 1) * dx / 2, dx * step, nx // step],
-             "y": [y0 + (step - 1) * dy / 2, dy * step, ny // step]}
+        run, lead, w = h
+        hk = (table, ts, run, lead, w, step, bkey)
+        g = _gc.get(hk)
+        vals = {k: (_fc_get(hk + (k,)) if g else None) for k in send}
+        missing = [k for k in send if vals[k] is None]
+        if missing or not g:
+            _stats["fc_miss"] += 1
+            r = db.execute(f"SELECT run, lead, meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
+            if not r or (r[0], r[1]) != (run, lead):
+                continue
+            meta = json.loads(r[2])
+            planes = _decode(meta, r[3])
+            if planes is None:
+                continue
+            x0, dx, nx = meta["x"]
+            y0, dy, ny = meta["y"]
+            win = _window(meta, bbox, step)
+            if win:                             # only the part over bbox (whole blocks)
+                i0, i1, j0, j1 = win
+                planes = {k: _crop(v, nx, win) for k, v in planes.items()}
+                x0, y0 = x0 + i0 * dx, y0 + j0 * dy
+                nx, ny = i1 - i0, j1 - j0
+            g = {"x": [x0 + (step - 1) * dx / 2, dx * step, nx // step],
+                 "y": [y0 + (step - 1) * dy / 2, dy * step, ny // step]}
+            _gc[hk] = g
+            for k in (send if missing == [] else missing):
+                if k in planes:
+                    b = _block(planes[k], nx, ny, step, k in BLOCK_MAX)
+                    arr = array.array("h", (FILL if v is None else v for v in b))
+                else:
+                    arr = False
+                _fc_put(hk + (k,), arr)
+                vals[k] = arr
+        else:
+            _stats["fc_hit"] += 1
         if grid is None:
             grid = g
         elif g != grid:                     # the grid changed (configuration): skip this hour
             continue
-        f = {"ts": int(ts), "run": r[0], "lead": r[1], "w": 1 if "u" in planes else 0}
+        f = {"ts": ts, "run": run, "lead": lead, "w": w}
         for k in send:
-            if k in planes:
-                f[k] = _block(planes[k], nx, ny, step, k in BLOCK_MAX)
-        if len(_cache) > 400:
-            _cache.clear()
-        _cache[key] = (g, f)
+            a = vals.get(k)
+            if a:
+                f[k] = [None if v == FILL else v for v in a]
         out.append(f)
     return {"grid": grid, "step": step, "km": 2.5 if fine else 10 * step, "fine": 1 if fine else 0, "frames": out,
             "source": "MEPS (MET Norway, CC BY 4.0)"}
+
+
+def frames_gz(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> bytes:
+    """frames() as gzip-compressed JSON, from the answer cache when the same hours
+    (with the same run and lead) were asked for before (from 2026-11-03)."""
+    import gzip
+    global _rc_bytes
+    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine)
+    ts_list = [int(t) for t in ts_list[:96]]
+    have = _hours(db, table, ts_list)
+    key = (table, tuple((ts,) + have[ts] for ts in ts_list if ts in have), step, send, bkey)
+    with _lock:
+        hit = _rc.get(key)
+        if hit is not None:
+            _rc.move_to_end(key)
+            _stats["rc_hit"] += 1
+            return hit
+    _stats["rc_miss"] += 1
+    d = _frames(db, table, ts_list, have, step, send, bbox, bkey, fine)
+    z = gzip.compress(json.dumps(d, separators=(",", ":")).encode(), compresslevel=5)
+    with _lock:
+        if key not in _rc:
+            _rc[key] = z
+            _rc_bytes += len(z)
+        while _rc_bytes > _RC_MAX_BYTES and _rc:
+            _, old = _rc.popitem(last=False)
+            _rc_bytes -= len(old)
+    return z
+
+
+def cache_info() -> dict:
+    """The memory caches' size and hits (for the maintenance view / tests)."""
+    with _lock:
+        return {"fields": len(_fc), "field_values": _fc_vals, "answers": len(_rc), "answer_bytes": _rc_bytes, **_stats}
