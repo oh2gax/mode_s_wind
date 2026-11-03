@@ -1145,12 +1145,20 @@ function _hms(t) { return t ? new Date(t * 1000).toISOString().slice(11, 19) + '
 function _showJsonFeed(d) {
   const s = d.settings || {};
   document.getElementById('jfeed-enabled').checked = !!s.enabled;
+  const srcs = d.sources || [{ id: 'main', name: '' }];
+  const srcName = x => x.id === 'main' ? `${_esc(x.name || 'Main receiver')} only — its Radarcape list as received`
+    : x.id === 'all' ? 'All receivers (merged)' : `${_esc(x.id)} only — its own list${x.name ? ' (' + _esc(x.name) + ')' : ''}`;
+  const sel = document.getElementById('jfeed-src');
+  sel.innerHTML = srcs.map(x => `<option value="${_esc(x.id)}">${srcName(x)}</option>`).join('') +
+    (s.src && !srcs.some(x => x.id === s.src) ? `<option value="${_esc(s.src)}">${_esc(s.src)} (not found)</option>` : '');
+  sel.value = s.src || 'main';
   let h = _regdbLine('Feed', d.running ? 'ok' : (s.enabled ? 'warn' : 'off'),
     d.running ? `On · listening on ${_esc(d.host)}:${d.port} since ${_utcTs(d.started)}`
       : s.enabled ? `Not open${d.error ? ' — ' + _esc(d.error[1]) : ''}` : `Off — nothing listens on ${_esc(d.host || '127.0.0.1')}:${d.port || 31009}`);
-  const age = d.list_age;
+  const age = d.list_age, cur = srcs.find(x => x.id === (d.src || 'main'));
   h += _regdbLine('Aircraft list', age == null ? 'off' : (age <= d.stale_sec ? 'ok' : 'warn'),
-    age == null ? 'None received yet' : `${age.toFixed(0)} s old${age > d.stale_sec ? ' — sent as an empty list' : ''}`);
+    (cur ? srcName(cur) + ' · ' : '') + (age == null ? (d.list_err ? 'none — ' + _esc(d.list_err) : 'None received yet')
+      : `${age.toFixed(0)} s old${d.list_n != null ? ` · ${_num(d.list_n)} aircraft` : ''}${age > d.stale_sec ? ' — sent as an empty list' : ''}${d.list_err ? ' · last error: ' + _esc(d.list_err) : ''}`));
   const l = d.last;
   h += _regdbLine('Requests', d.requests_total ? 'ok' : 'off',
     d.requests_total ? `${_num(d.requests_today)} today · ${_num(d.requests_total)} since the start · last ${_hms(l && l[0])} (${_num(l ? l[1] : 0)} bytes)` : 'None since the start');
@@ -1163,7 +1171,8 @@ async function loadJsonFeed() {
 document.getElementById('jfeed-refresh-btn').addEventListener('click', loadJsonFeed);
 document.getElementById('jfeed-save-btn').addEventListener('click', async () => {
   try {
-    const r = await _api('/api/maintenance/json-feed/config', { enabled: document.getElementById('jfeed-enabled').checked });
+    const r = await _api('/api/maintenance/json-feed/config', { enabled: document.getElementById('jfeed-enabled').checked,
+      src: document.getElementById('jfeed-src').value });
     const st = r.status || {};
     _setStatus('jfeed-op-status', !r.settings.enabled ? 'Saved — off, the port is closed.'
       : st.running ? `Saved — on, listening on 127.0.0.1:${st.port}.` : `Saved — but the port could not be opened${st.error ? ': ' + st.error[1] : ''}.`,

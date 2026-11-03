@@ -47,6 +47,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Local feeds for other programs
 - The Radarcape aircraft list can be offered on a localhost-only port to another program on the same machine (e.g. modes_logger), in the format of the JSON relay it reads today; off by default. `collector/json_feed.py` (new), `collector/radarcape_json.py`, `run.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`.
+- The local aircraft-list feed can send the main receiver's list (the default, as before), all receivers merged, or another receiver's own list. The merged list keeps the main receiver's own entries and fields (also of the aircraft MODE-S Wind leaves out, such as helicopters) and adds the selected altitude. `collector/json_feed.py`, `collector/multirx.py`, `run.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`.
 - A local Beast stream of every reply — on the cloud server the merged receivers, each reply once — for other programs on the same machine (decoders, test tools), localhost only and off by default; not for multilateration. `collector/beast_feed.py` (new), `collector/receiver.py`, `run.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`. Both local feeds close their port at once when switched off. `collector/json_feed.py`.
 
 ### Phone ILS view: the departures in the approach history

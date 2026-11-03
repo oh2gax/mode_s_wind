@@ -352,6 +352,9 @@ class Rx:
         self.clock = clock if clock in CLOCK_HZ or clock == "gps" else "12mhz"
         self.hz = CLOCK_HZ.get(self.clock)
         self.status_url = spec.get("status_url") or None
+        # its own aircraft list for the local JSON feed (collector/json_feed.py, from 2026-11-03):
+        # readsb's aircraft.json under status_url, or json_url (e.g. a Radarcape's aircraftlist.json)
+        self.json_url = spec.get("json_url") or None
         if self.status_url and not self.status_url.endswith("/"):
             self.status_url += "/"
         self.private = bool(spec.get("private", not main))

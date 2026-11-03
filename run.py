@@ -1269,6 +1269,7 @@ def main() -> None:
     # (off by default: no socket)
     from collector import json_feed as _jf
     from database.db import get_db as _get_db_jf
+    _jf.bind_live(live_state, live_lock)            # the merged list (all receivers)
     _jfeed = _jf.init(cfg, _get_db_jf)
     log.info("Local JSON feed %s (127.0.0.1:%d)", "on" if _jfeed.running else "off", _jfeed.port)
     # ── Local Beast feed for other programs (collector/beast_feed.py, from 2026-11-03) ──

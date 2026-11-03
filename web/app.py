@@ -1455,10 +1455,11 @@ def create_app(
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
         from collector import json_feed as _jf
-        s = _jf.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None)
+        s = _jf.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None,
+                             src=data.get("src"))
         f = _jf.get()
         if f:
-            f.apply(s["enabled"])
+            f.apply(s["enabled"], s.get("src", "main"))
         return jsonify({"ok": True, "settings": s, "status": f.status(get_db()) if f else None})
 
     # ── Local Beast feed for other programs (collector/beast_feed.py, from 2026-11-03) ──
