@@ -6,6 +6,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 ## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view, wind in colours, smoother weather maps, any day in the Windshear charts
 
 - **Any day in the Windshear charts** — the chart window at the right of the Windshear map (ACI, WS, EDR, BL, ST) has a date box: type a date (dd.mm.yyyy) or pick it from the calendar to see that whole day, for example yesterday's. **Live** goes back to the last hours.
+- **A steadier chart window** — the Windshear chart window keeps the same size whichever view (ACI, WS, EDR, BL, ST) or BL field you choose.
 - **Move the EFHK close-up** — drag the box by its *EFHK* tag (or the minimized tab) anywhere over the Live Map. Zoom it with the mouse wheel; the small ⌂ brings it back to 15 NM.
 - **Crosshair on the Live Map** — the mouse is a crosshair over the map, as on the Weather page, for picking aircraft more precisely.
 - **Landings and departures together** — the phone's History has *List: Both*; the departures have their runway in a light-blue box.

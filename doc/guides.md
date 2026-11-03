@@ -69,7 +69,7 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.40
+version: 2.41
 date: 2026-11-03
 pages: 30
 open: windshear

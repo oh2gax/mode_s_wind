@@ -2886,45 +2886,49 @@ const COND_CLASS_COLORS_LIGHT = { N: '#334155', R: '#7c3aed', T: '#0891b2', W: '
 const WR_ROSE_SIZE = 265;
 const WR_CHART_MIN = 180;    // chart views: not lower than this on a low map
 const WR_BOTTOM_GAP = 22;    // chart views end this far above the map's bottom edge — the Approach History panel's bottom (style.css)
+const WR_RO_MIN = 59, WR_RO_MIN_HALF = 76;   // chart views: the read-out's room, 3 / 4 lines (from 2026-11-03)
+const WR_REST = 12 + 25 + WR_RO_MIN;          // padding + border, one button row, read-out: the panel's least height above WR_CHART_MIN
+const WR_REST_HALF = 12 + 50 + WR_RO_MIN_HALF; // half width: two button rows
+const WR_CHART_FLOOR = 120;                   // the chart never lower than this (a very long read-out on a low map)
 function sizeWindroseCanvas() {
   const canvas = document.getElementById('ws-windrose-canvas');
   if (!canvas) return;
+  const chart = wrIsChart();
+  const ro  = document.getElementById('ws-windrose-readout');
+  const row = canvas.parentElement && canvas.parentElement.querySelector('.ws-windrose-hist-row');
+  // One size for every chart view (from 2026-11-03).  The width first: the button row
+  // and the read-out are kept within the chart's width (they wrap), so a view with
+  // more buttons (BL: the field and Mast buttons, whose text changes Wind → T → HW →
+  // ΔHW → Shear) no longer makes the whole panel wider.  The read-out always has room
+  // for 3 lines (half width: 4), so a view with a shorter read-out (WS, ST) does not
+  // give the chart more height than the others.
   let w = WR_ROSE_SIZE;
-  let h = WR_ROSE_SIZE;
-  if (wrIsChart()) {
-    // room between the panel and the map's bottom edge (map attribution: 22 px).
-    // From 30 Oct 2026 evening every chart view (ACI, WS, EDR, BL, ST) has the WS
-    // view's size: up to WR_WS_EXTRA taller than the rose and 22 px clear of the
-    // map's bottom edge.  Before, ACI / EDR / BL went up to +200 / +320 px and to 4 px
-    // from the edge, so a read-out of one more line pushed them over the Windshear
-    // alert title below the map.  Where the map is low the chart may get smaller
-    // than the rose (down to WR_CHART_MIN) rather than cover what is below the map.
-    // From 1 Nov 2026 the panel ends exactly at the Approach History panel's bottom
-    // level (both WR_BOTTOM_GAP px above the map's bottom edge, clear of the map
-    // attribution) in every chart view: measured with fractional pixels and rounded,
-    // no 4-px tolerance (it could leave the two bottoms up to 4 px apart) and no
-    // upper cap any more (WR_WS_EXTRA = 95 px over the rose stopped e.g. the ST view
-    // 11 px short on a 1080-px-high window).
-    const panel = canvas.parentElement, box = panel && panel.offsetParent;
-    if (box) {
-      const pr = panel.getBoundingClientRect(), br = box.getBoundingClientRect();
-      const rest = pr.height - canvas.getBoundingClientRect().height;   // buttons + readout + padding + border
-      const room = br.bottom - (box.clientTop || 0) - WR_BOTTOM_GAP - pr.top - rest;
-      h = Math.max(WR_CHART_MIN, Math.round(room));
-    }
-    if (canvas.height !== h) canvas.height = h;
-  } else if (canvas.height !== h) canvas.height = h;
-  if (wrIsChart()) {
+  if (chart) {
     const ctrl = document.querySelector('.ws-map-controls');
     // panel = canvas + 2 × 5 px padding + 2 × 1 px border
     if (ctrl && ctrl.offsetWidth) w = Math.max(WR_ROSE_SIZE, wrHalf ? Math.round((ctrl.offsetWidth - 12) / 2) : ctrl.offsetWidth - 12);
     if (!(Math.abs(canvas.width - w) <= 12 && canvas.width > WR_ROSE_SIZE) && canvas.width !== w) canvas.width = w;
   } else if (canvas.width !== w) canvas.width = w;
-  // The readout no wider than the chart (from 2026-10-30): the panel is as wide as its
-  // content, so a long readout line (e.g. the BL view's "Last hour: low-level jet …
-  // · surface inversion …") made the whole panel jump wider and back; it now wraps.
-  const ro = document.getElementById('ws-windrose-readout');
-  if (ro) ro.style.maxWidth = wrIsChart() ? canvas.width + 'px' : '';
+  if (ro)  { ro.style.maxWidth  = chart ? canvas.width + 'px' : ''; ro.style.minHeight = chart ? (wrHalf ? WR_RO_MIN_HALF : WR_RO_MIN) + 'px' : ''; }
+  if (row) row.style.maxWidth = chart ? canvas.width + 'px' : '';
+  let h = WR_ROSE_SIZE;
+  if (chart) {
+    // The panel ends WR_BOTTOM_GAP px above the map's bottom edge, level with the
+    // Approach History (from 1 Nov 2026), whatever the view.  On a low map it gets a
+    // fixed least height instead (from 2026-11-03; before the chart stopped at
+    // WR_CHART_MIN and the panel's height then followed each view's read-out and
+    // button rows): the chart may then get a little lower than WR_CHART_MIN in a view
+    // with a longer read-out, but the panel keeps its size.
+    const panel = canvas.parentElement, box = panel && panel.offsetParent;
+    if (box) {
+      const pr = panel.getBoundingClientRect(), br = box.getBoundingClientRect();
+      const rest  = pr.height - canvas.getBoundingClientRect().height;   // buttons + readout + padding + border
+      const least = WR_CHART_MIN + (wrHalf ? WR_REST_HALF : WR_REST);     // the panel's least height
+      const total = Math.max(least, br.bottom - (box.clientTop || 0) - WR_BOTTOM_GAP - pr.top);
+      h = Math.max(WR_CHART_FLOOR, Math.round(total - rest));
+    }
+  }
+  if (canvas.height !== h) canvas.height = h;
 }
 window.addEventListener('resize', () => { if (windroseEnabled) drawWindrose(); });
 

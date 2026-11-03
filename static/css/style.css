@@ -3768,3 +3768,7 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
 .ws-wr-date-input.ws-wr-date-on { border-color: #0369a1; color: var(--text-1); background: #1a3a6b; }
 [data-theme="light"] .ws-wr-date-input.ws-wr-date-on { background: #dbeafe; color: #0c4a6e; }
 .ws-windrose-hist-btn.ws-wr-live-btn { color: #f59e0b; border-color: rgba(245, 158, 11, 0.6); }
+/* Windshear chart window, one size in every view (from 2026-11-03): the BL field
+   button as wide as its longest text (Shear), so stepping Wind → T → HW → ΔHW → Shear
+   does not move the buttons after it. */
+#ws-bl-field-btn { min-width: 50px; text-align: center; }
