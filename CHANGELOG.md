@@ -7,13 +7,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.04112026 — 2026-11-04 (windshear: no alert from an aircraft whose GNSS is jammed)
+## v.04112026 — 2026-11-04 (windshear: no alert from an aircraft whose GNSS is jammed; the mast study log updated)
 
 ### Windshear: the GNSS gate (report version 9)
 - A band comparison or a headwind ramp at heights where the flight's GNSS was degraded — the position frozen, or NACp ≤ 6 while the flight sent no ADS-B velocity — is **unverified**: its values and the level it would have had are kept (`ulvl`, `unv`), but it raises no alert, confirms no other ramp and is no reference for the next flights. It stopped the false WSA of an ATR 72 with NACp 0 on 04L on 3 Nov 2026 21:07 UTC (its ground speed 76–96 kt at 114–128 kt TAS) and one on 18 Oct; the frontal passage of 4 Nov 10:25–10:41 UTC keeps its alerts. Landings and departures, live and stored; a log line for each event kept from an alert. `collector/shear.py` (`gnss_bad_bands`, `vel_bands`, `gate_band`, `gate_ramps`, `mark_unverified`, `REPORT_V` 9), `collector/windshear.py`, `collector/departures.py` (`_gnss`), `run.py` (back-fill, departure references), `web/api/spacetime.py` (references).
 - The Approach History *WS* view shows such a report as a dashed grey `WSA?` / `ADV?` with the reason in the hover; the phone's History the same chip and a line in the details. `static/js/windshear.js`, `static/css/style.css`, `static/js/app.js`, `static/css/app.css`.
 - At the first start the stored reports are recomputed once to version 9 (about 13 s for 5 449 landings and 5 317 departures).
 - Windshear user guide 2.42 (31 pp): the GNSS gate, with a figure from the stored data. `doc/Windshear_User_Guide.pdf`, `doc/guides.md`.
+
+### Mode S & mast study log 1.2
+- Updated to 4 Nov 2026 17 UTC (237 hours): the mast series still without a gap; the tables for the whole period; the 217-m and 327-m direction offsets unchanged in the new north-westerly and northerly winds (+12° / −10°); the 92-m speed low only in south-westerly winds; the strong surface inversion of 3–4 Nov ahead of a front (up to 4.9 K), with MEPS 2.8 K too warm at 26 m; two new figures from the stored data (13 pp). `doc/EFHK_Mode_S_Mast_Wind_Study.pdf`, `doc/guides.md`, `README.md`.
 
 ---
 

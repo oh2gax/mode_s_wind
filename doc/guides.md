@@ -134,9 +134,9 @@ The development of the windshear detection as a study log for aviation meteorolo
 
 ## Mode S and the Kivenlahti mast (study log)
 file: EFHK_Mode_S_Mast_Wind_Study.pdf
-version: 1.1
-date: 2026-11-02
-pages: 11
+version: 1.2
+date: 2026-11-04
+pages: 13
 
 The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-m weather mast at Kivenlahti, Espoo (24 km south-west of the airport), with the MEPS model and the Jokioinen radiosonde — a study log for aviation meteorologists and atmospheric scientists, updated as the data grow.
 
@@ -145,7 +145,8 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 - **Stability and inversions**: the aircraft's T(297 m) − METAR against the mast's T(297 m) − T(2 m) (r 0.83), the shallow evening and night inversions the aircraft do not see, and the case of 29 October 2026 — with MEPS too warm near the ground
 - **Wind**: speeds that follow the mast closely, direction differences at the mast's 217 and 327 m shared by all three other sources, the speed profile and the low-level jet
 - **Mast data quality** (version 1.1): the wind differences by wind sector — the mast's 217-m and 327-m directions off by a nearly constant +16° / −8° (a sensor alignment, not the flow; a 30° turn between them where the aircraft see 6°), its 92-m speed low in south-westerly winds; temperatures without a fault
-- What the mast adds, the dated log of the checks (the first of 2 November 2026), limits and next steps
+- **Update to 4 November 2026** (version 1.2, 237 hours): the tables for the whole period; the direction offsets unchanged in the new north-westerly and northerly winds, the 92-m speed loss confined to the south-west; the strong surface inversion of 3–4 November ahead of a front (up to 5 K), seen by the aircraft from 04 UTC and with MEPS 2.8 K too warm at 26 m
+- What the mast adds, the dated log of the checks (the latest of 4 November 2026), limits and next steps
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
