@@ -164,6 +164,18 @@ The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation me
 - **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters (method v2 from 31 October 2026: repeated and out-of-order reply times dropped) and the scale problem
 - **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown (also the Windshear map and one flight's headwind profile); limitations, calibration (the first pilot reports) and the version history
 
+## Data-Driven Development (D-D-D) — method note
+file: Data_Driven_Development_DDD.pdf
+version: 1.0
+date: 2026-11-04
+pages: 1
+
+How MODE-S Wind is developed: a simple loop in which the stored data decide what the code should do next — one page for software developers, engineers and scientists.
+
+- **The loop**: collect the raw data and keep it, check it regularly, analyse it against independent references, correct the code only when the data say so, replay all stored data through the new version, and record the result
+- **Seven cycles** of October–November 2026 with their numbers — among them two where the data said *not* to change the code — and one cycle in a day (the GNSS gate of 4 November 2026)
+- What makes it work, and its limits
+
 ## Windshear detection v1 — retired algorithms (legacy)
 file: Windshear_Algorithms_v1_Legacy.pdf
 version: 1.0

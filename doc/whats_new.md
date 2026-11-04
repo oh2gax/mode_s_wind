@@ -3,9 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.04112026 — No windshear alerts from aircraft with jammed GPS, the mast study updated
+## v.04112026 — No windshear alerts from aircraft with jammed GPS, the mast study updated, how MODE-S Wind is developed
 
 - **No false alerts from jammed GPS** — an aircraft whose GPS is jammed may report a wrong ground speed, and so a wrong wind. When that happens where a windshear advisory or alert would come from, it is not raised: the Approach History and the phone's History show it as a dashed grey *WSA?* or *ADV?* (unverified), with the reason when you hover or open it. Aircraft that keep a good speed from their inertial systems are not affected.
+- **How MODE-S Wind is developed** — a one-page note in the *User guides* tab: *Data-Driven Development (D-D-D)*, the loop of collecting, checking and analysing the data before the code is changed, with examples from the last weeks.
 - **Mast study, ten days** — the study log of the aircraft against the Kivenlahti mast (1.2) now covers 25 October – 4 November, with the north-westerly winds of the last days and the strong ground inversion of the night before the front of 4 November.
 
 ## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view, wind in colours, smoother weather maps, any day in the Windshear charts
