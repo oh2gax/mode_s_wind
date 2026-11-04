@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.04112026 — No windshear alerts from aircraft with jammed GPS
+
+- **No false alerts from jammed GPS** — an aircraft whose GPS is jammed may report a wrong ground speed, and so a wrong wind. When that happens where a windshear advisory or alert would come from, it is not raised: the Approach History and the phone's History show it as a dashed grey *WSA?* or *ADV?* (unverified), with the reason when you hover or open it. Aircraft that keep a good speed from their inertial systems are not affected.
+
 ## v.03112026 — The EFHK close-up moves, a crosshair on the Live Map, both landings and departures in the phone's History, temperature numbers, GNSS on the phone for Full view, wind in colours, smoother weather maps, any day in the Windshear charts
 
 - **Any day in the Windshear charts** — the chart window at the right of the Windshear map (ACI, WS, EDR, BL, ST) has a date box: type a date (dd.mm.yyyy) or pick it from the calendar to see that whole day, for example yesterday's. **Live** goes back to the last hours.

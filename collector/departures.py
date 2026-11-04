@@ -96,6 +96,15 @@ PAIR_SEC         = 2.0
 FUTURE_SEC       = 1.0         # replies stamped further ahead of the sweep clock are skipped (2026-10-31)
 MAX_ROLL         = 5.0
 SERIES_MAX_ROWS  = 600         # per list per climb-out (≈ 10 min at 1 reply/s)
+# GNSS gate of the band comparison (from 2026-11-04, collector/shear.py
+# gnss_bad_bands): the 200 ft bands of the climb where its GNSS was degraded —
+# a fresh NACp ≤ shear.GNSS_UNV_NACP, or the position frozen (moved less than
+# DEP_FREEZE_MIN_NM while climbing more than DEP_BAND_TOL ft, the departures'
+# form of the approach freeze gate).  Kept as "gq_n" (low NACp) and "gq_f"
+# (frozen) sets of bands; a low-NACp band with ADS-B velocity is not degraded
+# (WindshearTracker.dep_shear, stored as "gq" in the report).
+DEP_GNSS_FRESH_SEC = 30.0       # NACp older than this is ignored (as windshear.GNSS_FRESH_SEC)
+DEP_FREEZE_MIN_NM  = 0.05
 DEP_MARK_SEC     = 900.0       # a finished climb-out stays marked as a departure for the maps (2026-10-29)
 
 
@@ -272,6 +281,7 @@ class DepartureTracker:
             else:
                 return
         n_w = sum(len(P["u"]) for P in st["prof"].values())
+        self._gnss(ac, st, now, alt_msl, lat, lon)
         self._collect(icao, ac, st, now, alt_msl)
         if len(st["sw"]) < SERIES_MAX_ROWS:                # sweep row of the series
             def _f(v, nd):
@@ -297,6 +307,24 @@ class DepartureTracker:
         if (alt_msl > DEP_SERIES_TOP_FT + 300 or dist > DEP_MAX_NM
                 or (vr is not None and vr < -500)):
             self._finish(icao, ac, now)
+
+    @staticmethod
+    def _gnss(ac: dict, st: dict, now: float, alt_msl: float, lat: float, lon: float) -> None:
+        """The GNSS gate's bands of the climb: this sweep's band when the NACp
+        is degraded ("gq_n") or the position is frozen ("gq_f"; anchor: the
+        position moved less than DEP_FREEZE_MIN_NM while the aircraft climbed
+        DEP_BAND_TOL ft)."""
+        from collector.shear import GNSS_UNV_NACP
+        nacp, nts = ac.get("nac_p"), ac.get("nac_p_ts")
+        deg = nacp is not None and nts is not None and now - nts <= DEP_GNSS_FRESH_SEC and nacp <= GNSS_UNV_NACP
+        band = int(round(alt_msl / 200.0) * 200)
+        if deg:
+            st.setdefault("gq_n", set()).add(band)
+        an = st.get("fz_anchor")
+        if an is None or alt_msl < an[2] or _dist_nm(an[0], an[1], lat, lon) >= DEP_FREEZE_MIN_NM:
+            st["fz_anchor"] = (lat, lon, alt_msl)
+        elif alt_msl - an[2] > DEP_BAND_TOL:            # keep the anchor until the position moves
+            st.setdefault("gq_f", set()).add(band)
 
     def prune(self, now: float | None = None) -> None:
         now = now or time.time()

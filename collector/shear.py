@@ -52,6 +52,10 @@ confirmation() (from 27 Oct 2026) labels a ramp alert confirmed or isolated
 by the other landings on the same runway direction within ±15 min (a label
 only, see CONFIRM_WINDOW_SEC).
 
+The GNSS gate (from 4 Nov 2026, REPORT_V 9, see GNSS_UNV_NACP): a band or a
+ramp at heights where the flight's GNSS was degraded (position frozen, or a low
+NACp without ADS-B velocity) is unverified — its level kept as "ulvl", no alert.
+
 Pure Python, no I/O.  Used live by collector/windshear.py for each aircraft on
 final (every sweep) and once per landing for the stored windshear report.
 """
@@ -115,14 +119,37 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 8                  # report version (3: band comparison on the wind vector,
+REPORT_V = 9                  # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
                               #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
                               #     7: WSA / MBA from a ramp only with |ΔV| ≥ RAMP_WSA_MIN_DV,
                               #     8: the ramps from detection v8 — both airspeed registers
                               #        against the ADS-B ground speed, see report8; v7 kept
-                              #        beside it as "v7", from 31 Oct 2026)
+                              #        beside it as "v7", from 31 Oct 2026,
+                              #     9: the GNSS gate, see gnss_bad_bands — 4 Nov 2026)
+
+# GNSS gate (from 4 Nov 2026, REPORT_V 9).  The wind of a band and the ramps
+# rest on the aircraft's own ground speed (BDS 5,0 GS, ADS-B velocity), which
+# is wrong when its GNSS is jammed: 3 Nov 2026 21:07 UTC an ATR 72 on 04L with
+# NACp 0 and a frozen position reported 76–96 kt GS at 114–128 kt TAS — 59 kt of
+# wind at 1 200–1 400 ft against the 27 kt of every flight around it, a false
+# WSA (+21.9 kt at 1 000 ft).  A band is degraded when the position-freeze gate
+# fired there, or when its fresh NACp was ≤ GNSS_UNV_NACP and the flight sent
+# no ADS-B airborne velocity in it: an aircraft whose inertial reference keeps
+# a valid velocity goes on sending it with NACp 0 (the A359 and A21N on 26 Oct
+# 2026 with NACp 0 on final had band winds within 4 kt of their neighbours),
+# while one that takes its ground speed from GNSS alone (the ATR) stops.  A
+# band or a ramp whose heights (± GNSS_UNV_MARGIN_FT) had a degraded band is
+# "unverified": it keeps its values, its level is kept as "ulvl" with "unv":
+# "gnss", but it raises no alert ("lvl" none), confirms no other ramp and is no
+# reference for the band comparison.  Replay of the 5 449 landings 9 Oct –
+# 4 Nov 2026: two reports change, both ATR 72 on 04L/04R without ADS-B velocity
+# (WSA 3 Nov 21:07 and WSA 18 Oct 08:41, +17 kt at 1 400 ft against 11–16 kt of
+# the flights around it); the advisories of the frontal passage of 4 Nov
+# 10:25–10:41 UTC (NACp 9–11) stay as they were.
+GNSS_UNV_NACP = 6             # NACp ≤ this = degraded (as GNSS_NACP_DEG, GPS_NACP_THRESHOLD)
+GNSS_UNV_MARGIN_FT = 200      # a degraded band this close to the band / ramp heights counts
 
 # Band comparison by flight phase (from 27 Oct 2026, REPORT_V 5).  Against the
 # MEPS model (area mean, model levels, 600–1 800 ft, 9–26 Oct 2026) the band
@@ -179,6 +206,87 @@ def level_of(sc_kt: float | None, loss: bool, dv_kt: float | None = None) -> str
     if sc_kt >= LEVEL_ADVISORY:
         return "adv"
     return "none"
+
+
+def vel_bands(v19) -> set:
+    """The 200 ft bands (ft MSL) with ADS-B airborne velocity — rows of a raw
+    series "v19" ([t, gs, trk, vr, alt ft MSL, …])."""
+    out = set()
+    for row in v19 or ():
+        try:
+            if row[1] is not None and row[4] is not None:
+                out.add(int(round(row[4] / 200.0) * 200))
+        except (IndexError, TypeError):
+            continue
+    return out
+
+
+def gnss_bad_bands(gb: dict | None, vel=None) -> list:
+    """Bands (ft MSL) with a degraded GNSS from a per-band GNSS record —
+    approach_history.gnss_json "bands" ({"1200": {"nacp", "fz", …}}): the
+    position frozen, or a low NACp in a band without ADS-B velocity (vel: the
+    bands with it, vel_bands; None = none known).  A climb-out's "gq" list is
+    returned as it is (already combined)."""
+    if isinstance(gb, (list, tuple)):
+        return sorted(int(b) for b in gb)
+    vel = vel or ()
+    out = []
+    for k, v in (gb or {}).items():
+        try:
+            b = int(k)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(v, dict):
+            continue
+        n = v.get("nacp")
+        if v.get("fz") or (n is not None and n <= GNSS_UNV_NACP and b not in vel):
+            out.append(b)
+    return sorted(out)
+
+
+def gnss_hit(bad, a1, a2=None) -> bool:
+    """True when a degraded band lies within GNSS_UNV_MARGIN_FT of a1 … a2."""
+    if not bad or a1 is None:
+        return False
+    a2 = a1 if a2 is None else a2
+    lo, hi = min(a1, a2) - GNSS_UNV_MARGIN_FT, max(a1, a2) + GNSS_UNV_MARGIN_FT
+    return any(lo <= b <= hi for b in bad)
+
+
+def gate_band(ba: dict | None, bad) -> dict | None:
+    """The GNSS gate on a band comparison (band_anomaly): unverified — level
+    kept as "ulvl", "lvl" none — when its band had a degraded GNSS."""
+    if ba and (ba.get("lvl") or "none") != "none" and gnss_hit(bad, ba.get("b")):
+        ba["ulvl"], ba["lvl"], ba["unv"] = ba["lvl"], "none", "gnss"
+    return ba
+
+
+def gate_ramps(a: dict | None, bad) -> dict | None:
+    """The GNSS gate on the ramps of an analysis / report (in place): a ramp
+    whose heights a1 … a2 had a degraded GNSS gets "unv": "gnss" (its level is
+    then kept as "ulvl" by ramp_rel_level, and it counts as none)."""
+    for k in ("loss", "gain"):
+        c = (a or {}).get(k)
+        if c and gnss_hit(bad, c.get("a1"), c.get("a2")):
+            c["unv"] = "gnss"
+    return a
+
+
+def mark_unverified(rep: dict | None) -> dict | None:
+    """"ulvl" (the level without the GNSS gate) and "unv": "gnss" on a report
+    whose gated band or ramps would have given a higher level than "lvl"."""
+    if not rep:
+        return rep
+    lv = [(rep.get("band") or {}).get("ulvl")]
+    lv += [(rep.get(k) or {}).get("ulvl") for k in ("loss", "gain")
+           if (rep.get(k) or {}).get("unv") and (rep.get(k) or {}).get("zone")]
+    u = max([x for x in lv if x in LEVELS] or ["none"], key=LEVELS.index)
+    if LEVELS.index(u) > LEVELS.index(rep.get("lvl") or "none"):
+        rep["ulvl"], rep["unv"] = u, "gnss"
+    else:
+        rep.pop("ulvl", None)
+        rep.pop("unv", None)
+    return rep
 
 
 def band_level(a_kt: float | None, scale: float = 1.0) -> str:
@@ -474,6 +582,18 @@ def vec_refs(history: list, ts: float) -> list:
         bv = e.get("bv")
         if bv is None:
             bv = vec_bands(e.get("prof"), 1)
+        # no reference from a band with a degraded GNSS (REPORT_V 9): "gbad" (bands),
+        # or the landing's GNSS record "gnss" (approach history in RAM)
+        bad = e.get("gbad")
+        if bad is None:
+            sh = e.get("shear") or {}
+            if (sh.get("v") or 0) >= 9:          # the gate's bands, stored with the report
+                bad = sh.get("gq") or []
+            elif e.get("gnss"):                  # older report: every low-NACp band
+                bad = gnss_bad_bands((e.get("gnss") or {}).get("bands"))
+        if bv and bad:
+            bad = set(bad)
+            bv = {b: x for b, x in bv.items() if b not in bad}
         if bv:
             r = Ref(bv)
             r.ph = e.get("ph") or "arr"
@@ -615,6 +735,14 @@ def ramp_rel_level(c: dict | None, loss: bool, ref_hw: dict | None) -> str:
     to the reference profile (see RAMP_ADV_ABS).  Adds to c "exp" (the change
     the reference flights had from a1 to a2, kt) and "rel" (the ramp beyond
     it, 1-km equivalent kt) when they could be computed."""
+    lv = _ramp_rel_level(c, loss, ref_hw)
+    if c and c.get("unv"):                    # GNSS gate (REPORT_V 9): no level of its own
+        c["ulvl"] = lv
+        return "none"
+    return lv
+
+
+def _ramp_rel_level(c: dict | None, loss: bool, ref_hw: dict | None) -> str:
     if not c or c.get("sc") is None:
         return "none"
     lv = level_of(c["sc"], loss, c.get("dv"))
@@ -677,7 +805,7 @@ def alert_ramp(rep: dict | None):
     best = (None, None)
     for k in ("loss", "gain"):
         c = (rep or {}).get(k)
-        if c and c.get("zone") and (c.get("sc") or 0) >= LEVEL_ADVISORY:
+        if c and c.get("zone") and not c.get("unv") and (c.get("sc") or 0) >= LEVEL_ADVISORY:
             if best[1] is None or c["sc"] > best[1]["sc"]:
                 best = (k, c)
     return best
@@ -693,7 +821,8 @@ def confirm_count(kind: str, c: dict, others: list) -> int:
     for o in others:
         oc = (o or {}).get(kind)
         om = _ramp_mid(oc)
-        if om is not None and (oc.get("sc") or 0) >= CONFIRM_MIN_SC and abs(om - m) <= CONFIRM_ALT_FT:
+        if (om is not None and not oc.get("unv") and (oc.get("sc") or 0) >= CONFIRM_MIN_SC
+                and abs(om - m) <= CONFIRM_ALT_FT):
             n += 1
     return n
 
@@ -740,7 +869,7 @@ def report(rep: dict | None, band: dict | None, refs: list | None = None,
     lv = [out.get("lvl") or "none", (band or {}).get("lvl") or "none"]
     out["lvl"] = max(lv, key=LEVELS.index)
     out["v"] = REPORT_V
-    return out
+    return mark_unverified(out)
 
 
 def ramp_level(rep: dict | None) -> str:
@@ -749,7 +878,7 @@ def ramp_level(rep: dict | None) -> str:
     lv = "none"
     for k, loss in (("loss", True), ("gain", False)):
         c = (rep or {}).get(k)
-        if c and c.get("zone"):
+        if c and c.get("zone") and not c.get("unv"):
             lv = max(lv, level_of(c.get("sc"), loss, c.get("dv")), key=LEVELS.index)
     return lv
 
@@ -1026,12 +1155,18 @@ def v8_report(a: dict | None, band: dict | None, refs: list | None, heading) -> 
 
 
 def report8(a8: dict | None, a7: dict | None, band: dict | None, refs: list | None = None,
-            heading=None) -> dict | None:
+            heading=None, bad=None) -> dict | None:
     """The windshear report of a landing from 31 Oct 2026 (REPORT_V 8): the
     ramps of detection v8 (analyze_v8) when the flight has ADS-B ground speed,
     else of v7 (analyze) — "src" "v8" / "v7" — with the band comparison and the
     level as report(); the v8 info (n50, n60, dT, dTsrc, off) at the top level;
-    v7 beside it as "v7" (shadow_report) when both could be computed."""
+    v7 beside it as "v7" (shadow_report) when both could be computed.
+    bad: the bands with a degraded GNSS (gnss_bad_bands) — the GNSS gate on the
+    ramps and the band comparison (REPORT_V 9)."""
+    if bad:
+        gate_ramps(a8, bad)
+        gate_ramps(a7, bad)
+        gate_band(band, bad)
     main = a8 if a8 is not None else a7
     out = report(main, band, refs, heading)
     if out is None:
@@ -1042,4 +1177,6 @@ def report8(a8: dict | None, a7: dict | None, band: dict | None, refs: list | No
     out["src"] = "v8" if a8 is not None else "v7"
     if a8 is not None and a7 is not None:
         out["v7"] = shadow_report(a7, band, refs, heading, 7)
+    if bad:
+        out["gq"] = list(bad)
     return out

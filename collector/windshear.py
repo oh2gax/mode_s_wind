@@ -482,6 +482,9 @@ class WindshearTracker:
         self._ws_log:    list[dict]      = []
         self._cf_last:   float           = 0.0   # last confirm_pending() run
         self._ws_seen_n: dict[str, int]  = {}
+        # GNSS gate (from 2026-11-04): events not raised because the flight's
+        # GNSS was degraded at their heights — key → time logged (one log line each)
+        self._ws_unv:    dict[str, float] = {}
         # departures in the band comparison: their hit counts and the band
         # winds of the climb-outs of the last 45 min ({"ts", "prof"} records,
         # the prof_json format, like approach_history)
@@ -1261,6 +1264,8 @@ class WindshearTracker:
                 del self._ws_active[key]
             while self._ws_log and now - self._ws_log[-1]["ts"] > WS_LOG_MAX_AGE:
                 self._ws_log.pop()
+            for key in [key for key, t in self._ws_unv.items() if now - t > WS_LOG_MAX_AGE]:
+                del self._ws_unv[key]
             for k in [k for k in self._ws_seen_n if k not in self._state]:
                 self._ws_seen_n.pop(k, None)
                 for key in [key for key in self._ws_hits if key.startswith(k + ":")]:
@@ -1341,7 +1346,7 @@ class WindshearTracker:
             "prof":          self._prof_record(rough),
         }
         # Windshear report of the landing (from 2026-10-24, collector/shear.py)
-        record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts)
+        record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts, record["gnss"])
         if record["shear"]:
             # confirmation of a ramp alert by the earlier landings (final after the following ones)
             cf = _shear.confirmation(record["shear"], self._neighbours(ts, rwy, before=True))
@@ -1880,7 +1885,11 @@ class WindshearTracker:
             if a is None:
                 a = _shear.analyze(raw5, r.get("sw") or [], self._thr_ft(runway))
             found = []
+            # GNSS gate (REPORT_V 9): no alert from heights where the flight's GNSS was degraded
+            bad = _shear.gnss_bad_bands((self._band_gnss.get(icao) or {}).get("bands"),
+                                        _shear.vel_bands(r.get("raw19")))
             if a:
+                _shear.gate_ramps(a, bad)
                 refs = self._band_refs(now)
                 hdg = rw["heading"] if rw else None
                 # ramp advisories relative to the other flights' profile (REPORT_V 4)
@@ -1891,14 +1900,37 @@ class WindshearTracker:
                         lv = _shear.ramp_rel_level(c, d == "loss", ref_hw)
                         if lv != "none":
                             found.append(("ramp", d, lv, c))
-                ba = _shear.band_anomaly(_shear.vec_bands(self._prof_record(r), _shear.VEC_MIN_N_ARR),
-                                         refs, hdg, phase="arr")
+                        elif c.get("unv"):
+                            self._log_unverified(icao, callsign, runway, "ramp", d, c, "arr", now)
+                ba = _shear.gate_band(
+                    _shear.band_anomaly(_shear.vec_bands(self._prof_record(r), _shear.VEC_MIN_N_ARR),
+                                        refs, hdg, phase="arr"), bad)
+                if ba and ba.get("unv"):
+                    self._log_unverified(icao, callsign, runway, "band", "loss" if ba["a"] < 0 else "gain",
+                                         ba, "arr", now)
                 if ba and ba["lvl"] != "none":
                     found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear analysis failed for %s: %s", icao, exc)
             return
         self._apply_events(icao, callsign, ac_type, runway, found, a, now)
+
+    def _log_unverified(self, icao: str, callsign: str, runway: str | None, kind: str,
+                        d: str, c: dict, phase: str, now: float) -> None:
+        """One app-log line for an event the GNSS gate kept from becoming an
+        alert (lock held): the flight's GNSS was degraded at its heights."""
+        lv = c.get("ulvl") or "none"
+        if lv == "none":
+            return
+        key = f"{icao}:{phase}:{kind}:{d}:{lv}"
+        if key in self._ws_unv:
+            return
+        self._ws_unv[key] = now
+        where = (f"{c.get('b')} ft" if kind == "band"
+                 else f"{c.get('a1')}→{c.get('a2')} ft")
+        log.info("Windshear: %s %s %s %s %s at %s not raised — GNSS degraded (unverified)",
+                 callsign or icao, runway or "?", "departure" if phase == "dep" else "arrival",
+                 lv.upper(), f"{kind} {d}", where)
 
     def _apply_events(self, icao: str, callsign: str, ac_type: str | None,
                       runway: str | None, found: list, a: dict | None, now: float,
@@ -1988,6 +2020,9 @@ class WindshearTracker:
             st["ws_rwy"] = self._dep_runway(st.get("lat"), st.get("lon"), st.get("track"))
         rwy, hdg = st["ws_rwy"]
         prof = prof_summary(st.get("prof") or {})
+        # GNSS gate (REPORT_V 9): the climb's bands with a degraded GNSS (collector/departures.py):
+        # the position frozen, or a low NACp without ADS-B velocity in the band
+        bad = sorted(set(st.get("gq_f") or ()) | (set(st.get("gq_n") or ()) - _shear.vel_bands(st.get("raw19"))))
         with self._lock:
             if self._dep_refs and now - self._dep_refs[0]["ts"] > _shear.BAND_WINDOW_SEC:
                 self._dep_refs = [e for e in self._dep_refs
@@ -1996,11 +2031,15 @@ class WindshearTracker:
             self._ws_dep_an_ts[icao] = now
             ba = None
             if hdg is not None and prof:
-                ba = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
-                                         self._band_refs(now), hdg, phase="dep",
-                                         aircraft_type=st.get("aircraft_type"))
+                ba = _shear.gate_band(
+                    _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
+                                        self._band_refs(now), hdg, phase="dep",
+                                        aircraft_type=st.get("aircraft_type")), bad)
             if not final:
                 found = []
+                if ba and ba.get("unv"):
+                    self._log_unverified(icao, st.get("callsign") or icao, rwy, "band",
+                                         "loss" if ba["a"] < 0 else "gain", ba, "dep", now)
                 if ba and ba["lvl"] != "none":
                     found.append(("band", "loss" if ba["a"] < 0 else "gain", ba["lvl"], ba))
                 self._apply_events(icao, st.get("callsign") or icao, st.get("aircraft_type"),
@@ -2009,22 +2048,25 @@ class WindshearTracker:
             for key in [k for k in self._ws_dep_hits if k.startswith(f"{icao}:dep:")]:
                 del self._ws_dep_hits[key]
             if prof:                         # every climb-out is a reference (also off the runway axes)
-                self._dep_refs.append({"ts": now, "prof": prof, "ph": "dep",
+                self._dep_refs.append({"ts": now, "prof": prof, "ph": "dep", "gbad": bad,
                                        "hdg": hdg if hdg is not None else st.get("track")})
             self._ws_dep_an_ts.pop(icao, None)
             rep = {"rwy": rwy, "hdg": hdg, "band": ba,
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
-            trial = self._dep_trial_ramps(st, rwy, hdg, now)
+            if bad:
+                rep["gq"] = bad
+            _shear.mark_unverified(rep)
+            trial = self._dep_trial_ramps(st, rwy, hdg, now, bad)
             if trial:
                 rep["trial"] = trial
             # detection v8 shadow of the climb's ramps (from 2026-10-30; trial, no alert)
-            t8 = self._v8_result(st, rwy, None, self._band_refs(now), hdg, now)
+            t8 = self._v8_result(st, rwy, None, self._band_refs(now), hdg, now, bad)
             if t8:
                 rep["trial8"] = t8
             self._day_add("dep", rep, st.get("callsign") or icao, now)
         return rep
 
-    def _dep_trial_ramps(self, st: dict, rwy, hdg, now: float) -> dict | None:
+    def _dep_trial_ramps(self, st: dict, rwy, hdg, now: float, bad=None) -> dict | None:
         """Headwind ramps along a climb-out (from 2026-10-27, TRIAL — stored in
         the departure report as "trial", no alert): the analysis of the landings
         (collector/shear.analyze) on the climb's BDS 5,0 replies, the zone being
@@ -2040,12 +2082,13 @@ class WindshearTracker:
             return None
         if not a:
             return None
+        _shear.gate_ramps(a, bad)
         out = {k: a.get(k) for k in ("n", "drop", "noise", "len", "a", "d", "fh", "fh_a")}
         for k in ("loss", "gain"):
             if a.get(k):
                 out[k] = {kk: vv for kk, vv in a[k].items() if kk != "t2"}
         out["lvl"] = _shear.ramps_level(out, self._band_refs(now), hdg)
-        return out
+        return _shear.mark_unverified(out)
 
     # ── ILS-profile wind barbs (server side from 2026-10-24) ──────────────────
 
@@ -2240,11 +2283,12 @@ class WindshearTracker:
         return done
 
     def _shear_report(self, rough: dict | None, runway: str | None,
-                      heading, ts: float) -> dict | None:
+                      heading, ts: float, gnss: dict | None = None) -> dict | None:
         """The windshear report of a landing (approach_history.shear_json):
         from 31 Oct 2026 (REPORT_V 8) the ramps of detection v8, with v7 beside
         them as "v7" (collector/shear.py report8); v7 alone for a flight without
-        ADS-B ground speed.  (30–31 Oct 2026: v7, with v8 in shadow as "v8".)"""
+        ADS-B ground speed.  (30–31 Oct 2026: v7, with v8 in shadow as "v8".)
+        gnss: the landing's GNSS record (_gnss_record) for the GNSS gate (REPORT_V 9)."""
         try:
             r = rough or {}
             a7 = _shear.analyze(r.get("raw5") or [], r.get("sw") or [], self._thr_ft(runway))
@@ -2252,7 +2296,9 @@ class WindshearTracker:
             refs = self._band_refs(ts)
             band = _shear.band_anomaly(_shear.vec_bands(self._prof_record(rough), _shear.VEC_MIN_N_ARR),
                                        refs, heading, phase="arr")
-            return _shear.report8(a8, a7, band, refs, heading)
+            return _shear.report8(a8, a7, band, refs, heading,
+                                  _shear.gnss_bad_bands((gnss or {}).get("bands"),
+                                                        _shear.vel_bands(r.get("raw19"))))
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)
             return None
@@ -2280,10 +2326,11 @@ class WindshearTracker:
                 del self._v8_dts[:-200]
         return a8
 
-    def _v8_result(self, r: dict, runway, band, refs, heading, ts: float) -> dict | None:
+    def _v8_result(self, r: dict, runway, band, refs, heading, ts: float, bad=None) -> dict | None:
         """The v8 trial ramps of a climb-out ("trial8", from 2026-10-30; no
         alert — the departures' ramps stay a trial)."""
         a8 = self._v8_analysis(r, runway, ts)
+        _shear.gate_ramps(a8, bad)
         return _shear.v8_report(a8, band, refs, heading) if a8 is not None else None
 
     def attach_shear(self, reports: dict) -> int:

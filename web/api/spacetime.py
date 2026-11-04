@@ -64,7 +64,7 @@ def build(db, hours: int, now: float | None = None) -> dict:
             return c["data"]
 
     land = db.execute(
-        """SELECT ts, callsign, icao, aircraft_type, runway, rwy_heading, prof_json, shear_json
+        """SELECT ts, callsign, icao, aircraft_type, runway, rwy_heading, prof_json, shear_json, gnss_json
            FROM approach_history WHERE ts >= ? AND ts <= ? ORDER BY ts""", (t_from, now)).fetchall()
     try:
         dep = db.execute(
@@ -104,11 +104,20 @@ def build(db, hours: int, now: float | None = None) -> dict:
             if b:
                 flights.append({"ts": round(ts), "ph": ph, "cs": r[1] or r[2], "type": r[3],
                                 "rwy": rwy, "hdg": round(hdg), "lvl": (rep or {}).get("lvl") or "none",
+                                "unv": (rep or {}).get("ulvl"),
                                 "thr": ((rep or {}).get("band") or {}).get("thr"), "b": b})
         bv = _shear.vec_bands(prof, 1)
         if bv:
+            # no reference from bands with a degraded GNSS (the GNSS gate, from 4 Nov 2026)
+            try:
+                if (rep or {}).get("v", 0) >= 9 or kind == 1:       # the gate's bands, in the report
+                    bad = (rep or {}).get("gq") or []
+                else:
+                    bad = _shear.gnss_bad_bands(((json.loads(r[8]) if r[8] else None) or {}).get("bands"))
+            except (ValueError, AttributeError, TypeError):
+                bad = []
             hist.append({"ts": ts, "bv": bv, "ph": "arr" if kind == 0 else "dep",
-                         "hdg": r[5] if kind == 0 else r[4]})
+                         "hdg": r[5] if kind == 0 else r[4], "gbad": bad})
     data = {"t0": round(t0), "t1": round(now), "hours": hours,
             "bands": list(range(_shear.VEC_MIN_FT, int(_shear.BAND_MAX_FT) + 1, 200)),
             "limits": [_shear.BAND_ADVISORY, _shear.BAND_WSA], "flights": flights}

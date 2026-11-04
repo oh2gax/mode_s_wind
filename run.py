@@ -722,9 +722,11 @@ def _preload_dep_refs(ws_tracker) -> None:
     from database.db import get_db
     try:
         rows = get_db().execute(
-            "SELECT ts, prof_json, track FROM departure_profiles "
+            "SELECT ts, prof_json, track, json_extract(shear_json, '$.gq') FROM departure_profiles "
             "WHERE ts >= ? AND ga = 0 AND prof_json IS NOT NULL", (time.time() - 2700,)).fetchall()
-        ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1]), "ph": "dep", "hdg": r[2]}
+        # "gbad": the climb's bands with a degraded GNSS (GNSS gate, from 4 Nov 2026)
+        ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1]), "ph": "dep", "hdg": r[2],
+                                      "gbad": json.loads(r[3]) if r[3] else None}
                                      for r in rows])
     except Exception as exc:                              # noqa: BLE001
         log.debug("Departure windshear references not loaded: %s", exc)
@@ -986,7 +988,7 @@ def _shear_backfill(ws_tracker) -> None:
             return
         t_from = first - _shear.BAND_WINDOW_SEC
         land = db.execute(
-            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.prof_json, h.shear_json, s.data
+            """SELECT h.id, h.ts, h.icao, h.runway, h.rwy_heading, h.prof_json, h.shear_json, h.gnss_json, s.data
                FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
                WHERE h.ts >= ? ORDER BY h.ts""", (t_from,)).fetchall()
         dep = db.execute(
@@ -1015,15 +1017,35 @@ def _shear_backfill(ws_tracker) -> None:
                 prof = json.loads(row["prof_json"]) if row["prof_json"] else None
             except ValueError:
                 prof = None
+            # GNSS gate (REPORT_V 9): the bands where the flight's GNSS was degraded —
+            # a landing's gnss_json (with the ADS-B velocity of its series, or of
+            # a v8 report: it had some), a climb-out's "gq" in its report (from 4 Nov 2026)
+            try:
+                if kind == 0:
+                    gb = ((json.loads(row["gnss_json"]) if row["gnss_json"] else None) or {}).get("bands")
+                    sj = (json.loads(row["shear_json"]) if row["shear_json"] else None) or {}
+                    d = WindshearTracker.decode_series(row["data"]) if row["data"] else None
+                    if d and (d.get("v19") or {}).get("t"):
+                        vel = _shear.vel_bands(_rows(d, "v19", ("t", "gs", "trk", "vr", "alt")))
+                    elif sj.get("src") == "v8":
+                        vel = set(range(0, 5001, 200))
+                    else:
+                        vel = None
+                    bad = _shear.gnss_bad_bands(gb, vel)
+                else:
+                    d = None
+                    bad = _shear.gnss_bad_bands(
+                        ((json.loads(row["shear_json"]) if row["shear_json"] else None) or {}).get("gq"))
+            except (ValueError, AttributeError, TypeError):
+                d, bad = None, []
             if ts >= first and is_old(row["shear_json"]):
                 refs = _shear.vec_refs(hist, ts)
                 try:
                     if kind == 0:
                         rep_old = json.loads(row["shear_json"]) if row["shear_json"] else None
-                        band = _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_ARR),
-                                                   refs, row["rwy_heading"], phase="arr")
+                        band = _shear.gate_band(_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_ARR),
+                                                                    refs, row["rwy_heading"], phase="arr"), bad)
                         rep = None
-                        d = WindshearTracker.decode_series(row["data"]) if row["data"] else None
                         if d and (d.get("v19") or {}).get("t"):
                             # 8 (from 31 Oct 2026): the ramps of detection v8 from the raw
                             # series, v7 beside them (shear.report8); the confirmation of
@@ -1039,14 +1061,22 @@ def _shear_backfill(ws_tracker) -> None:
                                 if info.get("dTsrc") == "own" and info.get("dT") is not None:
                                     dts.append((ts, info["dT"]))
                             rep = _shear.report8(a8, _shear.analyze(b50, sw, thr), band, refs,
-                                                 row["rwy_heading"])
+                                                 row["rwy_heading"], bad)
                         elif rep_old is not None:
-                            rep = {k: v for k, v in rep_old.items() if k != "band"}
+                            rep = {k: v for k, v in rep_old.items() if k not in ("band", "ulvl", "unv")}
+                            for k in ("loss", "gain"):
+                                if rep.get(k):
+                                    rep[k] = {kk: vv for kk, vv in rep[k].items() if kk not in ("unv", "ulvl")}
+                            _shear.gate_ramps(rep, bad)
                             if band:
                                 rep["band"] = band
                             rep["lvl"] = max(_shear.ramps_level(rep, refs, row["rwy_heading"]),
                                              (band or {}).get("lvl") or "none", key=_shear.LEVELS.index)
                             rep["v"] = V
+                            _shear.mark_unverified(rep)
+                            rep.pop("gq", None)
+                            if bad:
+                                rep["gq"] = bad
                             if V >= 8 and rep.get("src") is None:
                                 # a v7 report kept as it is (no ADS-B ground speed stored);
                                 # 30–31 Oct 2026 the shadow "v8" went with it, now "v7" is shadow
@@ -1056,7 +1086,7 @@ def _shear_backfill(ws_tracker) -> None:
                             b50 = _rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt"))
                             sw = _rows(d, "sw", ("t", "alt", "palt", "dthr", "xt"))
                             rep = _shear.report8(None, _shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])),
-                                                 band, refs, row["rwy_heading"])
+                                                 band, refs, row["rwy_heading"], bad)
                         if rep is not None:
                             if rep_old and rep_old.get("cf") and rep.get("src") != "v8":
                                 rep["cf"] = rep_old["cf"]       # same ramps: the confirmation stays
@@ -1064,19 +1094,23 @@ def _shear_backfill(ws_tracker) -> None:
                             done[(int(ts), row["icao"])] = rep
                     else:
                         rwy, hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])
-                        band = (_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg,
-                                                    phase="dep", aircraft_type=row["aircraft_type"])
+                        band = (_shear.gate_band(_shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP), refs, hdg,
+                                                                     phase="dep", aircraft_type=row["aircraft_type"]), bad)
                                 if hdg is not None and prof else None)
                         rep = {"rwy": rwy, "hdg": hdg, "band": band,
                                "lvl": (band or {}).get("lvl") or "none", "v": V}
+                        if bad:
+                            rep["gq"] = bad
+                        _shear.mark_unverified(rep)
                         try:            # keep the trial ramps of the climb (from 27 Oct 2026)
                             tr = (json.loads(row["shear_json"]) or {}).get("trial") if row["shear_json"] else None
                         except ValueError:
                             tr = None
                         if tr:
                             tr = dict(tr)               # re-levelled with the current rules (v7)
+                            _shear.gate_ramps(tr, bad)
                             tr["lvl"] = _shear.ramps_level(tr, refs, hdg)
-                            rep["trial"] = tr
+                            rep["trial"] = _shear.mark_unverified(tr)
                         try:            # keep the v8 shadow result of the climb (from 30 Oct 2026)
                             t8 = (json.loads(row["shear_json"]) or {}).get("trial8") if row["shear_json"] else None
                         except ValueError:
@@ -1090,9 +1124,9 @@ def _shear_backfill(ws_tracker) -> None:
             bv = _shear.vec_bands(prof, 1)
             if bv:
                 if kind == 0:
-                    hist.append({"ts": ts, "bv": bv, "ph": "arr", "hdg": row["rwy_heading"]})
+                    hist.append({"ts": ts, "bv": bv, "ph": "arr", "hdg": row["rwy_heading"], "gbad": bad})
                 else:
-                    hist.append({"ts": ts, "bv": bv, "ph": "dep", "hdg": row["track"]})
+                    hist.append({"ts": ts, "bv": bv, "ph": "dep", "hdg": row["track"], "gbad": bad})
             if len(b_land) >= 200:
                 db.executemany("UPDATE approach_history SET shear_json = ? WHERE id = ?", b_land)
                 db.commit()

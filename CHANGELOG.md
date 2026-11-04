@@ -7,6 +7,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.04112026 — 2026-11-04 (windshear: no alert from an aircraft whose GNSS is jammed)
+
+### Windshear: the GNSS gate (report version 9)
+- A band comparison or a headwind ramp at heights where the flight's GNSS was degraded — the position frozen, or NACp ≤ 6 while the flight sent no ADS-B velocity — is **unverified**: its values and the level it would have had are kept (`ulvl`, `unv`), but it raises no alert, confirms no other ramp and is no reference for the next flights. It stopped the false WSA of an ATR 72 with NACp 0 on 04L on 3 Nov 2026 21:07 UTC (its ground speed 76–96 kt at 114–128 kt TAS) and one on 18 Oct; the frontal passage of 4 Nov 10:25–10:41 UTC keeps its alerts. Landings and departures, live and stored; a log line for each event kept from an alert. `collector/shear.py` (`gnss_bad_bands`, `vel_bands`, `gate_band`, `gate_ramps`, `mark_unverified`, `REPORT_V` 9), `collector/windshear.py`, `collector/departures.py` (`_gnss`), `run.py` (back-fill, departure references), `web/api/spacetime.py` (references).
+- The Approach History *WS* view shows such a report as a dashed grey `WSA?` / `ADV?` with the reason in the hover; the phone's History the same chip and a line in the details. `static/js/windshear.js`, `static/css/style.css`, `static/js/app.js`, `static/css/app.css`.
+- At the first start the stored reports are recomputed once to version 9 (about 13 s for 5 449 landings and 5 317 departures).
+- Windshear user guide 2.42 (31 pp): the GNSS gate, with a figure from the stored data. `doc/Windshear_User_Guide.pdf`, `doc/guides.md`.
+
+---
+
 ## v.03112026 — 2026-11-03 (the EFHK close-up moves anywhere over the Live Map, without + / −; a crosshair over the Live Map; landings and departures together in the phone's History; temperature numbers on their own — the phone's Weather view and the Weather page; the GPS pages for Full view only, and a GNSS view on the phone for them; see-through map buttons; the phone's GNSS view with 1 m / 3 m and the FL band heatmap; the wind speed in colours on the Weather page; a smoother weather slider and ±1 h on the Weather page and the phone; any day in the Windshear chart window, which now keeps one size in every view; the weather colours at half resolution while the slider is dragged, and the weather hours kept in the server's memory; local aircraft-list and Beast feeds for other programs on the same machine; the departures in the phone's ILS approach history; denser temperature numbers; the weather slider follows the clock)
 
 ### Live Map: the EFHK close-up moves; a crosshair over the map

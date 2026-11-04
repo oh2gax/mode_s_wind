@@ -4273,7 +4273,7 @@ function formatWsCells(e) {
   const lvHtml = lv
     ? `<span class="ws-cond-badge" style="background:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</span>` +
       (w.cf ? `<span class="ws-aphist-nil">${wsCfTag(w.cf)}</span>` : '')
-    : '<span class="ws-aphist-nil">—</span>';
+    : wsUnvBadge(w) || '<span class="ws-aphist-nil">—</span>';
   const b = w.band;
   const bHtml = b ? `${b.a > 0 ? '+' : ''}${Math.round(b.a)}<span class="ws-aphist-nil"> @${b.b}</span>` : '<span class="ws-aphist-nil">—</span>';
   return `<td class="ws-aphist-cell">${lvHtml}${lv ? blAtTag(e.ts) : ''}</td>` +
@@ -4294,7 +4294,7 @@ function formatDepWsCells(e) {
   const t = w.trial || null;
   const tl = t && t.lvl && t.lvl !== 'none' ? t.lvl : null;
   const lvHtml = (lv ? `<span class="ws-cond-badge" style="background:${WS_LV_COLOR[lv]}">${WS_LEVEL[lv].short}</span>`
-                     : '<span class="ws-aphist-nil">—</span>') +
+                     : wsUnvBadge(w) || '<span class="ws-aphist-nil">—</span>') +
                  (tl ? ` <span class="ws-aphist-trial" style="color:${WS_LV_COLOR[tl]}">(${WS_LEVEL[tl].short} trial)</span>` : '');
   const ramp = (r, loss) => !r ? _wsCell('<span class="ws-aphist-nil">—</span>')
     : `<td class="ws-aphist-cell ws-aphist-trial"${r.zone && _wsLvOfSc(r.sc, loss, r.dv) ? ` style="color:${WS_LV_COLOR[_wsLvOfSc(r.sc, loss, r.dv)]}"` : ''}>` +
@@ -4328,6 +4328,22 @@ function _wsV8Lines(v, ind = '') {
   ];
 }
 
+/** GNSS gate (from 2026-11-04): a report whose band comparison or ramps were
+ *  kept from an alert because the flight's GNSS was degraded at those heights
+ *  ("unv": "gnss", the level it would have had "ulvl") — a dashed grey badge
+ *  "WSA?" and a tooltip line. */
+const WS_UNV_TXT = 'GNSS degraded at these heights (NACp ≤ 6 without ADS-B velocity, or a frozen position) — the ground speed, and so the wind, cannot be trusted';
+function wsUnvBadge(w) {
+  if (!w || !w.unv || !w.ulvl || !WS_LEVEL[w.ulvl]) return '';
+  return `<span class="ws-cond-badge ws-unv" title="Unverified ${WS_LEVEL[w.ulvl].short} — not raised: ${WS_UNV_TXT}">${WS_LEVEL[w.ulvl].short}?</span>`;
+}
+function wsUnvLine(w) {
+  return w && w.unv && w.ulvl && WS_LEVEL[w.ulvl]
+    ? `Unverified ${WS_LEVEL[w.ulvl].short} (not raised): ${WS_UNV_TXT}` +
+      (w.gq && w.gq.length ? ` · degraded bands ${w.gq[0]}–${w.gq[w.gq.length - 1]} ft` : '')
+    : '';
+}
+
 /** Multi-line tooltip for one departure's windshear report. */
 function _wsDepTitle(e) {
   const w = e.shear;
@@ -4341,6 +4357,7 @@ function _wsDepTitle(e) {
   const b = w.band;
   return [
     `Departure windshear report — ${w.lvl && w.lvl !== 'none' ? WS_LEVEL[w.lvl].name : 'no alert'} (band comparison)`,
+    wsUnvLine(w),
     b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${wsRefWho(b.ph, true, b.n)})` +
         (b.thr ? `\nTurboprop climb-out: limits ${b.thr} / ${+(b.thr * 1.5).toFixed(1)} kt` : '')
       : 'Band change: no reference flights',
@@ -4365,6 +4382,7 @@ function _wsTitle(w) {
   const b = w.band;
   return [
     `Windshear report — ${w.lvl && w.lvl !== 'none' ? WS_LEVEL[w.lvl].name : 'no alert'}`,
+    wsUnvLine(w),
     ramp(w.loss, 'Strongest loss'),
     ramp(w.gain, 'Strongest gain'),
     w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}${w.fh_a != null ? ` (at ${w.fh_a} ft)` : ''}` : '',

@@ -762,6 +762,7 @@
     if (c != null) out.push(`<span class="ch" style="color:${aciCol(c)}">ACI ${c.toFixed(1)}</span>`);
     const lv = w && w.lvl && w.lvl !== 'none' ? w.lvl : null;
     if (lv) out.push(`<span class="ch lv" style="background:${WS_COL[lv]}">${LV_TXT[lv]}</span>`);
+    else if (w && w.unv && LV_TXT[w.ulvl]) out.push(`<span class="ch unv" title="Unverified – GNSS degraded">${LV_TXT[w.ulvl]}?</span>`);
     const tl = dep && w && w.trial && w.trial.lvl && w.trial.lvl !== 'none' ? w.trial.lvl : null;
     if (tl) out.push(`<span class="ch trial" style="color:${WS_COL[tl]}">${LV_TXT[tl]} trial</span>`);
     if (e.edr && e.edr.m != null) out.push(`<span class="ch edr" style="color:${edrCol(e.edr.m)}">EDR ${f2(e.edr.m)}</span>`);
@@ -823,6 +824,8 @@
     if (w) {
       const b = w.band;
       txt.push('', `Windshear — ${w.lvl && w.lvl !== 'none' ? LV_NAME[w.lvl] : 'no alert'}${dep ? ' (band comparison)' : ''}`);
+      if (w.unv && LV_TXT[w.ulvl])
+        txt.push(`Unverified ${LV_TXT[w.ulvl]} (not raised): GNSS degraded at these heights — the ground speed, and so the wind, cannot be trusted`);
       if (!dep) txt.push(`Strongest loss: ${rampTxt(w.loss)}`, `Strongest gain: ${rampTxt(w.gain)}`,
                          w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}` : '');
       txt.push(b ? `Band ${b.b} ft: ${sgn(b.a)} kt against ${b.ref} kt in the last 45 min (${refWho(b, dep)})` : 'Band change: no reference flights');
