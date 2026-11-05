@@ -30,7 +30,7 @@
  *    (AtcDisplay.drawLabels, 10 px): Standard callsign / FL, or ATC three
  *    lines.  Map style ATC: no street map but the ATC background with the
  *    coastline, the airport, the finals and the borders, monochrome symbols.
- *  - Rain source (from 2026-10-30): MEPS model, FMI radar or Both, as the Live
+ *  - Rain source (from 2026-10-30): Model (MEPS or GFS), FMI radar or Both, as the Live
  *    Map's ☂ panel.  The radar is the newest FMI composite (/api/radar/latest,
  *    rain rate every 5 min, about 2 km, Finland and the nearby seas), read
  *    every 4 min while the view is shown with a radar source, and drawn only
