@@ -431,7 +431,9 @@ def _shear_startup(ws_tracker) -> None:
     _hp_backfill(ws_tracker)
 
 
-HP_BACKFILL_KEY = "ws_hp_backfill"     # maintenance_config: the one-time back-fill below is done
+# maintenance_config: the one-time back-fill below is done.  "_2" from 5 Nov 2026: run once
+# more — the report version 9 back-fill of 4 Nov 2026 dropped "hp" from the stored departures
+HP_BACKFILL_KEY = "ws_hp_backfill_2"
 
 
 def _hp_backfill(ws_tracker=None) -> None:
@@ -1099,6 +1101,12 @@ def _shear_backfill(ws_tracker) -> None:
                                 if hdg is not None and prof else None)
                         rep = {"rwy": rwy, "hdg": hdg, "band": band,
                                "lvl": (band or {}).get("lvl") or "none", "v": V}
+                        try:            # keep the climb's fine headwind profile (from 31 Oct 2026; not recomputed here)
+                            hp_old = (json.loads(row["shear_json"]) or {}).get("hp") if row["shear_json"] else None
+                        except ValueError:
+                            hp_old = None
+                        if hp_old:
+                            rep["hp"] = hp_old
                         if bad:
                             rep["gq"] = bad
                         _shear.mark_unverified(rep)

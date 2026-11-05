@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.05112026 — The departures back in the flight-by-flight boundary layer
+
+- **Departures back in the flight-by-flight fields** — after yesterday's update the boundary layer's flight-by-flight headwind fields (and the departures' headwind profile in the Approach History) showed only the newest departures; the older ones are filled in again after this update.
+
 ## v.04112026 — No windshear alerts from aircraft with jammed GPS, the mast study updated, how MODE-S Wind is developed
 
 - **No false alerts from jammed GPS** — an aircraft whose GPS is jammed may report a wrong ground speed, and so a wrong wind. When that happens where a windshear advisory or alert would come from, it is not raised: the Approach History and the phone's History show it as a dashed grey *WSA?* or *ADV?* (unverified), with the reason when you hover or open it. Aircraft that keep a good speed from their inertial systems are not affected.

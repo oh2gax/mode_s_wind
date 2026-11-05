@@ -7,6 +7,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns)
+
+### Fix: the departures' fine headwind profiles
+- The windshear report back-fill of 4 Nov 2026 (report version 9) rebuilt every stored departure's report without its fine headwind profile (`hp`, 100-ft bins up to 5 000 ft), so the *flight by flight* fields (headwind, its change and the shear — Windshear page BL view, Sounding page time–height section) and the departures' profile chart in the Approach History showed only the climb-outs made after the deploy. The back-fill now keeps `hp`, and the one-time profile back-fill runs once more to fill it in again (marker `ws_hp_backfill_2`; about 1 600 departures, a few seconds). `run.py`.
+
+---
+
 ## v.04112026 — 2026-11-04 (windshear: no alert from an aircraft whose GNSS is jammed; the mast study log updated; the D-D-D method note)
 
 ### Windshear: the GNSS gate (report version 9)
