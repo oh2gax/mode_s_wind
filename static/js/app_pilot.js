@@ -35,13 +35,19 @@
   const num = v => (v == null ? '—' : String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '));
 
   const CLS = { T: 'Turboprop', R: 'Regional jet', N: 'Narrowbody', W: 'Widebody' };
-  const TABS = { now: 'Now', app: 'Approach', ice: 'Icing', fl: 'My flight' };
+  const TABS = { now: 'Now', app: 'Approach', dep: 'Departure', alo: 'Aloft', ice: 'Icing', turb: 'Turbulence',
+                 gnss: 'GNSS', fl: 'My flight', map: 'Map' };
+  const SUB = { now: m => `EFHK now · last ${m} min`, app: () => 'final approach by runway', dep: () => 'climb-out by runway',
+                alo: () => 'winds and temperatures aloft', ice: () => 'freezing levels · warm layers',
+                turb: m => `EDR · last ${m} min`, gnss: () => 'GNSS interference · counts', fl: () => 'debrief',
+                map: () => 'weather map presets' };
   const LV = { adv: 'ADV', wsa: 'WSA', mba: 'MBA' };
   const S = {
     tab: lsGet('ms_app_pilot_tab', 'now'),
     cls: lsGet('ms_app_pilot_class', 'T'),
     min: parseInt(lsGet('ms_app_pilot_min', '60'), 10),
     rwy: lsGet('ms_app_pilot_rwy', ''),
+    drwy: lsGet('ms_app_pilot_drwy', ''),                // the departure runway
     filt: lsGet('ms_app_pilot_filter', 'all'),          // all / cls
     q: lsGet('ms_app_pilot_q', ''),
   };
@@ -50,7 +56,8 @@
   if (![30, 60, 120].includes(S.min)) S.min = 60;
   if (!['all', 'cls'].includes(S.filt)) S.filt = 'all';
   let on = false, inited = false, sub = () => {};
-  const D = { now: null, app: null, ice: null, list: null, fl: null };
+  const OPT = { wide: false, wx: null, wxSaved: () => false };
+  const D = { now: null, app: null, dep: null, alo: null, ice: null, turb: null, gnss: null, list: null, fl: null };
   const ERR = {};
   let n = 0;
 
@@ -69,7 +76,14 @@
       else if (tab === 'app') {
         D.app = await get(`/api/pilot/approach?min=${S.min}${S.rwy ? '&rwy=' + encodeURIComponent(S.rwy) : ''}`);
         if (D.app && D.app.rwy && D.app.rwy !== S.rwy && !(D.app.runways || {})[S.rwy]) S.rwy = '';
-      } else if (tab === 'ice') D.ice = await get(`/api/pilot/icing?cls=${S.cls}`);
+      } else if (tab === 'dep') {
+        D.dep = await get(`/api/pilot/departure?min=${S.min}${S.drwy ? '&rwy=' + encodeURIComponent(S.drwy) : ''}`);
+        if (D.dep && D.dep.rwy && D.dep.rwy !== S.drwy && !(D.dep.runways || {})[S.drwy]) S.drwy = '';
+      } else if (tab === 'alo') D.alo = await get(`/api/pilot/aloft?cls=${S.cls}`);
+      else if (tab === 'ice') D.ice = await get(`/api/pilot/icing?cls=${S.cls}`);
+      else if (tab === 'turb') D.turb = await get(`/api/pilot/turbulence?min=${S.min}`);
+      else if (tab === 'gnss') D.gnss = await get('/api/pilot/gnss');
+      else if (tab === 'map') { /* nothing to load */ }
       else if (tab === 'fl' && S.q.length >= 2) D.list = await get(`/api/pilot/flight?q=${encodeURIComponent(S.q)}`);
       ERR[tab] = '';
     } catch (e) { ERR[tab] = e.message.includes('Pilot right') ? e.message : 'Could not load the data — retrying.'; }
@@ -110,14 +124,15 @@
 
   // ── SVG profile chart: y = ft (z0..z1), x = values (x0..x1) ─────────────
   function chart(o) {
-    const W = Math.max(280, Math.min(560, ($('v-pilot').clientWidth || 360) - 28)), H = o.h || 300;
-    const L = 40, R = o.right || 44, T = 24, B = 30, w = W - L - R, h = H - T - B;
+    // the phone: the screen's width; the full page: 460 wide, scaled to the card by the browser
+    const W = OPT.wide ? (o.w || 460) : Math.max(280, Math.min(560, ($('v-pilot').clientWidth || 360) - 28)), H = o.h || 300;
+    const L = o.left || 40, R = o.right || 44, T = 24, B = 30, w = W - L - R, h = H - T - B;
     const x = v => L + (v - o.x0) / (o.x1 - o.x0) * w, y = z => T + (o.z1 - z) / (o.z1 - o.z0) * h;
     const s = [`<svg class="apl-svg" viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`];
     for (let v = Math.ceil(o.x0 / o.xs) * o.xs; v <= o.x1; v += o.xs)
       s.push(`<line class="g" x1="${x(v)}" y1="${T}" x2="${x(v)}" y2="${T + h}"/><text class="t" x="${x(v)}" y="${T + h + 12}" text-anchor="middle">${v}</text>`);
     for (let z = o.z0; z <= o.z1; z += o.zs)
-      s.push(`<line class="g" x1="${L}" y1="${y(z)}" x2="${L + w}" y2="${y(z)}"/><text class="t" x="${L - 4}" y="${y(z) + 3}" text-anchor="end">${num(z)}</text>`);
+      s.push(`<line class="g" x1="${L}" y1="${y(z)}" x2="${L + w}" y2="${y(z)}"/><text class="t" x="${L - 4}" y="${y(z) + 3}" text-anchor="end">${o.zfmt ? o.zfmt(z) : num(z)}</text>`);
     s.push(`<text class="t" x="${L + w / 2}" y="${H - 2}" text-anchor="middle">${o.xlab}</text><text class="t" x="2" y="${T - 12}">${o.zlab}</text>`);
     o.draw(s, x, y, { L, T, w, h, W });
     s.push('</svg>');
@@ -324,45 +339,299 @@
     return out.join('');
   }
 
+  // ── shared: the runway bar with All / class ────────────────────────────
+  function rwyBar(counts, cur, key) {
+    const rws = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
+    return `<div class="apl-seg">${rws.map(([k, v]) => `<button type="button" data-${key}="${esc(k)}" class="${k === cur ? 'on' : ''}">${esc(k)} · ${v}</button>`).join('')}`
+      + `<span class="sp"></span><button type="button" data-f="all" class="${S.filt === 'all' ? 'on' : ''}">All</button><button type="button" data-f="cls" class="${S.filt === 'cls' ? 'on' : ''}">${CLS[S.cls]}</button></div>`;
+  }
+  const wnd = (d, s) => d == null || s == null ? '—' : `${String(Math.round(d) % 360).padStart(3, '0')}/${pad(Math.round(s))}`;
+  const sgn = (v, nd) => { if (v == null) return '—'; const k = 10 ** (nd || 0), r = Math.round(v * k) / k; return `${r > 0 ? '+' : r < 0 ? '−' : ''}${Math.abs(r).toFixed(nd || 0)}`; };
+  const tC = v => v == null ? '—' : `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(0)}`;
+  const isaT = ft => 15 - 1.98 * Math.min(ft, 36089) / 1000;
+
+  // ── Departure / climb-out ──────────────────────────────────────────────
+  function renderDep() {
+    const d = D.dep;
+    if (!d) return `<div class="apl-dim apl-pad">${ERR.dep || 'Loading…'}</div>`;
+    const seg = rwyBar(d.runways, d.rwy, 'drwy');
+    if (!d.rwy || !(d.flights || []).length) return seg + card('Climb-out', `last ${S.min} min`, '<div class="apl-dim">No departures in the window.</div>');
+    const F = d.flights, mine = e => e.c === S.cls;
+    const sel = S.filt === 'cls' ? F.filter(mine) : F;
+    const med = S.filt === 'cls' ? ((d.med_c || {})[S.cls] || []) : d.med;
+    const ok = med.some(m => m[1] != null);
+    const TOP = 5000;
+    const svg = chart({
+      x0: -10, x1: 45, xs: 10, z0: 0, z1: TOP, zs: 1000, h: 340, right: 52, xlab: 'headwind kt (− tailwind)', zlab: 'ft above rwy',
+      draw: (s, x, y, g) => {
+        s.push(`<line class="z" x1="${x(0)}" y1="${g.T}" x2="${x(0)}" y2="${g.T + g.h}"/>`);
+        if (ok) s.push(bandPoly(med, x, y, 'band'));
+        F.forEach(e => { if (e.v && e.v.length && (S.filt !== 'cls' || mine(e))) s.push(line(prof(e.lo, e.v, x, y, TOP), mine(e) ? 'own' : 'oth')); });
+        if (ok) s.push(line(med.filter(m => m[1] != null).map(m => [x(m[1]), y(m[0])]), 'med'));
+        if (d.sfc && d.sfc[0] != null) s.push(`<circle class="met" cx="${x(d.sfc[0])}" cy="${y(0)}" r="4.5"/><text class="mt" x="${x(d.sfc[0]) + 7}" y="${y(0) - 4}">METAR ${d.sfc[0]}</text>`);
+        const mx = g.L + g.w + 4;
+        sel.forEach(e => { if (e.band) s.push(`<line class="rb" x1="${mx + 6}" y1="${y(e.band.b + 150)}" x2="${mx + 6}" y2="${y(e.band.b - 150)}"/>`); });
+        if (d.bl && d.bl.llj) {
+          const z = d.bl.llj.ft - d.thr;
+          if (z > 0 && z < TOP) s.push(`<line class="iso" x1="${g.L}" y1="${y(z)}" x2="${g.L + g.w}" y2="${y(z)}"/><text class="t" x="${g.L + g.w - 2}" y="${y(z) - 3}" text-anchor="end">LLJ</text>`);
+        }
+        const cx = g.L + g.w + 16;
+        (d.xw || []).forEach(([z, v]) => {
+          if (v == null || z > TOP) return;
+          const len = Math.min(30, Math.abs(v) * 1.2);
+          s.push(`<rect class="${Math.abs(v) >= 15 ? 'xh' : 'xw'}" x="${v > 0 ? cx : cx + 30 - len}" y="${y(z) - 3}" width="${len.toFixed(1)}" height="6"/>`);
+        });
+        s.push(`<text class="t" x="${cx + 15}" y="${g.T - 4}" text-anchor="middle">XW L|R</text>`);
+      },
+    });
+    const out = [seg, card(`Headwind on the climb-out ${esc(d.rwy)}`, `${sel.length} departure${sel.length === 1 ? '' : 's'} · last ${S.min} min`,
+      svg + `<div class="apl-dim apl-sm">headwind along each departure\u2019s own track · thick line the median, band the middle half · <span class="apl-own">${CLS[S.cls]}</span> highlighted · blue band changes · bars the crosswind on the runway heading · LLJ the low-level jet of the hour</div>`, 'apl-cdc')];
+    out.push(card('Climb table', 'median of the departures · ft above the runway',
+      `<table class="apl-tab"><tr><th>ft</th><th>head kt</th><th>wind</th><th>x-rwy</th><th>°C</th><th>ISA</th></tr>` +
+      d.climb.slice().reverse().map(c => `<tr><td>${num(c.z)}</td><td>${hw(c.hw)}</td><td>${wnd(c.wd, c.ws)}</td><td>${xw(c.xw)}</td><td>${tC(c.t)}</td><td>${sgn(c.isa)}</td></tr>`).join('') +
+      `</table><div class="apl-dim apl-sm">Head: along each departure\u2019s own track, also after its turn. Wind: the departures\u2019 own band winds (true °, kt), the vector mean; x-rwy its crosswind on the runway heading. ISA: the temperature against the standard atmosphere at that height (+ warmer, less climb performance).</div>`));
+    // the temperature on the climb-out with the ISA line
+    const tt = (d.tt || []).filter(r => r[1] != null);
+    if (tt.length >= 3) {
+      const vals = tt.map(r => r[1]).concat([isaT(d.thr), isaT(TOP + d.thr)]);
+      const X0 = Math.floor((Math.min(...vals) - 1) / 2) * 2, X1 = Math.ceil((Math.max(...vals) + 1) / 2) * 2;
+      out.push(card('Temperature on the climb-out', 'the departures’ own bands', chart({
+        x0: X0, x1: X1, xs: X1 - X0 > 16 ? 4 : 2, z0: 0, z1: TOP, zs: 1000, h: 250, right: 16, xlab: 'temperature °C', zlab: 'ft above rwy',
+        draw: (s, x, y, g) => {
+          if (X0 < 0 && X1 > 0) s.push(`<line class="frz" x1="${x(0)}" y1="${g.T}" x2="${x(0)}" y2="${g.T + g.h}"/>`);
+          s.push(line([[x(isaT(d.thr)), y(0)], [x(isaT(TOP + d.thr)), y(TOP)]], 'isa'));
+          s.push(line(tt.map(r => [x(r[1]), y(r[0])]), 'apt'));
+          if (d.metar && d.metar.tt != null) s.push(`<rect class="met" x="${x(d.metar.tt) - 4}" y="${y(0) - 4}" width="8" height="8"/>`);
+        },
+      }) + '<div class="apl-dim apl-sm">thick line the departures (running median over 400 ft) · dashed the ISA · ▫ METAR</div>', 'apl-cdc'));
+    }
+    const bl = d.bl || {}, notes = [];
+    if (bl.llj) notes.push(`<b>Low-level jet ${bl.llj.kt} kt from ${String(bl.llj.dir).padStart(3, '0')}°</b> at about ${num(bl.llj.ft - d.thr)} ft above the runway — the wind falls off above it: expect the headwind (or tailwind) to change through that height.`);
+    if (bl.inv) notes.push(`<b>Surface inversion +${bl.inv.dT.toFixed(1)} K</b> up to about ${num(bl.inv.top - d.thr)} ft above the runway — warmer air on the climb-out, usually smooth below it.`);
+    out.push(card('Boundary layer', bl.hour ? `${hm(bl.hour)}–${hm(bl.hour + 3600)} UTC` : '',
+      `<div class="apl-note">${notes.join('<br>') || 'No low-level jet or surface inversion in the hour.'}</div>`));
+    const last = F.slice().sort((a, b) => b.t - a.t).slice(0, 8);
+    out.push(card('Latest departures', 'headwind at 1000 / 3000 ft above the runway',
+      `<table class="apl-tab"><tr><th>UTC · type</th><th>1000</th><th>3000</th><th>WS</th><th>EDR</th></tr>` +
+      last.map(e => `<tr class="${mine(e) ? 'apl-mine' : ''}"><td>${hm(e.t)} <span class="apl-dim">${esc(e.ty || '')}</span></td><td>${hw(e.hw1000)}</td><td>${hw(e.hw3000)}</td><td>${badge(e.lvl, e.ulvl) || '<span class="apl-dim">—</span>'}</td><td>${e.edr != null ? e.edr.toFixed(2) : '—'}</td></tr>`).join('') + '</table>'));
+    return out.join('');
+  }
+
+  // ── Winds and temperatures aloft ───────────────────────────────────────
+  const AL_ROWS = { T: [20, 50, 70, 100, 120, 140, 160, 180, 200, 220, 250], R: [50, 100, 140, 180, 240, 270, 300, 320, 340, 360, 390],
+                    N: [50, 100, 140, 180, 240, 270, 300, 320, 340, 360, 390], W: [50, 100, 180, 240, 300, 320, 340, 360, 380, 410, 450] };
+  const CRUISE = { T: [140, 250], R: [250, 390], N: [300, 390], W: [310, 410] };
+  const SRC = { m: 'Mode S', s: 'sonde', p: 'MEPS' };
+  function renderAlo() {
+    const d = D.alo;
+    if (!d) return `<div class="apl-dim apl-pad">${ERR.alo || 'Loading…'}</div>`;
+    const cr = CRUISE[S.cls] || CRUISE.N, inCr = fl => fl >= cr[0] && fl <= cr[1];
+    const byFl = {};
+    (d.rows || []).forEach(r => { byFl[r.fl] = r; });
+    const rows = (AL_ROWS[S.cls] || AL_ROWS.N).map(fl => byFl[fl]).filter(Boolean);
+    const hasS = !!d.sonde && rows.some(r => r.s);
+    // the tiles: tropopause, jet, ISA deviation in the cruise band
+    const tp = ['m', 's', 'p'].find(k => d.tropo && d.tropo[k] != null);
+    const topFl = Math.max(...['m', 'p', 's'].map(k => (d.top || {})[k] || 0));
+    const jk = ['m', 's', 'p'].find(k => d.jet && d.jet[k]);
+    const dev = (d.rows || []).filter(r => inCr(r.fl)).map(r => (r.m && r.m[2] != null ? r.m[2] : r.p && r.p[2] != null ? r.p[2] : null) - r.isa)
+      .filter(v => !isNaN(v));
+    const devm = dev.length ? dev.reduce((a, b) => a + b, 0) / dev.length : null;
+    const out = [card('Aloft', d.hour ? `${hm(d.hour)}–${hm(d.hour + 3600)} UTC · ${d.ac || 0} aircraft` : '', big([
+      [tp ? 'FL' + d.tropo[tp] : (topFl >= 300 ? '>FL' + topFl : '—'), 'tropopause' + (tp ? ' · ' + SRC[tp] : topFl >= 300 ? ' · above the data' : '')],
+      [jk ? `${d.jet[jk].kt} kt` : '—', jk ? `jet FL${d.jet[jk].fl} from ${String(d.jet[jk].dir).padStart(3, '0')}°` : 'no jet ≥ 60 kt', jk && d.jet[jk].kt >= 120 ? 'apl-xh' : ''],
+      [devm != null ? sgn(devm) + ' °C' : '—', `ISA FL${pad(cr[0]).padStart(3, '0')}–${cr[1]}`]]))];
+    out.push(card('Winds and temperatures', `${CLS[S.cls]} · cruise band highlighted`,
+      `<table class="apl-tab apl-alo"><tr><th>FL</th><th>wind</th><th>°C</th><th>ISA</th><th>MEPS</th>${hasS ? '<th>sonde</th>' : ''}</tr>` +
+      rows.slice().reverse().map(r => {
+        const m = r.m, p = r.p, t = m && m[2] != null ? m[2] : null;
+        const main = m && m[1] != null ? wnd(m[0], m[1]) : '<span class="apl-dim">—</span>';
+        const pm = p ? `${wnd(p[0], p[1])} ${tC(p[2])}` : '—';
+        const sm = r.s ? `${wnd(r.s[0], r.s[1])} ${tC(r.s[2])}` : '—';
+        return `<tr class="${inCr(r.fl) ? 'apl-mine' : ''}"><td>${String(r.fl).padStart(3, '0')}</td><td>${main}</td><td>${tC(t)}</td><td>${t != null ? sgn(t - r.isa) : '—'}</td>`
+          + `<td class="apl-sm2">${pm}</td>${hasS ? `<td class="apl-sm2">${sm}</td>` : ''}</tr>`;
+      }).join('') + `</table><div class="apl-dim apl-sm">Wind and °C: the area's aircraft (Mode S, 150 km) in the hour; MEPS the model${hasS ? ', sonde the Jokioinen sounding ' + hm(d.sonde.launch) + ' UTC' : ''}. True °, kt. ISA: + warmer than the standard atmosphere. Levels by pressure altitude (FL).</div>`));
+    // the wind speed against the FL
+    const P = d.prof || {}, zt = S.cls === 'T' ? 260 : S.cls === 'W' ? 450 : 400;
+    const allw = [].concat(P.m || [], P.p || [], P.s || []).filter(r => r[0] <= zt * 100 && r[1] != null).map(r => r[1]);
+    const X1 = Math.max(60, Math.ceil((Math.max(0, ...allw) + 10) / 20) * 20);
+    const svg = chart({
+      x0: 0, x1: X1, xs: X1 > 120 ? 40 : 20, z0: 0, z1: zt, zs: S.cls === 'T' ? 50 : 100, h: 330, right: 16, xlab: 'wind speed kt', zlab: 'FL',
+      zfmt: z => String(z).padStart(3, '0'),
+      draw: (s, x, y, g) => {
+        s.push(`<rect class="crz" x="${g.L}" y="${y(Math.min(cr[1], zt))}" width="${g.w}" height="${Math.max(0, y(cr[0]) - y(Math.min(cr[1], zt)))}"/>`);
+        const pl = (r, c) => s.push(line((r || []).filter(v => v[1] != null && v[0] <= zt * 100).map(v => [x(v[1]), y(v[0] / 100)]), c));
+        pl(P.p, 'meps'); pl(P.s, 'mast'); pl(P.m, 'apt');
+        if (tp && d.tropo[tp] <= zt) s.push(`<line class="iso" x1="${g.L}" y1="${y(d.tropo[tp])}" x2="${g.L + g.w}" y2="${y(d.tropo[tp])}"/><text class="t" x="${g.L + g.w - 2}" y="${y(d.tropo[tp]) - 3}" text-anchor="end">tropopause</text>`);
+      },
+    });
+    out.push(card('Wind speed', '', svg + `<div class="apl-dim apl-sm"><span class="apl-k apt"></span>Mode S area <span class="apl-k meps"></span>MEPS${hasS ? ' <span class="apl-k mast"></span>sonde' : ''} · shaded the cruise band</div>`, 'apl-cdc'));
+    // the ISA deviation against the FL
+    const devp = (r, i) => (r || []).filter(v => v[2] != null && v[0] <= zt * 100).map(v => [v[2] - isaT(v[0]), v[0] / 100]);
+    const dm = devp(P.m), dp = devp(P.p), ds = devp(P.s);
+    const dv = [].concat(dm, dp, ds).map(v => v[0]);
+    if (dv.length) {
+      const A = Math.max(10, Math.ceil((Math.max(...dv.map(Math.abs)) + 1) / 5) * 5);
+      out.push(card('ISA deviation', '', chart({
+        x0: -A, x1: A, xs: 5, z0: 0, z1: zt, zs: S.cls === 'T' ? 50 : 100, h: 300, right: 16, xlab: '°C against the ISA (+ warmer)', zlab: 'FL',
+        zfmt: z => String(z).padStart(3, '0'),
+        draw: (s, x, y, g) => {
+          s.push(`<line class="z" x1="${x(0)}" y1="${g.T}" x2="${x(0)}" y2="${g.T + g.h}"/>`);
+          const pl = (r, c) => s.push(line(r.map(v => [x(Math.max(-A, Math.min(A, v[0]))), y(v[1])]), c));
+          pl(dp, 'meps'); pl(ds, 'mast'); pl(dm, 'apt');
+        },
+      }), 'apl-cdc'));
+    }
+    return out.join('');
+  }
+
+  // ── Turbulence ─────────────────────────────────────────────────────────
+  const edrCls = e => e == null ? '' : e >= 0.45 ? 'apl-tw' : e >= 0.2 ? 'apl-xh' : '';
+  const edrV = e => e == null ? '—' : `<span class="${edrCls(e)}">${e.toFixed(2)}</span>`;
+  function renderTurb() {
+    const d = D.turb;
+    if (!d) return `<div class="apl-dim apl-pad">${ERR.turb || 'Loading…'}</div>`;
+    const R = d.rough || [], top = R[0];
+    const mod = R.filter(r => (r.pk || 0) >= 0.2).length;
+    const m = d.metar || {};
+    const out = [card('Turbulence', `${d.n} flights · last ${S.min} min`, big([
+      [d.med != null ? d.med.toFixed(2) : '—', 'EDR median' + (d.med != null ? ' · ' + edrName(d.med) : '')],
+      [top && top.pk != null ? top.pk.toFixed(2) : '—', top ? `roughest · ${esc(top.ty || '')} ${top.at != null ? num(top.at) + ' ft' : ''}` : 'roughest', edrCls(top && top.pk)],
+      [String(mod), 'flights moderate (0.20+)', mod ? 'apl-xh' : ''],
+      [m.wgst ? `G${m.wgst}` : m.wspd != null ? String(m.wspd) : '—', m.wgst ? 'METAR gusts kt' : 'METAR wind kt', m.wgst && m.wgst - (m.wspd || 0) >= 10 ? 'apl-xh' : '']]))];
+    out.push(card('By height', 'median · highest piece (pieces) · ft above the runway',
+      `<table class="apl-tab"><tr><th>ft</th><th>arrivals</th><th>departures</th></tr>` +
+      (d.bands || []).slice().reverse().map(b => {
+        const c = v => v ? `${edrV(v[0])} · ${edrV(v[1])} <span class="apl-dim">(${v[2]})</span>` : '<span class="apl-dim">—</span>';
+        return `<tr><td>${num(b.lo)}–${num(b.lo + 1000)}</td><td>${c(b.a)}</td><td>${c(b.d)}</td></tr>`;
+      }).join('') + '</table><div class="apl-dim apl-sm">EDR (m<sup>2/3</sup>/s) from the aircraft’s own data, research: smooth below 0.10, light 0.10, <span class="apl-xh">moderate 0.20</span>, <span class="apl-tw">severe 0.45</span>. Landings below 3 000 ft, departures to 5 000 ft.</div>'));
+    // the last 6 hours: the highest piece (bar) and the median (dot) per hour
+    const H = d.hist || [];
+    if (H.length) {
+      const W = OPT.wide ? 460 : Math.max(280, Math.min(560, ($('v-pilot').clientWidth || 360) - 28)), Hh = 150, L = 34, T = 10, B = 22;
+      const w = W - L - 8, h = Hh - T - B, bw = w / H.length, ym = 0.5;
+      const y = v => T + h - Math.min(ym, v) / ym * h;
+      const s = [`<svg class="apl-svg" viewBox="0 0 ${W} ${Hh}" width="100%">`];
+      for (const v of [0.1, 0.2, 0.45]) s.push(`<line class="${v >= 0.2 ? 'iso' : 'g'}" x1="${L}" y1="${y(v)}" x2="${L + w}" y2="${y(v)}"/><text class="t" x="${L - 4}" y="${y(v) + 3}" text-anchor="end">${v.toFixed(2)}</text>`);
+      H.forEach((r, i) => {
+        const x = L + i * bw;
+        if (r.max != null) s.push(`<rect class="tb ${r.max >= 0.45 ? 'sev' : r.max >= 0.2 ? 'mod' : r.max >= 0.1 ? 'lgt' : ''}" x="${(x + bw * 0.2).toFixed(1)}" y="${y(r.max).toFixed(1)}" width="${(bw * 0.6).toFixed(1)}" height="${(T + h - y(r.max)).toFixed(1)}"/>`);
+        if (r.med != null) s.push(`<circle class="tm" cx="${(x + bw / 2).toFixed(1)}" cy="${y(r.med).toFixed(1)}" r="3.5"/>`);
+        s.push(`<text class="t" x="${(x + bw / 2).toFixed(1)}" y="${Hh - 8}" text-anchor="middle">${hm(r.h)}</text><text class="t" x="${(x + bw / 2).toFixed(1)}" y="${Hh - 0}" text-anchor="middle">${r.n}</text>`);
+      });
+      s.push('</svg>');
+      out.push(card('The last 6 hours', 'UTC hour · flights', s.join('') + '<div class="apl-dim apl-sm">bar the roughest piece, dot the median of the hour’s landings and departures</div>', 'apl-cdc'));
+    }
+    out.push(card('Roughest flights', `last ${S.min} min · EDR 0.10+ or a piece 0.20+`, R.length
+      ? R.map(r => `<div class="apl-ev"><span class="t">${hm(r.t)}</span><span class="k">${r.k === 'a' ? 'A' : 'D'}</span><span>${esc(r.rwy || '')}</span><span class="w">${esc(r.ty || '')} · ${edrV(r.pk)}${r.at != null ? ` at ${num(r.at)} ft` : ''}</span><span class="ty">median ${edrV(r.m)}</span></div>`).join('')
+      : '<div class="apl-ok">No rough flights.</div>'));
+    const rp = d.reports || [];
+    out.push(card('Turbulence reports', 'last 6 h · ARS, WXREP, SIGMET', rp.length
+      ? rp.map(r => `<div class="apl-ev"><span class="t">${hm(r.t)}</span><span class="k">${esc(r.kind)}</span><span class="w"><b>${esc(r.phen || '')}</b>${r.lo != null || r.hi != null ? ` ${r.lo ? num(r.lo) : 'SFC'}–${r.hi != null ? num(r.hi) : '?'} ft` : ''}</span><span class="${r.near ? 'apl-xh' : 'apl-dim'}">${r.near ? 'near EFHK' : 'not near'}</span></div>`).join('')
+      : '<div class="apl-ok">No turbulence reports.</div>'));
+    return out.join('');
+  }
+
+  // ── GNSS ───────────────────────────────────────────────────────────────
+  function renderGnss() {
+    const d = D.gnss;
+    if (!d) return `<div class="apl-dim apl-pad">${ERR.gnss || 'Loading…'}</div>`;
+    const lv = d.live, ap = d.apt || {}, a6 = (ap['6'] || {}).a || [0, 0], d6 = (ap['6'] || {}).d || [0, 0];
+    const pct = v => v[1] ? `${Math.round(100 * v[0] / v[1])} %` : '—';
+    const out = [card('GNSS now', 'the receiver’s coverage', big([
+      [lv ? String(lv.n) : '—', 'aircraft degraded now', lv && lv.n ? 'apl-xh' : ''],
+      [lv ? String(lv.sev) : '—', 'severe (NACp 0, NIC 0 or frozen)', lv && lv.sev ? 'apl-tw' : ''],
+      [a6[1] ? `${a6[0]}/${a6[1]}` : '—', 'landings degraded on final · 6 h', a6[0] ? 'apl-xh' : '']])
+      + (lv && lv.bands.length ? `<div class="apl-chips">${lv.bands.map(([b, n]) => `<span>${esc(b)} <b>${n}</b></span>`).join('')}</div>` : '')
+      + (!lv ? '<div class="apl-dim apl-sm">The live GNSS state is not available.</div>' : ''))];
+    const n24 = d.near24;
+    if (n24 && n24.hours.length) {
+      const W = OPT.wide ? 460 : Math.max(280, Math.min(560, ($('v-pilot').clientWidth || 360) - 28)), Hh = 120, L = 28, T = 8, B = 18;
+      const w = W - L - 6, h = Hh - T - B, bw = w / 24, mx = Math.max(4, ...n24.hours.map(r => r[1]));
+      const h0 = n24.hours[n24.hours.length - 1][0] - 23 * 3600;
+      const s = [`<svg class="apl-svg" viewBox="0 0 ${W} ${Hh}" width="100%"><line class="g" x1="${L}" y1="${T + h}" x2="${L + w}" y2="${T + h}"/><text class="t" x="${L - 4}" y="${T + 8}" text-anchor="end">${mx}</text>`];
+      n24.hours.forEach(([ts, dg]) => {
+        const i = Math.round((ts - h0) / 3600);
+        if (i < 0 || i > 23) return;
+        const bh = dg / mx * h;
+        if (dg) s.push(`<rect class="tb mod" x="${(L + i * bw + 1).toFixed(1)}" y="${(T + h - bh).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${bh.toFixed(1)}"/>`);
+        if (i % 6 === 0) s.push(`<text class="t" x="${(L + i * bw).toFixed(1)}" y="${Hh - 4}">${hm(ts)}</text>`);
+      });
+      s.push('</svg>');
+      out.push(card('The last 24 h within 50 NM', `${n24.degraded} degraded aircraft-hours${n24.peak ? ' · peak ' + n24.peak : ''}`, s.join(''), 'apl-cdc'));
+    }
+    const rowsA = ['6', '24'].map(k => { const e = ap[k] || {}; return `<tr><td>last ${k} h</td><td>${(e.a || [0, 0])[0]}/${(e.a || [0, 0])[1]} <span class="apl-dim">${pct(e.a || [0, 0])}</span></td><td>${(e.d || [0, 0])[1] ? `${e.d[0]}/${e.d[1]} <span class="apl-dim">${pct(e.d)}</span>` : '—'}</td></tr>`; }).join('');
+    out.push(card('At EFHK', 'flights with degraded GNSS in their own replies',
+      `<table class="apl-tab"><tr><th></th><th>landings (final)</th><th>departures</th></tr>${rowsA}</table>`
+      + `<div class="apl-dim apl-sm">Degraded: NACp 6 or less, or a frozen position, on final (landings) or on the climb-out (departures). The windshear levels of such heights are only “unverified”. Counts only — the GPS pages (Full view) have the aircraft and the episodes.</div>`));
+    if (d6[0]) out.push(`<div class="apl-warn"><b>Degraded GNSS on the climb-out:</b> ${d6[0]} of ${d6[1]} departures in the last 6 h.</div>`);
+    return out.join('');
+  }
+
+  // ── Map: the Weather presets ───────────────────────────────────────────
+  const WXP = {
+    app: ['Approach &amp; departure', 'Rain and snow (the model and the FMI radar), low cloud, the wind and its gusts, the live traffic.',
+          'Rain and snow, low cloud, the wind barbs and the gusts.'],
+    ice: ['Icing &amp; freezing', 'The 2 m temperature’s isotherms with 0 °C, all cloud, rain and snow.'],
+    fog: ['Fog &amp; low visibility', 'Fog, the wind, the live traffic.', 'Fog and the wind barbs.'],
+  };
+  function renderMap() {
+    if (!OPT.wx) return '<div class="apl-dim apl-pad">The weather map is not available here.</div>';
+    const where = OPT.wide ? 'the Weather page' : 'the Weather view';
+    const out = [card('Weather map', 'pilot presets', `<div class="apl-note">Opens ${where} set for a pilot: the MEPS model (MET Norway) from 6 h back to up to two days ahead — slide to your ETA. Your own settings are kept: <i>Back to my settings</i> puts them back.</div>`)];
+    out.push(`<div class="apl-pre">${Object.entries(WXP).map(([k, [t, x, xw]]) => `<button type="button" class="apl-preb" data-wx="${k}"><b>${t}</b><small>${OPT.wide && xw ? xw : x}</small></button>`).join('')}`
+      + (OPT.wxSaved() ? '<button type="button" class="apl-preb apl-prer" data-wx="restore"><b>Back to my settings</b><small>The settings you had before the first preset.</small></button>' : '') + '</div>');
+    return out.join('');
+  }
+
   // ── frame ──────────────────────────────────────────────────────────────
   function render() {
     if (!inited) return;
     $('apl-tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
+    const tb = $('apl-tabs').querySelector('button.on');
+    if (tb && tb.scrollIntoView && !OPT.wide) { const r = $('apl-tabs'); r.scrollLeft = Math.max(0, tb.offsetLeft - r.clientWidth / 2 + tb.offsetWidth / 2); }
     $('apl-ban').innerHTML = `Research only — not for flight operations · class <b>${CLS[S.cls]}</b>`;
     const body = $('apl-body');
     const keep = S.tab === 'fl' && document.activeElement && document.activeElement.id === 'apl-q';
     const pos = keep ? document.activeElement.selectionStart : null;
-    body.innerHTML = S.tab === 'now' ? renderNow() : S.tab === 'app' ? renderApp() : S.tab === 'ice' ? renderIce() : renderFl();
+    body.innerHTML = ({ now: renderNow, app: renderApp, dep: renderDep, alo: renderAlo, ice: renderIce, turb: renderTurb,
+                        gnss: renderGnss, fl: renderFl, map: renderMap }[S.tab] || renderNow)();
     if (keep) { const q = $('apl-q'); q.focus(); try { q.setSelectionRange(pos, pos); } catch (_) { /* */ } }
-    sub({ now: `EFHK now · last ${S.min} min`, app: 'final approach by runway', ice: 'freezing levels · warm layers', fl: 'debrief' }[S.tab]);
+    sub((SUB[S.tab] || SUB.now)(S.min));
   }
 
   function init(o) {
     if (o && o.sub) sub = o.sub;
     if (inited) return;
     inited = true;
+    if (o) { OPT.wide = !!o.wide; OPT.wx = o.wx || null; if (o.wxSaved) OPT.wxSaved = o.wxSaved; }
+    if (OPT.wide) $('v-pilot').classList.add('apl-wide');
+    $('apl-tabs').innerHTML = Object.entries(TABS).map(([k, t]) => `<button type="button" data-tab="${k}">${t}</button>`).join('');
     const c = $('app-pilot-class'), w = $('app-pilot-min');
     c.value = S.cls; w.value = String(S.min);
     for (const el of [c, w]) el.dispatchEvent(new Event('change'));        // the chips follow
     c.addEventListener('change', () => {
       if (c.value === S.cls) return;
-      S.cls = c.value; lsSet('ms_app_pilot_class', S.cls); D.ice = null; render(); if (on) load();
+      S.cls = c.value; lsSet('ms_app_pilot_class', S.cls); D.ice = D.alo = null; render(); if (on) load();
     });
     w.addEventListener('change', () => {
       const v = parseInt(w.value, 10);
       if (v === S.min) return;
-      S.min = v; lsSet('ms_app_pilot_min', S.min); D.now = D.app = null; render(); if (on) load();
+      S.min = v; lsSet('ms_app_pilot_min', S.min); D.now = D.app = D.dep = D.turb = null; render(); if (on) load();
     });
     $('apl-tabs').addEventListener('click', e => {
       const b = e.target.closest('button[data-tab]');
       if (!b || b.dataset.tab === S.tab) return;
       S.tab = b.dataset.tab; lsSet('ms_app_pilot_tab', S.tab); render(); load();
-      $('v-pilot').scrollTop = 0;
+      if (!OPT.wide) $('v-pilot').scrollTop = 0;
     });
     const body = $('apl-body');
     body.addEventListener('click', e => {
-      const r = e.target.closest('[data-rwy]'), f = e.target.closest('[data-f]'), row = e.target.closest('.apl-row');
+      const r = e.target.closest('[data-rwy]'), dr = e.target.closest('[data-drwy]'), f = e.target.closest('[data-f]'),
+            row = e.target.closest('.apl-row'), wx = e.target.closest('[data-wx]');
       if (r) { S.rwy = r.dataset.rwy; lsSet('ms_app_pilot_rwy', S.rwy); load(); }
+      else if (dr) { S.drwy = dr.dataset.drwy; lsSet('ms_app_pilot_drwy', S.drwy); load(); }
+      else if (wx && OPT.wx) { OPT.wx(wx.dataset.wx); if (on) render(); }
       else if (f) { S.filt = f.dataset.f; lsSet('ms_app_pilot_filter', S.filt); render(); }
       else if (row) openFlight(row.dataset.k, row.dataset.id);
       else if (e.target.id === 'apl-back') { D.fl = null; render(); }
@@ -376,7 +645,7 @@
   }
   function show() { on = true; render(); load(); }
   function hide() { on = false; }
-  function refresh() { if (on && S.tab !== 'fl') load(); }
+  function refresh() { if (on && S.tab !== 'fl' && S.tab !== 'map') load(); }
   function layout() { if (on) render(); }
   window.AppPilot = { init, show, hide, refresh, layout };
 })();

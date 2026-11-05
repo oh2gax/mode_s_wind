@@ -1897,7 +1897,31 @@
   // the GNSS view's options and the sub line (from 2026-11-03, app_gnss.js)
   if (VIEWS.gnss) window.AppGnss.init({ sub: t => { if (view === 'gnss') $('app-sub').textContent = t; } });
   // the Pilot view's options and the sub line (from 2026-11-05, app_pilot.js)
-  if (VIEWS.pilot) window.AppPilot.init({ sub: t => { if (view === 'pilot') $('app-sub').textContent = t; } });
+  // Map (from 2026-11-05 evening): a preset sets the Weather options (as the menu would) and opens
+  // the Weather view; the options before the first preset are kept (ms_app_pilot_wxsave) for
+  // "Back to my settings"
+  const WX_PRESET = {
+    app: { src: 'both', rain: 'on', pres: 'off', wind: 'on', gust: 'on', cloud: 'l', temp: 'off', traffic: 'on' },
+    ice: { src: 'meps', rain: 'on', pres: 'off', wind: 'off', gust: 'off', cloud: 'c', temp: 'lines', traffic: 'off' },
+    fog: { src: 'meps', rain: 'off', pres: 'off', wind: 'on', gust: 'off', cloud: 'f', temp: 'off', traffic: 'on' },
+  };
+  function wxPreset(p) {
+    const saved = lsGet('ms_app_pilot_wxsave', null);
+    let set = WX_PRESET[p];
+    if (p === 'restore') {
+      try { set = saved ? JSON.parse(saved) : null; } catch (_) { set = null; }
+      try { localStorage.removeItem('ms_app_pilot_wxsave'); } catch (_) { /* private mode */ }
+    } else if (!saved) lsSet('ms_app_pilot_wxsave', JSON.stringify(Object.fromEntries(Object.keys(WX_PRESET.app).map(k => [k, W[k]]))));
+    if (!set) return;
+    for (const [k, v] of Object.entries(set)) {
+      const el = $('app-wx-' + k);
+      if (!el || !WX_OPTS[k] || !WX_OPTS[k].includes(v) || el.value === v) continue;
+      el.value = v; el.dispatchEvent(new Event('change'));             // as the menu: W, the browser, the chips, the map
+    }
+    setView('wx');
+  }
+  if (VIEWS.pilot) window.AppPilot.init({ sub: t => { if (view === 'pilot') $('app-sub').textContent = t; },
+                                          wx: wxPreset, wxSaved: () => lsGet('ms_app_pilot_wxsave', null) != null });
 
   async function openStats() {
     $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;

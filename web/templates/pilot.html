@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{#- The full site's Pilot page (/pilot, from 2026-11-05 evening): the phone's Pilot
+    view (static/js/app_pilot.js, the same renderers and /api/pilot/*) with its tabs
+    in a bar as on the Sounding page and the cards side by side.  For the users with
+    the Pilot right (web/rights.py); everyone else gets the notice below. -#}
+{% block title %}Pilot – MODE-S Wind{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pilot.css') }}">
+{% if pilot_view %}
+<div class="page-pilot" id="v-pilot">
+  <div class="pl-bar">
+    <div id="apl-tabs" class="apl-tabs" role="group" aria-label="Pilot page"></div>
+    <label class="pl-ctl" title="Your aircraft class: highlighted on Approach and Departure (and its own median with the class filter); Aloft shows its levels and cruise band, Icing the heights for it">Aircraft class
+      <select id="app-pilot-class"><option value="T">Turboprop</option><option value="R">Regional jet</option><option value="N">Narrowbody</option><option value="W">Widebody</option></select></label>
+    <label class="pl-ctl" title="The minutes of Now, Approach, Departure and Turbulence">Window
+      <select id="app-pilot-min"><option value="30">30 min</option><option value="60">60 min</option><option value="120">2 h</option></select></label>
+    <span class="pl-sub" id="pl-sub"></span>
+  </div>
+  <div id="apl-ban" class="apl-ban">Research only — not for flight operations</div>
+  <div id="apl-body" class="apl-body"></div>
+  <div class="pl-disc">Research data — what the aircraft before you measured at EFHK, from their own Mode S replies, with the MEPS model of MET Norway and the observations of the FMI (open data, CC BY 4.0). Not an official briefing and not for flight operations: use the ATIS / METAR, TAF, NOTAMs and the official weather briefing. Heights on Approach, Departure, Turbulence and My flight are ft above the runway (EFHK 179 ft), on Icing ft MSL, on Aloft flight levels. The same view is on the phone (/app → Pilot); the choices here are kept in this browser. Shown to users with the Pilot right.</div>
+</div>
+{% else %}
+<div class="pl-lock" role="main">
+  <h2>Pilot — the Pilot right needed</h2>
+  <p>The Pilot page shows what the aircraft before you measured at EFHK — the wind on final and on the climb-out by runway, winds aloft, icing, turbulence and GNSS — for the briefing on the ground and the debrief after the flight. It is open to users with the <b>Pilot</b> right; your login does not have it.</p>
+  <p>The right is given by the maintenance user. If you need it, contact the author:</p>
+  <dl class="ab-info gnl-info">
+    {% include "_contact.html" %}
+  </dl>
+  <p class="gnl-small">The rest of MODE-S Wind works as before.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if pilot_view %}
+<script src="{{ url_for('static', filename='js/app_pilot.js') }}"></script>
+<script>
+(function () {
+  'use strict';
+  // the Weather page's settings (weather.js, localStorage ms_weather: {element id: value})
+  const SKEY = 'ms_weather', SAVE = 'ms_pilot_wxsave';
+  const PRESET = {
+    app: { 'wx-rain': true, 'wx-pres': false, 'wx-wind': 'barbs', 'wx-gust': true, 'wx-cloud': 'l', 'wx-temp': 'off' },
+    ice: { 'wx-rain': true, 'wx-pres': false, 'wx-wind': 'off', 'wx-gust': false, 'wx-cloud': 'c', 'wx-temp': 'lines' },
+    fog: { 'wx-rain': false, 'wx-pres': false, 'wx-wind': 'barbs', 'wx-gust': false, 'wx-cloud': 'f', 'wx-temp': 'off' },
+  };
+  const rd = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (_) { return null; } };
+  const wr = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* private mode */ } };
+  function wx(p) {
+    const cur = rd(SKEY) || {};
+    let s;
+    if (p === 'restore') { s = rd(SAVE); wr(SAVE, null); if (!s) return; }
+    else {
+      if (!rd(SAVE)) wr(SAVE, Object.fromEntries(Object.keys(PRESET.app).map(k => [k, cur[k] === undefined ? null : cur[k]])));
+      s = PRESET[p];
+    }
+    const out = Object.assign({}, cur);
+    for (const [k, v] of Object.entries(s || {})) { if (v == null) delete out[k]; else out[k] = v; }
+    wr(SKEY, out);
+    window.location.href = '/weather';
+  }
+  const subEl = document.getElementById('pl-sub');
+  AppPilot.init({ sub: t => { subEl.textContent = t; }, wide: true, wx, wxSaved: () => rd(SAVE) != null });
+  AppPilot.show();
+  setInterval(() => { if (!document.hidden) AppPilot.refresh(); }, 60e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) AppPilot.refresh(); });
+  let rt = null;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => AppPilot.layout(), 150); });
+})();
+</script>
+{% endif %}
+{% endblock %}

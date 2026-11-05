@@ -40,6 +40,11 @@
     <a href="/gps"          class="nav-link {% if request.endpoint in ('gps_page', 'gps_episodes_page') %}active{% endif %}"
        title="GPS Quality and GPS Episodes (switch between them at the top left of the page) — Full view">GPS</a>
     {% endif %}
+    {#- the Pilot page: the Pilot right only (web/rights.py, from 2026-11-05 evening) -#}
+    {% if pilot_view %}
+    <a href="/pilot"        class="nav-link {% if request.endpoint == 'pilot_page'        %}active{% endif %}"
+       title="Pilot: what the aircraft before you measured at EFHK — wind on final and on the climb-out, winds aloft, icing, turbulence, GNSS, your flight's debrief (research; the Pilot right)">Pilot</a>
+    {% endif %}
     <a href="/stats"        class="nav-link {% if request.endpoint == 'msgstats_page'     %}active{% endif %}"
        title="Mode S &amp; ADS-B Statistics: what the receiver hears — formats, registers, reply cadence, interrogators">Statistics</a>
   </div>

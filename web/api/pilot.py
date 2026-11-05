@@ -20,6 +20,22 @@ briefing on the ground, the turnaround and the debrief after the flight.
                               humidity, the METAR — the 0 / −10 / −20 (/ −40) °C
                               heights, a warm layer above a sub-freezing surface
                               (freezing-rain risk) and the icing reports
+  departure(db, rwy, minutes)  the climb-outs of one runway (from 2026-11-05 evening):
+                              the headwind profiles (report "hp") to 5 000 ft above
+                              the runway, their median and middle half, the crosswind,
+                              the temperature and its ISA deviation from the
+                              departures' own bands, a climb table and the boundary
+                              layer's low-level jet and inversion of the hour
+  aloft(db, cls)              winds and temperatures aloft, WINTEM-like: the area
+                              profile (profile_hours), MEPS and the newest Jokioinen
+                              sounding at FL020…FL450, the ISA deviation, the
+                              tropopause and the jet
+  turbulence(db, minutes)     EDR of the landings and departures by 1 000 ft above the
+                              runway, the rough flights, the last 6 h hour by hour and
+                              the turbulence reports (ARS, WXREP, SIGMET)
+  gnss(db, tracker)           GNSS for pilots: degraded aircraft now by FL band (counts
+                              only), the last 24 h within 50 NM and the landings and
+                              departures at EFHK with degraded GNSS
   flights(db, q) / flight(db, kind, rid)
                               "My flight": a landing or departure of the last 7
                               days by callsign or registration, and its debrief —
@@ -27,7 +43,7 @@ briefing on the ground, the turnaround and the debrief after the flight.
                               minutes before, its windshear report, EDR, GNSS
                               quality on final
 
-Heights of the approach and the flight are ft above the runway (the runway's
+Heights of the approach, the departure, the turbulence and the flight are ft above the runway (the runway's
 threshold elevation, EFHK 179 ft; 148 ft for 33), of the icing ft MSL.  The
 aircraft class (T turboprop, R regional jet, N narrowbody, W widebody, B
 business jet) is collector/approach_cond.aircraft_class.
@@ -507,4 +523,402 @@ def flight(db, kind: str, rid: int) -> dict | None:
         if len(vs) >= 3:
             ref.append([z, _r(_median(vs)), _r(_q(vs, 0.25)), _r(_q(vs, 0.75))])
     out["ref"] = {"n": len(refs), "rows": ref}
+    return out
+
+
+# ── Departure / climb-out (from 2026-11-05 evening) ─────────────────────────
+
+DEP_TOP = 5000
+CLIMB_AT = (500, 1000, 1500, 2000, 3000, 4000)
+
+
+def _isa(ft):
+    """ISA temperature (°C) at a pressure altitude (ft)."""
+    return 15.0 - 1.98 * min(ft, 36089.0) / 1000.0
+
+
+def _prof_bands(pj):
+    """The departure's own bands (prof_json: {"ft MSL": {n, ws, wd, sd, t, tn}}) as
+    band winds {"ft": {dir, spd}} for _band_wind, and the temperatures [(ft, °C)]."""
+    b = (pj or {}).get("bands") or pj or {}
+    w, t = {}, []
+    for k, v in b.items():
+        if not isinstance(v, dict):
+            continue
+        try:
+            z = int(k)
+        except (TypeError, ValueError):
+            continue
+        if v.get("ws") is not None and v.get("wd") is not None and (v.get("n") or 0) >= 1:
+            w[str(z)] = {"dir": v["wd"], "spd": v["ws"]}
+        if v.get("t") is not None and (v.get("tn") or 0) >= 1:
+            t.append((z, v["t"]))
+    return w, sorted(t)
+
+
+def _t_at(pts, z):
+    for (a, ta), (b, tb) in zip(pts, pts[1:]):
+        if a <= z <= b and b - a <= 600:
+            return ta + (z - a) / (b - a) * (tb - ta) if b > a else ta
+    return next((t for a, t in pts if abs(a - z) <= 100), None)
+
+
+def _bl_now(db, now):
+    h = int(now // 3600 * 3600)
+    for hh in (h, h - 3600, h - 7200):
+        try:
+            r = db.execute("SELECT data FROM bl_hours WHERE ts = ?", (hh,)).fetchone()
+        except Exception:                              # noqa: BLE001
+            return None, None
+        if r:
+            return _j(r[0]), hh
+    return None, None
+
+
+def departure(db, rwy: str | None, minutes: int = 60, now: float | None = None) -> dict:
+    now = time.time() if now is None else now
+    minutes = minutes if minutes in WINDOW_MIN else 60
+    t0 = now - minutes * 60
+    rows = db.execute("SELECT id, ts, callsign, registration, aircraft_type, track, prof_json, shear_json, edr_json "
+                      "FROM departure_profiles WHERE ts >= ? AND ts < ? AND ga = 0 ORDER BY ts", (t0, now)).fetchall()
+    counts, deps = {}, []
+    for r in rows:
+        s = _j(r["shear_json"]) or {}
+        rw = s.get("rwy")
+        if not rw:
+            continue
+        counts[rw] = counts.get(rw, 0) + 1
+        deps.append((r, s))
+    if not rwy or rwy not in counts:
+        rwy = max(counts, key=lambda k: counts[k]) if counts else rwy
+    thr, hdg = _thr(rwy), _hdg(rwy)
+    m = metar(db, now)
+    fl = []
+    for r, s in deps:
+        if s.get("rwy") != rwy:
+            continue
+        h_ = s.get("hdg") or hdg or r["track"]
+        w, tp = _prof_bands(_j(r["prof_json"]))
+        hp = s.get("hp") or {}
+        e = {"t": int(r["ts"]), "cs": r["callsign"], "ty": r["aircraft_type"], "c": aircraft_class(r["aircraft_type"]),
+             "lo": hp["lo"] - thr if hp.get("v") else None, "v": hp.get("v") or [],
+             "lvl": s.get("lvl") or "none", "ulvl": s.get("ulvl")}
+        b = s.get("band") or {}
+        if b.get("lvl") not in (None, "none") or b.get("ulvl"):
+            e["band"] = {"b": int(round((b["b"] - thr) / 10.0) * 10), "a": b.get("a"), "lvl": b.get("lvl"), "ulvl": b.get("ulvl")}
+        e_ = _j(r["edr_json"]) or {}
+        e["edr"] = e_.get("m")
+        for z in (1000, 3000):
+            e[f"hw{z}"] = _r(_at(e["lo"], e["v"], z), 0) if e["v"] else None
+        fl.append((e, w, tp, h_))
+    flights = [e for e, *_ in fl]
+
+    def stats(sel):
+        out = []
+        for z in range(0, DEP_TOP + 1, 100):
+            vs = [x for x in (_at(e["lo"], e["v"], z) for e in sel if e["v"]) if x is not None]
+            out.append([z, _r(_median(vs)), _r(_q(vs, 0.25)), _r(_q(vs, 0.75)), len(vs)] if len(vs) >= 3 else [z, None, None, None, len(vs)])
+        return out
+    xw, tt = [], []
+    for z in range(250, DEP_TOP + 1, 250):
+        xs = []
+        for e, w, tp, h_ in fl:
+            bw = _band_wind(w, z + thr) if hdg is not None else None
+            if bw:
+                xs.append(_comp(bw[0], bw[1], hdg)[1])
+        xw.append([z, _r(_median(xs)) if len(xs) >= 2 else None])
+    for z in range(200, DEP_TOP + 1, 200):
+        # every band within ±200 ft of every departure (a 400-ft running median: a
+        # departure's band temperatures are noisy, about ±1 K)
+        ts_ = [t for e, w, tp, h_ in fl for zz, t in tp if abs(zz - (z + thr)) <= 200]
+        tt.append([z, _r(_median(ts_)) if len(ts_) >= 4 else None, len(ts_)])
+    climb = []
+    med = stats(flights)
+    for z in CLIMB_AT:
+        us, vs, xs, ts_ = [], [], [], []
+        for e, w, tp, h_ in fl:
+            bw = _band_wind(w, z + thr)
+            if bw:
+                u, v = _uv(*bw)
+                us.append(u)
+                vs.append(v)
+                if hdg is not None:
+                    xs.append(_comp(bw[0], bw[1], hdg)[1])
+            t = _t_at(tp, z + thr)
+            if t is not None:
+                ts_.append(t)
+        hrow = next((x for x in med if x[0] == z), None)
+        wd = ws = None
+        if us:
+            u, v = sum(us) / len(us), sum(vs) / len(vs)
+            wd, ws = round((math.degrees(math.atan2(-u, -v)) + 360) % 360), round(math.hypot(u, v))
+        t = _median(ts_)
+        climb.append({"z": z, "hw": hrow[1] if hrow else None, "wd": wd, "ws": ws, "xw": _r(_median(xs), 0),
+                      "t": _r(t), "isa": _r(t - _isa(z + thr)) if t is not None else None, "n": max(len(us), len(ts_))})
+    bl, bh = _bl_now(db, now)
+    return {"now": int(now), "min": minutes, "rwy": rwy, "hdg": hdg, "thr": thr, "runways": counts,
+            "metar": m, "sfc": _sfc(m, hdg), "flights": flights, "med": med,
+            "med_c": {c: stats([e for e in flights if e["c"] == c]) for c in sorted({e["c"] for e in flights})},
+            "xw": xw, "tt": tt, "climb": climb,
+            "bl": {"hour": bh, "llj": (bl or {}).get("llj"), "inv": (bl or {}).get("inv")} if bl else None}
+
+
+# ── Winds and temperatures aloft (from 2026-11-05 evening) ──────────────────
+
+ALOFT_FL = (20, 50, 70, 80, 100, 120, 140, 160, 180, 200, 220, 240, 250, 270, 280, 300, 320, 340, 360, 380, 390, 410, 450)
+
+
+def _p_alt(p):
+    """Pressure altitude (ft) of a pressure (hPa) — the FL scale."""
+    return (1 - (p / 1013.25) ** 0.190284) * 145366.45
+
+
+def _interp(pts, z, gap):
+    """pts [(ft, u, v, T)] sorted by ft → (u, v, T) at z (linear, neighbours at most gap ft apart)."""
+    for a, b in zip(pts, pts[1:]):
+        if a[0] <= z <= b[0] and b[0] - a[0] <= gap:
+            f = (z - a[0]) / (b[0] - a[0]) if b[0] > a[0] else 0.0
+            out = []
+            for i in (1, 2, 3):
+                x, y = a[i], b[i]
+                out.append(None if x is None or y is None else x + f * (y - x))
+            return out
+    for a in pts:
+        if abs(a[0] - z) <= gap / 4:
+            return [a[1], a[2], a[3]]
+    return [None, None, None]
+
+
+def _wind(u, v):
+    if u is None or v is None:
+        return None, None
+    return round((math.degrees(math.atan2(-u, -v)) + 360) % 360), round(math.hypot(u, v))
+
+
+def _tropo(pts):
+    """The WMO tropopause of [(ft, T)]: the lowest level above 16 000 ft where the lapse
+    rate falls to 2 K/km or less and stays so on average over the next 2 km (6 562 ft) —
+    as FL; None when not found below the data's top."""
+    pts = [p for p in pts if p[1] is not None]
+    for i, (z, t) in enumerate(pts[:-1]):
+        if z < 16000:
+            continue
+        z2, t2 = pts[i + 1]
+        if z2 <= z:
+            continue
+        lapse = -(t2 - t) / ((z2 - z) * 0.0003048)
+        if lapse > 2.0:
+            continue
+        top = [(a, b) for a, b in pts[i:] if a <= z + 6562]
+        if len(top) < 2 or top[-1][0] - z < 3000:
+            continue
+        mean = -(top[-1][1] - t) / ((top[-1][0] - z) * 0.0003048)
+        if mean <= 2.0:
+            return int(round(z / 100.0))                 # FL
+    return None
+
+
+def aloft(db, cls: str = "T", now: float | None = None) -> dict:
+    now = time.time() if now is None else now
+    h = int(now // 3600 * 3600)
+    out = {"now": int(now), "hour": None, "cls": cls}
+    modes = []
+    for hh in (h, h - 3600, h - 7200):
+        try:
+            r = db.execute("SELECT data FROM profile_hours WHERE ts = ?", (hh,)).fetchone()
+        except Exception:                              # noqa: BLE001
+            r = None
+        if r:
+            d = _j(r[0]) or {}
+            out["hour"], out["ac"] = hh, d.get("a")
+            for lv in d.get("lv") or []:
+                lo = lv[0]
+                mid = lo + (500 if lo < 10000 else 1000)
+                t = lv[1] if (lv[4] or 0) >= 3 else None
+                u = v = None
+                if (lv[8] or 0) >= 3 and lv[5] is not None and lv[6] is not None:
+                    u, v = _uv(lv[5], lv[6])
+                if t is not None or u is not None:
+                    modes.append((mid, u, v, t, lv[9] or 0))
+            break
+    meps = []
+    try:
+        r = db.execute("SELECT data FROM meps_ml_hours WHERE ts IN (?, ?) ORDER BY ts DESC, run DESC LIMIT 1", (h, h - 3600)).fetchone()
+        a = ((_j(r[0]) if r else None) or {}).get("a") or {}
+        for p, t, u, v in zip(a.get("p") or [], a.get("t") or [], a.get("u") or [], a.get("v") or []):
+            if p and t is not None and u is not None and v is not None:
+                meps.append((_p_alt(p), u, v, t))          # u, v already kt (collector/meps.py)
+        meps.sort()
+    except Exception:                                  # noqa: BLE001
+        pass
+    sonde, skey = [], None
+    try:
+        from collector import sondes as _sondes
+        st = _sondes.get()
+        k = st.find(now, 15) if st else None
+        rec = st.load(k) if k else None
+        if rec:
+            skey = {"key": k, "launch": int(rec.get("launch") or rec.get("nominal") or 0), "station": rec.get("station")}
+            for p, alt, z, t, td, wd, ws in rec.get("lv") or []:
+                if alt is None:
+                    continue
+                u, v = _uv(wd, ws) if wd is not None and ws is not None else (None, None)
+                sonde.append((alt, u, v, t))
+            sonde.sort()
+            # thin to about every 500 ft so the interpolation's gap test holds
+            th, last = [], None
+            for x in sonde:
+                if last is None or x[0] - last >= 400:
+                    th.append(x)
+                    last = x[0]
+            sonde = th
+    except Exception:                                  # noqa: BLE001
+        sonde = []
+    mpts = [(z, u, v, t) for z, u, v, t, n in modes]
+    rows = []
+    for fl in ALOFT_FL:
+        z = fl * 100
+        e = {"fl": fl, "isa": _r(_isa(z))}
+        for name, pts, gap in (("m", mpts, 2600), ("p", meps, 3000), ("s", sonde, 1500)):
+            u, v, t = _interp(pts, z, gap)
+            wd, ws = _wind(u, v)
+            e[name] = [wd, ws, _r(t)] if (ws is not None or t is not None) else None
+        nn = [n for zz, u, v, t, n in modes if abs(zz - z) <= 1000]
+        e["n"] = max(nn) if nn else 0
+        rows.append(e)
+    out["rows"] = rows
+    out["sonde"] = skey
+    # the profiles for the chart: [ft, kt, °C]
+    out["prof"] = {"m": [[z, _wind(u, v)[1], _r(t)] for z, u, v, t in mpts],
+                   "p": [[round(z), _wind(u, v)[1], _r(t)] for z, u, v, t in meps if z <= 46000],
+                   "s": [[round(z), _wind(u, v)[1], _r(t)] for z, u, v, t in sonde if z <= 46000]}
+    out["tropo"] = {k: _tropo([(z, t) for z, u, v, t in pts]) for k, pts in (("m", mpts), ("p", meps), ("s", sonde))}
+    # the top of each source (FL): no tropopause found below it = higher than the data
+    out["top"] = {k: int(max(z for z, u, v, t in pts if t is not None) // 100) if any(t is not None for *_, t in pts) else None
+                  for k, pts in (("m", mpts), ("p", meps), ("s", sonde))}
+    jet = {}
+    for k, pts in (("m", mpts), ("p", meps), ("s", sonde)):
+        best = None
+        for z, u, v, t in pts:
+            if z < 15000 or u is None:
+                continue
+            ws = math.hypot(u, v)
+            if best is None or ws > best[1]:
+                best = (z, ws, u, v)
+        if best and best[1] >= 60:
+            jet[k] = {"fl": int(round(best[0] / 100.0)), "kt": round(best[1]), "dir": _wind(best[2], best[3])[0]}
+    out["jet"] = jet
+    return out
+
+
+# ── Turbulence (from 2026-11-05 evening) ────────────────────────────────────
+
+TURB_BANDS = (0, 1000, 2000, 3000, 4000)
+
+
+def turbulence(db, minutes: int = 60, now: float | None = None) -> dict:
+    now = time.time() if now is None else now
+    minutes = minutes if minutes in WINDOW_MIN else 60
+    t0 = now - minutes * 60
+    bands = {b: {"a": [], "d": []} for b in TURB_BANDS}
+    rough = []
+    for kind, rows in (("a", db.execute("SELECT ts, callsign, aircraft_type, runway, edr_json FROM approach_history "
+                                        "WHERE ts >= ? AND ts < ? AND edr_json IS NOT NULL", (now - 6 * 3600, now)).fetchall()),
+                       ("d", db.execute("SELECT ts, callsign, aircraft_type, shear_json, edr_json FROM departure_profiles "
+                                        "WHERE ts >= ? AND ts < ? AND ga = 0 AND edr_json IS NOT NULL", (now - 6 * 3600, now)).fetchall())):
+        for r in rows:
+            e = _j(r[4]) or {}
+            if e.get("m") is None:
+                continue
+            rw = r[3] if kind == "a" else (_j(r[3]) or {}).get("rwy")
+            thr = _thr(rw) if rw else APT_FT
+            rows_in = r[0] >= t0
+            pk = None
+            for sg in e.get("seg") or []:
+                a = sg.get("a") or []
+                if len(a) < 2 or sg.get("e") is None:
+                    continue
+                lo, hi = min(a) - thr, max(a) - thr
+                if pk is None or sg["e"] > pk[0]:
+                    pk = (sg["e"], (lo + hi) / 2)
+                if rows_in:
+                    for b in TURB_BANDS:
+                        if lo < b + 1000 and hi > b:
+                            bands[b][kind].append(sg["e"])
+            yield_row = {"t": int(r[0]), "k": kind, "cs": r[1], "ty": r[2], "rwy": rw, "m": e.get("m"),
+                         "pk": pk[0] if pk else e.get("pk"), "at": int(round(pk[1], -2)) if pk else None}
+            rough.append(yield_row)
+    out_b = []
+    for b in TURB_BANDS:
+        e = {"lo": b}
+        for k in ("a", "d"):
+            v = bands[b][k]
+            e[k] = [_r(_median(v), 3), _r(max(v), 3), len(v)] if v else None
+        out_b.append(e)
+    # hour by hour over the last 6 h (both phases)
+    hist = []
+    h0 = int(now // 3600 * 3600)
+    for hh in range(h0 - 5 * 3600, h0 + 1, 3600):
+        sel = [x for x in rough if hh <= x["t"] < hh + 3600]
+        ms = [x["m"] for x in sel]
+        pks = [x["pk"] for x in sel if x["pk"] is not None]
+        hist.append({"h": hh, "n": len(sel), "med": _r(_median(ms), 3), "max": _r(max(pks), 3) if pks else None,
+                     "mod": sum(1 for p in pks if p >= 0.2)})
+    win = sorted([x for x in rough if x["t"] >= t0 and ((x["pk"] or 0) >= 0.2 or (x["m"] or 0) >= 0.1)],
+                 key=lambda x: -(x["pk"] or 0))[:10]
+    allm = [x["m"] for x in rough if x["t"] >= t0]
+    try:
+        rep = db.execute("SELECT ts, kind, phen, lo_ft, hi_ft, near FROM pilot_reports WHERE ts >= ? AND ts <= ? "
+                         "AND (phen LIKE '%TURB%' OR phen LIKE '%MTW%') ORDER BY ts DESC LIMIT 12",
+                         (now - 6 * 3600, now)).fetchall()
+        reports = [{"t": int(r[0]), "kind": r[1], "phen": r[2], "lo": r[3], "hi": r[4], "near": bool(r[5])} for r in rep]
+    except Exception:                                  # noqa: BLE001
+        reports = []
+    return {"now": int(now), "min": minutes, "metar": metar(db, now), "bands": out_b, "rough": win,
+            "n": len(allm), "med": _r(_median(allm), 3), "hist": hist, "reports": reports}
+
+
+# ── GNSS for pilots (from 2026-11-05 evening) ───────────────────────────────
+
+def gnss(db, tracker, now: float | None = None) -> dict:
+    """Counts only — no callsigns or positions (the GPS pages, with the aircraft, are
+    for the Full view right)."""
+    now = time.time() if now is None else now
+    out = {"now": int(now), "live": None, "near24": None, "apt": {}}
+    if tracker is not None:
+        try:
+            st = tracker.get_state(zone="50nm")
+            live = st.get("live") or []
+            fb = {}
+            sev = 0
+            for a in live:
+                fb[a.get("fl_band") or "?"] = fb.get(a.get("fl_band") or "?", 0) + 1
+                if a.get("nac_p") == 0 or a.get("nic") == 0 or "freeze" in (a.get("flags") or []):
+                    sev += 1
+            out["live"] = {"n": len(live), "sev": sev, "bands": [[b, fb[b]] for b in (st.get("fl_bands") or []) if fb.get(b)]}
+            ts = st.get("time_series") or []
+            last = [b for b in ts if b["ts"] >= int(now // 3600 * 3600) - 23 * 3600]
+            out["near24"] = {"hours": [[b["ts"], b.get("degraded", 0), b.get("total", 0)] for b in last],
+                             "degraded": sum(b.get("degraded", 0) for b in last),
+                             "peak": (st.get("stats") or {}).get("peak_hour")}
+        except Exception:                              # noqa: BLE001
+            pass
+    for hrs in (6, 24):
+        t0 = now - hrs * 3600
+        na = da = nd = dd = 0
+        for g in db.execute("SELECT gnss_json FROM approach_history WHERE ts >= ? AND ts < ?", (t0, now)):
+            b = ((_j(g[0]) or {}).get("bands") or {}).values()
+            if not b:
+                continue
+            na += 1
+            if any(x.get("fz") for x in b) or any((x.get("nacp") is not None and x["nacp"] <= 6) for x in b):
+                da += 1
+        for g in db.execute("SELECT shear_json FROM departure_profiles WHERE ts >= ? AND ts < ? AND ga = 0", (t0, now)):
+            s = _j(g[0]) or {}
+            if (s.get("v") or 0) < 9:
+                continue
+            nd += 1
+            if s.get("gq"):
+                dd += 1
+        out["apt"][str(hrs)] = {"a": [da, na], "d": [dd, nd]}
     return out

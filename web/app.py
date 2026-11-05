@@ -446,7 +446,7 @@ def create_app(
 
     _PAGE_ENDPOINTS = {"index", "flights_page", "sounding_page", "windmap_page", "weather_page",
                        "windshear_page", "gps_page", "gps_episodes_page", "msgstats_page",
-                       "maintenance_page", "app_page"}
+                       "maintenance_page", "app_page", "pilot_page"}
     _PUBLIC_STATIC = {"icons/app-192.png", "icons/app-512.png", "icons/apple-touch-icon.png"}
 
     @app.route("/shared-login")
@@ -576,6 +576,14 @@ def create_app(
                                airport_icao=cfg.AIRPORT_ICAO,
                                nacp_threshold=cfg.GPS_NACP_THRESHOLD,
                                nic_threshold=getattr(cfg, "GPS_NIC_THRESHOLD", 6))
+
+    @app.route("/pilot")
+    def pilot_page():
+        """The full site's Pilot page (from 2026-11-05 evening): the phone's Pilot view
+        with its tabs in a bar, the cards side by side — the Pilot right only (the
+        template shows a notice to everyone else)."""
+        ok = _pilot_ok()
+        return render_template("pilot.html"), (200 if ok else 403)
 
     @app.route("/gps-episodes")
     def gps_episodes_page():
@@ -2559,6 +2567,49 @@ def create_app(
         from web.api import pilot as _p
         cls = (request.args.get("cls") or "T").upper()[:1]
         return _private(_gzip_json(_p.icing(get_db(), cls=cls if cls in "TRNWB" else "T")))
+
+    @app.route("/api/pilot/departure")
+    def pilot_departure_api():
+        """Departure / climb-out of one runway (from 2026-11-05 evening): the headwind
+        profiles to 5 000 ft above the runway, the crosswind, the temperature, a climb
+        table and the boundary layer's jet and inversion; ?rwy= (else the busiest),
+        ?min=30|60|120."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        return _private(_gzip_json(_p.departure(get_db(), (request.args.get("rwy") or "").upper()[:3] or None,
+                                                request.args.get("min", 60, type=int))))
+
+    @app.route("/api/pilot/aloft")
+    def pilot_aloft_api():
+        """Winds and temperatures aloft (WINTEM-like, from 2026-11-05 evening): the
+        area profile, MEPS and the sounding at FL020…FL450; ?cls=T|R|N|W."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        cls = (request.args.get("cls") or "T").upper()[:1]
+        return _private(_gzip_json(_p.aloft(get_db(), cls=cls if cls in "TRNWB" else "T")))
+
+    @app.route("/api/pilot/turbulence")
+    def pilot_turbulence_api():
+        """Turbulence (from 2026-11-05 evening): EDR by height of the landings and
+        departures of the window, the rough flights, the last 6 h and the turbulence
+        reports; ?min=30|60|120."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        return _private(_gzip_json(_p.turbulence(get_db(), request.args.get("min", 60, type=int))))
+
+    @app.route("/api/pilot/gnss")
+    def pilot_gnss_api():
+        """GNSS for pilots (from 2026-11-05 evening): counts only — degraded aircraft
+        now by FL band, the last 24 h within 50 NM and the share of the landings and
+        departures at EFHK with degraded GNSS (no callsigns or positions; the GPS
+        pages stay Full view)."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        return _private(_gzip_json(_p.gnss(get_db(), gps_tracker)))
 
     @app.route("/api/pilot/flight")
     def pilot_flight_api():

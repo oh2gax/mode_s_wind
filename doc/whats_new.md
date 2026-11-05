@@ -3,9 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.05112026 — A Pilot view on the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
+## v.05112026 — A Pilot view on the phone and a Pilot page, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
 
 - **Pilot view (phone, research only)** — for users with the new *Pilot* permission: **Now** (the METAR, runways in use, the wind on final, windshear, turbulence and go-arounds of the last hour), **Approach** (the headwind on final of the recent landings, in feet above the runway, your aircraft class highlighted), **Icing** (freezing levels, a warm layer above a sub-freezing ground, cloud and icing reports) and **My flight** (find your landing or departure and see what it met against the flights before it). Choose your aircraft class in *Pilot options*. Not for flight operations.
+- **Five more Pilot tabs** — **Departure** (the headwind, crosswind and temperature on the climb-out of the recent departures, with a climb table and the low-level jet), **Aloft** (winds and temperatures by flight level for your aircraft class, with the tropopause and the jet), **Turbulence** (EDR by height and over the last 6 hours, the roughest flights and the reports), **GNSS** (how many aircraft have degraded GPS now, and how many landings and departures at EFHK) and **Map** (the Weather map set for approach, icing or fog in one tap). On the phone the tabs scroll sideways.
+- **Pilot page** — the same tabs on the full site: *Pilot* in the top bar for users with the Pilot permission, the cards side by side.
 
 - **Departures back in the flight-by-flight fields** — after yesterday's update the boundary layer's flight-by-flight headwind fields (and the departures' headwind profile in the Approach History) showed only the newest departures; the older ones are filled in again after this update.
 - **Steadier Weather buttons on the phone** — −1h, ▶, +1h and Now stay in place when you step from Now to the other hours; *Temperature numbers grid* now reads Normal, Dense, Very dense.
