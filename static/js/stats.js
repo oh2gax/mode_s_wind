@@ -36,7 +36,7 @@
   let win = 10, range = '24h', series = 'rate', cadKind = '5,0', sigCat = 'all';
   // the receiver shown (from 2026-11-02): '' = the main receiver, else the id of
   // another receiver (EXTRA_RECEIVERS, collector/multirx.py)
-  let rxSel = '';
+  let rxSel = '', rxMiss = 0;
   // Message rate / Data transfer tabs of the chart panel (from 2026-10-27)
   let tab = 'msgs', trView = 'app', trData = null, chartType = null;
   const EMBED = window.MST_EMBED || null;      // the mobile view (from 2026-10-28)
@@ -489,12 +489,26 @@
         : sg.state === 'off' ? 'Signal levels are switched off (MSG_STATS_SIGNAL = False in config.py).'
         : sg.state === 'unavailable' ? 'Signal levels are not available with this pyModeS version (its Beast parser was not found).'
         : 'No signal levels in the window yet.';
-      table('mst-sig', [['Class']], []);
-      $('mst-sig').querySelector('.mst-empty').textContent = why;
+      // no empty histogram and lone "Class" header (from 2026-11-05): the reason in the
+      // panel, and with merged receivers a button per receiver (as the receiver row)
+      const wrap = $('mst-sig-chart') && $('mst-sig-chart').parentElement;
+      if (wrap) wrap.hidden = true;
+      if ($('mst-sig-cat')) $('mst-sig-cat').hidden = true;
+      const rxb = sg.state === 'per_rx' ? (d.receivers || []).filter(r => r.type !== 'merged').map(r => {
+        const sel = r.sel != null ? r.sel : (r.main ? '' : r.id);
+        return `<button type="button" class="mst-sig-rx" data-rx="${esc(sel)}">${esc(r.id)}</button>`;
+      }).join('') : '';
+      $('mst-sig').innerHTML = `<tbody><tr><td class="mst-empty mst-sig-why">${esc(why)}${rxb ? `<span class="mst-sig-rxs">${rxb}</span>` : ''}</td></tr></tbody>`;
+      $('mst-sig').querySelectorAll('.mst-sig-rx').forEach(b => b.addEventListener('click', () => {
+        const t = [...document.querySelectorAll('#mst-rx .mst-rx-btn')].find(x => x.dataset.rx === b.dataset.rx);
+        if (t) t.click();
+      }));
       $('mst-sig-note').textContent = '';
       $('mst-sig-foot').textContent = '';
       return;
     }
+    { const wrap = $('mst-sig-chart') && $('mst-sig-chart').parentElement; if (wrap) wrap.hidden = false;
+      if ($('mst-sig-cat')) $('mst-sig-cat').hidden = false; }
     const rows = ['all', 'adsb', 'reply', 'df11', 'acas', 'other'].filter(k => cats[k] && cats[k].n).map(k => {
       const c = cats[k];
       return `<tr class="mst-click${k === sigCat ? ' mst-sel' : ''}" data-cat="${k}"><td>${esc(SIG_NAME[k])}</td><td class="num">${c.n.toLocaleString('en')}</td>`
@@ -896,10 +910,14 @@
       const wk = range === '7d' && tab === 'msgs';
       const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : '') + (rxSel ? '&rx=' + encodeURIComponent(rxSel) : ''));
       data = await r.json();
-      // a receiver no longer configured: back to the main one
+      // a receiver no longer configured: back to the main one — from 2026-11-05 only after
+      // 3 answers in a row without it (just after a server restart the receiver list can
+      // be incomplete for a moment, which reset the choice to All receivers), and the
+      // stored choice is kept for the next visit
       if (rxSel && !(data.rx && data.rx.id === rxSel && (data.receivers || []).some(r => r.sel === rxSel))) {
-        rxSel = ''; try { localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ }
-      }
+        rxMiss += 1;
+        if (rxMiss >= 3) rxSel = '';
+      } else rxMiss = 0;
       if (tab === 'traffic') await pollTraffic(false);
       renderAll();
     } catch (e) {

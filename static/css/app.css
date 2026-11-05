@@ -396,6 +396,12 @@ body.app-body {
 .app-st-none { padding: 16px; }
 .app-stats .mst-panel { overflow: visible; }
 .app-stats .mst-chart-wrap { height: 220px; }
+/* the signal panel without levels (from 2026-11-05): the reason, and with merged receivers a button per receiver */
+.mst-chart-wrap[hidden] { display: none; }
+.mst-sig-why { padding: 14px 8px !important; line-height: 1.5; }
+.mst-sig-rxs { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-style: normal; }
+.mst-sig-rx { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.mst-sig-rx:hover { border-color: var(--accent); }
 .app-stats .mst-table { font-size: 12px; }
 .app-stats .mst-table th, .app-stats .mst-table td { padding-left: 5px; padding-right: 5px; }
 .app-stats .mst-table td { white-space: nowrap; }

@@ -249,7 +249,7 @@ const WsCondChart = (() => {
     // ── EDR and windshear strips ─────────────────────────────────────────────
     let edrSum = null;
     if (withEdr) {
-      edrSum = _drawEdrStrip(ctx, { L, PW, ET, EH, t0, nowMs, xOf, CT, light, CLS_COL, wrAphEntries, wrDepEntries, wrHistDots, sel: d.selMs });
+      edrSum = _drawEdrStrip(ctx, { L, PW, ET, EH, t0, nowMs, xOf, CT, light, CLS_COL, wrAphEntries, wrDepEntries, wrHistDots, sel: d.selMs, day: !!d.rangeLabel });
       if (!edrSum) {
         ctx.fillStyle = CT.noTraffic;
         ctx.font = '10px "Courier New",monospace';
@@ -275,10 +275,10 @@ const WsCondChart = (() => {
     const worst = pts.reduce((a, p) => (!a || p.idx > a.idx) ? p : a, null);
     const lvlName = v => ['Smooth', 'Light', 'Choppy', 'Rough', 'Very rough'][_condLvl(v)];
     const line1 = mLast != null
-      ? `Last 1h: <span style="color:${_condTextColor(mLast)}">${lvlName(mLast)} ${mLast.toFixed(1)}</span> (${lastH.length} ldg)`
-      : 'Last 1h: no scored landings';
+      ? `${_lastHr(!!d.rangeLabel, nowMs, true)}: <span style="color:${_condTextColor(mLast)}">${lvlName(mLast)} ${mLast.toFixed(1)}</span> (${lastH.length} ldg)`
+      : `${_lastHr(!!d.rangeLabel, nowMs, true)}: no scored landings`;
     const line2 = mAll != null
-      ? `${wrRangeLabel(wrCondHours)} median ${mAll.toFixed(1)} · max ${worst.idx.toFixed(1)} ${worst.e.callsign || ''}`
+      ? `${d.rangeLabel || wrRangeLabel(wrCondHours)} median ${mAll.toFixed(1)} · max ${worst.idx.toFixed(1)} ${worst.e.callsign || ''}`
       : '';
     const legend = ['N', 'R', 'T', 'W']
       .map(k => `<span style="color:${CLS_COL[k]}">●${k}</span>`).join(' ');
@@ -287,7 +287,7 @@ const WsCondChart = (() => {
     if (wsSum) {
       const cnt = ['mba', 'wsa', 'adv'].filter(k => wsSum[k]).map(k =>
         `<span style="color:${WS_LV_COLOR[k]};font-weight:600">${wsSum[k]} ${WS_LEVEL[k].short}</span>`);
-      line3 = `<br>WS ${wrRangeLabel(wrCondHours)}: ${cnt.length ? cnt.join(' ') : 'no alerts'} · ` +
+      line3 = `<br>WS ${d.rangeLabel || wrRangeLabel(wrCondHours)}: ${cnt.length ? cnt.join(' ') : 'no alerts'} · ` +
         `${wsSum.arr} ldg, ${wsSum.dep} dep` + (wsSum.ga ? ` · ${wsSum.ga} GA` : '') +
         (wsSum.met || wsSum.rep ? '<br>' +
           [wsSum.met ? `<span style="color:${MET_WS_COL(light)};font-weight:600">METAR WS ${wsSum.metRwy}</span>` : '',
@@ -324,6 +324,13 @@ const WsCondChart = (() => {
   const MET_WS_COL = light => light ? '#b45309' : '#fbbf24';
   const REP_COL    = light => light ? '#0f766e' : '#2dd4bf';
   const _hm = t => new Date(t * 1000).toISOString().slice(11, 16);
+  // "Last hour" of the readouts (from 2026-11-05): with a chosen day (d.rangeLabel) the
+  // last hour of that day, named by its UTC hours ("23:00–24:00 UTC"), not "Last 1h"
+  const _lastHr = (day, nowMs, cap) => {
+    if (!day) return cap ? 'Last 1h' : 'last 1h';
+    const e = _hm(nowMs / 1000);
+    return `${_hm(nowMs / 1000 - 3600)}–${e === '00:00' ? '24:00' : e} UTC`;
+  };
   function _drawOfficial(ctx, g, sum) {
     const { L, PW, WT, WH, t0, nowMs, xOf, light, T, wxMet, wxRep, wrHistDots } = g;
     const met = wxMet.filter(m => m.ws && m.ts * 1000 <= nowMs && m.ts * 1000 + 1_800_000 >= t0)
@@ -389,7 +396,7 @@ const WsCondChart = (() => {
   const EDR_NAME = ['smooth', 'light', 'moderate', 'severe'];
   function edrCol(v, light) { const c = edrCls(v); return c === 0 ? (light ? '#047857' : '#34d399') : EDR_LIM[c - 1][light ? 3 : 2]; }
   function _drawEdrStrip(ctx, g) {
-    const { L, PW, ET, EH, t0, nowMs, xOf, CT, light, wrAphEntries, wrDepEntries, wrHistDots } = g;
+    const { L, PW, ET, EH, t0, nowMs, xOf, CT, light, wrAphEntries, wrDepEntries, wrHistDots, day } = g;
     const LO = 0.02, HI = 0.6;
     const yE = v => ET + EH - (Math.log(Math.max(LO, Math.min(HI, v)) / LO) / Math.log(HI / LO)) * (EH - 4) - 2;
     ctx.save();
@@ -441,7 +448,7 @@ const WsCondChart = (() => {
     const mx = pts.reduce((a, p) => (!a || p.v > a.v ? p : a), null);
     const last = pts.filter(p => nowMs - p.ms <= 3_600_000).map(p => p.v).sort((a, b) => a - b);
     const lm = last.length ? last[last.length >> 1] : null;
-    return { line: `<br>EDR: last 1h ${lm != null ? `<span style="color:${edrCol(lm, light)}">${lm.toFixed(2)} ${EDR_NAME[edrCls(lm)]}</span>` : '—'} · ` +
+    return { line: `<br>EDR: ${_lastHr(day, nowMs, false)} ${lm != null ? `<span style="color:${edrCol(lm, light)}">${lm.toFixed(2)} ${EDR_NAME[edrCls(lm)]}</span>` : '—'} · ` +
       `median ${med.toFixed(2)} · max <span style="color:${edrCol(mx.v, light)}">${mx.v.toFixed(2)}</span> ${mx.e.callsign || ''} <span class="ws-research-tag">research</span>` };
   }
 
@@ -1123,8 +1130,8 @@ const WsCondChart = (() => {
         : field === 'bld'
         ? `vs. the previous 45 min ${sw(_chgFill(-12))}−12 ${sw(_chgFill(-6))}−6 ±2 ${sw(_chgFill(6))}+6 ${sw(_chgFill(12))}+12 kt`
         : `shear ${sw(_shFill(-3))}−3 ${sw(_shFill(-1.5))}−1.5 ±0.7 ${sw(_shFill(1.5))}+1.5 ${sw(_shFill(3))}+3 kt / 100 ft`;
-      const second = isFl ? `${wrRangeLabel(hours)}: ${flN.nA} landings · ${flN.nD} departures · jet ${nj} h · inversion ${ni} h`
-                          : `${wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h`;
+      const second = isFl ? `${d.rangeLabel || wrRangeLabel(hours)}: ${flN.nA} landings · ${flN.nD} departures · jet ${nj} h · inversion ${ni} h`
+                          : `${d.rangeLabel || wrRangeLabel(hours)}: jet ${nj} h · inversion ${ni} h`;
       // the mast's last hour (from 2026-11-01): the stability of its lowest 300 m
       let mastTxt = '';
       const ls = msRows.length ? msRows[msRows.length - 1] : null;
@@ -1134,7 +1141,7 @@ const WsCondChart = (() => {
         mastTxt = ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">mast ${_hm(lm.ts)}Z: ${top} m ${dT >= 0 ? '+' : ''}${dT.toFixed(1)} K` +
           `${dT > 0.3 ? ' (inversion)' : ''}</span>`;
       }
-      readout.innerHTML = `Last hour: ${now}${mastTxt}<br>${second} <span class="ws-research-tag">research</span>` +
+      readout.innerHTML = `${d.rangeLabel ? _lastHr(true, nowMs, true) : 'Last hour'}: ${now}${mastTxt}<br>${second} <span class="ws-research-tag">research</span>` +
         `<br><span class="ws-cond-legend">◆ jet core · <span style="color:${light ? '#b91c1c' : '#f87171'}">▬ surface inversion</span> · ${key}${isFl ? ' · □ windshear alert' : ''}` +
         `${mastRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">▯ Kivenlahti mast</span>` : msRows.length ? ` · <span style="color:${light ? '#b45309' : '#f59e0b'}">— top of the mast (below it: the mast)</span>` : ''} · ▨ no flights</span>`;
     }

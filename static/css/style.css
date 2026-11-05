@@ -3304,6 +3304,12 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-table th.num { text-align: right; }
 .mst-code { font-family: "Courier New", monospace; font-weight: 700; color: var(--accent) !important; white-space: nowrap; }
 .mst-empty { color: var(--text-3) !important; text-align: center; font-style: italic; }
+/* the signal panel without levels (from 2026-11-05): the reason, and with merged receivers a button per receiver */
+.mst-chart-wrap[hidden] { display: none; }
+.mst-sig-why { padding: 14px 8px !important; line-height: 1.5; }
+.mst-sig-rxs { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-style: normal; }
+.mst-sig-rx { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.mst-sig-rx:hover { border-color: var(--accent); }
 .mst-dim td { color: var(--text-3); }
 .mst-dim td:first-child { white-space: nowrap; }
 .mst-table td.mst-dim2 { color: var(--text-2); font-size: 11px; white-space: nowrap; }
