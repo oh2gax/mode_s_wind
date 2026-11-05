@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place; the phone's Pilot view and the Pilot right; five more Pilot tabs and the full site's Pilot page; turboprop departure limits by height; a steadier departure GNSS freeze gate)
+## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place; the phone's Pilot view and the Pilot right; five more Pilot tabs and the full site's Pilot page; turboprop departure limits by height; a steadier departure GNSS freeze gate; the Statistics page's receiver panel on top)
 
 ### Phone: the Pilot view (research only)
 - A new **Pilot** view for the briefing on the ground, the turnaround and the debrief, for the users with the new **Pilot right**. Four tabs: **Now** (the METAR, the runways in use, the wind on final at the surface / 500 / 1 000 / 2 000 ft above the runway, the windshear reports, EDR and go-arounds of the last 30 / 60 / 120 min), **Approach** (the headwind on final of one runway's landings in ft above the runway — each flight, the median and middle half, the own aircraft class highlighted, the shear markers, the crosswind and a short summary), **Icing** (the 0 / −10 / −20 °C heights, the temperature from the airport's flights, the area, the mast and MEPS, a warm layer above a sub-freezing surface, MEPS cloud and the icing reports) and **My flight** (a landing or departure of the last 7 days by callsign or registration against the flights before it: headwind, windshear report, EDR, GNSS on final). *Pilot options* in the menu: Aircraft class and Window. `static/js/app_pilot.js` (new), `web/api/pilot.py` (new), `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`, `web/app.py` (`/api/pilot/*`).
@@ -35,6 +35,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - Turboprop departures: from 1 500 ft MSL the band limits are × 1.5 (advisory 15 kt, alert 22.5 kt), below still × 1.3 (13 / 19.5 kt). In 25 days of data the turboprops' band changes scatter like the jets' up to 1 400 ft but clearly more at 1 600–1 800 ft, where 13 of their 15 band levels were. The stored reports are recomputed once at start: 10 turboprop departure advisories of 13.0–14.7 kt go, the frontal ones stay; jets and landings unchanged. `collector/shear.py` (`TP_DEP_HI_FT`, `TP_DEP_SCALE_HI`, `band_scale`, `band_anomaly`, `REPORT_V` 10), `run.py`.
 - The departures' position-freeze test of the GNSS gate needs a climb of 300 ft (was 100 ft) with the position still: a jet's fast climb-out and one late position update gave single false "degraded GNSS" bands (9 of 64 departures this morning). The frozen bands are also kept as `gqf` in the report. `collector/departures.py` (`DEP_FREEZE_CLIMB_FT`), `collector/windshear.py`, `run.py`.
 - Windshear user guide 2.43. `doc/Windshear_User_Guide.pdf`, `doc/guides.md`.
+
+### Statistics page: panel order
+- The third column starts with the receiver panel (*Receivers · merged* with more receivers, else *Radarcape receiver*), then the range rings, then the reply cadence (was cadence, rings, receiver). `web/templates/stats.html`; Statistics guide 1.13 (`doc/Statistics_User_Guide.pdf`, `doc/guides.md`).
 
 ## v.04112026 — 2026-11-04 (windshear: no alert from an aircraft whose GNSS is jammed; the mast study log updated; the D-D-D method note)
 

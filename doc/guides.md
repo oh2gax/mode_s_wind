@@ -89,8 +89,8 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.12
-date: 2026-11-03
+version: 1.13
+date: 2026-11-05
 pages: 18
 open: stats
 
