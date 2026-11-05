@@ -450,6 +450,8 @@ body.app-body {
 .app-wx-btns button { flex: 1; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-2);
                       color: var(--text-1); font: inherit; font-size: 15px; font-weight: 600; }
 .app-wx-btns button:disabled { opacity: .4; }
+.app-wx-btns button.day { flex: .85; font-size: 13.5px; color: var(--text-2); }   /* −1d / +1d with GFS (from 2026-11-05) */
+.app-wx-btns button[hidden] { display: none; }
 .app-wx-btns button.play { flex: 1.4; background: #1a3a6b; color: #e8eef6; border-color: #1a3a6b; font-size: 17px; }
 .app-wx-legend { margin-top: 7px; font-size: 10.5px; line-height: 1.5; color: var(--text-2); }
 .app-wx-legend .wx-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 1px; }

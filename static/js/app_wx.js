@@ -42,6 +42,13 @@
  *  - Detail (from 2026-10-31): the model's full 2.5 km grid in the box around
  *    the receiver (/api/weather/frames?fine=1), loaded and drawn when the map
  *    is zoomed to FINE_ZOOM or closer with the box in view (WxLayer.setFine).
+ *  - Model (from 2026-11-05, GFS phase 3; only where the server has GFS —
+ *    APP_GFS): MEPS or NOAA's GFS (?model=gfs on the index and the frames, a
+ *    lat / lon grid): from 2 h back to +48 h / 5 / 10 / 16 days (GFS forecast),
+ *    0.5° or 0.25° (GFS grid), hourly to +120 h then every 3 h (the ±1 h
+ *    buttons show the real step, −1d / +1d step a day); no fog, no 2.5 km
+ *    detail, the tap gives the ceiling.  Switching keeps the shown hour when
+ *    the other model has it (or the nearest within 3 h).
  */
 'use strict';
 
@@ -50,7 +57,9 @@ window.AppWx = (() => {
   const PAST_H = 6, HOUR = 3600, CHUNK = 12, NEAR_H = 6;
   const SPEED_MS = { slow: 800, normal: 400, fast: 200 };
   const HOME = [60.3, 24.95], HOME_ZOOM = 6, VIEW_KEY = 'ms_app_wxMapView';
-  const ATTR = 'model MEPS, MET Norway (CC BY 4.0)';
+  const MODEL_ATTR = { meps: 'model MEPS, MET Norway (CC BY 4.0)', gfs: 'model GFS, NOAA/NCEP' };
+  const GFS_OK = typeof APP_GFS !== 'undefined' && !!APP_GFS;
+  let attrNow = null;
   let borderSeq = 0;
   let C = null;               // from app.js: { $, lsGet, lsSet, esc, S (settings), sub(text) }
   let map = null, wx = null, tiles = null, tileTheme = null, atcLines = null, border = null, borderGeo = null;
@@ -72,12 +81,28 @@ window.AppWx = (() => {
 
   // ── settings → layer options, fields ──────────────────────────────────
   const S = () => C.S;
+  const isGfs = () => GFS_OK && S().model === 'gfs';
+  const model = () => isGfs() ? 'gfs' : 'meps';
+  const modelQs = () => isGfs() ? '&model=gfs' : '';
+  const pastH = () => isGfs() ? 2 : PAST_H;
+  const fcH = () => +(isGfs() ? S().gfc : S().fc);
+  const cloudKey = () => { const c = S().cloud; return c === 'off' || (c === 'f' && isGfs()) ? null : c; };
+  // the model's credit in the map's corner (street tiles and ATC map alike)
+  function setModelAttr() {
+    if (!map) return;
+    const a = MODEL_ATTR[model()];
+    if (attrNow === a) return;
+    if (attrNow) map.attributionControl.removeAttribution(attrNow);
+    map.attributionControl.addAttribution(a);
+    attrNow = a;
+  }
   const atcMap = () => S().mapst === 'atc' && typeof AtcDisplay !== 'undefined';
   const useRadar = () => S().src === 'radar' || S().src === 'both';
   function layerOptions() {
     const s = S();
     return { rain: s.rain === 'on', pres: s.pres === 'on', wind: s.wind === 'on', gust: s.gust === 'on',
-             clouds: s.cloud !== 'off' ? [s.cloud] : [],
+             clouds: cloudKey() ? [cloudKey()] : [],
+             ceiling: isGfs(),                              // GFS: the cloud ceiling, not the base (from 2026-11-05)
              modelOutline: radarOn && s.src === 'both', edge: radarOn,
              // one Opacity (from 2026-11-01): the filled layers × op / 75 (wx_layer opacity); the radar at
              // op, the model's rain at op — with Both a third fainter, so the radar stands out
@@ -94,7 +119,7 @@ window.AppWx = (() => {
   }
   function fieldList() {
     const s = S(), f = ['p', 'r', 's'];
-    if (s.cloud !== 'off') f.push(s.cloud, 'b');
+    if (cloudKey()) f.push(cloudKey(), 'b');
     if (s.wind === 'on') f.push('u', 'v');
     if (s.gust === 'on') f.push('g');
     if (s.temp === 'fill' || s.temp === 'lines' || s.tnum === 'on') f.push('t');
@@ -164,6 +189,8 @@ window.AppWx = (() => {
     $('app-wx-play').addEventListener('click', play);
     $('app-wx-prev').addEventListener('click', () => stepHour(-1));
     $('app-wx-next').addEventListener('click', () => stepHour(1));
+    $('app-wx-dprev').addEventListener('click', () => stepDay(-1));
+    $('app-wx-dnext').addEventListener('click', () => stepDay(1));
     $('app-wx-now').addEventListener('click', () => { if (playing) play(); $('app-wx-t').value = presentIndex(); follow = true; showFrame(); maybeLoadNear(); });
     applyMapStyle();
     renderLegend();
@@ -183,17 +210,16 @@ window.AppWx = (() => {
       if (!atcLines) atcLines = AtcDisplay.mapLines(map);
       atcLines.show(true);
       showBorder(true);
-      map.attributionControl.addAttribution(ATTR);
     } else {
       el.style.background = '';
       if (atcLines) atcLines.show(false);
       showBorder(false);
-      map.attributionControl.removeAttribution(ATTR);
       const key = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
       tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${isLight() ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png${key}`,
-        { attribution: '© OSM © CARTO · model MEPS, MET Norway (CC BY 4.0)', subdomains: 'abcd', maxZoom: 12 }).addTo(map);
+        { attribution: '© OSM © CARTO', subdomains: 'abcd', maxZoom: 12 }).addTo(map);
       tiles.bringToBack();
     }
+    setModelAttr();
   }
   async function showBorder(on) {
     const my = ++borderSeq;
@@ -206,15 +232,19 @@ window.AppWx = (() => {
   }
 
   // ── hours and frames ──────────────────────────────────────────────────
-  async function loadIndex(toPresent = false) {
+  let indexErr = null;
+  async function loadIndex(toPresent = false, keepTs = null) {
     indexAt = Date.now();
+    const m = model();
     try {
-      const d = await (await fetch('/api/weather/index', { cache: 'no-store' })).json();
+      const d = await (await fetch('/api/weather/index' + (m === 'gfs' ? '?model=gfs' : ''), { cache: 'no-store' })).json();
+      if (m !== model()) return;                           // the Model was changed meanwhile
       hours = d.hours || [];
-      fineInfo = d.fine || { hours: [], grid: null };
+      indexErr = d.error || null;
+      fineInfo = (m === 'meps' && d.fine) || { hours: [], grid: null };
       fineBox = null;
     } catch (_) { status('Could not load the weather map index.'); if (toPresent) buildView(true); return; }
-    buildView(toPresent);
+    buildView(toPresent, keepTs);
   }
 
   // ── 2.5 km detail ─────────────────────────────────────────────────────
@@ -229,7 +259,7 @@ window.AppWx = (() => {
   }
   function fineWanted() {
     const b = fineBounds();
-    return S().detail !== 'off' && !!b && map.getZoom() >= FINE_ZOOM && map.getBounds().intersects(b);
+    return !isGfs() && S().detail !== 'off' && !!b && map.getZoom() >= FINE_ZOOM && map.getBounds().intersects(b);
   }
   // the hours of the box near the slider first; Load: Near the slider — only ±6 h
   async function loadFine() {
@@ -263,12 +293,17 @@ window.AppWx = (() => {
     view.forEach((h, i) => { if (h[0] <= now) k = i; });
     return k;
   }
-  function buildView(toPresent = false) {
+  function buildView(toPresent = false, keepTs = null) {
     const now = nowTs(), el = $('app-wx-t');
-    const cur = view.length ? view[+el.value]?.[0] : null;
-    view = hours.filter(h => h[0] >= now - PAST_H * HOUR && h[0] <= now + (+S().fc) * HOUR);
+    const cur = keepTs != null ? keepTs : view.length ? view[+el.value]?.[0] : null;
+    view = hours.filter(h => h[0] >= now - pastH() * HOUR && h[0] <= now + fcH() * HOUR);
     el.max = Math.max(0, view.length - 1);
     let k = cur != null && !toPresent ? view.findIndex(h => h[0] === cur) : -1;
+    // the other model (a switch): the nearest hour within 3 h
+    if (k < 0 && cur != null && !toPresent && keepTs != null) {
+      let bd = 3 * HOUR + 1;
+      view.forEach((h, i) => { const d = Math.abs(h[0] - cur); if (d < bd) { bd = d; k = i; } });
+    }
     if (k < 0) k = presentIndex();
     el.value = Math.max(0, k);
     ticks();
@@ -279,7 +314,7 @@ window.AppWx = (() => {
   }
   const fresh = h => { const f = frames.get(h[0]); return f && f.run === h[1] && f.lead === h[2] && (f.w || 0) === (h[3] || 0); };
   async function loadFrames() {
-    const step = S().grid === '20' ? 2 : 1, fields = fieldList(), key = step + '|' + fields;
+    const step = isGfs() ? +S().ggrid || 2 : S().grid === '20' ? 2 : 1, fields = fieldList(), key = model() + '|' + step + '|' + fields;
     if (loadedKey !== key) { frames.clear(); loadedKey = key; grid = null; }
     const run = ++loadRun, cur = +$('app-wx-t').value;
     const near = S().load === 'near';
@@ -290,9 +325,9 @@ window.AppWx = (() => {
       if (run !== loadRun || !shown) return;
       const ts = need.slice(k, k + CHUNK).map(o => o.h[0]).sort((a, b) => a - b);
       try {
-        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${fields}&bbox=${BBOX.join(',')}`);
+        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${fields}&bbox=${BBOX.join(',')}${modelQs()}`);
         const txt = await r.text();
-        if (run !== loadRun) return;
+        if (run !== loadRun || !key.startsWith(model() + '|')) return;
         bytes += +(r.headers.get('content-length') || 0) || Math.round(txt.length / 3);
         const d = JSON.parse(txt);
         if (d.grid && (!grid || JSON.stringify(d.grid) !== JSON.stringify(grid))) { if (grid) frames.clear(); grid = d.grid; }
@@ -319,9 +354,18 @@ window.AppWx = (() => {
     const el = $('app-wx-ticks');
     if (view.length < 2) { el.innerHTML = ''; return; }
     const t0 = view[0][0], t1 = view[view.length - 1][0], wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    el.innerHTML = view.filter(h => new Date(h[0] * 1000).getUTCHours() % 12 === 0).map(h => {
+    // up to 3 days: 00 UTC with the day and 12 UTC; longer (GFS): the days only, every second
+    // or fourth beyond a week, so the labels do not run into each other
+    const days = (t1 - t0) / 86400, every = days <= 3.5 ? 0 : days <= 7 ? 1 : days <= 11 ? 2 : 3;
+    let n = 0;
+    el.innerHTML = view.filter(h => {
+      const hh = new Date(h[0] * 1000).getUTCHours();
+      if (every === 0) return hh % 12 === 0;
+      if (hh !== 0) return false;
+      return (n++ % every) === 0;
+    }).map(h => {
       const d = new Date(h[0] * 1000);
-      return `<span style="left:${((h[0] - t0) / (t1 - t0) * 100).toFixed(1)}%">${d.getUTCHours() ? '12 UTC' : `${wd[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`}</span>`;
+      return `<span style="left:${((h[0] - t0) / (t1 - t0) * 100).toFixed(1)}%">${d.getUTCHours() ? '12 UTC' : every > 1 ? `${d.getUTCDate()}.${d.getUTCMonth() + 1}.` : `${wd[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`}</span>`;
     }).join('');
   }
 
@@ -352,20 +396,25 @@ window.AppWx = (() => {
   }
   function showFrame() {
     const el = $('app-wx-t'), k = +el.value, h = view[k];
-    $('app-wx-prev').disabled = !view.length || k <= 0;
-    $('app-wx-next').disabled = !view.length || k >= +el.max;
+    stepButtons(k);
     if (!h) {
       current = null; wx.setFrame(null);
       $('app-wx-time').textContent = '—'; $('app-wx-rel').textContent = ''; $('app-wx-run').textContent = '';
-      status(hours.length ? 'No model hours in this period.' : 'No weather maps stored yet.');
+      status(hours.length ? 'No model hours in this period.' : isGfs()
+        ? (indexErr || 'No GFS hours stored yet — the server fetches each 00 / 12 UTC run from about 3½ h after its start.')
+        : 'No weather maps stored yet.');
       return;
     }
     const d = new Date(h[0] * 1000), r = new Date(h[1] * 1000), now = nowTs();
     const rel = Math.round((h[0] - Math.floor(now / HOUR) * HOUR) / HOUR);
+    // beyond two days also in days and hours (GFS, from 2026-11-05)
+    const dd = rel > 48 ? ` (${Math.floor(rel / 24)} d${rel % 24 ? ' ' + (rel % 24) + ' h' : ''})` : '';
     $('app-wx-time').textContent = `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${pad(d.getUTCHours())} UTC`;
-    $('app-wx-rel').innerHTML = h[0] > now ? `<span class="fc">+${rel} h</span>` : rel === 0 ? 'now' : `${rel} h`;
-    $('app-wx-run').textContent = `MEPS ${pad(r.getUTCHours())} UTC run`;
-    C.sub(`MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC · ${S().grid} km · −${PAST_H} … +${S().fc} h`);
+    $('app-wx-rel').innerHTML = h[0] > now ? `<span class="fc">+${rel} h${dd}</span>` : rel === 0 ? 'now' : `${rel} h`;
+    $('app-wx-run').textContent = `${isGfs() ? 'GFS' : 'MEPS'} ${pad(r.getUTCHours())} UTC run`;
+    const fcTxt = fcH() > 48 ? `${fcH() / 24} d` : `${fcH()} h`;
+    C.sub(isGfs() ? `GFS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC · ${S().ggrid === '1' ? '0.25' : '0.5'}° · −${pastH()} h … +${fcTxt}`
+                  : `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC · ${S().grid} km · −${PAST_H} … +${S().fc} h`);
     const f = frames.get(h[0]);
     if (!f) { statusLine('loading this hour…'); return; }
     current = f;
@@ -382,6 +431,35 @@ window.AppWx = (() => {
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
     statusLine((S().temp === 'fill' || S().temp === 'lines') && !f.t ? 'no temperature stored for this hour (runs from 1 Nov 2026)' : '');
   }
+  // −1h / +1h show the real step to the next model hour (GFS: 3 h after +120 h), −1d / +1d
+  // only with GFS (from 2026-11-05)
+  function stepButtons(k) {
+    const el = $('app-wx-t'), max = +el.max;
+    $('app-wx-prev').disabled = !view.length || k <= 0;
+    $('app-wx-next').disabled = !view.length || k >= max;
+    const gap = (a, b) => (view[a] && view[b]) ? Math.round(Math.abs(view[b][0] - view[a][0]) / HOUR) : 1;
+    const gp = gap(k - 1, k), gn = gap(k, k + 1);
+    $('app-wx-prev').textContent = `−${gp}h`; $('app-wx-next').textContent = `+${gn}h`;
+    $('app-wx-prev').setAttribute('aria-label', gp > 1 ? `${gp} hours back` : 'One hour back');
+    $('app-wx-next').setAttribute('aria-label', gn > 1 ? `${gn} hours on` : 'One hour on');
+    const g = isGfs();
+    $('app-wx-dprev').hidden = !g; $('app-wx-dnext').hidden = !g;
+    if (g && view[k]) {
+      const t = view[k][0];
+      $('app-wx-dprev').disabled = view[0][0] > t - 12 * HOUR;
+      $('app-wx-dnext').disabled = view[max][0] < t + 12 * HOUR;
+    }
+  }
+  // −1d / +1d: to the model hour nearest 24 h before / after
+  function stepDay(dd) {
+    if (playing) play();
+    const el = $('app-wx-t'), k = +el.value;
+    if (!view[k]) return;
+    const want = view[k][0] + dd * 24 * HOUR;
+    let best = k, bd = Infinity;
+    view.forEach((h, i) => { const x = Math.abs(h[0] - want); if (x < bd) { bd = x; best = i; } });
+    el.value = best; lastMove = performance.now(); markFollow(); requestShow(); maybeLoadNear();
+  }
   function statusLine(extra) {
     const n = view.filter(fresh).length;
     const tr = S().traffic === 'on' && traffic ? (() => { const t = new Date(traffic.t * 1000);
@@ -397,7 +475,11 @@ window.AppWx = (() => {
       } else rd = radarErr ? `FMI radar not reachable${radarErr} — trying again in a few minutes · ` : 'FMI radar loading… · ';
     }
     const fn = wx && wx.fineShown() ? '2.5 km near the airport · ' : '';
-    status(`${tr}${rd}${fn}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
+    if (isGfs()) {
+      const pi = current && current.pi > 1 ? current.pi : 1;
+      if (!radarOn) rain = pi > 1 ? `rain / snow the mean of the ${pi} h before the shown time` : 'rain of the hour before the shown time';
+      status(`${tr}${rd}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · GFS NOAA/NCEP — beyond a week a rough guide only`);
+    } else status(`${tr}${rd}${fn}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
     $('app-wx-loading').hidden = n >= view.length || !view.length || S().load === 'near';
     $('app-wx-loading').textContent = `Loading ${n} / ${view.length} hours…`;
   }
@@ -676,8 +758,16 @@ window.AppWx = (() => {
       // the numbers need the temperature field only when neither Colours nor Isotherms load it
       if (key !== 'rain' && key !== 'pres' && (key !== 'tnum' || S().temp === 'off')) { loadFrames(); loadFine(); }
       else showFrame();
-    } else if (key === 'fc') buildView();
-    else if (key === 'grid') { bytes = 0; loadFrames(); }
+    } else if (key === 'fc' || key === 'gfc') buildView();
+    else if (key === 'grid' || key === 'ggrid') { bytes = 0; loadFrames(); }
+    else if (key === 'model') {                            // MEPS ↔ GFS (from 2026-11-05): the shown hour kept if the other has it
+      if (playing) play();
+      const keep = view[+$('app-wx-t').value]?.[0] ?? null;
+      hours = []; frames.clear(); loadedKey = ''; grid = null; fineFrames.clear(); fineKey = ''; bytes = 0;
+      wx.setFine(null, null, true);
+      setModelAttr(); wx.setOptions(layerOptions()); renderLegend();
+      loadIndex(false, keep);
+    }
     else if (key === 'load') loadFrames();
     else if (key === 'mapst') { applyMapStyle(); trafficLayer.redraw(); }
     else if (key === 'traffic') { if (S().traffic === 'on') loadTraffic(true); else { traffic = null; trails = {}; extClose(); trafficLayer.redraw(); closeTip(); } statusLine(); }

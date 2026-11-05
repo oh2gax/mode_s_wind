@@ -120,9 +120,11 @@
       <input type="range" id="app-wx-t" class="app-wx-slider" min="0" max="0" step="1" value="0" aria-label="Model hour">
       <div id="app-wx-ticks" class="app-wx-ticks" aria-hidden="true"></div>
       <div class="app-wx-btns">
+        <button type="button" id="app-wx-dprev" class="day" aria-label="One day back" hidden>−1d</button>
         <button type="button" id="app-wx-prev" aria-label="One hour back">−1h</button>
         <button type="button" id="app-wx-play" class="play" aria-label="Play">▶</button>
         <button type="button" id="app-wx-next" aria-label="One hour on">+1h</button>
+        <button type="button" id="app-wx-dnext" class="day" aria-label="One day on" hidden>+1d</button>
         <button type="button" id="app-wx-now">Now</button>
       </div>
       <!-- legend and status together keep the tallest height they had with the same options
@@ -308,7 +310,7 @@
     <button type="button" class="app-tile" data-view="aci"><b>EDR · WS · ACI · ST</b><small>turbulence · windshear · conditions</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
     <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
-    <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
+    <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS{% if gfs_on %} · GFS 16 d{% endif %} maps · air traffic</small></button>
     <button type="button" class="app-tile" data-view="mast"><b>Mast</b><small>Kivenlahti · lowest 300 m</small></button>
     <button type="button" class="app-tile" data-view="mg"><b>Meteogram</b><small>{{ airport_icao }} · MEPS{% if gfs_on %} · GFS{% endif %}</small></button>
     {% if gnss_view %}<button type="button" class="app-tile" data-view="gnss"><b>GNSS</b><small>GPS quality · Full view</small></button>{% endif %}
@@ -496,6 +498,15 @@
 
   <details class="app-sec" data-for="wx">
     <summary>Weather options</summary>
+    {% if gfs_on %}
+    <!-- the model (from 2026-11-05, GFS phase 3): MEPS, or NOAA's GFS to 16 days — only where the server has GFS -->
+    <div class="app-field"><span>Model</span>
+      <select id="app-wx-model" data-chips><option value="meps">MEPS</option><option value="gfs">GFS (16 days)</option></select></div>
+    <div class="app-field" id="app-wx-gfc-row"><span>GFS forecast</span>
+      <select id="app-wx-gfc" data-chips><option value="48">48 h</option><option value="120">5 d</option><option value="240">10 d</option><option value="384">16 d</option></select></div>
+    <div class="app-field" id="app-wx-ggrid-row"><span>GFS grid</span>
+      <select id="app-wx-ggrid" data-chips><option value="2">0.5°</option><option value="1">0.25°</option></select></div>
+    {% endif %}
     <!-- Rain source first, then Rain and snow (order from 2026-11-01) -->
     <div class="app-field"><span>Rain source</span>
       <select id="app-wx-src" data-chips><option value="meps">MEPS model</option><option value="radar">FMI radar</option><option value="both">Both</option></select></div>
@@ -526,11 +537,11 @@
       <select id="app-wx-tlbl" data-chips><option value="std">Standard</option><option value="atc">ATC</option></select></div>
     <div class="app-field"><span>Receivers (triangles)</span>
       <select id="app-wx-rxmk" data-chips><option value="on">On</option><option value="off">Off</option></select></div>
-    <div class="app-field"><span>Forecast</span>
+    <div class="app-field" id="app-wx-fc-row"><span>Forecast</span>
       <select id="app-wx-fc" data-chips><option value="24">24 h</option><option value="48">48 h</option></select></div>
-    <div class="app-field"><span>Grid</span>
+    <div class="app-field" id="app-wx-grid-row"><span>Grid</span>
       <select id="app-wx-grid" data-chips><option value="20">20 km</option><option value="10">10 km</option></select></div>
-    <div class="app-field"><span>Detail near EFHK</span>
+    <div class="app-field" id="app-wx-detail-row"><span>Detail near EFHK</span>
       <select id="app-wx-detail" data-chips><option value="auto">2.5 km when zoomed in</option><option value="off">Off</option></select></div>
     <div class="app-field"><span>Shading</span>
       <select id="app-wx-smooth" data-chips><option value="on">Smooth</option><option value="off">Cells</option></select></div>
@@ -538,7 +549,7 @@
       <select id="app-wx-load" data-chips><option value="all">All hours at once</option><option value="near">Near the slider</option></select></div>
     <div class="app-field"><span>Speed</span>
       <select id="app-wx-speed" data-chips><option value="slow">Slow</option><option value="normal">Normal</option><option value="fast">Fast</option></select></div>
-    <div class="app-small">The MEPS model of MET Norway (CC BY 4.0), the newest run, from 6 h back to 24 or 48 h ahead, hour by hour, over Finland and the Baltic Sea. Rain and snow of the hour before the shown time. <i>Temperature (2 m)</i>: <i>Colours</i> — bands of 2 °C, blue below freezing, cyan at 0 °C, then green, yellow, orange and red, with the 0 °C line; <i>Isotherms</i> — lines every 2 °C (4 °C zoomed out), 0 °C thick; a tap gives the value. <i>Temperature numbers</i> (on its own, also with Temperature Off): the whole degrees in one colour over the whole map, inland and at sea; <i>Temperature numbers grid</i>: <i>Normal</i> (about 2 cm apart), <i>Dense</i> (the default, about 1.5 cm) or <i>Very dense</i> (about 1 cm) — inside the 2.5 km detail box (zoomed in) the numbers are its own values on its own grid, so they can come as close as its cells. Stored from the runs of 1 Nov 2026 on. <i>Rain source</i>: the FMI radar (FMI open data, CC BY 4.0) is the newest composite — the rain rate of the last 5–15 minutes, about 2 km, Finland and the nearby seas — so it is shown only at the present hour (Now); the other hours show the model. <i>FMI radar</i>: the radar alone at Now; <i>Both</i>: the radar inside its coverage (dashed edge) and the model's rain outside it and as outlines inside it. About 10–150 kB every 4 minutes, depending on the rain. <i>Opacity</i> sets how strongly all the filled layers are drawn — rain and snow, the radar, gusts, clouds, fog and the temperature colours (75 % the default; isobars, barbs, lines and numbers stay as they are); with <i>Both</i> the model's rain outside the radar area is drawn a third fainter than the radar, so the radar stands out. <i>Detail near EFHK</i>: zoomed in (zoom 7 and closer) the model's full 2.5 km grid in a 300 × 300 km box around the airport (faint dotted edge) — showers, fog patches and the coast's effect sharper; about 8 kB per hour more with rain and isobars, about 30 kB with wind, gusts and clouds, only while zoomed in. <i>Shading</i>: <i>Smooth</i> (the default) draws the values interpolated between the grid points — rain, snow, the radar and gusts as smooth contour bands, clouds and fog as smooth shading, with the same values and colour steps; <i>Cells</i> each grid cell in one colour, as the model stores it. ▶ plays the loaded hours; tap the map for the values of a place (they follow the slider), or an aircraft for its details. Data per hour at 10 km: about 20 kB with rain and isobars, about 50 kB with wind and gusts, about 70 kB with clouds too — 54 hours with rain and isobars about 1 MB (20 km: about a third). "Near the slider" loads only ±6 h around it. Air traffic: the aircraft the receiver hears now, updated every 6 s (about 1–3 MB an hour), whatever hour the slider shows; the ATC map style and labels as on the Live Map — a research display, not for air traffic control. <i>Receivers</i>: the receivers as small triangles at their positions (to about 1 km; with more receivers each in its colour, RX-01 blue, RX-02 violet) — tap one for its name.</div>
+    <div class="app-small">{% if gfs_on %}<i>Model</i>: <i>MEPS</i> (below) or <i>GFS</i> — NOAA's global model (NOAA/NCEP), its newest 00 / 12 UTC run from the hour before now up to 16 days ahead (<i>GFS forecast</i> 48 h / 5 / 10 / 16 days), hourly to +120 h and then every 3 hours (the slider's −1h / +1h step 3 h there, the rain and snow are the mean of the 3 hours); −1d / +1d step a day. <i>GFS grid</i>: 0.5° (about 4–9 kB per hour) or the model's own 0.25°. GFS has no fog and no 2.5 km detail; a tap gives the cloud ceiling instead of the cloud base. For viewing — beyond a week a rough guide only. {% endif %}The MEPS model of MET Norway (CC BY 4.0), the newest run, from 6 h back to 24 or 48 h ahead, hour by hour, over Finland and the Baltic Sea. Rain and snow of the hour before the shown time. <i>Temperature (2 m)</i>: <i>Colours</i> — bands of 2 °C, blue below freezing, cyan at 0 °C, then green, yellow, orange and red, with the 0 °C line; <i>Isotherms</i> — lines every 2 °C (4 °C zoomed out), 0 °C thick; a tap gives the value. <i>Temperature numbers</i> (on its own, also with Temperature Off): the whole degrees in one colour over the whole map, inland and at sea; <i>Temperature numbers grid</i>: <i>Normal</i> (about 2 cm apart), <i>Dense</i> (the default, about 1.5 cm) or <i>Very dense</i> (about 1 cm) — inside the 2.5 km detail box (zoomed in) the numbers are its own values on its own grid, so they can come as close as its cells. Stored from the runs of 1 Nov 2026 on. <i>Rain source</i>: the FMI radar (FMI open data, CC BY 4.0) is the newest composite — the rain rate of the last 5–15 minutes, about 2 km, Finland and the nearby seas — so it is shown only at the present hour (Now); the other hours show the model. <i>FMI radar</i>: the radar alone at Now; <i>Both</i>: the radar inside its coverage (dashed edge) and the model's rain outside it and as outlines inside it. About 10–150 kB every 4 minutes, depending on the rain. <i>Opacity</i> sets how strongly all the filled layers are drawn — rain and snow, the radar, gusts, clouds, fog and the temperature colours (75 % the default; isobars, barbs, lines and numbers stay as they are); with <i>Both</i> the model's rain outside the radar area is drawn a third fainter than the radar, so the radar stands out. <i>Detail near EFHK</i>: zoomed in (zoom 7 and closer) the model's full 2.5 km grid in a 300 × 300 km box around the airport (faint dotted edge) — showers, fog patches and the coast's effect sharper; about 8 kB per hour more with rain and isobars, about 30 kB with wind, gusts and clouds, only while zoomed in. <i>Shading</i>: <i>Smooth</i> (the default) draws the values interpolated between the grid points — rain, snow, the radar and gusts as smooth contour bands, clouds and fog as smooth shading, with the same values and colour steps; <i>Cells</i> each grid cell in one colour, as the model stores it. ▶ plays the loaded hours; tap the map for the values of a place (they follow the slider), or an aircraft for its details. Data per hour at 10 km: about 20 kB with rain and isobars, about 50 kB with wind and gusts, about 70 kB with clouds too — 54 hours with rain and isobars about 1 MB (20 km: about a third). "Near the slider" loads only ±6 h around it. Air traffic: the aircraft the receiver hears now, updated every 6 s (about 1–3 MB an hour), whatever hour the slider shows; the ATC map style and labels as on the Live Map — a research display, not for air traffic control. <i>Receivers</i>: the receivers as small triangles at their positions (to about 1 km; with more receivers each in its colour, RX-01 blue, RX-02 violet) — tap one for its name.</div>
   </details>
 
   <details class="app-sec" data-for="hist">
@@ -687,7 +698,8 @@
 <!-- the Meteogram view (from 2026-11-05): the Weather page's meteogram drawing, compact -->
 <script>
   const MG_AIRPORT = { icao: {{ airport_icao|tojson }}, lat: {{ airport_lat|tojson }}, lon: {{ airport_lon|tojson }} };
-  const MG_GFS = {{ 'true' if gfs_on else 'false' }};
+  const APP_GFS = {{ 'true' if gfs_on else 'false' }};   // the server has the GFS forecast (GFS_WX): the Meteogram and the Weather view's Model
+  const MG_GFS = APP_GFS;
 </script>
 <script src="{{ url_for('static', filename='js/meteogram.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app_mg.js') }}"></script>

@@ -1867,7 +1867,10 @@
                     speed: ['normal', 'slow', 'fast'], src: ['meps', 'radar', 'both'],
                     op: ['75', '25', '50', '100'], detail: ['auto', 'off'],   // op: one Opacity (2026-11-01; was rainop / radarop)
                     smooth: ['on', 'off'], temp: ['off', 'fill', 'lines'], tnum: ['off', 'on'], tgrid: ['dense', 'normal', 'vdense'],
-                    rxmk: ['on', 'off'] };   // rxmk: the receivers' triangles (from 2026-11-02 evening)   // the first value is the default (smooth: from 2026-10-31, temp / tnum: 2026-11-01)
+                    rxmk: ['on', 'off'],
+                    // GFS (from 2026-11-05, phase 3; only where the server has it — APP_GFS): the model,
+                    // its forecast length (h) and its grid step (2 = 0.5°, 1 = 0.25°)
+                    model: ['meps', 'gfs'], gfc: ['384', '48', '120', '240'], ggrid: ['2', '1'] };   // rxmk: the receivers' triangles (from 2026-11-02 evening)   // the first value is the default (smooth: from 2026-10-31, temp / tnum: 2026-11-01)
   const W = {};
   // the single Opacity (from 2026-11-01) starts from the phone's former choice: the radar's
   // with a radar source, the model rain's otherwise
@@ -1879,15 +1882,27 @@
     const v = lsGet('ms_app_wx_' + k, vals[0]);
     W[k] = vals.includes(v) ? v : vals[0];
     const el = $('app-wx-' + k);
+    if (!el) { W[k] = vals[0]; continue; }              // the GFS options without GFS on the server
     el.value = W[k];
     el.addEventListener('change', e => {
       W[k] = e.target.value; lsSet('ms_app_wx_' + k, W[k]);
+      if (k === 'model') wxModelUi();
       if (window.AppWx && window.AppWx.ready()) window.AppWx.option(k);
     });
   }
+  // the options of the model shown (from 2026-11-05): GFS has its own Forecast and Grid, no
+  // 2.5 km detail and no fog
+  function wxModelUi() {
+    const g = W.model === 'gfs';
+    [['app-wx-fc-row', !g], ['app-wx-grid-row', !g], ['app-wx-detail-row', !g], ['app-wx-gfc-row', g], ['app-wx-ggrid-row', g]]
+      .forEach(([id, on]) => { if ($(id)) $(id).hidden = !on; });
+    const fog = $('app-wx-cloud')._chips && $('app-wx-cloud')._chips.querySelector('[data-v="f"]');
+    if (fog) { fog.disabled = g; fog.title = g ? 'Fog: MEPS only' : ''; }
+  }
+  wxModelUi();
   const WXL = { loading: null };
   async function openWx() {
-    $('app-sub').textContent = 'MEPS maps · loading…';
+    $('app-sub').textContent = `${W.model === 'gfs' ? 'GFS' : 'MEPS'} maps · loading…`;
     if (!(window.AppWx && window.AppWx.ready())) {
       if (!WXL.loading) {
         WXL.loading = loadLeaflet()
@@ -1908,9 +1923,9 @@
   // the Weather view; the options before the first preset are kept (ms_app_pilot_wxsave) for
   // "Back to my settings"
   const WX_PRESET = {
-    app: { src: 'both', rain: 'on', pres: 'off', wind: 'on', gust: 'on', cloud: 'l', temp: 'off', traffic: 'on' },
-    ice: { src: 'meps', rain: 'on', pres: 'off', wind: 'off', gust: 'off', cloud: 'c', temp: 'lines', traffic: 'off' },
-    fog: { src: 'meps', rain: 'off', pres: 'off', wind: 'on', gust: 'off', cloud: 'f', temp: 'off', traffic: 'on' },
+    app: { model: 'meps', src: 'both', rain: 'on', pres: 'off', wind: 'on', gust: 'on', cloud: 'l', temp: 'off', traffic: 'on' },
+    ice: { model: 'meps', src: 'meps', rain: 'on', pres: 'off', wind: 'off', gust: 'off', cloud: 'c', temp: 'lines', traffic: 'off' },
+    fog: { model: 'meps', src: 'meps', rain: 'off', pres: 'off', wind: 'on', gust: 'off', cloud: 'f', temp: 'off', traffic: 'on' },
   };
   function wxPreset(p) {
     const saved = lsGet('ms_app_pilot_wxsave', null);
