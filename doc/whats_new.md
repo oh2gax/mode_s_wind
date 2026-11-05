@@ -11,6 +11,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Fewer false turboprop departure advisories** — ATR climb-outs measure the wind less steadily at 1 600–1 800 ft, where they accelerate and turn, so their windshear limits there are a little higher; frontal events are still caught. Windshear guide 2.43.
 - **Statistics page** — the receivers' panel (*Receivers · merged*) is now at the top of the right column, the reply cadence under the range rings. In *All receivers* the Signal strength panel now just says why it is empty, with a button per receiver, and your receiver choice stays after an update.
 - **Windshear charts on a chosen day** — the readouts now say *23:00–24:00 UTC* and the date, not *Last 1h*.
+- **Ready for a second Radarcape** — the Statistics page shows another Radarcape's own GPS and receiver status in its receiver panel, and its feed dot warns when its GPS is not working.
 - **Sounding guide 3.11** — a new section on the **Mast** view: the Kivenlahti mast's lowest 300 m against the aircraft, the model and the sonde, and the mast in the time–height section and on the Skew-T, with the night inversion of 3–4 November.
 
 - **Departures back in the flight-by-flight fields** — after yesterday's update the boundary layer's flight-by-flight headwind fields (and the departures' headwind profile in the Approach History) showed only the newest departures; the older ones are filled in again after this update.

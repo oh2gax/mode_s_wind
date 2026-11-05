@@ -30,6 +30,12 @@ The receiver's own GPS position is the centre of the range rings while it is
 good (live fix, antenna OK, 3+ satellites, read within 15 min); otherwise
 ANTENNA_LAT / ANTENNA_LON from config.py, and without them the map centre
 (collector/msg_stats.py choose_site; from 2026-10-26).
+
+Another Radarcape (from 2026-11-05): an EXTRA_RECEIVERS entry of type
+"radarcape" with "rc_status_url" (e.g. "http://127.0.0.1:8013/systemstatus.json"
+through its tunnel) gets a RadarcapeStatus of its own (rx_id = its id), polled
+by collector/multirx.py: the same fields, its bytes counted as "status2", and
+it leaves the main receiver's health dot and range-ring centre alone.
 """
 
 from __future__ import annotations
@@ -74,8 +80,9 @@ FPGA_NEED = (("BIN", "AVR", "Beast binary output"),
 
 
 class RadarcapeStatus:
-    def __init__(self, host: str, enabled: bool = True, url: str = "") -> None:
+    def __init__(self, host: str, enabled: bool = True, url: str = "", rx_id: str | None = None) -> None:
         self.host = host
+        self.rx_id = rx_id                        # None: the main receiver; else another Radarcape's id
         self.status_url = (url or "").strip()     # RADARCAPE_STATUS_URL, optional
         self.enabled = enabled and bool(host or self.status_url)
         self._lock = threading.Lock()
@@ -98,14 +105,15 @@ class RadarcapeStatus:
         try:
             with urllib.request.urlopen(self.url, timeout=TIMEOUT) as r:
                 body = r.read(64 * 1024)
-                traffic.add("status", len(body) + 150 + sum(len(k) + len(v) + 4 for k, v in r.headers.items()))
+                traffic.add("status" if self.rx_id is None else "status2", len(body) + 150 + sum(len(k) + len(v) + 4 for k, v in r.headers.items()))
                 raw = json.loads(body.decode("utf-8", "replace"))
             if not isinstance(raw, dict):
                 raise ValueError("not a JSON object")
         except Exception as exc:                    # noqa: BLE001
             with self._lock:
                 self.err, self.err_ts = exc.__class__.__name__, now
-            hb.fail("radarcape", "no answer from the Radarcape status")
+            if self.rx_id is None:
+                hb.fail("radarcape", "no answer from the Radarcape status")
             log.debug("Radarcape status not read: %s", exc)
             return False
         pos = raw.get("position") or {}
@@ -133,7 +141,8 @@ class RadarcapeStatus:
                 while self._temps and now - self._temps[0][0] > TEMP_KEEP_SEC:
                     self._temps.popleft()
             self.data, self.ok_ts, self.err = d, now, None
-        hb.beat("radarcape")
+        if self.rx_id is None:
+            hb.beat("radarcape")
         return True
 
     def run(self) -> None:

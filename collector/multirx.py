@@ -43,7 +43,14 @@ Every receiver has:
     same bytes within DUP_SEC (5 ms) of the lined-up time = heard by both;
   • (optional status_url) readsb's status once a minute: receiver.json gives
     the antenna position (readsb-set-location at the site — a mobile station
-    needs no change here), stats.json the message counts.
+    needs no change here), stats.json the message counts;
+  • (optional rc_status_url, another Radarcape; from 2026-11-05) its own
+    systemstatus.json once a minute (collector/radarcape_status.py, a
+    RadarcapeStatus of its own): the GPS flags, the receiver settings, the
+    versions, the GPS module temperature and its GPS position — the centre of
+    its range rings while the fix is good (live, antenna OK, 3+ satellites),
+    else its lat / lon (EXTRA_RECEIVERS), else the map centre.  The exact
+    position stays on the server (a private receiver: to 0.01° on the pages).
 
 The merger: every frame goes in at arrival with its time t; the same bytes
 within 5 ms (both times precise: GPS / lined up) or 0.25 s (one of them on a
@@ -352,6 +359,12 @@ class Rx:
         self.clock = clock if clock in CLOCK_HZ or clock == "gps" else "12mhz"
         self.hz = CLOCK_HZ.get(self.clock)
         self.status_url = spec.get("status_url") or None
+        # another Radarcape's own status page (systemstatus.json; from 2026-11-05)
+        self.rc_status_url = (spec.get("rc_status_url") or None) if not main else None
+        self.rcs = None
+        if self.rc_status_url:
+            from collector.radarcape_status import RadarcapeStatus
+            self.rcs = RadarcapeStatus("", url=str(self.rc_status_url), rx_id=self.id)
         # its own aircraft list for the local JSON feed (collector/json_feed.py, from 2026-11-03):
         # readsb's aircraft.json under status_url, or json_url (e.g. a Radarcape's aircraftlist.json)
         self.json_url = spec.get("json_url") or None
@@ -753,6 +766,47 @@ class Rx:
                 self.status_err = f"not read ({exc.__class__.__name__})"
             time.sleep(STATUS_SEC)
 
+    # ── another Radarcape's own status (systemstatus.json; from 2026-11-05) ──
+    def _set_rc_site(self) -> None:
+        """Its range-ring centre: its GPS position while the fix is good, else
+        lat / lon of its EXTRA_RECEIVERS entry, else the map centre."""
+        rcs, ms = self.rcs, self.ms
+        why = rcs.position_problem()
+        p = (rcs.data or {}).get("position") or {}
+        ms.site_cfg = self.cfg_pos
+        if why is None:
+            ms.choose_site((p["lat"], p["lon"]))
+            if isinstance(p.get("alt"), (int, float)):
+                ms.site_alt = p["alt"]                  # hidden on the pages for a private receiver
+        else:
+            ms.choose_site(None, why)
+
+    def run_rc_status(self) -> None:
+        time.sleep(5)
+        while True:
+            try:
+                self.rcs.poll_once()
+                self._set_rc_site()
+            except Exception as exc:               # noqa: BLE001
+                log.debug("%s: Radarcape status error: %s", self.id, exc)
+            time.sleep(STATUS_SEC)
+
+    def rc_public(self) -> dict | None:
+        """Its Radarcape status for the page, without the exact position (the
+        site row gives it, rounded for a private receiver)."""
+        if self.rcs is None:
+            return None
+        out = self.rcs.public()
+        d = out.get("data")
+        if d:
+            p = d.get("position") or {}
+            d = dict(d, position={"known": isinstance(p.get("lat"), (int, float)),
+                                  "live": p.get("live") is True, "alias": bool(p.get("alias")),
+                                  "alt": None if self.private else p.get("alt")})
+            out["data"] = d
+        out["pos_why"] = self.rcs.position_problem()
+        return out
+
     # ── the page ─────────────────────────────────────────────────────────
     def rate_now(self):
         """Frames per second in the last complete 10 s (None: none yet)."""
@@ -813,6 +867,7 @@ class Rx:
             "site": {"src": self.ms.site_src, "private": self.private,
                      "pos": self.ms._pub_site(self.ms.site)},
             "readsb": st if self.status_url else None,
+            "radarcape": self.rc_public(),
         }
 
 
@@ -864,9 +919,12 @@ def start(rxs: list) -> None:
         threading.Thread(target=rx.run, name=f"rx_{rx.id}", daemon=True).start()
         if rx.status_url:
             threading.Thread(target=rx.run_status, name=f"rxs_{rx.id}", daemon=True).start()
-        log.info("Other receiver %s (%s, %s clock) %s at %s:%d%s", rx.id, rx.type, rx.clock,
+        if rx.rcs is not None:
+            threading.Thread(target=rx.run_rc_status, name=f"rxc_{rx.id}", daemon=True).start()
+        log.info("Other receiver %s (%s, %s clock) %s at %s:%d%s%s", rx.id, rx.type, rx.clock,
                  "merged" if _state["merge"] else "watched", rx.host, rx.port,
-                 " with readsb status" if rx.status_url else "")
+                 " with readsb status" if rx.status_url else "",
+                 " with Radarcape status" if rx.rcs is not None else "")
 
 
 def active() -> bool:

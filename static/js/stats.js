@@ -229,6 +229,35 @@
     const r = Math.PI / 180, x = (e - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r;
     return 6371000 * Math.hypot(x, y);
   }
+  // the Radarcape status rows (systemstatus.json): the main receiver's panel and,
+  // from 2026-11-05, another Radarcape's (EXTRA_RECEIVERS with rc_status_url).
+  // Writes GPS / GPS module / Time / Uptime at once; tail() writes Settings / Versions.
+  function rcRows(rc, row) {
+    const x = rc.data;
+    const red = new Set(['AntFail', 'notTrack', 'noSync', 'PpsFail', 'TsipUbxFail']);
+    const gps = (rc.gps_flags || []).map(f => chip(f, f.ok ? 'ok' : red.has(f.flag) ? 'err' : 'warn')).join('');
+    const fpga = (rc.fpga_flags || []).map(f => chip(f, f.ok ? 'ok' : 'warn')).join('')
+      + (rc.fpga_other || []).map(f => chip({ flag: f, text: 'other setting' }, '')).join('');
+    const t = x.temp, tcls = t == null ? '' : t >= 85 ? 'mst-rc-err' : t >= 70 ? 'mst-rc-warn' : '';
+    row('GPS', `<span class="mst-rc-chips">${gps}</span>`, 'The GPS flags of the receiver (hover a flag): green as it should be, red a fault that spoils the timestamps (MLAT, the GPS quality monitor), amber a minor condition');
+    row('GPS module', t == null ? '—' : `<span class="${tcls}">${fmt(t, 1)} °C</span> <span class="mst-dim2">(≈ ${fmt(t - 20, 0)} °C around it)</span>`
+      + (rc.temp_min != null && rc.temp_n > 1 ? ` <span class="mst-dim2">· ${fmt(rc.temp_min, 0)}–${fmt(rc.temp_max, 0)} °C over ${rc.temp_n >= 1400 ? '24 h' : dur(rc.temp_n * 60)} (since the server started)</span>` : ''),
+      'Temperature of the GPS module inside the receiver. It runs about 20 K above the air around it (Jetvision), so it is not the air temperature. Amber from 70 °C, red from 85 °C (about 50 / 65 °C around it)');
+    const off = x.gps_time != null && x.sys_time != null ? x.sys_time - x.gps_time : null;
+    row('Time', `timestamps ${esc(x.mlat_time_source || '?')} · system clock ${esc(x.ntp_source || '?')}`
+      + (x.ntp_rms != null ? `, RMS offset ${x.ntp_rms} µs` : '')
+      + (off != null ? ` · system − GPS ${off > 0 ? '+' : ''}${off} s` : ''),
+      'Where the message timestamps and the receiver\'s system clock get their time (NTP RMS offset: the receiver\'s system clock against its time source, in microseconds)');
+    row('Uptime', `receiver software ${dur(x.rcd_uptime)} · system ${dur(x.os_uptime)}`
+      + (rc.restart_ts ? ` · <span class="mst-rc-warn">software restart seen ${hhmm(rc.restart_ts)} UTC</span>` : ''));
+    return {
+      tail() {
+        row('Settings', `<span class="mst-rc-chips">${fpga}</span>`, 'Receiver (FPGA) settings that MODE-S Wind relies on (hover a setting); amber = differs from what this system expects');
+        row('Versions', `${esc(x.sw_type || '')} software ${esc(x.sw_ver || '—')}<span class="mst-dim2"> · FPGA ${esc(x.fpga_ver || '—')}</span>`,
+          `${x.board || ''}${x.distribution ? ', OS ' + x.distribution : ''}`);
+      },
+    };
+  }
   function renderRc(d) {
     const rc = d.radarcape, tb = $('mst-rc'), foot = $('mst-rc-foot');
     if (!tb) return;
@@ -249,24 +278,9 @@
       foot.innerHTML = '';
       return;
     }
-    const red = new Set(['AntFail', 'notTrack', 'noSync', 'PpsFail', 'TsipUbxFail']);
-    const gps = (rc.gps_flags || []).map(f => chip(f, f.ok ? 'ok' : red.has(f.flag) ? 'err' : 'warn')).join('');
-    const fpga = (rc.fpga_flags || []).map(f => chip(f, f.ok ? 'ok' : 'warn')).join('')
-      + (rc.fpga_other || []).map(f => chip({ flag: f, text: 'other setting' }, '')).join('');
-    const t = x.temp, tcls = t == null ? '' : t >= 85 ? 'mst-rc-err' : t >= 70 ? 'mst-rc-warn' : '';
     const rows = [];
     const row = (k, v, title) => rows.push(`<tr><td${title ? ` title="${esc(title)}"` : ''}>${k}</td><td>${v}</td></tr>`);
-    row('GPS', `<span class="mst-rc-chips">${gps}</span>`, 'The GPS flags of the receiver (hover a flag): green as it should be, red a fault that spoils the timestamps (MLAT, the GPS quality monitor), amber a minor condition');
-    row('GPS module', t == null ? '—' : `<span class="${tcls}">${fmt(t, 1)} °C</span> <span class="mst-dim2">(≈ ${fmt(t - 20, 0)} °C around it)</span>`
-      + (rc.temp_min != null && rc.temp_n > 1 ? ` <span class="mst-dim2">· ${fmt(rc.temp_min, 0)}–${fmt(rc.temp_max, 0)} °C over ${rc.temp_n >= 1400 ? '24 h' : dur(rc.temp_n * 60)} (since the server started)</span>` : ''),
-      'Temperature of the GPS module inside the receiver. It runs about 20 K above the air around it (Jetvision), so it is not the air temperature. Amber from 70 °C, red from 85 °C (about 50 / 65 °C around it)');
-    const off = x.gps_time != null && x.sys_time != null ? x.sys_time - x.gps_time : null;
-    row('Time', `timestamps ${esc(x.mlat_time_source || '?')} · system clock ${esc(x.ntp_source || '?')}`
-      + (x.ntp_rms != null ? `, RMS offset ${x.ntp_rms} µs` : '')
-      + (off != null ? ` · system − GPS ${off > 0 ? '+' : ''}${off} s` : ''),
-      'Where the message timestamps and the receiver\'s system clock get their time (NTP RMS offset: the receiver\'s system clock against its time source, in microseconds)');
-    row('Uptime', `receiver software ${dur(x.rcd_uptime)} · system ${dur(x.os_uptime)}`
-      + (rc.restart_ts ? ` · <span class="mst-rc-warn">software restart seen ${hhmm(rc.restart_ts)} UTC</span>` : ''));
+    const rcr = rcRows(rc, row);
     const p = x.position, rg = d.range || {};
     if (p && p.lat != null) {
       let pos = `${Number(p.lat).toFixed(4)}° N ${Number(p.lon).toFixed(4)}° E`
@@ -279,9 +293,7 @@
       }
       row('Position', pos, 'The receiver\'s GPS position and height (GPS height, about the height above sea level)');
     }
-    row('Settings', `<span class="mst-rc-chips">${fpga}</span>`, 'Receiver (FPGA) settings that MODE-S Wind relies on (hover a setting); amber = differs from what this system expects');
-    row('Versions', `${esc(x.sw_type || '')} software ${esc(x.sw_ver || '—')}<span class="mst-dim2"> · FPGA ${esc(x.fpga_ver || '—')}</span>`,
-      `${x.board || ''}${x.distribution ? ', OS ' + x.distribution : ''}`);
+    rcr.tail();
     const fe = Object.entries(x.feeders || {}).map(([k, v]) => `${esc(k.replace(/_/g, ' '))} ${esc(String(v).replace(/^[a-z0-9]+_/i, ''))}`);
     const inet = Object.entries(x.internet || {});
     const on = inet.filter(([, v]) => String(v).toUpperCase() !== 'DISABLED');
@@ -305,7 +317,7 @@
     const x = d.rx, tb = $('mst-rc'), foot = $('mst-rc-foot');
     const mainId = d.main_id || ((d.receivers || [])[0] ? d.receivers[0].id : 'the main receiver');
     if ($('mst-rc-title')) $('mst-rc-title').textContent = `${RX_TYPE_SHORT[x.type] || 'Receiver'} receiver · ${x.id}`;
-    const f = x.feed, ck = x.clock, cm = x.cmp, rs = x.readsb, dl = x.delay;
+    const f = x.feed, ck = x.clock, cm = x.cmp, rs = x.readsb, dl = x.delay, rcs = x.radarcape;
     const rows = [];
     const row = (k, v, t) => rows.push(`<tr${t ? ` title="${esc(t)}"` : ''}><td>${esc(k)}</td><td>${v}</td></tr>`);
     row('Receiver', `<b>${esc(x.id)}</b> · ${esc(x.name)} · ${esc(RX_TYPE[x.type] || x.type)}`);
@@ -316,11 +328,15 @@
       'Its Beast stream, read through its own tunnel; the frames counted here are the Mode S frames');
     const sp = x.site || {}, pos = sp.pos;
     row('Position', (pos ? `${pos[0].toFixed(sp.private ? 2 : 3)}° N ${pos[1].toFixed(sp.private ? 2 : 3)}° E${sp.private ? ' (shown to about 1 km)' : ''}` : '—')
-      + ` · ${{ readsb: 'set in its readsb (receiver.json)', config: 'from EXTRA_RECEIVERS', centre: 'not known — the map centre in use' }[sp.src] || ''}`,
-      'The centre of the range rings. A mobile station: set the position in readsb at the site (readsb-set-location); it is read once a minute');
+      + ` · ${{ readsb: 'set in its readsb (receiver.json)', radarcape: 'its own GPS position', config: 'from EXTRA_RECEIVERS', centre: 'not known — the map centre in use' }[sp.src] || ''}`
+      + (rcs && rcs.pos_why && sp.src !== 'radarcape' ? ` <span class="mst-rc-warn">· its GPS position not used: ${esc(rcs.pos_why)}</span>` : ''),
+      rcs ? 'The centre of the range rings: the Radarcape\'s own GPS position while its fix is good (read once a minute), else lat / lon of its EXTRA_RECEIVERS entry'
+        : 'The centre of the range rings. A mobile station: set the position in readsb at the site (readsb-set-location); it is read once a minute');
     const cst = ck.state === 'sync'
       ? `<span class="mst-ok">lined up with ${esc(mainId)}'s GPS time</span> (${ck.pairs} ADS-B pairs${ck.spread_us != null ? `, spread ${fmt(ck.spread_us, 0)} µs` : ''}${ck.ppm != null ? `, drift ${ck.ppm > 0 ? '+' : ''}${fmt(ck.ppm, 1)} ppm` : ''})`
       : ck.state === 'own' ? `<span class="mst-rc-warn">own clock</span> — ${ck.main_gps ? 'not yet lined up' : `no GPS time from ${esc(mainId)} now`}; accurate to some tens of ms`
+      : ck.state === 'gps' ? '<span class="mst-ok">its own GPS time</span> — exact, on the same scale as ' + esc(mainId) + '\'s'
+      : ck.state === 'nogps' ? `<span class="mst-rc-warn">no GPS time</span> — its arrival time is used (no GPS lock, or the timestamps set to 12 MHz)${ck.nogps ? ` · ${nfmt(ck.nogps)} frames` : ''}`
       : 'starting';
     row('Clock', `${esc(CLOCK_NAME[ck.kind] || ck.kind)} · ${cst}${ck.resets ? ` · ${ck.resets} counter restart${ck.resets > 1 ? 's' : ''}` : ''}`,
       'The receiver stamps each reply with a free-running counter, not real time. It is lined up with the main receiver\'s GPS time from the ADS-B messages both heard; the spread is mostly the different distance from the aircraft to the two antennas');
@@ -337,6 +353,17 @@
         'Track and turn reports of aircraft low on the approach or the climb-out (altitude from the replies)');
     } else {
       row(`Compared with ${mainId}`, cm.frames ? `not now — no GPS-timed frames from ${esc(mainId)}` : '—');
+    }
+    if (rcs) {
+      if (rcs.data) {
+        rcRows(rcs, row).tail();
+        const age = d.now - rcs.ok_ts;
+        row('Status page', `read ${ago(age)} ago` + (rcs.err && rcs.err_ts > rcs.ok_ts ? ' · <span class="mst-rc-warn">last try failed</span>' : ''),
+          'Its own status page (systemstatus.json), read once a minute through its tunnel');
+      } else {
+        row('Status page', `<span class="mst-rc-warn">${rcs.err ? 'no answer yet (' + esc(rcs.err) + ')' : 'waiting for the first reading…'}</span>`,
+          'Its own status page (systemstatus.json), read once a minute through its tunnel (rc_status_url)');
+      }
     }
     if (rs) {
       const parts = [];
@@ -355,7 +382,8 @@
         : 'This receiver is watched: its own Beast stream is decoded for these statistics and compared with ')
       + `${esc(mainId)}'s${d.merged ? '' : ', whose replies alone give the weather'}. Each of its replies is looked up in ${esc(mainId)}'s stream (after waiting 0.6 s for it to arrive): `
       + 'the same bits at the same time are the same transmission heard by both, the rest is what this receiver adds. '
-      + 'Its signal levels are on its own scale, not comparable with the Radarcape\'s. Network details are not shown.';
+      + (x.type === 'radarcape' ? 'Its signal levels are on its own scale (another antenna and cable). ' : 'Its signal levels are on its own scale, not comparable with the Radarcape\'s. ')
+      + (rcs ? `Its status page gives the GPS flags and its GPS position${x.site && x.site.private ? ' (to about 1 km here)' : ''}. ` : '') + 'Network details are not shown.';
   }
   // all receivers merged (RECEIVERS_MERGE; from 2026-11-02 afternoon): the receivers and the merger
   function renderMerged(d) {
@@ -648,7 +676,7 @@
     const xr = d.rx && d.rx.view === 'extra' ? d.rx : null, sdec = xr && xr.site && xr.site.private ? 2 : 3;
     $('mst-rng-foot').innerHTML = leg + '<br>The farthest accepted position in each 10° sector, by altitude band, from the antenna '
       + `(${site.length ? site[0].toFixed(sdec) + '° N ' + site[1].toFixed(sdec) + '° E' + (sdec === 2 ? ', shown to about 1 km' : '') : '—'}${rg.site_alt != null ? ', ' + fmt(rg.site_alt, 0) + ' m' : ''}; `
-      + `${xr ? { readsb: 'the position set in the receiver\'s readsb (receiver.json)', config: 'lat / lon of its EXTRA_RECEIVERS entry',
+      + `${xr ? { readsb: 'the position set in the receiver\'s readsb (receiver.json)', radarcape: 'the receiver\'s own GPS position', config: 'lat / lon of its EXTRA_RECEIVERS entry',
                   centre: 'the map centre — the receiver gives no position and its EXTRA_RECEIVERS entry has no lat / lon' }[rg.site_src] || ''
          : { radarcape: 'the Radarcape\'s own GPS position' + (rg.site_cfg ? ', ANTENNA_LAT / ANTENNA_LON as the fallback' : ''),
              config: 'ANTENNA_LAT / ANTENNA_LON in config.py' + (rg.site_rc_why ? ' — the Radarcape\'s GPS position not used: ' + rg.site_rc_why : ''),

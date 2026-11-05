@@ -457,7 +457,19 @@ def _extra_rx_items(items: dict, now: float, up: float) -> list:
             det.append(f"connected {_ago(now - f['connected_ts'])}, {f['connects']} connection(s) since the server started")
         det.append({"sync": f"clock lined up with {m['id']} ({ck['pairs']} ADS-B pairs)",
                     "own": "own clock (no GPS time from " + m["id"] + " now)",
+                    "gps": "its own GPS time",
+                    "nogps": f"no GPS time in its stamps ({ck['nogps']} frames) — arrival time used",
                     "starting": "clock starting"}.get(ck["state"], ck["state"]))
+        # another Radarcape's own status page (from 2026-11-05): its GPS faults
+        rcs = p.get("radarcape")
+        gps_red = []
+        if rcs and rcs.get("data"):
+            from collector.radarcape_status import gps_problems
+            gps_red, gps_amber = gps_problems(rcs["data"].get("gps"))
+            if gps_red or gps_amber:
+                det.append("GPS: " + ", ".join(gps_red + gps_amber))
+        elif rcs and rcs.get("err"):
+            det.append("its status page not read (" + str(rcs["err"]) + ")")
         if cm["compared"]:
             det.append(f"{100 * cm['only'] / cm['compared']:.1f} % of its replies heard only here (10 min)")
         label = "Feed " + _short_rx(xr.id)
@@ -474,6 +486,8 @@ def _extra_rx_items(items: dict, now: float, up: float) -> list:
         elif age < 60:
             r = xr.rate_now()
             st, text = "ok", f"Live — {r:.0f} messages/s" if r is not None else "Live"
+            if ck["state"] == "nogps" or gps_red:           # a Radarcape without GPS time / with a GPS fault
+                st, text = "warn", text + (", no GPS time" if ck["state"] == "nogps" else ", GPS fault")
         else:
             st, text = "warn", f"Silent for {_ago(age)}" + (f" — {f['err']}" if f["err"] else "")
         text = text[:1].upper() + text[1:]
