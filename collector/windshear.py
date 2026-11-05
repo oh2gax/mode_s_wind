@@ -2055,6 +2055,10 @@ class WindshearTracker:
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
             if bad:
                 rep["gq"] = bad
+                # which of them by the position-freeze test (from 5 Nov 2026; the rest: low NACp)
+                fz = sorted(set(st.get("gq_f") or ()) & set(bad))
+                if fz:
+                    rep["gqf"] = fz
             _shear.mark_unverified(rep)
             trial = self._dep_trial_ramps(st, rwy, hdg, now, bad)
             if trial:

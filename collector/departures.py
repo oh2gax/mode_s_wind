@@ -99,12 +99,20 @@ SERIES_MAX_ROWS  = 600         # per list per climb-out (≈ 10 min at 1 reply/s
 # GNSS gate of the band comparison (from 2026-11-04, collector/shear.py
 # gnss_bad_bands): the 200 ft bands of the climb where its GNSS was degraded —
 # a fresh NACp ≤ shear.GNSS_UNV_NACP, or the position frozen (moved less than
-# DEP_FREEZE_MIN_NM while climbing more than DEP_BAND_TOL ft, the departures'
+# DEP_FREEZE_MIN_NM while climbing more than DEP_FREEZE_CLIMB_FT, the departures'
 # form of the approach freeze gate).  Kept as "gq_n" (low NACp) and "gq_f"
 # (frozen) sets of bands; a low-NACp band with ADS-B velocity is not degraded
-# (WindshearTracker.dep_shear, stored as "gq" in the report).
+# (WindshearTracker.dep_shear, stored as "gq" in the report, the frozen ones
+# also as "gqf" from 5 Nov 2026).
+# DEP_FREEZE_CLIMB_FT (from 5 Nov 2026; until then DEP_BAND_TOL, 100 ft): a jet
+# climbing 3 000 fpm at 150 kt passes 100 ft in 2 s and only ≈ 0.08 NM, so one
+# late position update was enough — 5 Nov 2026 03:45–08:46 UTC 9 of 64
+# departures (jets with ADS-B velocity, NACp normal) got a single "frozen" band
+# at 400–1 400 ft, the 41 landings none.  300 ft takes at least ≈ 0.2 NM at the
+# steepest climb-outs; a GNSS-frozen position stays frozen far longer.
 DEP_GNSS_FRESH_SEC = 30.0       # NACp older than this is ignored (as windshear.GNSS_FRESH_SEC)
 DEP_FREEZE_MIN_NM  = 0.05
+DEP_FREEZE_CLIMB_FT = 300.0     # ft climbed with the position still → frozen
 DEP_MARK_SEC     = 900.0       # a finished climb-out stays marked as a departure for the maps (2026-10-29)
 
 
@@ -313,7 +321,7 @@ class DepartureTracker:
         """The GNSS gate's bands of the climb: this sweep's band when the NACp
         is degraded ("gq_n") or the position is frozen ("gq_f"; anchor: the
         position moved less than DEP_FREEZE_MIN_NM while the aircraft climbed
-        DEP_BAND_TOL ft)."""
+        DEP_FREEZE_CLIMB_FT)."""
         from collector.shear import GNSS_UNV_NACP
         nacp, nts = ac.get("nac_p"), ac.get("nac_p_ts")
         deg = nacp is not None and nts is not None and now - nts <= DEP_GNSS_FRESH_SEC and nacp <= GNSS_UNV_NACP
@@ -323,7 +331,7 @@ class DepartureTracker:
         an = st.get("fz_anchor")
         if an is None or alt_msl < an[2] or _dist_nm(an[0], an[1], lat, lon) >= DEP_FREEZE_MIN_NM:
             st["fz_anchor"] = (lat, lon, alt_msl)
-        elif alt_msl - an[2] > DEP_BAND_TOL:            # keep the anchor until the position moves
+        elif alt_msl - an[2] > DEP_FREEZE_CLIMB_FT:     # keep the anchor until the position moves
             st.setdefault("gq_f", set()).add(band)
 
     def prune(self, now: float | None = None) -> None:

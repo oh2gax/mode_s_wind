@@ -119,7 +119,7 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 9                  # report version (3: band comparison on the wind vector,
+REPORT_V = 10                 # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
                               #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
@@ -127,7 +127,9 @@ REPORT_V = 9                  # report version (3: band comparison on the wind v
                               #     8: the ramps from detection v8 — both airspeed registers
                               #        against the ADS-B ground speed, see report8; v7 kept
                               #        beside it as "v7", from 31 Oct 2026,
-                              #     9: the GNSS gate, see gnss_bad_bands — 4 Nov 2026)
+                              #     9: the GNSS gate, see gnss_bad_bands — 4 Nov 2026,
+                              #     10: the turboprop departures' limits by height, see
+                              #         TP_DEP_SCALE_HI — 5 Nov 2026)
 
 # GNSS gate (from 4 Nov 2026, REPORT_V 9).  The wind of a band and the ramps
 # rest on the aircraft's own ground speed (BDS 5,0 GS, ADS-B velocity), which
@@ -181,12 +183,24 @@ TURBOPROP_TYPES = frozenset((
     "BE20", "BE30", "BE35", "B350", "PC12", "C208", "L410", "E120", "SW4",
 ))
 TP_DEP_SCALE = 1.3            # band limits × this for a turboprop's departure
+# … and by height (from 5 Nov 2026, REPORT_V 10).  With 25 days (11 Oct – 5 Nov
+# 2026; 1 066 turboprop and 4 267 jet departures) the turboprops' largest band
+# changes scatter as the jets' up to 1 400 ft MSL (SD 3.6–4.2 kt against 4.0–4.6)
+# but clearly more at 1 600 and 1 800 ft (SD 5.3 and 5.8 against 4.1 and 3.9) —
+# where the ATR accelerates, retracts its flaps and makes its first turn.  13 of
+# the 15 turboprop departure band levels were there, mostly with the jets around
+# them within ±4 kt (e.g. 3 Nov 11:35, 4 Nov 16:37 / 16:39 / 22:45).  From
+# TP_DEP_HI_FT the limits are × TP_DEP_SCALE_HI (15 / 22.5 kt): 15 → 5 levels in
+# the 25 days, the frontal ones (17 Oct 09:29 WSA +29.5 kt, 4 Nov 10:36) kept.
+TP_DEP_HI_FT = 1500           # ft MSL: from this band on
+TP_DEP_SCALE_HI = 1.5         # band limits × this there for a turboprop's departure
 
 
-def band_scale(phase: str | None, aircraft_type: str | None) -> float:
-    """Factor of the band limits (BAND_ADVISORY / BAND_WSA) for this flight."""
+def band_scale(phase: str | None, aircraft_type: str | None, band_ft: float | None = None) -> float:
+    """Factor of the band limits (BAND_ADVISORY / BAND_WSA) for this flight
+    (and, for a turboprop's departure, the band's height ft MSL)."""
     if phase == "dep" and aircraft_type and aircraft_type.upper() in TURBOPROP_TYPES:
-        return TP_DEP_SCALE
+        return TP_DEP_SCALE_HI if band_ft is not None and band_ft >= TP_DEP_HI_FT else TP_DEP_SCALE
     return 1.0
 
 LEVELS = ("none", "adv", "wsa", "mba")
@@ -681,9 +695,11 @@ def band_anomaly(bands: dict, refs: list, heading: float, max_band: float = BAND
     per = band_changes(bands, refs, heading, max_band, phase) if heading is not None else {}
     if not per:
         return None
-    best = max(per.values(), key=lambda x: abs(x["a"]))
+    # the largest change against its own limit (the same as the largest change but
+    # for a turboprop's departure, whose limits depend on the height from REPORT_V 10)
+    best = max(per.values(), key=lambda x: abs(x["a"]) / band_scale(phase, aircraft_type, x["b"]))
     best = dict(best)
-    scale = band_scale(phase, aircraft_type)
+    scale = band_scale(phase, aircraft_type, best["b"])
     lvl = band_level(best["a"], scale)
     if lvl != "none" and best["np"] < 2:
         nb = [per.get(best["b"] + d) for d in (-200, 200)]

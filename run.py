@@ -962,7 +962,8 @@ def _shear_backfill(ws_tracker) -> None:
     comparison of their climb-out profile; 4 (from 26 Oct 2026) re-levels the
     ramp advisories against the reference profile; 5 (from 27 Oct 2026) redoes
     the band comparison by flight phase; 6 (27 Oct 2026, evening) with the
-    higher band limits of turboprop departures (TP_DEP_SCALE).  In time order, so each flight is
+    higher band limits of turboprop departures (TP_DEP_SCALE); 10 (5 Nov 2026)
+    those limits by height (TP_DEP_SCALE_HI from TP_DEP_HI_FT).  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -1109,6 +1110,12 @@ def _shear_backfill(ws_tracker) -> None:
                             rep["hp"] = hp_old
                         if bad:
                             rep["gq"] = bad
+                        try:            # keep the frozen-position bands of the gate (from 5 Nov 2026)
+                            gqf = (json.loads(row["shear_json"]) or {}).get("gqf") if row["shear_json"] else None
+                        except ValueError:
+                            gqf = None
+                        if gqf:
+                            rep["gqf"] = gqf
                         _shear.mark_unverified(rep)
                         try:            # keep the trial ramps of the climb (from 27 Oct 2026)
                             tr = (json.loads(row["shear_json"]) or {}).get("trial") if row["shear_json"] else None
