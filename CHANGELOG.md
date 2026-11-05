@@ -7,10 +7,15 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns)
+## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place)
 
 ### Fix: the departures' fine headwind profiles
 - The windshear report back-fill of 4 Nov 2026 (report version 9) rebuilt every stored departure's report without its fine headwind profile (`hp`, 100-ft bins up to 5 000 ft), so the *flight by flight* fields (headwind, its change and the shear — Windshear page BL view, Sounding page time–height section) and the departures' profile chart in the Approach History showed only the climb-outs made after the deploy. The back-fill now keeps `hp`, and the one-time profile back-fill runs once more to fill it in again (marker `ws_hp_backfill_2`; about 1 600 departures, a few seconds). `run.py`.
+
+### Phone Weather view
+- *Temperature numbers grid* in the order Normal, Dense, Very dense (Dense stays the default). `web/templates/app.html`.
+- The legend and the status line under the buttons keep the tallest height they have had with the same options and screen width, so the slider and −1h / ▶ / +1h / Now no longer jump when the radar's lines and text come and go between Now and the other hours. `web/templates/app.html` (`app-wx-foot`), `static/js/app_wx.js` (`keepFoot`).
+- Mobile user guide 1.54. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ---
 

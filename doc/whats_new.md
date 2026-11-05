@@ -3,9 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.05112026 — The departures back in the flight-by-flight boundary layer
+## v.05112026 — The departures back in the flight-by-flight boundary layer, steadier Weather buttons on the phone
 
 - **Departures back in the flight-by-flight fields** — after yesterday's update the boundary layer's flight-by-flight headwind fields (and the departures' headwind profile in the Approach History) showed only the newest departures; the older ones are filled in again after this update.
+- **Steadier Weather buttons on the phone** — −1h, ▶, +1h and Now stay in place when you step from Now to the other hours; *Temperature numbers grid* now reads Normal, Dense, Very dense.
 
 ## v.04112026 — No windshear alerts from aircraft with jammed GPS, the mast study updated, how MODE-S Wind is developed
 

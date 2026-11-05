@@ -104,8 +104,8 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.53
-date: 2026-11-03
+version: 1.54
+date: 2026-11-05
 pages: 46
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.

@@ -396,8 +396,23 @@ window.AppWx = (() => {
     $('app-wx-loading').hidden = n >= view.length || !view.length || S().load === 'near';
     $('app-wx-loading').textContent = `Loading ${n} / ${view.length} hours…`;
   }
-  const status = t => { $('app-wx-status').textContent = t; };
-  function renderLegend() { $('app-wx-legend').innerHTML = WxLayer.legendHtml(layerOptions()); }
+  const status = t => { $('app-wx-status').textContent = t; keepFoot(); };
+  function renderLegend() { $('app-wx-legend').innerHTML = WxLayer.legendHtml(layerOptions()); keepFoot(); }
+  // The legend and the status line under the buttons change with the hour (the radar's
+  // lines and text only at Now, the 2.5 km box only zoomed in).  The panel sits at the
+  // bottom, so a shorter or taller foot moved the slider and the buttons.  From 2026-11-05
+  // the foot keeps the tallest height it has had with the same options and width.
+  let footKey = '', footH = 0;
+  function keepFoot() {
+    const el = $('app-wx-foot');
+    if (!el) return;
+    const key = JSON.stringify(S()) + '|' + el.clientWidth;
+    el.style.minHeight = '';
+    const h = el.offsetHeight;
+    footH = key === footKey ? Math.max(footH, h) : h;
+    footKey = key;
+    el.style.minHeight = footH + 'px';
+  }
 
   // ── animation ─────────────────────────────────────────────────────────
   async function play() {
