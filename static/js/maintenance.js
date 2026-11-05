@@ -606,6 +606,7 @@ document.getElementById('maint-unlock-btn').addEventListener('click', async () =
     await loadUsers();
     await loadRegdb();
     await loadMast();
+    await loadGfs();
     await loadJsonFeed();
     await loadBeastFeed();
   } catch (e) {
@@ -1144,6 +1145,52 @@ document.getElementById('mast-now-btn').addEventListener('click', async () => {
     _setStatus('mast-op-status', r.settings.enabled ? 'Fetching…' : 'Fetching is off — switch it on first.', !r.settings.enabled);
   } catch (e) { _setStatus('mast-op-status', e.message, true); }
   setTimeout(loadMast, 4000);
+});
+
+// ── GFS forecast for the Weather pages (collector/gfs.py, 2026-11-05) ─────────
+function _mb(b) { return b == null ? '—' : (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' MB'; }
+async function loadGfs() {
+  try {
+    const d = await _api('/api/maintenance/gfs/status');
+    const s = d.settings || {};
+    document.getElementById('gfs-enabled').checked = !!s.enabled;
+    ['gfs-enabled', 'gfs-save-btn', 'gfs-now-btn'].forEach(id => { document.getElementById(id).disabled = !d.configured; });
+    let h;
+    if (!d.configured) {
+      h = _regdbLine('Configured', 'off', 'Not on this machine — <code>GFS_WX = True</code> in config_local.py and a restart switch it on (meant for the cloud server)');
+    } else {
+      const runs = (d.runs || []).map(r => String(r).padStart(2, '0')).join(' / ');
+      h = _regdbLine('Model', '', `GFS 0.25° · runs ${runs} UTC to +${d.max_h} h (${d.files_per_run} files a run) · box ${d.box[0]}–${d.box[1]}° N, ${d.box[2] < 0 ? -d.box[2] + '° W' : d.box[2] + '° E'}–${d.box[3] < 0 ? -d.box[3] + '° W' : d.box[3] + '° E'}`);
+      const c = d.cur;
+      const rs = c ? `${_utcTs(c.run)} run: +${c.done < 0 ? '—' : c.done} h of +${d.max_h} h · ${_esc(c.state)}` : 'no run yet';
+      h += _regdbLine('Run', !c ? 'off' : (c.state === 'complete' ? 'ok' : 'warn'), rs);
+      h += _regdbLine('Stored', d.hours ? 'ok' : 'off',
+        d.hours ? `${_num(d.hours)} hours · ${_utcTs(d.first)} … ${_utcTs(d.last_ts)}${d.n_runs > 1 ? ' · from ' + d.n_runs + ' runs' : ''} · file ${_mb(d.db_bytes)}` : 'None stored yet');
+      const l = d.last;
+      h += _regdbLine('Fetching', !s.enabled ? 'off' : (l && !l.ok ? 'warn' : 'ok'),
+        !s.enabled ? 'Off — no network requests'
+          : (d.running ? 'Fetching…' : l ? `Last look ${_utcTs(l.ts)}: ${_esc(l.text)}` : 'Not looked yet (about a minute after the start)')
+          + ` · since the start ${_num(d.files_total || 0)} files, ${_mb(d.bytes_total)}${d.errors ? ', ' + d.errors + ' failed looks' : ''}`);
+    }
+    document.getElementById('gfs-status').innerHTML = h;
+  } catch (e) {
+    _setStatus('gfs-op-status', `Status not available: ${e.message}`, true);
+  }
+}
+document.getElementById('gfs-refresh-btn').addEventListener('click', loadGfs);
+document.getElementById('gfs-save-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/gfs/config', { enabled: document.getElementById('gfs-enabled').checked });
+    _setStatus('gfs-op-status', r.settings.enabled ? 'Saved — the new runs are fetched.' : 'Saved — fetching is off (no network requests).');
+  } catch (e) { _setStatus('gfs-op-status', e.message, true); }
+  await loadGfs();
+});
+document.getElementById('gfs-now-btn').addEventListener('click', async () => {
+  try {
+    const r = await _api('/api/maintenance/gfs/config', { fetch_now: true });
+    _setStatus('gfs-op-status', r.settings.enabled ? 'Fetching… (a whole run takes about 10–15 minutes)' : 'Fetching is off — switch it on first.', !r.settings.enabled);
+  } catch (e) { _setStatus('gfs-op-status', e.message, true); }
+  setTimeout(loadGfs, 5000);
 });
 
 // ── Local JSON feed for other programs (collector/json_feed.py, 2026-11-03) ──

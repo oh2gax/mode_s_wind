@@ -41,6 +41,11 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 #                     "status_url": "http://127.0.0.1:8105/tar1090/data/",
 #                     "lat": 60.30, "lon": 24.90, "private": True}]
 
+# ── GFS forecast for the Weather pages (from 5 Nov 2026; viewing only) ─────
+# NOAA's GFS to +384 h (00 / 12 UTC runs), about 320 MB a day downloaded,
+# about 33 MB in data/gfs_wx.db. On / off also on the Maintenance page.
+# GFS_WX = True
+
 WEB_HOST = "127.0.0.1"       # reachable only through nginx on this machine
 WEB_PORT = 8000
 WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 127.0.0.1)

@@ -1324,10 +1324,21 @@ def create_app(
 
     # ── Weather page: MEPS surface maps (web/api/weather.py) ──────────────
 
+    def _wx_model():
+        """?model=gfs (from 2026-11-05, collector/gfs.py): the GFS forecast; else MEPS."""
+        return "gfs" if (request.args.get("model") or "").lower() == "gfs" else "meps"
+
+    def _gfs_db():
+        from collector import gfs as _gfs
+        return _gfs.get_gfs_db()
+
     @app.route("/api/weather/index")
     def weather_index_api():
-        """The stored weather-map hours [[ts, run, lead], …] and their grid."""
+        """The stored weather-map hours [[ts, run, lead], …] and their grid
+        (?model=gfs: the GFS hours [[ts, run, lead, 1, step h], …], from 2026-11-05)."""
         from web.api import weather as _wx
+        if _wx_model() == "gfs":
+            return jsonify(_wx.index_gfs(_gfs_db()))
         return jsonify(_wx.index(get_db()))
 
     @app.route("/api/weather/frames")
@@ -1354,7 +1365,13 @@ def create_app(
             bbox = None
         # from 2026-11-03 the answer comes compressed from the memory cache of
         # web/api/weather.py when the same hours (same run and lead) were asked before
-        z = _wx.frames_gz(get_db(), ts, step, fields, bbox, fine=request.args.get("fine") == "1")
+        if _wx_model() == "gfs":                          # the GFS forecast (from 2026-11-05)
+            gdb = _gfs_db()
+            if gdb is None:
+                return jsonify({"error": "GFS is not configured on this server (GFS_WX)"}), 404
+            z = _wx.frames_gz(gdb, ts, step, fields, bbox, model="gfs")
+        else:
+            z = _wx.frames_gz(get_db(), ts, step, fields, bbox, fine=request.args.get("fine") == "1")
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp = app.response_class(z, mimetype="application/json")
             resp.headers["Content-Encoding"] = "gzip"
@@ -1380,8 +1397,11 @@ def create_app(
             rad = _radar.point(lat, lon)
         except Exception as exc:                          # noqa: BLE001
             rad = {"error": str(exc)}
-        resp = jsonify({"name": name, "lat": lat, "lon": lon, "now": int(time.time()),
-                        "meps": _wx.point(get_db(), lat, lon), "radar": rad})
+        out = {"name": name, "lat": lat, "lon": lon, "now": int(time.time()),
+               "meps": _wx.point(get_db(), lat, lon), "radar": rad}
+        if _wx_model() == "gfs":                          # ?model=gfs: also the GFS hour (from 2026-11-05)
+            out["gfs"] = _wx.point_gfs(_gfs_db(), lat, lon)
+        resp = jsonify(out)
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
@@ -1457,6 +1477,30 @@ def create_app(
         if data.get("fetch_now") and f and s["enabled"]:
             threading.Thread(target=f.look, args=("manual",), name="mast_now", daemon=True).start()
         return jsonify({"ok": True, "settings": s})
+
+    # ── GFS forecast for the Weather pages (collector/gfs.py, from 2026-11-05) ──
+    @app.route("/api/maintenance/gfs/status", methods=["POST"])
+    def maintenance_gfs_status():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import gfs as _gfs
+        f = _gfs.get()
+        if f is None:
+            return jsonify({"configured": False, "settings": _gfs.get_settings(get_db())})
+        return jsonify(f.status(get_db()))
+
+    @app.route("/api/maintenance/gfs/config", methods=["POST"])
+    def maintenance_gfs_config():
+        data = request.get_json(silent=True) or {}
+        if not _maint_auth_required(data):
+            return jsonify({"error": "Unauthorized"}), 401
+        from collector import gfs as _gfs
+        s = _gfs.set_settings(get_db(), enabled=bool(data["enabled"]) if "enabled" in data else None)
+        f = _gfs.get()
+        if data.get("fetch_now") and f and s["enabled"]:
+            threading.Thread(target=f.look, args=("manual",), name="gfs_now", daemon=True).start()
+        return jsonify({"ok": True, "settings": s, "configured": f is not None})
 
     # ── Local JSON feed for other programs (collector/json_feed.py, from 2026-11-03) ──
     @app.route("/api/maintenance/json-feed/status", methods=["POST"])

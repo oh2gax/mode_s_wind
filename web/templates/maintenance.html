@@ -423,6 +423,26 @@
       </div>
     </div>
 
+    <!-- ── GFS forecast for the Weather pages (collector/gfs.py, 2026-11-05) ── -->
+    <div class="maint-section" id="gfs-section">
+      <div class="maint-section-hdr">
+        <span class="maint-section-title">GFS Forecast (NOAA/NCEP)</span>
+        <span class="maint-section-note">The global model's forecast to +384 h (16 days) for the Weather pages — for viewing only, not used in any analysis. Fetched only where <code>GFS_WX = True</code> in config_local.py (the cloud server); needs internet — when it is off or fails, the other weather maps are not affected.</span>
+        <button id="gfs-refresh-btn" class="maint-btn maint-btn-sm">Refresh</button>
+      </div>
+      <div class="maint-panel">
+        <div class="maint-panel-title">Status</div>
+        <div class="regdb-kv" id="gfs-status"><span class="maint-hint">—</span></div>
+        <div class="maint-row regdb-row2">
+          <label class="maint-check"><input type="checkbox" id="gfs-enabled"> Fetch the new runs</label>
+          <button id="gfs-save-btn" class="maint-btn maint-btn-primary">Save</button>
+          <button id="gfs-now-btn" class="maint-btn">Fetch now</button>
+        </div>
+        <div class="maint-hint">The 00 and 12 UTC runs, 209 forecast hours each (hourly to +120 h, then every 3 h), 2 s apart, from about 3½ h after the run's start; about 160 MB downloaded per run. Kept from the hour before now onwards (no history), about 33 MB in <code>data/gfs_wx.db</code>. Off: no network requests at all.</div>
+        <div id="gfs-op-status" class="maint-op-status"></div>
+      </div>
+    </div>
+
     <!-- ── Local JSON feed for other programs (collector/json_feed.py, 2026-11-03) ── -->
     <div class="maint-section" id="jfeed-section">
       <div class="maint-section-hdr">

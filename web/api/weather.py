@@ -33,6 +33,14 @@ around the receiver (table meps_wx25_hours, MEPS_WX_FINE_KM, 300 km by
 default), for the detail of the Weather page and the phone when zoomed in;
 index() lists its hours as "fine" and frames(..., fine=True) sends them
 (step and bbox do not apply).
+
+model "gfs" (from 2026-11-05; collector/gfs.py, GFS_WX on): the same answers
+from the GFS forecast to +384 h (table gfs_wx_hours in its own file — the
+caller passes that connection): a regular 0.25° lat / lon grid (grid "proj":
+"latlon", x = longitude, y = latitude, rows south to north), the same field
+codes without fog, "b" the cloud ceiling; index rows [ts, run, lead, 1, pi]
+with pi the hours of the step (1 to +120 h, then 3: r / s are then the mean
+mm per hour of the 3 h).  For viewing only.
 """
 
 from __future__ import annotations
@@ -45,10 +53,33 @@ import zlib
 from math import atan2, cos, pi, radians, sin, tan
 
 FILL = -32768
+GFS_SOURCE = "GFS (NOAA/NCEP)"
+GFS_TABLE = "gfs_wx_hours"
 FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
 ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t")   # t: 2 m temperature (from 2026-11-01)
 BLOCK_MAX = ("g",)                    # averaged blocks: the strongest gust, not the mean
 SEND = ("p", "r", "s", "c")          # default
+
+
+def index_gfs(gdb) -> dict:
+    """The GFS hours (model "gfs") and their grid; empty when not configured."""
+    out = {"hours": [], "grid": None, "model": "gfs", "source": GFS_SOURCE, "fine": {"hours": [], "grid": None}}
+    if gdb is None:
+        out["error"] = "GFS is not configured on this server (GFS_WX)"
+        return out
+    try:
+        rows = gdb.execute("SELECT ts, run, lead, meta FROM gfs_wx_hours ORDER BY ts").fetchall()
+    except Exception:                                    # noqa: BLE001  (table missing)
+        return out
+    hs, grid = [], None
+    for ts, run, lead, meta in rows:
+        m = json.loads(meta)
+        hs.append([ts, run, lead, 1, int(m.get("pi") or 1)])
+        grid = m
+    out["hours"] = hs
+    if grid:
+        out["grid"] = {k: grid[k] for k in ("proj", "x", "y", "f") if k in grid}
+    return out
 
 
 def index(db) -> dict:
@@ -130,6 +161,40 @@ def _lcc_xy(lat: float, lon: float):
 _point_cache: dict = {}       # (table, ts, run, lead, lat, lon) → values
 
 
+def point_gfs(gdb, lat: float, lon: float, now: float = None) -> dict:
+    """point() from the GFS hours (model "gfs"): the hour containing now (or the
+    next stored one) at the nearest 0.25° cell."""
+    now = time.time() if now is None else now
+    if gdb is None:
+        return {"error": "GFS is not configured on this server (GFS_WX)"}
+    try:
+        r = (gdb.execute("SELECT ts, run, lead, meta, data FROM gfs_wx_hours WHERE ts >= ? ORDER BY ts LIMIT 1",
+                         (int(now),)).fetchone())
+    except Exception:                                    # noqa: BLE001
+        r = None
+    if not r:
+        return {"error": "no GFS hours stored yet"}
+    ts, run, lead, meta, data = r
+    key = (GFS_TABLE, ts, run, lead, round(lat, 4), round(lon, 4))
+    hit = _point_cache.get(key)
+    m = json.loads(meta)
+    if hit is None:
+        planes = _decode(m, data)
+        if planes is None:
+            return {"error": "GFS hour not readable"}
+        (x0, dx, nx), (y0, dy, ny) = m["x"], m["y"]
+        i, j = round((lon - x0) / dx), round((lat - y0) / dy)
+        if not (0 <= i < nx and 0 <= j < ny):
+            return {"error": "the place is outside the GFS area", "ts": ts, "run": run, "lead": lead}
+        k = j * nx + i
+        hit = {f: int(planes[f][k]) for f in ALL if f in planes and planes[f][k] != FILL}
+        if len(_point_cache) > 64:
+            _point_cache.clear()
+        _point_cache[key] = hit
+    return {"ts": ts, "run": run, "lead": lead, "deg": m["x"][1], "pi": int(m.get("pi") or 1), "v": hit,
+            "source": GFS_SOURCE}
+
+
 def point(db, lat: float, lon: float, now: float = None) -> dict:
     """All the fields (ALL, as frames() encodes them) of the model hour that
     contains now — the hour ending at the next full hour, as the Live Map's
@@ -183,7 +248,9 @@ def _window(meta: dict, bbox, step: int):
     y0, dy, ny = meta["y"]
     la0, lo0, la1, lo1 = bbox
     xs, ys = [], []
-    for k in range(9):                        # the edges, not only the corners (curved)
+    if meta.get("proj") == "latlon":          # GFS: x = longitude, y = latitude
+        xs, ys = [lo0, lo1], [la0, la1]
+    for k in (range(9) if meta.get("proj") != "latlon" else ()):   # the edges, not only the corners (curved)
         f = k / 8
         for la, lo in ((la0, lo0 + (lo1 - lo0) * f), (la1, lo0 + (lo1 - lo0) * f),
                        (la0 + (la1 - la0) * f, lo0), (la0 + (la1 - la0) * f, lo1)):
@@ -275,8 +342,11 @@ def _hours(db, table: str, ts_list):
     return out
 
 
-def _norm(step: int, fields, bbox, fine: bool):
-    table = "meps_wx25_hours" if fine else "meps_wx_hours"
+def _norm(step: int, fields, bbox, fine: bool, model: str = "meps"):
+    if model == "gfs":
+        table, fine = GFS_TABLE, False
+    else:
+        table = "meps_wx25_hours" if fine else "meps_wx_hours"
     if fine:
         step, bbox = 1, None
     step = 1 if step <= 1 else (2 if step <= 2 else 4)
@@ -285,10 +355,11 @@ def _norm(step: int, fields, bbox, fine: bool):
     return table, step, send, bbox, bkey
 
 
-def frames(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> dict:
+def frames(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False, model: str = "meps") -> dict:
     """The fields of the given hours, averaged to step × 10 km; with bbox only
-    the part of the grid over it; fine: the 2.5 km box (every cell)."""
-    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine)
+    the part of the grid over it; fine: the 2.5 km box (every cell).  model
+    "gfs": the GFS hours (db = the GFS file), step × 0.25°."""
+    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine, model)
     ts_list = [int(t) for t in ts_list[:96]]
     have = _hours(db, table, ts_list)
     return _frames(db, table, ts_list, have, step, send, bbox, bkey, fine)
@@ -324,6 +395,8 @@ def _frames(db, table, ts_list, have, step, send, bbox, bkey, fine) -> dict:
                 nx, ny = i1 - i0, j1 - j0
             g = {"x": [x0 + (step - 1) * dx / 2, dx * step, nx // step],
                  "y": [y0 + (step - 1) * dy / 2, dy * step, ny // step]}
+            if meta.get("proj"):
+                g["proj"] = meta["proj"]
             _gc[hk] = g
             for k in (send if missing == [] else missing):
                 if k in planes:
@@ -340,21 +413,26 @@ def _frames(db, table, ts_list, have, step, send, bbox, bkey, fine) -> dict:
         elif g != grid:                     # the grid changed (configuration): skip this hour
             continue
         f = {"ts": ts, "run": run, "lead": lead, "w": w}
+        if table == GFS_TABLE:
+            f["pi"] = 1 if lead <= 120 else 3
         for k in send:
             a = vals.get(k)
             if a:
                 f[k] = [None if v == FILL else v for v in a]
         out.append(f)
+    if table == GFS_TABLE:
+        return {"grid": grid, "step": step, "deg": 0.25 * step, "km": round(27.8 * step), "fine": 0, "frames": out,
+                "model": "gfs", "source": GFS_SOURCE}
     return {"grid": grid, "step": step, "km": 2.5 if fine else 10 * step, "fine": 1 if fine else 0, "frames": out,
             "source": "MEPS (MET Norway, CC BY 4.0)"}
 
 
-def frames_gz(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False) -> bytes:
+def frames_gz(db, ts_list, step: int = 2, fields=None, bbox=None, fine: bool = False, model: str = "meps") -> bytes:
     """frames() as gzip-compressed JSON, from the answer cache when the same hours
     (with the same run and lead) were asked for before (from 2026-11-03)."""
     import gzip
     global _rc_bytes
-    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine)
+    table, step, send, bbox, bkey = _norm(step, fields, bbox, fine, model)
     ts_list = [int(t) for t in ts_list[:96]]
     have = _hours(db, table, ts_list)
     key = (table, tuple((ts,) + have[ts] for ts in ts_list if ts in have), step, send, bkey)

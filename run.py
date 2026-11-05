@@ -1465,6 +1465,17 @@ def main() -> None:
     threading.Thread(target=_mf.run, name="mast", daemon=True).start()
     log.info("Kivenlahti mast fetcher started (fmisid %d; settings on the Maintenance page)", _mf.fmisid)
 
+    # ── GFS forecast for the Weather pages (NOAA NOMADS → data/gfs_wx.db, from 2026-11-05) ──
+    # only with GFS_WX = True (config_local.py; off by default — the home station
+    # fetches nothing); the 00 / 12 UTC runs to +384 h, for viewing only
+    from collector import gfs as _gfs
+    from database.db import get_db as _get_db_gfs
+    _gf = _gfs.init(cfg, _get_db_gfs)
+    if _gf is not None:
+        threading.Thread(target=_gf.run, name="gfs", daemon=True).start()
+        log.info("GFS forecast fetcher started (runs %s UTC to +%d h, box %s; settings on the Maintenance page)",
+                 "/".join(f"{h:02d}" for h in _gf.runs), _gf.max_h, _gf.box)
+
     # ── Radiosonde soundings (FMI open data → data/soundings) ─────────────
     # (store created before the hourly jobs thread, which runs the verification)
     if sonde_store.enabled:
