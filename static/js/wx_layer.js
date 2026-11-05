@@ -118,6 +118,16 @@ const WxLayer = (() => {
     },
   };
 
+  // ── a plain latitude / longitude grid (GFS, from 2026-11-05): x = lon, y = lat ──
+  const LATLON = { xy(lat, lon) { return [lon, lat]; }, latlon(x, y) { return [y, x]; } };
+  // the grid spacing in km (for the smoothing of the isobars and the highs / lows): a
+  // projected grid in metres, a lat / lon grid from its spacing in degrees at its middle
+  function gridKm(g) {
+    if (g.proj !== 'latlon') return g.x[1] / 1000;
+    const lat = g.y[0] + g.y[1] * (g.y[2] - 1) / 2;
+    return 111.2 * Math.sqrt(Math.abs(g.x[1] * g.y[1]) * Math.cos(lat * Math.PI / 180));
+  }
+
   // ── Colours ────────────────────────────────────────────────────────────
   const RAIN_T = [0.1, 0.5, 1, 2, 5, 10];                                  // mm / h
   const RAIN_C = ['#7dd3fc', '#3b82f6', '#22c55e', '#facc15', '#ef4444', '#ec4899'];
@@ -258,7 +268,9 @@ const WxLayer = (() => {
   // lat/lon of the grid points and cell corners, computed when first needed
   function buildGeo(g) {
     const [x0, dx, nx] = g.x, [y0, dy, ny] = g.y;
-    const inv = g.proj === 'tm35fin' ? TM35.latlon : LCC.latlon;
+    // the projection of the grid: the FMI radar (tm35fin), a plain lat / lon grid (latlon,
+    // the GFS forecast from 2026-11-05: x = longitude, y = latitude) or MEPS's Lambert
+    const inv = g.proj === 'tm35fin' ? TM35.latlon : g.proj === 'latlon' ? LATLON.latlon : LCC.latlon;
     const pts = new Array(nx * ny), cor = new Array((nx + 1) * (ny + 1));
     return {
       nx, ny,
@@ -1114,7 +1126,7 @@ const WxLayer = (() => {
 
     function drawPressure(ctx, f, T, P) {
       const { nx, ny } = geo;
-      const km = grid.x[1] / 1000;
+      const km = gridKm(grid);
       if (!f._p) {                               // smoothed fields, once per frame
         f._p = smooth(f.p.map(v => v == null ? null : 1000 + v / 10), nx, ny, Math.max(1, Math.round(30 / km)));
         f._ps = smooth(f._p, nx, ny, Math.max(1, Math.round(60 / km)));
@@ -1214,7 +1226,15 @@ const WxLayer = (() => {
 
     // values of the frame at a map position (hover read-out)
     function valuesAt(latlng) {
-      if (!frame || !grid || grid.proj) return null;
+      if (!frame || !grid || (grid.proj && grid.proj !== 'latlon')) return null;
+      if (grid.proj === 'latlon') {                              // GFS (from 2026-11-05)
+        const i = Math.round((latlng.lng - grid.x[0]) / grid.x[1]), j = Math.round((latlng.lat - grid.y[0]) / grid.y[1]);
+        if (i < 0 || j < 0 || i >= grid.x[2] || j >= grid.y[2]) return null;
+        const k = j * grid.x[2] + i, out = {};
+        for (const key of ['p', 'r', 's', 'c', 'l', 'm', 'h', 'f', 'b', 'u', 'v', 'g', 't']) if (frame[key] && frame[key][k] != null) out[key] = frame[key][k];
+        if (frame.pi > 1) out.pi = frame.pi;
+        return out;
+      }
       const [x, y] = LCC.xy(latlng.lat, latlng.lng);
       if (fine && fineGrid && !fineGrid.proj) {                 // inside the 2.5 km box: its values
         const i = Math.round((x - fineGrid.x[0]) / fineGrid.x[1]), j = Math.round((y - fineGrid.y[0]) / fineGrid.y[1]);
@@ -1242,10 +1262,13 @@ const WxLayer = (() => {
       if (v.t != null) parts.push(`2 m temperature ${v.t < 0 ? '−' : v.t > 0 ? '+' : ''}${Math.abs(Math.round(v.t / 10))} °C`);
       if (v.r != null) {
         const snow = v.s != null && v.r > 0 && v.s >= 0.5 * v.r;
-        parts.push(v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h` : 'dry');
+        // GFS after +120 h (from 2026-11-05): the mean of its 3-hour step
+        parts.push(v.r >= 5 ? `${snow ? 'snow' : 'rain'} ${(v.r / 100).toFixed(1)} mm/h${v.pi > 1 ? ` (mean of ${v.pi} h)` : ''}` : 'dry');
       }
       for (const key of ['c', 'l', 'm', 'h', 'f']) if (v[key] != null) parts.push(`${CLOUD_NAME[key]} ${v[key]} %`);
-      if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20)))
+      if (v.b != null && o.ceiling)                              // GFS: the cloud ceiling (from 2026-11-05)
+        parts.push(`ceiling ${(Math.round(v.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`);
+      else if (v.b != null && ((v.l != null && v.l >= 20) || (v.c != null && v.c >= 20) || (v.f != null && v.f >= 20)))
         parts.push(`cloud base ${(Math.round(v.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`);
       if (v.fine) parts.push('2.5 km grid');
       return parts.join(' · ');
@@ -1346,5 +1369,5 @@ const WxLayer = (() => {
     return parts.join(' &nbsp;·&nbsp; ');
   }
 
-  return { create, legendHtml, barb, windDir, LCC, TM35, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C, WS_T, WS_C };
+  return { create, legendHtml, barb, windDir, LCC, TM35, LATLON, gridKm, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C, WS_T, WS_C };
 })();

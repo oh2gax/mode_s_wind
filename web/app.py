@@ -553,7 +553,8 @@ def create_app(
     def weather_page():
         return render_template("weather.html",
                                receiver_lat=cfg.RECEIVER_LAT,
-                               receiver_lon=cfg.RECEIVER_LON)
+                               receiver_lon=cfg.RECEIVER_LON,
+                               gfs_on=bool(getattr(cfg, "GFS_WX", False)))   # the MEPS | GFS switch (from 2026-11-05)
 
     @app.route("/windshear")
     def windshear_page():

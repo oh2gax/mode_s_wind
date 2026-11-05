@@ -33,11 +33,11 @@ so the forecast does not enlarge the main database or its backups):
       c, l, m, h  total / low / middle / high cloud %   TCDC / LCDC / MCDC / HCDC (instantaneous)
       b  cloud ceiling above the ground, m (missing = no ceiling)
                                                     HGT cloud ceiling − HGT surface
-      r, s  rain / snow, mm per hour × 100 (the mean of the step: the hour, or
-            the 3 h after +120 h; meta "pi" = 1 / 3)    APCP total since the run start,
-            differences of consecutive hours; split by CPOFP (% frozen; where it is
-            undefined — no precipitation in the model's own scheme — by the 2 m
-            temperature: snow at +0.5 °C or colder)
+      r, s  all precipitation / its snow part, mm per hour × 100 (as MEPS's r / s;
+            the mean of the step: the hour, or the 3 h after +120 h; meta "pi" = 1 / 3)
+            APCP total since the run start, differences of consecutive hours; the snow
+            part by CPOFP (% frozen; where it is undefined — no precipitation in the
+            model's own scheme — by the 2 m temperature: snow at +0.5 °C or colder)
       (no fog: GFS has no fog field)
   meta {"proj": "latlon", "x": [lon0, 0.25, nx], "y": [lat0, 0.25, ny], "f": fields, "pi": 1|3}
   gfs_runs      the run being fetched: its start, the hours done, the APCP total of the
@@ -225,8 +225,8 @@ def planes_of(recs: list, prev_apcp, step_h: int):
                 fr = min(1.0, c / 100.0)
             else:
                 fr = 1.0 if t is not None and t <= 273.65 else 0.0
-            rain.append(mmh * (1.0 - fr) * 100.0)
-            snow.append(mmh * fr * 100.0)
+            rain.append(mmh * 100.0)                 # all of it, as MEPS's r
+            snow.append(mmh * fr * 100.0)            # its frozen part
         P["r"] = _scale(rain, float)
         P["s"] = _scale(snow, float)
     return P, apcp

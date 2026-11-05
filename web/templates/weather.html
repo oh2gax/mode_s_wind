@@ -6,6 +6,16 @@
 
   <!-- ── Control strip ──────────────────────────────────────────────── -->
   <div class="windmap-controls">
+    {% if gfs_on %}
+    <!-- the model (from 2026-11-05): MEPS (2.5 km, about 2 days ahead) or GFS (global, 0.25°, 16 days; viewing only) -->
+    <div class="wm-group">
+      <label class="wm-label">Model</label>
+      <select id="wx-model" class="wm-select" title="MEPS — MET Norway's 2.5 km model of the Nordic area: the past days and about 2 days ahead. GFS — NOAA's global model (0.25°, about 28 × 14 km here): from now up to 16 days ahead, the 00 and 12 UTC runs; beyond a week a rough guide only. For viewing — not used in any of MODE-S Wind's analysis">
+        <option value="meps" selected>MEPS</option>
+        <option value="gfs">GFS</option>
+      </select>
+    </div>
+    {% endif %}
     <label class="wm-check" title="Sea-level pressure: isobars every 4 hPa (1000 hPa drawn thicker) with the highs (H) and lows (L) and their central pressure">
       <input type="checkbox" id="wx-pres" checked> Pressure
     </label>
@@ -51,7 +61,7 @@
         <option value="l">Low</option>
         <option value="m">Medium</option>
         <option value="h">High</option>
-        <option value="f">Fog</option>
+        <option value="f" id="wx-cloud-fog">Fog</option>
       </select>
     </div>
     <label class="wm-check" title="Point values: click anywhere on the map for the model's values at that place (those of the layers shown) — they follow the time slider and the animation; click elsewhere for another place, × or Esc closes. Off: a click on the map does nothing (the hover read-out at the bottom left works either way)">
@@ -62,7 +72,7 @@
       <input type="checkbox" id="wx-rxmk" checked> Receivers
     </label>
 
-    <div class="wm-group">
+    <div class="wm-group" id="wx-past-wrap">
       <label class="wm-label">Past</label>
       <select id="wx-past" class="wm-select" title="How far back the time slider reaches">
         <option value="24" selected>24 h</option>
@@ -77,6 +87,12 @@
         <option value="24">24 h</option>
         <option value="48" selected>48 h</option>
       </select>
+      <select id="wx-gfc" class="wm-select" hidden title="How far ahead the time slider reaches with GFS (the newest of its 00 / 12 UTC runs): hourly to +120 h, then every 3 h">
+        <option value="48">48 h</option>
+        <option value="120">5 days</option>
+        <option value="240">10 days</option>
+        <option value="384" selected>16 days</option>
+      </select>
     </div>
     <div class="wm-group">
       <label class="wm-label">Grid</label>
@@ -84,8 +100,12 @@
         <option value="2" selected>20 km</option>
         <option value="1">10 km</option>
       </select>
+      <select id="wx-gstep" class="wm-select" hidden title="GFS resolution sent to the browser: 0.5° (about 55 × 28 km here) loads about 35 kB per hour, 0.25° (the model's own grid, about 28 × 14 km) about 4 times more — 16 days are 209 hours">
+        <option value="2" selected>0.5°</option>
+        <option value="1">0.25°</option>
+      </select>
     </div>
-    <div class="wm-group">
+    <div class="wm-group" id="wx-fine-wrap">
       <label class="wm-label">Detail</label>
       <select id="wx-fine" class="wm-select" title="The model's full 2.5 km grid in a 300 × 300 km box around the airport, used when the map is zoomed in (zoom 7 and closer) — showers, fog patches and the coastline's effect on wind and cloud; a faint dotted line marks the box. About 30 kB per hour with rain and isobars">
         <option value="auto" selected>2.5 km near EFHK</option>
@@ -111,9 +131,11 @@
 
     <div class="wm-group wm-time">
       <button id="wx-play" class="wm-play-btn" type="button" title="Animate the period (one hour about every 0.4 s); click again to stop">▶</button>
+      <button id="wx-dprev" class="wm-play-btn wx-step-btn" type="button" hidden title="One day back">−1d</button>
       <button id="wx-prev" class="wm-play-btn wx-step-btn" type="button" title="One hour back (also the ← key on the slider)">−1h</button>
       <span class="wm-tslide"><input type="range" id="wx-t" min="0" max="0" step="1" value="0"><span id="wx-tload" class="wm-tload wm-hidden"></span></span>
       <button id="wx-next" class="wm-play-btn wx-step-btn" type="button" title="One hour forward (also the → key on the slider)">+1h</button>
+      <button id="wx-dnext" class="wm-play-btn wx-step-btn" type="button" hidden title="One day forward">+1d</button>
       <button id="wx-now" class="wm-play-btn" type="button" title="Back to the present hour">⟲</button>
       <span id="wx-tlabel" class="wm-tlabel">—</span>
     </div>
