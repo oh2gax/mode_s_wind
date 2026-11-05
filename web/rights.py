@@ -16,6 +16,11 @@ and Episodes), their APIs (/api/gps/state, /api/gps/detail, /api/gps/episodes)
 and the phone's GNSS view — see gnss().  Others get a notice page, and the
 GPS link and the phone's GNSS tile are not shown to them.
 
+The Pilot right (from 2026-11-05) opens the phone's Pilot view and its APIs
+(/api/pilot/*): the briefing, the final approach by runway, icing and "My
+flight" — see pilot().  It is independent of Full view and of the own
+receivers: a user can have any of the three.
+
 A user can own receivers and have Full view at the same time.  The built-in
 user of config.py (the shared test login) and everyone else see All receivers
 only.  The rights are set on the Maintenance page (maintenance login only) and
@@ -23,7 +28,7 @@ kept per server in webrights.json next to the users file (webusers.txt), or
 WEB_RIGHTS_FILE:
 
     {"version": 1,
-     "users": {"alice": {"full": false, "own": ["MODES-RX-02"]},
+     "users": {"alice": {"full": false, "own": ["MODES-RX-02"], "pilot": true},
                "bob":   {"full": true,  "own": ["MODES-RX-01"]}}}
 
 The file is re-read when it changes (checked at most every 2 s) and written
@@ -76,7 +81,10 @@ def _clean(entry) -> dict:
         return {"full": False, "own": []}
     own = entry.get("own") or []
     own = sorted({str(x) for x in own if isinstance(x, str) and RX_RE.match(x)}) if isinstance(own, list) else []
-    return {"full": bool(entry.get("full")), "own": own}
+    out = {"full": bool(entry.get("full")), "own": own}
+    if entry.get("pilot"):
+        out["pilot"] = True                           # the Pilot right (from 2026-11-05)
+    return out
 
 
 def _load(cfg, force: bool = False) -> dict:
@@ -96,7 +104,7 @@ def _load(cfg, force: bool = False) -> dict:
                         d = json.load(f) or {}
                     for u, e in (d.get("users") or {}).items():
                         e = _clean(e)
-                        if e["full"] or e["own"]:
+                        if e["full"] or e["own"] or e.get("pilot"):
                             users[str(u)] = e
                 except (OSError, ValueError, AttributeError) as exc:
                     log.warning("Rights file not read: %s", exc)
@@ -115,16 +123,17 @@ def _save(cfg, users: dict) -> None:
 
 
 def of_user(cfg, username: Optional[str]) -> dict:
-    """{"full": bool, "own": [receiver ids], "maint": bool} of a logged-in user;
-    the maintenance user always has Full view."""
+    """{"full": bool, "own": [receiver ids], "pilot": bool, "maint": bool} of a
+    logged-in user; the maintenance user always has Full view and the Pilot right."""
     from web import users as web_users
     u = username or ""
     if u and web_users.is_maint(cfg, u):
-        return {"full": True, "own": list(_load(cfg).get(u, {}).get("own", [])), "maint": True}
+        return {"full": True, "own": list(_load(cfg).get(u, {}).get("own", [])), "pilot": True, "maint": True}
     if not u or u == str(getattr(cfg, "WEB_USER", "")):
-        return {"full": False, "own": [], "maint": False}
+        return {"full": False, "own": [], "pilot": False, "maint": False}
     e = _load(cfg).get(u)
-    return {"full": bool(e and e["full"]), "own": list(e["own"]) if e else [], "maint": False}
+    return {"full": bool(e and e["full"]), "own": list(e["own"]) if e else [], "pilot": bool(e and e.get("pilot")),
+            "maint": False}
 
 
 def visible(r: dict, rx_id: str) -> bool:
@@ -138,13 +147,20 @@ def gnss(r: dict) -> bool:
     return bool(r.get("full"))
 
 
+def pilot(r: dict) -> bool:
+    """Whether a user with the rights r may see the Pilot view and its APIs
+    (from 2026-11-05): the Pilot right (the maintenance user always)."""
+    return bool(r.get("pilot")) or bool(r.get("maint"))
+
+
 def all_rights(cfg) -> dict:
     """Every user's rights (the Maintenance page)."""
     return {u: dict(e) for u, e in _load(cfg, force=True).items()}
 
 
-def set_rights(cfg, username: str, full: bool, own) -> None:
-    """Full view and the own receivers of a user of the users file."""
+def set_rights(cfg, username: str, full: bool, own, pilot: Optional[bool] = None) -> None:
+    """Full view, the own receivers and (from 2026-11-05) the Pilot right of a
+    user of the users file; pilot None keeps the user's Pilot right as it is."""
     from web import users as web_users
     if not web_users.is_file_user(cfg, username):
         raise ValueError(f"no personal user {username} (the built-in and the maintenance user have fixed rights)")
@@ -152,9 +168,11 @@ def set_rights(cfg, username: str, full: bool, own) -> None:
     bad = [x for x in own if not (isinstance(x, str) and RX_RE.match(x))]
     if bad:
         raise ValueError("not a receiver id: " + ", ".join(map(str, bad))[:80])
-    e = _clean({"full": full, "own": own})
     users = dict(_load(cfg, force=True))
-    if e["full"] or e["own"]:
+    if pilot is None:
+        pilot = bool((users.get(username) or {}).get("pilot"))
+    e = _clean({"full": full, "own": own, "pilot": pilot})
+    if e["full"] or e["own"] or e.get("pilot"):
         users[username] = e
     else:
         users.pop(username, None)

@@ -7,7 +7,12 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place)
+## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place; the phone's Pilot view and the Pilot right)
+
+### Phone: the Pilot view (research only)
+- A new **Pilot** view for the briefing on the ground, the turnaround and the debrief, for the users with the new **Pilot right**. Four tabs: **Now** (the METAR, the runways in use, the wind on final at the surface / 500 / 1 000 / 2 000 ft above the runway, the windshear reports, EDR and go-arounds of the last 30 / 60 / 120 min), **Approach** (the headwind on final of one runway's landings in ft above the runway — each flight, the median and middle half, the own aircraft class highlighted, the shear markers, the crosswind and a short summary), **Icing** (the 0 / −10 / −20 °C heights, the temperature from the airport's flights, the area, the mast and MEPS, a warm layer above a sub-freezing surface, MEPS cloud and the icing reports) and **My flight** (a landing or departure of the last 7 days by callsign or registration against the flights before it: headwind, windshear report, EDR, GNSS on final). *Pilot options* in the menu: Aircraft class and Window. `static/js/app_pilot.js` (new), `web/api/pilot.py` (new), `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`, `web/app.py` (`/api/pilot/*`).
+- The **Pilot right**: under *Permissions* on the Maintenance page's user list, on its own beside Full view and the own receivers (a violet *Pilot* chip; the maintenance user always). `web/rights.py` (`pilot()`), `web/users.py`, `web/app.py`, `web/templates/maintenance.html`, `static/js/maintenance.js`, `static/css/style.css`.
+- Mobile user guide 1.55 (48 pp): the Pilot view, with figures from the stored data. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ### Fix: the departures' fine headwind profiles
 - The windshear report back-fill of 4 Nov 2026 (report version 9) rebuilt every stored departure's report without its fine headwind profile (`hp`, 100-ft bins up to 5 000 ft), so the *flight by flight* fields (headwind, its change and the shear — Windshear page BL view, Sounding page time–height section) and the departures' profile chart in the Approach History showed only the climb-outs made after the deploy. The back-fill now keeps `hp`, and the one-time profile back-fill runs once more to fill it in again (marker `ws_hp_backfill_2`; about 1 600 departures, a few seconds). `run.py`.

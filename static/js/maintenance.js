@@ -337,7 +337,7 @@ function renderUsers(d) {
       ? `<button class="maint-btn maint-btn-sm maint-btn-danger" data-act="rm" data-user="${_esc(u.user)}">Remove</button>` : '';
     // Receivers (own receivers) and Permissions (Full view) — two buttons from 2026-11-03
     const rxBtn = u.kind === 'user'
-      ? `<button class="maint-btn maint-btn-sm" data-act="perm" data-user="${_esc(u.user)}" title="${_esc(u.user)}'s permissions: Full view — every receiver, the GPS pages and the phone's GNSS view">Permissions</button>`
+      ? `<button class="maint-btn maint-btn-sm" data-act="perm" data-user="${_esc(u.user)}" title="${_esc(u.user)}'s permissions: Full view — every receiver, the GPS pages and the phone's GNSS view; Pilot — the phone's Pilot view">Permissions</button>`
         + `<button class="maint-btn maint-btn-sm" data-act="rx" data-user="${_esc(u.user)}" title="${_esc(u.user)}'s own receivers: their own tabs on the Statistics page, feeds and coverage lines">Receivers</button>` : '';
     return `<div class="maint-stat-row maint-user-row"><span>${_esc(u.user)}</span>${nm}` +
       `<span class="maint-user-kind">${_USER_KIND[u.kind] || u.kind}${u.kind === 'maintenance' && u.hashed === false ? ' · password in clear' : ''}${u.kind === 'config' && d.shared && d.shared.phase !== 'none' ? (d.shared.phase === 'ended' ? ' · shared, ended' : ` · shared, until ${_esc(d.shared.expires)}`) : ''}</span>` +
@@ -361,11 +361,13 @@ function _rxChips(u, d) {
   if (u.kind === 'config') return '<span class="maint-rx-chip dim" title="The built-in user always sees All receivers only">All receivers</span>';
   const ch = [];
   if (u.full) ch.push(`<span class="maint-rx-chip full" title="Every receiver, the GPS pages and the phone's GNSS view${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Full view</span>`);
+  // the Pilot right (from 2026-11-05)
+  if (u.pilot) ch.push(`<span class="maint-rx-chip pilot" title="The phone's Pilot view${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Pilot</span>`);
   (u.own || []).forEach(id => {
     const known = (d.receivers || []).some(x => x.id === id);
     ch.push(`<span class="maint-rx-chip${known ? '' : ' gone'}" title="${known ? 'Own receiver: ' + _esc(_rxName(d, id)) : _esc(id) + ': not configured on this server (kept)'}">${_esc(id)}</span>`);
   });
-  if (!ch.length) ch.push('<span class="maint-rx-chip dim">All receivers</span>');
+  if (!ch.length || (ch.length === 1 && u.pilot && !u.full)) ch.push('<span class="maint-rx-chip dim">All receivers</span>');
   return ch.join('');
 }
 function _rxOverview(d) {
@@ -375,14 +377,15 @@ function _rxOverview(d) {
   if (!rx.length) { el.innerHTML = ''; return; }
   const own = id => users.filter(u => (u.own || []).includes(id)).map(u => `<b>${_esc(u.user)}</b>`);
   const full = users.filter(u => u.full).map(u => `<b>${_esc(u.user)}</b>${u.kind === 'maintenance' ? ' (always)' : ''}`);
+  const pil = users.filter(u => u.pilot).map(u => `<b>${_esc(u.user)}</b>${u.kind === 'maintenance' ? ' (always)' : ''}`);
   el.innerHTML = `<b>Receivers on this server:</b> ` + rx.map(r => {
       const o = own(r.id);
       return `${_esc(r.id)}${r.name ? ' · ' + _esc(r.name) : ''} — ${o.length ? 'owner' + (o.length > 1 ? 's ' : ' ') + o.join(', ') : '<i>no owner</i>'}`;
     }).join(' &nbsp;·&nbsp; ')
-    + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'}. `
+    + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'} &nbsp;·&nbsp; Pilot: ${pil.join(', ') || '—'}. `
     + (rx.length < 2 ? 'With one receiver everyone sees its statistics; the rights take effect when more receivers are added. '
                      : 'Everyone else sees only <i>All receivers</i> on the Statistics page and the phone. ')
-    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights. Full view (<b>Permissions</b>) also opens the GPS pages and the phone\'s GNSS view.';
+    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights. Full view (<b>Permissions</b>) also opens the GPS pages and the phone\'s GNSS view; <b>Pilot</b> (also under Permissions, on its own) the phone\'s Pilot view.';
 }
 function _closeRx() {
   _rxUser = null;
@@ -390,12 +393,13 @@ function _closeRx() {
   document.getElementById('users-perm-row').style.display = 'none';
 }
 const _userOf = name => ((_usersData || {}).users || []).find(x => x.user === name) || {};
-// Permissions (from 2026-11-03): Full view only; the own receivers are kept as they are
+// Permissions (from 2026-11-03): Full view and (from 2026-11-05) Pilot; the own receivers are kept as they are
 function _openPerm(name) {
   _closeRx();
   _rxUser = name;
   document.getElementById('users-perm-user').textContent = name;
   document.getElementById('users-perm-full').checked = !!_userOf(name).full;
+  document.getElementById('users-perm-pilot').checked = !!_userOf(name).pilot;
   document.getElementById('users-perm-row').style.display = '';
 }
 // Receivers: the own receivers only; Full view is kept as it is
@@ -413,12 +417,13 @@ function _openRx(name) {
   document.getElementById('users-rx-row').style.display = '';
 }
 document.getElementById('users-rx-cancel-btn').addEventListener('click', _closeRx);
-async function _saveRights(full, own) {
+async function _saveRights(full, own, pilot) {
   const user = _rxUser;
+  if (pilot === undefined) pilot = !!_userOf(user).pilot;
   try {
-    renderUsers(await _usersCall('rights', user, '', { full, own }));
-    _setStatus('users-status', `✓ Rights saved for ${user}: ` + (full ? 'Full view' : '') + (full && own.length ? ' + ' : '')
-      + (own.length ? 'own ' + own.join(', ') : '') + (!full && !own.length ? 'All receivers only' : ''));
+    renderUsers(await _usersCall('rights', user, '', { full, own, pilot }));
+    const parts = [full ? 'Full view' : '', own.length ? 'own ' + own.join(', ') : '', pilot ? 'Pilot' : ''].filter(Boolean);
+    _setStatus('users-status', `✓ Rights saved for ${user}: ` + (parts.length ? parts.join(' + ') : 'All receivers only'));
     _closeRx();
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
 }
@@ -430,7 +435,8 @@ document.getElementById('users-rx-save-btn').addEventListener('click', () => {
 document.getElementById('users-perm-cancel-btn').addEventListener('click', _closeRx);
 document.getElementById('users-perm-save-btn').addEventListener('click', () => {
   if (!_rxUser) return;
-  _saveRights(document.getElementById('users-perm-full').checked, _userOf(_rxUser).own || []);
+  _saveRights(document.getElementById('users-perm-full').checked, _userOf(_rxUser).own || [],
+              document.getElementById('users-perm-pilot').checked);
 });
 
 // ── Shared test login: end date (web/shared_login.py) ────────────────────────

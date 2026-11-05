@@ -2957,6 +2957,7 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
                  background: rgba(124, 58, 237, 0.14); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.45); white-space: nowrap; }
 .maint-rx-chip.full { background: rgba(37, 99, 235, 0.14); color: #2563eb; border-color: rgba(37, 99, 235, 0.45); }
 .maint-rx-chip.dim { background: transparent; color: var(--text-3); border-color: var(--border); font-weight: 500; }
+.maint-rx-chip.pilot { background: rgba(124, 58, 237, 0.14); color: #7c3aed; border-color: rgba(124, 58, 237, 0.45); }   /* the Pilot right (2026-11-05) */
 .maint-rx-chip.gone { text-decoration: line-through; }
 .maint-rx-row { flex-wrap: wrap; }
 .maint-rx-list { display: inline-flex; flex-wrap: wrap; gap: 0.2rem 0.8rem; }

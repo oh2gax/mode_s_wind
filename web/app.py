@@ -366,6 +366,8 @@ def create_app(
             "site_moved":        _site_moved(),
             # the GPS link / the phone's GNSS view: Full view only (web/rights.py, from 2026-11-03)
             "gnss_view":         _gnss_ok(),
+            # the phone's Pilot view: the Pilot right (web/rights.py, from 2026-11-05)
+            "pilot_view":        _pilot_ok(),
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -482,6 +484,15 @@ def create_app(
         rendered after this check depends on the user (_user_page)."""
         g.user_page = True
         return rx_rights.gnss(_user_rights())
+
+    def _pilot_ok() -> bool:
+        """Whether the logged-in user may see the Pilot view and /api/pilot/*:
+        the Pilot right (from 2026-11-05; independent of Full view)."""
+        g.user_page = True
+        return rx_rights.pilot(_user_rights())
+
+    def _pilot_denied():
+        return _private(jsonify({"error": "The Pilot view needs the Pilot right (ask the maintenance user)."})), 403
 
     def _gnss_denied():
         return _private(jsonify({"error": "The GNSS data needs the Full view right (ask the maintenance user)."})), 403
@@ -2519,6 +2530,51 @@ def create_app(
         return _private(jsonify({"episodes": out, "radius_nm": radius, "edge_nm": edge,
                                  "t0": t0, "t1": t1}))
 
+    # ── Pilot view (web/api/pilot.py, from 2026-11-05; the Pilot right) ─────
+
+    @app.route("/api/pilot/brief")
+    def pilot_brief_api():
+        """EFHK now: ?min=30|60|120 (default 60) — the METAR, the runways in use,
+        the wind on final, the windshear reports, EDR and the go-arounds."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        return _private(_gzip_json(_p.brief(get_db(), request.args.get("min", 60, type=int))))
+
+    @app.route("/api/pilot/approach")
+    def pilot_approach_api():
+        """Final approach by runway: ?rwy= (default the busiest of the window), ?min=."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        return _private(_gzip_json(_p.approach(get_db(), (request.args.get("rwy") or "").upper()[:3] or None,
+                                               request.args.get("min", 60, type=int))))
+
+    @app.route("/api/pilot/icing")
+    def pilot_icing_api():
+        """Icing: freezing levels, a warm layer above a sub-freezing surface, the
+        MEPS humidity and the icing reports; ?cls=T|R|N|W (the aircraft class)."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        cls = (request.args.get("cls") or "T").upper()[:1]
+        return _private(_gzip_json(_p.icing(get_db(), cls=cls if cls in "TRNWB" else "T")))
+
+    @app.route("/api/pilot/flight")
+    def pilot_flight_api():
+        """My flight: ?q= (callsign or registration; the last 7 days) lists the
+        flights, ?k=a|d&id= gives one flight's debrief."""
+        if not _pilot_ok():
+            return _pilot_denied()
+        from web.api import pilot as _p
+        rid = request.args.get("id", type=int)
+        if rid is not None:
+            out = _p.flight(get_db(), "d" if request.args.get("k") == "d" else "a", rid)
+            if out is None:
+                return _private(jsonify({"error": "not found"})), 404
+            return _private(_gzip_json(out))
+        return _private(_gzip_json(_p.flights(get_db(), (request.args.get("q") or "")[:12])))
+
     @app.route("/api/gps/state")
     def gps_state_api():
         """
@@ -2822,12 +2878,14 @@ def create_app(
     @app.route("/api/maintenance/users/rights", methods=["POST"])
     def maintenance_users_rights():
         """A personal user's receiver rights (web/rights.py, from 2026-11-02):
-        {"target": user, "full": bool, "own": [receiver ids]}."""
+        {"target": user, "full": bool, "own": [receiver ids], "pilot": bool
+        (from 2026-11-05; left out = kept as it is)}."""
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
         try:
-            rx_rights.set_rights(cfg, str(data.get("target", "")), bool(data.get("full")), data.get("own") or [])
+            rx_rights.set_rights(cfg, str(data.get("target", "")), bool(data.get("full")), data.get("own") or [],
+                                 None if data.get("pilot") is None else bool(data.get("pilot")))
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except OSError as exc:

@@ -221,6 +221,19 @@
   </section>
   {% endif %}
 
+  {% if pilot_view %}
+  <!-- Pilot (from 2026-11-05): EFHK now, the final approach by runway, icing and My flight —
+       the Pilot right only (web/rights.py); static/js/app_pilot.js, web/api/pilot.py -->
+  <section id="v-pilot" class="app-view app-pilot" hidden>
+    <div id="apl-ban" class="apl-ban">Research only — not for flight operations</div>
+    <div id="apl-tabs" class="apl-tabs" role="group" aria-label="Pilot view">
+      <button type="button" data-tab="now">Now</button><button type="button" data-tab="app">Approach</button><button type="button" data-tab="ice">Icing</button><button type="button" data-tab="fl">My flight</button>
+    </div>
+    <div id="apl-body" class="apl-body"></div>
+    <div class="app-small am-disc">Research data — what the aircraft before you measured at EFHK, from their own Mode S replies, with the MEPS model of MET Norway and the observations of the FMI (open data, CC BY 4.0). Not an official briefing and not for flight operations: use the ATIS / METAR, TAF, NOTAMs and the official weather briefing. Shown to users with the Pilot right.</div>
+  </section>
+  {% endif %}
+
   <!-- History: landings / departures as cards (from 2026-10-28) -->
   <section id="v-hist" class="app-view app-hist" hidden>
     <div class="app-hist-bar">
@@ -286,6 +299,7 @@
     <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
     <button type="button" class="app-tile" data-view="mast"><b>Mast</b><small>Kivenlahti · lowest 300 m</small></button>
     {% if gnss_view %}<button type="button" class="app-tile" data-view="gnss"><b>GNSS</b><small>GPS quality · Full view</small></button>{% endif %}
+    {% if pilot_view %}<button type="button" class="app-tile" data-view="pilot"><b>Pilot</b><small>EFHK now · approach · icing</small></button>{% endif %}
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -558,6 +572,17 @@
   </details>
   {% endif %}
 
+  {% if pilot_view %}
+  <details class="app-sec" data-for="pilot">
+    <summary>Pilot options</summary>
+    <div class="app-field"><span>Aircraft class</span>
+      <select id="app-pilot-class" data-chips><option value="T">Turboprop</option><option value="R">Regional jet</option><option value="N">Narrowbody</option><option value="W">Widebody</option></select></div>
+    <div class="app-field"><span>Window</span>
+      <select id="app-pilot-min" data-chips><option value="30">30 min</option><option value="60">60 min</option><option value="120">2 h</option></select></div>
+    <div class="app-small"><i>Aircraft class</i>: your class is highlighted on <i>Approach</i> (and its own median with the class filter), and <i>Icing</i> shows the heights for it — up to 20 000 ft for a turboprop, 30 000 ft with −40 °C for the jets. <i>Window</i>: the minutes of <i>Now</i> and <i>Approach</i>. Heights on <i>Approach</i> and <i>My flight</i> are ft above the runway (EFHK 179 ft), on <i>Icing</i> ft MSL. Remembered on the phone. Research only.</div>
+  </details>
+  {% endif %}
+
   <details class="app-sec app-sec-gen">
     <summary>General</summary>
     <div class="app-small">Theme: the button at the top right — a tap steps Dark (☾) → Light (☀) → Auto (◐, follows the phone's setting).</div>
@@ -636,6 +661,7 @@
 <script src="{{ url_for('static', filename='js/app_mast.js') }}"></script>
 <script src="{{ url_for('static', filename='js/rx_markers.js') }}"></script>
 {% if gnss_view %}<script src="{{ url_for('static', filename='js/app_gnss.js') }}"></script>{% endif %}
+{% if pilot_view %}<script src="{{ url_for('static', filename='js/app_pilot.js') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

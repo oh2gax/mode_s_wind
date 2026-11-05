@@ -104,9 +104,9 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.54
+version: 1.55
 date: 2026-11-05
-pages: 46
+pages: 48
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
@@ -114,6 +114,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
 - **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer and its flight-by-flight headwind, change and shear), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, ATC labels placed apart with leader lines and the **extended label** on a tap, **All tracked (30 NM)** and the **ATC map style** of the big pages, the **approach history** of the last 3–6 h under the strips, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **EDR · WS · ACI · ST** with **ACI + EDR + WS**, **EDR + WS** and a **boundary-layer chart below** on the same hours (also under the ILS view's chart), the space–time diagram and the **boundary layer** (low-level jet, inversion, and flight by flight: headwind, its change and the shear; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures (also **Both** in one list, the departures' runway in light blue) with its search and each flight's **headwind profile** chart, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on; with more receivers *All receivers* and, for its owners and Full view, a receiver's own tab marked **yours**), and the **Weather** maps (MEPS, 6 h back to 24 / 48 h ahead, slider and animation, tap for values, the **2.5 km detail** near the airport when zoomed in, **smooth shading** or grid cells, the **2 m temperature** in colours or isotherms, and as **numbers** on their own, the **FMI radar** at the present hour, one **Opacity** for all the coloured layers, the live air traffic with the ATC map and labels, and the extended label on a tap, and the receivers as small triangles), and — for users with the **Full view** right — **GNSS** (degraded GPS now, hour by hour or day by day up to 3 months, the **FL band heatmap**, the live list and the spoofing indicators), with their options
+- **Pilot** (the Pilot right, research only): **Now** — the METAR, runways in use, the wind on final, windshear, turbulence and go-arounds; **Approach** — the headwind on final by runway in ft above the runway, your aircraft class highlighted; **Icing** — freezing levels and a warm layer above a sub-freezing surface; **My flight** — a landing or departure against the flights before it
 - What to do when something looks wrong, and a quick reference
 
 ## EFHK windshear detection study (study log)

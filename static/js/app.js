@@ -52,6 +52,8 @@
   // GNSS (from 2026-11-03, app_gnss.js): only for the Full view right — the server leaves
   // the tile, the view and the script out for everyone else
   if (window.AppGnss && $('v-gnss')) VIEWS.gnss = { title: 'GNSS', sec: 'gnss', el: 'v-gnss' };
+  // Pilot (from 2026-11-05, app_pilot.js): only for the Pilot right — left out for everyone else
+  if (window.AppPilot && $('v-pilot')) VIEWS.pilot = { title: 'Pilot · EFHK', sec: 'pilot', el: 'v-pilot' };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
   let timer = null;
@@ -1718,6 +1720,7 @@
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.layout();
     else if (view === 'mast' && window.AppMast) window.AppMast.layout();
     else if (view === 'gnss') window.AppGnss.layout();
+    else if (view === 'pilot') window.AppPilot.layout();
     markScroll();
   }
   function refresh() {
@@ -1730,11 +1733,12 @@
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.refresh();
     else if (view === 'mast' && window.AppMast) window.AppMast.refresh();
     else if (view === 'gnss') window.AppGnss.refresh();
+    else if (view === 'pilot') window.AppPilot.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, gnss: 30e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, gnss: 30e3, pilot: 60e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
@@ -1743,6 +1747,7 @@
     if (view !== 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.hide();
     if (view !== 'mast' && window.AppMast) window.AppMast.hide();
     if (view !== 'gnss' && VIEWS.gnss) window.AppGnss.hide();
+    if (view !== 'pilot' && VIEWS.pilot) window.AppPilot.hide();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -1772,6 +1777,7 @@
     else if (view === 'wx') openWx();
     else if (view === 'mast' && window.AppMast) window.AppMast.show();
     else if (view === 'gnss') window.AppGnss.show();
+    else if (view === 'pilot') window.AppPilot.show();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
@@ -1890,6 +1896,8 @@
 
   // the GNSS view's options and the sub line (from 2026-11-03, app_gnss.js)
   if (VIEWS.gnss) window.AppGnss.init({ sub: t => { if (view === 'gnss') $('app-sub').textContent = t; } });
+  // the Pilot view's options and the sub line (from 2026-11-05, app_pilot.js)
+  if (VIEWS.pilot) window.AppPilot.init({ sub: t => { if (view === 'pilot') $('app-sub').textContent = t; } });
 
   async function openStats() {
     $('app-sub').textContent = `last ${stWinTxt(ST.win)}`;
