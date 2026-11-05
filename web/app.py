@@ -569,9 +569,10 @@ def create_app(
 
     @app.route("/gps")
     def gps_page():
-        # the GNSS data: Full view only (web/rights.py, from 2026-11-03)
+        # the GNSS data: Full view only (web/rights.py, from 2026-11-03); from 2026-11-05
+        # hidden from everyone else — a plain 404, no notice (gnss_locked.html unused)
         if not _gnss_ok():
-            return render_template("gnss_locked.html"), 403
+            abort(404)
         return render_template("gps_quality.html",
                                airport_icao=cfg.AIRPORT_ICAO,
                                nacp_threshold=cfg.GPS_NACP_THRESHOLD,
@@ -580,15 +581,16 @@ def create_app(
     @app.route("/pilot")
     def pilot_page():
         """The full site's Pilot page (from 2026-11-05 evening): the phone's Pilot view
-        with its tabs in a bar, the cards side by side — the Pilot right only (the
-        template shows a notice to everyone else)."""
-        ok = _pilot_ok()
-        return render_template("pilot.html"), (200 if ok else 403)
+        with its tabs in a bar, the cards side by side — the Pilot right only; for
+        everyone else the page does not exist (a plain 404, no notice)."""
+        if not _pilot_ok():
+            abort(404)
+        return render_template("pilot.html")
 
     @app.route("/gps-episodes")
     def gps_episodes_page():
         if not _gnss_ok():
-            return render_template("gnss_locked.html"), 403
+            abort(404)                                 # hidden without Full view (2026-11-05)
         return render_template("gps_episodes.html",
                                airport_icao=cfg.AIRPORT_ICAO,
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
