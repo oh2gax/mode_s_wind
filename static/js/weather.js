@@ -454,7 +454,8 @@ function showPoint() {
   card.innerHTML = '<button class="wx-pc-x" type="button" title="Close (Esc)" aria-label="Close">×</button>'
     + `<div class="wx-pc-head">${ll.lat.toFixed(2)}°N ${ll.lng.toFixed(2)}°E</div>`
     + `<div class="wx-pc-time">${$('wx-tlabel').innerHTML}</div>${rows}`
-    + '<small>follows the time slider · click elsewhere on the map for another place</small>';
+    + '<small>follows the time slider · click elsewhere on the map for another place</small>'
+    + (typeof WxMg !== 'undefined' ? '<button class="wx-pc-mg" type="button" title="The meteogram of this place: MEPS and GFS over the days">Meteogram ›</button>' : '');
   card.hidden = false;
   placePoint();
 }
@@ -481,7 +482,10 @@ map.on('click', e => {
   pointLL = e.latlng;
   showPoint();
 });
-$('wx-point-card').addEventListener('click', e => { if (e.target.closest('.wx-pc-x')) closePoint(); });
+$('wx-point-card').addEventListener('click', e => {
+  if (e.target.closest('.wx-pc-x')) closePoint();
+  else if (e.target.closest('.wx-pc-mg') && pointLL && typeof WxMg !== 'undefined') WxMg.open(pointLL.lat, pointLL.lng);   // (from 2026-11-05)
+});
 L.DomEvent.disableClickPropagation($('wx-point-card'));
 L.DomEvent.disableScrollPropagation($('wx-point-card'));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && pointLL) closePoint(); });

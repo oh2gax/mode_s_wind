@@ -563,3 +563,19 @@ body.app-body {
 /* ── Pilot view (from 2026-11-05, static/js/app_pilot.js) ─────────────────── */
 .app-view.app-pilot { padding: 0 8px 14px; }
 /* the cards, the charts and the tabs: static/css/pilot.css (shared with the full site's Pilot page, from 2026-11-05 evening) */
+
+/* ── Meteogram (from 2026-11-05, app_mg.js + meteogram.js compact) ─────── */
+.app-wx-tip .app-wx-mg { display: table; margin: 5px 0 3px; padding: 4px 11px; min-height: 30px; border-radius: 15px;
+                         border: 1px solid var(--accent, #3b82f6); background: transparent; color: var(--text-1); font: inherit; font-size: 12px; }
+.app-mg .am-ctl .am-lbl { min-width: 56px; }
+.app-mg #amg-place { flex-wrap: wrap; row-gap: 5px; }
+.app-mg .am-ctl:first-child { align-items: flex-start; }
+.app-mg .am-ctl:first-child .am-lbl { padding-top: 7px; }
+.app-chip:disabled { opacity: .4; }
+.amg-head { padding: 2px 4px 0; }
+.amg-chart { margin: 0 -4px; min-height: 120px; }
+.amg-chart .mg-read { font-size: 11.5px; line-height: 1.35; min-height: 4.1em; color: var(--text-1); padding: 3px 6px; }
+.amg-chart .mg-read .mg-dim, .amg-chart .mg-empty { color: var(--text-3); }
+.amg-chart .mg-empty { padding: 20px 6px; font-size: 12px; }
+.amg-chart svg { touch-action: pan-y; }
+.amg-foot { margin: 4px 4px 10px; font-size: 10.5px; color: var(--text-3); }

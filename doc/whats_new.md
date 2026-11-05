@@ -3,7 +3,7 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast on the Weather page, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
+## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast and meteograms on the Weather page and the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
 
 - **Pilot view (phone, research only)** — for users with the new *Pilot* permission: **Now** (the METAR, runways in use, the wind on final, windshear, turbulence and go-arounds of the last hour), **Approach** (the headwind on final of the recent landings, in feet above the runway, your aircraft class highlighted), **Icing** (freezing levels, a warm layer above a sub-freezing ground, cloud and icing reports) and **My flight** (find your landing or departure and see what it met against the flights before it). Choose your aircraft class in *Pilot options*. Not for flight operations.
 - **Five more Pilot tabs** — **Departure** (the headwind, crosswind and temperature on the climb-out of the recent departures, with a climb table and the low-level jet), **Aloft** (winds and temperatures by flight level for your aircraft class, with the tropopause and the jet), **Turbulence** (EDR by height and over the last 6 hours, the roughest flights and the reports), **GNSS** (how many aircraft have degraded GPS now, and how many landings and departures at EFHK) and **Map** (the Weather map set for approach, icing or fog in one tap). On the phone the tabs scroll sideways.
@@ -12,6 +12,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Statistics page** — the receivers' panel (*Receivers · merged*) is now at the top of the right column, the reply cadence under the range rings. In *All receivers* the Signal strength panel now just says why it is empty, with a button per receiver, and your receiver choice stays after an update.
 - **Windshear charts on a chosen day** — the readouts now say *23:00–24:00 UTC* and the date, not *Last 1h*.
 - **16-day forecast on the Weather page** (on the cloud server) — a *Model* choice: MEPS as before, or **GFS**, NOAA's global model, from now up to 16 days ahead (the 00 and 12 UTC runs), with −1d / +1d buttons. For viewing; beyond a week a rough guide only.
+- **Meteograms** — the Weather page has **Map | Meteogram**: the temperature, precipitation, wind, pressure and clouds of one place over the days, from MEPS, GFS (to 16 days) or both together. Choose EFHK, one of the receiver sites, or pin any place on the map (*Point values* → *Meteogram ›*). On the phone: the new **Meteogram** view, and *Meteogram here* in the Weather view's tap card. For viewing; beyond a week GFS is a rough guide only.
 - **Ready for a second Radarcape** — the Statistics page shows another Radarcape's own GPS and receiver status in its receiver panel, and its feed dot warns when its GPS is not working.
 - **Sounding guide 3.11** — a new section on the **Mast** view: the Kivenlahti mast's lowest 300 m against the aircraft, the model and the sonde, and the mast in the time–height section and on the Skew-T, with the night inversion of 3–4 November.
 

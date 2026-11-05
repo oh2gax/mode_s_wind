@@ -192,6 +192,17 @@
     <div class="app-small am-disc">Research data — the FMI's Kivenlahti mast (Espoo, 327 m, 24 km south-west of the airport; FMI open data, CC BY 4.0) with the Mode S boundary layer of the airport and the MEPS model. Not an official observation: for flight operations use the METAR / ATIS.</div>
   </section>
 
+  <!-- Meteogram (from 2026-11-05): one place's model weather on one time axis — the shared
+       meteogram.js in its compact layout (static/js/app_mg.js) -->
+  <section id="v-mg" class="app-view app-mg" hidden>
+    <div class="am-ctl"><span class="am-lbl">Place</span><div class="app-chips" id="amg-place"></div></div>
+    <div class="am-ctl" id="amg-model-row"><span class="am-lbl">Model</span><div class="app-chips" id="amg-model"></div></div>
+    <div class="am-ctl"><span class="am-lbl">Range</span><div class="app-chips" id="amg-range"></div></div>
+    <div id="amg-head" class="app-meta amg-head"></div>
+    <div id="amg-chart" class="amg-chart"></div>
+    <div id="amg-foot" class="app-small amg-foot"></div>
+  </section>
+
   {% if gnss_view %}
   <!-- GNSS (from 2026-11-03): the GPS Quality page in short — Full view only (web/rights.py);
        static/js/app_gnss.js -->
@@ -299,6 +310,7 @@
     <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
     <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS maps · air traffic</small></button>
     <button type="button" class="app-tile" data-view="mast"><b>Mast</b><small>Kivenlahti · lowest 300 m</small></button>
+    <button type="button" class="app-tile" data-view="mg"><b>Meteogram</b><small>{{ airport_icao }} · MEPS{% if gfs_on %} · GFS{% endif %}</small></button>
     {% if gnss_view %}<button type="button" class="app-tile" data-view="gnss"><b>GNSS</b><small>GPS quality · Full view</small></button>{% endif %}
     {% if pilot_view %}<button type="button" class="app-tile" data-view="pilot"><b>Pilot</b><small>EFHK now · approach · aloft · icing</small></button>{% endif %}
   </div>
@@ -468,6 +480,18 @@
       <label class="app-switch"><span>Sonde in the profile</span><input type="checkbox" id="app-mast-sonde"></label>
     </div>
     <div class="app-small">The Kivenlahti mast (FMI, Espoo, 24 km south-west of the airport) measures the temperature at 2–297 m and the wind at 26–327 m every 10 minutes. EFHK now: the airport's model weather, its difference to the METAR and the mast's values against the model (Δ MEPS) and the aircraft (Δ Mode S); tap a row for what it means, « for one line. The boundary-layer charts show the mast's 10-minute values below the amber line (its top, about 1 200 ft) and the aircraft's hourly values above it (Mast in the charts: Fill; Columns — the mast's hour means as a narrow column at the right of each hour, beside the aircraft's cells, which can then be seen below 1 200 ft too; Off — the aircraft only) — the temperature against the METAR (red warmer: an inversion), or the wind speed with barbs; the strip between them is the mast's temperature difference top − 2 m (violet: an inversion). Tap a chart for the values; a tap on the mast also shows its profile of that time (Now × returns to the newest). The time series shows the mast's winds and temperatures (the temperature axis inverted, colder up) and, as hollow circles, the airport's Mode S value of each hour at the same height above the ground (Top: the 327 m wind and 297 m temperature; All: 92–327 m) with the METAR (□); Mast 1 h shows the mast as a running 1-hour mean, closer to the hourly Mode S values; Mast Off leaves only the Mode S hours. The comparison gives the mean difference and the RMS of the aircraft (Mode S), the model (MEPS) and the soundings against the mast at the same height above the ground.</div>
+  </details>
+
+  <details class="app-sec" data-for="mg">
+    <summary>Meteogram options</summary>
+    <div class="app-switches">
+      <label class="app-switch"><span>Temperature</span><input type="checkbox" id="app-mg-temp"></label>
+      <label class="app-switch"><span>Precipitation</span><input type="checkbox" id="app-mg-precip"></label>
+      <label class="app-switch"><span>Wind</span><input type="checkbox" id="app-mg-wind"></label>
+      <label class="app-switch"><span>Pressure</span><input type="checkbox" id="app-mg-pres"></label>
+      <label class="app-switch"><span>Clouds</span><input type="checkbox" id="app-mg-cloud"></label>
+    </div>
+    <div class="app-small">The model weather of one place on one time axis (UTC): the temperature (red above, blue below 0 °C, with the day's highest and lowest), the precipitation of each hour (rain blue, snow violet, with the day totals), the wind and gust with barbs, the pressure and the low / medium / high cloud cover (fog with MEPS) with the cloud base (MEPS) or ceiling (GFS) in feet. The night is shaded, the forecast part tinted, the red line is now. Place: {{ airport_icao }}, a receiver site (RX-01 …, its position to 0.01° as on the maps), or the place last tapped on the Weather view's map (its card's "Meteogram here"). Model: MEPS (the past 6 hours and its forecast, about 2.5 days){% if gfs_on %}, GFS (to 16 days; hourly to +120 h, then every 3 hours) or Both (GFS thin and dashed, MEPS bold over its own hours){% endif %}. Tap or drag on the chart for the values of that hour. For viewing only: the model at the grid cell of the place, not an observation or an official forecast.</div>
   </details>
 
   <details class="app-sec" data-for="wx">
@@ -660,6 +684,13 @@
 <script src="{{ url_for('static', filename='js/apt_now.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mast.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app_mast.js') }}"></script>
+<!-- the Meteogram view (from 2026-11-05): the Weather page's meteogram drawing, compact -->
+<script>
+  const MG_AIRPORT = { icao: {{ airport_icao|tojson }}, lat: {{ airport_lat|tojson }}, lon: {{ airport_lon|tojson }} };
+  const MG_GFS = {{ 'true' if gfs_on else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='js/meteogram.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app_mg.js') }}"></script>
 <script src="{{ url_for('static', filename='js/rx_markers.js') }}"></script>
 {% if gnss_view %}<script src="{{ url_for('static', filename='js/app_gnss.js') }}"></script>{% endif %}
 {% if pilot_view %}<script src="{{ url_for('static', filename='js/app_pilot.js') }}"></script>{% endif %}

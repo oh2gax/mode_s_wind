@@ -554,7 +554,10 @@ def create_app(
         return render_template("weather.html",
                                receiver_lat=cfg.RECEIVER_LAT,
                                receiver_lon=cfg.RECEIVER_LON,
-                               gfs_on=bool(getattr(cfg, "GFS_WX", False)))   # the MEPS | GFS switch (from 2026-11-05)
+                               gfs_on=bool(getattr(cfg, "GFS_WX", False)),   # the MEPS | GFS switch (from 2026-11-05)
+                               airport_icao=cfg.AIRPORT_ICAO,                 # the meteogram's default place (from 2026-11-05)
+                               airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
+                               airport_lon=cfg.WINDSHEAR_AIRPORT_LON)
 
     @app.route("/windshear")
     def windshear_page():
@@ -612,6 +615,7 @@ def create_app(
                                airport_lat=cfg.WINDSHEAR_AIRPORT_LAT,
                                airport_lon=cfg.WINDSHEAR_AIRPORT_LON,
                                airport_icao=cfg.AIRPORT_ICAO,      # the extended label's last line (2026-10-31)
+                               gfs_on=bool(getattr(cfg, "GFS_WX", False)),   # the meteogram's GFS (from 2026-11-05)
                                radius_nm=cfg.WINDSHEAR_RADIUS_NM,
                                thr_elevation_ft=cfg.WINDSHEAR_THR_ELEVATION_FT,
                                gs_offset_ft=cfg.WINDSHEAR_GS_OFFSET_FT)
@@ -1379,6 +1383,30 @@ def create_app(
             resp.headers["Vary"] = "Accept-Encoding"
         else:
             resp = app.response_class(_gzip.decompress(z), mimetype="application/json")
+        return resp
+
+    @app.route("/api/weather/meteogram")
+    def weather_meteogram_api():
+        """A meteogram (from 2026-11-05): every stored hour of ?model=meps|gfs at the
+        grid cell nearest ?lat=&lon= (default the airport) from now − ?past= h to
+        now + ?fc= h (web/api/weather.py meteogram); gzip-compressed."""
+        import gzip as _gzip
+        from web.api import weather as _wx
+        lat = request.args.get("lat", type=float)
+        lon = request.args.get("lon", type=float)
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            lat, lon = cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON
+        past = max(0.0, min(170.0, request.args.get("past", 24.0, type=float)))
+        fc = max(0.0, min(400.0, request.args.get("fc", 400.0, type=float)))
+        gfs = _wx_model() == "gfs"
+        d = _wx.meteogram(_gfs_db() if gfs else get_db(), lat, lon, "gfs" if gfs else "meps", past, fc)
+        body = json.dumps(d, separators=(",", ":")).encode()
+        if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
+            resp = app.response_class(_gzip.compress(body, compresslevel=5), mimetype="application/json")
+            resp.headers["Content-Encoding"] = "gzip"
+            resp.headers["Vary"] = "Accept-Encoding"
+        else:
+            resp = app.response_class(body, mimetype="application/json")
         return resp
 
     @app.route("/api/weather/point")

@@ -276,6 +276,139 @@ def _crop(plane, nx: int, win):
     return out
 
 
+# ── Meteogram (from 2026-11-05): every stored hour of a model at one place ──────
+# One answer per (model, cell, the hours with their run / lead): a repeated view is
+# instant, a new run gives other keys.  Reading a series means decompressing each
+# hour (about 2 ms for a MEPS hour of the whole area), so the answer is cached.
+_mg_cache: "OrderedDict" = None
+_MG_MAX = 48
+
+
+def _lcc_latlon(x: float, y: float):
+    """The inverse of _lcc_xy: (lat, lon) of MEPS grid coordinates."""
+    from math import atan, atan2, degrees, hypot
+    rho = hypot(x, _RHO0 - y)
+    th = atan2(x, _RHO0 - y)
+    lat = degrees(2 * atan((_R * _F / rho) ** (1 / _N)) - pi / 2)
+    return lat, _LON0 + degrees(th / _N)
+
+
+def _cell_values(meta: dict, blob: bytes, k: int) -> dict:
+    """The fields of grid index k of one stored hour (only that cell is read after
+    the decompression)."""
+    raw = zlib.decompress(blob)
+    n = meta["x"][2] * meta["y"][2]
+    fields = meta.get("f") or list(FIELDS)
+    if len(raw) != 2 * n * len(fields):
+        return {}
+    out = {}
+    for i, f in enumerate(fields):
+        off = 2 * (i * n + k)
+        v = int.from_bytes(raw[off:off + 2], "little", signed=True)
+        if v != FILL:
+            out[f] = v
+    return out
+
+
+def meteogram(db, lat: float, lon: float, model: str = "meps", past_h: float = 24, fc_h: float = 400,
+              now: float = None) -> dict:
+    """The time series of every field at the grid cell nearest (lat, lon): MEPS
+    (db = the main database; the 2.5 km cell inside its box when the hour has the
+    same run there, else the 10 km cell) or GFS (db = the GFS file), the hours from
+    now − past_h to now + fc_h.  Values in the frames' encoding (p (hPa − 1000) × 10,
+    t °C × 10, r / s mm per hour × 100, u / v / g kt, c / l / m / h / f %, b m);
+    None = missing.  {model, lat, lon, cell, ts, run, lead, pi, fine, v: {field: [...]},
+    runs, source}."""
+    global _mg_cache
+    from collections import OrderedDict as _OD
+    if _mg_cache is None:
+        _mg_cache = _OD()
+    now = time.time() if now is None else now
+    t0, t1 = int(now - past_h * 3600), int(now + fc_h * 3600)
+    gfs = model == "gfs"
+    table = GFS_TABLE if gfs else "meps_wx_hours"
+    if db is None:
+        return {"error": "GFS is not configured on this server (GFS_WX)" if gfs else "no database"}
+    try:
+        hours = db.execute(f"SELECT ts, run, lead FROM {table} WHERE ts >= ? AND ts <= ? ORDER BY ts", (t0, t1)).fetchall()
+        meta_row = db.execute(f"SELECT meta FROM {table} ORDER BY ts DESC LIMIT 1").fetchone()
+    except Exception:                                    # noqa: BLE001  (table missing)
+        hours, meta_row = [], None
+    if not hours or not meta_row:
+        return {"error": f"no {'GFS' if gfs else 'MEPS'} hours stored for this period", "model": model}
+    meta = json.loads(meta_row[0])
+    (x0, dx, nx), (y0, dy, ny) = meta["x"], meta["y"]
+    if gfs:
+        i, j = round((lon - x0) / dx), round((lat - y0) / dy)
+    else:
+        x, y = _lcc_xy(lat, lon)
+        i, j = round((x - x0) / dx), round((y - y0) / dy)
+    if not (0 <= i < nx and 0 <= j < ny):
+        return {"error": f"the place is outside the {'GFS' if gfs else 'MEPS'} area", "model": model}
+    k = j * nx + i
+    if gfs:
+        clat, clon = y0 + j * dy, x0 + i * dx
+    else:
+        clat, clon = _lcc_latlon(x0 + i * dx, y0 + j * dy)
+    # MEPS: the 2.5 km box's cell of the place, when inside the box
+    fine = {}
+    fk = None
+    if not gfs:
+        try:
+            fm = db.execute("SELECT meta FROM meps_wx25_hours ORDER BY ts DESC LIMIT 1").fetchone()
+        except Exception:                                # noqa: BLE001
+            fm = None
+        if fm:
+            fmeta = json.loads(fm[0])
+            (fx0, fdx, fnx), (fy0, fdy, fny) = fmeta["x"], fmeta["y"]
+            fi, fj = round((x - fx0) / fdx), round((y - fy0) / fdy)
+            if 0 <= fi < fnx and 0 <= fj < fny:
+                fk = fj * fnx + fi
+                try:
+                    fine = {ts: (run, lead) for ts, run, lead in
+                            db.execute("SELECT ts, run, lead FROM meps_wx25_hours WHERE ts >= ? AND ts <= ?", (t0, t1))}
+                except Exception:                        # noqa: BLE001
+                    fine = {}
+    key = (model, k, fk, tuple(hours), tuple(sorted((t, r) for t, (r, _) in fine.items())))
+    with _lock:
+        hit = _mg_cache.get(key)
+        if hit is not None:
+            _mg_cache.move_to_end(key)
+            return hit
+    out = {"model": model, "lat": lat, "lon": lon,
+           "cell": {"lat": round(clat, 4), "lon": round(clon, 4),
+                    "grid": "0.25°" if gfs else "10 km", "fine_grid": "2.5 km" if fk is not None else None},
+           "ts": [], "run": [], "lead": [], "pi": [], "fine": [], "v": {f: [] for f in ALL},
+           "source": GFS_SOURCE if gfs else "MEPS (MET Norway, CC BY 4.0)"}
+    for ts, run, lead in hours:
+        vals, used_fine = None, 0
+        if fk is not None and fine.get(ts, (None,))[0] == run:
+            r = db.execute("SELECT meta, data FROM meps_wx25_hours WHERE ts = ?", (ts,)).fetchone()
+            if r:
+                vals = _cell_values(json.loads(r[0]), r[1], fk)
+                used_fine = 1 if vals else 0
+        if not vals:
+            r = db.execute(f"SELECT meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
+            if not r:
+                continue
+            m = json.loads(r[0])
+            vals = _cell_values(m, r[1], k) if (m["x"], m["y"]) == (meta["x"], meta["y"]) else {}
+        out["ts"].append(ts)
+        out["run"].append(run)
+        out["lead"].append(lead)
+        out["pi"].append((1 if lead <= 120 else 3) if gfs else 1)
+        out["fine"].append(used_fine)
+        for f in ALL:
+            out["v"][f].append(vals.get(f))
+    out["v"] = {f: a for f, a in out["v"].items() if any(x is not None for x in a)}
+    out["runs"] = sorted(set(out["run"]))
+    with _lock:
+        _mg_cache[key] = out
+        while len(_mg_cache) > _MG_MAX:
+            _mg_cache.popitem(last=False)
+    return out
+
+
 # ── Memory caches (from 2026-11-03; before, one dict of whole hours per field list,
 # emptied at 400 entries) ─────────────────────────────────────────────────────────
 # _fc: one averaged field of one hour — (table, ts, run, lead, w, step, bbox, field) →

@@ -149,7 +149,12 @@ window.AppWx = (() => {
     map.on('click', onTap);
     // a redraw only when the detail comes or goes (the layer redraws itself on a move)
     map.on('zoomend moveend', () => { if (!shown) return; const w = fineWanted(); if (w !== fineWas) { fineWas = w; showFrame(); } loadFine(); prefetchDraw(); });
-    $('app-wx-tip').addEventListener('click', closeTip);
+    // a tap on the card closes it; its "Meteogram here" opens the Meteogram view at the place (from 2026-11-05)
+    $('app-wx-tip').addEventListener('click', e => {
+      const ll = e.target.closest('.app-wx-mg') && tip && tip.ll;
+      closeTip();
+      if (ll && window.AppMg) window.AppMg.openAt(ll.lat, ll.lng);
+    });
     $('app-wx-t').addEventListener('input', () => { if (playing) play(); lastMove = performance.now(); markFollow(); requestShow(); maybeLoadNear(); });
     // while the slider is dragged the hours not drawn before are drawn at half resolution,
     // and the hour is drawn sharp when the finger is lifted (from 2026-11-03)
@@ -484,7 +489,9 @@ window.AppWx = (() => {
     if (!txt) { closeTip(); return; }
     if (tipMk) tipMk.setLatLng(ll); else tipMk = L.marker(ll, { interactive: false, keyboard: false,
       icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="app-wx-pin"></div>' }) }).addTo(map);
-    $('app-wx-tip').innerHTML = `${C.esc(txt)}<small>tap elsewhere on the map for another place · tap here to close</small>`;
+    $('app-wx-tip').innerHTML = `${C.esc(txt)}` +
+      (window.AppMg ? '<button type="button" class="app-wx-mg">Meteogram here ›</button>' : '') +
+      `<small>tap elsewhere on the map for another place · tap here to close</small>`;
     $('app-wx-tip').hidden = false;
   }
   function showAcTip(a) {

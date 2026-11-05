@@ -49,6 +49,8 @@
     wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
     mast:         { title: 'Mast', sec: 'mast', el: 'v-mast' },       // from 2026-11-01 night (app_mast.js)
   };
+  // Meteogram (from 2026-11-05, app_mg.js + meteogram.js)
+  if (window.AppMg && $('v-mg')) VIEWS.mg = { title: 'Meteogram', sec: 'mg', el: 'v-mg' };
   // GNSS (from 2026-11-03, app_gnss.js): only for the Full view right — the server leaves
   // the tile, the view and the script out for everyone else
   if (window.AppGnss && $('v-gnss')) VIEWS.gnss = { title: 'GNSS', sec: 'gnss', el: 'v-gnss' };
@@ -1719,6 +1721,7 @@
     else if (view === 'stats' && window.MsStats) window.MsStats.redraw();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.layout();
     else if (view === 'mast' && window.AppMast) window.AppMast.layout();
+    else if (view === 'mg') window.AppMg.layout();
     else if (view === 'gnss') window.AppGnss.layout();
     else if (view === 'pilot') window.AppPilot.layout();
     markScroll();
@@ -1732,13 +1735,14 @@
     else if (view === 'hist' && !H.date) loadHist();
     else if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.refresh();
     else if (view === 'mast' && window.AppMast) window.AppMast.refresh();
+    else if (view === 'mg') window.AppMg.refresh();
     else if (view === 'gnss') window.AppGnss.refresh();
     else if (view === 'pilot') window.AppPilot.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, gnss: 30e3, pilot: 60e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, mg: 600e3, gnss: 30e3, pilot: 60e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
@@ -1746,6 +1750,7 @@
     if (view !== 'stats' && window.MsStats) window.MsStats.stop();
     if (view !== 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.hide();
     if (view !== 'mast' && window.AppMast) window.AppMast.hide();
+    if (view !== 'mg' && VIEWS.mg) window.AppMg.hide();
     if (view !== 'gnss' && VIEWS.gnss) window.AppGnss.hide();
     if (view !== 'pilot' && VIEWS.pilot) window.AppPilot.hide();
     lsSet('ms_app_view', view);
@@ -1776,12 +1781,14 @@
     else if (view === 'stats') openStats();
     else if (view === 'wx') openWx();
     else if (view === 'mast' && window.AppMast) window.AppMast.show();
+    else if (view === 'mg') window.AppMg.show();
     else if (view === 'gnss') window.AppGnss.show();
     else if (view === 'pilot') window.AppPilot.show();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
   document.querySelectorAll('.app-tile').forEach(t => t.addEventListener('click', () => setView(t.dataset.view, true)));
+  window.AppSetView = v => setView(v);          // the Weather view's "Meteogram here" (from 2026-11-05)
 
   let rt = null;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => layout(), 120); });
