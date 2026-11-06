@@ -600,58 +600,6 @@
     return out.join('');
   }
 
-  // ── the wide page's columns (from 2026-11-06) ──────────────────────────
-  // The full Pilot page places each tab's cards in fixed columns (instead of a grid
-  // that let cards of different heights land anywhere): 3 columns from 1 250 px,
-  // 2 from 820 px (the third column's cards go under the shorter one), else one.
-  // A column lists the cards by their title ('…*' its start; '@nrwy' the Now runway
-  // bar, '#first' the first card); a card not listed goes to the shortest column;
-  // the bars and boxes before the first card stay across the top.
-  const WIDE = {
-    now:  { t: '1fr 1fr 1fr', c: [['EFHK METAR', 'In use', 'Turbulence · go-arounds'], ['@nrwy', 'Wind on final*'], ['Windshear']] },
-    app:  { t: '1.2fr 1fr', c: [['Headwind on final*', 'Final approach'], ['In short', 'Latest landings']] },
-    dep:  { t: '1.15fr 1fr 0.85fr', c: [['Headwind on the climb-out*', 'Climb-out'], ['Climb table', 'Latest departures'], ['Temperature on the climb-out', 'Boundary layer']] },
-    alo:  { t: '1fr 1fr 1fr', c: [['Aloft', 'Winds and temperatures'], ['Wind speed'], ['ISA deviation']] },
-    ice:  { t: '1fr 1.2fr', c: [['Freezing levels', 'Icing reports'], ['Temperature']] },
-    turb: { t: '1fr 1fr 1fr', c: [['Turbulence', 'Roughest flights'], ['By height', 'Turbulence reports'], ['The last 6 hours']] },
-    gnss: { t: '1fr 1fr 1fr', c: [['GNSS now'], ['The last 24 h within 50 NM'], ['At EFHK']] },
-    fl:   { t: '1fr 1.2fr 1fr', c: [['#first', 'Turbulence · GNSS', 'Flights'], ['Your headwind*'], ['Windshear report']] },
-  };
-  function wideLayout(body, tab) {
-    const spec = WIDE[tab];
-    const cards = [...body.children].filter(e => e.classList.contains('apl-cd') || e.classList.contains('apl-nrwy'));
-    if (!spec || cards.length < 2) return;
-    const W = body.clientWidth, n = W >= 1250 ? 3 : W >= 820 ? 2 : 1;
-    if (n === 1) { body.classList.add('apl-one'); return; }
-    const title = e => ((e.querySelector('.apl-h > b') || {}).textContent || '');
-    const firstCard = cards.find(e => e.classList.contains('apl-cd'));
-    const cols = spec.c.map(() => []), used = new Set();
-    spec.c.forEach((keys, ci) => keys.forEach(k => cards.forEach(e => {
-      if (used.has(e)) return;
-      const hit = k === '@nrwy' ? e.classList.contains('apl-nrwy') : k === '#first' ? e === firstCard
-        : e.classList.contains('apl-cd') && (k.endsWith('*') ? title(e).startsWith(k.slice(0, -1)) : title(e) === k);
-      if (hit) { cols[ci].push(e); used.add(e); }
-    })));
-    const row = document.createElement('div');
-    row.className = 'apl-colrow';
-    const nc = Math.min(n, spec.c.length);
-    const tmpl = spec.t.split(' ');
-    row.style.gridTemplateColumns = (nc === spec.c.length ? tmpl : tmpl.slice(0, nc)).join(' ');
-    const colEls = [];
-    for (let i = 0; i < nc; i++) { const c = document.createElement('div'); c.className = 'apl-col'; row.appendChild(c); colEls.push(c); }
-    const first = cards[0];
-    body.insertBefore(row, first);
-    cols.forEach((list, ci) => list.forEach(e => colEls[Math.min(ci, nc - 1)].appendChild(e)));
-    if (nc < spec.c.length) {                         // two columns: the third column's cards under the shorter one
-      const extra = [...colEls[nc - 1].children].filter(e => cols.slice(nc).some(l => l.includes(e)));
-      extra.forEach(e => { const sh = colEls.reduce((a, b) => a.offsetHeight <= b.offsetHeight ? a : b); sh.appendChild(e); });
-    }
-    cards.filter(e => !used.has(e)).forEach(e => {    // not listed: the shortest column
-      const sh = colEls.reduce((a, b) => a.offsetHeight <= b.offsetHeight ? a : b); sh.appendChild(e);
-    });
-    body.classList.add('apl-cols');
-  }
-
   // ── frame ──────────────────────────────────────────────────────────────
   function render() {
     if (!inited) return;
@@ -664,8 +612,6 @@
     const pos = keep ? document.activeElement.selectionStart : null;
     body.innerHTML = ({ now: renderNow, app: renderApp, dep: renderDep, alo: renderAlo, ice: renderIce, turb: renderTurb,
                         gnss: renderGnss, fl: renderFl, map: renderMap }[S.tab] || renderNow)();
-    body.classList.remove('apl-cols', 'apl-one');
-    if (OPT.wide) wideLayout(body, S.tab);
     if (keep) { const q = $('apl-q'); q.focus(); try { q.setSelectionRange(pos, pos); } catch (_) { /* */ } }
     sub((SUB[S.tab] || SUB.now)(S.min));
   }

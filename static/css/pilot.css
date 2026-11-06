@@ -124,14 +124,13 @@
 .pl-ctl select { background: var(--bg-2); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font: inherit; font-size: 12px; }
 .pl-sub { margin-left: auto; font-size: 11px; color: var(--text-3); }
 .page-pilot .apl-ban { margin: 0; font-size: 12px; }
-.apl-wide .apl-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; align-items: start; }
+.apl-wide .apl-body { display: flex; flex-direction: column; gap: 10px; }
 .apl-wide .apl-cd { margin-top: 0; }
-/* the full page's fixed columns per tab (from 2026-11-06, app_pilot.js wideLayout) */
-.apl-wide .apl-body.apl-cols, .apl-wide .apl-body.apl-one { display: flex; flex-direction: column; gap: 10px; }
-.apl-wide .apl-colrow { display: grid; gap: 10px; align-items: start; }
-.apl-wide .apl-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.apl-wide .apl-col > .apl-seg { margin: 0; }
-.apl-wide .apl-col .apl-svg { max-width: 640px; max-height: 600px; display: block; margin: 0 auto; }
+/* the full page: one column from top to bottom on the left as on the phone (from 2026-11-06;
+   before, a grid of 420-px columns let cards of different heights land anywhere); the tab
+   bar and the banner across the page as before */
+.page-pilot > .apl-body, .page-pilot > .pl-disc { width: 100%; max-width: 900px; align-self: flex-start; }
+.apl-wide .apl-svg { max-width: 680px; max-height: 620px; display: block; margin: 0 auto; }
 .apl-wide .apl-seg, .apl-wide .apl-warn, .apl-wide .apl-srch, .apl-wide .apl-back, .apl-wide .apl-pad, .apl-wide .apl-pre { grid-column: 1 / -1; }
 .apl-wide .apl-seg, .apl-wide .apl-srch, .apl-wide .apl-back, .apl-wide .apl-warn { margin-top: 0; }
 .apl-wide .apl-srch input { max-width: 460px; }
