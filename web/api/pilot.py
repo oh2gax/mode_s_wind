@@ -194,11 +194,18 @@ def _departures(db, t0, t1):
 
 # ── Now ──────────────────────────────────────────────────────────────────────
 
-def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = None) -> dict:
+BRIEF_HEIGHTS = (500, 1000, 2000)
+BRIEF_HEIGHTS_MORE = (300, 500, 750, 1000, 1500, 2000, 2500)   # from 2026-11-06: the landings' bands reach ~2 700 ft MSL
+
+
+def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = None, more: bool = False) -> dict:
     """rwys (from 2026-11-06): the runways the pilot chose for the wind on final, in
     place of the runways in use (the two with the most landings).  A chosen runway
     without landings in the window gets the wind aloft of all the landings (the
-    band winds of their own approaches), resolved on its heading and its threshold."""
+    band winds of their own approaches), resolved on its heading and its threshold.
+    more (from 2026-11-06): the wind on final at 300 / 500 / 750 / 1 000 / 1 500 /
+    2 000 / 2 500 ft above the runway instead of 500 / 1 000 / 2 000."""
+    heights = BRIEF_HEIGHTS_MORE if more else BRIEF_HEIGHTS
     now = time.time() if now is None else now
     names = [r["name"] for r in EFHK_RUNWAYS]
     rwys = [r for r in (rwys or []) if r in names][:3]
@@ -226,7 +233,7 @@ def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = N
              "src": "own" if own else ("all" if L else "none")}
         if not own:
             e["from"] = {k: v for k, v in arr.items()}
-        for h in (500, 1000, 2000):
+        for h in heights:
             hs, xs = [], []
             for r in L:
                 if (own and r["runway"] != rwy) or hdg is None:
@@ -263,7 +270,7 @@ def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = N
     except Exception:                                  # noqa: BLE001
         ga = []
     return {"now": int(now), "min": minutes, "metar": m, "arr": arr, "dep": dep, "n_arr": len(L), "n_dep": len(D),
-            "runways": names, "chosen": rwys, "rows": rows, "ws": ws, "ga": ga,
+            "runways": names, "chosen": rwys, "heights": list(heights), "rows": rows, "ws": ws, "ga": ga,
             "edr": {"med": _r(_median(edr), 3), "max": _r(max(edr), 3) if edr else None, "n": len(edr)}}
 
 

@@ -2620,12 +2620,14 @@ def create_app(
         """EFHK now: ?min=30|60|120 (default 60) — the METAR, the runways in use,
         the wind on final, the windshear reports, EDR and the go-arounds.
         &rwys=22L,15 (from 2026-11-06): the wind on final of the runways chosen by
-        the pilot (up to 3) in place of the runways in use."""
+        the pilot (up to 3) in place of the runways in use; &hts=more: at seven
+        heights (300 … 2 500 ft above the runway) instead of three."""
         if not _pilot_ok():
             return _pilot_denied()
         from web.api import pilot as _p
         rw = [x.strip().upper() for x in (request.args.get("rwys") or "").split(",") if x.strip()]
-        return _private(_gzip_json(_p.brief(get_db(), request.args.get("min", 60, type=int), rwys=rw or None)))
+        return _private(_gzip_json(_p.brief(get_db(), request.args.get("min", 60, type=int), rwys=rw or None,
+                                            more=request.args.get("hts") == "more")))
 
     @app.route("/api/pilot/approach")
     def pilot_approach_api():

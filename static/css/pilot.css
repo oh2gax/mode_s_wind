@@ -137,3 +137,7 @@
 .apl-nrwy > span { flex-basis: 100%; margin: 0 0 -1px 2px; }
 .apl-nrwy button { padding: 4px 9px; min-width: 40px; }
 .apl-wide .apl-nrwy > span { flex-basis: auto; margin: 0 4px 0 0; }
+.apl-nrwy > span.sp { flex-basis: 100%; height: 0; margin: 0; }
+.apl-nrwy > span.apl-hlbl { flex-basis: auto; margin: 0 2px 0 2px; }
+.apl-wide .apl-nrwy > span.sp { flex-basis: auto; flex: 1; }
+.apl-nrwy button[data-hts] { min-width: 34px; }
