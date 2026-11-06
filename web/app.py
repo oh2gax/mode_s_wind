@@ -1409,6 +1409,16 @@ def create_app(
             resp = app.response_class(body, mimetype="application/json")
         return resp
 
+    @app.route("/api/weather/gfs_skill")
+    def weather_gfs_skill_api():
+        """How good the GFS forecast (and MEPS for its first days) has been at the
+        airport against its METAR, by lead day, over the last ?days= (default 30)
+        (from 2026-11-06, collector/gfs_skill.py)."""
+        from collector import gfs_skill as _gs
+        days = max(3.0, min(90.0, request.args.get("days", 30.0, type=float)))
+        d = _gs.skill(_gfs_db(), get_db(), days, station=cfg.AIRPORT_ICAO)
+        return jsonify(d), (404 if d.get("error") and "configured" in d["error"] else 200)
+
     @app.route("/api/weather/point")
     def weather_point_api():
         """The weather of now at the airport (from 2026-11-01, the Live Map's

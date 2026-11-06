@@ -449,7 +449,54 @@ class MepsFetcher:
             written += cur.rowcount
         db.execute(f"DELETE FROM {table} WHERE ts < ?", (int(time.time() - self.wx_days * 86400),))
         db.commit()
+        # the forecast at the airport for the GFS skill check (from 2026-11-06, collector/gfs_skill.py):
+        # the main runs at the airport's cell of the finest grid stored, into the GFS file
+        if (run // 3600) % 6 == 0 and (table == WX_FINE_TABLE or not self.wx_fine_half):
+            try:
+                self._store_point(run, d, xs, ys, rot)
+            except Exception as exc:                 # noqa: BLE001
+                log.debug("MEPS airport forecast not stored: %s", exc)
         return written
+
+    def _store_point(self, run: int, d: dict, xs: list, ys: list, rot: list) -> int:
+        """One row per lead of the airport's cell in fc_points (model "meps") of the
+        GFS file — only on a server with GFS (GFS_WX)."""
+        from collector import gfs as _gfs
+        pl = _gfs.place()
+        gdb = _gfs.get_gfs_db() if pl else None
+        if gdb is None:
+            return 0
+        ex, ey = lcc_xy(pl[0], pl[1])
+        i, j = int(round((ex - xs[0]) / (xs[1] - xs[0]))), int(round((ey - ys[0]) / (ys[1] - ys[0])))
+        nx, ny = len(xs), len(ys)
+        if not (0 <= i < nx and 0 <= j < ny):
+            return 0
+        k, np_ = j * nx + i, nx * ny
+        ok = lambda v: v is not None and v < 1e30          # noqa: E731
+        c, sn = rot[k]
+        times = list(d["time"])
+        n = 0
+        for t in range(1, len(times)):
+            o1, o0 = t * np_ + k, (t - 1) * np_ + k
+            valid = int(round(times[t]))
+            P, T = d["air_pressure_at_sea_level"][o1], d["air_temperature_2m"][o1]
+            x, y, g = d["x_wind_10m"][o1], d["y_wind_10m"][o1], d["wind_speed_of_gust"][o1]
+            R1, R0 = d["precipitation_amount_acc"][o1], d["precipitation_amount_acc"][o0]
+            S1, S0 = d["snowfall_amount_acc"][o1], d["snowfall_amount_acc"][o0]
+            cc, b = d["cloud_area_fraction"][o1], d["cloud_base_altitude"][o1]
+            _gfs.store_point(gdb, "meps", run, int(round((valid - run) / 3600)), valid, {
+                "t": round(T - 273.15, 2) if ok(T) and T > 150 else None,
+                "p": round(P / 100.0, 2) if ok(P) else None,
+                "u": round((x * c + y * sn) * KT, 2) if ok(x) and ok(y) else None,
+                "v": round((y * c - x * sn) * KT, 2) if ok(x) and ok(y) else None,
+                "g": round(g * KT, 2) if ok(g) and g >= 0 else None,
+                "r": round(max(0.0, R1 - R0), 3) if ok(R1) and ok(R0) else None,
+                "s": round(max(0.0, S1 - S0), 3) if ok(S1) and ok(S0) else None,
+                "c": round(cc * 100.0, 1) if ok(cc) else None,
+                "b": round(b, 0) if ok(b) and 0 <= b <= 30000 else None, "pi": 1})
+            n += 1
+        gdb.commit()
+        return n
 
     def _wx_rot(self, xs: list, ys: list) -> list:
         """(cos, sin) of the angle between the grid y axis and true north at

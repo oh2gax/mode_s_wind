@@ -1171,6 +1171,16 @@ async function loadGfs() {
         !s.enabled ? 'Off — no network requests'
           : (d.running ? 'Fetching…' : l ? `Last look ${_utcTs(l.ts)}: ${_esc(l.text)}` : 'Not looked yet (about a minute after the start)')
           + ` · since the start ${_num(d.files_total || 0)} files, ${_mb(d.bytes_total)}${d.errors ? ', ' + d.errors + ' failed looks' : ''}`);
+      // the forecast at the airport for the skill check (from 2026-11-06)
+      const k = d.skill;
+      if (k) {
+        const bf = d.backfill;
+        const bfTxt = bf ? ` · back-filling the ${_utcTs(bf.run)} run (+${bf.done} h; ${bf.left} more)`
+          : k.backfill_open ? ` · back-fill: ${k.backfill_open} run(s) to go (while the newest run is complete)`
+          : k.backfilled ? ` · ${k.backfilled} earlier run(s) back-filled${k.missing ? ', ' + k.missing + ' no longer at NOAA' : ''}` : '';
+        h += _regdbLine('Skill check', k.points ? 'ok' : 'off',
+          `the airport's forecast of ${_num(k.runs)} GFS run(s)${k.first_run ? ' since ' + _utcTs(k.first_run) : ''} (${_num(k.points)} hours) and ${_num(k.meps_points)} MEPS hours, kept 90 days, against the METAR${bfTxt}`);
+      }
     }
     document.getElementById('gfs-status').innerHTML = h;
   } catch (e) {

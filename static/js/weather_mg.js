@@ -10,6 +10,9 @@
  *          (GFS's days with MEPS over its own); GFS only where the server has it
  *   Range  MEPS: past 24 h / 3 days / 7 days + its forecast; GFS / Both: 2 / 5 / 7 / 10 / 16 days
  *   Panels tick boxes
+ *   Typical error (with GFS, from 2026-11-06) a band around the temperature and wind lines — how far
+ *          off the forecast has been at that lead day (8 in 10 checked hours within it) — and a
+ *          table under the chart: /api/weather/gfs_skill, the stored runs against the airport's METAR
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
  * while shown (the server caches the answers, a new run makes new ones).
@@ -24,7 +27,7 @@ const WxMg = (() => {
     meps: [['24', 'past 24 h + forecast'], ['72', 'past 3 days + forecast'], ['168', 'past 7 days + forecast']],
     gfs: [['48', '2 days'], ['120', '5 days'], ['168', '7 days'], ['240', '10 days'], ['384', '16 days']],   // 2 and 7 days from 2026-11-06
   };
-  let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null };
+  let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null, err: true };
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st = Object.assign(st, s, { range: Object.assign(st.range, s.range || {}) }); } catch (e) { /* private mode */ }
   if (!MG_GFS) st.model = 'meps';
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* private mode */ } };
@@ -40,7 +43,7 @@ const WxMg = (() => {
     const r = v.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === v);
     place = r ? rxPlace(r) : v === 'pin' && st.pin ? pinPlace() : APT;
   }
-  let chart = null, run = 0, timer = 0, lastData = null;
+  let chart = null, run = 0, timer = 0, lastData = null, skillData = null;
 
   const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
@@ -61,6 +64,7 @@ const WxMg = (() => {
   function syncControls() {
     $('wx-mg-model').value = st.model;
     PANELS.forEach(k => { $('wx-mg-' + k).checked = st.panels[k] !== false; });
+    if ($('wx-mg-err')) $('wx-mg-err').checked = st.err !== false;
     fillRange(); fillPlace();
   }
 
@@ -94,6 +98,7 @@ const WxMg = (() => {
       ? `/api/weather/meteogram?${q}&model=meps&past=${m === 'meps' ? rng : 6}&fc=${m === 'meps' ? 80 : rng}`
       : `/api/weather/meteogram?${q}&model=gfs&past=2&fc=${rng}`;
     $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)} · loading…`;
+    if (MG_GFS) Meteogram.skill().then(sk => { if (sk !== skillData) { skillData = sk; if (my === run && lastData) draw(); } });
     try {
       const res = await Promise.all(want.map(k => fetch(url(k)).then(r => r.json())));
       if (my !== run) return;
@@ -117,13 +122,65 @@ const WxMg = (() => {
     const panels = {};
     PANELS.forEach(k => { panels[k] = st.panels[k] !== false; });
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
+    const eb = MG_GFS && st.err !== false ? Meteogram.errBand(skillData, place.kind === 'apt' ? '' : 'measured at ' + MG_AIRPORT.icao) : null;
     chart = Meteogram.render($('wx-mg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      panels, emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
+      panels, errBand: eb, emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
+    renderSkill();
     const runs = [];
     if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))}${data.meps.runs.length > 1 ? ' (the past hours from the earlier runs)' : ''}${data.meps.cell.fine_grid ? ', the 2.5 km cell where that run has the hour' : ''} — MET Norway, CC BY 4.0`);
     if (data.gfs) runs.push(`GFS run ${runTxt(Math.max(...data.gfs.runs))}${data.gfs.runs.length > 1 ? ' (partly the run before)' : ''}, hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only`);
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
     $('wx-mg-foot').textContent = runs.join(' · ') + ' · times UTC · the model at the grid cell of the place; for viewing';
+  }
+
+  // ── how good the forecast has been at the airport (from 2026-11-06) ───────
+  const SK_DAYS = [1, 2, 3, 5, 7, 10, 14, 16];
+  function renderSkill() {
+    const el = $('wx-mg-skill');
+    if (!el) return;
+    const sk = skillData;
+    if (!MG_GFS || !sk || sk.error) { el.hidden = true; return; }
+    el.hidden = false;
+    const byDay = rows => { const o = {}; (rows || []).forEach(r => { o[r.day] = r; }); return o; };
+    const G = byDay(sk.gfs), M = byDay(sk.meps);
+    const cls = ss => ss == null ? '' : ss >= 0.5 ? 'sk-good' : ss >= (sk.useful_ss || 0.2) ? 'sk-fair' : 'sk-poor';
+    const cell = (r, maxDay, val, ss) => {
+      if (!r || r.day > maxDay) return '<td></td>';
+      if (!r.ok) return `<td class="sk-poor" title="Still collecting (${r.n || 0} hours from ${r.runs || 0} runs checked; at least ${sk.min_n} hours from ${sk.min_runs} runs needed)">…</td>`;
+      const v = val(r);
+      return v == null ? '<td>–</td>' : `<td class="${cls(ss(r))}">${v}</td>`;
+    };
+    const row = (name, T, maxDay, val, ss, c = '') => `<tr${c ? ` class="${c}"` : ''}><td>${name}</td>`
+      + SK_DAYS.map(d => cell(T[d], maxDay, val, ss)).join('') + '</tr>';
+    const f1 = x => x == null ? null : '±' + x.toFixed(1);
+    const f0 = x => x == null ? null : '±' + Math.round(x);
+    const u = sk.gfs_useful || {}, ud = sk.useful_day;
+    let sum;
+    if (ud && ud >= 1) {
+      const known = Math.min((u.t || {}).known || 0, (u.wv || {}).known || 0);
+      sum = ud >= known && known < 16
+        ? `GFS has been better than the usual weather of the season at least to <b>day ${ud}</b> so far (temperature and wind; the longer leads are still being collected).`
+        : `GFS has been useful to about <b>day ${ud}</b> here: up to then clearly better than the usual weather of the season for temperature and wind; beyond it about as good as the season's average.`;
+    } else if (ud === 0) sum = 'In this period GFS has not been clearly better than the usual weather of the season even on day 1.';
+    else sum = 'Collecting: the first results come once the runs of a few days have been checked.';
+    const runs = (sk.gfs || []).reduce((n, r) => Math.max(n, r.runs || 0), 0);
+    const first = sk.first_run ? new Date(sk.first_run * 1000) : null;
+    el.innerHTML = `<h4>How good the forecast has been at ${sk.station} — the last ${Math.round(sk.window_days)} days</h4>`
+      + `<p class="sk-sum">${sum}</p>`
+      + `<table><thead><tr><th>Lead day</th>${SK_DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>`
+      + row('GFS temperature, °C', G, 16, r => f1(r.t && r.t.p80), r => r.t && r.t.ss)
+      + row('GFS wind, kt', G, 16, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss)
+      + row('GFS pressure, hPa', G, 16, r => f1(r.p && r.p.p80), r => r.p && r.p.ss)
+      + row('GFS rain hours caught', G, 16, r => r.rain && r.rain.pod != null ? Math.round(r.rain.pod * 100) + ' %' : null,
+            r => r.rain && r.rain.hss != null ? r.rain.hss + 0.1 : null)
+      + row('MEPS temperature, °C', M, 3, r => f1(r.t && r.t.p80), r => r.t && r.t.ss, 'sk-meps')
+      + row('MEPS wind, kt', M, 3, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss, 'sk-meps')
+      + row('Hours checked (GFS)', G, 16, r => String(r.n), () => null)
+      + '</tbody></table>'
+      + `<div class="sk-note">8 in 10 of the checked hours were within ± the number (temperature 2 m, wind 10 m, sea-level pressure against the ${sk.station} METAR; the wind as speed). `
+      + `Colour: green clearly better than the usual weather of the season (the ${sk.station} METARs of the years before, the same hour ±7 days), yellow somewhat better, grey no better; … still collecting. `
+      + `Rain: the share of the hours with rain or snow at ${sk.station} for which the model had at least ${sk.rain_mmh || 0.1} mm/h. `
+      + `Day 1 = the first 24 h of a run (a run is ready about 4–5 h after its start). ${runs ? runs + (runs === 1 ? ' GFS run' : ' GFS runs') : 'The runs'}${first ? ' since ' + first.getUTCDate() + '.' + (first.getUTCMonth() + 1) + '.' : ''}; a lead day is shown from ${sk.min_n} hours of ${sk.min_runs} runs on. Measured at the airport only — elsewhere a guide.</div>`;
   }
 
   // ── controls ───────────────────────────────────────────────────────────
@@ -136,6 +193,7 @@ const WxMg = (() => {
     setHash(); load();
   });
   PANELS.forEach(k => $('wx-mg-' + k).addEventListener('change', e => { st.panels[k] = e.target.checked; save(); draw(); }));
+  if ($('wx-mg-err')) $('wx-mg-err').addEventListener('change', e => { st.err = e.target.checked; save(); draw(); });
   const prevTheme = window.onThemeChange;
   window.onThemeChange = function () { if (prevTheme) prevTheme(); if (st.view === 'mg') draw(); };
 

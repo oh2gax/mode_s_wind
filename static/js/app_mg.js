@@ -13,6 +13,9 @@
  *          dashed, MEPS bold over its own hours); GFS only where the server has it
  *   Range  2 d · 5 d · 7 d · 10 d · 16 d (GFS and Both; MEPS has its own forecast only)
  *   Panels the Meteogram options of the ☰ menu (Pressure off by default)
+ *   Typical error (with GFS, from 2026-11-06; ☰ menu, on by default) a band around the temperature
+ *          and wind lines — how far off the forecast has been at that lead day, 8 in 10 checked hours
+ *          within it (/api/weather/gfs_skill) — and a line under the chart
  * A tap or a drag on the chart gives the values of that hour above it.  The
  * choices are remembered on the phone (ms_app_mg_*).  app.js calls show / hide /
  * refresh (every 10 min while shown) / layout; openAt(lat, lon) is called by the
@@ -36,6 +39,7 @@
     place: lsGet('ms_app_mg_place', 'apt'),
     pin: (() => { try { const p = JSON.parse(lsGet('ms_app_mg_pin', 'null')); return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null; } catch (_) { return null; } })(),
     panels: {},
+    err: lsGet('ms_app_mg_err', 'true') !== 'false',
   };
   PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, k === 'pres' ? 'false' : 'true') !== 'false'; });
   if (!GFS || !['meps', 'gfs', 'both'].includes(S.model)) S.model = GFS && ['gfs', 'both'].includes(S.model) ? S.model : 'meps';
@@ -43,7 +47,7 @@
   if (!(S.place === 'pin' && S.pin) && !S.place.startsWith('rx:')) S.place = 'apt';
   let rxs = [];                                   // Meteogram.receivers()
 
-  let on = false, seq = 0, chart = null, data = null, fetched = 0;
+  let on = false, seq = 0, chart = null, data = null, fetched = 0, skill = null;
   const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
   const place = () => {
@@ -84,6 +88,7 @@
     const url = k => k === 'meps' ? `/api/weather/meteogram?${q}&model=meps&past=6&fc=${rng}`
       : `/api/weather/meteogram?${q}&model=gfs&past=2&fc=${rng}`;
     $('amg-head').innerHTML = `<b>${esc(p.title)}</b> · ${fmtLL(p.lat, p.lon)} · loading…`;
+    if (GFS && Meteogram.skill) Meteogram.skill().then(sk => { if (sk !== skill) { skill = sk; if (on && data) draw(); } });
     try {
       const res = await Promise.all(want.map(k => fetch(url(k)).then(r => r.json()).catch(() => ({ error: 'loading failed' }))));
       if (my !== seq || !on) return;
@@ -105,16 +110,33 @@
     $('amg-head').innerHTML = `<b>${esc(p.title)}</b> · ${fmtLL(p.lat, p.lon)}` + (cells.length ? ' · ' + cells.join(' · ') : '');
     if (chart) chart.destroy();
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
+    const eb = GFS && S.err && Meteogram.errBand ? Meteogram.errBand(skill, p.apt ? '' : 'measured at ' + APT.icao) : null;
     chart = Meteogram.render($('amg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      compact: true, panels: Object.assign({}, S.panels),
+      compact: true, panels: Object.assign({}, S.panels), errBand: eb,
       emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
     const runs = [];
     if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))} — MET Norway, CC BY 4.0`);
     if (data.gfs) runs.push(`GFS run ${runTxt(Math.max(...data.gfs.runs))}, hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only`);
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
-    $('amg-foot').textContent = runs.join(' · ') + ' · times UTC · the model at the grid cell of the place, for viewing — for flight operations use the official forecasts (TAF, GAFOR).';
+    const sk = GFS && S.err ? skillLine() : '';
+    $('amg-foot').textContent = (sk ? sk + ' · ' : '') + runs.join(' · ') + ' · times UTC · the model at the grid cell of the place, for viewing — for flight operations use the official forecasts (TAF, GAFOR).';
     const sub = $('app-sub');
     if (sub && on) sub.textContent = p.sub;
+  }
+
+  // one line on how good GFS has been at the airport (8 in 10 hours within ± …, useful to about day N)
+  function skillLine() {
+    if (!skill || skill.error || !skill.gfs) return '';
+    const parts = [];
+    [1, 3, 5, 10].forEach(d => {
+      const r = skill.gfs.find(x => x.day === d);
+      if (r && r.ok && r.t && r.t.p80 != null) parts.push(`±${r.t.p80.toFixed(1)} °C on day ${d}`);
+    });
+    if (!parts.length) return `GFS at ${skill.station}: the typical error is still being collected`;
+    const ud = skill.useful_day, u = skill.gfs_useful || {};
+    const known = Math.min((u.t || {}).known || 0, (u.wv || {}).known || 0);
+    const use = ud ? (ud >= known && known < 16 ? ` · better than the season's usual weather at least to day ${ud} so far` : ` · useful to about day ${ud}`) : '';
+    return `GFS at ${skill.station}, last ${Math.round(skill.window_days)} days: temperature ${parts.join(', ')} (8 in 10 hours within)${use}`;
   }
 
   // ── the options of the ☰ menu ───────────────────────────────────────────
@@ -124,6 +146,11 @@
     cb.checked = S.panels[k];
     cb.addEventListener('change', () => { S.panels[k] = cb.checked; lsSet('ms_app_mg_' + k, cb.checked); if (on) draw(); });
   });
+  const ecb = $('app-mg-err');
+  if (ecb) {
+    ecb.checked = S.err;
+    ecb.addEventListener('change', () => { S.err = ecb.checked; lsSet('ms_app_mg_err', ecb.checked); if (on) draw(); });
+  }
   syncChips();
   // the receiver sites (the place chosen before comes back once they are known)
   Meteogram.receivers().then(list => {

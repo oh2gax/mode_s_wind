@@ -38,6 +38,7 @@ const Meteogram = (() => {
       rain: '#3b82f6', snow: '#a78bfa', wind: L ? '#0f766e' : '#2dd4bf', gust: L ? '#ea580c' : '#fb923c',
       pres: L ? '#374151' : '#cbd5e1', cloud: L ? '96,105,120' : '200,206,214', fog: L ? '161,98,7' : '250,204,21',
       barb: L ? '#111827' : '#e5e7eb', panel: L ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.025)',
+      band: L ? 'rgba(71,85,105,0.16)' : 'rgba(203,213,225,0.15)',
     };
   }
 
@@ -70,7 +71,10 @@ const Meteogram = (() => {
   const windDir = (u, v) => (Math.atan2(-u, -v) * 180 / Math.PI + 360) % 360;
 
   // ── one model's series in plain units ─────────────────────────────────────
-  function series(d, key) {
+  // the typical error by lead day (from 2026-11-06, /api/weather/gfs_skill): {day: {t, ws}} → the
+  // band of a point (8 in 10 of the checked hours were within ± this)
+  const leadDay = lead => Math.max(1, Math.ceil((lead || 0) / 24));
+  function series(d, key, err) {
     if (!d || !d.ts || !d.ts.length) return null;
     const v = d.v || {}, n = d.ts.length, g = (f, i) => (v[f] ? v[f][i] : null);
     const pts = [];
@@ -83,6 +87,8 @@ const Meteogram = (() => {
         ws: u == null || w == null ? null : Math.hypot(u, w), wd: u == null || w == null ? null : windDir(u, w),
         gu: g('g', i), c: g('c', i), l: g('l', i), m: g('m', i), h: g('h', i), f: g('f', i), b: g('b', i),
       });
+      const e = err && err[leadDay(d.lead[i])];
+      if (e) { pts[i].et = e.t; pts[i].ew = e.ws; }
     }
     return { key, d, pts, t0: d.ts[0] - (pts[0].pi || 1) * HOUR, t1: d.ts[n - 1], hasFog: !!v.f };
   }
@@ -98,7 +104,8 @@ const Meteogram = (() => {
   function render(el, data, opts = {}) {
     const C = !!opts.compact;
     const P0 = Object.assign({ temp: true, precip: true, wind: true, pres: true, cloud: true }, opts.panels || {});
-    const SM = series(data.meps, 'meps'), SG = series(data.gfs, 'gfs');
+    const EB = opts.errBand || null;           // {gfs: {day: {t, ws}}, meps: {…}, where} or null
+    const SM = series(data.meps, 'meps', EB && EB.meps), SG = series(data.gfs, 'gfs', EB && EB.gfs);
     const both = !!(SM && SG);
     const prim = SG || SM;                       // the axis range and the daily labels
     el.innerHTML = '';
@@ -144,6 +151,29 @@ const Meteogram = (() => {
       };
       const meps1 = SM ? SM.t1 : -Infinity, mepsT0 = SM ? SM.t0 : Infinity;
       const pick = q => (SM && q.ts > mepsT0 && q.ts <= meps1);          // MEPS has this time (Both)
+      // the typical-error band of a value (f, its error e) — with both models, MEPS's over its own
+      // hours and GFS's after them; broken where the error is not known (yet)
+      let banded = false;
+      const band = (S, f, e, Y, lo0) => {
+        const segs = []; let cur = [], prev = null;
+        for (const q of S.pts) {
+          const v = q[f], er = q[e];
+          const skip = (both && S.key === 'gfs' && pick(q)) || q.ts < now - HOUR;   // the forecast part only
+          if (v == null || er == null || skip || (prev && q.ts - prev.ts > (q.pi || 1) * HOUR * 1.6)) {
+            if (cur.length > 1) segs.push(cur);
+            cur = [];
+            if (v == null || er == null || skip) { prev = null; continue; }
+          }
+          cur.push({ x: X(q.ts), a: Y(v + er), b: Y(lo0 == null ? v - er : Math.max(lo0, v - er)) });
+          prev = q;
+        }
+        if (cur.length > 1) segs.push(cur);
+        segs.forEach(sg => {
+          banded = true;
+          out.push(`<path d="${sg.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.a.toFixed(1)}`).join('')}${sg.slice().reverse().map(p => `L${p.x.toFixed(1)} ${p.b.toFixed(1)}`).join('')}Z" fill="${T.band}" stroke="none"/>`);
+        });
+      };
+      const bandVals = (f, e) => [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => q[f] != null && q[e] != null ? [q[f] - q[e], q[f] + q[e]] : []));
       // background: panels, night, forecast tint, day lines
       out.push(`<defs><clipPath id="mgc"><rect x="${AL}" y="0" width="${pw}" height="${Ht}"/></clipPath></defs>`);
       panels.forEach(k => out.push(`<rect x="${AL}" y="${box0[k].y0}" width="${pw}" height="${H[k]}" fill="${T.panel}"/>`));
@@ -193,7 +223,7 @@ const Meteogram = (() => {
       const lines = [];                          // the drawn series (both models), for the order MEPS on top
       // 1 temperature
       if (P0.temp) {
-        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.t)).filter(v => v != null);
+        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.t)).filter(v => v != null).concat(bandVals('t', 'et'));
         if (vals.length) {
           let lo = Math.min(...vals), hi = Math.max(...vals);
           const pad = Math.max(1, (hi - lo) * 0.12); lo -= pad; hi += pad;
@@ -203,6 +233,7 @@ const Meteogram = (() => {
           yaxis('temp', lo, hi, st, v => (v > 0 ? '+' : '') + v, Y);
           const yz = Y(0);
           if (lo < 0 && hi > 0) out.push(`<line x1="${AL}" x2="${AL + pw}" y1="${yz.toFixed(1)}" y2="${yz.toFixed(1)}" stroke="${T.zero}" stroke-width="1.3"/>`);
+          for (const S of [SG, SM].filter(Boolean)) band(S, 't', 'et', Y);
           const zc = Math.max(b.y0, Math.min(b.y1, yz));
           out.push(`<clipPath id="mgw"><rect x="${AL}" y="${b.y0}" width="${pw}" height="${(zc - b.y0).toFixed(1)}"/></clipPath>`
                  + `<clipPath id="mgk"><rect x="${AL}" y="${zc.toFixed(1)}" width="${pw}" height="${(b.y1 - zc).toFixed(1)}"/></clipPath>`);
@@ -257,12 +288,13 @@ const Meteogram = (() => {
       }
       // 3 wind
       if (P0.wind) {
-        const b = box0.wind, all = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => [q.ws, q.gu])).filter(v => v != null);
+        const b = box0.wind, all = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => [q.ws, q.gu])).filter(v => v != null).concat(bandVals('ws', 'ew'));
         const mx = Math.max(20, Math.ceil(Math.max(0, ...all) * 1.1 / 5) * 5);
         const top = C ? 26 : 32;                    // the barbs' row
         const Y = v => b.y1 - 3 - v / mx * (H.wind - top - 4);
         ylab('wind', 'kt');
         yaxis('wind', 0, mx, mx > 60 ? 20 : 10, v => String(v), Y);
+        for (const S of [SG, SM].filter(Boolean)) band(S, 'ws', 'ew', Y, 0);
         for (const S of [SG, SM].filter(Boolean)) {
           const thin = both && S.key === 'gfs';
           out.push(line(path(S, 'gu', Y), T.gust, thin ? 1 : C ? 1.3 : 1.6, thin ? '2 3' : '4 3', thin ? 0.8 : 1));
@@ -336,6 +368,7 @@ const Meteogram = (() => {
       if (P0.wind) lg.push(`<tspan fill="${T.wind}">━</tspan> wind <tspan fill="${T.gust}">╍</tspan> gust`);
       if (P0.precip) lg.push(`<tspan fill="${T.rain}">■</tspan> rain <tspan fill="${T.snow}">■</tspan> snow (day totals in mm)`);
       if (P0.cloud) lg.push(SG && !SM ? 'ft: the ceiling' : SM && !SG ? 'ft: the cloud base' : 'ft: cloud base (MEPS) / ceiling (GFS)');
+      if (banded) lg.push(`<tspan fill="${T.dim}" style="fill-opacity:1">▒</tspan> typical error: 8 in 10 hours within it${EB && EB.where ? ' (' + esc(EB.where) + ')' : ''}`);
       // as many lines as the width needs (the phone's narrow screen: two or three)
       const lgFs = C ? 8.5 : 10, lgW = W - AL - 4, chW = lgFs * 0.55;
       const plain = h => h.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').length;
@@ -369,8 +402,8 @@ const Meteogram = (() => {
     function one(q, name) {
       if (!q) return '';
       const p = [];
-      if (q.t != null) p.push(`${q.t > 0 ? '+' : q.t < 0 ? '−' : ''}${Math.abs(q.t).toFixed(1)} °C`);
-      if (q.ws != null) p.push(q.ws < 1 ? 'calm' : `wind ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`);
+      if (q.t != null) p.push(`${q.t > 0 ? '+' : q.t < 0 ? '−' : ''}${Math.abs(q.t).toFixed(1)} °C${q.et != null ? ` (±${q.et.toFixed(1)})` : ''}`);
+      if (q.ws != null) p.push((q.ws < 1 ? 'calm' : `wind ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`) + (q.ew != null ? ` (±${Math.round(q.ew)} kt)` : ''));
       if (q.gu != null) p.push(`gust ${q.gu} kt`);
       if (q.r != null) {
         const sn = q.s != null && q.r > 0 && q.s >= 0.5 * q.r;
@@ -418,5 +451,30 @@ const Meteogram = (() => {
     return rxP;
   }
 
-  return { render, sunElev, receivers };
+  // /api/weather/gfs_skill → the bands of render(): the lead days with enough checked hours,
+  // {gfs: {day: {t, ws}}, meps: {…}} (the 80th percentile of the absolute error); null without any
+  function errBand(sk, where) {
+    if (!sk || sk.error) return null;
+    const one = rows => {
+      const o = {};
+      (rows || []).forEach(r => {
+        if (!r.ok) return;
+        const t = r.t && r.t.p80, ws = r.ws && r.ws.p80;
+        if (t != null || ws != null) o[r.day] = { t: t != null ? t : null, ws: ws != null ? ws : null };
+      });
+      return Object.keys(o).length ? o : null;
+    };
+    const g = one(sk.gfs), m = one(sk.meps);
+    return g || m ? { gfs: g, meps: m, where } : null;
+  }
+  // the skill data, fetched once per 30 min (shared by the views of the page)
+  let skP = null, skAt = 0;
+  function skill() {
+    if (skP && Date.now() - skAt < 30 * 60e3) return skP;
+    skAt = Date.now();
+    skP = fetch('/api/weather/gfs_skill?days=30').then(r => r.ok ? r.json() : null).catch(() => { skAt = 0; return null; });
+    return skP;
+  }
+
+  return { render, sunElev, receivers, errBand, skill, leadDay };
 })();

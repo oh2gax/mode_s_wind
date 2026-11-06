@@ -30,6 +30,7 @@
       <label class="wm-check" title="10 m wind speed and gusts (kt) with wind barbs along the top"><input type="checkbox" id="wx-mg-wind" checked> Wind</label>
       <label class="wm-check" title="Sea-level pressure (hPa)"><input type="checkbox" id="wx-mg-pres" checked> Pressure</label>
       <label class="wm-check" title="High, medium and low cloud (and fog with MEPS) as grey rows, darker with more cover; the cloud base (MEPS) or the ceiling (GFS) in ft"><input type="checkbox" id="wx-mg-cloud" checked> Clouds</label>
+      {% if gfs_on %}<label class="wm-check" title="A light band around the temperature and wind-speed lines: how far off the forecast has been at this lead time — 8 in 10 of the checked hours of the last 30 days were within it (GFS, and MEPS over its own days; measured against the {{ airport_icao }} METAR); the table under the chart gives the numbers"><input type="checkbox" id="wx-mg-err" checked> Typical error</label>{% endif %}
     </div>
     {% if gfs_on %}
     <!-- the model (from 2026-11-05): MEPS (2.5 km, about 2 days ahead) or GFS (global, 0.25°, 16 days; viewing only) -->
@@ -181,6 +182,7 @@
     <div id="wx-mg-head" class="wx-mg-head"></div>
     <div id="wx-mg-chart" class="wx-mg-chart"></div>
     <div id="wx-mg-foot" class="wm-status wx-mg-foot"></div>
+    <div id="wx-mg-skill" class="wx-mg-skill" hidden></div>
   </div>
 </div>
 {% endblock %}
@@ -228,6 +230,20 @@ const MG_GFS = {{ 'true' if gfs_on else 'false' }};
 .wx-mg-chart .mg-read { font-size:.78rem; min-height:2.6em; color:var(--text-1); margin:2px 0 4px; line-height:1.3; }
 .wx-mg-chart .mg-read .mg-dim, .wx-mg .mg-empty { color:var(--text-3); }
 .wx-mg-foot { margin-top:4px; white-space:normal; }
+/* how good the forecast has been at the airport (from 2026-11-06, /api/weather/gfs_skill) */
+.wx-mg-skill { margin-top:12px; max-width:980px; font-size:.8rem; color:var(--text-2); }
+.wx-mg-skill[hidden] { display:none; }
+.wx-mg-skill h4 { margin:0 0 4px; font-size:.86rem; color:var(--text-1); font-weight:600; }
+.wx-mg-skill .sk-sum { margin:0 0 6px; color:var(--text-1); }
+.wx-mg-skill table { border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.wx-mg-skill th, .wx-mg-skill td { padding:2px 8px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+.wx-mg-skill th:first-child, .wx-mg-skill td:first-child { text-align:left; color:var(--text-2); }
+.wx-mg-skill thead th { color:var(--text-1); font-weight:600; }
+.wx-mg-skill tr.sk-meps td { color:var(--text-3); }
+.wx-mg-skill td.sk-good { color:#16a34a; }
+.wx-mg-skill td.sk-fair { color:#ca8a04; }
+.wx-mg-skill td.sk-poor { color:var(--text-3); }
+.wx-mg-skill .sk-note { margin-top:4px; color:var(--text-3); line-height:1.4; }
 .wx-point-card .wx-pc-mg { display:inline-block; margin-top:4px; padding:1px 8px; border:1px solid var(--border); border-radius:4px; background:var(--bg-3); color:var(--text-1); font:inherit; font-size:11px; cursor:pointer; }
 /* Point values (from 2026-11-01, as the phone's tap): the card next to the pin (placed by weather.js) */
 .weather-page.wx-point-mode .leaflet-container { cursor: crosshair; }
