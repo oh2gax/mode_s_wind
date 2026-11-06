@@ -13,7 +13,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **The receiving station 1.16 and its brochure 1.3** — the 16-day GFS and the meteograms, the phone's twelve views with the Pilot view, and the receivers: RX-02 on 4G, the second Radarcape ready for its site.
 - **Tidier Pilot page** — on the full site the Pilot cards now run from top to bottom in one column on the left, as on the phone, instead of wherever they fitted side by side.
 - **Pilot · Now: more heights** — *Heights 3 / 7*: the wind on final at 500, 1 000 and 2 000 ft, or at seven heights from 300 to 2 500 ft above the runway.
-- **Statistics guide 1.14** — the replies left out by the new altitude check (*altitude-checked out* under Downlink formats). A receiver that is switched off now shows grey (off) straight after a server restart, not amber for half an hour.
+- **Statistics guide 1.15** — the replies left out by the new altitude check (*altitude-checked out* under Downlink formats). A receiver that is switched off now shows grey and *off* straight after a server restart — in the health dots and on the Statistics page — not amber or *starting* for half an hour.
 
 ## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast and meteograms on the Weather page and the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
 

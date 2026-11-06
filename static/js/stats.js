@@ -338,6 +338,7 @@
       ? `<span class="mst-ok">lined up with ${esc(mainId)}'s GPS time</span> (${ck.pairs} ADS-B pairs${ck.spread_us != null ? `, spread ${fmt(ck.spread_us, 0)} µs` : ''}${ck.ppm != null ? `, drift ${ck.ppm > 0 ? '+' : ''}${fmt(ck.ppm, 1)} ppm` : ''})`
       : ck.state === 'own' ? `<span class="mst-rc-warn">own clock</span> — ${ck.main_gps ? 'not yet lined up' : `no GPS time from ${esc(mainId)} now`}; accurate to some tens of ms`
       : ck.state === 'gps' ? '<span class="mst-ok">its own GPS time</span> — exact, on the same scale as ' + esc(mainId) + '\'s'
+      : ck.state === 'off' ? `<span class="mst-dim2">off</span> — not connected for ${esc(dur(f.down_sec || 0))}: the station or its tunnel is off`
       : ck.state === 'nogps' ? `<span class="mst-rc-warn">no GPS time</span> — its arrival time is used (no GPS lock, or the timestamps set to 12 MHz)${ck.nogps ? ` · ${nfmt(ck.nogps)} frames` : ''}`
       : 'starting';
     row('Clock', `${esc(CLOCK_NAME[ck.kind] || ck.kind)} · ${cst}${ck.resets ? ` · ${ck.resets} counter restart${ck.resets > 1 ? 's' : ''}` : ''}`,
@@ -396,15 +397,18 @@
     list.forEach(r => { byBit[r.bit] = r.id; });
     const nVis = list.filter(r => r.type !== 'other').length;
     const rows = list.map(r => {
-      const ck = { gps: 'GPS time', sync: 'lined up', own: 'own clock', nogps: 'no GPS time', starting: 'starting', merged: 'merged' }[r.clock] || r.clock;
+      const ck = { gps: 'GPS time', sync: 'lined up', own: 'own clock', nogps: 'no GPS time', starting: 'starting', merged: 'merged', off: 'off' }[r.clock] || r.clock;
+      // grey dot and 'off' for a station not connected for 30 min (also straight after a restart, from 2026-11-06)
+      const dot = r.live ? 'ok' : r.off ? '' : 'warn';
+      const ckCell = r.off && r.down_sec != null ? `<td title="Not connected for ${esc(dur(r.down_sec))} — the station or its tunnel is off">off</td>` : `<td>${esc(ck)}</td>`;
       if (r.type === 'other') {
         // the receivers this user may not see one by one, summed up (web/rights.py, from 2026-11-02)
         const lbl = nVis ? `${r.other} other receiver${r.other === 1 ? '' : 's'}` : `${r.other} receiver${r.other === 1 ? '' : 's'}`;
         return `<tr><td><i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}" style="display:inline-block;margin-right:6px"></i><b>${esc(lbl)}</b> <span class="mst-dim2">${r.n_live} live</span></td>`
           + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td><td>${esc(ck)}</td><td class="num">—</td></tr>`;
       }
-      return `<tr><td><i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}" style="display:inline-block;margin-right:6px"></i><b>${esc(r.id)}</b> <span class="mst-dim2">${esc(r.name)}</span></td>`
-        + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td><td>${esc(ck)}</td>`
+      return `<tr><td><i class="mst-rx-dot ${dot}" style="display:inline-block;margin-right:6px"></i><b>${esc(r.id)}</b> <span class="mst-dim2">${esc(r.name)}</span></td>`
+        + `<td class="num">${r.rate == null ? '—' : fmtRate(r.rate)} /s</td>${ckCell}`
         + `<td class="num">${r.delay ? fmt(r.delay.p50, 0) + ' ms' : '—'}</td></tr>`;
     });
     const out = mg.out || 0;
@@ -459,7 +463,7 @@
           : d.merged ? `${r.id}: what this receiver alone hears (its replies also go into the weather)`
           : r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
         return `<button type="button" class="mst-rx-btn${sel === cur ? ' active' : ''}" data-rx="${esc(sel)}" title="${esc(tip)}">`
-          + `<i class="mst-rx-dot ${r.live ? 'ok' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}`
+          + `<i class="mst-rx-dot ${r.live ? 'ok' : r.off ? '' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}`
           + `${own.has(r.id) ? '<em class="mst-rx-own" title="Your receiver: you see its own statistics">yours</em>' : ''}</b><small>${esc(sub)}</small></button>`;
       }).join('') + '</span>'
       + (EMBED ? '' : `<span class="mst-rx-note">${d.merged ? 'The weather is computed from all receivers together'

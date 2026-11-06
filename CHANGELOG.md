@@ -25,8 +25,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Receivers: "off" straight after a restart; which receivers heard each stored row (evening)
 - After a restart a receiver that had already been silent before it (e.g. a station not yet installed) shows **grey (off) at once** instead of amber for the first 30 minutes: its last-heard time is read from its stored hours (`msg_stats_rx_hours`); one log line per receiver. A receiver that was live at the end of the stored hours starts as before. `collector/multirx.py`.
+- (Later in the evening) The Statistics page shows it the same way: in *Receivers · merged* a grey dot and **off** in the Clock column (it said *starting*, with an amber dot), and the same on the receiver buttons and the receiver's own tab (*off — not connected for 1.3 d*). `OFF_SEC` (30 min, as the health dot). `collector/multirx.py`, `static/js/stats.js`.
 - Each stored observation now also records **which receivers heard** the reply that completed it — `observations.rx_mask`, a bit per receiver (bit 0 the main one), only when the receivers are merged; `NULL` for the rows before. A base for counting wind outliers per receiver. `database/db.py` (migration, added on start), `collector/writer.py`, `collector/receiver.py`.
-- Statistics user guide 1.14: the *altitude-checked out* count of the Downlink formats card. `doc/Statistics_User_Guide.pdf`, `doc/guides.md`.
+- Statistics user guide 1.15: the *altitude-checked out* count of the Downlink formats card (1.14); a receiver that is *off* (1.15). `doc/Statistics_User_Guide.pdf`, `doc/guides.md`.
 - Mobile user guide 1.61: a figure of the typical-error band, drawn from the live forecast and skill check of 6 Nov 2026 18 UTC. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
 
 ### Windshear: the landing freeze gate only with fresh positions

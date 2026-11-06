@@ -90,6 +90,7 @@ DUP_SEC_LOOSE = 0.25      # … when one of the two times is on a fallback clock
 MERGE_HOLD_SEC = 0.8      # the merger passes a reply on this long after its time
 MERGE_STALE_SEC = 2.5     # a frame older than this on arrival is dropped (counted "stale")
 MERGE_DONE_SEC = 3.0      # passed-on replies remembered this long for late copies (> MERGE_STALE_SEC)
+OFF_SEC = 1800.0          # not connected this long: "off" (a station switched off; as Feed RX-0n in the health)
 PAIR_SEC_SYNCED = 0.05    # DF17 pair window once lined up
 PAIR_SEC_START = 2.0      # … before that (the counter plus the arrival delay)
 PAIR_N = 101              # time differences in the running median
@@ -438,6 +439,10 @@ class Rx:
         ms.site_cfg = self.cfg_pos
 
     # ── the reader thread ────────────────────────────────────────────────
+    def is_off(self, now: float) -> bool:
+        """Not connected for OFF_SEC or longer (also across a restart: _down_since_stored)."""
+        return bool(self.down_since) and now - self.down_since >= OFF_SEC
+
     def _down_since_stored(self, now: float):
         """When this receiver was last heard, from its stored hours (msg_stats_rx_hours;
         from 2026-11-06): a station that was off before a restart is "off" at once
@@ -882,6 +887,8 @@ class Rx:
         if self.status_err:
             st = dict(st or {}, err=self.status_err)
         state = self.clock_state if self.hz is None else (kind or "starting")
+        if self.is_off(now):                           # from 2026-11-06: not "starting" for a station that is off
+            state = "off"
         return {
             "id": self.id, "name": self.name, "type": self.type, "main": False,
             "view": "main" if self.main else "extra", "is_main_rx": self.main, "bit": self.bit,
@@ -1012,6 +1019,7 @@ def all_public(window_min: int = 10) -> dict:
         p = r.public(window_min)
         lst.append({"id": r.id, "name": r.name, "type": r.type, "bit": r.bit, "rate": r.rate_now(),
                     "live": age is not None and age < 60, "clock": p["clock"]["state"],
+                    "off": r.is_off(now), "down_sec": p["feed"]["down_sec"],
                     "frames": p["feed"]["frames"], "delay": p["delay"], "cmp": p["cmp"]})
     return {"id": "ALL", "name": "All receivers", "type": "merged", "main": True, "view": "all",
             "merged": _MERGER.public(window_min) if _MERGER else None, "receivers": lst}
@@ -1029,12 +1037,12 @@ def receivers() -> list:
         m = _main["rx"]
         age = now - m.last_frame if m.last_frame else None
         out.append({"id": m.id, "name": m.name, "type": m.type, "main": False, "sel": m.id,
-                    "clock": "gps", "live": age is not None and age < 60})
+                    "clock": "gps", "live": age is not None and age < 60, "off": m.is_off(now)})
     else:
         out.append({"id": _main["id"], "name": _main["name"], "type": _main["type"], "main": True, "sel": "",
                     "clock": "gps", "live": last is not None and now - last < 60})
     for rx in _RX.values():
         age = now - rx.last_frame if rx.last_frame else None
         out.append({"id": rx.id, "name": rx.name, "type": rx.type, "main": False, "sel": rx.id,
-                    "clock": rx.clock, "live": age is not None and age < 60})
+                    "clock": rx.clock, "live": age is not None and age < 60, "off": rx.is_off(now)})
     return out
