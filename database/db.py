@@ -80,6 +80,9 @@ def init_db(db_path: str) -> None:
         # Turbulence (EDR) of each landing / departure (collector/edr.py, 2026-10-29)
         "ALTER TABLE approach_history ADD COLUMN edr_json TEXT",
         "ALTER TABLE departure_profiles ADD COLUMN edr_json TEXT",
+        # Which receivers heard the reply that made the row (bit 0 = the main receiver,
+        # bit 1 = the first EXTRA_RECEIVERS entry …; NULL without merging), 2026-11-06
+        "ALTER TABLE observations ADD COLUMN rx_mask INTEGER",
     ]
     for sql in _migrations:
         try:

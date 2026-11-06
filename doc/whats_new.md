@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.06112026 — More meteogram ranges, your own runways and more heights in the Pilot view, correct heights again, and how far GFS can be trusted
 
-- **How far can GFS be trusted?** — the meteograms now show the GFS forecast's **typical error**: a light band around the temperature and wind lines that widens with the days ahead (8 in 10 hours of the last 30 days were within it at EFHK), and on the Weather page a table by lead day with *GFS has been useful to about day N here*. Measured against the EFHK METAR; on the phone one line under the chart. Switch it off with *Typical error*.
+- **How far can GFS be trusted?** — the meteograms now show the GFS forecast's **typical error**: a light band around the temperature and wind lines that widens with the days ahead (8 in 10 hours of the last 30 days were within it at EFHK), and on the Weather page a table by lead day with *GFS has been useful to about day N here*. Measured against the EFHK METAR; on the phone one line under the chart. Switch it off with *Typical error*. Mobile guide 1.61 shows it with the live data of 6 November.
 - **Correct heights again** — since 2 November about 1–3 % of the stored winds and temperatures were filed at another aircraft's height (a reply with a bit error looked like it came from a neighbouring aircraft). Such replies are now checked and left out, and the stored data of 2–6 November is repaired: the sonde check above 30 000 ft is back to 1–2 K.
 - **Fewer false "frozen position" marks** — on final a landing's position counts as frozen (GPS) only while the aircraft keeps sending positions, not when they are simply not received for a while. Windshear guide 2.45.
 - **Meteogram ranges** — the Weather page's meteogram now has 2, 5, 7, 10 and 16 days with GFS; the phone 2 d, 5 d, 7 d, 10 d and 16 d.
@@ -13,6 +13,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **The receiving station 1.16 and its brochure 1.3** — the 16-day GFS and the meteograms, the phone's twelve views with the Pilot view, and the receivers: RX-02 on 4G, the second Radarcape ready for its site.
 - **Tidier Pilot page** — on the full site the Pilot cards now run from top to bottom in one column on the left, as on the phone, instead of wherever they fitted side by side.
 - **Pilot · Now: more heights** — *Heights 3 / 7*: the wind on final at 500, 1 000 and 2 000 ft, or at seven heights from 300 to 2 500 ft above the runway.
+- **Statistics guide 1.14** — the replies left out by the new altitude check (*altitude-checked out* under Downlink formats). A receiver that is switched off now shows grey (off) straight after a server restart, not amber for half an hour.
 
 ## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast and meteograms on the Weather page and the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
 

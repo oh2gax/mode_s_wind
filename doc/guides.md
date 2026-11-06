@@ -90,8 +90,8 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.13
-date: 2026-11-05
+version: 1.14
+date: 2026-11-06
 pages: 18
 open: stats
 
@@ -105,7 +105,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.60
+version: 1.61
 date: 2026-11-06
 pages: 55
 

@@ -876,6 +876,11 @@ def run_collector(
                 if (_nacp_ts is not None and merged.get("nac_p") is not None
                         and ts - _nacp_ts <= NACP_MAX_AGE_SEC):
                     obs["nacp"] = merged["nac_p"]
+                # Which receivers heard this reply (from 2026-11-06; merged receivers only):
+                # bit 0 the main receiver, bit 1 the first extra one … — for the analyses
+                # per receiver (e.g. wind outliers)
+                if rx_merged and mg.cur_mask:
+                    obs["rx_mask"] = int(mg.cur_mask)
 
                 # ── Dense height series (collector/height_series.py) ──────
                 # From the aircraft's own ADS-B squitters only: pressure

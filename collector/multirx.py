@@ -438,8 +438,42 @@ class Rx:
         ms.site_cfg = self.cfg_pos
 
     # ── the reader thread ────────────────────────────────────────────────
+    def _down_since_stored(self, now: float):
+        """When this receiver was last heard, from its stored hours (msg_stats_rx_hours;
+        from 2026-11-06): a station that was off before a restart is "off" at once
+        instead of "warn" for the first 30 minutes.  The newest minute with messages + 60 s;
+        the first stored hour when it was never heard; None (unknown — treated as just
+        now) when it was still live at the end of the stored hours (the current hour is
+        not stored yet)."""
+        from database.db import get_db
+        rows = get_db().execute("SELECT ts, data FROM msg_stats_rx_hours WHERE rx = ? ORDER BY ts DESC LIMIT 200",
+                                (self.id,)).fetchall()
+        if not rows:
+            return None
+        end = None
+        for ts, blob in rows:
+            try:
+                tr = json.loads(__import__("zlib").decompress(blob).decode()).get("trend") or []
+            except Exception:                      # noqa: BLE001
+                continue
+            if end is None:
+                end = max([float(ts) + 3600.0] + [r[0] + 60.0 for r in tr if r])
+            heard = [r[0] for r in tr if r and len(r) > 1 and (r[1] or 0) > 0]
+            if heard:
+                last = max(heard) + 60.0
+                return None if end is None or last >= end - 120 else min(last, now)
+        return min(float(rows[-1][0]), now)        # never heard in the stored hours
+
     def run(self) -> None:
         from pyModeS import PipeDecoder
+        try:
+            ds = self._down_since_stored(time.time())
+            if ds is not None:
+                self.down_since = ds
+                log.info("%s: last heard %s UTC (stored hours)", self.id,
+                         time.strftime("%d.%m. %H:%M", time.gmtime(ds)))
+        except Exception as exc:                   # noqa: BLE001
+            log.debug("%s: last-heard time not read: %s", self.id, exc)
         while True:
             self.pipe = PipeDecoder(surface_ref=self.surface_ref)
             self.pending.clear()

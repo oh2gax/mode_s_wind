@@ -241,7 +241,7 @@ class BatchWriter:
                     bds50_true_track, bds50_groundspeed, bds50_true_airspeed, bds50_roll,
                     bds60_mag_heading, bds60_ias, bds60_mach,
                     best_wind_spd, best_wind_dir, best_temp, best_pressure,
-                    meteo_source, tm_temp, hdg_off, hdg_src, gmb_ft, nacp
+                    meteo_source, tm_temp, hdg_off, hdg_src, gmb_ft, nacp, rx_mask
                 ) VALUES (
                     :flight_id, :icao, :ts,
                     :lat, :lon, :altitude,
@@ -254,7 +254,7 @@ class BatchWriter:
                     :bds50_true_track, :bds50_groundspeed, :bds50_true_airspeed, :bds50_roll,
                     :bds60_mag_heading, :bds60_ias, :bds60_mach,
                     :best_wind_spd, :best_wind_dir, :best_temp, :best_pressure,
-                    :meteo_source, :tm_temp, :hdg_off, :hdg_src, :gmb_ft, :nacp
+                    :meteo_source, :tm_temp, :hdg_off, :hdg_src, :gmb_ft, :nacp, :rx_mask
                 )""",
                 {
                     "flight_id": fid,
@@ -311,6 +311,7 @@ class BatchWriter:
                     # GNSS − baro altitude difference (TC 19) and NACp
                     "gmb_ft":        obs.get("gmb_ft"),
                     "nacp":          obs.get("nacp"),
+                    "rx_mask":       obs.get("rx_mask"),
                 },
             )
 
