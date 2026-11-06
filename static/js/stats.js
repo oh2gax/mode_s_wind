@@ -128,16 +128,18 @@
   const bar = (frac, cls = '') => `<span class="mst-bar-cell"><span class="mst-fill ${cls}" style="width:${Math.max(0, Math.min(100, frac * 100)).toFixed(1)}%"></span></span>`;
 
   function renderDf(d) {
-    const tot = d.totals.msgs - d.totals.err - d.totals.dec_err - d.totals.blocked;
+    const tot = d.totals.msgs - d.totals.err - d.totals.dec_err - d.totals.blocked - (d.totals.alt_rej || 0);
     const rows = d.df.map(r => `<tr><td class="mst-code">DF${r.df}</td><td>${esc((EMBED ? DF_SHORT[r.df] || DF_NAME[r.df] : DF_NAME[r.df]) || '')}</td>`
       + `<td class="num">${fmtRate(r.rate)}</td><td class="num">${pct(r.n, tot)}</td><td>${bar(tot ? r.n / tot : 0)}</td><td class="num">${r.ac}</td></tr>`);
     table('mst-df', [['DF', 'Downlink format'], ['Meaning'], ['/s', 'Messages per second in the window', 'num'],
       ['Share', 'Of the decoded messages', 'num'], [''], ['Aircraft', 'Distinct aircraft in the window', 'num']], rows);
     const t = d.totals;
     $('mst-df-note').textContent = `${t.short.toLocaleString('en')} short · ${t.long.toLocaleString('en')} long · `
-      + `${t.err + t.dec_err} undecodable · ${t.blocked} blocked`;
+      + `${t.err + t.dec_err} undecodable · ${t.blocked} blocked`
+      + (t.alt_rej ? ` · ${t.alt_rej} altitude-checked out` : '');
     $('mst-df-note').title = 'Short = 56-bit, long = 112-bit frames. Undecodable: rejected by the decoder (CRC / parity, unknown format). '
-      + 'Blocked: addresses on the ICAO blocklist (BLOCKED_ICAO_PREFIXES).';
+      + 'Blocked: addresses on the ICAO blocklist (BLOCKED_ICAO_PREFIXES). '
+      + 'Altitude-checked out: DF0/4/16/20 replies whose altitude was not the aircraft\'s own (another aircraft\'s reply read with a bit error in its address/parity field) — not used.';
   }
 
   function renderBds(d) {

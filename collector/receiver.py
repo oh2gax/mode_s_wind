@@ -77,6 +77,37 @@ TS_NOTE_SEC = 1.0             # corrections larger than this are counted for the
 # when at most GMB_MAX_AGE_SEC old, and its NACp when at most NACP_MAX_AGE_SEC old
 GMB_MAX_AGE_SEC  = 5.0
 NACP_MAX_AGE_SEC = 30.0
+# Altitude check of the Address/Parity replies (from 2026-11-06).  DF0 / 4 /
+# 16 / 20 carry no checksum of their own: the address is worked out from the
+# parity field, so a reply with a bit error in that field reads as the reply of
+# ANOTHER aircraft — mostly one whose address is one bit away (airline fleets
+# have consecutive addresses).  The receivers forward such a reply when that
+# address is known.  Seen from 2 Nov 2026 with the second receiver merged
+# (weaker signals → more bit errors): up to 2.7 % of the stored rows on 6 Nov
+# got another aircraft's altitude (their own wind and temperature, stored
+# thousands of feet too high or low).  A reply whose altitude does not fit the
+# aircraft's altitude of the last AP_ALT_REF_SEC (|Δ| > AP_ALT_GATE_FT +
+# AP_ALT_RATE_FT_S × age) is dropped as a whole — its Comm-B content belongs to
+# the other aircraft too — and counted ("alt_rej", Statistics page).  The
+# aircraft's own ADS-B altitude (DF17, CRC-checked) is never dropped and keeps
+# the reference fresh.
+AP_ALT_DFS = (0, 4, 16, 20)
+AP_ALT_GATE_FT = 1000.0
+AP_ALT_RATE_FT_S = 150.0      # ~9000 ft/min: more than any climb or descent
+AP_ALT_REF_SEC = 20.0
+
+
+def ap_alt_suspect(alt, ref_alt, ref_ts, ts) -> bool:
+    """True when an AP reply's altitude cannot be the aircraft's own: it differs
+    from the aircraft's altitude of at most AP_ALT_REF_SEC ago by more than it
+    could have climbed or descended since."""
+    if alt is None or ref_alt is None or ref_ts is None:
+        return False
+    age = abs(ts - ref_ts)
+    if age > AP_ALT_REF_SEC:
+        return False
+    return abs(alt - ref_alt) > AP_ALT_GATE_FT + AP_ALT_RATE_FT_S * age
+
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
 # The receivers that heard each BDS 5,0 / 6,0 reply when the receivers are
@@ -507,6 +538,7 @@ def run_collector(
             stats_count = 0
             ts_ahead = ts_behind = 0
             ts_ahead_max = 0.0
+            alt_rej = alt_rej_other = 0          # AP replies dropped by the altitude check
             for msg_hex, ts in source:
                 msg_count += 1
                 wall = time.time()                   # message time check (TS_MAX_AGE_SEC)
@@ -545,6 +577,20 @@ def run_collector(
                     continue
 
                 df = result.get("df", 0)
+
+                # ── Altitude check of the Address/Parity replies ─────────
+                # (AP_ALT_DFS, from 2026-11-06): a reply of another aircraft
+                # read with a bit error in its parity field is dropped.
+                if df in AP_ALT_DFS and result.get("altitude") is not None:
+                    with live_lock:
+                        _st = live_state.get(icao)
+                        _ref = (_st.get("altitude"), _st.get("alt_ts")) if _st else (None, None)
+                    if ap_alt_suspect(result["altitude"], _ref[0], _ref[1], ts):
+                        mstats.count("alt_rej")
+                        alt_rej += 1
+                        if rx_merged and not (mg.cur_mask or 0) & 1:
+                            alt_rej_other += 1
+                        continue
 
                 # ADS-B type code (DF17 only) — used for the quality fields
                 # (NACp / NIC / NACv / version) handled in the live_state merge.
@@ -677,6 +723,10 @@ def run_collector(
                     merged.update({k: v for k, v in obs.items() if v is not None})
                     merged["icao"]      = icao
                     merged["last_seen"] = ts
+                    # When the altitude was last heard from the aircraft itself
+                    # (the reference of the AP altitude check, ap_alt_suspect)
+                    if result.get("altitude") is not None:
+                        merged["alt_ts"] = ts
                     # Start of this visit (entry re-created after live_state
                     # pruning) — used by the GPS quality ADS-B loss signal.
                     if not existing:
@@ -829,6 +879,12 @@ def run_collector(
                                  STATS_LOG_SEC // 60, ts_ahead, ts_ahead_max, ts_behind, TS_MAX_AGE_SEC)
                         ts_ahead = ts_behind = 0
                         ts_ahead_max = 0.0
+                    if alt_rej:
+                        log.info("Altitude check in the last %d min: %d Address/Parity replies dropped "
+                                 "(altitude not the aircraft's own)%s",
+                                 STATS_LOG_SEC // 60, alt_rej,
+                                 f", {alt_rej_other} of them not heard by the main receiver" if rx_merged else "")
+                        alt_rej = alt_rej_other = 0
                     stats_count = msg_count
                     stats_next = now_s + STATS_LOG_SEC
 

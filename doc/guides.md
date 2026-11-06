@@ -70,15 +70,15 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.44
-date: 2026-11-05
+version: 2.45
+date: 2026-11-06
 pages: 31
 open: windshear
 
 How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies (detection v2), the science behind it and how to read the **Windshear** page.
 
 - The method step by step: the headwind from both airspeed registers against the aircraft's ADS-B ground speed (**detection v8**, from 31 October 2026; before, and for a flight without ADS-B ground speed, TAS − GS from each BDS 5,0 reply), **headwind ramps** scaled to a 1-km equivalent, the horizontal **F-factor**, and the **band comparison** with the landings and departures of the last 45 minutes (each flight with its own phase; higher limits for turboprop departures), the trial ramps along the departures
-- The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile; a windshear alert needs a real change of 14 kt, as at Hong Kong), ramp alerts **confirmed** or **isolated** by the nearby landings, **unverified** levels from aircraft with jammed GNSS (no alert, shown as `WSA?`), the higher limits of **turboprop climb-outs** (by height from 5 November 2026), how an event becomes an alert, and the windshear report of every landing and departure
+- The alert levels **ADV / WSA / MBA** (small ramps judged against the other flights' profile; a windshear alert needs a real change of 14 kt, as at Hong Kong), ramp alerts **confirmed** or **isolated** by the nearby landings, **unverified** levels from aircraft with jammed GNSS (no alert, shown as `WSA?`; a frozen position counts only while the aircraft keeps sending positions, from 6 November 2026), the higher limits of **turboprop climb-outs** (by height from 5 November 2026), how an event becomes an alert, and the windshear report of every landing and departure
 - The scientific basis with references: ICAO definitions, the NASA/FAA F-factor, the Hong Kong Observatory's headwind-ramp alerting, LLWAS/TDWR alert levels
 - The **alert message** in the controllers' short form (e.g. `15A WSA 15K+ 2MF` — runway one five arrival, windshear alert, 15-kt gain, two-mile final), marked as research
 - The page: banner, flight-strip badges, the map (the traffic **ILS Only / Departures / All 30NM / All 100NM**, labels with A023 / FL061, speed vectors, history plots and the **ATC** map style shared with the Live Map — radar look, three-line labels kept apart and clear of the finals, range rings, **Hover** for the extended label, the **EDR** button for the turbulence of the recent landings — and departures — on the finals), ILS profile, alert log (alerts and go-arounds of the last 24 hours, dated and fading with age) and the **engine status line**, Approach History (**«** for a narrow panel) **WS** view with **landings and departures** and a click for **one flight's headwind profile** against the flights before it, the chart views **ACI + EDR**, **WS** and **EDR + WS** on one time axis and the **space–time diagram (ST)**, wind rose

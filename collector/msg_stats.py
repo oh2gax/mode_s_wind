@@ -822,7 +822,7 @@ class MsgStats:
             "feed": feed,
             "totals": {"msgs": c["msgs"], "rate": rate(c["msgs"]), "short": c["short"],
                        "long": c["long"], "dec_err": c["dec_err"], "err": c["err"],
-                       "blocked": c["blocked"], "aircraft": n_ac("all"), "adsb": n_ac("df17"),
+                       "blocked": c["blocked"], "alt_rej": c["alt_rej"], "aircraft": n_ac("all"), "adsb": n_ac("df17"),
                        "ehs": n_ac("ehs"), "ehs_now": ehs_now, "ehs_silent": silent},
             "df": dfs,
             "adsb": {"tc": [{"tc": t, "n": v, "rate": rate(v)} for t, v in tcs], "v19": v19,

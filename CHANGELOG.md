@@ -7,7 +7,14 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page in one column; the receiving station 1.16 and brochure 1.3)
+## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page in one column; the receiving station 1.16 and brochure 1.3; an altitude check of the Address/Parity replies, with a repair of the rows stored since 2 Nov; the landing freeze gate only with fresh positions)
+
+### Collector: altitude check of the Address/Parity replies
+- **Fixed:** since the second receiver was merged (2 Nov 2026 12 UTC), 0.7–2.7 % of the stored rows a day had **another aircraft's altitude** — a DF0/4/16/20 reply with a bit error in its parity field reads as the reply of an aircraft whose address is mostly one bit away (394 of 512 such cases), and the receiver forwards it when that address is known. The rows' wind and temperature were the aircraft's own but stored thousands of feet off: the radiosonde check above 30 000 ft showed 6–14 K temperature RMS, the hourly profile false levels at 42 000–44 000 ft. Now an AP reply whose altitude does not fit the aircraft's own altitude of the last 20 s (more than 1 000 ft + 150 ft/s since) is dropped as a whole and counted (the 10-min *Stats* log line; the Statistics page's Downlink formats header, *altitude-checked out*). The aircraft's own ADS-B altitude (DF17) is never dropped. Test: 182 replies re-addressed to another aircraft in the 2 Nov recording all dropped, no genuine reply. `collector/receiver.py` (`AP_ALT_*`, `ap_alt_suspect`, `alt_ts`), `collector/msg_stats.py` (`alt_rej`), `static/js/stats.js`.
+- **Repair** of the rows stored before: `tools/repair_ap_altitudes.py` (new; dry run by default, `--apply`): removes the rows whose altitude does not fit the aircraft's own ADS-B altitude (or spikes > 4 000 ft between agreeing neighbours), saves them to `data/repair_ap_alt_*.json.gz`, computes the hourly profiles (keeping the METAR values), kinematics, GNSS heights and boundary layer of those hours again and removes the radiosonde verification rows from 2 Nov on (added again by the hourly job). On the 6 Nov snapshot 1 507 of 117 048 rows; the sonde check above 30 000 ft 0.3–1.8 K again.
+
+### Windshear: the landing freeze gate only with fresh positions
+- The landing position-freeze gate now fires only while the aircraft's own ADS-B positions keep arriving (latest ≤ 10 s, `POS_FREEZE_FRESH_SEC`, as the GPS pages' Freeze): positions that are simply not received (reception gaps low on final, 04L / 04R) no longer mark bands frozen / GNSS-degraded — 14 of 190 landings on 5–6 Nov (positions 76–101 s old); no level changed. `collector/windshear.py`. Windshear guide 2.45. `doc/Windshear_User_Guide.pdf`, `doc/guides.md`.
 
 ### Meteogram: more ranges
 - Weather page: *Range* with GFS / Both now **2 / 5 / 7 / 10 / 16 days** (2 and 7 days new; 16 days stays the default). `static/js/weather_mg.js`.

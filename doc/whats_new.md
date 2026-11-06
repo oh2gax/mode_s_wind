@@ -3,8 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.06112026 — More meteogram ranges, and your own runways and more heights in the Pilot view
+## v.06112026 — More meteogram ranges, your own runways and more heights in the Pilot view, and correct heights again
 
+- **Correct heights again** — since 2 November about 1–3 % of the stored winds and temperatures were filed at another aircraft's height (a reply with a bit error looked like it came from a neighbouring aircraft). Such replies are now checked and left out, and the stored data of 2–6 November is repaired: the sonde check above 30 000 ft is back to 1–2 K.
+- **Fewer false "frozen position" marks** — on final a landing's position counts as frozen (GPS) only while the aircraft keeps sending positions, not when they are simply not received for a while. Windshear guide 2.45.
 - **Meteogram ranges** — the Weather page's meteogram now has 2, 5, 7, 10 and 16 days with GFS; the phone 2 d, 5 d, 7 d, 10 d and 16 d.
 - **Pilot · Now: choose the runway** — under *In use*, pick the runways for the *Wind on final* yourself (Auto, 04L … 33, up to three), for example when your turboprop is given a different runway than the jets. A runway without landings in the last hour gets the winds aloft of the other landings, turned to its heading. On the phone and on the Pilot page.
 - **The receiving station 1.16 and its brochure 1.3** — the 16-day GFS and the meteograms, the phone's twelve views with the Pilot view, and the receivers: RX-02 on 4G, the second Radarcape ready for its site.

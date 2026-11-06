@@ -182,6 +182,14 @@ DEP_RWY_MAX_XT_NM    = 1.0     # first position at most this far from the runway
 # movement; 0.05 NM is well below this, so the gate only fires when there
 # is genuinely zero position change over a meaningful altitude descent.
 POS_FREEZE_MIN_NM      = 0.05         # NM; minimum dist change per BAND_TOL_FT altitude drop
+# … and only while the aircraft's own ADS-B position is fresh (from
+# 2026-11-06, as gps_quality FREEZE_POS_SEC): a frozen position is the
+# aircraft still SENDING positions that do not move.  When its positions are
+# simply not received (reception gaps on final, 04L / 04R: own position 76–101
+# s old while Mode S altitude replies kept coming) the last known position
+# stands still too — that is not a GPS problem (14 of 190 landings on 5–6 Nov
+# 2026 were flagged that way).
+POS_FREEZE_FRESH_SEC   = 10.0         # s; own ADS-B position at most this old
 
 # ── Threshold-pass landing detection ─────────────────────────────────────────
 # Normally a landing is committed when an APPROACHING aircraft goes silent
@@ -894,8 +902,9 @@ class WindshearTracker:
             #
             # pos_frozen is True when altitude has dropped more than BAND_TOL_FT
             # since the position last moved, while dist_thr has not advanced by
-            # at least POS_FREEZE_MIN_NM — the signature of a GPS-jammed frozen
-            # position.  Wind computed in this state is based on a stale
+            # at least POS_FREEZE_MIN_NM and the aircraft's own ADS-B position is
+            # fresh (POS_FREEZE_FRESH_SEC; from 2026-11-06) — the signature of a
+            # GPS-jammed frozen position, not of positions that were not received.  Wind computed in this state is based on a stale
             # groundspeed vector and must not be written to Approach History or
             # the Windrose buffer.
             #
@@ -915,7 +924,10 @@ class WindshearTracker:
                         # Position moved (or climbed) — normal flight; re-anchor
                         self._pos_track[icao] = {"dist": dist_thr, "alt": alt}
                     elif alt_drop > BAND_TOL_FT:
-                        pos_frozen = True   # keep anchor until the position moves again
+                        # keep the anchor until the position moves again; frozen
+                        # only while the aircraft's own positions keep coming
+                        _own_ts = aircraft.get("last_adsb_pos_ts")
+                        pos_frozen = _own_ts is not None and now - _own_ts <= POS_FREEZE_FRESH_SEC
             elif not in_corridor:
                 self._pos_track.pop(icao, None)
 
