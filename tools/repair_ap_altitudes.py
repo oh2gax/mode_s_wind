@@ -15,6 +15,11 @@ A row is taken as wrong when
   • its altitude does not fit the aircraft's own ADS-B altitude (height_series,
     DF17 — CRC-checked) of at most 20 s before or after it: the collector's
     check (receiver.ap_alt_suspect), or
+  • (from the afternoon of 6 Nov 2026, the collector's neighbour test,
+    receiver.ap_nb_suspect) it is more than 200 ft off the aircraft's own
+    altitude and within 100 ft of the ADS-B altitude (at most 5 s apart) of an
+    aircraft whose address is one bit away — the parallel approaches 1 000 ft
+    apart, which the first test lets through, or
   • (no ADS-B altitude near it) it jumps more than 4 000 ft away from both
     neighbouring rows of the aircraft that agree with each other (within 60 s).
 
@@ -59,7 +64,8 @@ from config import Config                      # noqa: E402
 import config_override                         # noqa: E402
 config_override.apply(Config)
 
-from collector.receiver import ap_alt_suspect, AP_ALT_REF_SEC   # noqa: E402
+from collector.receiver import (ap_alt_suspect, AP_ALT_REF_SEC, AP_ALT_RATE_FT_S,   # noqa: E402
+                                AP_NB_OWN_FT, AP_NB_MATCH_FT, AP_NB_FRESH_SEC)
 from collector.height_series import decode as hs_decode         # noqa: E402
 
 SPIKE_FT = 4000          # fallback test: jump from both neighbours
@@ -105,8 +111,22 @@ def find_wrong(db, t0: float, t1: float):
     for r in rows:
         by[r[1]].append(r)
     wrong = []
+    keys = set(ref)
+
+    def adsb_near(ic, ts, within):
+        L = ref.get(ic)
+        if not L:
+            return None
+        j = bisect.bisect_right(L, (ts, float("inf")))
+        c = [L[k] for k in (j - 1, j) if 0 <= k < len(L) and abs(L[k][0] - ts) <= within]
+        return min(c, key=lambda x: abs(x[0] - ts)) if c else None
+
     for icao, lst in by.items():
         L = ref.get(icao, [])
+        try:
+            nbs = [n for n in (f"{int(icao, 16) ^ (1 << k):06X}" for k in range(24)) if n in keys]
+        except ValueError:
+            nbs = []
         for i, (rid, _ic, ts, alt) in enumerate(lst):
             # 1. against the aircraft's own ADS-B altitude (the nearer of the
             #    points just before and just after, within AP_ALT_REF_SEC)
@@ -115,6 +135,12 @@ def find_wrong(db, t0: float, t1: float):
             if near:
                 if all(ap_alt_suspect(alt, a, t, ts) for t, a in near):
                     wrong.append((rid, icao, ts, alt, "adsb", near[0][1]))
+                elif nbs and all(abs(alt - a) > AP_NB_OWN_FT + AP_ALT_RATE_FT_S * abs(ts - t) for t, a in near):
+                    for n in nbs:
+                        q = adsb_near(n, ts, AP_NB_FRESH_SEC)
+                        if q and abs(alt - q[1]) <= AP_NB_MATCH_FT + AP_ALT_RATE_FT_S * abs(ts - q[0]):
+                            wrong.append((rid, icao, ts, alt, "neighbour " + n, near[0][1]))
+                            break
                 continue
             # 2. no ADS-B altitude near: a spike between two agreeing neighbours
             if 0 < i < len(lst) - 1:
@@ -152,12 +178,13 @@ def main() -> int:
     db.execute("PRAGMA journal_mode = WAL")
     wrong, n_rows = find_wrong(db, t0, t1)
     per_day = collections.Counter(_day(w[2]) for w in wrong)
-    per_why = collections.Counter(w[4] for w in wrong)
+    per_why = collections.Counter(w[4].split()[0] for w in wrong)
     print(f"Rows {_day(t0)} … {_day(t1)}: {n_rows}; with another aircraft's altitude: {len(wrong)} "
-          f"(against ADS-B {per_why['adsb']}, spikes {per_why['spike']})")
+          f"(against ADS-B {per_why['adsb']}, one-bit neighbour {per_why['neighbour']}, spikes {per_why['spike']})")
     for d in sorted(per_day):
         print(f"  {d}  {per_day[d]}")
-    for w in wrong[:10]:
+    shown = [w for w in wrong if w[4].startswith("neighbour")][:5]
+    for w in shown + [w for w in wrong if w not in shown][:10 - len(shown)]:
         print(f"  e.g. {w[1]} {dt.datetime.fromtimestamp(w[2], dt.timezone.utc):%d.%m. %H:%M:%S} "
               f"stored {w[3]} ft, own {w[5]} ft ({w[4]})")
     if not a.apply:

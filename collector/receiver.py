@@ -108,6 +108,46 @@ def ap_alt_suspect(alt, ref_alt, ref_ts, ts) -> bool:
         return False
     return abs(alt - ref_alt) > AP_ALT_GATE_FT + AP_ALT_RATE_FT_S * age
 
+
+# The neighbour test (from 2026-11-06 afternoon): the check above lets a wrong
+# reply through when the other aircraft flies within about 1 000 ft — as on
+# the parallel approaches to 04L / 04R, 1 000 ft apart, often two aircraft of
+# one fleet whose addresses differ by one bit (2–6 Nov 2026: 9 such rows, 4 of
+# them below 6 000 ft, e.g. 3 300 ft stored at an own 4 275 ft).  A reply's
+# Mode S altitude and the aircraft's own ADS-B altitude agree to about 100 ft,
+# so a reply more than AP_NB_OWN_FT (+ the climb allowance) off the aircraft's
+# own altitude is dropped when a tracked aircraft one address bit away is
+# within AP_NB_MATCH_FT of it (its altitude at most AP_NB_FRESH_SEC old).
+AP_NB_OWN_FT = 200.0
+AP_NB_MATCH_FT = 100.0
+AP_NB_FRESH_SEC = 5.0
+
+
+def ap_nb_suspect(alt, icao: str, ref_alt, ref_ts, ts, state: dict) -> str | None:
+    """The address one bit away whose aircraft the reply's altitude fits (None:
+    the reply fits the aircraft itself, or no such neighbour).  state: live_state
+    (read under its lock by the caller)."""
+    if alt is None or ref_alt is None or ref_ts is None:
+        return None
+    age = abs(ts - ref_ts)
+    if age > AP_ALT_REF_SEC or abs(alt - ref_alt) <= AP_NB_OWN_FT + AP_ALT_RATE_FT_S * age:
+        return None
+    try:
+        a = int(icao, 16)
+    except (TypeError, ValueError):
+        return None
+    for k in range(24):
+        nb = f"{a ^ (1 << k):06X}"
+        st = state.get(nb)
+        if not st:
+            continue
+        na, nt = st.get("altitude"), st.get("alt_ts")
+        if na is None or nt is None or abs(ts - nt) > AP_NB_FRESH_SEC:
+            continue
+        if abs(alt - na) <= AP_NB_MATCH_FT + AP_ALT_RATE_FT_S * abs(ts - nt):
+            return nb
+    return None
+
 _BDS50_SAMPLES: dict[str, deque] = {}
 _BDS60_SAMPLES: dict[str, deque] = {}
 # The receivers that heard each BDS 5,0 / 6,0 reply when the receivers are
@@ -538,7 +578,7 @@ def run_collector(
             stats_count = 0
             ts_ahead = ts_behind = 0
             ts_ahead_max = 0.0
-            alt_rej = alt_rej_other = 0          # AP replies dropped by the altitude check
+            alt_rej = alt_rej_other = alt_rej_nb = 0   # AP replies dropped by the altitude check
             for msg_hex, ts in source:
                 msg_count += 1
                 wall = time.time()                   # message time check (TS_MAX_AGE_SEC)
@@ -581,13 +621,21 @@ def run_collector(
                 # ── Altitude check of the Address/Parity replies ─────────
                 # (AP_ALT_DFS, from 2026-11-06): a reply of another aircraft
                 # read with a bit error in its parity field is dropped.
+                # From the afternoon also the neighbour test (ap_nb_suspect): a reply
+                # that fits a tracked aircraft one address bit away better.
                 if df in AP_ALT_DFS and result.get("altitude") is not None:
+                    _alt = result["altitude"]
                     with live_lock:
                         _st = live_state.get(icao)
                         _ref = (_st.get("altitude"), _st.get("alt_ts")) if _st else (None, None)
-                    if ap_alt_suspect(result["altitude"], _ref[0], _ref[1], ts):
+                        _bad = ap_alt_suspect(_alt, _ref[0], _ref[1], ts)
+                        _nb = None if _bad else ap_nb_suspect(_alt, icao, _ref[0], _ref[1], ts, live_state)
+                    if _bad or _nb:
                         mstats.count("alt_rej")
                         alt_rej += 1
+                        if _nb:
+                            mstats.count("alt_rej_nb")
+                            alt_rej_nb += 1
                         if rx_merged and not (mg.cur_mask or 0) & 1:
                             alt_rej_other += 1
                         continue
@@ -881,10 +929,10 @@ def run_collector(
                         ts_ahead_max = 0.0
                     if alt_rej:
                         log.info("Altitude check in the last %d min: %d Address/Parity replies dropped "
-                                 "(altitude not the aircraft's own)%s",
-                                 STATS_LOG_SEC // 60, alt_rej,
+                                 "(altitude not the aircraft's own; %d by the neighbour test)%s",
+                                 STATS_LOG_SEC // 60, alt_rej, alt_rej_nb,
                                  f", {alt_rej_other} of them not heard by the main receiver" if rx_merged else "")
-                        alt_rej = alt_rej_other = 0
+                        alt_rej = alt_rej_other = alt_rej_nb = 0
                     stats_count = msg_count
                     stats_next = now_s + STATS_LOG_SEC
 
