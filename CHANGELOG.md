@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final)
+## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page's columns)
 
 ### Meteogram: more ranges
 - Weather page: *Range* with GFS / Both now **2 / 5 / 7 / 10 / 16 days** (2 and 7 days new; 16 days stays the default). `static/js/weather_mg.js`.
@@ -16,6 +16,9 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Pilot · Now: choose the runways of the wind on final
 - A bar *Wind on final* **Auto** (as before: the two busiest arrival runways) / 04L / 04R / 22L / 22R / 15 / 33 above the wind cards — up to three runways of the pilot's own choice, e.g. when a turboprop is given another runway than the jets. A chosen runway with landings in the window uses its own landings; one without uses the band winds of all the window's landings resolved on its heading and above its threshold (*chosen · aloft from 22L ×10, 15 ×2*); the surface wind always from the METAR. Kept in the browser (`ms_app_pilot_nrwy`); the phone's Pilot view and the full Pilot page alike. **Heights 3 / 7** beside the bar: the wind on final at 500 / 1 000 / 2 000 ft or at 300 / 500 / 750 / 1 000 / 1 500 / 2 000 / 2 500 ft above the runway (`&hts=more`, `ms_app_pilot_hts`). `web/api/pilot.py` (`brief(rwys=)`), `web/app.py` (`/api/pilot/brief?rwys=`), `static/js/app_pilot.js`, `static/css/pilot.css`.
+
+### Pilot page: fixed columns per tab
+- On the full Pilot page the cards no longer flow into a grid of 420-px columns (cards of different heights landed anywhere, leaving holes): each tab has its own **fixed columns** — three from 1 250 px, two from 820 px (the third column's cards under the shorter one), one below. *Now*: METAR, In use, Turbulence · go-arounds | the runway bar and the wind on final | Windshear; the other tabs likewise (README *Pilot*). The charts at most 640 × 600 px. The phone is unchanged. `static/js/app_pilot.js` (`WIDE`, `wideLayout`), `static/css/pilot.css`. Mobile user guide 1.59: the Pilot page figure retaken (without the top bar).
 
 ---
 

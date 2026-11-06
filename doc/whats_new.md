@@ -7,6 +7,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 - **Meteogram ranges** — the Weather page's meteogram now has 2, 5, 7, 10 and 16 days with GFS; the phone 2 d, 5 d, 7 d, 10 d and 16 d.
 - **Pilot · Now: choose the runway** — under *In use*, pick the runways for the *Wind on final* yourself (Auto, 04L … 33, up to three), for example when your turboprop is given a different runway than the jets. A runway without landings in the last hour gets the winds aloft of the other landings, turned to its heading. On the phone and on the Pilot page.
+- **Tidier Pilot page** — on a wide screen each tab's cards now sit in fixed columns (e.g. on *Now*: the METAR on the left, the wind on final in the middle, the windshear on the right) instead of wherever they fitted.
 - **Pilot · Now: more heights** — *Heights 3 / 7*: the wind on final at 500, 1 000 and 2 000 ft, or at seven heights from 300 to 2 500 ft above the runway.
 
 ## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast and meteograms on the Weather page and the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
