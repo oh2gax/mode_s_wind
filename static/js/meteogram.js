@@ -105,7 +105,10 @@ const Meteogram = (() => {
     const C = !!opts.compact;
     const P0 = Object.assign({ temp: true, precip: true, wind: true, pres: true, cloud: true }, opts.panels || {});
     const EB = opts.errBand || null;           // {gfs: {day: {t, ws}}, meps: {…}, where} or null
-    const SM = series(data.meps, 'meps', EB && EB.meps), SG = series(data.gfs, 'gfs', EB && EB.gfs);
+    // MEPS's own band where its days are known; until then (its first runs being checked) GFS's of the
+    // same lead day, so the first days are not left without a band (from 2026-11-06 evening)
+    const EM = EB && (EB.meps || EB.gfs) ? Object.assign({}, EB.gfs || {}, EB.meps || {}) : null;
+    const SM = series(data.meps, 'meps', EM), SG = series(data.gfs, 'gfs', EB && EB.gfs);
     const both = !!(SM && SG);
     const prim = SG || SM;                       // the axis range and the daily labels
     el.innerHTML = '';

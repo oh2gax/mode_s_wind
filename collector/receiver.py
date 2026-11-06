@@ -775,6 +775,10 @@ def run_collector(
                     # (the reference of the AP altitude check, ap_alt_suspect)
                     if result.get("altitude") is not None:
                         merged["alt_ts"] = ts
+                    # … and its speed / track (ADS-B velocity or BDS 5,0): the
+                    # JSON poller leaves fresh values alone (from 2026-11-06)
+                    if result.get("groundspeed") is not None:
+                        merged["vel_ts"] = ts
                     # Start of this visit (entry re-created after live_state
                     # pruning) — used by the GPS quality ADS-B loss signal.
                     if not existing:

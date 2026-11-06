@@ -53,6 +53,7 @@ log = logging.getLogger("modes.json_poller")
 
 POLL_INTERVAL: float = 2.0   # seconds between HTTP requests
 HTTP_TIMEOUT:  float = 4.0   # per-request timeout
+STREAM_FRESH_SEC: float = 30.0  # the stream's altitude / speed younger than this is kept (from 2026-11-06)
 
 
 # ── Entry parser ──────────────────────────────────────────────────────────────
@@ -161,6 +162,7 @@ def run_json_poller(
             n_pos_mlat = 0
             n_pos_adsb = 0
             n_meteo    = 0
+            n_kept_stream = 0                        # list values not taken: the stream's are fresh
             # Statistics page: the list's position sources and the blocked
             # ground stations (WAM, T40…) it lists
             n_src = {"M": 0, "A": 0}
@@ -193,11 +195,26 @@ def run_json_poller(
                     merged  = dict(existing)
 
                     # ── Basic fields (overwrite only with non-None) ──────────
+                    # From 2026-11-06 the altitude and the speed / track /
+                    # vertical rate only when the receiver stream has not given
+                    # them within STREAM_FRESH_SEC: the list keeps an aircraft's
+                    # last values for a while after the Radarcape lost it, and
+                    # with merged receivers (another receiver still hearing it)
+                    # those old values replaced the fresh ones — rows built from
+                    # replies without an altitude then took an altitude 25–97 s
+                    # old (about 150 rows a day on 6 Nov 2026).
+                    alt_fresh = existing.get("alt_ts") is not None and now - existing["alt_ts"] <= STREAM_FRESH_SEC
+                    vel_fresh = existing.get("vel_ts") is not None and now - existing["vel_ts"] <= STREAM_FRESH_SEC
                     for field in ("callsign", "altitude", "groundspeed",
                                   "track", "vert_rate",
                                   "registration", "aircraft_type", "squawk"):
-                        if parsed.get(field) is not None:
-                            merged[field] = parsed[field]
+                        if parsed.get(field) is None:
+                            continue
+                        if (field == "altitude" and alt_fresh) or \
+                                (field in ("groundspeed", "track", "vert_rate") and vel_fresh):
+                            n_kept_stream += 1
+                            continue
+                        merged[field] = parsed[field]
 
                     # ── Position ─────────────────────────────────────────────
                     if parsed.get("lat") is not None:
@@ -290,8 +307,8 @@ def run_json_poller(
             except Exception:                              # noqa: BLE001
                 pass
             log.debug(
-                "JSON poll: MLAT pos=%d  JSON pos=%d  meteo injected=%d",
-                n_pos_mlat, n_pos_adsb, n_meteo,
+                "JSON poll: MLAT pos=%d  JSON pos=%d  meteo injected=%d  kept stream values=%d",
+                n_pos_mlat, n_pos_adsb, n_meteo, n_kept_stream,
             )
 
         except Exception as exc:
