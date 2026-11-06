@@ -194,8 +194,14 @@ def _departures(db, t0, t1):
 
 # ── Now ──────────────────────────────────────────────────────────────────────
 
-def brief(db, minutes: int = 60, now: float | None = None) -> dict:
+def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = None) -> dict:
+    """rwys (from 2026-11-06): the runways the pilot chose for the wind on final, in
+    place of the runways in use (the two with the most landings).  A chosen runway
+    without landings in the window gets the wind aloft of all the landings (the
+    band winds of their own approaches), resolved on its heading and its threshold."""
     now = time.time() if now is None else now
+    names = [r["name"] for r in EFHK_RUNWAYS]
+    rwys = [r for r in (rwys or []) if r in names][:3]
     minutes = minutes if minutes in WINDOW_MIN else 60
     t0 = now - minutes * 60
     m = metar(db, now)
@@ -212,14 +218,18 @@ def brief(db, minutes: int = 60, now: float | None = None) -> dict:
             dep[rw] = dep.get(rw, 0) + 1
         deps.append((r, s))
     rows = []
-    for rwy in sorted(arr, key=lambda k: -arr[k]):
+    for rwy in (rwys or sorted(arr, key=lambda k: -arr[k])):
         hdg = _hdg(rwy) or next((r["rwy_heading"] for r in L if r["runway"] == rwy), None)
         thr = _thr(rwy)
-        e = {"rwy": rwy, "n": arr[rwy], "hdg": hdg, "sfc": _sfc(m, hdg)}
+        own = arr.get(rwy, 0) > 0                     # its own landings, else all the landings
+        e = {"rwy": rwy, "n": arr.get(rwy, 0), "hdg": hdg, "sfc": _sfc(m, hdg), "chosen": bool(rwys),
+             "src": "own" if own else ("all" if L else "none")}
+        if not own:
+            e["from"] = {k: v for k, v in arr.items()}
         for h in (500, 1000, 2000):
             hs, xs = [], []
             for r in L:
-                if r["runway"] != rwy or hdg is None:
+                if (own and r["runway"] != rwy) or hdg is None:
                     continue
                 w = _band_wind(_j(r["bands_json"]), h + thr)
                 if w:
@@ -253,7 +263,7 @@ def brief(db, minutes: int = 60, now: float | None = None) -> dict:
     except Exception:                                  # noqa: BLE001
         ga = []
     return {"now": int(now), "min": minutes, "metar": m, "arr": arr, "dep": dep, "n_arr": len(L), "n_dep": len(D),
-            "rows": rows, "ws": ws, "ga": ga,
+            "runways": names, "chosen": rwys, "rows": rows, "ws": ws, "ga": ga,
             "edr": {"med": _r(_median(edr), 3), "max": _r(max(edr), 3) if edr else None, "n": len(edr)}}
 
 

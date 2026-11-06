@@ -11,7 +11,7 @@
  *          receiver triangles, to 0.01°) · the tapped place (kept until another is tapped)
  *   Model  MEPS (the past 6 h and its ~2.5 days ahead) · GFS · Both (GFS thin and
  *          dashed, MEPS bold over its own hours); GFS only where the server has it
- *   Range  2 d · 5 d · 16 d (GFS and Both; MEPS has its own forecast only)
+ *   Range  2 d · 5 d · 7 d · 10 d · 16 d (GFS and Both; MEPS has its own forecast only)
  *   Panels the Meteogram options of the ☰ menu (Pressure off by default)
  * A tap or a drag on the chart gives the values of that hour above it.  The
  * choices are remembered on the phone (ms_app_mg_*).  app.js calls show / hide /
@@ -29,7 +29,7 @@
   const APT = typeof MG_AIRPORT !== 'undefined' ? MG_AIRPORT : { icao: 'EFHK', lat: 60.317, lon: 24.963 };
   const GFS = typeof MG_GFS !== 'undefined' && !!MG_GFS;
   const PANELS = ['temp', 'precip', 'wind', 'pres', 'cloud'];
-  const RANGES = ['48', '120', '384'];
+  const RANGES = ['48', '120', '168', '240', '384'];          // 7 d and 10 d from 2026-11-06
   const S = {
     model: lsGet('ms_app_mg_model', GFS ? 'both' : 'meps'),
     range: lsGet('ms_app_mg_range', '120'),
@@ -69,7 +69,7 @@
     chips('amg-model', models, S.model, v => { S.model = v; lsSet('ms_app_mg_model', v); syncChips(); load(true); });
     $('amg-model-row').hidden = !GFS;
     const meps = S.model === 'meps';
-    chips('amg-range', [['48', '2 d'], ['120', '5 d'], ['384', '16 d']].map(r => [r[0], r[1], meps && r[0] !== '48']),
+    chips('amg-range', [['48', '2 d'], ['120', '5 d'], ['168', '7 d'], ['240', '10 d'], ['384', '16 d']].map(r => [r[0], r[1], meps && r[0] !== '48']),
       meps ? '48' : S.range, v => { S.range = v; lsSet('ms_app_mg_range', v); syncChips(); load(true); });
   }
 

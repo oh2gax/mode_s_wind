@@ -132,3 +132,8 @@
 .apl-wide .apl-pre { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-top: 0; }
 .apl-wide .apl-seg button, .apl-wide .apl-row, .apl-wide .apl-back { cursor: pointer; }
 .pl-disc { font-size: 11px; color: var(--text-3); line-height: 1.45; max-width: 1100px; }
+/* Now: the runways of the wind on final (Auto / chosen, from 2026-11-06) */
+.apl-nrwy { align-items: center; }
+.apl-nrwy > span { flex-basis: 100%; margin: 0 0 -1px 2px; }
+.apl-nrwy button { padding: 4px 9px; min-width: 40px; }
+.apl-wide .apl-nrwy > span { flex-basis: auto; margin: 0 4px 0 0; }

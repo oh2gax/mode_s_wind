@@ -6,7 +6,9 @@
  * /api/pilot/* answers 403).  Research only.
  *
  *  - Now: the METAR, the runways in use, the wind on final (head / cross at the
- *    surface and 500 / 1000 / 2000 ft above the runway), the windshear reports
+ *    surface and 500 / 1000 / 2000 ft above the runway) — of the runways in use
+ *    (Auto) or of up to three runways the pilot chooses (from 2026-11-06:
+ *    e.g. a turboprop given another runway), the windshear reports
  *    of arrivals and departures, EDR and the go-arounds of the window.
  *  - Approach: the headwind on final of one runway's landings (ft above the
  *    runway) — each flight, its median and middle half, the own class
@@ -48,6 +50,7 @@
     min: parseInt(lsGet('ms_app_pilot_min', '60'), 10),
     rwy: lsGet('ms_app_pilot_rwy', ''),
     drwy: lsGet('ms_app_pilot_drwy', ''),                // the departure runway
+    nrwy: lsGet('ms_app_pilot_nrwy', '').split(',').filter(Boolean).slice(0, 3),   // Now: the chosen runways ([] = Auto)
     filt: lsGet('ms_app_pilot_filter', 'all'),          // all / cls
     q: lsGet('ms_app_pilot_q', ''),
   };
@@ -72,7 +75,7 @@
     tab = tab || S.tab;
     const want = ++n;
     try {
-      if (tab === 'now') D.now = await get(`/api/pilot/brief?min=${S.min}`);
+      if (tab === 'now') D.now = await get(`/api/pilot/brief?min=${S.min}${S.nrwy.length ? '&rwys=' + encodeURIComponent(S.nrwy.join(',')) : ''}`);
       else if (tab === 'app') {
         D.app = await get(`/api/pilot/approach?min=${S.min}${S.rwy ? '&rwy=' + encodeURIComponent(S.rwy) : ''}`);
         if (D.app && D.app.rwy && D.app.rwy !== S.rwy && !(D.app.runways || {})[S.rwy]) S.rwy = '';
@@ -154,9 +157,19 @@
     const cnt = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<b>${esc(k)}</b> ×${v}`).join(' · ') || '—';
     const out = [metarCard(d.metar)];
     out.push(card('In use', `last ${S.min} min`, `<div class="apl-note">Arrivals ${cnt(d.arr)} &nbsp;&nbsp; Departures ${cnt(d.dep)}</div>`));
-    (d.rows || []).slice(0, 2).forEach((e, i) => {
+    // the runways of the wind on final: Auto (the runways in use) or the pilot's own choice
+    const all = d.runways || ['04L', '04R', '22L', '22R', '15', '33'], chosen = d.chosen || [];
+    out.push(`<div class="apl-seg apl-nrwy"><span class="apl-dim apl-sm">Wind on final</span><button type="button" data-nrwy="" class="${chosen.length ? '' : 'on'}">Auto</button>`
+      + all.map(k => `<button type="button" data-nrwy="${esc(k)}" class="${chosen.includes(k) ? 'on' : ''}">${esc(k)}</button>`).join('') + '</div>');
+    const rowsShown = chosen.length ? (d.rows || []) : (d.rows || []).slice(0, 2);
+    if (!rowsShown.length) out.push(card('Wind on final', `last ${S.min} min`, '<div class="apl-dim">No landings in the window — choose a runway above for its surface wind from the METAR.</div>'));
+    rowsShown.forEach((e, i) => {
       const rows = [['Surface (METAR)', e.sfc], ['500 ft', e['500']], ['1000 ft', e['1000']], ['2000 ft', e['2000']]];
-      out.push(card(`Wind on final ${esc(e.rwy)}`, `${e.n} landing${e.n > 1 ? 's' : ''}, median`,
+      const from = Object.entries(e.from || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} ×${v}`).join(', ');
+      const subT = e.src === 'own' ? `${e.n} landing${e.n > 1 ? 's' : ''}, median${e.chosen ? ' · chosen' : ''}`
+        : e.src === 'all' ? `chosen · aloft from ${from}`
+        : 'chosen · no landings: the METAR only';
+      out.push(card(`Wind on final ${esc(e.rwy)}`, subT,
         `<table class="apl-tab"><tr><th>above the runway</th><th>head / tail kt</th><th>cross kt</th></tr>` +
         rows.map(([l, v]) => `<tr><td>${l}</td><td>${v ? hw(v[0]) : hw(null)}</td><td>${v ? xw(v[1]) : xw(null)}</td></tr>`).join('') +
         `</table>` + (i === 0 ? '<div class="apl-dim apl-sm">Crosswind from the right (R) or left (L); amber from 15 kt.</div>' : '')));
@@ -629,6 +642,17 @@
     body.addEventListener('click', e => {
       const r = e.target.closest('[data-rwy]'), dr = e.target.closest('[data-drwy]'), f = e.target.closest('[data-f]'),
             row = e.target.closest('.apl-row'), wx = e.target.closest('[data-wx]');
+      const nr = e.target.closest('[data-nrwy]');
+      if (nr) {                                            // Now: Auto, or toggle a runway (up to three)
+        const k = nr.dataset.nrwy;
+        if (!k) S.nrwy = [];
+        else if (S.nrwy.includes(k)) S.nrwy = S.nrwy.filter(x => x !== k);
+        else S.nrwy = S.nrwy.concat(k).slice(-3);
+        const order = (D.now && D.now.runways) || [];
+        S.nrwy.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        lsSet('ms_app_pilot_nrwy', S.nrwy.join(',')); load('now');
+        return;
+      }
       if (r) { S.rwy = r.dataset.rwy; lsSet('ms_app_pilot_rwy', S.rwy); load(); }
       else if (dr) { S.drwy = dr.dataset.drwy; lsSet('ms_app_pilot_drwy', S.drwy); load(); }
       else if (wx && OPT.wx) { OPT.wx(wx.dataset.wx); if (on) render(); }

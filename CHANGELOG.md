@@ -7,6 +7,18 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways for the wind on final)
+
+### Meteogram: more ranges
+- Weather page: *Range* with GFS / Both now **2 / 5 / 7 / 10 / 16 days** (2 and 7 days new; 16 days stays the default). `static/js/weather_mg.js`.
+- Phone: the Range chips **2 d / 5 d / 7 d / 10 d / 16 d** (7 d and 10 d new; 5 d stays the default). `static/js/app_mg.js`.
+- Mobile user guide 1.59. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
+
+### Pilot · Now: choose the runways of the wind on final
+- A bar *Wind on final* **Auto** (as before: the two busiest arrival runways) / 04L / 04R / 22L / 22R / 15 / 33 above the wind cards — up to three runways of the pilot's own choice, e.g. when a turboprop is given another runway than the jets. A chosen runway with landings in the window uses its own landings; one without uses the band winds of all the window's landings resolved on its heading and above its threshold (*chosen · aloft from 22L ×10, 15 ×2*); the surface wind always from the METAR. Kept in the browser (`ms_app_pilot_nrwy`); the phone's Pilot view and the full Pilot page alike. `web/api/pilot.py` (`brief(rwys=)`), `web/app.py` (`/api/pilot/brief?rwys=`), `static/js/app_pilot.js`, `static/css/pilot.css`.
+
+---
+
 ## v.05112026 — 2026-11-05 (the departures' headwind profiles back in the boundary-layer flight columns; the phone's Weather buttons stay in place; the phone's Pilot view and the Pilot right; five more Pilot tabs and the full site's Pilot page; turboprop departure limits by height; a steadier departure GNSS freeze gate; the Statistics page's receiver panel on top; the Windshear charts' readouts on a chosen day; the Sounding guide's mast section; a second Radarcape's own status; the GFS forecast to 16 days on the Weather page; meteograms of MEPS and GFS on the Weather page and the phone; GFS on the phone's Weather view; the Mobile guide's Mast section)
 
 ### Phone: the Pilot view (research only)

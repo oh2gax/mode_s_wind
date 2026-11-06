@@ -8,7 +8,7 @@
  * temperature, precipitation, wind, pressure and clouds on one time axis (UTC).
  *   Model  MEPS (the past days and ~2 days ahead) · GFS (now … 16 days) · Both
  *          (GFS's days with MEPS over its own); GFS only where the server has it
- *   Range  MEPS: past 24 h / 3 days / 7 days + its forecast; GFS / Both: 5 / 10 / 16 days
+ *   Range  MEPS: past 24 h / 3 days / 7 days + its forecast; GFS / Both: 2 / 5 / 7 / 10 / 16 days
  *   Panels tick boxes
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
@@ -22,7 +22,7 @@ const WxMg = (() => {
   const PANELS = ['temp', 'precip', 'wind', 'pres', 'cloud'];
   const RANGES = {
     meps: [['24', 'past 24 h + forecast'], ['72', 'past 3 days + forecast'], ['168', 'past 7 days + forecast']],
-    gfs: [['120', '5 days'], ['240', '10 days'], ['384', '16 days']],
+    gfs: [['48', '2 days'], ['120', '5 days'], ['168', '7 days'], ['240', '10 days'], ['384', '16 days']],   // 2 and 7 days from 2026-11-06
   };
   let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null };
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st = Object.assign(st, s, { range: Object.assign(st.range, s.range || {}) }); } catch (e) { /* private mode */ }
@@ -48,7 +48,7 @@ const WxMg = (() => {
   function fillRange() {
     const el = $('wx-mg-range'), m = st.model === 'meps' ? 'meps' : 'gfs';
     el.innerHTML = RANGES[m].map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
-    el.value = st.range[m] && RANGES[m].some(r => r[0] === st.range[m]) ? st.range[m] : RANGES[m][m === 'meps' ? 0 : 2][0];
+    el.value = st.range[m] && RANGES[m].some(r => r[0] === st.range[m]) ? st.range[m] : RANGES[m][m === 'meps' ? 0 : RANGES[m].length - 1][0];
   }
   function fillPlace() {
     const el = $('wx-mg-place');

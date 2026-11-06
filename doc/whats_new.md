@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.06112026 — More meteogram ranges, and your own runways in the Pilot view
+
+- **Meteogram ranges** — the Weather page's meteogram now has 2, 5, 7, 10 and 16 days with GFS; the phone 2 d, 5 d, 7 d, 10 d and 16 d.
+- **Pilot · Now: choose the runway** — under *In use*, pick the runways for the *Wind on final* yourself (Auto, 04L … 33, up to three), for example when your turboprop is given a different runway than the jets. A runway without landings in the last hour gets the winds aloft of the other landings, turned to its heading. On the phone and on the Pilot page.
+
 ## v.05112026 — A Pilot view on the phone and a Pilot page, a 16-day GFS forecast and meteograms on the Weather page and the phone, the departures back in the flight-by-flight boundary layer, steadier Weather buttons
 
 - **Pilot view (phone, research only)** — for users with the new *Pilot* permission: **Now** (the METAR, runways in use, the wind on final, windshear, turbulence and go-arounds of the last hour), **Approach** (the headwind on final of the recent landings, in feet above the runway, your aircraft class highlighted), **Icing** (freezing levels, a warm layer above a sub-freezing ground, cloud and icing reports) and **My flight** (find your landing or departure and see what it met against the flights before it). Choose your aircraft class in *Pilot options*. Not for flight operations.
