@@ -9,19 +9,19 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## The receiving station (brochure)
 file: MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf
-version: 1.2
-date: 2026-11-03
+version: 1.3
+date: 2026-11-06
 pages: 2
 
 A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The nine-page overview below has the details.
 
 - **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape and the workstation), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
-- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with four screens and a QR code, the pages in the browser (the GPS page for users with the Full view right), and how to see it live — a research system, not for flight operations
+- **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with five screens (also the Pilot view for users with the Pilot right) and a QR code, the pages in the browser (the GPS page for users with the Full view right), and how to see it live — a research system, not for flight operations
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.15
-date: 2026-11-03
+version: 1.16
+date: 2026-11-06
 pages: 9
 
 A nine-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
@@ -31,11 +31,11 @@ A nine-page overview of the station behind MODE-S Wind — poster style, for pri
 - From replies to weather: the formulas for wind, temperature and the heights of the pressure surfaces; the self-correction and calibration against the soundings and the MEPS model; data storage and the pages (the GPS pages for users with the Full view right)
 - **Windshear detection and the ongoing study** (page 3): headwind ramps and the band comparison, the alert levels (with the 14-kt rule), the alert message in the controllers' short form with its spoken form, the study phases so far and the results
 - **One system, two sites** (page 4): the off-grid capable local station and the cloud server at https://mode-s-wind.oh2gax.org that serves the users, the tunnel between them, how both are kept up to date, and what comes next
-- **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, the ILS approach with the turbulence (EDR) of the last hour on the approach map, ACI + windshear and Statistics, and the eight views
+- **MODE-S Wind on your phone** (page 5): the mobile view `/app` for all users — opening it, *Add to Home Screen*, a QR code, screens of the Skew-T, the ILS approach with the turbulence (EDR) of the last hour on the approach map, ACI + windshear, Statistics and the Pilot view (Pilot right), and the twelve views
 - **Turbulence and the boundary layer** (page 6): EDR from the headwind replies of every landing and departure, with the ICAO classes and the first results; the low-level jet and the surface inversion hour by hour, and how they relate to the windshear levels
 - **The ATC-style map** (page 7, research): the Live Map and the Windshear map as a radar display for readers with an air traffic control background — how a full label is read (callsign / level, trend and selected level / ground speed and type), history plots, speed vectors, labels kept apart, the selected altitude (BDS 4,0 / ADS-B), **Hover** — the six-line extended label of the aircraft under the mouse (airspeeds, Mach, heading, drift, bank, wind components, AP / APP) — with live traffic of 30 Oct 2026 drawn in the style; not for air traffic control
 - **Windshear v8 and the boundary layer per flight** (page 8): the headwind every 0.5 s from the aircraft's own ADS-B ground speed (detection v8, from 31 Oct 2026) with one landing's headwind profile, and the headwind, its change and the wind shear of every landing and departure as its own column
-- **More receivers, one weather** (page 9, from 2 Nov 2026): how the multi-receiver system works — each receiver sends its live stream through its own outbound, encrypted tunnel and the cloud server merges them into one stream of replies (one clock, each reply once, in time order); the merge in four steps with an illustration, what it gives (more of the low approach, fewer gaps, it keeps going when one receiver stops), where it shows, what comes next, and how a new receiver joins
+- **More receivers, one weather** (page 9, from 2 Nov 2026): how the multi-receiver system works — each receiver sends its live stream through its own outbound, encrypted tunnel and the cloud server merges them into one stream of replies (one clock, each reply once, in time order); the merge in four steps with an illustration, what it gives (more of the low approach, fewer gaps, it keeps going when one receiver stops), where it shows, what comes next (RX-02 on 4G, the second Radarcape ready for its site), and how a new receiver joins
 
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf

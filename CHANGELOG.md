@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page in one column)
+## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page in one column; the receiving station 1.16 and brochure 1.3)
 
 ### Meteogram: more ranges
 - Weather page: *Range* with GFS / Both now **2 / 5 / 7 / 10 / 16 days** (2 and 7 days new; 16 days stays the default). `static/js/weather_mg.js`.
@@ -19,6 +19,10 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Pilot page: one column, top to bottom
 - On the full Pilot page the cards no longer flow side by side into a grid of 420-px columns (cards of different heights landed anywhere, leaving holes, most of all on a 1920 × 1080 screen): they now run **from top to bottom in one column on the left as on the phone**, at most 900 px wide (the tab bar and the banner across the page as before); the charts at most 680 × 620 px. The phone is unchanged. `static/css/pilot.css`. Mobile user guide 1.59: the Pilot page figure retaken (*Now*, without the top bar).
+
+### Documents: the receiving station 1.16 and its brochure 1.3
+- Overview (EN and FI, A4 and A3): page 2's Weather tile with the GFS to 16 days and the meteograms (for viewing), the open data *NOAA (METAR, GFS)*; page 5 a fifth phone screen — the Pilot view's *Now* (Pilot right, research only; stored data of 4 Nov 2026 10:45 UTC drawn in a test) — and *Twelve views* (Mast, Meteogram, GNSS (Full view), Pilot (Pilot right)); page 9 RX-02 on a 4G link since 4 Nov 2026 and the second Radarcape set up and tested with its own tunnel, ready for its site. `doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf`, `_A3.pdf`.
+- Brochure 1.3 (still two pages): the Pilot screen as a fifth phone, *Twelve views*, the Weather tile with GFS and meteograms, NOAA (METAR, GFS). `doc/MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf`, `_A3.pdf`. `doc/guides.md`.
 
 ---
 
