@@ -17,6 +17,21 @@
  *                  models' line (field t8; fuchsia, GFS thin and dashed with Both) and
  *                  MODE-S Wind's own measured value of the past hours (data.*.o850 — the hourly
  *                  aircraft profile, places within its radius of the receiver) as dots
+ *   (from 2026-11-07 afternoon, the extra options, all off by default:)
+ *     opts.panels.frz   a Freezing level panel (ft MSL): the models' line (field zl) and the
+ *                       measured value of the past hours (data.*.ozl) as dots
+ *     opts.panels.cape  a Thunderstorm (CAPE) strip: each hour coloured by the model's CAPE (ca)
+ *     opts.obs     the airport's METARs (data.*.metar) as dots on the temperature (and dew
+ *                  point), wind / gust and pressure panels; near the airport only
+ *     opts.lw      the landings' band winds at 1 000 and 2 000 ft above the runway (data.*.lw)
+ *                  in the wind panel; near the airport only
+ *     opts.sun     the sunrise and sunset (UTC) at the day labels
+ *     opts.dew     the dew point (td) in the temperature panel, a strip where the spread is
+ *                  ≤ 2 °C (mist and fog risk) and a visibility row (vi) under the clouds
+ *     opts.w850    a second barb row: the models' 850 hPa wind (u8 / v8) and, in the past hours,
+ *                  the measured one (data.*.o850w)
+ *   opts.lang     'fi' (from 2026-11-07; or window.MG_LANG — the users with the FIN right): the texts in
+ *                  Finnish (weekdays, labels, legend, read-out; decimal commas); times stay UTC
  *
  * One time axis (UTC) for all panels: day lines and labels, the night shaded from the
  * sun's elevation at the place, the forecast tinted, the now-line.  With both models
@@ -29,7 +44,13 @@
 const Meteogram = (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const HOUR = 3600, DAY = 86400;
-  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const WD_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const WD_FI = ['su', 'ma', 'ti', 'ke', 'to', 'pe', 'la'];
+  // the language of the render in progress (from 2026-11-07): 'fi' for the users with the FIN right
+  let FI = false;
+  const tr = (en, fi) => (FI ? fi : en);
+  const nf = (v, d) => { const s = Number(v).toFixed(d); return FI ? s.replace('.', ',') : s; };
+  const wd = i => (FI ? WD_FI : WD_EN)[i];
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const light = () => document.documentElement.dataset.theme === 'light';
   function pal() {
@@ -44,6 +65,8 @@ const Meteogram = (() => {
       barb: L ? '#111827' : '#e5e7eb', panel: L ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.025)',
       band: L ? 'rgba(71,85,105,0.16)' : 'rgba(203,213,225,0.15)',
       t850: L ? '#c026d3' : '#e879f9',
+      dew: L ? '#15803d' : '#4ade80', frz: L ? '#0891b2' : '#22d3ee', lw: L ? '#4f46e5' : '#a5b4fc',
+      obs: L ? '#111827' : '#f9fafb', obsRim: L ? '#ffffff' : '#111827',
     };
   }
 
@@ -61,6 +84,21 @@ const Meteogram = (() => {
     const la = lat * Math.PI / 180;
     return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) * 180 / Math.PI;
   }
+
+  // the sunrise and sunset (ts) of the UTC day starting at d0 at a place (from 2026-11-07); null = none
+  function sunTimes(lat, lon, d0) {
+    const H0 = -0.833, st = 600;
+    let rise = null, set = null, prev = sunElev(lat, lon, d0) - H0;
+    for (let t = d0 + st; t <= d0 + DAY; t += st) {
+      const e = sunElev(lat, lon, t) - H0;
+      if (prev < 0 && e >= 0 && rise == null) rise = t - st * e / (e - prev);
+      if (prev >= 0 && e < 0 && set == null) set = t - st * e / (e - prev);
+      prev = e;
+    }
+    return { rise, set, up: sunElev(lat, lon, d0 + DAY / 2) > H0 };
+  }
+  const fmtFt = v => String(Math.round(v / 100) * 100).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  const hhmm = ts => { const d = new Date(Math.round(ts / 60) * 60000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
 
   // ── a wind barb (wind from dir, kt) as SVG, centred at the station point ──
   function barbSvg(x, y, dir, kt, col, len = 17) {
@@ -92,6 +130,10 @@ const Meteogram = (() => {
         ws: u == null || w == null ? null : Math.hypot(u, w), wd: u == null || w == null ? null : windDir(u, w),
         gu: g('g', i), c: g('c', i), l: g('l', i), m: g('m', i), h: g('h', i), f: g('f', i), b: g('b', i),
         t8: g('t8', i) == null ? null : g('t8', i) / 10,
+        td: g('td', i) == null ? null : g('td', i) / 10, vi: g('vi', i) == null ? null : g('vi', i) * 100,
+        zl: g('zl', i) == null ? null : g('zl', i) * 3.28084, ca: g('ca', i),
+        ws8: g('u8', i) == null || g('v8', i) == null ? null : Math.hypot(g('u8', i), g('v8', i)),
+        wd8: g('u8', i) == null || g('v8', i) == null ? null : windDir(g('u8', i), g('v8', i)),
       });
       const e = err && err[leadDay(d.lead[i])];
       if (e) { pts[i].et = e.t; pts[i].ew = e.ws; }
@@ -109,7 +151,9 @@ const Meteogram = (() => {
   // ── the chart ─────────────────────────────────────────────────────────────
   function render(el, data, opts = {}) {
     const C = !!opts.compact;
-    const P0 = Object.assign({ temp: true, precip: true, wind: true, pres: true, cloud: true }, opts.panels || {});
+    FI = (opts.lang || window.MG_LANG || '') === 'fi';
+    const LANG_FI = FI;
+    const P0 = Object.assign({ temp: true, frz: false, precip: true, cape: false, wind: true, pres: true, cloud: true }, opts.panels || {});
     const EB = opts.errBand || null;           // {gfs: {day: {t, ws}}, meps: {…}, where} or null
     // MEPS's own band where its days are known; until then (its first runs being checked) GFS's of the
     // same lead day, so the first days are not left without a band (from 2026-11-06 evening)
@@ -120,8 +164,13 @@ const Meteogram = (() => {
     // the 850 hPa temperature (from 2026-11-07): the models' t8 and the measured values [[ts, °C, n]]
     const T8 = !!opts.t850;
     const O8 = T8 ? (((data.meps && data.meps.o850) || (data.gfs && data.gfs.o850) || [])) : [];
+    // the extra options (from 2026-11-07 afternoon) and what MODE-S Wind measured
+    const OB = (data.meps && data.meps.metar ? data.meps : data.gfs) || data.meps || {};
+    const MET = opts.obs ? OB.metar || [] : [], LW = opts.lw ? OB.lw || [] : [];
+    const OZL = OB.ozl || [], O8W = opts.w850 ? OB.o850w || [] : [];
+    const DEW = !!opts.dew, W850 = !!opts.w850, SUN = !!opts.sun;
     el.innerHTML = '';
-    if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || 'No model hours for this place.')}</div>`; return { destroy() {} }; }
+    if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.'))}</div>`; return { destroy() {} }; }
     const read = document.createElement('div');
     read.className = 'mg-read';
     const box = document.createElement('div');
@@ -131,14 +180,17 @@ const Meteogram = (() => {
     let ro = null, raf = 0;
 
     function draw() {
+      FI = LANG_FI;
       const T = pal();
       const W = Math.max(280, box.clientWidth || el.clientWidth || 600);
       const AL = C ? 34 : 46, AR = C ? 8 : 14, TOP = C ? 30 : 34, GAP = C ? 6 : 9;
-      const H = { temp: C ? 112 : 150, precip: C ? 54 : 80, wind: C ? 92 : 118, pres: C ? 58 : 78, cloud: 0 };
+      const H = { temp: C ? 112 : 150, frz: C ? 56 : 72, precip: C ? 54 : 80, cape: C ? 14 : 18,
+                  wind: (C ? 92 : 118) + (W850 ? (C ? 18 : 22) : 0), pres: C ? 58 : 78, cloud: 0 };
       const rowH = C ? 10 : 13;
       const fogRow = (SM && SM.hasFog) ? 1 : 0;
-      H.cloud = (3 + fogRow) * rowH + (C ? 14 : 18);
-      const panels = ['temp', 'precip', 'wind', 'pres', 'cloud'].filter(k => P0[k]);
+      const visRow = DEW && [SM, SG].some(S => S && S.pts.some(q => q.vi != null)) ? 1 : 0;
+      H.cloud = (3 + fogRow + visRow) * rowH + (C ? 14 : 18);
+      const panels = ['temp', 'frz', 'precip', 'cape', 'wind', 'pres', 'cloud'].filter(k => P0[k]);
       const t0 = Math.min(...[SM, SG].filter(Boolean).map(s => s.t0)), t1 = Math.max(...[SM, SG].filter(Boolean).map(s => s.t1));
       const pw = W - AL - AR, X = ts => AL + (ts - t0) / (t1 - t0) * pw;
       const now = opts.now || Date.now() / 1000;
@@ -209,7 +261,13 @@ const Meteogram = (() => {
         const a = Math.max(t0, t), b = Math.min(t1, t + DAY);
         if (X(b) - X(a) < 14) continue;
         const dt = new Date(t * 1000);
-        const lab = dayW >= 78 ? `${WD[dt.getUTCDay()]} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}.` : dayW >= 34 ? `${WD[dt.getUTCDay()].slice(0, 2)} ${dt.getUTCDate()}.` : `${dt.getUTCDate()}`;
+        let lab = dayW >= 78 ? `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}.` : dayW >= 34 ? `${wd(dt.getUTCDay()).slice(0, 2)} ${dt.getUTCDate()}.` : `${dt.getUTCDate()}`;
+        // the sunrise and sunset (UTC) when the day is wide enough (from 2026-11-07)
+        if (SUN && dayW >= (C ? 105 : 130) && X(b) - X(a) >= dayW * 0.8) {
+          const sn = sunTimes(lat, lon, t);
+          lab += sn.rise != null || sn.set != null ? `  ☀ ${sn.rise != null ? hhmm(sn.rise) : '—'}–${sn.set != null ? hhmm(sn.set) : '—'}`
+            : sn.up ? tr('  ☀ all day', '  ☀ koko päivän') : tr('  ☀ none', '  ☀ ei lainkaan');
+        }
         out.push(txt((X(a) + X(b)) / 2, TOP - (C ? 18 : 20), lab, { anchor: 'middle', col: T.text, w: 600 }));
       }
       // hour ticks when the days are wide
@@ -235,8 +293,9 @@ const Meteogram = (() => {
       const lines = [];                          // the drawn series (both models), for the order MEPS on top
       // 1 temperature
       if (P0.temp) {
-        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => T8 ? [q.t, q.t8] : [q.t])).filter(v => v != null).concat(bandVals('t', 'et'))
-          .concat(O8.filter(o => o[0] >= t0 && o[0] <= t1).map(o => o[1]));
+        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => [q.t].concat(T8 ? [q.t8] : [], DEW ? [q.td] : []))).filter(v => v != null).concat(bandVals('t', 'et'))
+          .concat(O8.filter(o => o[0] >= t0 && o[0] <= t1).map(o => o[1]))
+          .concat(MET.filter(m => m[0] >= t0 && m[0] <= t1).flatMap(m => DEW ? [m[1], m[2]] : [m[1]]).filter(v => v != null));
         if (vals.length) {
           let lo = Math.min(...vals), hi = Math.max(...vals);
           const pad = Math.max(1, (hi - lo) * 0.12); lo -= pad; hi += pad;
@@ -266,6 +325,29 @@ const Meteogram = (() => {
               out.push(`<circle cx="${X(o[0]).toFixed(1)}" cy="${Y(o[1]).toFixed(1)}" r="${C ? 2.2 : 2.6}" fill="${T.t850}" stroke="${light() ? '#fff' : '#111827'}" stroke-width="0.8"/>`);
             }
           }
+          // the dew point, and where the spread is 2 °C or less a strip at the panel's foot (from 2026-11-07)
+          if (DEW) {
+            for (const S of [SG, SM].filter(Boolean)) {
+              const thin = both && S.key === 'gfs';
+              out.push(line(path(S, 'td', Y), T.dew, thin ? 1 : C ? 1.2 : 1.5, thin ? '4 3' : '2 2', thin ? 0.8 : 0.95));
+            }
+            for (const S of [SG, SM].filter(Boolean)) {
+              S.pts.forEach((q, i) => {
+                if (both && S.key === 'gfs' && pick(q)) return;
+                if (q.t == null || q.td == null || q.t - q.td > 2) return;
+                const a0 = i ? (S.pts[i - 1].ts + q.ts) / 2 : q.ts - (q.pi || 1) * HOUR / 2;
+                const e0 = i < S.pts.length - 1 ? (q.ts + S.pts[i + 1].ts) / 2 : q.ts + (q.pi || 1) * HOUR / 2;
+                const xa = X(Math.max(t0, a0)), xb = X(Math.min(t1, e0));
+                out.push(`<rect x="${xa.toFixed(1)}" y="${(b.y1 - (C ? 4 : 5)).toFixed(1)}" width="${Math.max(0.5, xb - xa + 0.3).toFixed(1)}" height="${C ? 4 : 5}" fill="rgb(${T.fog})" opacity="${q.t - q.td <= 1 ? 0.85 : 0.45}"/>`);
+              });
+            }
+          }
+          // the airport's METARs (from 2026-11-07): the temperature (and the dew point)
+          for (const m of MET) {
+            if (m[0] < t0 || m[0] > t1) continue;
+            if (m[1] != null) out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[1]).toFixed(1)}" r="${C ? 1.9 : 2.3}" fill="${T.obs}" stroke="${T.obsRim}" stroke-width="0.7"/>`);
+            if (DEW && m[2] != null) out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[2]).toFixed(1)}" r="${C ? 1.9 : 2.3}" fill="${T.obsRim}" stroke="${T.dew}" stroke-width="1.1"/>`);
+          }
           // the day's highest and lowest (the primary model) when the days are wide enough
           if (dayW >= 64) for (let t = Math.floor(t0 / DAY) * DAY; t <= t1; t += DAY) {
             const day = (prim.pts).filter(q => q.ts > t && q.ts <= t + DAY && q.t != null && (!both || !pick(q)))
@@ -278,13 +360,32 @@ const Meteogram = (() => {
           lines.push({ k: 'temp', Y });
         }
       }
+      // 1b the freezing level (from 2026-11-07): ft MSL, the models' line and the measured dots
+      if (P0.frz) {
+        const b = box0.frz;
+        const vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.zl)).filter(v => v != null)
+          .concat(OZL.filter(o => o[0] >= t0 && o[0] <= t1).map(o => o[1]));
+        const hi = Math.max(3000, Math.ceil(Math.max(0, ...vals) * 1.12 / 1000) * 1000);
+        const Y = v => b.y1 - 3 - Math.max(0, v) / hi * (H.frz - (C ? 14 : 18));
+        ylab('frz', C ? '0°C ft' : '0 °C ft');
+        yaxis('frz', 0, hi, hi > 8000 ? 2000 : 1000, v => v >= 1000 ? nf(v / 1000, v % 1000 ? 1 : 0) + 'k' : String(v), Y);
+        for (const S of [SG, SM].filter(Boolean)) {
+          const thin = both && S.key === 'gfs';
+          out.push(line(path(S, 'zl', Y), T.frz, thin ? 1.2 : C ? 1.6 : 2, thin ? '4 3' : '', thin ? 0.85 : 1));
+        }
+        for (const o of OZL) {
+          if (o[0] < t0 || o[0] > t1) continue;
+          out.push(o[2] ? `<path d="M${(X(o[0]) - 3).toFixed(1)} ${(Y(o[1]) + 2).toFixed(1)}l3 -5l3 5Z" fill="${T.frz}" stroke="${T.obsRim}" stroke-width="0.6"/>`
+            : `<circle cx="${X(o[0]).toFixed(1)}" cy="${Y(o[1]).toFixed(1)}" r="${C ? 2.2 : 2.6}" fill="${T.frz}" stroke="${T.obsRim}" stroke-width="0.8"/>`);
+        }
+      }
       // 2 precipitation
       if (P0.precip) {
         const b = box0.precip, all = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.r)).filter(v => v != null);
         const mx = Math.max(1, Math.ceil(Math.max(0, ...all)));
         const Y = v => b.y1 - v / mx * (H.precip - (C ? 14 : 18));
         ylab('precip', 'mm/h');
-        yaxis('precip', 0, mx, mx > 6 ? 2 : mx > 2 ? 1 : 0.5, v => String(v), Y);
+        yaxis('precip', 0, mx, mx > 6 ? 2 : mx > 2 ? 1 : 0.5, v => (FI ? String(v).replace('.', ',') : String(v)), Y);
         for (const S of [SG, SM].filter(Boolean)) {
           const thin = both && S.key === 'gfs';
           for (const q of S.pts) {
@@ -307,14 +408,35 @@ const Meteogram = (() => {
           }
           if (!n || sum < 0.1) continue;
           const a = Math.max(t0, t), bb = Math.min(t1, t + DAY);
-          out.push(txt((X(a) + X(bb)) / 2, b.y0 + (C ? 9 : 11), sum >= 10 ? Math.round(sum) + (dayW >= 40 ? ' mm' : '') : sum.toFixed(1) + (dayW >= 40 ? ' mm' : ''), { anchor: 'middle', col: T.rain, fs: C ? 8 : 9.5, w: 600 }));
+          out.push(txt((X(a) + X(bb)) / 2, b.y0 + (C ? 9 : 11), sum >= 10 ? Math.round(sum) + (dayW >= 40 ? ' mm' : '') : nf(sum, 1) + (dayW >= 40 ? ' mm' : ''), { anchor: 'middle', col: T.rain, fs: C ? 8 : 9.5, w: 600 }));
+        }
+      }
+      // 2b thunderstorm potential (from 2026-11-07): each hour coloured by the model's CAPE
+      if (P0.cape) {
+        const b = box0.cape;
+        ylab('cape', 'CAPE');
+        const capeCol = v => v >= 2500 ? ['168,85,247', 0.95] : v >= 1000 ? ['220,38,38', 0.9] : v >= 500 ? ['234,88,12', 0.85]
+          : v >= 100 ? ['234,179,8', 0.7] : null;
+        for (const S of [SG, SM].filter(Boolean)) {
+          S.pts.forEach((q, i) => {
+            if (both && S.key === 'gfs' && pick(q)) return;
+            const c = q.ca == null ? null : capeCol(q.ca);
+            if (!c) return;
+            const a0 = i ? (S.pts[i - 1].ts + q.ts) / 2 : q.ts - (q.pi || 1) * HOUR / 2;
+            const e0 = i < S.pts.length - 1 ? (q.ts + S.pts[i + 1].ts) / 2 : q.ts + (q.pi || 1) * HOUR / 2;
+            const xa = X(Math.max(t0, a0)), xb = X(Math.min(t1, e0));
+            out.push(`<rect x="${xa.toFixed(1)}" y="${(b.y0 + 2).toFixed(1)}" width="${Math.max(0.5, xb - xa + 0.3).toFixed(1)}" height="${H.cape - 4}" fill="rgb(${c[0]})" opacity="${c[1]}"/>`);
+          });
         }
       }
       // 3 wind
       if (P0.wind) {
-        const b = box0.wind, all = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => [q.ws, q.gu])).filter(v => v != null).concat(bandVals('ws', 'ew'));
+        const b = box0.wind, all = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => [q.ws, q.gu])).filter(v => v != null).concat(bandVals('ws', 'ew'))
+          .concat(LW.filter(w => w[0] >= t0 && w[0] <= t1).map(w => w[3]))
+          .concat(MET.filter(m => m[0] >= t0 && m[0] <= t1).flatMap(m => [m[4], m[5]]).filter(v => v != null));
         const mx = Math.max(20, Math.ceil(Math.max(0, ...all) * 1.1 / 5) * 5);
-        const top = C ? 26 : 32;                    // the barbs' row
+        const top10 = C ? 26 : 32, row8 = W850 ? (C ? 18 : 22) : 0;
+        const top = top10 + row8;                   // the barbs' rows (10 m; 850 hPa from 2026-11-07)
         const Y = v => b.y1 - 3 - v / mx * (H.wind - top - 4);
         ylab('wind', 'kt');
         yaxis('wind', 0, mx, mx > 60 ? 20 : 10, v => String(v), Y);
@@ -324,18 +446,46 @@ const Meteogram = (() => {
           out.push(line(path(S, 'gu', Y), T.gust, thin ? 1 : C ? 1.3 : 1.6, thin ? '2 3' : '4 3', thin ? 0.8 : 1));
           out.push(line(path(S, 'ws', Y), T.wind, thin ? 1.3 : C ? 1.8 : 2.2, thin ? '4 3' : '', thin ? 0.85 : 1));
         }
+        // the landings' winds at 1 000 / 2 000 ft above the runway (from 2026-11-07)
+        [[1000, '3 2', 'sq'], [2000, '1 2.5', 'tri']].forEach(([h, dash, mk]) => {
+          const ws = LW.filter(w => w[1] === h && w[0] >= t0 && w[0] <= t1);
+          const pts = []; let prev = null;
+          for (const w of ws) { pts.push({ x: X(w[0]), y: Y(w[3]), gap: !prev || w[0] - prev > 1.6 * HOUR }); prev = w[0]; }
+          out.push(line(pts, T.lw, C ? 1.2 : 1.5, dash, 0.95));
+          const r = C ? 2 : 2.4;
+          pts.forEach(p => out.push(mk === 'sq'
+            ? `<rect x="${(p.x - r).toFixed(1)}" y="${(p.y - r).toFixed(1)}" width="${2 * r}" height="${2 * r}" fill="${T.lw}"/>`
+            : `<path d="M${p.x.toFixed(1)} ${(p.y - r - 0.6).toFixed(1)}l${r + 0.4} ${2 * r + 0.6}h${-2 * r - 0.8}Z" fill="${T.lw}"/>`));
+        });
+        // the airport's METARs: the mean wind (open) and the gust (from 2026-11-07)
+        for (const m of MET) {
+          if (m[0] < t0 || m[0] > t1) continue;
+          if (m[4] != null) out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[4]).toFixed(1)}" r="${C ? 2 : 2.4}" fill="${T.obsRim}" stroke="${T.obs}" stroke-width="1"/>`);
+          if (m[5] != null) out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[5]).toFixed(1)}" r="${C ? 1.8 : 2.1}" fill="${T.gust}" stroke="${T.obsRim}" stroke-width="0.6"/>`);
+        }
         // barbs along the top: every N hours, at least ~26 px apart
         const pxH = pw / ((t1 - t0) / HOUR);
         const N = [1, 3, 6, 12, 24, 48].find(n => n * pxH >= (C ? 22 : 26)) || 48;
+        const y8 = b.y0 + top10 + row8 * 0.62;
+        if (W850) out.push(txt(AL - 3, y8 - (C ? 5 : 6), '850', { anchor: 'end', fs: C ? 7.5 : 9, col: T.t850 }));
         for (let t = Math.ceil(t0 / (N * HOUR)) * N * HOUR; t <= t1; t += N * HOUR) {
           const q = (both && SM && t > mepsT0 && t <= meps1) ? nearest(SM, t) : nearest(prim === SG ? SG : SM, t) || nearest(SM, t);
-          if (!q || q.ws == null) continue;
-          out.push(barbSvg(X(t), b.y0 + top / 2 + (C ? 3 : 4), q.wd, q.ws, T.barb, C ? 13 : 16));
+          if (q && q.ws != null) out.push(barbSvg(X(t), b.y0 + top10 / 2 + (C ? 3 : 4), q.wd, q.ws, T.barb, C ? 13 : 16));
+          if (!W850) continue;
+          // the 850 hPa row: measured in the past hours (the hourly profile), else the model
+          let o = null;
+          if (t <= now) for (const x of O8W) if (Math.abs(x[0] - t) <= 2700 && (!o || Math.abs(x[0] - t) < Math.abs(o[0] - t))) o = x;
+          if (o) out.push(barbSvg(X(t), y8, o[1], o[2], T.barb, C ? 11 : 13));
+          else {
+            const q8 = (both && SM && t > mepsT0 && t <= meps1 && nearest(SM, t) && nearest(SM, t).ws8 != null) ? nearest(SM, t) : nearest(SG, t) || nearest(SM, t);
+            if (q8 && q8.ws8 != null) out.push(barbSvg(X(t), y8, q8.wd8, q8.ws8, T.t850, C ? 11 : 13));
+          }
         }
       }
       // 4 pressure
       if (P0.pres) {
-        const b = box0.pres, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.p)).filter(v => v != null);
+        const b = box0.pres, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.p)).filter(v => v != null)
+          .concat(MET.filter(m => m[0] >= t0 && m[0] <= t1 && m[6] != null).map(m => m[6]));
         if (vals.length) {
           let lo = Math.min(...vals), hi = Math.max(...vals);
           if (hi - lo < 10) { const c = (hi + lo) / 2; lo = c - 5; hi = c + 5; }
@@ -347,11 +497,15 @@ const Meteogram = (() => {
             const thin = both && S.key === 'gfs';
             out.push(line(path(S, 'p', Y), T.pres, thin ? 1.2 : C ? 1.6 : 2, thin ? '4 3' : '', thin ? 0.8 : 1));
           }
+          for (const m of MET) {                       // the METARs' QNH (from 2026-11-07)
+            if (m[0] < t0 || m[0] > t1 || m[6] == null) continue;
+            out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[6]).toFixed(1)}" r="${C ? 1.9 : 2.3}" fill="${T.obs}" stroke="${T.obsRim}" stroke-width="0.7"/>`);
+          }
         }
       }
       // 5 clouds: high / medium / low / fog rows (MEPS where it has the hour, else GFS), the base / ceiling
       if (P0.cloud) {
-        const b = box0.cloud, rows = [['h', 'High'], ['m', 'Medium'], ['l', 'Low']].concat(fogRow ? [['f', 'Fog']] : []);
+        const b = box0.cloud, rows = [['h', tr('High', 'Ylä')], ['m', tr('Medium', 'Keski')], ['l', tr('Low', 'Ala')]].concat(fogRow ? [['f', tr('Fog', 'Sumu')]] : [], visRow ? [['vi', tr('Vis', 'Näk.')]] : []);
         const yr = i => b.y0 + 2 + i * rowH;
         rows.forEach(([, name], i) => out.push(txt(AL - 3, yr(i) + rowH - 3, C && name === 'Medium' ? 'Med' : name, { anchor: 'end', fs: C ? 7.5 : 9 })));
         for (const S of [SG, SM].filter(Boolean)) {
@@ -363,6 +517,11 @@ const Meteogram = (() => {
             const xa = X(Math.max(t0, a)), xb = X(Math.min(t1, e));
             rows.forEach(([f], r) => {
               const v = q[f];
+              if (f === 'vi') {                      // visibility below 5 km (from 2026-11-07): darker below 1.5 km and 500 m
+                if (v == null || v >= 5000) return;
+                out.push(`<rect x="${xa.toFixed(1)}" y="${yr(r).toFixed(1)}" width="${Math.max(0.5, xb - xa + 0.3).toFixed(1)}" height="${rowH - 1}" fill="rgb(${T.fog})" opacity="${v < 500 ? 0.9 : v < 1500 ? 0.6 : 0.3}"/>`);
+                return;
+              }
               if (v == null || v < 3) return;
               const col = f === 'f' ? T.fog : T.cloud;
               out.push(`<rect x="${xa.toFixed(1)}" y="${yr(r).toFixed(1)}" width="${Math.max(0.5, xb - xa + 0.3).toFixed(1)}" height="${rowH - 1}" fill="rgb(${col})" opacity="${(0.12 + 0.83 * v / 100).toFixed(2)}"/>`);
@@ -388,12 +547,20 @@ const Meteogram = (() => {
       if (now > t0 && now < t1) out.push(`<line x1="${X(now).toFixed(1)}" x2="${X(now).toFixed(1)}" y1="${TOP - 4}" y2="${y - GAP}" stroke="${T.now}" stroke-width="1.4"/>`);
       // the legend line
       const lg = [];
-      if (both) lg.push(`<tspan font-weight="600">MEPS</tspan> bold · <tspan font-weight="600">GFS</tspan> thin, dashed`);
-      if (P0.wind) lg.push(`<tspan fill="${T.wind}">━</tspan> wind <tspan fill="${T.gust}">╍</tspan> gust`);
-      if (P0.precip) lg.push(`<tspan fill="${T.rain}">■</tspan> rain <tspan fill="${T.snow}">■</tspan> snow (day totals in mm)`);
-      if (P0.cloud) lg.push(SG && !SM ? 'ft: the ceiling' : SM && !SG ? 'ft: the cloud base' : 'ft: cloud base (MEPS) / ceiling (GFS)');
-      if (T8 && P0.temp) lg.push(`<tspan fill="${T.t850}">━</tspan> 850 hPa${O8.length ? ` <tspan fill="${T.t850}">●</tspan> 850 hPa measured (MODE-S Wind)` : ''}`);
-      if (banded) lg.push(`<tspan fill="${T.dim}" style="fill-opacity:1">▒</tspan> typical error: 8 in 10 hours within it${EB && EB.where ? ' (' + esc(EB.where) + ')' : ''}`);
+      if (both) lg.push(`<tspan font-weight="600">MEPS</tspan> ${tr('bold', 'paksu')} · <tspan font-weight="600">GFS</tspan> ${tr('thin, dashed', 'ohut, katkoviiva')}`);
+      if (P0.wind) lg.push(`<tspan fill="${T.wind}">━</tspan> ${tr('wind', 'tuuli')} <tspan fill="${T.gust}">╍</tspan> ${tr('gust', 'puuska')}`);
+      if (P0.precip) lg.push(`<tspan fill="${T.rain}">■</tspan> ${tr('rain', 'vesi')} <tspan fill="${T.snow}">■</tspan> ${tr('snow (day totals in mm)', 'lumi (vuorokauden summat mm)')}`);
+      if (P0.cloud) lg.push(SG && !SM ? tr('ft: the ceiling', 'ft: pilvikatto') : SM && !SG ? tr('ft: the cloud base', 'ft: pilven alaraja') : tr('ft: cloud base (MEPS) / ceiling (GFS)', 'ft: pilven alaraja (MEPS) / pilvikatto (GFS)'));
+      if (T8 && P0.temp) lg.push(`<tspan fill="${T.t850}">━</tspan> 850 hPa${O8.length ? ` <tspan fill="${T.t850}">●</tspan> ${tr('850 hPa measured (MODE-S Wind)', '850 hPa mitattu (MODE-S Wind)')}` : ''}`);
+      // the extra options (from 2026-11-07)
+      const inWin = arr => arr.some(x => x[0] >= t0 && x[0] <= t1);
+      if (DEW && P0.temp) lg.push(`<tspan fill="${T.dew}">┅</tspan> ${tr('dew point', 'kastepiste')} <tspan fill="rgb(${T.fog})">▬</tspan> ${tr('spread ≤ 2 °C', 'ero ≤ 2 °C')}${visRow && P0.cloud ? tr(' · Vis: below 5 / 1.5 / 0.5 km', ' · Näk.: alle 5 / 1,5 / 0,5 km') : ''}`);
+      if (MET.length && inWin(MET)) lg.push(`<tspan fill="${T.obs}">●</tspan> METAR`);
+      if (LW.length && inWin(LW) && P0.wind) lg.push(`<tspan fill="${T.lw}">■ ╌</tspan> 1 000 ft <tspan fill="${T.lw}">▲ ┈</tspan> 2 000 ft (${tr('landings', 'laskeutumiset')})`);
+      if (W850 && P0.wind) lg.push(`${tr('850 hPa barbs', '850 hPa:n tuuliviirit')}: <tspan fill="${T.t850}">${tr('model', 'malli')}</tspan>${O8W.length ? tr(', measured (as the 10 m barbs)', ', mitattu (kuten 10 m:n viirit)') : ''}`);
+      if (P0.frz) lg.push(`<tspan fill="${T.frz}">━</tspan> ${tr('freezing level', 'nollaraja')}${OZL.length && inWin(OZL) ? ` <tspan fill="${T.frz}">●</tspan> ${tr('measured (▲ at the ground)', 'mitattu (▲ maassa)')}` : ''}`);
+      if (P0.cape) lg.push(`CAPE <tspan fill="rgb(234,179,8)">■</tspan> 100 <tspan fill="rgb(234,88,12)">■</tspan> 500 <tspan fill="rgb(220,38,38)">■</tspan> 1 000 <tspan fill="rgb(168,85,247)">■</tspan> 2 500 J/kg`);
+      if (banded) lg.push(`<tspan fill="${T.dim}" style="fill-opacity:1">▒</tspan> ${tr('typical error: 8 in 10 hours within it', 'tyypillinen virhe: 8 tuntia 10:stä sen sisällä')}${EB && EB.where ? ' (' + esc(EB.where) + ')' : ''}`);
       // as many lines as the width needs (the phone's narrow screen: two or three)
       const lgFs = C ? 8.5 : 10, lgW = W - AL - 4, chW = lgFs * 0.55;
       const plain = h => h.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').length;
@@ -422,36 +589,65 @@ const Meteogram = (() => {
       hit.addEventListener('pointermove', onMove);
       hit.addEventListener('pointerdown', onMove);
       hit.addEventListener('pointerleave', () => { cur.setAttribute('opacity', '0'); });
-      if (!opts.onRead && !read.innerHTML) read.innerHTML = `<span class="mg-dim">${C ? 'Tap or drag on the chart for the values' : 'Move over the chart for the values'}</span>`;
+      if (!opts.onRead && !read.innerHTML) read.innerHTML = `<span class="mg-dim">${C ? tr('Tap or drag on the chart for the values', 'Napauta tai vedä kaaviota, niin näet arvot') : tr('Move over the chart for the values', 'Vie osoitin kaavion päälle, niin näet arvot')}</span>`;
     }
     function one(q, name) {
       if (!q) return '';
       const p = [];
-      if (q.t != null) p.push(`${q.t > 0 ? '+' : q.t < 0 ? '−' : ''}${Math.abs(q.t).toFixed(1)} °C${q.et != null ? ` (±${q.et.toFixed(1)})` : ''}`);
-      if (T8 && q.t8 != null) p.push(`850 hPa ${q.t8 > 0 ? '+' : q.t8 < 0 ? '−' : ''}${Math.abs(q.t8).toFixed(1)} °C`);
-      if (q.ws != null) p.push((q.ws < 1 ? 'calm' : `wind ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`) + (q.ew != null ? ` (±${Math.round(q.ew)} kt)` : ''));
-      if (q.gu != null) p.push(`gust ${q.gu} kt`);
+      if (q.t != null) p.push(`${q.t > 0 ? '+' : q.t < 0 ? '−' : ''}${nf(Math.abs(q.t), 1)} °C${q.et != null ? ` (±${nf(q.et, 1)})` : ''}`);
+      if (DEW && q.td != null) p.push(`${tr('dew point', 'kastepiste')} ${q.td > 0 ? '+' : q.td < 0 ? '−' : ''}${nf(Math.abs(q.td), 1)} °C`);
+      if (T8 && q.t8 != null) p.push(`850 hPa ${q.t8 > 0 ? '+' : q.t8 < 0 ? '−' : ''}${nf(Math.abs(q.t8), 1)} °C`);
+      if (W850 && q.ws8 != null) p.push(`${tr('850 hPa wind', '850 hPa tuuli')} ${String(Math.round(q.wd8) % 360).padStart(3, '0')}° ${Math.round(q.ws8)} kt`);
+      if (P0.frz && q.zl != null) p.push(`${tr('freezing level', 'nollaraja')} ${fmtFt(q.zl)} ft`);
+      if (P0.cape && q.ca != null && q.ca >= 10) p.push(`CAPE ${Math.round(q.ca)} J/kg`);
+      if (q.ws != null) p.push((q.ws < 1 ? tr('calm', 'tyyntä') : `${tr('wind', 'tuuli')} ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`) + (q.ew != null ? ` (±${Math.round(q.ew)} kt)` : ''));
+      if (q.gu != null) p.push(`${tr('gust', 'puuska')} ${q.gu} kt`);
       if (q.r != null) {
         const sn = q.s != null && q.r > 0 && q.s >= 0.5 * q.r;
-        p.push(q.r >= 0.05 ? `${sn ? 'snow' : 'rain'} ${q.r.toFixed(1)} mm/h${q.pi > 1 ? ` (mean of ${q.pi} h)` : ''}` : 'dry');
+        p.push(q.r >= 0.05 ? `${sn ? tr('snow', 'lumi') : tr('rain', 'vesi')} ${nf(q.r, 1)} mm/h${q.pi > 1 ? tr(` (mean of ${q.pi} h)`, ` (${q.pi} h:n keskiarvo)`) : ''}` : tr('dry', 'poutaa'));
       }
-      if (q.p != null) p.push(`${q.p.toFixed(1)} hPa`);
-      const cl = [['l', 'low'], ['m', 'med'], ['h', 'high']].filter(([f]) => q[f] != null).map(([f, n]) => `${n} ${q[f]} %`);
-      if (cl.length) p.push('cloud ' + cl.join(' / '));
-      if (q.f != null && q.f >= 20) p.push(`fog ${q.f} %`);
-      if (q.b != null) p.push(`${name === 'GFS' ? 'ceiling' : 'base'} ${(Math.round(q.b * 3.2808 / 100) * 100).toLocaleString('en').replace(/,/g, ' ')} ft`);
+      if (q.p != null) p.push(`${nf(q.p, 1)} hPa`);
+      const cl = [['l', tr('low', 'ala')], ['m', tr('med', 'keski')], ['h', tr('high', 'ylä')]].filter(([f]) => q[f] != null).map(([f, n]) => `${n} ${q[f]} %`);
+      if (cl.length) p.push(tr('cloud ', 'pilvet ') + cl.join(' / '));
+      if (q.f != null && q.f >= 20) p.push(`${tr('fog', 'sumu')} ${q.f} %`);
+      if (q.b != null) p.push(`${name === 'GFS' ? tr('ceiling', 'pilvikatto') : tr('base', 'pilven alaraja')} ${fmtFt(q.b * 3.2808)} ft`);
+      if (DEW && q.vi != null) p.push(`${tr('visibility', 'näkyvyys')} ${q.vi >= 10000 ? '≥10 km' : q.vi >= 1000 ? nf(q.vi / 1000, q.vi < 5000 ? 1 : 0) + ' km' : Math.round(q.vi / 100) * 100 + ' m'}`);
       return `<b>${name}</b> +${q.lead} h${q.fine ? ' (2.5 km)' : ''}: ${esc(p.join(' · '))}`;
     }
     function readText(ts) {
       const qm = nearest(SM, ts), qg = nearest(SG, ts), q = qm || qg;
       const dt = new Date((q ? q.ts : Math.round(ts / HOUR) * HOUR) * 1000);
-      const head = `${WD[dt.getUTCDay()]} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${String(dt.getUTCHours()).padStart(2, '0')} UTC</b>`;
+      const head = `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${String(dt.getUTCHours()).padStart(2, '0')} UTC</b>`;
       const parts = [one(qm, 'MEPS'), one(qg, 'GFS')].filter(Boolean);
       // the measured 850 hPa temperature of that hour (from 2026-11-07)
       let o = null;
       for (const x of O8) if (Math.abs(x[0] - ts) <= 1800 && (!o || Math.abs(x[0] - ts) < Math.abs(o[0] - ts))) o = x;
-      if (o) { const h = new Date((o[0] - 1800) * 1000).getUTCHours(); parts.unshift(`<b>Measured</b> 850 hPa ${o[1] > 0 ? '+' : o[1] < 0 ? '−' : ''}${Math.abs(o[1]).toFixed(1)} °C (${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')} UTC, ${o[2]} values)`); }
-      return head + ' · ' + (parts.length ? parts.join(C ? '<br>' : ' &nbsp;|&nbsp; ') : 'no model hour');
+
+      // what MODE-S Wind measured in that hour (from 2026-11-07 afternoon)
+      const near = (arr, w, f = () => true) => { let b = null; for (const x of arr) if (f(x) && Math.abs(x[0] - ts) <= w && (!b || Math.abs(x[0] - ts) < Math.abs(b[0] - ts))) b = x; return b; };
+      const hh = x => { const h = new Date((x[0] - 1800) * 1000).getUTCHours(); return `${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')} UTC`; };
+      const meas = [];
+      if (o) meas.push(`850 hPa ${o[1] > 0 ? '+' : o[1] < 0 ? '−' : ''}${nf(Math.abs(o[1]), 1)} °C (${hh(o)}, ${o[2]} ${tr('values', 'arvoa')})`);
+      const w8 = W850 ? near(O8W, 1800) : null;
+      if (w8) meas.push(`${tr('850 hPa wind', '850 hPa tuuli')} ${String(w8[1] % 360).padStart(3, '0')}° ${Math.round(w8[2])} kt (${hh(w8)})`);
+      const z = P0.frz ? near(OZL, 1800) : null;
+      if (z) meas.push(z[2] ? `${tr('freezing level: below 0 °C from the ground', 'nollaraja: alle 0 °C maasta asti')} (${hh(z)})` : `${tr('freezing level', 'nollaraja')} ${fmtFt(z[1])} ft (${hh(z)})`);
+      const l1 = near(LW, 1800, x => x[1] === 1000), l2 = near(LW, 1800, x => x[1] === 2000);
+      if (l1 || l2) meas.push(tr('landings ', 'laskeutumiset ') + [l1, l2].filter(Boolean).map(x => `${fmtFt(x[1])} ft ${String(x[2] % 360).padStart(3, '0')}°/${Math.round(x[3])} kt`).join(', ')
+        + ` (${hh(l1 || l2)}, ${(l1 || l2)[4]} ${(l1 || l2)[4] > 1 ? tr('landings', 'laskeutumista') : tr('landing', 'laskeutuminen')})`);
+      if (meas.length) parts.unshift(`<b>${tr('Measured', 'Mitattu')}</b> ${esc(meas.join(' · '))}`);
+      const m = near(MET, 2100);
+      if (m) {
+        const d = new Date(m[0] * 1000), sg = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+        const mp = [];
+        if (m[1] != null) mp.push(`${sg(m[1])}${m[2] != null ? ' / ' + sg(m[2]) : ''} °C`);
+        if (m[4] != null) mp.push(m[4] === 0 ? tr('calm', 'tyyntä') : `${m[3] == null ? 'VRB' : String(m[3]).padStart(3, '0') + '°'} ${m[4]} kt${m[5] ? ' G' + m[5] : ''}`);
+        if (m[6] != null) mp.push(`Q${Math.round(m[6])}`);
+        if (m[7] != null) mp.push(m[7] >= 9999 ? tr('vis ≥10 km', 'näk. ≥10 km') : `${tr('vis', 'näk.')} ${m[7] >= 1000 ? nf(m[7] / 1000, 1) + ' km' : m[7] + ' m'}`);
+        mp.push(m[8] != null ? `${tr('ceiling', 'pilvikatto')} ${fmtFt(m[8])} ft` : tr('no ceiling', 'ei pilvikattoa'));
+        parts.unshift(`<b>METAR</b> ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}: ${esc(mp.join(' · '))}`);
+      }
+      return head + ' · ' + (parts.length ? parts.join(C ? '<br>' : ' &nbsp;|&nbsp; ') : tr('no model hour', 'ei mallin tuntia'));
     }
     draw();
     if (window.ResizeObserver) {

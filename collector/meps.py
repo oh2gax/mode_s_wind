@@ -109,6 +109,14 @@ WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r")
            # 2 m temperature (°C × 10 in whole degrees; from 2026-11-01)
            ("air_temperature_2m", "t"))
 WX_STRIDE = 4                # every 4th cell: 10 km
+# the meteograms' extra options (from 2026-11-07 afternoon): fetched with the 10 km maps only
+# (not the 2.5 km box; the meteogram takes them from the 10 km row) and stored as
+#   td 2 m dew point °C × 10 (from the 2 m temperature and relative humidity), vi visibility in
+#   units of 100 m (500-m steps), zl freezing level m (the 0 °C isotherm from above, 50-m steps),
+#   ca CAPE J/kg (10-J/kg steps); and from the pressure-level file u8 / v8 850 hPa wind (kt, 2-kt steps)
+WX_MORE = (("relative_humidity_2m", "rh"), ("visibility_in_air", "vi"),
+           ("altitude_of_0_degree_isotherm_from_above", "zl"),
+           ("specific_convective_available_potential_energy", "ca"))
 WX_T850_LEV = 10             # pressure index of 850 hPa in the pl files (50 … 1000 hPa); the 850 hPa
                              # temperature of the weather maps (from 2026-11-07, the meteograms) comes from
                              # the run's pressure-level file, for the same hours and 10 km grid
@@ -254,6 +262,15 @@ _UPSERT = """INSERT INTO {t} (ts, run, lead, data) VALUES (?, ?, ?, ?)
 
 # ── Fetching ────────────────────────────────────────────────────────────────
 
+def _td10(t_k: float, rh: float) -> int:
+    """2 m dew point (°C × 10) from the temperature (K) and the relative humidity
+    (0 … 1; MEPS's relative_humidity_2m), by the Magnus formula (from 2026-11-07)."""
+    t = t_k - 273.15
+    rh = min(1.0, max(0.01, rh))
+    g = math.log(rh) + 17.62 * t / (243.12 + t)
+    return int(round(243.12 * g / (17.62 - g) * 10.0))
+
+
 class MepsFetcher:
     """Background fetcher (thread target: run)."""
 
@@ -327,11 +344,12 @@ class MepsFetcher:
             if kind_fine:                            # the 2.5 km box: every cell
                 h = self.wx_fine_half
                 wxs, wys = f"[{gx - h}:1:{gx + h}]", f"[{gy - h}:1:{gy + h}]"
-            if t850:                                 # from the pressure-level file (from 2026-11-07)
-                v = "air_temperature_pl"
-                return f"{v}.{v}[{t0}:{t1}][{WX_T850_LEV}:{WX_T850_LEV}]{wys}{wxs}"
+            if t850:                                 # from the pressure-level file (from 2026-11-07; the wind
+                box8 = f"[{t0}:{t1}][{WX_T850_LEV}:{WX_T850_LEV}]{wys}{wxs}"     # from the afternoon)
+                return ",".join(f"{v}.{v}{box8}" for v in ("air_temperature_pl", "x_wind_pl", "y_wind_pl"))
             box = f"[{t0}:{t1}][0:0]{wys}{wxs}"
-            return ",".join([f"time[{t0}:{t1}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
+            vs = WX_VARS + (() if kind_fine else WX_MORE)
+            return ",".join([f"time[{t0}:{t1}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in vs])
         if kind == "map":
             cx, cy = ix0 + HALF, iy0 + HALF
             mx = f"[{cx - MAP_HALF}:{MAP_STRIDE}:{cx + MAP_HALF}]"
@@ -386,7 +404,7 @@ class MepsFetcher:
         try:
             u = self._url(run, "pl")
             d = _fetch(u, self._cons(u, "wx", run, leads, t850=True), TIMEOUT["wx"])
-            return {"t850": d["air_temperature_pl"]}
+            return {"t850": d["air_temperature_pl"], "u850": d.get("x_wind_pl"), "v850": d.get("y_wind_pl")}
         except Exception as exc:                     # noqa: BLE001
             log.warning("MEPS 850 hPa temperature: +%d…+%d h failed: %s", leads[0] + 1, leads[1], exc)
             return {}
@@ -421,10 +439,19 @@ class MepsFetcher:
         nx, ny = len(xs), len(ys)
         np_ = nx * ny
         T8 = d.get("t850")
-        if T8 is not None and len(T8) != len(d["air_temperature_2m"]):
+        nall = len(d["air_temperature_2m"])
+        if T8 is not None and len(T8) != nall:
             T8 = None                                # not the same hours / grid: left out
+        U8, V8 = d.get("u850"), d.get("v850")
+        if T8 is None or U8 is None or V8 is None or len(U8) != nall or len(V8) != nall:
+            U8 = V8 = None
+        MORE = {k: d.get(v) for v, k in WX_MORE}     # the meteograms' extras (10 km maps only)
+        if any(a is None or len(a) != nall for a in MORE.values()):
+            MORE = None
+        more_f = ["td", "vi", "zl", "ca"] if MORE else []
         meta = json.dumps({"x": [xs[0], xs[1] - xs[0], nx], "y": [ys[0], ys[1] - ys[0], ny],
-                           "f": [k for _, k in WX_VARS] + (["t8"] if T8 is not None else [])},
+                           "f": [k for _, k in WX_VARS] + (["t8"] if T8 is not None else [])
+                                + more_f + (["u8", "v8"] if U8 is not None else [])},
                           separators=(",", ":"))
         P, R, S = d["air_pressure_at_sea_level"], d["precipitation_amount_acc"], d["snowfall_amount_acc"]
         FRAC = [d[v] for v, k in WX_VARS if k in "clmhf"]
@@ -464,6 +491,21 @@ class MepsFetcher:
             if T8 is not None:                       # 850 hPa temperature, °C × 10 (from 2026-11-07)
                 a.extend(array.array("h", [F if v > 1e30 or v < 150 else int(round((v - 273.15) * 10.0))
                                            for v in T8[o1:o1 + np_]]))
+            if MORE:                                 # the meteograms' extras (from 2026-11-07 afternoon)
+                a.extend(array.array("h", [F if t > 1e30 or rh > 1e30 or t < 150 else _td10(t, rh)
+                                           for t, rh in zip(TT[o1:o1 + np_], MORE["rh"][o1:o1 + np_])]))
+                a.extend(array.array("h", [F if v > 1e30 or v < 0 else int(round(min(v, 30000.0) / 500.0)) * 5
+                                           for v in MORE["vi"][o1:o1 + np_]]))
+                a.extend(array.array("h", [F if v > 1e30 or v < -500 else int(round(max(0.0, v) / 50.0)) * 50
+                                           for v in MORE["zl"][o1:o1 + np_]]))
+                a.extend(array.array("h", [F if v > 1e30 or v < 0 else min(30000, int(round(v / 10.0)) * 10)
+                                           for v in MORE["ca"][o1:o1 + np_]]))
+            if U8 is not None:                       # 850 hPa wind turned to true north, kt in 2-kt steps
+                xw, yw = U8[o1:o1 + np_], V8[o1:o1 + np_]
+                a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else int(round((x * c + y * sn) * KT2)) * 2
+                                           for x, y, (c, sn) in zip(xw, yw, rot)]))
+                a.extend(array.array("h", [F if x > 1e30 or y > 1e30 else int(round((y * c - x * sn) * KT2)) * 2
+                                           for x, y, (c, sn) in zip(xw, yw, rot)]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(

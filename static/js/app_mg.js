@@ -15,9 +15,13 @@
  *   Panels the Meteogram options of the ☰ menu (Pressure off by default)
  *   850 hPa (from 2026-11-07; ☰ menu, off by default) the 850 hPa temperature in the temperature
  *          panel: the models' line and MODE-S Wind's own measured value of the past hours as dots
+ *   (from 2026-11-07 afternoon; ☰ menu, off by default) Freezing level and CAPE panels; METAR,
+ *          Landings' winds, Sun times, Dew point & visibility, 850 hPa wind (meteogram.js)
  *   Typical error (with GFS, from 2026-11-06; ☰ menu, on by default) a band around the temperature
  *          and wind lines — how far off the forecast has been at that lead day, 8 in 10 checked hours
  *          within it (/api/weather/gfs_skill) — and a line under the chart
+ * FIN (from 2026-11-07): for a user with the FIN right (window.MG_LANG 'fi', app.html) the texts
+ * of this view and the chart are in Finnish (decimal commas; times UTC).
  * A tap or a drag on the chart gives the values of that hour above it.  The
  * choices are remembered on the phone (ms_app_mg_*).  app.js calls show / hide /
  * refresh (every 10 min while shown) / layout; openAt(lat, lon) is called by the
@@ -30,10 +34,15 @@
   const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (_) { /* private mode */ } };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   if (!$('v-mg') || typeof Meteogram === 'undefined') return;
+  // the language (from 2026-11-07): Finnish for the users with the FIN right
+  const FI = window.MG_LANG === 'fi';
+  const tr = (en, fi) => (FI ? fi : en);
+  const dc = s => (FI ? String(s).replace(/\./g, ',') : String(s));
 
   const APT = typeof MG_AIRPORT !== 'undefined' ? MG_AIRPORT : { icao: 'EFHK', lat: 60.317, lon: 24.963 };
   const GFS = typeof MG_GFS !== 'undefined' && !!MG_GFS;
-  const PANELS = ['temp', 'precip', 'wind', 'pres', 'cloud'];
+  const PANELS = ['temp', 'frz', 'precip', 'cape', 'wind', 'pres', 'cloud'];   // frz, cape from 2026-11-07 (off by default)
+  const OPTS = ['obs', 'lw', 'sun', 'dew', 'w850'];                            // from 2026-11-07, off by default
   const RANGES = ['48', '120', '168', '240', '384'];          // 7 d and 10 d from 2026-11-06
   const S = {
     model: lsGet('ms_app_mg_model', GFS ? 'both' : 'meps'),
@@ -44,19 +53,20 @@
     err: lsGet('ms_app_mg_err', 'true') !== 'false',
     t850: lsGet('ms_app_mg_t850', 'false') === 'true',     // the 850 hPa temperature (from 2026-11-07; off by default)
   };
-  PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, k === 'pres' ? 'false' : 'true') !== 'false'; });
+  PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, ['pres', 'frz', 'cape'].includes(k) ? 'false' : 'true') !== 'false'; });
+  OPTS.forEach(k => { S[k] = lsGet('ms_app_mg_' + k, 'false') === 'true'; });
   if (!GFS || !['meps', 'gfs', 'both'].includes(S.model)) S.model = GFS && ['gfs', 'both'].includes(S.model) ? S.model : 'meps';
   if (!RANGES.includes(S.range)) S.range = '120';
   if (!(S.place === 'pin' && S.pin) && !S.place.startsWith('rx:')) S.place = 'apt';
   let rxs = [];                                   // Meteogram.receivers()
 
   let on = false, seq = 0, chart = null, data = null, fetched = 0, skill = null;
-  const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'W'}`;
+  const fmtLL = (lat, lon) => `${dc(Math.abs(lat).toFixed(2))}° ${lat >= 0 ? 'N' : 'S'} ${dc(Math.abs(lon).toFixed(2))}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
   const place = () => {
     const r = S.place.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === S.place);
     if (r) return { lat: r.lat, lon: r.lon, title: r.label, sub: r.short };
-    if (S.place === 'pin' && S.pin) return { lat: S.pin.lat, lon: S.pin.lon, title: 'Tapped place', sub: fmtLL(S.pin.lat, S.pin.lon) };
+    if (S.place === 'pin' && S.pin) return { lat: S.pin.lat, lon: S.pin.lon, title: tr('Tapped place', 'Napautettu paikka'), sub: fmtLL(S.pin.lat, S.pin.lon) };
     return { lat: APT.lat, lon: APT.lon, title: APT.icao, sub: APT.icao, apt: true };
   };
   const curPlace = () => { const r = S.place.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === S.place); return r || S.place === 'pin' ? S.place : 'apt'; };
@@ -69,14 +79,14 @@
     box.onclick = e => { const b = e.target.closest('.app-chip'); if (b && !b.disabled && b.dataset.v !== cur) onPick(b.dataset.v); };
   }
   function syncChips() {
-    chips('amg-place', [['apt', APT.icao]].concat(rxs.map(r => ['rx:' + r.id, r.short]), S.pin ? [['pin', 'Tapped']] : []), curPlace(), v => {
+    chips('amg-place', [['apt', APT.icao]].concat(rxs.map(r => ['rx:' + r.id, r.short]), S.pin ? [['pin', tr('Tapped', 'Napautettu')]] : []), curPlace(), v => {
       S.place = v; lsSet('ms_app_mg_place', v); syncChips(); load(true);
     });
-    const models = [['meps', 'MEPS']].concat(GFS ? [['gfs', 'GFS'], ['both', 'Both']] : []);
+    const models = [['meps', 'MEPS']].concat(GFS ? [['gfs', 'GFS'], ['both', tr('Both', 'Molemmat')]] : []);
     chips('amg-model', models, S.model, v => { S.model = v; lsSet('ms_app_mg_model', v); syncChips(); load(true); });
     $('amg-model-row').hidden = !GFS;
     const meps = S.model === 'meps';
-    chips('amg-range', [['48', '2 d'], ['120', '5 d'], ['168', '7 d'], ['240', '10 d'], ['384', '16 d']].map(r => [r[0], r[1], meps && r[0] !== '48']),
+    chips('amg-range', [['48', '2'], ['120', '5'], ['168', '7'], ['240', '10'], ['384', '16']].map(r => [r[0], r[1] + tr(' d', ' vrk'), meps && r[0] !== '48']),
       meps ? '48' : S.range, v => { S.range = v; lsSet('ms_app_mg_range', v); syncChips(); load(true); });
   }
 
@@ -90,7 +100,7 @@
     const want = m === 'both' ? ['meps', 'gfs'] : [m];
     const url = k => k === 'meps' ? `/api/weather/meteogram?${q}&model=meps&past=6&fc=${rng}`
       : `/api/weather/meteogram?${q}&model=gfs&past=2&fc=${rng}`;
-    $('amg-head').innerHTML = `<b>${esc(p.title)}</b> · ${fmtLL(p.lat, p.lon)} · loading…`;
+    $('amg-head').innerHTML = `<b>${esc(p.title)}</b> · ${fmtLL(p.lat, p.lon)} · ${tr('loading…', 'ladataan…')}`;
     if (GFS && Meteogram.skill) Meteogram.skill().then(sk => { if (sk !== skill) { skill = sk; if (on && data) draw(); } });
     try {
       const res = await Promise.all(want.map(k => fetch(url(k)).then(r => r.json()).catch(() => ({ error: 'loading failed' }))));
@@ -101,28 +111,31 @@
       draw();
     } catch (e) {
       console.error('Meteogram:', e);
-      $('amg-head').innerHTML += ' · error loading';
+      $('amg-head').innerHTML += tr(' · error loading', ' · lataus epäonnistui');
     }
   }
   function draw() {
     if (!data) return;
     const p = place();
     const cells = [];
-    if (data.meps) cells.push(`MEPS ${data.meps.cell.fine_grid ? '2.5 km' : '10 km'} cell`);
-    if (data.gfs) cells.push('GFS 0.25° cell');
+    if (data.meps) cells.push(`MEPS${tr('', ':n')} ${dc(data.meps.cell.fine_grid ? '2.5 km' : '10 km')} ${tr('cell', '-ruutu')}`);
+    if (data.gfs) cells.push(tr('GFS 0.25° cell', 'GFS:n 0,25° -ruutu'));
     $('amg-head').innerHTML = `<b>${esc(p.title)}</b> · ${fmtLL(p.lat, p.lon)}` + (cells.length ? ' · ' + cells.join(' · ') : '');
     if (chart) chart.destroy();
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
-    const eb = GFS && S.err && Meteogram.errBand ? Meteogram.errBand(skill, p.apt ? '' : 'measured at ' + APT.icao) : null;
+    const eb = GFS && S.err && Meteogram.errBand ? Meteogram.errBand(skill, p.apt ? '' : tr('measured at ', 'mitattu kentällä ') + APT.icao) : null;
     chart = Meteogram.render($('amg-chart'), { meps: data.meps, gfs: data.gfs }, {
       compact: true, panels: Object.assign({}, S.panels), errBand: eb, t850: S.t850,
-      emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
+      obs: S.obs, lw: S.lw, sun: S.sun, dew: S.dew, w850: S.w850,
+      lang: FI ? 'fi' : 'en',
+      emptyText: err.length ? err.join(' · ') : tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.') });
     const runs = [];
-    if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))} — MET Norway, CC BY 4.0`);
-    if (data.gfs) runs.push(`GFS run ${runTxt(Math.max(...data.gfs.runs))}, hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only`);
+    if (data.meps) runs.push(`${tr('MEPS run', 'MEPS-ajo')} ${runTxt(Math.max(...data.meps.runs))} — MET Norway, CC BY 4.0`);
+    if (data.gfs) runs.push(`${tr('GFS run', 'GFS-ajo')} ${runTxt(Math.max(...data.gfs.runs))}${tr(', hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only', ', tunneittain +120 h asti, sitten 3 h välein — NOAA/NCEP; yli viikon päähän vain suuntaa antava')}`);
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
     const sk = GFS && S.err ? skillLine() : '';
-    $('amg-foot').textContent = (sk ? sk + ' · ' : '') + runs.join(' · ') + ' · times UTC · the model at the grid cell of the place, for viewing — for flight operations use the official forecasts (TAF, GAFOR).';
+    $('amg-foot').textContent = (sk ? sk + ' · ' : '') + runs.join(' · ') + tr(' · times UTC · the model at the grid cell of the place, for viewing — for flight operations use the official forecasts (TAF, GAFOR).',
+      ' · ajat UTC · malli paikan hilaruudussa, vain katseluun — lentotoimintaan käytä virallisia ennusteita (TAF, GAFOR).');
     const sub = $('app-sub');
     if (sub && on) sub.textContent = p.sub;
   }
@@ -133,13 +146,15 @@
     const parts = [];
     [1, 3, 5, 10].forEach(d => {
       const r = skill.gfs.find(x => x.day === d);
-      if (r && r.ok && r.t && r.t.p80 != null) parts.push(`±${r.t.p80.toFixed(1)} °C on day ${d}`);
+      if (r && r.ok && r.t && r.t.p80 != null) parts.push(tr(`±${r.t.p80.toFixed(1)} °C on day ${d}`, `±${dc(r.t.p80.toFixed(1))} °C päivänä ${d}`));
     });
-    if (!parts.length) return `GFS at ${skill.station}: the typical error is still being collected`;
+    if (!parts.length) return tr(`GFS at ${skill.station}: the typical error is still being collected`, `GFS kentällä ${skill.station}: tyypillistä virhettä kerätään vielä`);
     const ud = skill.useful_day, u = skill.gfs_useful || {};
     const known = Math.min((u.t || {}).known || 0, (u.wv || {}).known || 0);
-    const use = ud ? (ud >= known && known < 16 ? ` · better than the season's usual weather at least to day ${ud} so far` : ` · useful to about day ${ud}`) : '';
-    return `GFS at ${skill.station}, last ${Math.round(skill.window_days)} days: temperature ${parts.join(', ')} (8 in 10 hours within)${use}`;
+    const use = ud ? (ud >= known && known < 16 ? tr(` · better than the season's usual weather at least to day ${ud} so far`, ` · toistaiseksi vuodenajan tavallista säätä parempi ainakin päivään ${ud} asti`)
+      : tr(` · useful to about day ${ud}`, ` · hyödyllinen noin päivään ${ud} asti`)) : '';
+    return tr(`GFS at ${skill.station}, last ${Math.round(skill.window_days)} days: temperature ${parts.join(', ')} (8 in 10 hours within)${use}`,
+              `GFS kentällä ${skill.station}, viimeiset ${Math.round(skill.window_days)} vrk: lämpötila ${parts.join(', ')} (8 tuntia 10:stä sisällä)${use}`);
   }
 
   // ── the options of the ☰ menu ───────────────────────────────────────────
@@ -154,6 +169,12 @@
     ecb.checked = S.err;
     ecb.addEventListener('change', () => { S.err = ecb.checked; lsSet('ms_app_mg_err', ecb.checked); if (on) draw(); });
   }
+  OPTS.forEach(k => {
+    const cb = $('app-mg-' + k);
+    if (!cb) return;
+    cb.checked = S[k];
+    cb.addEventListener('change', () => { S[k] = cb.checked; lsSet('ms_app_mg_' + k, cb.checked); if (on) draw(); });
+  });
   const tcb = $('app-mg-t850');
   if (tcb) {
     tcb.checked = S.t850;

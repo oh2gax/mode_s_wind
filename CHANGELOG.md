@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final)
+## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final; seven more meteogram options — freezing level, dew point and visibility, thunderstorm potential, the 850 hPa wind, the landings' winds, the METAR and the sun times; the meteograms in Finnish with the FIN right)
 
 ### Meteograms: the 850 hPa temperature
 - **Weather page → Meteogram** and **phone → Meteogram**: a new option **850 hPa** (*850 hPa temperature* in the phone's Meteogram options; off by default; `ms_weather_mg` / `ms_app_mg_t850`) — the temperature at 850 hPa (about 1 500 m) in the temperature panel on the same scale, in fuchsia: the models' line (MEPS bold, GFS thin and dashed in *Both*) and, in the past hours, **MODE-S Wind's own measured value** as dots, from the hourly aircraft profile (the 4 000–5 000 and 5 000–6 000 ft layers of pressure altitude interpolated to 4 781 ft = 850 hPa; places within 150 km of the receiver). The hover / tap read-out gives *850 hPa …* for each model and *Measured 850 hPa … (15–16 UTC, n values)*. On 5–6 Nov the measured value followed MEPS within about 1 K. `static/js/meteogram.js`, `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
@@ -15,6 +15,24 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **MEPS**: the weather maps' hours also get the 850 hPa temperature `t8` from the run's pressure-level file (same hours, 10 km grid; one more request per piece of 12 hours; a failure leaves the maps without it). `collector/meps.py`.
 - `/api/weather/meteogram`: the field `t8` (MEPS's from its 10 km grid also where the 2.5 km cell is used) and `o850` — the measured values of the past hours. `web/api/weather.py`, `web/app.py`.
 - Model hours stored before this version have no 850 hPa value: the line starts with the next GFS run and the next MEPS run.
+
+### Meteograms: seven more options (afternoon)
+All off by default, on the Weather page's meteogram and in the phone's Meteogram options (`ms_weather_mg` / `ms_app_mg_*`); the model next to what was measured, and for next summer's thunderstorms. `static/js/meteogram.js`, `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
+- **Freezing level** — a panel in ft MSL: the models' line and, near the receiver, the level **measured** each past hour (the METAR at the airport, the airport's climb-out / landing bands, the area's aircraft above; a warm layer aloft only from +0.5 °C; a triangle at the ground when the whole column was below 0 °C). On 6 Nov 2026 measured 1 800–3 100 ft, MEPS 2 000–2 500 ft.
+- **Dew point & visibility** — the dew point line, a strip where the spread is ≤ 2 °C (mist / fog risk) and a *Vis* row below 5 km.
+- **Thunderstorm (CAPE)** — a strip coloured from 100 / 500 / 1 000 / 2 500 J/kg.
+- **850 hPa wind** — a second barb row: the models' and, in the past hours, the measured one (hourly profile).
+- **Landings' winds** — the hourly median band wind of the landings at 1 000 and 2 000 ft above the runway (near the airport).
+- **METAR** — the airport's observations as dots (temperature, dew point, wind, gust, QNH; visibility and ceiling in the read-out; near the airport).
+- **Sun times** — sunrise and sunset (UTC) at the day labels.
+- **GFS**: the request also asks for `DPT` (2 m), `VIS`, `CAPE` (surface) and the highest tropospheric freezing level; stored fields `td`, `vi`, `zl`, `ca` and the 850 mb wind `u8` / `v8` (in coarse steps, so they compress well): about 1.17 MB per hour fetched (was 0.99), about 223 kB per stored hour. `collector/gfs.py`.
+- **MEPS**: the 10 km weather maps also get `relative_humidity_2m` (stored as the dew point `td`), `visibility_in_air`, `altitude_of_0_degree_isotherm_from_above` and `specific_convective_available_potential_energy`, and from the pressure-level file the 850 hPa wind (with the 850 hPa temperature). Not in the 2.5 km box: the meteogram takes them from the 10 km row. `collector/meps.py`.
+- `/api/weather/meteogram`: the new fields and `o850w`, `ozl`, `metar`, `lw` beside `o850` (`web/api/weather.py observed`, kept 5 minutes). `web/api/weather.py`, `web/app.py`.
+- Mobile user guide 1.63 (a figure with the real runs of 6 Nov 2026 12 UTC). `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
+
+### Meteograms in Finnish: the FIN right (evening)
+- A new right **FIN**, set with the other permissions: for its users the Weather page's and the phone's **meteograms are in Finnish** — the controls and their help texts, the chart (weekdays, labels, legend, read-out), the footer, the skill table and the phone's Meteogram options; decimal commas, times still UTC, units unchanged. The map view and the other pages stay in English. `web/rights.py` (`fin()`), `web/users.py`, `web/app.py` (`mg_fin`), `web/templates/maintenance.html`, `static/js/maintenance.js`, `static/js/meteogram.js` (`opts.lang`), `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
+- The 850 hPa wind's measured barbs are described as *in the colour of the 10 m barbs* (was *dark*).
 
 ### Pilot · Now: 13 heights
 - The *Heights* buttons are now **3 / 7 / 13**: 13 = every 200 ft from 200 to 2 600 ft above the runway — the spacing of the stored approach bands (`ms_app_pilot_hts` `all`; `/api/pilot/brief?hts=all`). `web/api/pilot.py`, `web/app.py`, `static/js/app_pilot.js`.

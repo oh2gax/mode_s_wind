@@ -3,10 +3,12 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.07112026 — The 850 hPa temperature on the meteograms, measured by the aircraft too, and 13 heights in the Pilot view
+## v.07112026 — The 850 hPa temperature and seven more options on the meteograms, measured by the aircraft too, meteograms in Finnish, and 13 heights in the Pilot view
 
 - **850 hPa temperature** — the meteograms (Weather page and phone) can show the temperature at 850 hPa, about 1 500 m: the usual level for telling the air mass, e.g. rain or snow. Switch on *850 hPa*: a fuchsia line from MEPS and GFS and, for the past hours near EFHK, **dots measured by the aircraft themselves** (MODE-S Wind's own hourly profile). Tap or move over the chart for the values.
-- **Pilot · Now: 13 heights** — the wind on final every 200 ft from 200 to 2 600 ft above the runway (*Heights 3 / 7 / 13*). Mobile guide 1.62.
+- **Seven more meteogram options** (Weather page and phone, all off by default): the **freezing level** — forecast, and measured each hour by the aircraft near EFHK; **dew point & visibility** — where mist or fog is possible; **thunderstorm potential (CAPE)** for the summer; the **850 hPa wind** — forecast and measured; the **winds the landings met** at 1 000 and 2 000 ft; the **EFHK METAR** as dots; and the **sunrise and sunset** times. Tap or move over the chart for all the values. Mobile guide 1.63.
+- **Meteograms in Finnish** — for users with the new *FIN* permission the meteograms on the Weather page and the phone are in Finnish: the controls, the chart, the read-out and the help texts, with decimal commas (*Meteogrammit suomeksi*). Times stay UTC; the rest of the site stays in English.
+- **Pilot · Now: 13 heights** — the wind on final every 200 ft from 200 to 2 600 ft above the runway (*Heights 3 / 7 / 13*).
 
 ## v.06112026 — More meteogram ranges, your own runways and more heights in the Pilot view, correct heights again, and how far GFS can be trusted
 

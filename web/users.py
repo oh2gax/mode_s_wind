@@ -296,7 +296,7 @@ def list_users(cfg, maint_password: Optional[str] = None) -> dict:
     for name in sorted(st["users"], key=str.lower):
         row = {"user": name, "kind": "user", "changed": st["users"][name]["changed"],
                "full": bool(rr.get(name, {}).get("full")), "own": rr.get(name, {}).get("own", []),
-               "pilot": bool(rr.get(name, {}).get("pilot"))}
+               "pilot": bool(rr.get(name, {}).get("pilot")), "fin": bool(rr.get(name, {}).get("fin"))}
         n = nm["names"].get(name)
         if n:
             row.update(first=n["first"], last=n["last"])

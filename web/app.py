@@ -368,6 +368,8 @@ def create_app(
             "gnss_view":         _gnss_ok(),
             # the phone's Pilot view: the Pilot right (web/rights.py, from 2026-11-05)
             "pilot_view":        _pilot_ok(),
+            # the meteograms in Finnish: the FIN right (web/rights.py, from 2026-11-07)
+            "mg_fin":            _fin_ok(),
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -490,6 +492,12 @@ def create_app(
         the Pilot right (from 2026-11-05; independent of Full view)."""
         g.user_page = True
         return rx_rights.pilot(_user_rights())
+
+    def _fin_ok() -> bool:
+        """Whether the meteograms are shown in Finnish to the logged-in user: the
+        FIN right (from 2026-11-07; the Weather page's and the phone's Meteogram view)."""
+        g.user_page = True
+        return rx_rights.fin(_user_rights())
 
     def _pilot_denied():
         return _private(jsonify({"error": "The Pilot view needs the Pilot right (ask the maintenance user)."})), 403
@@ -1390,8 +1398,10 @@ def create_app(
         """A meteogram (from 2026-11-05): every stored hour of ?model=meps|gfs at the
         grid cell nearest ?lat=&lon= (default the airport) from now − ?past= h to
         now + ?fc= h (web/api/weather.py meteogram); gzip-compressed.  From
-        2026-11-07 also "o850": MODE-S Wind's own 850 hPa temperature of the past
-        hours (the hourly profile; places within its radius of the receiver)."""
+        2026-11-07 also what MODE-S Wind measured in the past hours (web/api/weather.py
+        observed): o850 / o850w the 850 hPa temperature and wind and ozl the freezing
+        level (places within the profile radius of the receiver), metar and lw the
+        airport's METARs and the landings' winds at 1 000 / 2 000 ft (near the airport)."""
         import gzip as _gzip
         from web.api import weather as _wx
         lat = request.args.get("lat", type=float)
@@ -1402,10 +1412,11 @@ def create_app(
         fc = max(0.0, min(400.0, request.args.get("fc", 400.0, type=float)))
         gfs = _wx_model() == "gfs"
         d = _wx.meteogram(_gfs_db() if gfs else get_db(), lat, lon, "gfs" if gfs else "meps", past, fc)
-        if "error" not in d:                     # MODE-S Wind's own 850 hPa temperature (from 2026-11-07)
-            now = time.time()
-            d = dict(d, o850=_wx.measured_850(get_db(), lat, lon, now - past * 3600, now, cfg.RECEIVER_LAT,
-                                              cfg.RECEIVER_LON))
+        if "error" not in d:                     # what MODE-S Wind measured (from 2026-11-07): the 850 hPa
+            now = time.time()                    # temperature and wind, the freezing level, the METARs, the landings' winds
+            d = dict(d, **_wx.observed(get_db(), lat, lon, now - past * 3600, now, cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
+                                       cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON,
+                                       getattr(cfg, "AIRPORT_ICAO", "EFHK")))
         body = json.dumps(d, separators=(",", ":")).encode()
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp = app.response_class(_gzip.compress(body, compresslevel=5), mimetype="application/json")
@@ -3027,13 +3038,14 @@ def create_app(
     def maintenance_users_rights():
         """A personal user's receiver rights (web/rights.py, from 2026-11-02):
         {"target": user, "full": bool, "own": [receiver ids], "pilot": bool
-        (from 2026-11-05; left out = kept as it is)}."""
+        (from 2026-11-05), "fin": bool (from 2026-11-07; left out = kept as it is)}."""
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
         try:
             rx_rights.set_rights(cfg, str(data.get("target", "")), bool(data.get("full")), data.get("own") or [],
-                                 None if data.get("pilot") is None else bool(data.get("pilot")))
+                                 None if data.get("pilot") is None else bool(data.get("pilot")),
+                                 None if data.get("fin") is None else bool(data.get("fin")))
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except OSError as exc:

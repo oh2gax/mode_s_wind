@@ -39,6 +39,12 @@ so the forecast does not enlarge the main database or its backups):
             part by CPOFP (% frozen; where it is undefined — no precipitation in the
             model's own scheme — by the 2 m temperature: snow at +0.5 °C or colder)
       t8  temperature at 850 hPa, °C × 10 (from 2026-11-07; the meteograms' 850 hPa line)
+      (from 2026-11-07 afternoon, the meteograms' extra options:)
+      td  2 m dew point °C × 10                     DPT 2 m
+      vi  visibility, units of 100 m (500-m steps)  VIS surface
+      zl  freezing level, m above sea level (50 m)  HGT highest tropospheric freezing level
+      ca  CAPE, J/kg (10 J/kg steps)                CAPE surface
+      u8, v8  850 hPa wind towards east / north, kt (2-kt steps)   UGRD / VGRD 850 mb
                                                     TMP 850 mb (the request then also brings
                                                     UGRD / VGRD / HGT at 850 mb, not used yet)
       (no fog: GFS has no fog field)
@@ -49,7 +55,8 @@ so the forecast does not enlarge the main database or its backups):
 A newer run replaces the rows hour by hour as it arrives (the hours it has
 not reached yet stay from the run before); rows older than the hour before
 the current one are deleted at each look.  About 156 kB per hour, about
-33 MB per run in the file.  Download about 160 MB per run (320 MB a day for
+33 MB per run in the file (about 45 MB from 2026-11-07 with the meteograms' extra fields).
+Download about 160 MB per run (about 250 MB from 2026-11-07; 320 MB a day for
 two runs).
 
 The forecast at the airport, kept for the skill check (from 2026-11-06,
@@ -109,7 +116,7 @@ PAUSE_SEC = 2.0
 TIMEOUT_SEC = 120
 FILL = -32768
 KT_MS = 0.514444
-FIELDS = ("p", "r", "s", "c", "l", "m", "h", "b", "u", "v", "g", "t", "t8")
+FIELDS = ("p", "r", "s", "c", "l", "m", "h", "b", "u", "v", "g", "t", "t8", "td", "vi", "zl", "ca", "u8", "v8")
 SKILL_DAYS = 90
 SKILL_BACKFILL_DAYS = 10
 BACKFILL_BUDGET_SEC = 480              # at most this long per look, after the newest run is complete
@@ -122,13 +129,18 @@ _VARS = ("PRMSL", "TMP", "UGRD", "VGRD", "GUST", "APCP", "CPOFP", "TCDC", "LCDC"
 _LEVS = ("mean_sea_level", "2_m_above_ground", "10_m_above_ground", "surface", "entire_atmosphere",
          "low_cloud_layer", "middle_cloud_layer", "high_cloud_layer", "cloud_ceiling")
 _LEV_850 = "850_mb"         # the main fetch only (from 2026-11-07), not the skill back-fill of one cell
+# the meteograms' extra options (from 2026-11-07 afternoon), main fetch only as well
+_VARS_MORE = ("DPT", "VIS", "CAPE")
+_LEVS_MORE = ("highest_tropospheric_freezing_level",)
 
 # (discipline, category, number, level type, level value) → name, instantaneous records
 _INST = {(0, 3, 1, 101, 0): "PRMSL", (0, 0, 0, 103, 2): "T2", (0, 2, 2, 103, 10): "U10",
          (0, 2, 3, 103, 10): "V10", (0, 2, 22, 1, 0): "GUST", (0, 1, 39, 1, 0): "CPOFP",
          (0, 6, 1, 10, 0): "TCDC", (0, 6, 3, 214, 0): "LCDC", (0, 6, 4, 224, 0): "MCDC",
          (0, 6, 5, 234, 0): "HCDC", (0, 3, 5, 215, 0): "CEIL", (0, 3, 5, 1, 0): "OROG",
-         (0, 0, 0, 100, 85000): "T850"}
+         (0, 0, 0, 100, 85000): "T850",
+         (0, 0, 6, 103, 2): "TD2", (0, 19, 0, 1, 0): "VIS", (0, 7, 6, 1, 0): "CAPE",
+         (0, 3, 5, 204, 0): "ZL", (0, 2, 2, 100, 85000): "U850", (0, 2, 3, 100, 85000): "V850"}
 _APCP = (0, 1, 8, 1, 0)
 
 SCHEMA = ("""CREATE TABLE IF NOT EXISTS gfs_wx_hours (
@@ -289,6 +301,18 @@ def planes_of(recs: list, prev_apcp, step_h: int):
          "m": _scale(g["MCDC"], float), "h": _scale(g["HCDC"], float)}
     if "T850" in g:                                  # from 2026-11-07
         P["t8"] = _scale(g["T850"], lambda x: (x - 273.15) * 10.0)
+    # the meteograms' extra options (from 2026-11-07 afternoon)
+    if "TD2" in g:
+        P["td"] = _scale(g["TD2"], lambda x: (x - 273.15) * 10.0)
+    if "VIS" in g:
+        P["vi"] = _scale(g["VIS"], lambda x: round(min(x, 30000.0) / 500.0) * 5.0)      # 500-m steps
+    if "ZL" in g:
+        P["zl"] = _scale(g["ZL"], lambda x: round(max(0.0, x) / 50.0) * 50.0)           # 50-m steps
+    if "CAPE" in g:
+        P["ca"] = _scale(g["CAPE"], lambda x: round(max(0.0, x) / 10.0) * 10.0)         # 10-J/kg steps
+    if "U850" in g and "V850" in g:
+        P["u8"] = _scale(g["U850"], lambda x: round(x / KT_MS / 2.0) * 2.0)            # 2-kt steps
+        P["v8"] = _scale(g["V850"], lambda x: round(x / KT_MS / 2.0) * 2.0)
     if "CEIL" in g and "OROG" in g:
         P["b"] = _scale([None if c is None or z is None or c >= 15000 else max(0.0, c - z)
                          for c, z in zip(g["CEIL"], g["OROG"])], float)
@@ -367,8 +391,9 @@ class GfsFetcher:
         hh = time.strftime("%H", time.gmtime(run))
         la0, la1, lo0, lo1 = box or self.box
         q = [("dir", f"/gfs.{d}/{hh}/atmos"), ("file", f"gfs.t{hh}z.pgrb2.0p25.f{lead:03d}")]
-        levs = _LEVS + ((_LEV_850,) if box is None else ())
-        q += [(f"var_{v}", "on") for v in _VARS] + [(f"lev_{lv}", "on") for lv in levs]
+        levs = _LEVS + ((_LEV_850,) + _LEVS_MORE if box is None else ())
+        vs = _VARS + (_VARS_MORE if box is None else ())
+        q += [(f"var_{v}", "on") for v in vs] + [(f"lev_{lv}", "on") for lv in levs]
         q += [("subregion", ""), ("toplat", f"{la1:g}"), ("leftlon", f"{lo0:g}"),
               ("rightlon", f"{lo1:g}"), ("bottomlat", f"{la0:g}")]
         return self.url + "?" + urllib.parse.urlencode(q)

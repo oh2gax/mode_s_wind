@@ -21,6 +21,12 @@ The Pilot right (from 2026-11-05) opens the phone's Pilot view and its APIs
 flight" — see pilot().  It is independent of Full view and of the own
 receivers: a user can have any of the three.
 
+The FIN right (from 2026-11-07) shows the meteograms in Finnish: the Weather
+page's Meteogram view and the phone's Meteogram view (texts, weekdays, decimal
+commas; times stay UTC) — see fin().  It only changes the language and is
+independent of the others.  The maintenance user and the built-in user stay
+in English.
+
 A user can own receivers and have Full view at the same time.  The built-in
 user of config.py (the shared test login) and everyone else see All receivers
 only.  The rights are set on the Maintenance page (maintenance login only) and
@@ -28,7 +34,7 @@ kept per server in webrights.json next to the users file (webusers.txt), or
 WEB_RIGHTS_FILE:
 
     {"version": 1,
-     "users": {"alice": {"full": false, "own": ["MODES-RX-02"], "pilot": true},
+     "users": {"alice": {"full": false, "own": ["MODES-RX-02"], "pilot": true, "fin": true},
                "bob":   {"full": true,  "own": ["MODES-RX-01"]}}}
 
 The file is re-read when it changes (checked at most every 2 s) and written
@@ -84,11 +90,13 @@ def _clean(entry) -> dict:
     out = {"full": bool(entry.get("full")), "own": own}
     if entry.get("pilot"):
         out["pilot"] = True                           # the Pilot right (from 2026-11-05)
+    if entry.get("fin"):
+        out["fin"] = True                             # the meteograms in Finnish (from 2026-11-07)
     return out
 
 
 def _load(cfg, force: bool = False) -> dict:
-    """The users' rights {username: {"full", "own"}} (re-read when the file changed)."""
+    """The users' rights {username: {"full", "own"[, "pilot"][, "fin"]}} (re-read when the file changed)."""
     now = time.monotonic()
     with _lock:
         if not force and _st["key"] is not None and now - _st["checked"] < RECHECK_SEC:
@@ -104,7 +112,7 @@ def _load(cfg, force: bool = False) -> dict:
                         d = json.load(f) or {}
                     for u, e in (d.get("users") or {}).items():
                         e = _clean(e)
-                        if e["full"] or e["own"] or e.get("pilot"):
+                        if e["full"] or e["own"] or e.get("pilot") or e.get("fin"):
                             users[str(u)] = e
                 except (OSError, ValueError, AttributeError) as exc:
                     log.warning("Rights file not read: %s", exc)
@@ -123,17 +131,19 @@ def _save(cfg, users: dict) -> None:
 
 
 def of_user(cfg, username: Optional[str]) -> dict:
-    """{"full": bool, "own": [receiver ids], "pilot": bool, "maint": bool} of a
-    logged-in user; the maintenance user always has Full view and the Pilot right."""
+    """{"full": bool, "own": [receiver ids], "pilot": bool, "fin": bool, "maint": bool} of a
+    logged-in user; the maintenance user always has Full view and the Pilot right
+    (and English meteograms)."""
     from web import users as web_users
     u = username or ""
     if u and web_users.is_maint(cfg, u):
-        return {"full": True, "own": list(_load(cfg).get(u, {}).get("own", [])), "pilot": True, "maint": True}
+        return {"full": True, "own": list(_load(cfg).get(u, {}).get("own", [])), "pilot": True, "fin": False,
+                "maint": True}
     if not u or u == str(getattr(cfg, "WEB_USER", "")):
-        return {"full": False, "own": [], "pilot": False, "maint": False}
+        return {"full": False, "own": [], "pilot": False, "fin": False, "maint": False}
     e = _load(cfg).get(u)
     return {"full": bool(e and e["full"]), "own": list(e["own"]) if e else [], "pilot": bool(e and e.get("pilot")),
-            "maint": False}
+            "fin": bool(e and e.get("fin")), "maint": False}
 
 
 def visible(r: dict, rx_id: str) -> bool:
@@ -153,14 +163,22 @@ def pilot(r: dict) -> bool:
     return bool(r.get("pilot")) or bool(r.get("maint"))
 
 
+def fin(r: dict) -> bool:
+    """Whether the meteograms are shown in Finnish to a user with the rights r
+    (from 2026-11-07): the FIN right."""
+    return bool(r.get("fin"))
+
+
 def all_rights(cfg) -> dict:
     """Every user's rights (the Maintenance page)."""
     return {u: dict(e) for u, e in _load(cfg, force=True).items()}
 
 
-def set_rights(cfg, username: str, full: bool, own, pilot: Optional[bool] = None) -> None:
-    """Full view, the own receivers and (from 2026-11-05) the Pilot right of a
-    user of the users file; pilot None keeps the user's Pilot right as it is."""
+def set_rights(cfg, username: str, full: bool, own, pilot: Optional[bool] = None,
+               fin: Optional[bool] = None) -> None:
+    """Full view, the own receivers, (from 2026-11-05) the Pilot right and (from
+    2026-11-07) the FIN right of a user of the users file; pilot / fin None keeps
+    that right as it is."""
     from web import users as web_users
     if not web_users.is_file_user(cfg, username):
         raise ValueError(f"no personal user {username} (the built-in and the maintenance user have fixed rights)")
@@ -171,8 +189,10 @@ def set_rights(cfg, username: str, full: bool, own, pilot: Optional[bool] = None
     users = dict(_load(cfg, force=True))
     if pilot is None:
         pilot = bool((users.get(username) or {}).get("pilot"))
-    e = _clean({"full": full, "own": own, "pilot": pilot})
-    if e["full"] or e["own"] or e.get("pilot"):
+    if fin is None:
+        fin = bool((users.get(username) or {}).get("fin"))
+    e = _clean({"full": full, "own": own, "pilot": pilot, "fin": fin})
+    if e["full"] or e["own"] or e.get("pilot") or e.get("fin"):
         users[username] = e
     else:
         users.pop(username, None)

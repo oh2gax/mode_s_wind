@@ -15,6 +15,10 @@
  *          table under the chart: /api/weather/gfs_skill, the stored runs against the airport's METAR
  *   850 hPa (from 2026-11-07; off by default) the 850 hPa temperature in the temperature panel: the
  *          models' line and MODE-S Wind's own measured value of the past hours as dots
+ *   (from 2026-11-07 afternoon, off by default) Freezing level and CAPE as panels; METAR, Landings,
+ *          Sun, Dew point & vis, 850 hPa wind as options (meteogram.js)
+ * FIN (from 2026-11-07): for a user with the FIN right (window.MG_LANG 'fi', weather.html) the
+ * texts of this view, its controls and the chart are in Finnish (decimal commas; times UTC).
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
  * while shown (the server caches the answers, a new run makes new ones).
@@ -23,11 +27,19 @@
 
 const WxMg = (() => {
   const $ = id => document.getElementById(id);
+  // the language (from 2026-11-07): Finnish for the users with the FIN right
+  const FI = window.MG_LANG === 'fi';
+  const tr = (en, fi) => (FI ? fi : en);
+  const dc = s => (FI ? String(s).replace(/\./g, ',') : String(s));
   const KEY = 'ms_weather_mg';
-  const PANELS = ['temp', 'precip', 'wind', 'pres', 'cloud'];
+  const PANELS = ['temp', 'frz', 'precip', 'cape', 'wind', 'pres', 'cloud'];   // frz, cape from 2026-11-07 (off by default)
+  const PANEL_OFF = ['frz', 'cape'];
+  const OPTS = ['obs', 'lw', 'sun', 'dew', 'w850'];                            // from 2026-11-07, off by default
+  const panelOn = k => st.panels[k] === undefined ? !PANEL_OFF.includes(k) : st.panels[k] !== false;
   const RANGES = {
-    meps: [['24', 'past 24 h + forecast'], ['72', 'past 3 days + forecast'], ['168', 'past 7 days + forecast']],
-    gfs: [['48', '2 days'], ['120', '5 days'], ['168', '7 days'], ['240', '10 days'], ['384', '16 days']],   // 2 and 7 days from 2026-11-06
+    meps: [['24', tr('past 24 h + forecast', 'menneet 24 h + ennuste')], ['72', tr('past 3 days + forecast', 'menneet 3 vrk + ennuste')],
+           ['168', tr('past 7 days + forecast', 'menneet 7 vrk + ennuste')]],
+    gfs: [['48', '2'], ['120', '5'], ['168', '7'], ['240', '10'], ['384', '16']].map(([v, d]) => [v, d + tr(' days', ' vrk')]),   // 2 and 7 days from 2026-11-06
   };
   let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null, err: true, t850: false };
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st = Object.assign(st, s, { range: Object.assign(st.range, s.range || {}) }); } catch (e) { /* private mode */ }
@@ -38,7 +50,7 @@ const WxMg = (() => {
   const APT = { kind: 'apt', lat: MG_AIRPORT.lat, lon: MG_AIRPORT.lon, title: MG_AIRPORT.icao };
   let rxs = [];
   let place = APT;
-  const pinPlace = () => ({ kind: 'pin', lat: st.pin.lat, lon: st.pin.lon, title: 'Pinned place' });
+  const pinPlace = () => ({ kind: 'pin', lat: st.pin.lat, lon: st.pin.lon, title: tr('Pinned place', 'Kiinnitetty paikka') });
   const rxPlace = r => ({ kind: 'rx', id: r.id, lat: r.lat, lon: r.lon, title: r.label });
   const placeVal = () => place.kind === 'rx' ? 'rx:' + place.id : place.kind;
   function pickPlace(v) {
@@ -47,7 +59,7 @@ const WxMg = (() => {
   }
   let chart = null, run = 0, timer = 0, lastData = null, skillData = null;
 
-  const fmtLL = (lat, lon) => `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'W'}`;
+  const fmtLL = (lat, lon) => `${dc(Math.abs(lat).toFixed(2))}° ${lat >= 0 ? 'N' : 'S'} ${dc(Math.abs(lon).toFixed(2))}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
 
   function fillRange() {
@@ -59,13 +71,14 @@ const WxMg = (() => {
     const el = $('wx-mg-place');
     const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     el.innerHTML = `<option value="apt">${MG_AIRPORT.icao}</option>`
-      + (rxs.length ? '<optgroup label="Receiver sites">' + rxs.map(r => `<option value="rx:${esc(r.id)}">${esc(r.label)}</option>`).join('') + '</optgroup>' : '')
-      + (st.pin ? `<option value="pin">${fmtLL(st.pin.lat, st.pin.lon)} (pinned)</option>` : '');
+      + (rxs.length ? '<optgroup label="' + tr('Receiver sites', 'Vastaanotinpaikat') + '">' + rxs.map(r => `<option value="rx:${esc(r.id)}">${esc(r.label)}</option>`).join('') + '</optgroup>' : '')
+      + (st.pin ? `<option value="pin">${fmtLL(st.pin.lat, st.pin.lon)} ${tr('(pinned)', '(kiinnitetty)')}</option>` : '');
     el.value = placeVal();
   }
   function syncControls() {
     $('wx-mg-model').value = st.model;
-    PANELS.forEach(k => { $('wx-mg-' + k).checked = st.panels[k] !== false; });
+    PANELS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).checked = panelOn(k); });
+    OPTS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).checked = !!st[k]; });
     if ($('wx-mg-err')) $('wx-mg-err').checked = st.err !== false;
     if ($('wx-mg-t850')) $('wx-mg-t850').checked = !!st.t850;
     fillRange(); fillPlace();
@@ -100,7 +113,7 @@ const WxMg = (() => {
     const url = k => k === 'meps'
       ? `/api/weather/meteogram?${q}&model=meps&past=${m === 'meps' ? rng : 6}&fc=${m === 'meps' ? 80 : rng}`
       : `/api/weather/meteogram?${q}&model=gfs&past=2&fc=${rng}`;
-    $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)} · loading…`;
+    $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)} · ${tr('loading…', 'ladataan…')}`;
     if (MG_GFS) Meteogram.skill().then(sk => { if (sk !== skillData) { skillData = sk; if (my === run && lastData) draw(); } });
     try {
       const res = await Promise.all(want.map(k => fetch(url(k)).then(r => r.json())));
@@ -111,29 +124,30 @@ const WxMg = (() => {
       draw();
     } catch (e) {
       console.error('Meteogram:', e);
-      $('wx-mg-head').innerHTML += ' · <span class="mg-dim">error loading the meteogram</span>';
+      $('wx-mg-head').innerHTML += ' · ' + '<span class="mg-dim">' + tr('error loading the meteogram', 'meteogrammin lataus epäonnistui') + '</span>';
     }
   }
   function draw() {
     const data = lastData;
     if (!data) return;
     const cells = [];
-    if (data.meps) cells.push(`MEPS ${data.meps.cell.fine_grid ? '2.5 km / 10 km' : '10 km'} cell ${fmtLL(data.meps.cell.lat, data.meps.cell.lon)}`);
-    if (data.gfs) cells.push(`GFS 0.25° cell ${fmtLL(data.gfs.cell.lat, data.gfs.cell.lon)}`);
+    if (data.meps) cells.push(`MEPS${tr('', ':n')} ${dc(data.meps.cell.fine_grid ? '2.5 km / 10 km' : '10 km')} ${tr('cell', '-ruutu')} ${fmtLL(data.meps.cell.lat, data.meps.cell.lon)}`);
+    if (data.gfs) cells.push(`GFS${tr('', ':n')} ${dc('0.25°')} ${tr('cell', '-ruutu')} ${fmtLL(data.gfs.cell.lat, data.gfs.cell.lon)}`);
     $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)}` + (cells.length ? ' · ' + cells.join(' · ') : '');
     if (chart) chart.destroy();
     const panels = {};
-    PANELS.forEach(k => { panels[k] = st.panels[k] !== false; });
+    PANELS.forEach(k => { panels[k] = panelOn(k); });
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
-    const eb = MG_GFS && st.err !== false ? Meteogram.errBand(skillData, place.kind === 'apt' ? '' : 'measured at ' + MG_AIRPORT.icao) : null;
+    const eb = MG_GFS && st.err !== false ? Meteogram.errBand(skillData, place.kind === 'apt' ? '' : tr('measured at ', 'mitattu kentällä ') + MG_AIRPORT.icao) : null;
     chart = Meteogram.render($('wx-mg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      panels, errBand: eb, t850: !!st.t850, emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
+      panels, errBand: eb, t850: !!st.t850, obs: !!st.obs, lw: !!st.lw, sun: !!st.sun, dew: !!st.dew, w850: !!st.w850, lang: FI ? 'fi' : 'en',
+      emptyText: err.length ? err.join(' · ') : tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.') });
     renderSkill();
     const runs = [];
-    if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))}${data.meps.runs.length > 1 ? ' (the past hours from the earlier runs)' : ''}${data.meps.cell.fine_grid ? ', the 2.5 km cell where that run has the hour' : ''} — MET Norway, CC BY 4.0`);
-    if (data.gfs) runs.push(`GFS run ${runTxt(Math.max(...data.gfs.runs))}${data.gfs.runs.length > 1 ? ' (partly the run before)' : ''}, hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only`);
+    if (data.meps) runs.push(`${tr('MEPS run', 'MEPS-ajo')} ${runTxt(Math.max(...data.meps.runs))}${data.meps.runs.length > 1 ? tr(' (the past hours from the earlier runs)', ' (menneet tunnit aiemmista ajoista)') : ''}${data.meps.cell.fine_grid ? tr(', the 2.5 km cell where that run has the hour', ', 2,5 km:n ruutu niiltä tunneilta, jotka ajossa on') : ''} — MET Norway, CC BY 4.0`);
+    if (data.gfs) runs.push(`${tr('GFS run', 'GFS-ajo')} ${runTxt(Math.max(...data.gfs.runs))}${data.gfs.runs.length > 1 ? tr(' (partly the run before)', ' (osin edellinen ajo)') : ''}${tr(', hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only', ', tunneittain +120 h asti, sitten 3 h välein — NOAA/NCEP; yli viikon päähän vain suuntaa antava')}`);
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
-    $('wx-mg-foot').textContent = runs.join(' · ') + ' · times UTC · the model at the grid cell of the place; for viewing';
+    $('wx-mg-foot').textContent = runs.join(' · ') + tr(' · times UTC · the model at the grid cell of the place; for viewing', ' · ajat UTC · malli paikan hilaruudussa; vain katseluun');
   }
 
   // ── how good the forecast has been at the airport (from 2026-11-06) ───────
@@ -149,41 +163,53 @@ const WxMg = (() => {
     const cls = ss => ss == null ? '' : ss >= 0.5 ? 'sk-good' : ss >= (sk.useful_ss || 0.2) ? 'sk-fair' : 'sk-poor';
     const cell = (r, maxDay, val, ss) => {
       if (!r || r.day > maxDay) return '<td></td>';
-      if (!r.ok) return `<td class="sk-poor" title="Still collecting (${r.n || 0} hours from ${r.runs || 0} runs checked; at least ${sk.min_n} hours from ${sk.min_runs} runs needed)">…</td>`;
+      if (!r.ok) return `<td class="sk-poor" title="${tr(`Still collecting (${r.n || 0} hours from ${r.runs || 0} runs checked; at least ${sk.min_n} hours from ${sk.min_runs} runs needed)`, `Kerätään vielä (tarkistettu ${r.n || 0} tuntia ${r.runs || 0} ajosta; tarvitaan vähintään ${sk.min_n} tuntia ${sk.min_runs} ajosta)`)}">…</td>`;
       const v = val(r);
       return v == null ? '<td>–</td>' : `<td class="${cls(ss(r))}">${v}</td>`;
     };
     const row = (name, T, maxDay, val, ss, c = '') => `<tr${c ? ` class="${c}"` : ''}><td>${name}</td>`
       + SK_DAYS.map(d => cell(T[d], maxDay, val, ss)).join('') + '</tr>';
-    const f1 = x => x == null ? null : '±' + x.toFixed(1);
+    const f1 = x => x == null ? null : '±' + dc(x.toFixed(1));
     const f0 = x => x == null ? null : '±' + Math.round(x);
     const u = sk.gfs_useful || {}, ud = sk.useful_day;
     let sum;
     if (ud && ud >= 1) {
       const known = Math.min((u.t || {}).known || 0, (u.wv || {}).known || 0);
       sum = ud >= known && known < 16
-        ? `GFS has been better than the usual weather of the season at least to <b>day ${ud}</b> so far (temperature and wind; the longer leads are still being collected).`
-        : `GFS has been useful to about <b>day ${ud}</b> here: up to then clearly better than the usual weather of the season for temperature and wind; beyond it about as good as the season's average.`;
-    } else if (ud === 0) sum = 'In this period GFS has not been clearly better than the usual weather of the season even on day 1.';
-    else sum = 'Collecting: the first results come once the runs of a few days have been checked.';
+        ? tr(`GFS has been better than the usual weather of the season at least to <b>day ${ud}</b> so far (temperature and wind; the longer leads are still being collected).`,
+             `GFS on toistaiseksi ollut vuodenajan tavallista säätä parempi ainakin <b>päivään ${ud}</b> asti (lämpötila ja tuuli; pidempiä ennustepituuksia kerätään vielä).`)
+        : tr(`GFS has been useful to about <b>day ${ud}</b> here: up to then clearly better than the usual weather of the season for temperature and wind; beyond it about as good as the season's average.`,
+             `GFS on ollut täällä hyödyllinen noin <b>päivään ${ud}</b> asti: siihen saakka selvästi vuodenajan tavallista säätä parempi lämpötilassa ja tuulessa, sen jälkeen suunnilleen vuodenajan keskiarvon veroinen.`);
+    } else if (ud === 0) sum = tr('In this period GFS has not been clearly better than the usual weather of the season even on day 1.',
+                                  'Tällä jaksolla GFS ei ole ollut selvästi vuodenajan tavallista säätä parempi edes päivänä 1.');
+    else sum = tr('Collecting: the first results come once the runs of a few days have been checked.',
+                  'Kerätään: ensimmäiset tulokset tulevat, kun muutaman päivän ajot on tarkistettu.');
     const runs = (sk.gfs || []).reduce((n, r) => Math.max(n, r.runs || 0), 0);
     const first = sk.first_run ? new Date(sk.first_run * 1000) : null;
-    el.innerHTML = `<h4>How good the forecast has been at ${sk.station} — the last ${Math.round(sk.window_days)} days</h4>`
+    const S = sk.station, mmh = dc(sk.rain_mmh || 0.1);
+    const since = first ? first.getUTCDate() + '.' + (first.getUTCMonth() + 1) + '.' : '';
+    el.innerHTML = `<h4>${tr(`How good the forecast has been at ${S} — the last ${Math.round(sk.window_days)} days`, `Kuinka hyvä ennuste on ollut kentällä ${S} — viimeiset ${Math.round(sk.window_days)} vuorokautta`)}</h4>`
       + `<p class="sk-sum">${sum}</p>`
-      + `<table><thead><tr><th>Lead day</th>${SK_DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>`
-      + row('GFS temperature, °C', G, 16, r => f1(r.t && r.t.p80), r => r.t && r.t.ss)
-      + row('GFS wind, kt', G, 16, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss)
-      + row('GFS pressure, hPa', G, 16, r => f1(r.p && r.p.p80), r => r.p && r.p.ss)
-      + row('GFS rain hours caught', G, 16, r => r.rain && r.rain.pod != null ? Math.round(r.rain.pod * 100) + ' %' : null,
+      + `<table><thead><tr><th>${tr('Lead day', 'Ennustepäivä')}</th>${SK_DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>`
+      + row(tr('GFS temperature, °C', 'GFS lämpötila, °C'), G, 16, r => f1(r.t && r.t.p80), r => r.t && r.t.ss)
+      + row(tr('GFS wind, kt', 'GFS tuuli, kt'), G, 16, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss)
+      + row(tr('GFS pressure, hPa', 'GFS paine, hPa'), G, 16, r => f1(r.p && r.p.p80), r => r.p && r.p.ss)
+      + row(tr('GFS rain hours caught', 'GFS osuneet sadetunnit'), G, 16, r => r.rain && r.rain.pod != null ? Math.round(r.rain.pod * 100) + ' %' : null,
             r => r.rain && r.rain.hss != null ? r.rain.hss + 0.1 : null)
-      + row('MEPS temperature, °C', M, 3, r => f1(r.t && r.t.p80), r => r.t && r.t.ss, 'sk-meps')
-      + row('MEPS wind, kt', M, 3, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss, 'sk-meps')
-      + row('Hours checked (GFS)', G, 16, r => String(r.n), () => null)
+      + row(tr('MEPS temperature, °C', 'MEPS lämpötila, °C'), M, 3, r => f1(r.t && r.t.p80), r => r.t && r.t.ss, 'sk-meps')
+      + row(tr('MEPS wind, kt', 'MEPS tuuli, kt'), M, 3, r => f0(r.ws && r.ws.p80), r => r.wv && r.wv.ss, 'sk-meps')
+      + row(tr('Hours checked (GFS)', 'Tarkistetut tunnit (GFS)'), G, 16, r => String(r.n), () => null)
       + '</tbody></table>'
-      + `<div class="sk-note">8 in 10 of the checked hours were within ± the number (temperature 2 m, wind 10 m, sea-level pressure against the ${sk.station} METAR; the wind as speed). `
-      + `Colour: green clearly better than the usual weather of the season (the ${sk.station} METARs of the years before, the same hour ±7 days), yellow somewhat better, grey no better; … still collecting. `
-      + `Rain: the share of the hours with rain or snow at ${sk.station} for which the model had at least ${sk.rain_mmh || 0.1} mm/h. `
-      + `Day 1 = the first 24 h of a run (a run is ready about 4–5 h after its start). ${runs ? runs + (runs === 1 ? ' GFS run' : ' GFS runs') : 'The runs'}${first ? ' since ' + first.getUTCDate() + '.' + (first.getUTCMonth() + 1) + '.' : ''}; a lead day is shown from ${sk.min_n} hours of ${sk.min_runs} runs on. Measured at the airport only — elsewhere a guide.</div>`;
+      + '<div class="sk-note">' + (FI
+        ? `Tarkistetuista tunneista 8/10 osui ± luvun sisään (2 m:n lämpötila, 10 m:n tuuli ja merenpinnan paine verrattuna kentän ${S} METARiin; tuuli nopeutena). `
+          + `Väri: vihreä selvästi vuodenajan tavallista säätä parempi (kentän ${S} aiempien vuosien METARit, sama tunti ±7 vrk), keltainen jonkin verran parempi, harmaa ei parempi; … kerätään vielä. `
+          + `Sade: niiden tuntien osuus, joina kentällä ${S} satoi vettä tai lunta ja mallissa oli vähintään ${mmh} mm/h. `
+          + `Päivä 1 = ajon ensimmäiset 24 h (ajo valmistuu noin 4–5 h alkunsa jälkeen). ${runs ? runs + (runs === 1 ? ' GFS-ajo' : ' GFS-ajoa') : 'Ajot'}${since ? ' ' + since + ' alkaen' : ''}; ennustepäivä näytetään, kun sillä on ${sk.min_n} tuntia ${sk.min_runs} ajosta. Mitattu vain lentoasemalla — muualla suuntaa antava.`
+        : `8 in 10 of the checked hours were within ± the number (temperature 2 m, wind 10 m, sea-level pressure against the ${S} METAR; the wind as speed). `
+          + `Colour: green clearly better than the usual weather of the season (the ${S} METARs of the years before, the same hour ±7 days), yellow somewhat better, grey no better; … still collecting. `
+          + `Rain: the share of the hours with rain or snow at ${S} for which the model had at least ${mmh} mm/h. `
+          + `Day 1 = the first 24 h of a run (a run is ready about 4–5 h after its start). ${runs ? runs + (runs === 1 ? ' GFS run' : ' GFS runs') : 'The runs'}${since ? ' since ' + since : ''}; a lead day is shown from ${sk.min_n} hours of ${sk.min_runs} runs on. Measured at the airport only — elsewhere a guide.`)
+      + '</div>';
   }
 
   // ── controls ───────────────────────────────────────────────────────────
@@ -195,7 +221,8 @@ const WxMg = (() => {
     pickPlace(e.target.value); st.place = placeVal(); save();
     setHash(); load();
   });
-  PANELS.forEach(k => $('wx-mg-' + k).addEventListener('change', e => { st.panels[k] = e.target.checked; save(); draw(); }));
+  PANELS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).addEventListener('change', e => { st.panels[k] = e.target.checked; save(); draw(); }); });
+  OPTS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).addEventListener('change', e => { st[k] = e.target.checked; save(); draw(); }); });
   if ($('wx-mg-err')) $('wx-mg-err').addEventListener('change', e => { st.err = e.target.checked; save(); draw(); });
   if ($('wx-mg-t850')) $('wx-mg-t850').addEventListener('change', e => { st.t850 = e.target.checked; save(); draw(); });
   const prevTheme = window.onThemeChange;

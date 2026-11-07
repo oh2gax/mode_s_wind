@@ -51,14 +51,18 @@ import json
 import sys
 import time
 import zlib
-from math import atan2, cos, pi, radians, sin, tan
+from math import atan2, cos, degrees, pi, radians, sin, tan
 
 FILL = -32768
 GFS_SOURCE = "GFS (NOAA/NCEP)"
 GFS_TABLE = "gfs_wx_hours"
 FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
-ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t", "t8")   # t: 2 m temperature (from 2026-11-01),
-                                                                          # t8: 850 hPa temperature (from 2026-11-07)
+ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t", "t8",   # t: 2 m temperature (from 2026-11-01),
+       "td", "vi", "zl", "ca", "u8", "v8")                                     # t8: 850 hPa temperature (from 2026-11-07);
+# the meteograms' extras (from 2026-11-07 afternoon): td dew point °C × 10, vi visibility 100 m, zl freezing
+# level m, ca CAPE J/kg, u8 / v8 850 hPa wind kt — with MEPS on the 10 km grid only (also where the 2.5 km
+# cell gives the rest)
+GRID10_ONLY = ("t8", "td", "vi", "zl", "ca", "u8", "v8")
 BLOCK_MAX = ("g",)                    # averaged blocks: the strongest gust, not the mean
 SEND = ("p", "r", "s", "c")          # default
 
@@ -389,12 +393,13 @@ def meteogram(db, lat: float, lon: float, model: str = "meps", past_h: float = 2
             if r:
                 vals = _cell_values(json.loads(r[0]), r[1], fk)
                 used_fine = 1 if vals else 0
-                if vals and vals.get("t8") is None:      # 850 hPa: on the 10 km grid only (from 2026-11-07)
+                if vals and any(vals.get(f) is None for f in GRID10_ONLY):   # on the 10 km grid only
                     r10 = db.execute(f"SELECT meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
                     if r10:
                         m10 = json.loads(r10[0])
-                        if "t8" in m10.get("f", ()) and (m10["x"], m10["y"]) == (meta["x"], meta["y"]):
-                            vals = dict(vals, t8=_cell_values(m10, r10[1], k).get("t8"))
+                        if (m10["x"], m10["y"]) == (meta["x"], meta["y"]):
+                            v10 = _cell_values(m10, r10[1], k)
+                            vals = dict(vals, **{f: v10.get(f) for f in GRID10_ONLY if vals.get(f) is None})
         if not vals:
             r = db.execute(f"SELECT meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
             if not r:
@@ -455,6 +460,170 @@ def measured_850(db, lat: float, lon: float, t0: float, t1: float, rlat: float, 
             continue
         out.append([int(ts) + 1800, round(a[1] + f * (b[1] - a[1]), 1), int(a[4]) + int(b[4])])
     return out
+
+
+# ── The meteograms' observations (from 2026-11-07 afternoon) ──────────────────────
+OBS_APT_KM = 20.0                      # METAR and the landings' winds: places this near the airport
+LW_HEIGHTS = (1000, 2000)              # the landings' band winds, ft above the runway
+_obs_cache: dict = {}
+
+
+def observed(db, lat: float, lon: float, t0: float, t1: float, rlat: float, rlon: float,
+             alat: float, alon: float, station: str = "EFHK") -> dict:
+    """What MODE-S Wind measured in the past hours of a meteogram:
+      o850   [[hour middle, °C, values]] the 850 hPa temperature (measured_850)
+      o850w  [[hour middle, dir, kt, values]] the 850 hPa wind of the same layers
+      ozl    [[hour middle, ft MSL, sfc]] the freezing level — the highest 0 °C crossing of
+             the METAR surface, the airport's climb-out / landing bands (bl_hours) and the area
+             layers above (pressure altitude + 27.5 ft per hPa of QNH − 1013.25); sfc 1 when the
+             whole column is below 0 °C (then ft = the airport)
+      metar  [[ts, tt, td, wdir, wspd, wgst, qnh, vis m, ceiling ft, raw]] the airport's METARs
+      lw     [[hour middle, ft above the runway, dir, kt, landings]] the hour's median band wind
+             of the landings (approach_history) at 1 000 and 2 000 ft above their runway
+    the first three for places within the profile radius of the receiver, the last two within
+    OBS_APT_KM of the airport (else empty lists).  Kept 5 minutes."""
+    key = (round(lat, 3), round(lon, 3), int(t0 // 300), int(t1 // 300))
+    hit = _obs_cache.get(key)
+    if hit is not None:
+        return hit
+    out = {"o850": [], "o850w": [], "ozl": [], "metar": [], "lw": []}
+    if db is None:
+        return out
+    from web.api import pilot as _p
+    near_apt = _dist_km(lat, lon, alat, alon) <= OBS_APT_KM
+    # the METARs (also the surface of the freezing level)
+    mets = []
+    try:
+        mets = db.execute("SELECT ts, tt, td, wdir, wspd, wgst, qnh, vis, cld, raw FROM metar_reports WHERE station = ? "
+                          "AND kind IN ('METAR', 'SPECI') AND ts >= ? AND ts <= ? ORDER BY ts",
+                          (station, int(t0) - 3600, int(t1))).fetchall()
+    except Exception:                                    # noqa: BLE001
+        mets = []
+    if near_apt:
+        out["metar"] = [[int(r[0]), r[1], r[2], r[3], r[4], r[5], r[6], r[7], _ceiling_ft(r[8]), r[9]]
+                        for r in mets if r[0] >= t0]
+    # the hourly profiles
+    try:
+        rows = db.execute("SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
+                          (int(t0) - 3600, int(t1))).fetchall()
+        bls = dict(db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ?", (int(t0) - 3600, int(t1))).fetchall())
+    except Exception:                                    # noqa: BLE001
+        rows, bls = [], {}
+    near_rx = None
+    f8 = (T850_ALT_FT - 4500.0) / 1000.0
+    mi = 0
+    for ts, data in rows:
+        try:
+            d = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        if near_rx is None:
+            near_rx = _dist_km(lat, lon, rlat, rlon) <= float(d.get("r") or 150.0)
+        if not near_rx:
+            break
+        lv = {row[0]: row for row in d.get("lv") or [] if row}
+        a, b = lv.get(4000), lv.get(5000)
+        mid = int(ts) + 1800
+        if a and b and a[1] is not None and b[1] is not None and (a[4] or 0) >= T850_MIN_N and (b[4] or 0) >= T850_MIN_N:
+            out["o850"].append([mid, round(a[1] + f8 * (b[1] - a[1]), 1), int(a[4]) + int(b[4])])
+        if a and b and a[6] is not None and b[6] is not None and (a[8] or 0) >= T850_MIN_N and (b[8] or 0) >= T850_MIN_N:
+            ua, va = _uv(a[5], a[6])
+            ub, vb = _uv(b[5], b[6])
+            u, v = ua + f8 * (ub - ua), va + f8 * (vb - va)
+            out["o850w"].append([mid, round((degrees(atan2(-u, -v)) + 360) % 360), round((u * u + v * v) ** 0.5, 1),
+                                 int(a[8]) + int(b[8])])
+        # the freezing level of the hour: the METAR surface, the airport's bands, the area layers
+        while mi + 1 < len(mets) and mets[mi + 1][0] <= ts + 3600:
+            mi += 1
+        m = mets[mi] if mets and mets[mi][0] <= ts + 3600 and mets[mi][0] >= ts - 3600 else None
+        try:
+            bl = json.loads(bls.get(ts) or "null") or {}
+        except (TypeError, ValueError):
+            bl = {}
+        qnh = (m[6] if m else None) or bl.get("q") or 1013.25
+        pts = [(_p.APT_FT, m[1])] if m and m[1] is not None else []
+        pts += [(x[0], x[1]) for x in bl.get("t") or [] if x[1] is not None and x[0] > _p.APT_FT + 50]
+        top = pts[-1][0] if pts else 0
+        dz = (qnh - 1013.25) * 27.5
+        pts += [(row[0] + (500 if row[0] < 10000 else 1000) + dz, row[1]) for row in d.get("lv") or []
+                if row and row[1] is not None and (row[4] or 0) >= 3 and row[0] + 500 + dz > top + 300 and row[0] < 20000]
+        pts.sort()
+        if len(pts) >= 2:
+            fl = _freezing_level(pts, _p.APT_FT)
+            if fl is not None:
+                out["ozl"].append([mid, fl[0], fl[1]])
+    # the landings' band winds at 1 000 and 2 000 ft above their runway, per hour
+    if near_apt:
+        try:
+            L = db.execute("SELECT ts, runway, bands_json FROM approach_history WHERE ts >= ? AND ts <= ? ORDER BY ts",
+                           (int(t0), int(t1))).fetchall()
+        except Exception:                                # noqa: BLE001
+            L = []
+        hours: dict = {}
+        for ts, rwy, bj in L:
+            try:
+                bands = json.loads(bj) if bj else None
+            except (TypeError, ValueError):
+                continue
+            for h in LW_HEIGHTS:
+                w = _p._band_wind(bands, h + _p._thr(rwy), near=100.0)
+                if w:
+                    hours.setdefault((int(ts // 3600 * 3600), h), []).append(_uv(w[0], w[1]))
+        for (hh, h), uv in sorted(hours.items()):
+            us, vs = sorted(x[0] for x in uv), sorted(x[1] for x in uv)
+            n = len(uv)
+            med = lambda a: a[n // 2] if n % 2 else 0.5 * (a[n // 2 - 1] + a[n // 2])
+            u, v = med(us), med(vs)
+            out["lw"].append([hh + 1800, h, round((degrees(atan2(-u, -v)) + 360) % 360), round((u * u + v * v) ** 0.5, 1), n])
+    if len(_obs_cache) > 64:
+        _obs_cache.clear()
+    _obs_cache[key] = out
+    return out
+
+
+def _freezing_level(pts: list, ground_ft: float):
+    """(ft, at the ground) of a measured profile [(ft MSL, °C)] going up: the top of the
+    highest layer above 0 °C — the one from the ground, or one aloft that reaches at least
+    +0.5 °C (the medians of an almost isothermal layer near 0 °C can wobble around it);
+    (ground, 1) when the whole column is below 0 °C from the ground; None otherwise."""
+    runs, cur = [], None
+    for i, (z, t) in enumerate(pts):
+        if t > 0:
+            if cur is None:
+                cur = {"i0": i, "max": t}
+            cur["max"], cur["i1"] = max(cur["max"], t), i
+        elif cur is not None:
+            runs.append(cur)
+            cur = None
+    if cur is not None:
+        return None                                      # above 0 °C at the top: the level is higher
+    keep = [r for r in runs if r["i0"] == 0 or r["max"] >= 0.5]
+    if not keep:
+        return (round(ground_ft), 1) if pts[0][0] <= ground_ft + 50 and pts[0][1] < 0 else None
+    i = keep[-1]["i1"]
+    (z0, t0), (z1, t1) = pts[i], pts[i + 1]
+    if z1 - z0 > 3000:
+        return None
+    return round(z0 + (0 - t0) / (t1 - t0) * (z1 - z0), -2), 0
+
+
+def _uv(d: float, s: float):
+    """Wind from d° at s → (u, v) towards east / north."""
+    return -s * sin(radians(d)), -s * cos(radians(d))
+
+
+def _ceiling_ft(cld):
+    """The METAR's ceiling (ft): the lowest BKN / OVC / VV layer, None without one."""
+    best = None
+    for part in str(cld or "").split():
+        if part[:3] in ("BKN", "OVC") and part[3:6].isdigit():
+            h = int(part[3:6]) * 100
+        elif part[:2] == "VV" and part[2:5].isdigit():
+            h = int(part[2:5]) * 100
+        else:
+            continue
+        best = h if best is None else min(best, h)
+    return best
 
 
 def _dist_km(la1: float, lo1: float, la2: float, lo2: float) -> float:

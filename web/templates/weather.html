@@ -2,6 +2,8 @@
 {% block title %}Weather – MODE-S Wind{% endblock %}
 
 {% block content %}
+{# the meteogram's texts: Finnish for the users with the FIN right (mg_fin, from 2026-11-07) #}
+{% macro L(en, fi) %}{% if mg_fin %}{{ fi }}{% else %}{{ en }}{% endif %}{% endmacro %}
 <div class="windmap-page weather-page">
 
   <!-- ── Control strip ──────────────────────────────────────────────── -->
@@ -9,29 +11,36 @@
     <!-- the view (from 2026-11-05): the map or a meteogram of one place -->
     <div class="wm-group wx-viewsw" role="group" aria-label="View">
       <button id="wx-v-map" class="wm-play-btn wx-vbtn wx-von" type="button" title="The weather map with the time slider">Map</button>
-      <button id="wx-v-mg" class="wm-play-btn wx-vbtn" type="button" title="A meteogram: the model's temperature, precipitation, wind, pressure and clouds at one place over the days, from MEPS and (where the server has it) GFS">Meteogram</button>
+      <button id="wx-v-mg" class="wm-play-btn wx-vbtn" type="button" title="{{ L("A meteogram: the model's temperature, precipitation, wind, pressure and clouds at one place over the days, from MEPS and (where the server has it) GFS", "Meteogrammi: mallin lämpötila, sade, tuuli, paine ja pilvet yhdessä paikassa päivien ajalta, MEPS-mallista ja (kun palvelimella on) GFS-mallista") }}">{{ L('Meteogram', 'Meteogrammi') }}</button>
     </div>
     <!-- the meteogram's own controls (shown with the Meteogram view) -->
     <div class="wm-group" id="wx-mg-ctrl">
-      <label class="wm-label">Place</label>
-      <select id="wx-mg-place" class="wm-select" title="The place of the meteogram: the airport, a receiver site (its position to 0.01°), or a place pinned on the map (Point values → a click → Meteogram in its card)">
+      <label class="wm-label">{{ L('Place', 'Paikka') }}</label>
+      <select id="wx-mg-place" class="wm-select" title="{{ L('The place of the meteogram: the airport, a receiver site (its position to 0.01°), or a place pinned on the map (Point values → a click → Meteogram in its card)', 'Meteogrammin paikka: lentoasema, vastaanotinpaikka (sijainti 0,01°:n tarkkuudella) tai kartalle kiinnitetty paikka (Point values → napsautus kartalla → Meteogram pistekortissa)') }}">
         <option value="apt" selected>{{ airport_icao }}</option>
       </select>
-      <label class="wm-label">Model</label>
-      <select id="wx-mg-model" class="wm-select" title="MEPS — the past days and about 2 days ahead (2.5 km near the airport, else 10 km){% if gfs_on %}; GFS — from now up to 16 days ahead (0.25°); Both — GFS's days with MEPS drawn over its own (MEPS bold, GFS thin and dashed){% endif %}">
+      <label class="wm-label">{{ L('Model', 'Malli') }}</label>
+      <select id="wx-mg-model" class="wm-select" title="{% if mg_fin %}MEPS — menneet päivät ja noin 2 vuorokautta eteenpäin (2,5 km lentoaseman lähellä, muualla 10 km){% if gfs_on %}; GFS — nyt ja enintään 16 vuorokautta eteenpäin (0,25°); Molemmat — GFS:n päivät ja MEPS omien päiviensä päällä (MEPS paksu, GFS ohut katkoviiva){% endif %}{% else %}MEPS — the past days and about 2 days ahead (2.5 km near the airport, else 10 km){% if gfs_on %}; GFS — from now up to 16 days ahead (0.25°); Both — GFS's days with MEPS drawn over its own (MEPS bold, GFS thin and dashed){% endif %}{% endif %}">
         <option value="meps"{% if not gfs_on %} selected{% endif %}>MEPS</option>
         {% if gfs_on %}<option value="gfs">GFS</option>
-        <option value="both" selected>Both</option>{% endif %}
+        <option value="both" selected>{{ L('Both', 'Molemmat') }}</option>{% endif %}
       </select>
-      <label class="wm-label">Range</label>
-      <select id="wx-mg-range" class="wm-select" title="How long a period the meteogram shows"></select>
-      <label class="wm-check" title="2 m temperature (red above, blue below 0 °C) with the day's highest and lowest"><input type="checkbox" id="wx-mg-temp" checked> Temperature</label>
-      <label class="wm-check" title="The temperature at 850 hPa (about 1 500 m, 4 800 ft) in the temperature panel: the models' line (fuchsia) and, for places within 150 km of the receiver, MODE-S Wind's own measured value of each past hour from the aircraft (dots)"><input type="checkbox" id="wx-mg-t850"> 850 hPa</label>
-      <label class="wm-check" title="Precipitation in mm per hour (rain blue, snow violet; GFS's 3-hour steps as wider bars) with the day's total in mm"><input type="checkbox" id="wx-mg-precip" checked> Precipitation</label>
-      <label class="wm-check" title="10 m wind speed and gusts (kt) with wind barbs along the top"><input type="checkbox" id="wx-mg-wind" checked> Wind</label>
-      <label class="wm-check" title="Sea-level pressure (hPa)"><input type="checkbox" id="wx-mg-pres" checked> Pressure</label>
-      <label class="wm-check" title="High, medium and low cloud (and fog with MEPS) as grey rows, darker with more cover; the cloud base (MEPS) or the ceiling (GFS) in ft"><input type="checkbox" id="wx-mg-cloud" checked> Clouds</label>
-      {% if gfs_on %}<label class="wm-check" title="A light band around the temperature and wind-speed lines: how far off the forecast has been at this lead time — 8 in 10 of the checked hours of the last 30 days were within it (GFS, and MEPS over its own days; measured against the {{ airport_icao }} METAR); the table under the chart gives the numbers"><input type="checkbox" id="wx-mg-err" checked> Typical error</label>{% endif %}
+      <label class="wm-label">{{ L('Range', 'Jakso') }}</label>
+      <select id="wx-mg-range" class="wm-select" title="{{ L('How long a period the meteogram shows', 'Kuinka pitkän ajan meteogrammi näyttää') }}"></select>
+      <label class="wm-check" title="{{ L("2 m temperature (red above, blue below 0 °C) with the day's highest and lowest", "2 m:n lämpötila (yli 0 °C punainen, alle sininen) sekä vuorokauden ylin ja alin") }}"><input type="checkbox" id="wx-mg-temp" checked> {{ L('Temperature', 'Lämpötila') }}</label>
+      <label class="wm-check" title="{{ L("The temperature at 850 hPa (about 1 500 m, 4 800 ft) in the temperature panel: the models' line (fuchsia) and, for places within 150 km of the receiver, MODE-S Wind's own measured value of each past hour from the aircraft (dots)", "850 hPa:n lämpötila (noin 1 500 m, 4 800 ft) lämpötilapaneelissa: mallien käyrä (fuksia) ja vastaanottimen 150 km:n säteellä MODE-S Windin lentokoneista mittaama arvo kultakin menneeltä tunnilta (pisteet)") }}"><input type="checkbox" id="wx-mg-t850"> 850 hPa</label>
+      <label class="wm-check" title="{{ L("The freezing level (0 °C) in ft above sea level as its own panel: the models' line (cyan) and, for places within 150 km of the receiver, the level MODE-S Wind measured each past hour (dots: the METAR at the ground, the airport's climb-outs and landings, the area's aircraft above; a triangle at the ground when the whole column was below 0 °C)", "Nollarajan (0 °C) korkeus jalkoina merenpinnasta omana paneelinaan: mallien käyrä (syaani) ja vastaanottimen 150 km:n säteellä MODE-S Windin kultakin menneeltä tunnilta mittaama taso (pisteet: METAR maassa, lentoaseman nousut ja laskeutumiset, alueen koneet ylempänä; kolmio maassa, kun koko ilmapatsas oli alle 0 °C)") }}"><input type="checkbox" id="wx-mg-frz"> {{ L('Freezing level', 'Nollaraja') }}</label>
+      <label class="wm-check" title="{{ L("Precipitation in mm per hour (rain blue, snow violet; GFS's 3-hour steps as wider bars) with the day's total in mm", "Sademäärä millimetreinä tunnissa (vesi sininen, lumi violetti; GFS:n 3 tunnin askeleet leveämpinä pylväinä) sekä vuorokauden summa (mm)") }}"><input type="checkbox" id="wx-mg-precip" checked> {{ L('Precipitation', 'Sade') }}</label>
+      <label class="wm-check" title="{{ L("Thunderstorm potential: a thin strip coloured by the model's CAPE (convective available potential energy) — yellow from 100, orange from 500, red from 1 000, violet from 2 500 J/kg. Mainly for the summer", "Ukkospotentiaali: ohut kaista, jonka väri kertoo mallin CAPE-arvon (konvektiivinen käytettävissä oleva potentiaalienergia) — keltainen 100:sta, oranssi 500:sta, punainen 1 000:sta ja violetti 2 500 J/kg:sta alkaen. Lähinnä kesää varten") }}"><input type="checkbox" id="wx-mg-cape"> CAPE</label>
+      <label class="wm-check" title="{{ L('10 m wind speed and gusts (kt) with wind barbs along the top', '10 m:n tuulen nopeus ja puuskat (kt) sekä tuuliviirit yläreunassa') }}"><input type="checkbox" id="wx-mg-wind" checked> {{ L('Wind', 'Tuuli') }}</label>
+      <label class="wm-check" title="{{ L('Sea-level pressure (hPa)', 'Merenpinnan paine (hPa)') }}"><input type="checkbox" id="wx-mg-pres" checked> {{ L('Pressure', 'Paine') }}</label>
+      <label class="wm-check" title="{{ L('High, medium and low cloud (and fog with MEPS) as grey rows, darker with more cover; the cloud base (MEPS) or the ceiling (GFS) in ft', 'Ylä-, keski- ja alapilvet (ja MEPS-mallilla sumu) harmaina riveinä, sitä tummempina mitä enemmän pilveä; pilven alaraja (MEPS) tai pilvikatto (GFS) jalkoina') }}"><input type="checkbox" id="wx-mg-cloud" checked> {{ L('Clouds', 'Pilvet') }}</label>
+      <label class="wm-check" title="{{ L("The airport's METARs in the past hours, near the airport only: the temperature (dark dots), the mean wind (open) and gust, the QNH, and with Dew point the dew point; the visibility and ceiling on hover", "Lentoaseman METARit menneiltä tunneilta, vain lentoaseman lähellä: lämpötila (tummat pisteet), keskituuli (avoin) ja puuska, QNH sekä Kastepiste-valinnalla kastepiste; näkyvyys ja pilvikatto osoittimen kohdalla") }}"><input type="checkbox" id="wx-mg-obs"> METAR</label>
+      <label class="wm-check" title="{{ L("The wind the landing aircraft met at 1 000 ft (squares) and 2 000 ft (triangles) above their runway — the median of each hour's landings (approach band winds), near the airport only", "Tuuli, jonka laskeutuvat koneet kohtasivat 1 000 ft (neliöt) ja 2 000 ft (kolmiot) kiitotiensä yläpuolella — kunkin tunnin laskeutumisten mediaani (lähestymiskaistojen tuulet), vain lentoaseman lähellä") }}"><input type="checkbox" id="wx-mg-lw"> {{ L('Landings', 'Laskeutumiset') }}</label>
+      <label class="wm-check" title="{{ L('The dew point (green, dotted) in the temperature panel, a strip at its foot where the temperature is within 2 °C of the dew point (mist or fog possible), and a Vis row under the clouds where the visibility is below 5 km (darker below 1.5 km and 500 m)', 'Kastepiste (vihreä pisteviiva) lämpötilapaneelissa, sen alareunassa kaista, kun lämpötila on 2 °C:n sisällä kastepisteestä (utua tai sumua mahdollista), ja pilvien alla Näk.-rivi, kun näkyvyys on alle 5 km (tummempi alle 1,5 km ja 500 m)') }}"><input type="checkbox" id="wx-mg-dew"> {{ L('Dew point & vis', 'Kastepiste & näk.') }}</label>
+      <label class="wm-check" title="{{ L("A second row of wind barbs: the wind at 850 hPa (about 1 500 m) — the model's (fuchsia) and, in the past hours, the one MODE-S Wind measured from the aircraft (in the colour of the 10 m barbs)", "Toinen rivi tuuliviirejä: 850 hPa:n tuuli (noin 1 500 m) — mallin (fuksia) ja menneillä tunneilla MODE-S Windin lentokoneista mittaama (10 m:n viirien värinen)") }}"><input type="checkbox" id="wx-mg-w850"> {{ L('850 hPa wind', '850 hPa tuuli') }}</label>
+      <label class="wm-check" title="{{ L("Sunrise and sunset (UTC) at the place, at each day's label when the days are wide enough (the shorter ranges)", "Auringonnousu ja -lasku (UTC) paikalla kunkin päivän otsikossa, kun päivät ovat riittävän leveitä (lyhyemmät jaksot)") }}"><input type="checkbox" id="wx-mg-sun"> {{ L('Sun', 'Aurinko') }}</label>
+      {% if gfs_on %}<label class="wm-check" title="{{ L('A light band around the temperature and wind-speed lines: how far off the forecast has been at this lead time — 8 in 10 of the checked hours of the last 30 days were within it (GFS, and MEPS over its own days; measured against the ' ~ airport_icao ~ ' METAR); the table under the chart gives the numbers', 'Vaalea kaista lämpötila- ja tuulen nopeus -käyrien ympärillä: kuinka paljon ennuste on osunut ohi tällä ennustepituudella — viimeisten 30 vuorokauden tarkistetuista tunneista 8/10 osui sen sisään (GFS, ja MEPS omina päivinään; verrattuna kentän ' ~ airport_icao ~ ' METARiin); kaavion alla oleva taulukko antaa luvut') }}"><input type="checkbox" id="wx-mg-err" checked> {{ L('Typical error', 'Tyypillinen virhe') }}</label>{% endif %}
     </div>
     {% if gfs_on %}
     <!-- the model (from 2026-11-05): MEPS (2.5 km, about 2 days ahead) or GFS (global, 0.25°, 16 days; viewing only) -->
@@ -197,6 +206,7 @@ const RECEIVER_LON = {{ receiver_lon }};
 <script>
 const MG_AIRPORT = { icao: {{ airport_icao|tojson }}, lat: {{ airport_lat }}, lon: {{ airport_lon }} };
 const MG_GFS = {{ 'true' if gfs_on else 'false' }};
+window.MG_LANG = {{ ('fi' if mg_fin else 'en')|tojson }};   // the meteogram's language: the FIN right (from 2026-11-07)
 </script>
 <script src="{{ url_for('static', filename='js/meteogram.js') }}"></script>
 <script src="{{ url_for('static', filename='js/weather.js') }}"></script>

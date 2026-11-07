@@ -363,11 +363,13 @@ function _rxChips(u, d) {
   if (u.full) ch.push(`<span class="maint-rx-chip full" title="Every receiver, the GPS pages and the phone's GNSS view${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Full view</span>`);
   // the Pilot right (from 2026-11-05)
   if (u.pilot) ch.push(`<span class="maint-rx-chip pilot" title="The phone's Pilot view${u.kind === 'maintenance' ? ' — always for the maintenance user' : ''}">Pilot</span>`);
+  // the FIN right (from 2026-11-07): the meteograms in Finnish
+  if (u.fin) ch.push('<span class="maint-rx-chip fin" style="background:rgba(29,78,216,.12);color:#1d4ed8;border-color:rgba(29,78,216,.45)" title="The meteograms (the Weather page and the phone) in Finnish">FIN</span>');
   (u.own || []).forEach(id => {
     const known = (d.receivers || []).some(x => x.id === id);
     ch.push(`<span class="maint-rx-chip${known ? '' : ' gone'}" title="${known ? 'Own receiver: ' + _esc(_rxName(d, id)) : _esc(id) + ': not configured on this server (kept)'}">${_esc(id)}</span>`);
   });
-  if (!ch.length || (ch.length === 1 && u.pilot && !u.full)) ch.push('<span class="maint-rx-chip dim">All receivers</span>');
+  if (!u.full && !(u.own || []).length) ch.push('<span class="maint-rx-chip dim">All receivers</span>');
   return ch.join('');
 }
 function _rxOverview(d) {
@@ -378,14 +380,15 @@ function _rxOverview(d) {
   const own = id => users.filter(u => (u.own || []).includes(id)).map(u => `<b>${_esc(u.user)}</b>`);
   const full = users.filter(u => u.full).map(u => `<b>${_esc(u.user)}</b>${u.kind === 'maintenance' ? ' (always)' : ''}`);
   const pil = users.filter(u => u.pilot).map(u => `<b>${_esc(u.user)}</b>${u.kind === 'maintenance' ? ' (always)' : ''}`);
+  const fin = users.filter(u => u.fin).map(u => `<b>${_esc(u.user)}</b>`);
   el.innerHTML = `<b>Receivers on this server:</b> ` + rx.map(r => {
       const o = own(r.id);
       return `${_esc(r.id)}${r.name ? ' · ' + _esc(r.name) : ''} — ${o.length ? 'owner' + (o.length > 1 ? 's ' : ' ') + o.join(', ') : '<i>no owner</i>'}`;
     }).join(' &nbsp;·&nbsp; ')
-    + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'} &nbsp;·&nbsp; Pilot: ${pil.join(', ') || '—'}. `
+    + ` &nbsp;·&nbsp; Full view: ${full.join(', ') || '—'} &nbsp;·&nbsp; Pilot: ${pil.join(', ') || '—'} &nbsp;·&nbsp; FIN: ${fin.join(', ') || '—'}. `
     + (rx.length < 2 ? 'With one receiver everyone sees its statistics; the rights take effect when more receivers are added. '
                      : 'Everyone else sees only <i>All receivers</i> on the Statistics page and the phone. ')
-    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights. Full view (<b>Permissions</b>) also opens the GPS pages and the phone\'s GNSS view; <b>Pilot</b> (also under Permissions, on its own) the phone\'s Pilot view.';
+    + 'A user can have Full view and own receivers at the same time; the receivers\' own statistics, their feeds in the system health and their own coverage lines on the Live Map follow the same rights. Full view (<b>Permissions</b>) also opens the GPS pages and the phone\'s GNSS view; <b>Pilot</b> (also under Permissions, on its own) the phone\'s Pilot view; <b>FIN</b> shows the meteograms in Finnish.';
 }
 function _closeRx() {
   _rxUser = null;
@@ -393,13 +396,15 @@ function _closeRx() {
   document.getElementById('users-perm-row').style.display = 'none';
 }
 const _userOf = name => ((_usersData || {}).users || []).find(x => x.user === name) || {};
-// Permissions (from 2026-11-03): Full view and (from 2026-11-05) Pilot; the own receivers are kept as they are
+// Permissions (from 2026-11-03): Full view, (from 2026-11-05) Pilot and (from 2026-11-07) FIN; the own receivers are kept as they are
 function _openPerm(name) {
   _closeRx();
   _rxUser = name;
   document.getElementById('users-perm-user').textContent = name;
   document.getElementById('users-perm-full').checked = !!_userOf(name).full;
   document.getElementById('users-perm-pilot').checked = !!_userOf(name).pilot;
+  const fe = document.getElementById('users-perm-fin');
+  if (fe) fe.checked = !!_userOf(name).fin;
   document.getElementById('users-perm-row').style.display = '';
 }
 // Receivers: the own receivers only; Full view is kept as it is
@@ -417,12 +422,13 @@ function _openRx(name) {
   document.getElementById('users-rx-row').style.display = '';
 }
 document.getElementById('users-rx-cancel-btn').addEventListener('click', _closeRx);
-async function _saveRights(full, own, pilot) {
+async function _saveRights(full, own, pilot, fin) {
   const user = _rxUser;
   if (pilot === undefined) pilot = !!_userOf(user).pilot;
+  if (fin === undefined) fin = !!_userOf(user).fin;
   try {
-    renderUsers(await _usersCall('rights', user, '', { full, own, pilot }));
-    const parts = [full ? 'Full view' : '', own.length ? 'own ' + own.join(', ') : '', pilot ? 'Pilot' : ''].filter(Boolean);
+    renderUsers(await _usersCall('rights', user, '', { full, own, pilot, fin }));
+    const parts = [full ? 'Full view' : '', own.length ? 'own ' + own.join(', ') : '', pilot ? 'Pilot' : '', fin ? 'FIN' : ''].filter(Boolean);
     _setStatus('users-status', `✓ Rights saved for ${user}: ` + (parts.length ? parts.join(' + ') : 'All receivers only'));
     _closeRx();
   } catch (err) { _setStatus('users-status', `Error: ${err.message}`, true); }
@@ -436,7 +442,8 @@ document.getElementById('users-perm-cancel-btn').addEventListener('click', _clos
 document.getElementById('users-perm-save-btn').addEventListener('click', () => {
   if (!_rxUser) return;
   _saveRights(document.getElementById('users-perm-full').checked, _userOf(_rxUser).own || [],
-              document.getElementById('users-perm-pilot').checked);
+              document.getElementById('users-perm-pilot').checked,
+              document.getElementById('users-perm-fin') ? document.getElementById('users-perm-fin').checked : undefined);
 });
 
 // ── Shared test login: end date (web/shared_login.py) ────────────────────────
