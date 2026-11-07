@@ -614,7 +614,7 @@ const Meteogram = (() => {
       if (P0.frz && q.zl != null) p.push(`${tr('freezing level', 'nollaraja')} ${fmtFt(q.zl)} ft`);
       if (P0.cape && q.ca != null && q.ca >= 10) p.push(`CAPE ${Math.round(q.ca)} J/kg`);
       if (q.ws != null) p.push((q.ws < 1 ? tr('calm', 'tyyntä') : `${tr('wind', 'tuuli')} ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`) + (q.ew != null ? ` (±${Math.round(q.ew)} kt)` : ''));
-      if (q.gu != null) p.push(`${tr('gust', 'puuska')} ${q.gu} kt`);
+      if (q.gu != null) p.push(`${tr('gust', 'puuska')} ${q.gu} kt (${Math.round(q.gu * 0.514444)} m/s)`);   // m/s too (from 2026-11-07)
       if (q.r != null) {
         const sn = q.s != null && q.r > 0 && q.s >= 0.5 * q.r;
         p.push(q.r >= 0.05 ? `${sn ? tr('snow', 'lumi') : tr('rain', 'vesi')} ${nf(q.r, 1)} mm/h${q.pi > 1 ? tr(` (mean of ${q.pi} h)`, ` (${q.pi} h:n keskiarvo)`) : ''}` : tr('dry', 'poutaa'));

@@ -123,7 +123,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## Meteograms
 file: Meteogram_User_Guide.pdf
-version: 1.0
+version: 1.01
 date: 2026-11-07
 pages: 11
 open: mg
@@ -140,7 +140,7 @@ How to read the **meteograms** of the Weather page and the phone: the model weat
 
 ## Meteogrammit (suomeksi)
 file: Meteogram_User_Guide_FI.pdf
-version: 1.0
+version: 1.01
 date: 2026-11-07
 pages: 11
 open: mgfi

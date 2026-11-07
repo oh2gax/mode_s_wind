@@ -38,9 +38,10 @@ All off by default, on the Weather page's meteogram and in the phone's Meteogram
 - A new option **Wind values** — *Off* (default) / *kt* / *m/s* — on the Weather page's meteogram (a selector after the tick boxes; `ms_weather_mg` `wnum`) and in the phone's Meteogram options (a chip row; `ms_app_mg_wnum`): a row under the 10 m barbs with the direction to 10° and, below it, the speed in kt or m/s, for each barb (the same model hour); calm *–* / *0*. Finnish for the FIN right (*Tuulen arvot*, *Pois*). `static/js/meteogram.js` (`opts.wnum`), `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
 
 ### The Meteogram user guide, in English and Finnish (evening)
-- New **Meteogram user guide** 1.0 (11 pages) — opening a meteogram and its controls, MEPS and GFS, the panels one by one, the wind values, what MODE-S Wind measures itself, the values of one hour, the typical error and the forecast-check table, the phone, the Finnish meteograms, sensible reading and the terms in English and Finnish; all figures with real data (the live server's runs and check of 7 Nov 2026, the stored data and the real runs of 6 Nov 2026). `doc/Meteogram_User_Guide.pdf`.
+- New **Meteogram user guide** 1.01 (11 pages) — opening a meteogram and its controls, MEPS and GFS, the panels one by one, the wind values, what MODE-S Wind measures itself, the values of one hour, the typical error and the forecast-check table, the phone, the Finnish meteograms, sensible reading and the terms in English and Finnish; all figures with real data (the live server's runs and check of 7 Nov 2026, the stored data and the real runs of 6 Nov 2026). `doc/Meteogram_User_Guide.pdf`.
 - The same **in Finnish** (*Meteogrammit*, with the Finnish meteogram in the figures). `doc/Meteogram_User_Guide_FI.pdf`.
 - Both in the *User guides* (`doc/guides.md`, `open: mg` / `mgfi`). The Weather page's meteogram has a **?** at the end of its controls that opens the guide — the Finnish one with the FIN right. `web/templates/weather.html`.
+- The meteogram's read-out gives the gust in m/s too (*gust 18 kt (9 m/s)*), as the wind (Weather page and phone). `static/js/meteogram.js`.
 - The meteogram's cloud-base numbers no longer overlap the row's *ft* label at the left edge. `static/js/meteogram.js`.
 
 ### Pilot · Now: 13 heights
