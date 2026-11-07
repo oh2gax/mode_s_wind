@@ -17,6 +17,8 @@
  *          panel: the models' line and MODE-S Wind's own measured value of the past hours as dots
  *   (from 2026-11-07 afternoon; ☰ menu, off by default) Freezing level and CAPE panels; METAR,
  *          Landings' winds, Sun times, Dew point & visibility, 850 hPa wind (meteogram.js)
+ *   Wind values (from 2026-11-07 evening; ☰ menu, Off by default) Off / kt / m/s: the direction and
+ *          speed in numbers under the 10 m barbs (meteogram.js opts.wnum; ms_app_mg_wnum)
  *   Typical error (with GFS, from 2026-11-06; ☰ menu, on by default) a band around the temperature
  *          and wind lines — how far off the forecast has been at that lead day, 8 in 10 checked hours
  *          within it (/api/weather/gfs_skill) — and a line under the chart
@@ -52,6 +54,7 @@
     panels: {},
     err: lsGet('ms_app_mg_err', 'true') !== 'false',
     t850: lsGet('ms_app_mg_t850', 'false') === 'true',     // the 850 hPa temperature (from 2026-11-07; off by default)
+    wnum: lsGet('ms_app_mg_wnum', 'off'),                    // the wind values: off / kt / ms (from 2026-11-07 evening)
   };
   PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, ['pres', 'frz', 'cape'].includes(k) ? 'false' : 'true') !== 'false'; });
   OPTS.forEach(k => { S[k] = lsGet('ms_app_mg_' + k, 'false') === 'true'; });
@@ -126,7 +129,7 @@
     const eb = GFS && S.err && Meteogram.errBand ? Meteogram.errBand(skill, p.apt ? '' : tr('measured at ', 'mitattu kentällä ') + APT.icao) : null;
     chart = Meteogram.render($('amg-chart'), { meps: data.meps, gfs: data.gfs }, {
       compact: true, panels: Object.assign({}, S.panels), errBand: eb, t850: S.t850,
-      obs: S.obs, lw: S.lw, sun: S.sun, dew: S.dew, w850: S.w850,
+      obs: S.obs, lw: S.lw, sun: S.sun, dew: S.dew, w850: S.w850, wnum: S.wnum,
       lang: FI ? 'fi' : 'en',
       emptyText: err.length ? err.join(' · ') : tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.') });
     const runs = [];
@@ -179,6 +182,12 @@
   if (tcb) {
     tcb.checked = S.t850;
     tcb.addEventListener('change', () => { S.t850 = tcb.checked; lsSet('ms_app_mg_t850', tcb.checked); if (on) draw(); });
+  }
+  const wsel = $('app-mg-wnum');                   // the wind values (a chip row made by app.js)
+  if (wsel) {
+    if (!['off', 'kt', 'ms'].includes(S.wnum)) S.wnum = 'off';
+    wsel.value = S.wnum;
+    wsel.addEventListener('change', () => { S.wnum = wsel.value; lsSet('ms_app_mg_wnum', wsel.value); if (on) draw(); });
   }
   syncChips();
   // the receiver sites (the place chosen before comes back once they are known)

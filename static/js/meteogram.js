@@ -30,6 +30,8 @@
  *                  ≤ 2 °C (mist and fog risk) and a visibility row (vi) under the clouds
  *     opts.w850    a second barb row: the models' 850 hPa wind (u8 / v8) and, in the past hours,
  *                  the measured one (data.*.o850w)
+ *   opts.wnum     'kt' | 'ms' (from 2026-11-07 evening; off when left out): the wind values in numbers
+ *                  under the 10 m barbs — the direction to 10° above, the speed (kt or m/s) below
  *   opts.lang     'fi' (from 2026-11-07; or window.MG_LANG — the users with the FIN right): the texts in
  *                  Finnish (weekdays, labels, legend, read-out; decimal commas); times stay UTC
  *
@@ -169,6 +171,7 @@ const Meteogram = (() => {
     const MET = opts.obs ? OB.metar || [] : [], LW = opts.lw ? OB.lw || [] : [];
     const OZL = OB.ozl || [], O8W = opts.w850 ? OB.o850w || [] : [];
     const DEW = !!opts.dew, W850 = !!opts.w850, SUN = !!opts.sun;
+    const WNUM = opts.wnum === 'kt' || opts.wnum === 'ms' ? opts.wnum : null;   // the wind values (from 2026-11-07 evening)
     el.innerHTML = '';
     if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.'))}</div>`; return { destroy() {} }; }
     const read = document.createElement('div');
@@ -185,7 +188,7 @@ const Meteogram = (() => {
       const W = Math.max(280, box.clientWidth || el.clientWidth || 600);
       const AL = C ? 34 : 46, AR = C ? 8 : 14, TOP = C ? 30 : 34, GAP = C ? 6 : 9;
       const H = { temp: C ? 112 : 150, frz: C ? 56 : 72, precip: C ? 54 : 80, cape: C ? 14 : 18,
-                  wind: (C ? 92 : 118) + (W850 ? (C ? 18 : 22) : 0), pres: C ? 58 : 78, cloud: 0 };
+                  wind: (C ? 92 : 118) + (W850 ? (C ? 18 : 22) : 0) + (WNUM ? (C ? 20 : 24) : 0), pres: C ? 58 : 78, cloud: 0 };
       const rowH = C ? 10 : 13;
       const fogRow = (SM && SM.hasFog) ? 1 : 0;
       const visRow = DEW && [SM, SG].some(S => S && S.pts.some(q => q.vi != null)) ? 1 : 0;
@@ -435,8 +438,8 @@ const Meteogram = (() => {
           .concat(LW.filter(w => w[0] >= t0 && w[0] <= t1).map(w => w[3]))
           .concat(MET.filter(m => m[0] >= t0 && m[0] <= t1).flatMap(m => [m[4], m[5]]).filter(v => v != null));
         const mx = Math.max(20, Math.ceil(Math.max(0, ...all) * 1.1 / 5) * 5);
-        const top10 = C ? 26 : 32, row8 = W850 ? (C ? 18 : 22) : 0;
-        const top = top10 + row8;                   // the barbs' rows (10 m; 850 hPa from 2026-11-07)
+        const top10 = C ? 26 : 32, row8 = W850 ? (C ? 18 : 22) : 0, rowN = WNUM ? (C ? 20 : 24) : 0;
+        const top = top10 + rowN + row8;            // the barbs' rows (10 m; its values; 850 hPa — from 2026-11-07)
         const Y = v => b.y1 - 3 - v / mx * (H.wind - top - 4);
         ylab('wind', 'kt');
         yaxis('wind', 0, mx, mx > 60 ? 20 : 10, v => String(v), Y);
@@ -466,11 +469,20 @@ const Meteogram = (() => {
         // barbs along the top: every N hours, at least ~26 px apart
         const pxH = pw / ((t1 - t0) / HOUR);
         const N = [1, 3, 6, 12, 24, 48].find(n => n * pxH >= (C ? 22 : 26)) || 48;
-        const y8 = b.y0 + top10 + row8 * 0.62;
+        const y8 = b.y0 + top10 + rowN + row8 * 0.62;
+        // the wind values under the 10 m barbs (from 2026-11-07 evening): the direction to 10°, the speed below
+        const yD = b.y0 + top10 + (C ? 6 : 7), yS = yD + (C ? 8.5 : 10.5), fsN = C ? 7.5 : 9;
+        if (WNUM) out.push(txt(AL - 3, yS, WNUM === 'kt' ? 'kt' : 'm/s', { anchor: 'end', fs: C ? 7.5 : 9 }));
         if (W850) out.push(txt(AL - 3, y8 - (C ? 5 : 6), '850', { anchor: 'end', fs: C ? 7.5 : 9, col: T.t850 }));
         for (let t = Math.ceil(t0 / (N * HOUR)) * N * HOUR; t <= t1; t += N * HOUR) {
           const q = (both && SM && t > mepsT0 && t <= meps1) ? nearest(SM, t) : nearest(prim === SG ? SG : SM, t) || nearest(SM, t);
           if (q && q.ws != null) out.push(barbSvg(X(t), b.y0 + top10 / 2 + (C ? 3 : 4), q.wd, q.ws, T.barb, C ? 13 : 16));
+          if (WNUM && q && q.ws != null) {
+            const calm = q.ws < 1, d10 = Math.round(q.wd / 10) * 10 % 360;
+            const sp = Math.round(WNUM === 'kt' ? q.ws : q.ws * 0.514444);
+            out.push(txt(X(t), yD, calm || q.wd == null ? '–' : String(d10 || 360).padStart(3, '0'), { anchor: 'middle', fs: fsN, col: T.text }));
+            out.push(txt(X(t), yS, calm ? '0' : String(sp), { anchor: 'middle', fs: fsN, col: T.text, w: 600 }));
+          }
           if (!W850) continue;
           // the 850 hPa row: measured in the past hours (the hourly profile), else the model
           let o = null;

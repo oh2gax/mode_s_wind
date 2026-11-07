@@ -17,6 +17,8 @@
  *          models' line and MODE-S Wind's own measured value of the past hours as dots
  *   (from 2026-11-07 afternoon, off by default) Freezing level and CAPE as panels; METAR, Landings,
  *          Sun, Dew point & vis, 850 hPa wind as options (meteogram.js)
+ *   Wind values (from 2026-11-07 evening; off by default) Off / kt / m/s: the direction and speed in
+ *          numbers under the 10 m barbs (meteogram.js opts.wnum)
  * FIN (from 2026-11-07): for a user with the FIN right (window.MG_LANG 'fi', weather.html) the
  * texts of this view, its controls and the chart are in Finnish (decimal commas; times UTC).
  * The view and the choices are remembered in this browser (ms_weather_mg); the
@@ -81,6 +83,7 @@ const WxMg = (() => {
     OPTS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).checked = !!st[k]; });
     if ($('wx-mg-err')) $('wx-mg-err').checked = st.err !== false;
     if ($('wx-mg-t850')) $('wx-mg-t850').checked = !!st.t850;
+    if ($('wx-mg-wnum')) $('wx-mg-wnum').value = ['kt', 'ms'].includes(st.wnum) ? st.wnum : 'off';
     fillRange(); fillPlace();
   }
 
@@ -140,7 +143,7 @@ const WxMg = (() => {
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
     const eb = MG_GFS && st.err !== false ? Meteogram.errBand(skillData, place.kind === 'apt' ? '' : tr('measured at ', 'mitattu kentällä ') + MG_AIRPORT.icao) : null;
     chart = Meteogram.render($('wx-mg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      panels, errBand: eb, t850: !!st.t850, obs: !!st.obs, lw: !!st.lw, sun: !!st.sun, dew: !!st.dew, w850: !!st.w850, lang: FI ? 'fi' : 'en',
+      panels, errBand: eb, t850: !!st.t850, obs: !!st.obs, lw: !!st.lw, sun: !!st.sun, dew: !!st.dew, w850: !!st.w850, wnum: st.wnum, lang: FI ? 'fi' : 'en',
       emptyText: err.length ? err.join(' · ') : tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.') });
     renderSkill();
     const runs = [];
@@ -225,6 +228,7 @@ const WxMg = (() => {
   OPTS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).addEventListener('change', e => { st[k] = e.target.checked; save(); draw(); }); });
   if ($('wx-mg-err')) $('wx-mg-err').addEventListener('change', e => { st.err = e.target.checked; save(); draw(); });
   if ($('wx-mg-t850')) $('wx-mg-t850').addEventListener('change', e => { st.t850 = e.target.checked; save(); draw(); });
+  if ($('wx-mg-wnum')) $('wx-mg-wnum').addEventListener('change', e => { st.wnum = e.target.value; save(); draw(); });
   const prevTheme = window.onThemeChange;
   window.onThemeChange = function () { if (prevTheme) prevTheme(); if (st.view === 'mg') draw(); };
 
