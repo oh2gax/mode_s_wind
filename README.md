@@ -1446,6 +1446,8 @@ GFS_WX = True                  # the GFS forecast for the Weather pages (viewing
 
 #### Meteogram (from 5 Nov 2026)
 
+User guide: [`doc/Meteogram_User_Guide.pdf`](doc/Meteogram_User_Guide.pdf) (version 1.0, 7 Nov 2026, 11 pages) and in Finnish [`doc/Meteogram_User_Guide_FI.pdf`](doc/Meteogram_User_Guide_FI.pdf) (*Meteogrammit*) — both in the *User guides* of the What's new window and of the phone's menu. The **?** at the end of the meteogram's controls opens the guide: the Finnish one for the users with the FIN right (`guide_links.mgfi`, else `guide_links.mg` — the `open: mg` / `open: mgfi` keys of `doc/guides.md`). Every figure has real data (the live server's runs and forecast check of 7 Nov 2026 11:32 UTC, and the stored data and real MEPS / GFS runs of 6 Nov 2026), drawn in a test.
+
 **Map | Meteogram** at the start of the Weather page's control strip: the model weather of **one place** over the days, on one time axis in **UTC** (`static/js/meteogram.js` — the drawing shared with the phone — and `static/js/weather_mg.js`). The place is the airport (`AIRPORT_ICAO`, by default), one of the **receiver sites** (from the evening of 5 Nov 2026: *RX-01 · name* …, the same receivers and positions as the maps' receiver triangles — `/api/coverage`, each receiver's own position rounded to 0.01°; one whose position is not known yet is left out) or a place **pinned on the map**: with *Point values* on, a click on the map and **Meteogram ›** in its card. The map's controls are hidden in this view; **Map** brings the map back as it was. The address `#mg` (or `#mg=RX-02` for a receiver site, `#mg=60.300,24.900` for a pinned place) opens the meteogram directly.
 
 | Control | Options | Description |
@@ -2676,7 +2678,8 @@ mode_s_wind/
 ├── doc/                       # README screenshots, Skew-T user guide (SkewT_User_Guide.pdf), Approach Conditions Index article,
 │                              # Sounding page / Wind Map guide (Sounding_Page_User_Guide.pdf), windshear guide
 │                              # (Windshear_User_Guide.pdf), Mode S & ADS-B / Statistics page guide
-│                              # (Statistics_User_Guide.pdf), mobile view guide (Mobile_User_Guide.pdf), retired windshear algorithms
+│                              # (Statistics_User_Guide.pdf), mobile view guide (Mobile_User_Guide.pdf), meteogram guide
+│                              # (Meteogram_User_Guide.pdf, in Finnish Meteogram_User_Guide_FI.pdf), retired windshear algorithms
 │                              # (Windshear_Algorithms_v1_Legacy.pdf), windshear study log
 │                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), Mode S & mast study log (EFHK_Mode_S_Mast_Wind_Study.pdf),
 │                              # EDR explained (EDR_Explained.pdf), the D-D-D method note (Data_Driven_Development_DDD.pdf),

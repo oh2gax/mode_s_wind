@@ -549,6 +549,7 @@ const Meteogram = (() => {
           const useM = SM && (!both || (t > mepsT0 && t <= meps1));
           const q = useM ? nearest(SM, t) : nearest(SG, t);
           if (!q || q.b == null || q.b > 6100) continue;      // above about 20 000 ft: not shown
+          if (X(t) < AL + (C ? 9 : 11)) continue;            // not over the row's 'ft' label (from 2026-11-07)
           const cloudy = useM ? ((q.l != null && q.l >= 20) || (q.c != null && q.c >= 20) || (q.f != null && q.f >= 20)) : true;
           if (!cloudy) continue;
           const ft = Math.round(q.b * 3.2808 / 100) * 100;

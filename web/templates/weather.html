@@ -45,6 +45,9 @@
         <option value="off">{{ L('Off', 'Pois') }}</option><option value="kt">kt</option><option value="ms">m/s</option>
       </select>
       {% if gfs_on %}<label class="wm-check" title="{{ L('A light band around the temperature and wind-speed lines: how far off the forecast has been at this lead time — 8 in 10 of the checked hours of the last 30 days were within it (GFS, and MEPS over its own days; measured against the ' ~ airport_icao ~ ' METAR); the table under the chart gives the numbers', 'Vaalea kaista lämpötila- ja tuulen nopeus -käyrien ympärillä: kuinka paljon ennuste on osunut ohi tällä ennustepituudella — viimeisten 30 vuorokauden tarkistetuista tunneista 8/10 osui sen sisään (GFS, ja MEPS omina päivinään; verrattuna kentän ' ~ airport_icao ~ ' METARiin); kaavion alla oleva taulukko antaa luvut') }}"><input type="checkbox" id="wx-mg-err" checked> {{ L('Typical error', 'Tyypillinen virhe') }}</label>{% endif %}
+      {# the meteogram's user guide (from 2026-11-07): the Finnish one for the users with the FIN right #}
+      {% set mg_guide = (guide_links.mgfi or guide_links.mg) if mg_fin else guide_links.mg %}
+      {% if mg_guide %}<a class="guide-q" href="{{ mg_guide }}" target="_blank" rel="noopener" title="{{ L('User guide: Meteograms — PDF in a new tab', 'Käyttöopas: Meteogrammit — PDF uudessa välilehdessä') }}">?</a>{% endif %}
     </div>
     {% if gfs_on %}
     <!-- the model (from 2026-11-05): MEPS (2.5 km, about 2 days ahead) or GFS (global, 0.25°, 16 days; viewing only) -->

@@ -4,7 +4,7 @@ The user guides listed in the **User guides** tab of the What's new window
 (web/whats_new.py). Each guide: a `## title` heading, then `key: value` lines —
 `file` (PDF in this folder; only these files are served, at /doc/<file>),
 `version`, `date` (YYYY-MM-DD), `pages`, `open` (the pages whose **?** button
-opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats; `windmap@30` opens it at PDF page 30)
+opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats, mg (the Weather page's meteogram) and mgfi (the same for the users with the FIN right); `windmap@30` opens it at PDF page 30)
 — then a blank line and the description (bullets, **bold**, `code`).
 
 ## The receiving station (brochure)
@@ -120,6 +120,34 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - **Mast** (from 1 Nov 2026): the Kivenlahti mast's lowest 300 m — EFHK now with the mast against MEPS and the aircraft, the tiles, the profile, the boundary layer with the mast's 10-minute steps, the time series and the comparison
 - **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a place tapped on the Weather map — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times**
 - What to do when something looks wrong, and a quick reference
+
+## Meteograms
+file: Meteogram_User_Guide.pdf
+version: 1.0
+date: 2026-11-07
+pages: 11
+open: mg
+
+How to read the **meteograms** of the Weather page and the phone: the model weather of one place over the days, with what was measured next to it.
+
+- Opening a meteogram: the airport, a receiver site or a pinned place, the address `#mg`, the controls; the phone's Meteogram view
+- **MEPS** and **GFS** — grids, runs, ranges, *Both*, the past hours and the grid cell
+- The panels one by one: **temperature** with the **850 hPa** temperature and the **dew point**, the **freezing level**, **precipitation**, **thunderstorm (CAPE)**, **wind** with barbs, **wind values** in kt or m/s, the **850 hPa wind** and the **landings' winds**, **pressure**, **clouds** with the cloud base / ceiling and visibility, the **sun times**
+- **What MODE-S Wind measures itself**: the aircraft's 850 hPa temperature and wind and the freezing level, the landings' winds and the METAR
+- The values of one hour, the **typical error** band and the forecast-check table — how far the forecast can be trusted, day by day
+- The meteograms **in Finnish** (FIN right), sensible reading, and the terms in English and Finnish
+- All figures with real data: the model runs and the forecast check of 6–7 Nov 2026
+
+## Meteogrammit (suomeksi)
+file: Meteogram_User_Guide_FI.pdf
+version: 1.0
+date: 2026-11-07
+pages: 11
+open: mgfi
+
+The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: the same contents with the Finnish meteogram (FIN right) in the figures. The Weather page's meteogram opens it with **?** for the users with the FIN right.
+
+- Meteogrammin avaaminen ja ohjaimet, MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
