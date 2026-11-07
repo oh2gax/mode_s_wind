@@ -8,8 +8,9 @@
  *  - Now: the METAR, the runways in use, the wind on final (head / cross at the
  *    surface and 500 / 1000 / 2000 ft above the runway) — of the runways in use
  *    (Auto) or of up to three runways the pilot chooses (from 2026-11-06:
- *    e.g. a turboprop given another runway), at 3 heights or 7 (300 … 2 500 ft,
- *    the Heights 3 / 7 buttons, from 2026-11-06), the windshear reports
+ *    e.g. a turboprop given another runway), at 3 heights, 7 (300 … 2 500 ft,
+ *    from 2026-11-06) or 13 (200, 400 … 2 600 ft, from 2026-11-07) — the Heights
+ *    3 / 7 / 13 buttons — the windshear reports
  *    of arrivals and departures, EDR and the go-arounds of the window.
  *  - Approach: the headwind on final of one runway's landings (ft above the
  *    runway) — each flight, its median and middle half, the own class
@@ -52,7 +53,7 @@
     rwy: lsGet('ms_app_pilot_rwy', ''),
     drwy: lsGet('ms_app_pilot_drwy', ''),                // the departure runway
     nrwy: lsGet('ms_app_pilot_nrwy', '').split(',').filter(Boolean).slice(0, 3),   // Now: the chosen runways ([] = Auto)
-    hts: lsGet('ms_app_pilot_hts', 'basic') === 'more' ? 'more' : 'basic',          // Now: 3 or 7 heights (from 2026-11-06)
+    hts: ['more', 'all'].includes(lsGet('ms_app_pilot_hts', 'basic')) ? lsGet('ms_app_pilot_hts', 'basic') : 'basic',   // Now: 3, 7 (2026-11-06) or 13 heights (2026-11-07)
     filt: lsGet('ms_app_pilot_filter', 'all'),          // all / cls
     q: lsGet('ms_app_pilot_q', ''),
   };
@@ -77,7 +78,7 @@
     tab = tab || S.tab;
     const want = ++n;
     try {
-      if (tab === 'now') D.now = await get(`/api/pilot/brief?min=${S.min}${S.nrwy.length ? '&rwys=' + encodeURIComponent(S.nrwy.join(',')) : ''}${S.hts === 'more' ? '&hts=more' : ''}`);
+      if (tab === 'now') D.now = await get(`/api/pilot/brief?min=${S.min}${S.nrwy.length ? '&rwys=' + encodeURIComponent(S.nrwy.join(',')) : ''}${S.hts !== 'basic' ? '&hts=' + S.hts : ''}`);
       else if (tab === 'app') {
         D.app = await get(`/api/pilot/approach?min=${S.min}${S.rwy ? '&rwy=' + encodeURIComponent(S.rwy) : ''}`);
         if (D.app && D.app.rwy && D.app.rwy !== S.rwy && !(D.app.runways || {})[S.rwy]) S.rwy = '';
@@ -163,7 +164,7 @@
     const all = d.runways || ['04L', '04R', '22L', '22R', '15', '33'], chosen = d.chosen || [];
     out.push(`<div class="apl-seg apl-nrwy"><span class="apl-dim apl-sm">Wind on final</span><button type="button" data-nrwy="" class="${chosen.length ? '' : 'on'}">Auto</button>`
       + all.map(k => `<button type="button" data-nrwy="${esc(k)}" class="${chosen.includes(k) ? 'on' : ''}">${esc(k)}</button>`).join('')
-      + `<span class="sp"></span><span class="apl-dim apl-sm apl-hlbl">Heights</span><button type="button" data-hts="basic" class="${S.hts === 'more' ? '' : 'on'}">3</button><button type="button" data-hts="more" class="${S.hts === 'more' ? 'on' : ''}">7</button></div>`);
+      + `<span class="sp"></span><span class="apl-dim apl-sm apl-hlbl">Heights</span><button type="button" data-hts="basic" class="${S.hts === 'basic' ? 'on' : ''}">3</button><button type="button" data-hts="more" class="${S.hts === 'more' ? 'on' : ''}">7</button><button type="button" data-hts="all" class="${S.hts === 'all' ? 'on' : ''}">13</button></div>`);
     const rowsShown = chosen.length ? (d.rows || []) : (d.rows || []).slice(0, 2);
     if (!rowsShown.length) out.push(card('Wind on final', `last ${S.min} min`, '<div class="apl-dim">No landings in the window — choose a runway above for its surface wind from the METAR.</div>'));
     rowsShown.forEach((e, i) => {

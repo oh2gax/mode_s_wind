@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.07112026 — The 850 hPa temperature on the meteograms, measured by the aircraft too, and 13 heights in the Pilot view
+
+- **850 hPa temperature** — the meteograms (Weather page and phone) can show the temperature at 850 hPa, about 1 500 m: the usual level for telling the air mass, e.g. rain or snow. Switch on *850 hPa*: a fuchsia line from MEPS and GFS and, for the past hours near EFHK, **dots measured by the aircraft themselves** (MODE-S Wind's own hourly profile). Tap or move over the chart for the values.
+- **Pilot · Now: 13 heights** — the wind on final every 200 ft from 200 to 2 600 ft above the runway (*Heights 3 / 7 / 13*). Mobile guide 1.62.
+
 ## v.06112026 — More meteogram ranges, your own runways and more heights in the Pilot view, correct heights again, and how far GFS can be trusted
 
 - **How far can GFS be trusted?** — the meteograms now show the GFS forecast's **typical error**: a light band around the temperature and wind lines that widens with the days ahead (8 in 10 hours of the last 30 days were within it at EFHK), and on the Weather page a table by lead day with *GFS has been useful to about day N here*. Measured against the EFHK METAR; on the phone one line under the chart. Switch it off with *Typical error*. Mobile guide 1.61 shows it with the live data of 6 November.

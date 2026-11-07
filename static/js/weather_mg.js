@@ -13,6 +13,8 @@
  *   Typical error (with GFS, from 2026-11-06) a band around the temperature and wind lines — how far
  *          off the forecast has been at that lead day (8 in 10 checked hours within it) — and a
  *          table under the chart: /api/weather/gfs_skill, the stored runs against the airport's METAR
+ *   850 hPa (from 2026-11-07; off by default) the 850 hPa temperature in the temperature panel: the
+ *          models' line and MODE-S Wind's own measured value of the past hours as dots
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
  * while shown (the server caches the answers, a new run makes new ones).
@@ -27,7 +29,7 @@ const WxMg = (() => {
     meps: [['24', 'past 24 h + forecast'], ['72', 'past 3 days + forecast'], ['168', 'past 7 days + forecast']],
     gfs: [['48', '2 days'], ['120', '5 days'], ['168', '7 days'], ['240', '10 days'], ['384', '16 days']],   // 2 and 7 days from 2026-11-06
   };
-  let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null, err: true };
+  let st = { view: 'map', model: MG_GFS ? 'both' : 'meps', range: { meps: '24', gfs: '384' }, panels: {}, pin: null, err: true, t850: false };
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st = Object.assign(st, s, { range: Object.assign(st.range, s.range || {}) }); } catch (e) { /* private mode */ }
   if (!MG_GFS) st.model = 'meps';
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* private mode */ } };
@@ -65,6 +67,7 @@ const WxMg = (() => {
     $('wx-mg-model').value = st.model;
     PANELS.forEach(k => { $('wx-mg-' + k).checked = st.panels[k] !== false; });
     if ($('wx-mg-err')) $('wx-mg-err').checked = st.err !== false;
+    if ($('wx-mg-t850')) $('wx-mg-t850').checked = !!st.t850;
     fillRange(); fillPlace();
   }
 
@@ -124,7 +127,7 @@ const WxMg = (() => {
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
     const eb = MG_GFS && st.err !== false ? Meteogram.errBand(skillData, place.kind === 'apt' ? '' : 'measured at ' + MG_AIRPORT.icao) : null;
     chart = Meteogram.render($('wx-mg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      panels, errBand: eb, emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
+      panels, errBand: eb, t850: !!st.t850, emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
     renderSkill();
     const runs = [];
     if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))}${data.meps.runs.length > 1 ? ' (the past hours from the earlier runs)' : ''}${data.meps.cell.fine_grid ? ', the 2.5 km cell where that run has the hour' : ''} — MET Norway, CC BY 4.0`);
@@ -194,6 +197,7 @@ const WxMg = (() => {
   });
   PANELS.forEach(k => $('wx-mg-' + k).addEventListener('change', e => { st.panels[k] = e.target.checked; save(); draw(); }));
   if ($('wx-mg-err')) $('wx-mg-err').addEventListener('change', e => { st.err = e.target.checked; save(); draw(); });
+  if ($('wx-mg-t850')) $('wx-mg-t850').addEventListener('change', e => { st.t850 = e.target.checked; save(); draw(); });
   const prevTheme = window.onThemeChange;
   window.onThemeChange = function () { if (prevTheme) prevTheme(); if (st.view === 'mg') draw(); };
 

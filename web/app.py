@@ -1389,7 +1389,9 @@ def create_app(
     def weather_meteogram_api():
         """A meteogram (from 2026-11-05): every stored hour of ?model=meps|gfs at the
         grid cell nearest ?lat=&lon= (default the airport) from now − ?past= h to
-        now + ?fc= h (web/api/weather.py meteogram); gzip-compressed."""
+        now + ?fc= h (web/api/weather.py meteogram); gzip-compressed.  From
+        2026-11-07 also "o850": MODE-S Wind's own 850 hPa temperature of the past
+        hours (the hourly profile; places within its radius of the receiver)."""
         import gzip as _gzip
         from web.api import weather as _wx
         lat = request.args.get("lat", type=float)
@@ -1400,6 +1402,10 @@ def create_app(
         fc = max(0.0, min(400.0, request.args.get("fc", 400.0, type=float)))
         gfs = _wx_model() == "gfs"
         d = _wx.meteogram(_gfs_db() if gfs else get_db(), lat, lon, "gfs" if gfs else "meps", past, fc)
+        if "error" not in d:                     # MODE-S Wind's own 850 hPa temperature (from 2026-11-07)
+            now = time.time()
+            d = dict(d, o850=_wx.measured_850(get_db(), lat, lon, now - past * 3600, now, cfg.RECEIVER_LAT,
+                                              cfg.RECEIVER_LON))
         body = json.dumps(d, separators=(",", ":")).encode()
         if "gzip" in (request.headers.get("Accept-Encoding") or "").lower():
             resp = app.response_class(_gzip.compress(body, compresslevel=5), mimetype="application/json")
@@ -2631,13 +2637,14 @@ def create_app(
         the wind on final, the windshear reports, EDR and the go-arounds.
         &rwys=22L,15 (from 2026-11-06): the wind on final of the runways chosen by
         the pilot (up to 3) in place of the runways in use; &hts=more: at seven
-        heights (300 … 2 500 ft above the runway) instead of three."""
+        heights (300 … 2 500 ft above the runway) instead of three; &hts=all (from
+        2026-11-07): at 13 (200, 400 … 2 600 ft)."""
         if not _pilot_ok():
             return _pilot_denied()
         from web.api import pilot as _p
         rw = [x.strip().upper() for x in (request.args.get("rwys") or "").split(",") if x.strip()]
         return _private(_gzip_json(_p.brief(get_db(), request.args.get("min", 60, type=int), rwys=rw or None,
-                                            more=request.args.get("hts") == "more")))
+                                            more={"more": True, "all": "all"}.get(request.args.get("hts"), False))))
 
     @app.route("/api/pilot/approach")
     def pilot_approach_api():

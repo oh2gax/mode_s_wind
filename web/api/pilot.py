@@ -94,9 +94,13 @@ def _uv(wd, ws):
     return -ws * math.sin(r), -ws * math.cos(r)
 
 
-def _band_wind(bands: dict | None, ft_msl: float):
+def _band_wind(bands: dict | None, ft_msl: float, near: float = 0.0):
     """The landing's band wind (bands_json: {"band ft MSL": {dir, spd}}) at ft_msl,
-    interpolated through u, v between neighbouring bands at most 400 ft apart."""
+    interpolated through u, v between neighbouring bands at most 400 ft apart.
+    near (from 2026-11-07, Now's 13 heights): without bands on both sides, the
+    nearest band within this many ft (a band holds the winds of ± 100 ft) —
+    e.g. 200 ft above 22L (≈ 370 ft MSL) from the 400-ft band, as the band below
+    the threshold is never flown."""
     pts = sorted((int(k), v) for k, v in (bands or {}).items() if v and v.get("spd") is not None)
     for (a, va), (b, vb) in zip(pts, pts[1:]):
         if a <= ft_msl <= b and b - a <= 400:
@@ -105,6 +109,10 @@ def _band_wind(bands: dict | None, ft_msl: float):
             ub, vb_ = _uv(vb["dir"], vb["spd"])
             u, v = ua + f * (ub - ua), va_ + f * (vb_ - va_)
             return (math.degrees(math.atan2(-u, -v)) + 360) % 360, math.hypot(u, v)
+    if near > 0 and pts:
+        k, v = min(pts, key=lambda kv: abs(kv[0] - ft_msl))
+        if abs(k - ft_msl) <= near:
+            return float(v["dir"]), float(v["spd"])
     return None
 
 
@@ -196,16 +204,18 @@ def _departures(db, t0, t1):
 
 BRIEF_HEIGHTS = (500, 1000, 2000)
 BRIEF_HEIGHTS_MORE = (300, 500, 750, 1000, 1500, 2000, 2500)   # from 2026-11-06: the landings' bands reach ~2 700 ft MSL
+BRIEF_HEIGHTS_ALL = tuple(range(200, 2601, 200))                 # from 2026-11-07: 13 heights, the 200-ft spacing of the stored bands
 
 
-def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = None, more: bool = False) -> dict:
+def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = None, more: bool | str = False) -> dict:
     """rwys (from 2026-11-06): the runways the pilot chose for the wind on final, in
     place of the runways in use (the two with the most landings).  A chosen runway
     without landings in the window gets the wind aloft of all the landings (the
     band winds of their own approaches), resolved on its heading and its threshold.
     more (from 2026-11-06): the wind on final at 300 / 500 / 750 / 1 000 / 1 500 /
-    2 000 / 2 500 ft above the runway instead of 500 / 1 000 / 2 000."""
-    heights = BRIEF_HEIGHTS_MORE if more else BRIEF_HEIGHTS
+    2 000 / 2 500 ft above the runway instead of 500 / 1 000 / 2 000; more="all"
+    (from 2026-11-07): at the 13 heights 200, 400 … 2 600 ft (BRIEF_HEIGHTS_ALL)."""
+    heights = BRIEF_HEIGHTS_ALL if more == "all" else BRIEF_HEIGHTS_MORE if more else BRIEF_HEIGHTS
     now = time.time() if now is None else now
     names = [r["name"] for r in EFHK_RUNWAYS]
     rwys = [r for r in (rwys or []) if r in names][:3]
@@ -238,7 +248,7 @@ def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = N
             for r in L:
                 if (own and r["runway"] != rwy) or hdg is None:
                     continue
-                w = _band_wind(_j(r["bands_json"]), h + thr)
+                w = _band_wind(_j(r["bands_json"]), h + thr, near=100.0)
                 if w:
                     a, b = _comp(w[0], w[1], hdg)
                     hs.append(a)

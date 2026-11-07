@@ -13,6 +13,10 @@
  *     opts.compact the phone's smaller layout
  *     opts.now     (s) the now-line; default the clock
  *     opts.onRead  fn(text) — the hover / touch read-out; default a line above the chart
+ *     opts.t850    (from 2026-11-07) the 850 hPa temperature in the temperature panel: the
+ *                  models' line (field t8; fuchsia, GFS thin and dashed with Both) and
+ *                  MODE-S Wind's own measured value of the past hours (data.*.o850 — the hourly
+ *                  aircraft profile, places within its radius of the receiver) as dots
  *
  * One time axis (UTC) for all panels: day lines and labels, the night shaded from the
  * sun's elevation at the place, the forecast tinted, the now-line.  With both models
@@ -39,6 +43,7 @@ const Meteogram = (() => {
       pres: L ? '#374151' : '#cbd5e1', cloud: L ? '96,105,120' : '200,206,214', fog: L ? '161,98,7' : '250,204,21',
       barb: L ? '#111827' : '#e5e7eb', panel: L ? 'rgba(0,0,0,0.025)' : 'rgba(255,255,255,0.025)',
       band: L ? 'rgba(71,85,105,0.16)' : 'rgba(203,213,225,0.15)',
+      t850: L ? '#c026d3' : '#e879f9',
     };
   }
 
@@ -86,6 +91,7 @@ const Meteogram = (() => {
         r: g('r', i) == null ? null : g('r', i) / 100, s: g('s', i) == null ? null : g('s', i) / 100,
         ws: u == null || w == null ? null : Math.hypot(u, w), wd: u == null || w == null ? null : windDir(u, w),
         gu: g('g', i), c: g('c', i), l: g('l', i), m: g('m', i), h: g('h', i), f: g('f', i), b: g('b', i),
+        t8: g('t8', i) == null ? null : g('t8', i) / 10,
       });
       const e = err && err[leadDay(d.lead[i])];
       if (e) { pts[i].et = e.t; pts[i].ew = e.ws; }
@@ -111,6 +117,9 @@ const Meteogram = (() => {
     const SM = series(data.meps, 'meps', EM), SG = series(data.gfs, 'gfs', EB && EB.gfs);
     const both = !!(SM && SG);
     const prim = SG || SM;                       // the axis range and the daily labels
+    // the 850 hPa temperature (from 2026-11-07): the models' t8 and the measured values [[ts, °C, n]]
+    const T8 = !!opts.t850;
+    const O8 = T8 ? (((data.meps && data.meps.o850) || (data.gfs && data.gfs.o850) || [])) : [];
     el.innerHTML = '';
     if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || 'No model hours for this place.')}</div>`; return { destroy() {} }; }
     const read = document.createElement('div');
@@ -226,7 +235,8 @@ const Meteogram = (() => {
       const lines = [];                          // the drawn series (both models), for the order MEPS on top
       // 1 temperature
       if (P0.temp) {
-        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.map(q => q.t)).filter(v => v != null).concat(bandVals('t', 'et'));
+        const b = box0.temp, vals = [SM, SG].filter(Boolean).flatMap(S => S.pts.flatMap(q => T8 ? [q.t, q.t8] : [q.t])).filter(v => v != null).concat(bandVals('t', 'et'))
+          .concat(O8.filter(o => o[0] >= t0 && o[0] <= t1).map(o => o[1]));
         if (vals.length) {
           let lo = Math.min(...vals), hi = Math.max(...vals);
           const pad = Math.max(1, (hi - lo) * 0.12); lo -= pad; hi += pad;
@@ -244,6 +254,17 @@ const Meteogram = (() => {
             const p = path(S, 't', Y), thin = both && S.key === 'gfs';
             for (const [clip, col] of [['mgw', T.warm], ['mgk', T.cold]])
               out.push(`<g clip-path="url(#${clip})">${line(p, col, thin ? 1.3 : C ? 1.8 : 2.2, thin ? '4 3' : '', thin ? 0.85 : 1)}</g>`);
+          }
+          // the 850 hPa temperature: the models' line and the measured dots (from 2026-11-07)
+          if (T8) {
+            for (const S of [SG, SM].filter(Boolean)) {
+              const thin = both && S.key === 'gfs';
+              out.push(line(path(S, 't8', Y), T.t850, thin ? 1.1 : C ? 1.4 : 1.7, thin ? '4 3' : '', thin ? 0.8 : 0.95));
+            }
+            for (const o of O8) {
+              if (o[0] < t0 || o[0] > t1) continue;
+              out.push(`<circle cx="${X(o[0]).toFixed(1)}" cy="${Y(o[1]).toFixed(1)}" r="${C ? 2.2 : 2.6}" fill="${T.t850}" stroke="${light() ? '#fff' : '#111827'}" stroke-width="0.8"/>`);
+            }
           }
           // the day's highest and lowest (the primary model) when the days are wide enough
           if (dayW >= 64) for (let t = Math.floor(t0 / DAY) * DAY; t <= t1; t += DAY) {
@@ -371,6 +392,7 @@ const Meteogram = (() => {
       if (P0.wind) lg.push(`<tspan fill="${T.wind}">━</tspan> wind <tspan fill="${T.gust}">╍</tspan> gust`);
       if (P0.precip) lg.push(`<tspan fill="${T.rain}">■</tspan> rain <tspan fill="${T.snow}">■</tspan> snow (day totals in mm)`);
       if (P0.cloud) lg.push(SG && !SM ? 'ft: the ceiling' : SM && !SG ? 'ft: the cloud base' : 'ft: cloud base (MEPS) / ceiling (GFS)');
+      if (T8 && P0.temp) lg.push(`<tspan fill="${T.t850}">━</tspan> 850 hPa${O8.length ? ` <tspan fill="${T.t850}">●</tspan> 850 hPa measured (MODE-S Wind)` : ''}`);
       if (banded) lg.push(`<tspan fill="${T.dim}" style="fill-opacity:1">▒</tspan> typical error: 8 in 10 hours within it${EB && EB.where ? ' (' + esc(EB.where) + ')' : ''}`);
       // as many lines as the width needs (the phone's narrow screen: two or three)
       const lgFs = C ? 8.5 : 10, lgW = W - AL - 4, chW = lgFs * 0.55;
@@ -406,6 +428,7 @@ const Meteogram = (() => {
       if (!q) return '';
       const p = [];
       if (q.t != null) p.push(`${q.t > 0 ? '+' : q.t < 0 ? '−' : ''}${Math.abs(q.t).toFixed(1)} °C${q.et != null ? ` (±${q.et.toFixed(1)})` : ''}`);
+      if (T8 && q.t8 != null) p.push(`850 hPa ${q.t8 > 0 ? '+' : q.t8 < 0 ? '−' : ''}${Math.abs(q.t8).toFixed(1)} °C`);
       if (q.ws != null) p.push((q.ws < 1 ? 'calm' : `wind ${String(Math.round(q.wd) % 360).padStart(3, '0')}° ${Math.round(q.ws)} kt (${(q.ws * 0.514444).toFixed(0)} m/s)`) + (q.ew != null ? ` (±${Math.round(q.ew)} kt)` : ''));
       if (q.gu != null) p.push(`gust ${q.gu} kt`);
       if (q.r != null) {
@@ -424,6 +447,10 @@ const Meteogram = (() => {
       const dt = new Date((q ? q.ts : Math.round(ts / HOUR) * HOUR) * 1000);
       const head = `${WD[dt.getUTCDay()]} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${String(dt.getUTCHours()).padStart(2, '0')} UTC</b>`;
       const parts = [one(qm, 'MEPS'), one(qg, 'GFS')].filter(Boolean);
+      // the measured 850 hPa temperature of that hour (from 2026-11-07)
+      let o = null;
+      for (const x of O8) if (Math.abs(x[0] - ts) <= 1800 && (!o || Math.abs(x[0] - ts) < Math.abs(o[0] - ts))) o = x;
+      if (o) { const h = new Date((o[0] - 1800) * 1000).getUTCHours(); parts.unshift(`<b>Measured</b> 850 hPa ${o[1] > 0 ? '+' : o[1] < 0 ? '−' : ''}${Math.abs(o[1]).toFixed(1)} °C (${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')} UTC, ${o[2]} values)`); }
       return head + ' · ' + (parts.length ? parts.join(C ? '<br>' : ' &nbsp;|&nbsp; ') : 'no model hour');
     }
     draw();

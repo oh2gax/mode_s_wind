@@ -18,7 +18,8 @@ frames() — the fields of chosen hours for the browser, on the 10 km grid or
            b = cloud base m, u / v = 10 m wind towards east / north (kt),
            g = 10 m gust (kt; hours stored from 24 Oct 2026), t = 2 m
            temperature (°C × 10, whole degrees; hours stored from 1 Nov 2026;
-           the 20 / 40 km means in tenths), as plain integer
+           the 20 / 40 km means in tenths), t8 = 850 hPa temperature (°C × 10;
+           the 10 km grid and GFS, hours stored from 7 Nov 2026), as plain integer
            lists (null = missing); only the fields asked for (default p, r,
            s, c).  Averaged blocks take the mean, the gust the block maximum.
 The page draws them itself (static/js/weather.js), so the Pi only reads,
@@ -56,7 +57,8 @@ FILL = -32768
 GFS_SOURCE = "GFS (NOAA/NCEP)"
 GFS_TABLE = "gfs_wx_hours"
 FIELDS = ("p", "r", "s", "c", "l")    # the fields of rows without a field list (first version)
-ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t")   # t: 2 m temperature (from 2026-11-01)
+ALL = ("p", "r", "s", "c", "l", "m", "h", "f", "b", "u", "v", "g", "t", "t8")   # t: 2 m temperature (from 2026-11-01),
+                                                                          # t8: 850 hPa temperature (from 2026-11-07)
 BLOCK_MAX = ("g",)                    # averaged blocks: the strongest gust, not the mean
 SEND = ("p", "r", "s", "c")          # default
 
@@ -387,6 +389,12 @@ def meteogram(db, lat: float, lon: float, model: str = "meps", past_h: float = 2
             if r:
                 vals = _cell_values(json.loads(r[0]), r[1], fk)
                 used_fine = 1 if vals else 0
+                if vals and vals.get("t8") is None:      # 850 hPa: on the 10 km grid only (from 2026-11-07)
+                    r10 = db.execute(f"SELECT meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
+                    if r10:
+                        m10 = json.loads(r10[0])
+                        if "t8" in m10.get("f", ()) and (m10["x"], m10["y"]) == (meta["x"], meta["y"]):
+                            vals = dict(vals, t8=_cell_values(m10, r10[1], k).get("t8"))
         if not vals:
             r = db.execute(f"SELECT meta, data FROM {table} WHERE ts = ?", (ts,)).fetchone()
             if not r:
@@ -407,6 +415,53 @@ def meteogram(db, lat: float, lon: float, model: str = "meps", past_h: float = 2
         while len(_mg_cache) > _MG_MAX:
             _mg_cache.popitem(last=False)
     return out
+
+
+# ── The measured 850 hPa temperature (from 2026-11-07) ──────────────────────────
+# MODE-S Wind's own hourly area profile (profile_hours, collector/atmos.py: the
+# median temperature of the aircraft in 1 000-ft layers of pressure altitude within
+# SOUNDING_RADIUS_KM of the receiver).  850 hPa is the ISA pressure altitude
+# 4 781 ft (Mode S altitudes are referenced to 1013.25 hPa, so this is the measured
+# static pressure), between the centres of the layers 4 000–5 000 and 5 000–6 000 ft.
+T850_ALT_FT = 4781.0
+T850_MIN_N = 3                         # temperatures in each of the two layers
+
+
+def measured_850(db, lat: float, lon: float, t0: float, t1: float, rlat: float, rlon: float) -> list:
+    """[[hour middle ts, °C, values], …] of the hourly profiles from t0 to t1 at a
+    place within the profile radius of the receiver (else [])."""
+    if db is None:
+        return []
+    try:
+        rows = db.execute("SELECT ts, data FROM profile_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
+                          (int(t0) - 3600, int(t1))).fetchall()
+    except Exception:                                    # noqa: BLE001  (no such table)
+        return []
+    lo_c, hi_c = 4500.0, 5500.0
+    f = (T850_ALT_FT - lo_c) / (hi_c - lo_c)
+    out, near = [], None
+    for ts, data in rows:
+        try:
+            d = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        if near is None:
+            near = _dist_km(lat, lon, rlat, rlon) <= float(d.get("r") or 150.0)
+            if not near:
+                return []
+        lv = {row[0]: row for row in d.get("lv") or [] if row}
+        a, b = lv.get(4000), lv.get(5000)
+        if not a or not b or a[1] is None or b[1] is None or (a[4] or 0) < T850_MIN_N or (b[4] or 0) < T850_MIN_N:
+            continue
+        out.append([int(ts) + 1800, round(a[1] + f * (b[1] - a[1]), 1), int(a[4]) + int(b[4])])
+    return out
+
+
+def _dist_km(la1: float, lo1: float, la2: float, lo2: float) -> float:
+    p1, p2 = radians(la1), radians(la2)
+    dp, dl = p2 - p1, radians(lo2 - lo1)
+    h = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
+    return 6371.0 * 2 * atan2(h ** 0.5, (1 - h) ** 0.5)
 
 
 # ── Memory caches (from 2026-11-03; before, one dict of whole hours per field list,

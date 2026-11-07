@@ -109,6 +109,9 @@ WX_VARS = (("air_pressure_at_sea_level", "p"), ("precipitation_amount_acc", "r")
            # 2 m temperature (°C × 10 in whole degrees; from 2026-11-01)
            ("air_temperature_2m", "t"))
 WX_STRIDE = 4                # every 4th cell: 10 km
+WX_T850_LEV = 10             # pressure index of 850 hPa in the pl files (50 … 1000 hPa); the 850 hPa
+                             # temperature of the weather maps (from 2026-11-07, the meteograms) comes from
+                             # the run's pressure-level file, for the same hours and 10 km grid
 WX_FINE_TABLE = "meps_wx25_hours"   # the 2.5 km detail box around the receiver (from 2026-10-31, MEPS_WX_FINE_KM)
 WX_SHORT, WX_HISTORY = 6, 3  # leads of the other runs (recent / older than 6 h)
 WX_CHUNK = 12                # forecast hours per request (the main runs come in 4 pieces, each stored at once)
@@ -306,7 +309,7 @@ class MepsFetcher:
         return self.grid
 
     def _cons(self, url: str, kind: str, run: Optional[int] = None, leads: Optional[tuple] = None,
-              kind_fine: bool = False) -> str:
+              kind_fine: bool = False, t850: bool = False) -> str:
         ix0, iy0, _, _ = self._box(url)
         sx, sy = f"[{ix0}:{STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{STRIDE}:{iy0 + 2 * HALF}]"
         if kind == "pl":
@@ -324,6 +327,9 @@ class MepsFetcher:
             if kind_fine:                            # the 2.5 km box: every cell
                 h = self.wx_fine_half
                 wxs, wys = f"[{gx - h}:1:{gx + h}]", f"[{gy - h}:1:{gy + h}]"
+            if t850:                                 # from the pressure-level file (from 2026-11-07)
+                v = "air_temperature_pl"
+                return f"{v}.{v}[{t0}:{t1}][{WX_T850_LEV}:{WX_T850_LEV}]{wys}{wxs}"
             box = f"[{t0}:{t1}][0:0]{wys}{wxs}"
             return ",".join([f"time[{t0}:{t1}]", f"x{wxs}", f"y{wys}"] + [f"{v}.{v}{box}" for v, _ in WX_VARS])
         if kind == "map":
@@ -363,6 +369,7 @@ class MepsFetcher:
             b = min(n, a + WX_CHUNK - 1)
             t = time.time()
             d = _fetch(url, self._cons(url, "wx", run, (a - 1, b)), TIMEOUT["wx"])
+            d.update(self._fetch_t850(run, (a - 1, b)))
             t1 = time.time()
             w = self._store_wx(db, run, d)
             written += w
@@ -371,6 +378,18 @@ class MepsFetcher:
             if self.wx_fine_half:
                 self.fetch_fine(db, run, url, (a - 1, b))
         return written
+
+    def _fetch_t850(self, run: int, leads: tuple) -> dict:
+        """The 850 hPa temperature of the same hours on the 10 km weather-map grid,
+        from the run's pressure-level file (from 2026-11-07); {} when it fails (the
+        maps are stored without it)."""
+        try:
+            u = self._url(run, "pl")
+            d = _fetch(u, self._cons(u, "wx", run, leads, t850=True), TIMEOUT["wx"])
+            return {"t850": d["air_temperature_pl"]}
+        except Exception as exc:                     # noqa: BLE001
+            log.warning("MEPS 850 hPa temperature: +%d…+%d h failed: %s", leads[0] + 1, leads[1], exc)
+            return {}
 
     def fetch_fine(self, db, run: int, url: str, leads: tuple) -> int:
         """The same hours on the full 2.5 km grid in the box around the receiver
@@ -394,14 +413,19 @@ class MepsFetcher:
         and high cloud and fog (% in 5 % steps), cloud base (m in 50 m steps;
         missing where no cloud), the 10 m wind u / v towards east / north,
         the 10 m gust (kt in 2-kt steps) and the 2 m temperature (°C × 10 in
-        whole degrees, from 2026-11-01); compressed int16 arrays, rows older
-        than wx_days removed.  The field list of each row is in its meta "f"
-        (older rows have no wind)."""
+        whole degrees, from 2026-11-01) and, on the 10 km grid, the 850 hPa
+        temperature (t8, °C × 10, from 2026-11-07); compressed int16 arrays, rows
+        older than wx_days removed.  The field list of each row is in its meta "f"
+        (older rows have no wind, no t8)."""
         xs, ys = list(d["x"]), list(d["y"])
         nx, ny = len(xs), len(ys)
         np_ = nx * ny
+        T8 = d.get("t850")
+        if T8 is not None and len(T8) != len(d["air_temperature_2m"]):
+            T8 = None                                # not the same hours / grid: left out
         meta = json.dumps({"x": [xs[0], xs[1] - xs[0], nx], "y": [ys[0], ys[1] - ys[0], ny],
-                           "f": [k for _, k in WX_VARS]}, separators=(",", ":"))
+                           "f": [k for _, k in WX_VARS] + (["t8"] if T8 is not None else [])},
+                          separators=(",", ":"))
         P, R, S = d["air_pressure_at_sea_level"], d["precipitation_amount_acc"], d["snowfall_amount_acc"]
         FRAC = [d[v] for v, k in WX_VARS if k in "clmhf"]
         B = d["cloud_base_altitude"]
@@ -437,6 +461,9 @@ class MepsFetcher:
             a.extend(array.array("h", [F if v > 1e30 or v < 0 else int(round(v * KT2)) * 2 for v in GU[o1:o1 + np_]]))
             # 2 m temperature in whole °C (stored × 10; about a tenth more per row)
             a.extend(array.array("h", [F if v > 1e30 or v < 150 else int(round(v - 273.15)) * 10 for v in TT[o1:o1 + np_]]))
+            if T8 is not None:                       # 850 hPa temperature, °C × 10 (from 2026-11-07)
+                a.extend(array.array("h", [F if v > 1e30 or v < 150 else int(round((v - 273.15) * 10.0))
+                                           for v in T8[o1:o1 + np_]]))
             if sys.byteorder != "little":
                 a.byteswap()
             cur = db.execute(

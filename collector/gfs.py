@@ -38,6 +38,9 @@ so the forecast does not enlarge the main database or its backups):
             APCP total since the run start, differences of consecutive hours; the snow
             part by CPOFP (% frozen; where it is undefined — no precipitation in the
             model's own scheme — by the 2 m temperature: snow at +0.5 °C or colder)
+      t8  temperature at 850 hPa, °C × 10 (from 2026-11-07; the meteograms' 850 hPa line)
+                                                    TMP 850 mb (the request then also brings
+                                                    UGRD / VGRD / HGT at 850 mb, not used yet)
       (no fog: GFS has no fog field)
   meta {"proj": "latlon", "x": [lon0, 0.25, nx], "y": [lat0, 0.25, ny], "f": fields, "pi": 1|3}
   gfs_runs      the run being fetched: its start, the hours done, the APCP total of the
@@ -106,7 +109,7 @@ PAUSE_SEC = 2.0
 TIMEOUT_SEC = 120
 FILL = -32768
 KT_MS = 0.514444
-FIELDS = ("p", "r", "s", "c", "l", "m", "h", "b", "u", "v", "g", "t")
+FIELDS = ("p", "r", "s", "c", "l", "m", "h", "b", "u", "v", "g", "t", "t8")
 SKILL_DAYS = 90
 SKILL_BACKFILL_DAYS = 10
 BACKFILL_BUDGET_SEC = 480              # at most this long per look, after the newest run is complete
@@ -118,12 +121,14 @@ SOURCE = "GFS (NOAA/NCEP)"
 _VARS = ("PRMSL", "TMP", "UGRD", "VGRD", "GUST", "APCP", "CPOFP", "TCDC", "LCDC", "MCDC", "HCDC", "HGT")
 _LEVS = ("mean_sea_level", "2_m_above_ground", "10_m_above_ground", "surface", "entire_atmosphere",
          "low_cloud_layer", "middle_cloud_layer", "high_cloud_layer", "cloud_ceiling")
+_LEV_850 = "850_mb"         # the main fetch only (from 2026-11-07), not the skill back-fill of one cell
 
 # (discipline, category, number, level type, level value) → name, instantaneous records
 _INST = {(0, 3, 1, 101, 0): "PRMSL", (0, 0, 0, 103, 2): "T2", (0, 2, 2, 103, 10): "U10",
          (0, 2, 3, 103, 10): "V10", (0, 2, 22, 1, 0): "GUST", (0, 1, 39, 1, 0): "CPOFP",
          (0, 6, 1, 10, 0): "TCDC", (0, 6, 3, 214, 0): "LCDC", (0, 6, 4, 224, 0): "MCDC",
-         (0, 6, 5, 234, 0): "HCDC", (0, 3, 5, 215, 0): "CEIL", (0, 3, 5, 1, 0): "OROG"}
+         (0, 6, 5, 234, 0): "HCDC", (0, 3, 5, 215, 0): "CEIL", (0, 3, 5, 1, 0): "OROG",
+         (0, 0, 0, 100, 85000): "T850"}
 _APCP = (0, 1, 8, 1, 0)
 
 SCHEMA = ("""CREATE TABLE IF NOT EXISTS gfs_wx_hours (
@@ -282,6 +287,8 @@ def planes_of(recs: list, prev_apcp, step_h: int):
          "g": _scale(g["GUST"], lambda x: x / KT_MS),
          "c": _scale(g["TCDC"], float), "l": _scale(g["LCDC"], float),
          "m": _scale(g["MCDC"], float), "h": _scale(g["HCDC"], float)}
+    if "T850" in g:                                  # from 2026-11-07
+        P["t8"] = _scale(g["T850"], lambda x: (x - 273.15) * 10.0)
     if "CEIL" in g and "OROG" in g:
         P["b"] = _scale([None if c is None or z is None or c >= 15000 else max(0.0, c - z)
                          for c, z in zip(g["CEIL"], g["OROG"])], float)
@@ -360,7 +367,8 @@ class GfsFetcher:
         hh = time.strftime("%H", time.gmtime(run))
         la0, la1, lo0, lo1 = box or self.box
         q = [("dir", f"/gfs.{d}/{hh}/atmos"), ("file", f"gfs.t{hh}z.pgrb2.0p25.f{lead:03d}")]
-        q += [(f"var_{v}", "on") for v in _VARS] + [(f"lev_{lv}", "on") for lv in _LEVS]
+        levs = _LEVS + ((_LEV_850,) if box is None else ())
+        q += [(f"var_{v}", "on") for v in _VARS] + [(f"lev_{lv}", "on") for lv in levs]
         q += [("subregion", ""), ("toplat", f"{la1:g}"), ("leftlon", f"{lo0:g}"),
               ("rightlon", f"{lo1:g}"), ("bottomlat", f"{la0:g}")]
         return self.url + "?" + urllib.parse.urlencode(q)

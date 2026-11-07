@@ -13,6 +13,8 @@
  *          dashed, MEPS bold over its own hours); GFS only where the server has it
  *   Range  2 d · 5 d · 7 d · 10 d · 16 d (GFS and Both; MEPS has its own forecast only)
  *   Panels the Meteogram options of the ☰ menu (Pressure off by default)
+ *   850 hPa (from 2026-11-07; ☰ menu, off by default) the 850 hPa temperature in the temperature
+ *          panel: the models' line and MODE-S Wind's own measured value of the past hours as dots
  *   Typical error (with GFS, from 2026-11-06; ☰ menu, on by default) a band around the temperature
  *          and wind lines — how far off the forecast has been at that lead day, 8 in 10 checked hours
  *          within it (/api/weather/gfs_skill) — and a line under the chart
@@ -40,6 +42,7 @@
     pin: (() => { try { const p = JSON.parse(lsGet('ms_app_mg_pin', 'null')); return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null; } catch (_) { return null; } })(),
     panels: {},
     err: lsGet('ms_app_mg_err', 'true') !== 'false',
+    t850: lsGet('ms_app_mg_t850', 'false') === 'true',     // the 850 hPa temperature (from 2026-11-07; off by default)
   };
   PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, k === 'pres' ? 'false' : 'true') !== 'false'; });
   if (!GFS || !['meps', 'gfs', 'both'].includes(S.model)) S.model = GFS && ['gfs', 'both'].includes(S.model) ? S.model : 'meps';
@@ -112,7 +115,7 @@
     const err = [data.mepsErr, data.gfsErr].filter(Boolean);
     const eb = GFS && S.err && Meteogram.errBand ? Meteogram.errBand(skill, p.apt ? '' : 'measured at ' + APT.icao) : null;
     chart = Meteogram.render($('amg-chart'), { meps: data.meps, gfs: data.gfs }, {
-      compact: true, panels: Object.assign({}, S.panels), errBand: eb,
+      compact: true, panels: Object.assign({}, S.panels), errBand: eb, t850: S.t850,
       emptyText: err.length ? err.join(' · ') : 'No model hours for this place.' });
     const runs = [];
     if (data.meps) runs.push(`MEPS run ${runTxt(Math.max(...data.meps.runs))} — MET Norway, CC BY 4.0`);
@@ -150,6 +153,11 @@
   if (ecb) {
     ecb.checked = S.err;
     ecb.addEventListener('change', () => { S.err = ecb.checked; lsSet('ms_app_mg_err', ecb.checked); if (on) draw(); });
+  }
+  const tcb = $('app-mg-t850');
+  if (tcb) {
+    tcb.checked = S.t850;
+    tcb.addEventListener('change', () => { S.t850 = tcb.checked; lsSet('ms_app_mg_t850', tcb.checked); if (on) draw(); });
   }
   syncChips();
   // the receiver sites (the place chosen before comes back once they are known)

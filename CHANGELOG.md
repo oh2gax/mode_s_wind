@@ -7,6 +7,22 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final)
+
+### Meteograms: the 850 hPa temperature
+- **Weather page → Meteogram** and **phone → Meteogram**: a new option **850 hPa** (*850 hPa temperature* in the phone's Meteogram options; off by default; `ms_weather_mg` / `ms_app_mg_t850`) — the temperature at 850 hPa (about 1 500 m) in the temperature panel on the same scale, in fuchsia: the models' line (MEPS bold, GFS thin and dashed in *Both*) and, in the past hours, **MODE-S Wind's own measured value** as dots, from the hourly aircraft profile (the 4 000–5 000 and 5 000–6 000 ft layers of pressure altitude interpolated to 4 781 ft = 850 hPa; places within 150 km of the receiver). The hover / tap read-out gives *850 hPa …* for each model and *Measured 850 hPa … (15–16 UTC, n values)*. On 5–6 Nov the measured value followed MEPS within about 1 K. `static/js/meteogram.js`, `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
+- **GFS**: the GRIB filter request also asks for the 850 mb level; its temperature is stored as the new field `t8` (°C × 10). The request then also brings the wind and height at 850 mb (not used yet): about 0.99 MB instead of 0.76 MB per hour, about 205 MB per run (the skill back-fill of one cell leaves the level out). `collector/gfs.py`.
+- **MEPS**: the weather maps' hours also get the 850 hPa temperature `t8` from the run's pressure-level file (same hours, 10 km grid; one more request per piece of 12 hours; a failure leaves the maps without it). `collector/meps.py`.
+- `/api/weather/meteogram`: the field `t8` (MEPS's from its 10 km grid also where the 2.5 km cell is used) and `o850` — the measured values of the past hours. `web/api/weather.py`, `web/app.py`.
+- Model hours stored before this version have no 850 hPa value: the line starts with the next GFS run and the next MEPS run.
+
+### Pilot · Now: 13 heights
+- The *Heights* buttons are now **3 / 7 / 13**: 13 = every 200 ft from 200 to 2 600 ft above the runway — the spacing of the stored approach bands (`ms_app_pilot_hts` `all`; `/api/pilot/brief?hts=all`). `web/api/pilot.py`, `web/app.py`, `static/js/app_pilot.js`.
+- A height of the wind on final without a stored band on both sides now takes the nearest band within 100 ft (a band holds the winds of ± 100 ft): 200 ft above 22L (≈ 370 ft MSL) comes from the 400-ft band, as the band below the threshold is never flown; before, that height was empty.
+- Mobile user guide 1.62. `doc/Mobile_User_Guide.pdf`, `doc/guides.md`.
+
+---
+
 ## v.06112026 — 2026-11-06 (more meteogram ranges; the pilot's own runways and more heights for the wind on final; the Pilot page in one column; the receiving station 1.16 and brochure 1.3; an altitude check of the Address/Parity replies, with a repair of the rows stored since 2 Nov; the landing freeze gate only with fresh positions; how good GFS has been at the airport — the meteograms' typical error; a silent receiver "off" straight after a restart; the receivers of each stored row)
 
 ### Meteograms: how good GFS has been at the airport (the skill check)
