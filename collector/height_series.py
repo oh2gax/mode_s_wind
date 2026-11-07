@@ -11,7 +11,8 @@ that records a row only when one of them **steps** is lossless and small:
   row = (t, pressure altitude ft, GNSS − baro ft, lat, lon, NACp)
 
 written when the pressure altitude or the GNSS − baro difference changes,
-when NACp changes, when the difference stops arriving (GNSS lost → None),
+when NACp changes (these two only while the altitude is current — at most
+ALT_STALE_SEC since the last airborne position, from 2026-11-07), when the difference stops arriving (GNSS lost → None),
 and as a position keyframe at least every KEYFRAME_SEC.  Toggling between
 two neighbouring values in level flight (the 25 ft rounding boundary) is
 recorded at most once per TOGGLE_SEC.
@@ -46,6 +47,8 @@ COLS = (("t", 10, True), ("alt", 1, True), ("gmb", 1, True),
 KEYFRAME_SEC = 20.0     # position row at least this often
 TOGGLE_SEC = 10.0       # a change back to the previous value is recorded at most this often
 GMB_LOST_SEC = 10.0     # no TC 19 difference for this long → recorded as None
+ALT_STALE_SEC = 10.0    # (from 2026-11-07) no airborne position for this long: a GMB / NACp
+                        # change writes no row (its altitude would be the old one)
 END_GAP_SEC = 300.0     # visit ends after this long without messages
 MAX_ROWS = 20000        # … or with this many rows
 MAX_SPAN_SEC = 4 * 3600.0
@@ -56,7 +59,7 @@ FLUSH_SEC = 60.0
 
 class _Track:
     __slots__ = ("icao", "cs", "rows", "t0", "last_msg", "last_row_t",
-                 "alt", "alt_dir", "alt_t", "gmb", "gmb_dir", "gmb_t", "gmb_seen",
+                 "alt", "alt_dir", "alt_t", "alt_seen", "gmb", "gmb_dir", "gmb_t", "gmb_seen",
                  "lat", "lon", "nacp", "n_gmb", "alt_min", "alt_max")
 
     def __init__(self, icao: str, ts: float):
@@ -65,6 +68,7 @@ class _Track:
         self.last_row_t = -1e18
         self.alt = self.alt_dir = None
         self.alt_t = -1e18
+        self.alt_seen = -1e18    # last airborne position (the altitude is current)
         self.gmb = self.gmb_dir = None
         self.gmb_t = -1e18
         self.gmb_seen = -1e18
@@ -166,6 +170,7 @@ class HeightSeries:
         if lat is not None and lon is not None:
             tr.lat, tr.lon = lat, lon
         alt = int(alt)
+        tr.alt_seen = ts
         tr.alt_min = alt if tr.alt_min is None else min(tr.alt_min, alt)
         tr.alt_max = alt if tr.alt_max is None else max(tr.alt_max, alt)
         rec = False
@@ -189,7 +194,11 @@ class HeightSeries:
         ok, d = _accept(value, tr.gmb, tr.gmb_dir, tr.gmb_t, ts)
         if ok:
             tr.gmb, tr.gmb_dir, tr.gmb_t = value, d, ts
-            if tr.alt is not None:
+            # Only with a current altitude (from 2026-11-07): when the airborne
+            # positions pause (e.g. GNSS lost) while TC 19 goes on, a row here
+            # carried the altitude of minutes before (461FA1 6 Nov: 39 000 ft at
+            # 4 875 ft); the next position writes the row instead.
+            if tr.alt is not None and ts - tr.alt_seen <= ALT_STALE_SEC:
                 tr.row(ts)
 
     def nacp(self, icao: str, ts: float, value) -> None:
@@ -202,7 +211,7 @@ class HeightSeries:
             return
         tr.nacp = value
         tr.last_msg = ts
-        if tr.alt is not None:
+        if tr.alt is not None and ts - tr.alt_seen <= ALT_STALE_SEC:   # current altitude only (2026-11-07)
             tr.row(ts)
 
     # ── closing and writing ─────────────────────────────────────────────────

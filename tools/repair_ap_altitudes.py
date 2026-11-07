@@ -11,6 +11,12 @@ rows got such an altitude: their wind and temperature are the aircraft's own,
 but stored thousands of feet too high or low.  From 6 Nov 2026 the collector
 drops these replies; this tool removes the rows stored before that.
 
+The reference: the aircraft's own ADS-B altitudes of height_series, without
+the stale points (from 2026-11-07, _drop_stale): until the collector's fix of
+that day, a row there could carry the altitude of minutes before when the
+airborne positions had paused — 25 of 32 suspects of 6–7 Nov were such false
+alarms.
+
 A row is taken as wrong when
   • its altitude does not fit the aircraft's own ADS-B altitude (height_series,
     DF17 — CRC-checked) of at most 20 s before or after it: the collector's
@@ -64,7 +70,7 @@ from config import Config                      # noqa: E402
 import config_override                         # noqa: E402
 config_override.apply(Config)
 
-from collector.receiver import (ap_alt_suspect, AP_ALT_REF_SEC, AP_ALT_RATE_FT_S,   # noqa: E402
+from collector.receiver import (ap_alt_suspect, AP_ALT_REF_SEC, AP_ALT_RATE_FT_S, AP_ALT_GATE_FT,   # noqa: E402
                                 AP_NB_OWN_FT, AP_NB_MATCH_FT, AP_NB_FRESH_SEC)
 from collector.height_series import decode as hs_decode         # noqa: E402
 
@@ -93,12 +99,34 @@ def adsb_altitudes(db, t0: float, t1: float) -> dict:
             d = hs_decode(blob)
         except Exception:                      # noqa: BLE001  (a damaged row)
             continue
-        for t, a in zip(d.get("t", []), d.get("alt", [])):
-            if t is not None and a is not None:
-                out[icao].append((t, a))
+        pts = [(t, a) for t, a in zip(d.get("t", []), d.get("alt", [])) if t is not None and a is not None]
+        out[icao].extend(_drop_stale(pts))
     for v in out.values():
         v.sort()
     return out
+
+
+STALE_BACK_SEC = 300     # how far back an old altitude is looked for before an impossible jump
+
+
+def _drop_stale(pts: list) -> list:
+    """The height_series points without the stale altitudes (from 2026-11-07).
+    Until the collector's fix of 7 Nov 2026 a GMB / NACp change wrote a row with
+    the aircraft's last altitude also while its airborne positions had paused
+    (461FA1 6 Nov 19:46: 39 000 ft one second, 4 875 ft the next).  A step to
+    the next point faster than AP_ALT_RATE_FT_S (+ AP_ALT_GATE_FT) marks the
+    point before it, and the points of the same altitude just before that
+    (at most STALE_BACK_SEC), as stale."""
+    pts = sorted(pts)
+    bad = set()
+    for i in range(len(pts) - 1):
+        (t1, a1), (t2, a2) = pts[i], pts[i + 1]
+        if abs(a2 - a1) > AP_ALT_GATE_FT + AP_ALT_RATE_FT_S * max(0.0, t2 - t1):
+            j = i
+            while j >= 0 and pts[j][1] == a1 and t1 - pts[j][0] <= STALE_BACK_SEC:
+                bad.add(j)
+                j -= 1
+    return [p for k, p in enumerate(pts) if k not in bad]
 
 
 def find_wrong(db, t0: float, t1: float):

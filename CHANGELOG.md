@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final; seven more meteogram options — freezing level, dew point and visibility, thunderstorm potential, the 850 hPa wind, the landings' winds, the METAR and the sun times; the meteograms in Finnish with the FIN right; the wind values in numbers on the meteograms; the Meteogram user guide in English and Finnish)
+## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final; seven more meteogram options — freezing level, dew point and visibility, thunderstorm potential, the 850 hPa wind, the landings' winds, the METAR and the sun times; the meteograms in Finnish with the FIN right; the wind values in numbers on the meteograms; the Meteogram user guide in English and Finnish; no stale altitudes in the height series)
 
 ### Meteograms: the 850 hPa temperature
 - **Weather page → Meteogram** and **phone → Meteogram**: a new option **850 hPa** (*850 hPa temperature* in the phone's Meteogram options; off by default; `ms_weather_mg` / `ms_app_mg_t850`) — the temperature at 850 hPa (about 1 500 m) in the temperature panel on the same scale, in fuchsia: the models' line (MEPS bold, GFS thin and dashed in *Both*) and, in the past hours, **MODE-S Wind's own measured value** as dots, from the hourly aircraft profile (the 4 000–5 000 and 5 000–6 000 ft layers of pressure altitude interpolated to 4 781 ft = 850 hPa; places within 150 km of the receiver). The hover / tap read-out gives *850 hPa …* for each model and *Measured 850 hPa … (15–16 UTC, n values)*. On 5–6 Nov the measured value followed MEPS within about 1 K. `static/js/meteogram.js`, `static/js/weather_mg.js`, `static/js/app_mg.js`, `web/templates/weather.html`, `web/templates/app.html`.
@@ -43,6 +43,10 @@ All off by default, on the Weather page's meteogram and in the phone's Meteogram
 - Both in the *User guides* (`doc/guides.md`, `open: mg` / `mgfi`). The Weather page's meteogram has a **?** at the end of its controls that opens the guide — the Finnish one with the FIN right. `web/templates/weather.html`.
 - The meteogram's read-out gives the gust in m/s too (*gust 18 kt (9 m/s)*), as the wind (Weather page and phone). `static/js/meteogram.js`.
 - The meteogram's cloud-base numbers no longer overlap the row's *ft* label at the left edge. `static/js/meteogram.js`.
+
+### Height series without stale altitudes; the repair tool ignores them (evening)
+- `height_series`: a GNSS − baro or NACp change writes a row only while the altitude is current (an airborne position at most 10 s before, `ALT_STALE_SEC`). When the positions paused while the velocity messages went on (e.g. GNSS lost), such rows carried the altitude of minutes earlier. `collector/height_series.py`.
+- `tools/repair_ap_altitudes.py`: the stale points of the stored series are left out of the reference (a step to the next point faster than the altitude check allows, and the same altitude just before it). Dry run 6 Nov 17:54 – 7 Nov 12:33: 6 suspects instead of 32 (25 were false alarms against an old altitude).
 
 ### Pilot · Now: 13 heights
 - The *Heights* buttons are now **3 / 7 / 13**: 13 = every 200 ft from 200 to 2 600 ft above the runway — the spacing of the stored approach bands (`ms_app_pilot_hts` `all`; `/api/pilot/brief?hts=all`). `web/api/pilot.py`, `web/app.py`, `static/js/app_pilot.js`.
