@@ -146,3 +146,11 @@
 .apl-nrwy > span.apl-hlbl { flex-basis: auto; margin: 0 2px 0 2px; }
 
 .apl-nrwy button[data-hts] { min-width: 34px; }
+/* Now: boundary layer card (from 2026-11-08) */
+.apl-blinv { font-size: 14px; margin: 2px 0 4px; }
+.apl-blinv span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 8px; margin-left: 4px; background: rgba(148,163,184,.18); }
+.apl-bl-moderate span { background: rgba(251,191,36,.22); color: #fbbf24; }
+.apl-bl-strong b, .apl-bl-strong span { color: #fb923c; }
+.apl-bl-strong span { background: rgba(251,146,60,.2); }
+[data-theme="light"] .apl-bl-moderate span { color: #b45309; }
+[data-theme="light"] .apl-bl-strong b, [data-theme="light"] .apl-bl-strong span { color: #c2410c; }

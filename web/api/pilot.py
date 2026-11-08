@@ -8,8 +8,9 @@ briefing on the ground, the turnaround and the debrief after the flight.
                               the wind on final per arrival runway (head / cross
                               at the surface and 500 / 1000 / 2000 ft above the
                               runway, the landings' band winds), the windshear
-                              reports of arrivals and departures, EDR and the
-                              go-arounds
+                              reports of arrivals and departures, EDR, the
+                              go-arounds and (from 2026-11-08) the boundary
+                              layer: surface inversion and low-level jet now
   approach(db, rwy, minutes)  the fine headwind profiles (report "hp") of the
                               landings on one runway, in ft above the runway,
                               their median and middle half, the crosswind per
@@ -281,7 +282,8 @@ def brief(db, minutes: int = 60, now: float | None = None, rwys: list | None = N
         ga = []
     return {"now": int(now), "min": minutes, "metar": m, "arr": arr, "dep": dep, "n_arr": len(L), "n_dep": len(D),
             "runways": names, "chosen": rwys, "heights": list(heights), "rows": rows, "ws": ws, "ga": ga,
-            "edr": {"med": _r(_median(edr), 3), "max": _r(max(edr), 3) if edr else None, "n": len(edr)}}
+            "edr": {"med": _r(_median(edr), 3), "max": _r(max(edr), 3) if edr else None, "n": len(edr)},
+            "bl": bl_now(db, now)}
 
 
 # ── Approach ─────────────────────────────────────────────────────────────────
@@ -600,6 +602,68 @@ def _bl_now(db, now):
         if r:
             return _j(r[0]), hh
     return None, None
+
+
+BL_CACHE_SEC = 300
+BL_HIST_H = 6
+_BL_NOW: dict = {}
+
+
+def bl_now(db, now: float) -> dict | None:
+    """The boundary layer for the Now tab (from 2026-11-08): the surface
+    inversion and the low-level jet of the last 60 minutes of landings and
+    departures (collector/boundary.compute_hour on the hour in progress), else
+    of the newest stored hour (bl_hours); the warmest air above the ground, the
+    wind just above the inversion's top against the METAR wind, and the
+    inversion of the last BL_HIST_H stored hours.  Heights ft MSL.  Cached
+    BL_CACHE_SEC."""
+    key = int(now // BL_CACHE_SEC)
+    hit = _BL_NOW.get("v")
+    if hit and hit[0] == key:
+        return hit[1]
+    from collector import boundary as B
+    h = int(now // 3600 * 3600)
+    rec, src, hour = None, "now", None
+    try:
+        rec = B.compute_hour(db, h, now)
+    except Exception:                                  # noqa: BLE001
+        rec = None
+
+    def known(r):
+        bands = {b for b, _, _ in (r or {}).get("t") or []}
+        return (r or {}).get("tt") is not None and len(bands & {600, 800, 1000}) >= 2
+    if not known(rec):
+        st_, hh = _bl_now(db, now)
+        if st_ and known(st_):
+            rec, src, hour = st_, "hour", hh
+    out = None
+    if rec is not None:
+        inv, t = rec.get("inv"), rec.get("t") or []
+        out = {"src": src, "hour": hour, "known": known(rec), "inv": inv, "llj": rec.get("llj"),
+               "tt": rec.get("tt"), "warm": None, "wtop": None, "hist": []}
+        if inv:
+            top = inv.get("top") or 1000
+            near = [x for x in t if x[0] <= top + 400]
+            if near:
+                w = max(near, key=lambda x: x[1])
+                out["warm"] = [w[0], w[1]]
+            if not rec.get("w"):
+                st_, _ = _bl_now(db, now)
+                rec["w"] = (st_ or {}).get("w") or []
+            above = [x for x in rec.get("w") or [] if top + 200 <= x[0] <= top + 1200]
+            if above:
+                out["wtop"] = above[0][:3]
+        hist = []
+        try:
+            for ts, data in db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
+                                       (h - BL_HIST_H * 3600, h)).fetchall():
+                d = _j(data) or {}
+                hist.append([int(ts), (d.get("inv") or {}).get("dT", 0.0) if known(d) else None])
+        except Exception:                              # noqa: BLE001
+            pass
+        out["hist"] = hist
+    _BL_NOW["v"] = (key, out)
+    return out
 
 
 def departure(db, rwy: str | None, minutes: int = 60, now: float | None = None) -> dict:

@@ -2723,7 +2723,8 @@ def create_app(
     @app.route("/api/pilot/brief")
     def pilot_brief_api():
         """EFHK now: ?min=30|60|120 (default 60) — the METAR, the runways in use,
-        the wind on final, the windshear reports, EDR and the go-arounds.
+        the wind on final, the windshear reports, EDR, the go-arounds and (from
+        2026-11-08) "bl": the surface inversion and low-level jet now.
         &rwys=22L,15 (from 2026-11-06): the wind on final of the runways chosen by
         the pilot (up to 3) in place of the runways in use; &hts=more: at seven
         heights (300 … 2 500 ft above the runway) instead of three; &hts=all (from

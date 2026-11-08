@@ -159,6 +159,7 @@
     if (!d) return `<div class="apl-dim apl-pad">${ERR.now || 'Loading…'}</div>`;
     const cnt = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<b>${esc(k)}</b> ×${v}`).join(' · ') || '—';
     const out = [metarCard(d.metar)];
+    if (d.bl) out.push(blCard(d.bl, d.metar));
     out.push(card('In use', `last ${S.min} min`, `<div class="apl-note">Arrivals ${cnt(d.arr)} &nbsp;&nbsp; Departures ${cnt(d.dep)}</div>`));
     // the runways of the wind on final: Auto (the runways in use) or the pilot's own choice
     const all = d.runways || ['04L', '04R', '22L', '22R', '15', '33'], chosen = d.chosen || [];
@@ -192,6 +193,39 @@
     return out.join('');
   }
   const edrName = e => e < 0.1 ? 'smooth' : e < 0.2 ? 'light' : e < 0.45 ? 'moderate' : 'severe';
+
+  // Boundary layer now (from 2026-11-08): the surface inversion and the low-level jet of the
+  // last 60 min of flights (else the last full hour), heights ft MSL → above the airport
+  const APT_ELEV = 179;
+  function blCard(b, m) {
+    const note = b.src === 'now' ? 'last 60 min of flights' : `${hm(b.hour)}–${hm(b.hour + 3600)} UTC`;
+    const agl = ft => num(Math.max(0, Math.round((ft - APT_ELEV) / 100) * 100));
+    const dir = v => String(Math.round(v)).padStart(3, '0');
+    const body = [];
+    const inv = b.inv;
+    if (inv) {
+      const k = inv.dT >= 5 ? 'strong' : inv.dT >= 2 ? 'moderate' : 'weak';
+      body.push(`<div class="apl-blinv apl-bl-${k}"><b>Surface inversion +${inv.dT.toFixed(1)} K</b> <span>${k}</span> — up to about <b>${agl(inv.top)} ft</b> above the airport</div>`);
+      const ch = [];
+      if (b.tt != null && b.warm) ch.push(`Temperature <b>${Math.round(b.tt)} °C</b> at the surface → <b>${b.warm[1] > 0 ? '+' : ''}${b.warm[1].toFixed(1)} °C</b> at ${agl(b.warm[0])} ft`);
+      if (b.wtop) ch.push(`Wind <b>${m && m.wspd != null ? (m.wdir == null ? 'VRB' : dir(m.wdir)) + '/' + pad(m.wspd) : '—'}</b> at the surface → <b>${dir(b.wtop[2])}/${pad(b.wtop[1])}</b> kt at ${agl(b.wtop[0])} ft`);
+      // the hours before (stored, newest last) that had an inversion without a break
+      const run = [];
+      for (let i = (b.hist || []).length - 1; i >= 0 && b.hist[i][1]; i--) run.unshift(b.hist[i]);
+      if (run.length) ch.push(`Since <b>${hm(run[0][0])} UTC</b>${run.length >= (b.hist || []).length ? ' or earlier' : ''} · `
+        + run.map(x => `${hm(x[0]).slice(0, 2)}h +${x[1].toFixed(1)}`).join(' → ') + ` → now <b>+${inv.dT.toFixed(1)}</b> K`);
+      else if ((b.hist || []).length) ch.push('<b>New</b> — none in the last full hour');
+      if (ch.length) body.push(`<div class="apl-chips">${ch.map(x => `<span>${x}</span>`).join('')}</div>`);
+      body.push(`<div class="apl-note apl-sm">Cold, stable air near the ground: usually smooth below the top, but the wind can change quickly through it — expect a headwind or tailwind change near ${agl(inv.top)} ft on the approach and the climb-out, and warmer air above it.</div>`);
+    } else if (b.known) {
+      body.push('<div class="apl-ok">No surface inversion.</div>');
+    } else {
+      body.push('<div class="apl-dim">Not enough flights in the last hour to tell.</div>');
+    }
+    if (b.llj) body.push(`<div class="apl-note apl-sm"><b>Low-level jet ${b.llj.kt} kt from ${dir(b.llj.dir)}°</b> at about ${agl(b.llj.ft)} ft above the airport — the wind falls off above it.</div>`);
+    body.push('<div class="apl-dim apl-sm">From the temperatures and winds the aircraft measured within 25 km; an inversion = the air at 600–1 000 ft at least 0.5 K warmer than the METAR. Research only.</div>');
+    return card('Boundary layer', note, body.join(''));
+  }
 
   // ── Approach ───────────────────────────────────────────────────────────
   function renderApp() {
