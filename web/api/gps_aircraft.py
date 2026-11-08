@@ -89,6 +89,18 @@ def _visits(rows):
 
 # ── Daily roll-up (hourly jobs, run.py) ─────────────────────────────────────
 
+def _drop_partial_first(db) -> None:
+    """The first roll-up (8 Nov 2026) also wrote the partial first day of
+    height_series; drop the earliest rolled day when it has under 60 % of the
+    next day's flights."""
+    r = db.execute("""SELECT day, SUM(flights) FROM gps_aircraft_days
+                      GROUP BY day ORDER BY day LIMIT 2""").fetchall()
+    if len(r) == 2 and r[1][1] and r[0][1] < 0.6 * r[1][1] \
+            and _day0(r[1][0]) - _day0(r[0][0]) == 86400:
+        db.execute("DELETE FROM gps_aircraft_days WHERE day = ?", (r[0][0],))
+        db.commit()
+
+
 def rollup_days(db, max_days: int = 60) -> int:
     """Roll the flights of every completed UTC day still in height_series up
     into gps_aircraft_days (days already there are skipped).  Returns the
@@ -98,7 +110,10 @@ def rollup_days(db, max_days: int = 60) -> int:
     if not row or row[0] is None:
         return 0
     first = _day0(_day(row[0]))
+    if row[0] - first > 900:                # height_series starts mid-day: that day is partial
+        first += 86400
     today = _day0(_day(time.time()))
+    _drop_partial_first(db)
     done = 0
     t = max(first, today - max_days * 86400)
     while t < today and done < max_days:
@@ -341,3 +356,214 @@ def history(db, q: str, days: int = 30, radius_nm: float = 100.0, edge_nm: float
             "rolled_from": rolled_from, "counted_from": counted_from,
             "episodes_from": _day(first_ep) if first_ep else None,
             "radius_nm": radius_nm, "edge_nm": edge_nm}
+
+
+# ── Overview of all traffic (from 2026-11-08 morning) ───────────────────────
+
+_AIRLINE = re.compile(r"^([A-Z]{3})\d")
+
+
+def _airline(cs: str | None) -> str:
+    """The ICAO airline code of a callsign (FIN123 → FIN); others → "other"."""
+    m = _AIRLINE.match((cs or "").strip().upper())
+    return m.group(1) if m else "other"
+
+
+def _types(db, icaos) -> dict:
+    """ICAO type and registration of each aircraft: the newest landing,
+    departure or episode that has them, else the aircraft database."""
+    out = {}
+    for sql in ("SELECT icao, aircraft_type, registration FROM approach_history WHERE aircraft_type IS NOT NULL GROUP BY icao",
+                "SELECT icao, aircraft_type, registration FROM departure_profiles WHERE aircraft_type IS NOT NULL GROUP BY icao",
+                "SELECT icao, aircraft_type, registration FROM gps_episodes WHERE aircraft_type IS NOT NULL GROUP BY icao"):
+        try:
+            for i, t, r in db.execute(sql):
+                i = (i or "").upper()
+                if i in icaos and i not in out and t:
+                    out[i] = (t.upper(), r)
+        except Exception:
+            pass
+    try:
+        from collector import aircraft_db
+        for i in icaos:
+            if i not in out:
+                reg, typ = aircraft_db.lookup(i)
+                if typ:
+                    out[i] = (typ, reg)
+    except Exception:
+        pass
+    return out
+
+
+def _in_hours(ts: float, h0: int, h1: int) -> bool:
+    """UTC hour of ts within [h0, h1) — wrapping past midnight when h0 > h1."""
+    if h0 == h1:
+        return True
+    h = time.gmtime(ts).tm_hour
+    return h0 <= h < h1 if h0 < h1 else (h >= h0 or h < h1)
+
+
+_OV_CACHE: dict = {}
+OV_CACHE_SEC = 300
+
+
+def overview(db, days: int = 30, h0: int = 0, h1: int = 0, min_flights: int = 10) -> dict:
+    """overview_calc() cached for OV_CACHE_SEC (the numbers change slowly)."""
+    key = (days, h0 % 24, h1 % 24, min_flights)
+    hit = _OV_CACHE.get(key)
+    if hit and time.time() - hit[0] < OV_CACHE_SEC:
+        return hit[1]
+    out = overview_calc(db, days, h0, h1, min_flights)
+    if len(_OV_CACHE) > 40:
+        _OV_CACHE.clear()
+    _OV_CACHE[key] = (time.time(), out)
+    return out
+
+
+def overview_calc(db, days: int = 30, h0: int = 0, h1: int = 0, min_flights: int = 10) -> dict:
+    """All traffic (military / government / police left out) over the last
+    `days` days (0 = all), optionally only the flights and episodes that
+    started between UTC hours h0 and h1: the key figures, per day, a weekday ×
+    hour matrix, and tables by ICAO type, by airline (callsign prefix) and the
+    most affected aircraft (at least min_flights flights)."""
+    now = time.time()
+    db.execute(_DDL)
+    r = db.execute("SELECT MIN(t_start) FROM gps_episodes").fetchone()
+    first_ep_day = _day0(_day(r[0])) if r and r[0] else _day0(_day(now))
+    t_from = _day0(_day(now - (days - 1) * 86400)) if days else 0
+    t_from = max(t_from, first_ep_day)
+    hs_first = db.execute("SELECT MIN(ts) FROM height_series").fetchone()[0] or now
+    hs_day0 = _day0(_day(hs_first)) + 86400
+    hours = (h0 % 24, h1 % 24) if h0 != h1 else (0, 0)
+    if hours != (0, 0):                     # hours need each flight's time: height_series only
+        t_from = max(t_from, hs_day0)
+    special = {}
+
+    def spec(i):
+        if i not in special:
+            special[i] = _special(i)
+        return special[i]
+
+    # flights with times (height_series), episodes
+    rows = db.execute("""SELECT icao, ts, t_end, callsign, alt_min, alt_max FROM height_series
+                         WHERE ts >= ? ORDER BY icao, ts""", (max(t_from, hs_day0),)).fetchall()
+    flights = [f for f in _visits(rows) if not spec(f["icao"]) and _in_hours(f["t0"], *hours)]
+    eps = [dict(x) for x in db.execute(
+        """SELECT id, icao, callsign, aircraft_type, t_start, duration_s, spoof, min_nacp, min_nic
+           FROM gps_episodes WHERE t_start >= ?""", (t_from,)).fetchall()]
+    eps = [e for e in eps if not spec(e["icao"]) and _in_hours(e["t_start"], *hours)]
+    by_ic = {}
+    for e in eps:
+        by_ic.setdefault(e["icao"], []).append(e)
+
+    # one record per (day, aircraft)
+    rec = {}
+
+    def R(day, icao):
+        return rec.setdefault((day, icao), {"flights": 0, "deg": 0, "deg_s": 0, "eps": 0, "spoof": 0,
+                                            "cs": None, "seen": set(), "known": False})
+    heat = [[{"n": 0, "d": 0} for _ in range(24)] for _ in range(7)]      # [weekday Mon=0][hour]
+    used = set()
+    for f in flights:
+        x = R(_day(f["t0"]), f["icao"])
+        x["known"] = True
+        x["flights"] += 1
+        x["cs"] = x["cs"] or f["callsign"]
+        mine = [e for e in by_ic.get(f["icao"], ()) if f["t0"] - 120 <= e["t_start"] <= f["t1"] + 120]
+        tm = time.gmtime(f["t0"])
+        heat[tm.tm_wday][tm.tm_hour]["n"] += 1
+        if mine:
+            x["deg"] += 1
+            heat[tm.tm_wday][tm.tm_hour]["d"] += 1
+            used.update(e["id"] for e in mine)
+    # rolled-up days (older than height_series; no hours there)
+    if hours == (0, 0):
+        for day, icao, n, cs in db.execute(
+                "SELECT day, icao, flights, callsigns FROM gps_aircraft_days WHERE day >= ? AND day < ?",
+                (_day(t_from), _day(hs_day0))).fetchall():
+            if spec(icao):
+                continue
+            x = R(day, icao)
+            x["known"] = True
+            x["flights"] += n
+            x["cs"] = x["cs"] or (cs or "").split(",")[0] or None
+    for e in eps:
+        x = R(_day(e["t_start"]), e["icao"])
+        x["eps"] += 1
+        x["deg_s"] += e["duration_s"] or 0
+        x["spoof"] += 1 if e.get("spoof") else 0
+        x["cs"] = x["cs"] or e.get("callsign")
+        x["seen"].add(e.get("callsign"))
+    for x in rec.values():
+        x["deg"] = max(x["deg"], len(x["seen"])) if x["eps"] else x["deg"]
+        x["flights"] = max(x["flights"], x["deg"])
+        del x["seen"]
+
+    counted_from = min((d for d in (db.execute("SELECT MIN(day) FROM gps_aircraft_days").fetchone()[0],
+                                    _day(hs_day0)) if d), default=_day(hs_day0))
+    if hours != (0, 0):
+        counted_from = max(counted_from, _day(hs_day0))
+    icaos = {i for d, i in rec if d >= counted_from}
+    types = _types(db, icaos)
+
+    def agg(keyf):
+        g = {}
+        for (day, icao), x in rec.items():
+            if day < counted_from:              # flights not counted: the shares would be too high
+                continue
+            k = keyf(icao, x)
+            if k is None:
+                continue
+            a = g.setdefault(k, {"k": k, "ac": set(), "flights": 0, "deg": 0, "deg_s": 0, "eps": 0, "spoof": 0,
+                                 "days": {}})
+            a["ac"].add(icao)
+            a["flights"] += x["flights"]
+            a["deg"] += x["deg"]
+            a["deg_s"] += x["deg_s"]
+            a["eps"] += x["eps"]
+            a["spoof"] += x["spoof"]
+            dd = a["days"].setdefault(day, [0, 0])
+            dd[0] += x["flights"]
+            dd[1] += x["deg_s"]
+        out = []
+        for a in g.values():
+            flown = [v for v in a["days"].values() if v[0]]
+            heavy = sum(1 for n, s in flown if s / 60 / n >= 5)
+            out.append({"k": a["k"], "aircraft": len(a["ac"]), "flights": a["flights"], "deg": a["deg"],
+                        "deg_s": a["deg_s"], "episodes": a["eps"], "spoof": a["spoof"],
+                        "days": len(flown), "heavy_days": heavy})
+        return out
+
+    by_type = [t for t in agg(lambda i, x: (types.get(i) or (None,))[0]) if t["flights"] >= min_flights]
+    by_air = [t for t in agg(lambda i, x: _airline(x["cs"])) if t["flights"] >= min_flights]
+    by_ac = agg(lambda i, x: i)
+    for a in by_ac:
+        t = types.get(a["k"]) or (None, None)
+        a.update({"icao": a["k"], "type": t[0], "reg": t[1]})
+    by_ac = [a for a in by_ac if a["flights"] >= min_flights]
+    by_ac.sort(key=lambda a: (-(a["deg"] / a["flights"]), -a["deg_s"]))
+
+    # per day (all traffic) and the GPS Quality page's aircraft-hour share
+    per = {}
+    for (day, icao), x in rec.items():
+        d = per.setdefault(day, {"d": day, "flights": 0, "deg_flights": 0, "episodes": 0, "deg_s": 0, "spoof": 0})
+        d["flights"] += x["flights"]
+        d["deg_flights"] += x["deg"]
+        d["episodes"] += x["eps"]
+        d["deg_s"] += x["deg_s"]
+        d["spoof"] += x["spoof"]
+    if hours == (0, 0):
+        for day, deg, tot in db.execute(
+                """SELECT date(ts, 'unixepoch'), SUM(degraded), SUM(total) FROM gps_quality_hours
+                   WHERE ts >= ? GROUP BY 1""", (t_from,)).fetchall():
+            if tot and day in per:
+                per[day]["all_share"] = round(deg / tot, 3)
+    for d in per.values():
+        if d["d"] < counted_from:
+            d["flights"] = None                 # only the flights with an episode are known
+    return {"days": days, "t_from": t_from, "h0": hours[0], "h1": hours[1], "min_flights": min_flights,
+            "counted_from": counted_from, "flights_from": _day(hs_day0),
+            "times_from": _day(max(t_from, hs_day0)),
+            "day": sorted(per.values(), key=lambda d: d["d"]), "heat": heat,
+            "types": by_type, "airlines": by_air, "aircraft": by_ac[:40],
+            "n_aircraft": len(icaos), "untyped": sum(1 for i in icaos if i not in types)}

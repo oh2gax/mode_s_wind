@@ -3,9 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.08112026 — The GPS history of one aircraft, day by day
+## v.08112026 — The GPS history of one aircraft, day by day, and the GPS overview of all traffic
 
 - **GPS → Aircraft** (Full view) — type an ICAO24 address, a registration, a callsign or an aircraft type (e.g. *AT75* for the whole fleet seen) and see its **good and bad GPS days**: the flights seen each day, how many had GPS degradation and how long, the lowest accuracy and any spoofing signs — next to how bad the day was for all aircraft. A calendar and the list of flights with their landings and departures; *On the map* shows the episodes on the GPS Episodes map.
+- **GPS → Aircraft: all traffic** — with the search box empty the page gives the overview: how many flights had GPS degradation **day by day**, at **which hours and weekdays** (a coloured matrix), and **by aircraft type, airline and aircraft** — sortable tables; click a type or an aircraft for its own history. Choose the period and, with *Hours (UTC)*, a time of day, e.g. only the night or the morning.
 
 ## v.07112026 — The 850 hPa temperature and seven more options on the meteograms, measured by the aircraft too, meteograms in Finnish, wind values in numbers, a Meteogram user guide, and 13 heights in the Pilot view
 

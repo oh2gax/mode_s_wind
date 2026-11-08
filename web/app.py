@@ -2690,6 +2690,27 @@ def create_app(
             return jsonify({"error": "history failed"}), 500
         return _private(_gzip_json(out))
 
+    @app.route("/api/gps/overview")
+    def gps_overview_api():
+        """All traffic's GPS degradation (from 2026-11-08): ?days=30 (0 = all),
+        ?h0=&h1= UTC hours (flights / episodes that started then; needs the
+        flights' times — the last HEIGHT_SERIES_DAYS), ?min= flights for the
+        tables (default 10): key figures by day, a weekday × hour matrix, and
+        tables by ICAO type, airline and aircraft.  Cached 5 min."""
+        if not _gnss_ok():
+            return _gnss_denied()
+        from web.api import gps_aircraft as _ga
+        days = request.args.get("days", default=30, type=int)
+        days = 0 if days <= 0 else min(days, 400)
+        try:
+            out = _ga.overview(get_db(), days, request.args.get("h0", 0, type=int),
+                               request.args.get("h1", 0, type=int),
+                               max(1, min(request.args.get("min", 10, type=int), 1000)))
+        except Exception as exc:
+            log.warning("gps overview failed: %s", exc)
+            return jsonify({"error": "overview failed"}), 500
+        return _private(_gzip_json(out))
+
     # ── Pilot view (web/api/pilot.py, from 2026-11-05; the Pilot right) ─────
 
     @app.route("/api/pilot/brief")

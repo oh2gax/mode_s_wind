@@ -26,6 +26,20 @@
         <button class="gps-range-btn" data-days="0" title="Everything stored (the episodes from 6 Oct 2026)">All</button>
       </span>
     </span>
+    <span class="gpe-ctrl" id="gpa-hours-ctrl">
+      <span class="gps-summary-label">Hours (UTC)</span>
+      <select id="gpa-hours" class="gpe-input gpa-sel" title="Only the flights and episodes that started in these UTC hours (the overview; the last {{ hser_days }} days)">
+        <option value="0-0">All day</option>
+        <option value="0-6">00–06</option>
+        <option value="6-12">06–12</option>
+        <option value="12-18">12–18</option>
+        <option value="18-0">18–24</option>
+        <option value="custom">From – to…</option>
+      </select>
+      <span id="gpa-hcust" hidden>
+        <select id="gpa-h0" class="gpe-input gpa-sel"></select>–<select id="gpa-h1" class="gpe-input gpa-sel"></select>
+      </span>
+    </span>
     <span class="gps-updated" id="gpa-status"></span>
   </div>
 
@@ -33,10 +47,56 @@
     <div class="gpa-intro" id="gpa-intro">
       <p><b>GPS history of one aircraft — its good and bad days.</b> Type an ICAO24 address, a registration, a callsign
       or an ICAO type (e.g. <a href="#" data-q="AT75">AT75</a> for the whole fleet seen) and press <b>Show</b>.</p>
-      <p>For each UTC day: the flights seen in the receivers' coverage, the flights with a GPS degradation episode (within
+      <p>Below: the <b>overview of all traffic</b> — by day, by time of day and weekday, by type, by airline and the most
+      affected aircraft. Click a type or an aircraft for its history.</p>
+      <p class="gpa-dim gpa-small">For each UTC day of an aircraft's history: the flights seen in the receivers' coverage, the flights with a GPS degradation episode (within
       {{ episode_radius_nm|round|int }} NM of {{ airport_icao }}), the degraded time, the lowest NACp / NIC and the spoofing
       indicators — next to the day's general level, the share of <i>all</i> aircraft with degradation. A bad day for
       everyone points to jamming; a bad day for this aircraft alone to its own equipment or route.</p>
+    </div>
+
+    <!-- ── Overview of all traffic (search box empty; from 8 Nov 2026) ─────── -->
+    <div id="gpa-ov" hidden>
+      <div class="gpa-head">
+        <div class="gpa-title" id="gpa-ov-title"></div>
+        <div class="gpa-kpis" id="gpa-ov-kpis"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">All traffic, day by day</span>
+          <span class="gpe-summary gpa-legend" id="gpa-ov-legend"></span>
+        </div>
+        <div class="gpa-chart" id="gpa-ov-chart"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Time of day × weekday</span>
+          <span class="gpe-summary" id="gpa-heat-sum"></span>
+        </div>
+        <div class="gpa-heat" id="gpa-heat"></div>
+        <div class="gpa-cal-leg" id="gpa-heat-leg"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">By type, airline and aircraft</span>
+          <span class="gpe-summary">
+            at least <select id="gpa-min" class="gpe-input gpa-sel">
+              <option value="5">5</option><option value="10" selected>10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option>
+            </select> flights · click a column to sort
+          </span>
+        </div>
+        <div class="gpa-tabs" id="gpa-tabs">
+          <button class="gps-range-btn active" data-tab="types">Types</button><button class="gps-range-btn" data-tab="airlines">Airlines</button><button class="gps-range-btn" data-tab="aircraft">Most affected aircraft</button>
+          <span class="gpe-summary" id="gpa-tab-sum"></span>
+        </div>
+        <div class="gpe-list-wrap gpa-tbl-wrap">
+          <table class="gpe-table gpa-tbl" id="gpa-tbl"></table>
+        </div>
+      </div>
+      <div class="gpa-note" id="gpa-ov-note"></div>
     </div>
 
     <div id="gpa-result" hidden>

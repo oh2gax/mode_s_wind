@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.08112026 — 2026-11-08 (the GPS Aircraft page: one aircraft's or type's GPS degradation day by day)
+## v.08112026 — 2026-11-08 (the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, time of day, weekday, type and airline)
 
 ### GPS Aircraft page
 - New page **GPS → Aircraft** (`/gps-aircraft`, Full view, as the other GPS pages): the GPS history of one aircraft by ICAO24, registration, callsign or ICAO type (a whole fleet) over 7 / 30 / 60 / 90 days or all — key figures, a day-by-day chart (flights seen, flights with degradation coloured clean / light / moderate / heavy, spoofing marks, this aircraft's share against the share of all aircraft degraded that day), a calendar and the flights with their landing / departure, signals and degraded time. `web/api/gps_aircraft.py`, `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`, `web/app.py` (`/gps-aircraft`, `/api/gps/aircraft`).
@@ -15,6 +15,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `/api/gps/episodes` takes `&icao=` (and then a longer window); the GPS Episodes page shows one aircraft's episodes from the Aircraft page (*On the map*, *map ›*) and its callsigns link to the Aircraft page. `static/js/gps_episodes.js`.
 - The Quality / Episodes switch has a third button, *Aircraft*. `web/templates/gps_quality.html`, `web/templates/gps_episodes.html`, `web/templates/base.html`.
 - Military, government and police aircraft are never shown or stored here.
+
+### GPS Aircraft: overview of all traffic (afternoon)
+- With the search box empty the page shows **all traffic**: key figures (flights, share degraded, minutes per flight, best / worst day), the days as a chart, a **time of day × weekday** matrix of the share of flights degraded with an hour profile, and tables **by type**, **by airline** (callsign prefix) and the **most affected aircraft** — sortable, with a minimum number of flights; a type or an aircraft opens its history, *‹ All traffic* returns. New **Hours (UTC)** filter (00–06, 06–12, 12–18, 18–24 or any from–to; the last 30 days). `web/api/gps_aircraft.py` (`overview()`), `web/app.py` (`/api/gps/overview`, cached 5 min), `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`.
+- The daily roll-up no longer stores the partial first day of `height_series`, and drops such a day stored by the first run (it made that day look 98 % degraded). `web/api/gps_aircraft.py`.
+- The day chart's left axis gets at most about five labels (it was crowded with hundreds of flights).
 
 ---
 
