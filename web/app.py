@@ -2694,8 +2694,10 @@ def create_app(
     def gps_overview_api():
         """All traffic's GPS degradation (from 2026-11-08): ?days=30 (0 = all),
         ?h0=&h1= UTC hours (flights / episodes that started then; needs the
-        flights' times — the last HEIGHT_SERIES_DAYS), ?min= flights for the
-        tables (default 10): key figures by day, a weekday × hour matrix, and
+        flights' times — gps_flights), ?min= flights for the tables (default
+        10), ?al= one airline (ICAO code of the callsign, or "other"): key
+        figures by day, a weekday × hour matrix, arrivals / departures,
+        direction, altitude, kinds of degradation, receiver coverage, and
         tables by ICAO type, airline and aircraft.  Cached 5 min."""
         if not _gnss_ok():
             return _gnss_denied()
@@ -2703,9 +2705,14 @@ def create_app(
         days = request.args.get("days", default=30, type=int)
         days = 0 if days <= 0 else min(days, 400)
         try:
+            al = (request.args.get("al") or "").strip().upper()
+            import re as _re
+            al = al if _re.fullmatch(r"[A-Z]{3}|OTHER", al) else ""
             out = _ga.overview(get_db(), days, request.args.get("h0", 0, type=int),
                                request.args.get("h1", 0, type=int),
-                               max(1, min(request.args.get("min", 10, type=int), 1000)))
+                               max(1, min(request.args.get("min", 10, type=int), 1000)),
+                               al.lower() if al == "OTHER" else al,
+                               (cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON))
         except Exception as exc:
             log.warning("gps overview failed: %s", exc)
             return jsonify({"error": "overview failed"}), 500

@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.08112026 — 2026-11-08 (the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, time of day, weekday, type and airline)
+## v.08112026 — 2026-11-08 (the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, week, time of day, weekday, type and airline, arrivals and departures, direction, altitude, kind of degradation and receiver coverage; the GPS user guide; Mobile guide 1.64)
 
 ### GPS Aircraft page
 - New page **GPS → Aircraft** (`/gps-aircraft`, Full view, as the other GPS pages): the GPS history of one aircraft by ICAO24, registration, callsign or ICAO type (a whole fleet) over 7 / 30 / 60 / 90 days or all — key figures, a day-by-day chart (flights seen, flights with degradation coloured clean / light / moderate / heavy, spoofing marks, this aircraft's share against the share of all aircraft degraded that day), a calendar and the flights with their landing / departure, signals and degraded time. `web/api/gps_aircraft.py`, `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`, `web/app.py` (`/gps-aircraft`, `/api/gps/aircraft`).
@@ -20,6 +20,21 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - With the search box empty the page shows **all traffic**: key figures (flights, share degraded, minutes per flight, best / worst day), the days as a chart, a **time of day × weekday** matrix of the share of flights degraded with an hour profile, and tables **by type**, **by airline** (callsign prefix) and the **most affected aircraft** — sortable, with a minimum number of flights; a type or an aircraft opens its history, *‹ All traffic* returns. New **Hours (UTC)** filter (00–06, 06–12, 12–18, 18–24 or any from–to; the last 30 days). `web/api/gps_aircraft.py` (`overview()`), `web/app.py` (`/api/gps/overview`, cached 5 min), `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`.
 - The daily roll-up no longer stores the partial first day of `height_series`, and drops such a day stored by the first run (it made that day look 98 % degraded). `web/api/gps_aircraft.py`.
 - The day chart's left axis gets at most about five labels (it was crowded with hundreds of flights).
+
+### GPS Aircraft: arrivals and departures, direction, altitude, airline, weeks, kinds, receiver coverage (evening)
+- **Arrivals and departures at EFHK** on the overview: where GPS came back on the way in (median distance and altitude, back only within 30 NM, still degraded below 1 000 ft), the arrivals of each day by those classes, and histograms of where GPS came back on arrival and was lost on departure. An arrival ends, a departure starts within 10 NM of the airport at or below 4 000 ft.
+- **By direction and altitude**: compass roses of the share of flights degraded for arrivals (where they came from), departures (where they went) and overflights, and the share by the highest altitude of the pass with where the episodes started.
+- **Airline** filter for the whole overview (by the callsign's ICAO code; from the Airlines table too) — e.g. one airline's types against each other.
+- **Week by week** chart, and the key figure *today so far / median of the last 7 days*.
+- **Kind of degradation** by day or by hour: position lost, accuracy reduced, gaps / frozen only; the spoofing indicators by kind.
+- **Receiver coverage** strip under the day charts (overview and one aircraft): each receiver's minutes up per day; days with a gap are left out of the best / worst day.
+- New tables, written by the hourly jobs: `gps_flights` (one short row per pass with its entry / exit bearing, distance and altitude, kept 400 days; the first run back-fills the 30 days of `height_series`) and `gps_rx_days` (each receiver's minutes with messages per day, from the 7-day message statistics). `web/api/gps_aircraft.py`, `run.py`, `database/schema.sql`.
+- **Correction:** a flight now includes the aircraft's GPS episodes as passes. While GPS is lost an aircraft often has no `height_series` row (no GNSS height), so about half of the episodes fell outside every stored pass: a degraded arrival could be counted clean, and the flight start times (Hours filter, time-of-day matrix) were late. Also on an aircraft's history. With it the 30-day share of flights degraded is 74 % (was shown as 77 %) and by start hour the night is 97–99 % (was shown as about 80 %).
+- `/api/gps/overview` takes `&al=`; its answer and `/api/gps/aircraft` carry the receiver coverage. `web/app.py`, `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`.
+
+### Guides
+- **The GPS pages** user guide 1.0 (`doc/GPS_User_Guide.pdf`, 10 pages): what is measured (NACp, NIC, the five signals, episodes, spoofing indicators, flights), the GPS Quality, Episodes and Aircraft pages, the overview of all traffic, how to read it sensibly and the first results of 9 Oct – 7 Nov 2026, all figures with real data. In the User guides (full site and phone) and as **?** beside the Quality / Episodes / Aircraft switch on each GPS page. `doc/guides.md`, `web/templates/gps_quality.html`, `web/templates/gps_episodes.html`, `web/templates/gps_aircraft.html`.
+- **Mobile guide 1.64**: the Meteogram section and the GNSS section point to the Meteograms guide (also in Finnish) and the new GPS guide; the list of the other guides is complete again. `doc/Mobile_User_Guide.pdf`.
 
 ---
 

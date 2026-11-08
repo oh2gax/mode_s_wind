@@ -4,7 +4,7 @@ The user guides listed in the **User guides** tab of the What's new window
 (web/whats_new.py). Each guide: a `## title` heading, then `key: value` lines —
 `file` (PDF in this folder; only these files are served, at /doc/<file>),
 `version`, `date` (YYYY-MM-DD), `pages`, `open` (the pages whose **?** button
-opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats, mg (the Weather page's meteogram) and mgfi (the same for the users with the FIN right); `windmap@30` opens it at PDF page 30)
+opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshear, stats, mg (the Weather page's meteogram), mgfi (the same for the users with the FIN right) and gps / gpsep / gpsac (the GPS Quality, Episodes and Aircraft pages); `windmap@30` opens it at PDF page 30)
 — then a blank line and the description (bullets, **bold**, `code`).
 
 ## The receiving station (brochure)
@@ -103,16 +103,32 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
+## The GPS pages — Quality, Episodes and Aircraft
+file: GPS_User_Guide.pdf
+version: 1.0
+date: 2026-11-08
+pages: 10
+open: gps@3, gpsep@4, gpsac@5
+
+GPS interference as the aircraft themselves report it, and how to read the three **GPS** pages (shown to users with the **Full view** right).
+
+- What is measured: the aircraft's own **NACp** and **NIC**, the five degradation signals (NACp, NIC, Freeze, Gap, ADS-B loss), severe looks, **episodes** within 100 NM of EFHK and how they end, the four **spoofing indicators** and *2+*, and what a flight is
+- **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap, the live table, the FL-band analysis and the severity and spoofing panel
+- **GPS Episodes**: the window and filters, the map, the list with its chips and *altitude vs distance*
+- **GPS Aircraft**: one aircraft, a callsign or a type — key figures, the days with the **receivers' coverage**, the calendar and the flights
+- **The overview of all traffic**: the Hours and Airline filters, key figures with *today vs the last 7 days*, day by day, **week by week**, **time of day × weekday**, **arrivals and departures** (where GPS came back, still degraded below 1 000 ft; where it was lost), **direction and altitude**, the **kind of degradation**, and the tables by type, airline and aircraft
+- How to read it sensibly, and the first results of 9 Oct – 7 Nov 2026 — all figures with real data
+
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.63
-date: 2026-11-07
+version: 1.64
+date: 2026-11-08
 pages: 56
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
 - Opening `/app`, **Add to Home Screen** on Android and iPhone, the top bar (UTC time, theme Dark / Light / **Auto** following the phone) and the system-health dot
-- The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section
+- The menu: view tiles, folding options of each product, tap buttons, switches and the date / hour steppers; **What's new**, **About** and all the **User guides** in the General section (among them the **Meteograms** guide and, from 8 Nov 2026, **The GPS pages**)
 - Tap for values, scrolling, portrait and landscape, when each view is updated (and the data the live ILS view uses)
 - **Skew-T** (Area now / Area hour), **Time–height** (also the boundary layer and its flight-by-flight headwind, change and shear), the live **ILS approach** (glideslope, traffic, wind barbs, windshear alerts, strips with ATC-style altitudes, the **approach map** with speed vectors, departures and **turbulence (EDR)** on request, ATC labels placed apart with leader lines and the **extended label** on a tap, **All tracked (30 NM)** and the **ATC map style** of the big pages, the **approach history** of the last 3–6 h under the strips, and the optional **WS + EDR** or **WS + ACI chart**, 3–12 h), **EDR · WS · ACI · ST** with **ACI + EDR + WS**, **EDR + WS** and a **boundary-layer chart below** on the same hours (also under the ILS view's chart), the space–time diagram and the **boundary layer** (low-level jet, inversion, and flight by flight: headwind, its change and the shear; also a line in the ILS view) and the list of the period's flights, the **History** of landings and departures (also **Both** in one list, the departures' runway in light blue) with its search and each flight's **headwind profile** chart, the **EDR** chip and *Show: Turbulence*, the **METAR & reports** list (windshear METARs and pilot reports, also on the charts), and the **Statistics** (message rate, downlink formats, meteo yield, range rings and the sections you switch on; with more receivers *All receivers* and, for its owners and Full view, a receiver's own tab marked **yours**), and the **Weather** maps (MEPS, 6 h back to 24 / 48 h ahead, slider and animation, tap for values, the **2.5 km detail** near the airport when zoomed in, **smooth shading** or grid cells, the **2 m temperature** in colours or isotherms, and as **numbers** on their own, the **FMI radar** at the present hour, one **Opacity** for all the coloured layers, the live air traffic with the ATC map and labels, and the extended label on a tap, and the receivers as small triangles), and — for users with the **Full view** right — **GNSS** (degraded GPS now, hour by hour or day by day up to 3 months, the **FL band heatmap**, the live list and the spoofing indicators), with their options
 - **Pilot** (the Pilot right, research only): **Now** — the METAR, runways in use, the wind on final (of the runways in use or of runways you choose; at 3, 7 or 13 heights), windshear, turbulence and go-arounds; **Approach** — the headwind on final by runway in ft above the runway, your aircraft class highlighted; **Departure** — the headwind, crosswind and temperature on the climb-out with a climb table and the low-level jet; **Aloft** — winds and temperatures by flight level for your class, the tropopause and the jet; **Icing** — freezing levels and a warm layer above a sub-freezing surface; **Turbulence** — EDR by height and over 6 hours; **GNSS** — degraded GPS as counts; **My flight** — a landing or departure against the flights before it; **Map** — the Weather view's pilot presets; and the full site's **Pilot page** with the same tabs

@@ -254,6 +254,17 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                     hj_log.info("GPS aircraft days: %d day(s) rolled up", n_ga)
             except Exception as exc:
                 hj_log.warning("GPS aircraft roll-up failed: %s", exc)
+            # GPS overview (from 2026-11-08 afternoon): each pass's entry / exit
+            # (gps_flights, kept 400 days; the first run back-fills height_series)
+            # and the receivers' minutes up per day (gps_rx_days)
+            try:
+                from web.api.gps_aircraft import flights_update as _ga_fl, rx_days_update as _ga_rx
+                n_fl = _ga_fl(db, (cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON))
+                n_rx = _ga_rx(db)
+                if n_fl or n_rx:
+                    hj_log.info("GPS flights: %d pass(es) stored, %d receiver day(s)", n_fl, n_rx)
+            except Exception as exc:
+                hj_log.warning("GPS flights update failed: %s", exc)
             if time.time() - last_purge > 86_400:
                 last_purge = time.time()
                 # Retention purges of the raw approach series and the departure

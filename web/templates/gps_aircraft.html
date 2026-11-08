@@ -9,6 +9,7 @@
     <span class="gps-switch" role="tablist">
       <a href="/gps" class="gps-switch-btn">Quality</a><a href="/gps-episodes" class="gps-switch-btn">Episodes</a><a href="/gps-aircraft" class="gps-switch-btn active">Aircraft</a>
     </span>
+    {% if guide_links.gpsac %}<a class="guide-q gps-guide-q" href="{{ guide_links.gpsac }}" target="_blank" rel="noopener" title="User guide: the GPS pages — PDF in a new tab">?</a>{% endif %}
     <span class="gpe-ctrl">
       <span class="gps-summary-label">Aircraft</span>
       <input type="text" id="gpa-q" class="gpe-input gpa-q" maxlength="20" autocomplete="off" spellcheck="false"
@@ -39,6 +40,10 @@
       <span id="gpa-hcust" hidden>
         <select id="gpa-h0" class="gpe-input gpa-sel"></select>–<select id="gpa-h1" class="gpe-input gpa-sel"></select>
       </span>
+      <span class="gps-summary-label">Airline</span>
+      <select id="gpa-al" class="gpe-input gpa-sel" title="Only the flights of one airline (the ICAO code at the start of the callsign) — e.g. one airline's types against each other">
+        <option value="">All</option>
+      </select>
     </span>
     <span class="gps-updated" id="gpa-status"></span>
   </div>
@@ -72,11 +77,54 @@
 
       <div class="gpa-panel">
         <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Week by week</span>
+          <span class="gpe-summary" id="gpa-wk-sum"></span>
+        </div>
+        <div class="gpa-chart" id="gpa-wk"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
           <span class="gps-panel-title">Time of day × weekday</span>
           <span class="gpe-summary" id="gpa-heat-sum"></span>
         </div>
         <div class="gpa-heat" id="gpa-heat"></div>
         <div class="gpa-cal-leg" id="gpa-heat-leg"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Arrivals and departures at {{ airport_icao }}</span>
+          <span class="gpe-summary" id="gpa-ad-sum"></span>
+        </div>
+        <div class="gpa-ad-kpis" id="gpa-ad-kpis"></div>
+        <div class="gpa-chart" id="gpa-ad-day"></div>
+        <div class="gpa-cal-leg" id="gpa-ad-leg"></div>
+        <div class="gpa-row gpa-hists">
+          <div class="gpa-hist" id="gpa-h-arr"></div>
+          <div class="gpa-hist" id="gpa-h-dep"></div>
+        </div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">By direction and altitude</span>
+          <span class="gpe-summary">share of the flights degraded · hover for the numbers</span>
+        </div>
+        <div class="gpa-row gpa-roses" id="gpa-roses"></div>
+        <div class="gpa-alt" id="gpa-alt"></div>
+        <div class="gpa-cal-leg" id="gpa-dir-leg"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Kind of degradation</span>
+          <span class="gpe-summary">
+            <span class="gps-range-btns" id="gpa-kind-by"><button class="gps-range-btn active" data-by="day">By day</button><button class="gps-range-btn" data-by="hour">By hour</button></span>
+          </span>
+        </div>
+        <div class="gpa-chart" id="gpa-kind"></div>
+        <div class="gpa-cal-leg" id="gpa-kind-leg"></div>
       </div>
 
       <div class="gpa-panel">

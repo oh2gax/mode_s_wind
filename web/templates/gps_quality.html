@@ -10,6 +10,7 @@
   <span class="gps-switch" role="tablist">
     <a href="/gps" class="gps-switch-btn active">Quality</a><a href="/gps-episodes" class="gps-switch-btn">Episodes</a><a href="/gps-aircraft" class="gps-switch-btn" title="One aircraft (or type): its GPS degradation day by day">Aircraft</a>
   </span>
+    {% if guide_links.gps %}<a class="guide-q gps-guide-q" href="{{ guide_links.gps }}" target="_blank" rel="noopener" title="User guide: the GPS pages — PDF in a new tab">?</a>{% endif %}
     <span class="gps-summary-item">
       <span class="gps-summary-label">Events 24h</span>
       <span class="gps-summary-val" id="gps-events-24h">—</span>

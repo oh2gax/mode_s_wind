@@ -60,12 +60,14 @@ let minF = 10;                 // overview tables: at least this many flights
 let tab = 'types';
 let sortBy = { types: ['flights', -1], airlines: ['flights', -1], aircraft: ['pct', -1] };
 let seq = 0;                   // the newest load wins
+let airline = '';              // overview: one airline ('' = all, 'other')
+let kindBy = 'day';            // Kind of degradation: by day / by hour
 
 // ── Load ─────────────────────────────────────────────────────────────────────
 async function load() {
   const q = $('gpa-q').value.trim();
   const qs = new URLSearchParams(); if (q) qs.set('q', q); qs.set('days', days);
-  if (!q) { if (hours !== '0-0') qs.set('h', hours); if (minF !== 10) qs.set('min', minF); if (tab !== 'types') qs.set('tab', tab); }
+  if (!q) { if (hours !== '0-0') qs.set('h', hours); if (airline) qs.set('al', airline); if (minF !== 10) qs.set('min', minF); if (tab !== 'types') qs.set('tab', tab); }
   history.replaceState(null, '', '/gps-aircraft?' + qs.toString());
   try { localStorage.setItem('ms_gpa_days', String(days)); } catch (_) {}
   $('gpa-hours-ctrl').style.display = q ? 'none' : '';
@@ -208,15 +210,61 @@ function renderChart(el, legEl, ds, isOv) {
   ds.forEach((d, i) => {
     if (d.flights) o.push(`<circle cx="${L + i * bw + bw / 2}" cy="${Yp(d.deg_flights / d.flights)}" r="${bw > 8 ? 2.6 : 1.8}" fill="${c.text}" pointer-events="none"/>`);
   });
-  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="gpa-svg">${o.join('')}</svg>`;
+  // receiver coverage: one thin row per receiver (and the hours of data before them)
+  const cov = (isOv ? ov : data) && (isOv ? ov : data).coverage;
+  let HT = H;
+  if (cov) {
+    const rows = covRows(cov, ds);
+    rows.forEach((row, j) => {
+      const y = H + 2 + j * 9;
+      o.push(`<text x="${W - R + 4}" y="${y + 6}" class="gpa-ax gpa-rxl">${esc(row.label)}</text>`);
+      ds.forEach((d, i) => {
+        const v = row.f(d);
+        if (!v) return;
+        const up = v.v >= 0.999, col = up ? c.clean : v.v > 0 ? c.mod : c.heavy;
+        o.push(`<rect x="${L + i * bw}" y="${y}" width="${Math.max(1, bw - (bw > 6 ? 2 : 0.5))}" height="6" fill="${col}"${up ? ' opacity="0.35"' : ''}><title>${esc(row.title + ' · ' + dayLbl(d.d) + ': ' + v.t)}</title></rect>`);
+      });
+    });
+    HT = H + (rows.length ? rows.length * 9 + 4 : 0);
+  }
+  el.innerHTML = `<svg width="${W}" height="${HT}" viewBox="0 0 ${W} ${HT}" class="gpa-svg">${o.join('')}</svg>`;
   legEl.innerHTML =
     `<span class="gpa-sw" style="background:${c.bar};opacity:.55"></span>flights ` +
     (isOv ? `<span class="gpa-sw" style="background:${ramp(0.75)}"></span>with degradation (colour = share of the flights) `
           : `<span class="gpa-sw" style="background:${c.mod}"></span>with degradation (colour = the day) `) +
     (ds.some(d => d.all_share != null) ? `<span class="gpa-ln" style="border-color:${c.all}"></span>aircraft-hours degraded (%) ` : '') +
     `<span class="gpa-dot" style="background:${c.text}"></span>${isOv ? 'flights degraded' : 'this aircraft'} (%) ` +
-    `<span class="gpa-sw" style="background:${c.spoof};height:3px"></span>spoofing`;
+    `<span class="gpa-sw" style="background:${c.spoof};height:3px"></span>spoofing` +
+    (cov ? ` · receivers: <span class="gpa-sw" style="background:${c.clean};opacity:.35"></span>up <span class="gpa-sw" style="background:${c.mod}"></span>gap <span class="gpa-sw" style="background:${c.heavy}"></span>down` : '');
 }
+
+// Coverage rows for a day chart: receivers from their first day with messages;
+// before the per-receiver days the hours with any data
+function covRows(cov, ds) {
+  const rows = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const soFar = (Date.now() % 86400000) / 60000;
+  if (ds.some(d => !cov.rx_from || d.d < cov.rx_from)) {
+    rows.push({ label: 'data', title: 'Hours with data', f: d => {
+      if ((cov.rx_from && d.d >= cov.rx_from) || d.d > today) return null;
+      const h = (cov.hours || {})[d.d] || 0;
+      return { v: d.d === today ? 1 : Math.min(1, h / 23), t: `${h} h with data` };
+    } });
+  }
+  Object.keys(cov.rx || {}).sort().forEach(r => {
+    const days = cov.rx[r];
+    const on = Object.keys(days).filter(k => days[k] > 0).sort();
+    if (!on.length) return;
+    rows.push({ label: r.replace(/^MODES-/, ''), title: r, f: d => {
+      if (d.d < on[0] || d.d > today) return null;
+      const m = days[d.d] || 0;
+      const need = d.d === today ? Math.max(1, soFar - 60) : 1380;     // 23 h
+      return { v: Math.min(1, m / need), t: `${Math.floor(m / 60)} h ${pad2(m % 60)} min up` };
+    } });
+  });
+  return rows;
+}
+const gapsOf = (src, iso) => ((src && src.coverage && src.coverage.gaps) || {})[iso];
 
 function tip(d, isOv) {
   const dt = new Date(d.d + 'T00:00:00Z');
@@ -230,6 +278,8 @@ function tip(d, isOv) {
   if (d.spoof) l.push(`${d.spoof} episode(s) with spoofing indicators`);
   if (d.flights && isOv) l.push(`${Math.round(100 * d.deg_flights / d.flights)} % of the flights degraded, ${(d.deg_s / 60 / d.flights).toFixed(1)} min per flight`);
   if (d.all_share != null) l.push(`all traffic: ${Math.round(d.all_share * 100)} % of aircraft-hours degraded`);
+  const g = gapsOf(isOv ? ov : data, d.d);
+  if (g) l.push('receiver coverage gap: ' + g.join(', '));
   return esc(l.join('\n'));
 }
 const sel = d => selDay && d.d === selDay;
@@ -307,7 +357,7 @@ async function loadOverview(my) {
   const [h0, h1] = hoursVal();
   let d;
   try {
-    const r = await fetch(`/api/gps/overview?days=${days}&h0=${h0}&h1=${h1}&min=${minF}`);
+    const r = await fetch(`/api/gps/overview?days=${days}&h0=${h0}&h1=${h1}&min=${minF}${airline ? '&al=' + encodeURIComponent(airline) : ''}`);
     if (!r.ok) throw new Error(r.status);
     d = await r.json();
   } catch (e) { if (my === seq) $('gpa-status').textContent = 'Load failed'; return; }
@@ -321,40 +371,260 @@ async function loadOverview(my) {
 function renderOverview() {
   if (!ov) return;
   $('gpa-ov').hidden = false;
+  syncAirlines();
   const ds = allDays(ov);
   const known = ds.filter(d => d.flights != null && d.d >= ov.counted_from);
   const fl = known.reduce((s, d) => s + d.flights, 0), df = known.reduce((s, d) => s + d.deg_flights, 0);
   const eps = known.reduce((s, d) => s + d.episodes, 0), degS = known.reduce((s, d) => s + d.deg_s, 0);
   const spf = known.reduce((s, d) => s + (d.spoof || 0), 0);
-  const shares = known.filter(d => d.flights >= 20).map(d => ({ d: d.d, p: d.deg_flights / d.flights }));
+  const today = new Date().toISOString().slice(0, 10);
+  const gaps = (ov.coverage && ov.coverage.gaps) || {};
+  const shares = known.filter(d => d.flights >= 20 && d.d !== today && !gaps[d.d]).map(d => ({ d: d.d, p: d.deg_flights / d.flights }));
   const best = shares.reduce((a, x) => (!a || x.p < a.p ? x : a), null), worst = shares.reduce((a, x) => (!a || x.p > a.p ? x : a), null);
+  const tdy = known.find(d => d.d === today);
+  const last7 = shares.filter(x => x.d < today).slice(-7).map(x => x.p).sort((a, b) => a - b);
+  const med7 = last7.length ? (last7.length % 2 ? last7[(last7.length - 1) / 2] : (last7[last7.length / 2 - 1] + last7[last7.length / 2]) / 2) : null;
   const sh = known.filter(d => d.all_share != null);
   const ah = sh.length ? Math.round(100 * sh.reduce((s, d) => s + d.all_share, 0) / sh.length) : null;
   const from = known.length ? known[0].d : ov.counted_from;
   const ht = hoursTxt();
-  $('gpa-ov-title').innerHTML = `<b>All traffic</b> <span class="gpa-dim">${dayLbl(from)}–${dayLbl(ds[ds.length - 1].d)}${ht ? ' · ' + ht : ''} · ` +
-    `${ov.n_aircraft} aircraft${ov.untyped ? ` (${ov.untyped} without a known type)` : ''}</span>`;
+  $('gpa-ov-title').innerHTML = `<b>${airline ? 'Airline ' + esc(airline === 'other' ? 'other (no airline code)' : airline) : 'All traffic'}</b> ` +
+    `<span class="gpa-dim">${dayLbl(from)}–${dayLbl(ds[ds.length - 1].d)}${ht ? ' · ' + ht : ''} · ` +
+    `${ov.n_aircraft} aircraft${ov.untyped ? ` (${ov.untyped} without a known type)` : ''}</span>` +
+    (airline ? ` <a href="#" class="gpa-back" data-al="">‹ All airlines</a>` : '');
+  const pc = (a, b) => b ? Math.round(100 * a / b) + ' %' : '—';
   const kp = [
     [fl, 'flights seen'],
-    [fl ? `${df} (${Math.round(100 * df / fl)} %)` : '—', 'with GPS degradation'],
+    [fl ? `${df} (${pc(df, fl)})` : '—', 'with GPS degradation'],
     [eps, 'episodes'],
     [degS >= 3600 ? Math.round(degS / 3600) + ' h' : Math.round(degS / 60) + ' min', 'degraded'],
     [fl ? (degS / 60 / fl).toFixed(1) + ' min' : '—', 'per flight'],
+    [tdy && tdy.flights ? `${pc(tdy.deg_flights, tdy.flights)}${med7 != null ? ' / ' + Math.round(100 * med7) + ' %' : ''}` : '—',
+     `today so far${med7 != null ? ' / median of the last 7 days' : ''}`],
     [best ? `${Math.round(100 * best.p)} % / ${Math.round(100 * worst.p)} %` : '—',
-     best ? `best (${dayLbl(best.d)}) / worst (${dayLbl(worst.d)}) day, flights degraded` : 'best / worst day'],
-    [ah != null ? ah + ' %' : '—', 'of aircraft-hours degraded (mean of the days)'],
+     best ? `best (${dayLbl(best.d)}) / worst (${dayLbl(worst.d)}) day` : 'best / worst day'],
+    [ah != null ? ah + ' %' : '—', 'of aircraft-hours degraded (all traffic, mean of the days)'],
     [spf, 'episodes with spoofing indicators'],
   ];
   $('gpa-ov-kpis').innerHTML = kp.map(([v, l]) => `<div class="gpa-kpi"><div class="gpa-kv">${esc(v)}</div><div class="gpa-kl">${esc(l)}</div></div>`).join('');
   renderChart($('gpa-ov-chart'), $('gpa-ov-legend'), ds, true);
+  renderWeeks(known);
   renderHeat();
+  renderAD(ds);
+  renderDir();
+  renderKinds(ds);
   renderTable();
   const n = [];
-  n.push(`Flights = the passes through the receivers' coverage (counted from ${dayLbl(ov.counted_from)}; the days before show only the flights with an episode, and are left out of the key figures and tables).`);
-  n.push(`A flight is degraded when it has a GPS degradation episode within ${Math.round(GPA_RADIUS)} NM of ${GPA_AIRPORT} above 1 000 ft. Best / worst day: of the days with at least 20 flights. Heavy days: at least 5 degraded minutes per flight.`);
-  n.push(`The time-of-day matrix${ht ? ' and the hours filter' : ' and the Hours filter'} use the flights' start times, kept for the last ${GPA_HSER_DAYS} days (from ${dayLbl(ov.times_from)} here).`);
-  n.push('Types and registrations come from the landings, departures, episodes and the aircraft database. Military, government and police aircraft are left out.');
+  n.push(`Flights = the passes through the receivers' coverage, an aircraft's GPS degradation episodes included (counted from ${dayLbl(ov.counted_from)}; the days before show only the flights with an episode, and are left out of the key figures and tables).`);
+  n.push(`A flight is degraded when it has a GPS degradation episode within ${Math.round(GPA_RADIUS)} NM of ${GPA_AIRPORT} above 1 000 ft. Best / worst day: of the days with at least 20 flights and no receiver gap. Heavy days: at least 5 degraded minutes per flight.`);
+  n.push(`An arrival ends, a departure starts within ${ov.arr_dep_nm} NM of ${GPA_AIRPORT} at or below ${ov.arr_dep_ft.toLocaleString('en').replace(',', ' ')} ft; other passes are overflights (also other airports' traffic). Directions are bearings from ${GPA_AIRPORT}: where an arrival or an overflight entered the coverage, where a departure left it.`);
+  n.push(`The time-of-day matrix, the directions, the altitudes and the Hours filter use the passes' times and positions, stored from ${dayLbl(ov.flights_from)}.`);
+  n.push('Receivers: minutes with messages per day (from ' + (ov.coverage && ov.coverage.rx_from ? dayLbl(ov.coverage.rx_from) : '—') + '; before that, the hours with any data). Types and registrations come from the landings, departures, episodes and the aircraft database. Military, government and police aircraft are left out.');
   $('gpa-ov-note').textContent = n.join(' ');
+}
+
+function syncAirlines() {
+  const sel = $('gpa-al');
+  const list = (ov.airline_list || []).slice();
+  if (airline && airline !== 'other' && !list.some(a => a.k === airline)) list.unshift({ k: airline, flights: null });
+  sel.innerHTML = '<option value="">All</option>' +
+    list.map(a => `<option value="${esc(a.k)}">${esc(a.k)}${a.flights != null ? ' · ' + a.flights : ''}</option>`).join('') +
+    '<option value="other">other (no airline code)</option>';
+  sel.value = airline;
+}
+
+// ISO week (Monday first) of a YYYY-MM-DD day
+function isoWeek(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  const wd = (d.getUTCDay() + 6) % 7;
+  const th = new Date(d.getTime() + (3 - wd) * 86400000);
+  const y0 = new Date(Date.UTC(th.getUTCFullYear(), 0, 4));
+  return { w: 1 + Math.round(((th - y0) / 86400000 - 3 + ((y0.getUTCDay() + 6) % 7)) / 7), mon: new Date(d.getTime() - wd * 86400000).toISOString().slice(0, 10) };
+}
+
+function renderWeeks(known) {
+  const el = $('gpa-wk');
+  const wk = new Map();
+  known.forEach(d => {
+    const { w, mon } = isoWeek(d.d);
+    const x = wk.get(mon) || { w, mon, n: 0, d: 0, s: 0, days: 0 };
+    x.n += d.flights; x.d += d.deg_flights; x.s += d.deg_s; x.days += 1;
+    wk.set(mon, x);
+  });
+  const ws = [...wk.values()];
+  const c = P();
+  const W = Math.max(320, el.clientWidth || 900), H = 120, L = 34, R = 38, T = 16, B = 30;
+  if (!ws.length) { el.innerHTML = '<div class="gpe-empty">No counted days in this period</div>'; $('gpa-wk-sum').textContent = ''; return; }
+  const bw = Math.min(120, (W - L - R) / ws.length);
+  const Yp = p => T + (H - T - B) * (1 - p);
+  const o = [];
+  for (const p of [0, 0.5, 1]) o.push(`<line x1="${L}" x2="${L + bw * ws.length}" y1="${Yp(p)}" y2="${Yp(p)}" stroke="${c.grid}"/><text x="${L - 4}" y="${Yp(p) + 3}" text-anchor="end" class="gpa-ax">${p * 100}%</text>`);
+  ws.forEach((x, i) => {
+    const p = x.n ? x.d / x.n : 0, bx = L + i * bw + bw * 0.15, w = bw * 0.7;
+    o.push(`<rect x="${bx}" y="${Yp(p)}" width="${w}" height="${Yp(0) - Yp(p)}" fill="${ramp(p)}"${x.days < 7 ? ' opacity="0.6"' : ''}><title>${esc(`Week ${x.w} (from Mon ${dayLbl(x.mon)}${x.days < 7 ? ', ' + x.days + ' day' + (x.days === 1 ? '' : 's') : ''}): ${x.n} flights, ${x.d} degraded (${Math.round(100 * p)} %), ${(x.s / 60 / Math.max(1, x.n)).toFixed(1)} min per flight`)}</title></rect>`);
+    o.push(`<text x="${bx + w / 2}" y="${Yp(p) - 3}" text-anchor="middle" class="gpa-hv" fill="${c.text}">${Math.round(100 * p)} %</text>`);
+    o.push(`<text x="${bx + w / 2}" y="${H - B + 12}" text-anchor="middle" class="gpa-ax">wk ${x.w}${x.days < 7 ? '*' : ''}</text>`);
+    o.push(`<text x="${bx + w / 2}" y="${H - B + 23}" text-anchor="middle" class="gpa-ax">${(x.s / 60 / Math.max(1, x.n)).toFixed(1)} min/fl</text>`);
+  });
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="gpa-svg">${o.join('')}</svg>`;
+  $('gpa-wk-sum').textContent = 'share of the flights degraded per ISO week (Monday–Sunday) · * = part of the week in the period';
+}
+
+// Arrivals (where GPS came back) and departures (where it was lost)
+function renderAD(dsAll) {
+  const a = ov.arrivals || {}, d = ov.departures || {};
+  const ds = dsAll.filter(x => x.d >= ov.flights_from);
+  const c = P();
+  const pc = (x, n) => n ? Math.round(100 * x / n) + ' %' : '—';
+  const ft = v => v == null ? '—' : (v >= 10000 ? 'FL' + Math.round(v / 100) : Math.round(v / 100) * 100 + ' ft');
+  const nm = v => v == null ? '—' : Math.round(v) + ' NM';
+  const low = (a.low || 0) + (a.lost || 0);
+  const kp = [
+    [a.n || 0, 'arrivals'],
+    [`${a.deg || 0} (${pc(a.deg, a.n)})`, 'degraded on the way in'],
+    [`${nm(a.rec_dist)} · ${ft(a.rec_alt)}`, 'GPS back (median distance · altitude)'],
+    [`${a.near || 0} (${pc(a.near, a.n)})`, `GPS back only within ${ov.near_nm} NM`],
+    [`${low} (${pc(low, a.n)})`, 'still degraded below 1 000 ft'],
+    [d.n || 0, 'departures'],
+    [`${d.deg || 0} (${pc(d.deg, d.n)})`, 'degraded on the way out'],
+    [`${nm(d.loss_dist)} · ${ft(d.loss_alt)}`, 'GPS lost (median distance · altitude)'],
+  ];
+  $('gpa-ad-kpis').innerHTML = kp.map(([v, l]) => `<div class="gpa-kpi"><div class="gpa-kv">${esc(v)}</div><div class="gpa-kl">${esc(l)}</div></div>`).join('');
+  $('gpa-ad-sum').textContent = 'arrivals by day: share of the arrivals';
+  // arrivals per day, 100 % stacked
+  const el = $('gpa-ad-day');
+  const by = new Map((a.day || []).map(x => [x.d, x]));
+  const W = Math.max(320, el.clientWidth || 900), H = 120, L = 34, R = 38, T = 8, B = 20;
+  const n = ds.length, bw = (W - L - R) / n;
+  const Yp = p => T + (H - T - B) * (1 - p);
+  const parts = [['clean', c.clean, 'clean'], ['far', c.light, `GPS back beyond ${ov.near_nm} NM`], ['near', c.mod, `GPS back within ${ov.near_nm} NM`], ['low', c.heavy, 'degraded below 1 000 ft']];
+  const o = [];
+  for (const p of [0, 0.5, 1]) o.push(`<line x1="${L}" x2="${W - R}" y1="${Yp(p)}" y2="${Yp(p)}" stroke="${c.grid}"/><text x="${L - 4}" y="${Yp(p) + 3}" text-anchor="end" class="gpa-ax">${p * 100}%</text>`);
+  const lblEvery = Math.ceil(n / Math.floor((W - L - R) / 34));
+  ds.forEach((dd, i) => {
+    const x = L + i * bw, w = Math.max(1, bw - (bw > 6 ? 2 : 0.5));
+    const r = by.get(dd.d);
+    if (i % lblEvery === 0) o.push(`<text x="${x + bw / 2}" y="${H - B + 12}" text-anchor="middle" class="gpa-ax">${dayLbl(dd.d)}</text>`);
+    if (!r || !r.n) return;
+    let acc = 0;
+    parts.forEach(([k, col]) => {
+      const v = r[k] / r.n;
+      if (v > 0) o.push(`<rect x="${x}" y="${Yp(acc + v)}" width="${w}" height="${Yp(acc) - Yp(acc + v)}" fill="${col}"${r.n < 10 ? ' opacity="0.5"' : ''}/>`);
+      acc += v;
+    });
+    o.push(`<rect x="${x}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent"><title>${esc(`${dayLbl(dd.d)}: ${r.n} arrivals\n` + parts.map(([k, , l]) => `${l}: ${r[k]} (${Math.round(100 * r[k] / r.n)} %)`).join('\n'))}</title></rect>`);
+  });
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="gpa-svg">${o.join('')}</svg>`;
+  $('gpa-ad-leg').innerHTML = parts.map(([, col, l]) => `<span class="gpa-sw" style="background:${col}"></span>${esc(l)}`).join(' ');
+  renderHist($('gpa-h-arr'), a.dist || [], 'Arrivals: where GPS came back', 'NM from ' + GPA_AIRPORT, c.clean, a.rec_dist);
+  renderHist($('gpa-h-dep'), d.dist || [], 'Departures: where GPS was lost', 'NM from ' + GPA_AIRPORT, c.heavy, d.loss_dist);
+}
+
+function renderHist(el, bins, title, xl, col, med) {
+  const c = P();
+  const W = Math.max(260, el.clientWidth || 440), H = 150, L = 34, R = 8, T = 22, B = 30;
+  const n = bins.length, bw = (W - L - R) / n;
+  const max = Math.max(1, ...bins);
+  const tot = bins.reduce((s, v) => s + v, 0);
+  const Y = v => T + (H - T - B) * (1 - v / max);
+  const o = [`<text x="${L}" y="12" class="gpa-ht">${esc(title)}${med != null ? ` · median ${Math.round(med)} NM` : ''} · ${tot}</text>`];
+  bins.forEach((v, i) => {
+    const x = L + i * bw;
+    o.push(`<rect x="${x + 1}" y="${Y(v)}" width="${Math.max(1, bw - 2)}" height="${Y(0) - Y(v)}" fill="${col}"><title>${esc(`${i * 10}${i === n - 1 ? '+' : '–' + (i + 1) * 10} NM: ${v} (${tot ? Math.round(100 * v / tot) : 0} %)`)}</title></rect>`);
+    o.push(`<text x="${x + bw / 2}" y="${H - B + 12}" text-anchor="middle" class="gpa-ax">${i * 10}${i === n - 1 ? '+' : ''}</text>`);
+  });
+  o.push(`<text x="${L + (W - L - R) / 2}" y="${H - 4}" text-anchor="middle" class="gpa-ax">${esc(xl)}</text>`);
+  o.push(`<line x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke="${c.grid}"/>`);
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="gpa-svg">${o.join('')}</svg>`;
+}
+
+// Compass roses: arrivals (from), departures (to), overflights (from), coloured by the share degraded
+function renderDir() {
+  const c = P();
+  const SECT = ov.sectors || ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const a = ov.arrivals || {};
+  const rose = (title, cells, extra) => {
+    const S = 210, cx = S / 2, cy = S / 2 + 8, r0 = 16, r1 = 78;
+    const pt = (r, deg) => [cx + r * Math.sin(deg * Math.PI / 180), cy - r * Math.cos(deg * Math.PI / 180)];
+    const o = [`<text x="${cx}" y="12" text-anchor="middle" class="gpa-ht">${esc(title)}</text>`];
+    const tot = cells.reduce((s, x) => s + x.n, 0);
+    cells.forEach((x, i) => {
+      const a0 = i * 45 - 22.5, a1 = a0 + 45;
+      const [x0, y0] = pt(r1, a0), [x1, y1] = pt(r1, a1), [x2, y2] = pt(r0, a1), [x3, y3] = pt(r0, a0);
+      const ok = x.n >= 5, sh = x.n ? x.d / x.n : 0;
+      const t = `${title} ${SECT[i]}: ${x.n} flights (${tot ? Math.round(100 * x.n / tot) : 0} %), ${x.d} degraded (${Math.round(100 * sh)} %)` + (extra ? extra(i) : '');
+      o.push(`<path d="M${x0},${y0} A${r1},${r1} 0 0 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 0 0 ${x3},${y3} Z" fill="${ok ? ramp(sh) : c.none}" stroke="${c.grid}"${ok ? '' : ' opacity="0.5"'}><title>${esc(t)}</title></path>`);
+      const [lx, ly] = pt((r0 + r1) / 2 + 4, i * 45);
+      if (ok) o.push(`<text x="${lx}" y="${ly}" text-anchor="middle" class="gpa-hv" fill="${sh > 0.55 ? '#fff' : c.text}" pointer-events="none">${Math.round(100 * sh)}</text>` +
+        `<text x="${lx}" y="${ly + 10}" text-anchor="middle" class="gpa-ax" fill="${sh > 0.55 ? '#fff' : c.text}" pointer-events="none">${x.n}</text>`);
+      const [tx, ty] = pt(r1 + 9, i * 45);
+      o.push(`<text x="${tx}" y="${ty + 3}" text-anchor="middle" class="gpa-ax">${SECT[i]}</text>`);
+    });
+    return `<div class="gpa-rose"><svg width="${S}" height="${S + 14}" viewBox="0 0 ${S} ${S + 14}" class="gpa-svg">${o.join('')}</svg></div>`;
+  };
+  const r = ov.rose || {};
+  const arrX = i => {
+    const s = (a.sectors || [])[i];
+    return s ? `\nGPS back at median ${s.rec_dist != null ? Math.round(s.rec_dist) + ' NM' : '—'} (${s.rec_n} arrivals); ${s.low} still degraded below 1 000 ft` : '';
+  };
+  $('gpa-roses').innerHTML = rose('Arrivals — from', r.arr || [], arrX) + rose('Departures — to', r.dep || []) + rose('Overflights — from', r.ovf || []);
+  // altitude bands: share of the passes degraded by their highest altitude; where the episodes start
+  const al = ov.alt || [];
+  const maxEp = Math.max(1, ...al.map(x => x.ep));
+  const totEp = al.reduce((s, x) => s + x.ep, 0);
+  $('gpa-alt').innerHTML = `<div class="gpa-alt-hdr"><span>Highest altitude of the pass</span><span>flights degraded</span><span>flights</span><span>episodes started here</span></div>` +
+    al.slice().reverse().map(x => {
+      const sh = x.n ? x.d / x.n : 0, ok = x.n >= 5;
+      return `<div class="gpa-alt-row" title="${esc(`${x.band}: ${x.n} passes, ${x.d} degraded (${Math.round(100 * sh)} %); ${x.ep} episodes started at this altitude (${totEp ? Math.round(100 * x.ep / totEp) : 0} %)`)}">` +
+        `<span>${esc(x.band)}</span>` +
+        `<span class="gpa-pc"><span class="gpa-pbar gpa-pbar-w"><span style="width:${ok ? Math.round(100 * sh) : 0}%;background:${ramp(sh)}"></span></span>${ok ? Math.round(100 * sh) + ' %' : '—'}</span>` +
+        `<span class="gpe-mono">${x.n}</span>` +
+        `<span class="gpa-pc"><span class="gpa-pbar gpa-pbar-w"><span style="width:${Math.round(100 * x.ep / maxEp)}%;background:${c.bar}"></span></span>${x.ep}</span></div>`;
+    }).join('');
+  $('gpa-dir-leg').innerHTML = [0, 0.25, 0.5, 0.75, 1].map(t => `<span class="gpa-sw" style="background:${ramp(t)}"></span>${t * 100} %`).join(' ') +
+    ` <span class="gpa-sw" style="background:${c.none};opacity:.5"></span>fewer than 5 flights · in each sector: % degraded and flights`;
+}
+
+const KIND = [['lost', 'heavy', 'position lost (no own ADS-B position)'], ['acc', 'mod', 'accuracy reduced (NACp / NIC)'], ['gap', 'gap', 'gaps / frozen position only']];
+const SPOOF_LBL = { mlat_dis: 'ADS-B / MLAT position mismatch', gmb_sat: 'GNSS − baro at its limit', gmb_jump: 'GNSS − baro jump', pos_jump: 'position jump' };
+
+function renderKinds(ds) {
+  const el = $('gpa-kind');
+  const c = P();
+  const byHour = kindBy === 'hour';
+  const map = new Map((ov.kinds_day || []).map(x => [x.d, x]));
+  const cols = byHour ? (ov.kinds_hour || []).map((x, h) => ({ ...x, lbl: pad2(h), t: `${pad2(h)}–${pad2(h + 1)} UTC` }))
+    : ds.map(d => ({ ...(map.get(d.d) || { lost: 0, acc: 0, gap: 0, spoof: 0 }), lbl: dayLbl(d.d), t: dayLbl(d.d) + d.d.slice(0, 4) }));
+  const W = Math.max(320, el.clientWidth || 900), H = 160, L = 34, R = 38, T = 10, B = 22;
+  const n = cols.length, bw = (W - L - R) / Math.max(1, n);
+  const max = Math.max(1, ...cols.map(x => x.lost + x.acc + x.gap));
+  const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find(s => max / s <= 4) || 5000;
+  const top = Math.ceil(max / step) * step;
+  const Y = v => T + (H - T - B) * (1 - v / top);
+  const o = [];
+  for (let v = 0; v <= top; v += step) o.push(`<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${c.grid}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end" class="gpa-ax">${v}</text>`);
+  const lblEvery = Math.ceil(n / Math.floor((W - L - R) / 34));
+  cols.forEach((x, i) => {
+    const bx = L + i * bw, w = Math.max(1, bw - (bw > 6 ? 2 : 0.5));
+    let acc = 0;
+    KIND.forEach(([k, ck]) => {
+      if (x[k]) o.push(`<rect x="${bx}" y="${Y(acc + x[k])}" width="${w}" height="${Y(acc) - Y(acc + x[k])}" fill="${c[ck]}"/>`);
+      acc += x[k];
+    });
+    if (x.spoof) o.push(`<rect x="${bx}" y="${Y(0) + 2}" width="${w}" height="3" fill="${c.spoof}"/>`);
+    if (i % lblEvery === 0) o.push(`<text x="${bx + bw / 2}" y="${H - B + 13}" text-anchor="middle" class="gpa-ax">${x.lbl}</text>`);
+    const tot = x.lost + x.acc + x.gap;
+    o.push(`<rect x="${bx}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent"><title>${esc(`${x.t}: ${tot} episodes\n` + KIND.map(([k, , l]) => `${l}: ${x[k]}${tot ? ` (${Math.round(100 * x[k] / tot)} %)` : ''}`).join('\n') + `\nwith spoofing indicators: ${x.spoof}`)}</title></rect>`);
+  });
+  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" class="gpa-svg">${o.join('')}</svg>`;
+  const sk = Object.entries(ov.spoof_kinds || {}).sort((a, b) => b[1] - a[1]);
+  const all = cols.reduce((s, x) => s + x.lost + x.acc + x.gap, 0);
+  $('gpa-kind-leg').innerHTML = KIND.map(([k, ck, l]) => {
+    const t = cols.reduce((s, x) => s + x[k], 0);
+    return `<span class="gpa-sw" style="background:${c[ck]}"></span>${esc(l)} ${all ? Math.round(100 * t / all) + ' %' : ''}`;
+  }).join(' ') + ` <span class="gpa-sw" style="background:${c.spoof};height:3px"></span>spoofing indicators` +
+    (sk.length ? ' · ' + sk.map(([k, v]) => `${esc(SPOOF_LBL[k] || k)} ${v}`).join(', ') : '') +
+    (byHour ? ` · episodes by their start hour (UTC)` : '');
 }
 
 // Sequential ramp for a share 0…1 (theme's empty colour → heavy)
@@ -455,7 +725,7 @@ function renderTable() {
   const body = src.map(r => {
     const q = tab === 'types' ? r.k : tab === 'aircraft' ? r.icao : '';
     const name = tab === 'airlines'
-      ? `<span class="gpe-cs">${esc(r.k === 'other' ? 'other' : r.k)}</span>${r.k === 'other' ? ' <span class="gpa-dim">no airline prefix</span>' : ''}`
+      ? `<a href="#" data-al="${esc(r.k)}" title="Show only this airline's flights">${esc(r.k)}</a>${r.k === 'other' ? ' <span class="gpa-dim">no airline code</span>' : ''}`
       : tab === 'types' ? `<a href="#" data-q="${esc(q)}" title="History of the ${esc(r.k)} fleet">${esc(r.k)}</a>`
       : `<a href="#" data-q="${esc(q)}" title="History of ICAO24 ${esc(r.icao)}">${esc(r.reg)}</a>`;
     const k = r.deg ? (r.mpf < 1 ? 'light' : r.mpf < 5 ? 'mod' : 'heavy') : 'clean';
@@ -509,6 +779,22 @@ const custH = () => {
 $('gpa-h0').addEventListener('change', custH);
 $('gpa-h1').addEventListener('change', custH);
 $('gpa-min').addEventListener('change', () => { minF = Number($('gpa-min').value); load(); });
+$('gpa-al').addEventListener('change', () => { airline = $('gpa-al').value; load(); });
+document.addEventListener('click', ev => {
+  const a = ev.target.closest('a[data-al]');
+  if (!a) return;
+  ev.preventDefault();
+  airline = a.dataset.al;
+  if (airline) { tab = 'types'; syncTabs(); }
+  load();
+});
+$('gpa-kind-by').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-by]');
+  if (!b) return;
+  kindBy = b.dataset.by;
+  document.querySelectorAll('#gpa-kind-by [data-by]').forEach(x => x.classList.toggle('active', x.dataset.by === kindBy));
+  if (ov) renderKinds(allDays(ov));
+});
 $('gpa-tabs').addEventListener('click', ev => {
   const b = ev.target.closest('[data-tab]');
   if (!b) return;
@@ -557,7 +843,7 @@ let rsz = 0;
 window.addEventListener('resize', () => {
   clearTimeout(rsz);
   rsz = setTimeout(() => {
-    if (mode === 'ov') { if (ov) { renderChart($('gpa-ov-chart'), $('gpa-ov-legend'), allDays(ov), true); renderHeat(); } }
+    if (mode === 'ov') { if (ov) renderOverview(); }
     else if (data && data.aircraft && data.aircraft.length) renderChart($('gpa-chart'), $('gpa-legend'), allDays(), false);
   }, 150);
 });
@@ -579,6 +865,8 @@ window.onThemeChange = () => { if (mode === 'ov') renderOverview(); else render(
   if ([5, 10, 20, 50, 100].includes(m)) minF = m;
   $('gpa-min').value = String(minF);
   if (['types', 'airlines', 'aircraft'].includes(qs.get('tab'))) tab = qs.get('tab');
+  const al = (qs.get('al') || '').trim();
+  if (/^([A-Z]{3}|other)$/.test(al)) airline = al;
   syncTabs();
   $('gpa-q').value = qs.get('q') || '';
   load();

@@ -367,6 +367,40 @@ CREATE TABLE IF NOT EXISTS gps_aircraft_days (
     PRIMARY KEY (day, icao)
 );
 
+-- ── gps_flights (from 2026-11-08 afternoon, web/api/gps_aircraft.py) ─────────
+-- One row per height_series pass with its entry / exit (bearing and distance
+-- from the airport, altitude), for the GPS overview's arrivals / departures,
+-- direction and altitude parts.  Written by the hourly jobs (the first run
+-- back-fills height_series), kept 400 days; military / government / police
+-- aircraft are not stored.  About 500 short rows a day.
+CREATE TABLE IF NOT EXISTS gps_flights (
+    hs_id    INTEGER PRIMARY KEY,   -- height_series.id
+    ts       REAL    NOT NULL,
+    t_end    REAL    NOT NULL,
+    icao     TEXT    NOT NULL,
+    callsign TEXT,
+    alt_min  INTEGER,
+    alt_max  INTEGER,
+    b_in     INTEGER,               -- bearing (deg) from the airport of the first position
+    d_in     REAL,                  -- NM
+    alt_in   INTEGER,
+    b_out    INTEGER,               -- the last position
+    d_out    REAL,
+    alt_out  INTEGER,
+    d_min    REAL                   -- closest distance to the airport (NM)
+);
+CREATE INDEX IF NOT EXISTS idx_gps_flights_ts ON gps_flights(ts);
+
+-- ── gps_rx_days (from 2026-11-08 afternoon) ─────────────────────────────────
+-- Minutes with messages per receiver and UTC day, rolled up hourly from
+-- msg_stats_rx_hours (kept 7 days): the GPS pages' receiver coverage strip.
+CREATE TABLE IF NOT EXISTS gps_rx_days (
+    day      TEXT    NOT NULL,
+    rx       TEXT    NOT NULL,
+    minutes  INTEGER NOT NULL,
+    PRIMARY KEY (day, rx)
+);
+
 CREATE TABLE IF NOT EXISTS height_series (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     ts        REAL    NOT NULL,   -- first row

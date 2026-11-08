@@ -3,10 +3,12 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.08112026 — The GPS history of one aircraft, day by day, and the GPS overview of all traffic
+## v.08112026 — The GPS history of one aircraft, day by day, the GPS overview of all traffic, and a GPS user guide
 
 - **GPS → Aircraft** (Full view) — type an ICAO24 address, a registration, a callsign or an aircraft type (e.g. *AT75* for the whole fleet seen) and see its **good and bad GPS days**: the flights seen each day, how many had GPS degradation and how long, the lowest accuracy and any spoofing signs — next to how bad the day was for all aircraft. A calendar and the list of flights with their landings and departures; *On the map* shows the episodes on the GPS Episodes map.
 - **GPS → Aircraft: all traffic** — with the search box empty the page gives the overview: how many flights had GPS degradation **day by day**, at **which hours and weekdays** (a coloured matrix), and **by aircraft type, airline and aircraft** — sortable tables; click a type or an aircraft for its own history. Choose the period and, with *Hours (UTC)*, a time of day, e.g. only the night or the morning.
+- **GPS overview: arrivals, directions and more** — **where GPS came back** for the aircraft landing at EFHK (and how many were still degraded below 1 000 ft) and where it was lost after take-off; compass roses of **which directions** are worst for arrivals, departures and overflights; the share **by altitude**; **week by week** and *today against the last 7 days*; the **kind of degradation** (position lost, accuracy reduced); and an **Airline** choice to compare one airline's types. A thin strip under the day charts shows when a **receiver was down**, so a quiet day is not mistaken for a good one.
+- **GPS user guide** — *The GPS pages* explains the Quality, Episodes and Aircraft pages and what the aircraft's GPS figures mean, with the first results; in the User guides and as **?** on each GPS page. The Mobile guide (1.64) now points to the Meteogram and GPS guides.
 
 ## v.07112026 — The 850 hPa temperature and seven more options on the meteograms, measured by the aircraft too, meteograms in Finnish, wind values in numbers, a Meteogram user guide, and 13 heights in the Pilot view
 
