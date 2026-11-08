@@ -37,6 +37,31 @@ A nine-page overview of the station behind MODE-S Wind — poster style, for pri
 - **Windshear v8 and the boundary layer per flight** (page 8): the headwind every 0.5 s from the aircraft's own ADS-B ground speed (detection v8, from 31 Oct 2026) with one landing's headwind profile, and the headwind, its change and the wind shear of every landing and departure as its own column
 - **More receivers, one weather** (page 9, from 2 Nov 2026): how the multi-receiver system works — each receiver sends its live stream through its own outbound, encrypted tunnel and the cloud server merges them into one stream of replies (one clock, each reply once, in time order); the merge in four steps with an illustration, what it gives (more of the low approach, fewer gaps, it keeps going when one receiver stops), where it shows, what comes next (RX-02 on 4G, the second Radarcape ready for its site), and how a new receiver joins
 
+## MODE-S Wind Tactical (brochure)
+file: MODE-S_Wind_Tactical_Brochure_Green_11_2026.pdf
+version: 1.1
+date: 2026-11-08
+pages: 1
+
+A one-page brochure of **MODE-S Wind Tactical** — the deployable receiving station on a tripod, fed over 4G — for printing or showing to others.
+
+- What it is and what it does, in three steps: mount the tripod, connect the antenna and coax, power on
+- Why: zero configuration, self-healing, it fills the gaps of the fixed receivers, goes where you go (**field-tested 8 Nov 2026**: from the car boot to live data in 8 minutes, packed in 5, about 10 W from a portable battery), proven on live data as MODES-RX-02, light on mobile data
+- What is inside: the 1090 MHz antenna, the coax, the receiver, the Raspberry Pi 5 and the 4G router
+
+## MODE-S Wind Tactical — first off-grid field test
+file: MODE-S_Wind_Tactical_First_Outdoor_Test_08112026.pdf
+version: 1.0
+date: 2026-11-08
+pages: 3
+
+A three-page field test report: the deployable **MODE-S Wind Tactical** receiving station taken off the balcony, set up in a forest clearing and powered from a portable battery — no mains, no fixed network — on 8 November 2026.
+
+- From the car boot to live data on the server in **8 minutes**, packed again in about **5** — the minute-by-minute **chronology** from the photos and the server log
+- **Off-grid power**: the whole station draws about **10 W** from a portable power station's 230 V outlet — roughly a day from one charge
+- What it received in two minutes on the air (ADS-B and the Comm-B weather registers, 9 aircraft; 22 % of its replies heard by no other receiver) and how it reconnected by itself back on the balcony
+- What the test shows, and what is next (a longer field day on a higher site, a new 4G router, a 12 V supply)
+
 ## Reading the Atmosphere Profile (Skew-T)
 file: SkewT_User_Guide.pdf
 version: 4.9

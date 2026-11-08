@@ -2718,7 +2718,7 @@ mode_s_wind/
 │                              # Sounding page / Wind Map guide (Sounding_Page_User_Guide.pdf), windshear guide
 │                              # (Windshear_User_Guide.pdf), Mode S & ADS-B / Statistics page guide
 │                              # (Statistics_User_Guide.pdf), mobile view guide (Mobile_User_Guide.pdf), meteogram guide
-│                              # (Meteogram_User_Guide.pdf, in Finnish Meteogram_User_Guide_FI.pdf), GPS pages guide (GPS_User_Guide.pdf), retired windshear algorithms
+│                              # (Meteogram_User_Guide.pdf, in Finnish Meteogram_User_Guide_FI.pdf), GPS pages guide (GPS_User_Guide.pdf), MODE-S Wind Tactical field test (MODE-S_Wind_Tactical_First_Outdoor_Test_08112026.pdf) and brochure (MODE-S_Wind_Tactical_Brochure_Green_11_2026.pdf), retired windshear algorithms
 │                              # (Windshear_Algorithms_v1_Legacy.pdf), windshear study log
 │                              # (EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf), Mode S & mast study log (EFHK_Mode_S_Mast_Wind_Study.pdf),
 │                              # EDR explained (EDR_Explained.pdf), the D-D-D method note (Data_Driven_Development_DDD.pdf),
