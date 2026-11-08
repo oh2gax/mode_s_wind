@@ -7,6 +7,17 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.08112026 — 2026-11-08 (the GPS Aircraft page: one aircraft's or type's GPS degradation day by day)
+
+### GPS Aircraft page
+- New page **GPS → Aircraft** (`/gps-aircraft`, Full view, as the other GPS pages): the GPS history of one aircraft by ICAO24, registration, callsign or ICAO type (a whole fleet) over 7 / 30 / 60 / 90 days or all — key figures, a day-by-day chart (flights seen, flights with degradation coloured clean / light / moderate / heavy, spoofing marks, this aircraft's share against the share of all aircraft degraded that day), a calendar and the flights with their landing / departure, signals and degraded time. `web/api/gps_aircraft.py`, `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`, `web/app.py` (`/gps-aircraft`, `/api/gps/aircraft`).
+- The daily flight counts are kept beyond the 30 days of `height_series`: the hourly jobs roll every completed day up into the new table `gps_aircraft_days` (a few hundred rows a day). `run.py`, `database/schema.sql`.
+- `/api/gps/episodes` takes `&icao=` (and then a longer window); the GPS Episodes page shows one aircraft's episodes from the Aircraft page (*On the map*, *map ›*) and its callsigns link to the Aircraft page. `static/js/gps_episodes.js`.
+- The Quality / Episodes switch has a third button, *Aircraft*. `web/templates/gps_quality.html`, `web/templates/gps_episodes.html`, `web/templates/base.html`.
+- Military, government and police aircraft are never shown or stored here.
+
+---
+
 ## v.07112026 — 2026-11-07 (the 850 hPa temperature on the meteograms, with MODE-S Wind's own measured value; 13 heights for the pilot's wind on final; seven more meteogram options — freezing level, dew point and visibility, thunderstorm potential, the 850 hPa wind, the landings' winds, the METAR and the sun times; the meteograms in Finnish with the FIN right; the wind values in numbers on the meteograms; the Meteogram user guide in English and Finnish; no stale altitudes in the height series)
 
 ### Meteograms: the 850 hPa temperature

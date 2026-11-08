@@ -37,7 +37,7 @@
     <a href="/windshear"    class="nav-link {% if request.endpoint == 'windshear_page'    %}active{% endif %}">Windshear</a>
     {#- the GPS pages: Full view only (web/rights.py, from 2026-11-03) -#}
     {% if gnss_view %}
-    <a href="/gps"          class="nav-link {% if request.endpoint in ('gps_page', 'gps_episodes_page') %}active{% endif %}"
+    <a href="/gps"          class="nav-link {% if request.endpoint in ('gps_page', 'gps_episodes_page', 'gps_aircraft_page') %}active{% endif %}"
        title="GPS Quality and GPS Episodes (switch between them at the top left of the page) — Full view">GPS</a>
     {% endif %}
     {#- the Pilot page: the Pilot right only (web/rights.py, from 2026-11-05 evening) -#}

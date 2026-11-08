@@ -3785,3 +3785,44 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
    2026-11-03; was the Wind Map's 11 px grey) — the hour in bold */
 #wx-tlabel { font-size: 14px; color: var(--text-1); min-width: 290px; }
 #wx-tlabel b { font-weight: 700; }
+
+/* ── GPS Aircraft page (/gps-aircraft, from 8 Nov 2026) ─────────────────────── */
+.gpa-q { width: 230px; height: 24px; font-size: 12px; }
+.gpa-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px 18px; }
+.gpa-intro { max-width: 760px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.gpa-intro a, .gpa-head a.gpa-ac, .gpa-fl-panel a, .gpe-ac-link { color: var(--accent, #7dd3fc); text-decoration: none; }
+.gpe-ac-link { color: inherit; }
+.gpe-ac-link:hover, .gpa-fl-panel a:hover, .gpa-head a.gpa-ac:hover { text-decoration: underline; }
+.gpa-head { margin-bottom: 10px; }
+.gpa-title { font-size: 17px; color: var(--text-1); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gpa-title .gpa-map { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.gpa-dim { color: var(--text-3); font-size: 0.85em; }
+.gpa-none { color: var(--text-2); font-size: 14px; }
+.gpa-kpis { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.gpa-kpi { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; min-width: 92px; }
+.gpa-kv { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.gpa-kl { font-size: 10px; color: var(--text-3); }
+.gpa-acs { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
+.gpa-panel { background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+.gpa-chart { padding: 4px 6px 2px; }
+.gpa-svg { display: block; }
+.gpa-svg .gpa-ax { font-size: 9px; fill: var(--text-3); }
+.gpa-svg rect[data-d] { cursor: pointer; }
+.gpa-legend { white-space: normal; }
+.gpa-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin: 0 3px 0 8px; }
+.gpa-ln { display: inline-block; width: 16px; border-top: 2px dashed; vertical-align: middle; margin: 0 3px 0 8px; }
+.gpa-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; vertical-align: middle; margin: 0 3px 0 8px; }
+.gpa-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+.gpa-cal-panel { flex: 0 0 300px; }
+.gpa-fl-panel { flex: 1; min-width: 420px; display: flex; flex-direction: column; }
+.gpa-fl-wrap { max-height: 520px; }
+.gpa-cal { display: grid; grid-template-columns: repeat(7, 34px); gap: 4px; padding: 8px 10px; }
+.gpa-wd { font-size: 9px; color: var(--text-3); text-align: center; }
+.gpa-cell { height: 28px; border-radius: 4px; font-size: 11px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); cursor: pointer; }
+.gpa-cell.gpa-pad { background: transparent; cursor: default; }
+.gpa-cell.gpa-sel { outline: 2px solid var(--text-1); outline-offset: 1px; }
+.gpa-cal-leg { font-size: 10px; color: var(--text-3); padding: 0 10px 8px; line-height: 1.8; }
+.gpa-mark { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.gpa-note { font-size: 10.5px; color: var(--text-3); max-width: 1100px; line-height: 1.5; }
+@media (max-width: 760px) { .gpa-cal-panel { flex: 1 1 100%; } .gpa-fl-panel { min-width: 0; } }

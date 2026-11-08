@@ -245,6 +245,15 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 n_hc = _hc.save(db)
                 if n_hc:
                     hj_log.info("Heading calibration: saved %d airframe(s)", n_hc)
+            # GPS Aircraft page (from 2026-11-08): the flights of each completed day
+            # into gps_aircraft_days, before height_series is purged
+            try:
+                from web.api.gps_aircraft import rollup_days as _ga_rollup
+                n_ga = _ga_rollup(db)
+                if n_ga:
+                    hj_log.info("GPS aircraft days: %d day(s) rolled up", n_ga)
+            except Exception as exc:
+                hj_log.warning("GPS aircraft roll-up failed: %s", exc)
             if time.time() - last_purge > 86_400:
                 last_purge = time.time()
                 # Retention purges of the raw approach series and the departure

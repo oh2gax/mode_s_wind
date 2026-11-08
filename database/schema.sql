@@ -353,6 +353,20 @@ CREATE INDEX IF NOT EXISTS idx_depser_ts ON departure_series(ts);
 -- lat, lon, nacp; see height_series.decode).  ~2–4 kB per climb or descent;
 -- kept HEIGHT_SERIES_DAYS (default 30) days, purged daily (archived first
 -- when "Archive before purge" is on).
+-- ── gps_aircraft_days (from 2026-11-08, web/api/gps_aircraft.py) ─────────────
+-- The flights of each aircraft per completed UTC day, rolled up hourly from
+-- height_series (kept HEIGHT_SERIES_DAYS) so that the GPS Aircraft page keeps
+-- its daily flight counts.  Military / government / police aircraft are not
+-- stored.  A few hundred rows a day.
+CREATE TABLE IF NOT EXISTS gps_aircraft_days (
+    day      TEXT    NOT NULL,      -- UTC day YYYY-MM-DD
+    icao     TEXT    NOT NULL,
+    flights  INTEGER NOT NULL,      -- passes (height_series rows merged within 20 min)
+    seconds  INTEGER NOT NULL,      -- tracked time
+    callsigns TEXT,                 -- up to 10, comma-separated
+    PRIMARY KEY (day, icao)
+);
+
 CREATE TABLE IF NOT EXISTS height_series (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     ts        REAL    NOT NULL,   -- first row

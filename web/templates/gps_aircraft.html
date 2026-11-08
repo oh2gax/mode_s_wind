@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}GPS Aircraft – MODE-S Wind{% endblock %}
+
+{% block content %}
+<div class="gpe-page gpa-page">
+
+  <!-- ── Control bar: search + period (from 8 Nov 2026) ─────────────────── -->
+  <div class="gps-summary-bar gpe-bar">
+    <span class="gps-switch" role="tablist">
+      <a href="/gps" class="gps-switch-btn">Quality</a><a href="/gps-episodes" class="gps-switch-btn">Episodes</a><a href="/gps-aircraft" class="gps-switch-btn active">Aircraft</a>
+    </span>
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Aircraft</span>
+      <input type="text" id="gpa-q" class="gpe-input gpa-q" maxlength="20" autocomplete="off" spellcheck="false"
+             placeholder="ICAO24, registration, callsign or type"
+             title="An ICAO24 address (4601FA), a registration (OH-ATM), a callsign (FIN1172 — every aircraft that flew it) or an ICAO type (AT75 — the whole fleet seen)">
+      <button class="gps-range-btn" id="gpa-go">Show</button>
+    </span>
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label">Period</span>
+      <span class="gps-range-btns gpe-window-btns" id="gpa-days">
+        <button class="gps-range-btn" data-days="7">7d</button>
+        <button class="gps-range-btn active" data-days="30">30d</button>
+        <button class="gps-range-btn" data-days="60">60d</button>
+        <button class="gps-range-btn" data-days="90">90d</button>
+        <button class="gps-range-btn" data-days="0" title="Everything stored (the episodes from 6 Oct 2026)">All</button>
+      </span>
+    </span>
+    <span class="gps-updated" id="gpa-status"></span>
+  </div>
+
+  <div class="gpa-body" id="gpa-body">
+    <div class="gpa-intro" id="gpa-intro">
+      <p><b>GPS history of one aircraft — its good and bad days.</b> Type an ICAO24 address, a registration, a callsign
+      or an ICAO type (e.g. <a href="#" data-q="AT75">AT75</a> for the whole fleet seen) and press <b>Show</b>.</p>
+      <p>For each UTC day: the flights seen in the receivers' coverage, the flights with a GPS degradation episode (within
+      {{ episode_radius_nm|round|int }} NM of {{ airport_icao }}), the degraded time, the lowest NACp / NIC and the spoofing
+      indicators — next to the day's general level, the share of <i>all</i> aircraft with degradation. A bad day for
+      everyone points to jamming; a bad day for this aircraft alone to its own equipment or route.</p>
+    </div>
+
+    <div id="gpa-result" hidden>
+      <div class="gpa-head">
+        <div class="gpa-title" id="gpa-title"></div>
+        <div class="gpa-kpis" id="gpa-kpis"></div>
+        <div class="gpa-acs" id="gpa-acs"></div>
+      </div>
+
+      <div class="gpa-panel">
+        <div class="gps-panel-hdr">
+          <span class="gps-panel-title">Day by day</span>
+          <span class="gpe-summary gpa-legend" id="gpa-legend"></span>
+        </div>
+        <div class="gpa-chart" id="gpa-chart"></div>
+      </div>
+
+      <div class="gpa-row">
+        <div class="gpa-panel gpa-cal-panel">
+          <div class="gps-panel-hdr">
+            <span class="gps-panel-title">Calendar</span>
+            <span class="gpe-summary">click a day for its flights</span>
+          </div>
+          <div class="gpa-cal" id="gpa-cal"></div>
+          <div class="gpa-cal-leg" id="gpa-cal-leg"></div>
+        </div>
+        <div class="gpa-panel gpa-fl-panel">
+          <div class="gps-panel-hdr">
+            <span class="gps-panel-title">Flights</span>
+            <span class="gpe-summary" id="gpa-fl-sum"></span>
+          </div>
+          <div class="gpe-list-wrap gpa-fl-wrap">
+            <table class="gpe-table">
+              <thead><tr>
+                <th>UTC</th><th>Callsign</th><th id="gpa-th-ac">Aircraft</th><th title="Landing or departure at {{ airport_icao }}">{{ airport_icao }}</th>
+                <th title="Pressure altitude range of the pass (ft)">Alt</th><th title="Signals of the flight's episodes">GPS</th>
+                <th title="Degraded time (min:s)">Deg</th><th title="Lowest NACp / NIC">P/I</th><th></th>
+              </tr></thead>
+              <tbody id="gpa-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="gpa-note" id="gpa-note"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GPA_AIRPORT = {{ airport_icao | tojson }};
+const GPA_RADIUS  = {{ episode_radius_nm }};
+const GPA_HSER_DAYS = {{ hser_days }};
+</script>
+<script src="{{ url_for('static', filename='js/gps_aircraft.js') }}"></script>
+{% endblock %}

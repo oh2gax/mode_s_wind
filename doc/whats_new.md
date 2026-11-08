@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.08112026 — The GPS history of one aircraft, day by day
+
+- **GPS → Aircraft** (Full view) — type an ICAO24 address, a registration, a callsign or an aircraft type (e.g. *AT75* for the whole fleet seen) and see its **good and bad GPS days**: the flights seen each day, how many had GPS degradation and how long, the lowest accuracy and any spoofing signs — next to how bad the day was for all aircraft. A calendar and the list of flights with their landings and departures; *On the map* shows the episodes on the GPS Episodes map.
+
 ## v.07112026 — The 850 hPa temperature and seven more options on the meteograms, measured by the aircraft too, meteograms in Finnish, wind values in numbers, a Meteogram user guide, and 13 heights in the Pilot view
 
 - **850 hPa temperature** — the meteograms (Weather page and phone) can show the temperature at 850 hPa, about 1 500 m: the usual level for telling the air mass, e.g. rain or snow. Switch on *850 hPa*: a fuchsia line from MEPS and GFS and, for the past hours near EFHK, **dots measured by the aircraft themselves** (MODE-S Wind's own hourly profile). Tap or move over the chart for the values.

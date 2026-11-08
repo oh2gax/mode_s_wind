@@ -9,6 +9,9 @@
  * highlights it in the others.
  *
  * Data: GET /api/gps/episodes?window=<s> | ?date=YYYY-MM-DD
+ * (from 2026-11-08: &icao=<list> from the GPS Aircraft page — one aircraft's or one type's
+ * episodes over its period, ?icao=…&window=<s, 0 = all>; the callsign in the list links
+ * to that page)
  * Time window / date are queried from the server; the other filters
  * (duration, signal, end, altitude) are applied in the browser.
  */
@@ -59,6 +62,8 @@ let gpeDate     = '';      // YYYY-MM-DD when a day is selected
 let gpeAll      = [];      // all episodes from the server (newest first)
 let gpeShown    = [];      // after client-side filters
 let gpeSelected = null;    // selected episode id
+let gpeIcao     = '';      // from the GPS Aircraft page: only these aircraft (comma list)
+let gpeIcaoWin  = 0;       // and their window (s; 0 = all)
 const gpeLayers = new Map(); // id → { group, line, recLine, start, end, rec }
 
 // ── Map ──────────────────────────────────────────────────────────────────────
@@ -300,7 +305,7 @@ function renderList() {
     const old = e.t_start * 1000 < todayMs;
     return `<tr data-id="${e.id}" class="${e.id === gpeSelected ? 'gpe-sel' : ''}">
       <td class="gpe-mono">${fmtUtc(e.t_start, old)}</td>
-      <td class="gpe-cs">${e.callsign || e.icao}</td>
+      <td class="gpe-cs"><a class="gpe-ac-link" href="/gps-aircraft?q=${e.icao}" title="GPS history of this aircraft, day by day">${e.callsign || e.icao}</a></td>
       <td>${e.aircraft_type || '—'}</td>
       <td class="gpe-mono">${fmtDur(e.duration_s)}</td>
       <td class="gpe-chips">${sigChips(e.signals)}${spoofChip(e)}</td>
@@ -416,17 +421,24 @@ function renderScatter() {
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 async function loadEpisodes() {
+  const ic = gpeIcao ? `&icao=${encodeURIComponent(gpeIcao)}` : '';
   const url = gpeDate
-    ? `/api/gps/episodes?date=${gpeDate}`
-    : `/api/gps/episodes?window=${gpeWindow}`;
+    ? `/api/gps/episodes?date=${gpeDate}${ic}`
+    : `/api/gps/episodes?window=${gpeIcao ? gpeIcaoWin : gpeWindow}${ic}`;
   try {
     const r = await fetch(url);
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
     gpeAll = d.episodes || [];
     const now = new Date();
-    document.getElementById('gpe-updated').textContent =
-      `${gpeDate ? gpeDate : 'Live'} · updated ${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())} UTC`;
+    const upd = document.getElementById('gpe-updated');
+    upd.textContent =
+      `${gpeDate ? gpeDate : gpeIcao ? (gpeIcaoWin ? Math.round(gpeIcaoWin / 86400) + ' days' : 'all days') : 'Live'} · updated ${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())} UTC`;
+    if (gpeIcao) {
+      const n = gpeIcao.split(',').length;
+      upd.innerHTML = `<a href="/gps-aircraft?q=${n === 1 ? gpeIcao : ''}" title="Back to the GPS Aircraft page">${n === 1 ? gpeIcao : n + ' aircraft'}</a> · ` +
+        upd.textContent + ' · <a href="/gps-episodes" title="All aircraft">✕</a>';
+    }
     applyFilters();
   } catch (err) {
     document.getElementById('gpe-updated').textContent = 'Load failed';
@@ -436,13 +448,14 @@ async function loadEpisodes() {
 // ── Controls ─────────────────────────────────────────────────────────────────
 function syncTimeButtons() {
   document.querySelectorAll('#gpe-window-btns .gps-range-btn').forEach(b =>
-    b.classList.toggle('active', !gpeDate && Number(b.dataset.window) === gpeWindow));
-  document.getElementById('gpe-live-btn').classList.toggle('active', !gpeDate);
+    b.classList.toggle('active', !gpeDate && !gpeIcao && Number(b.dataset.window) === gpeWindow));
+  document.getElementById('gpe-live-btn').classList.toggle('active', !gpeDate && !gpeIcao);
 }
 
 document.getElementById('gpe-window-btns').addEventListener('click', ev => {
   const b = ev.target.closest('.gps-range-btn');
   if (!b) return;
+  gpeIcao = '';                      // a window button: back to all aircraft
   gpeWindow = Number(b.dataset.window);
   gpeDate   = '';
   document.getElementById('gpe-date').value = '';
@@ -480,6 +493,7 @@ document.getElementById('gpe-date').addEventListener('input', ev => {
 });
 document.getElementById('gpe-live-btn').addEventListener('click', () => {
   gpeDate = '';
+  gpeIcao = '';
   document.getElementById('gpe-date').value = '';
   document.getElementById('gpe-date-picker').value = '';
   syncTimeButtons();
@@ -503,6 +517,13 @@ window.onThemeChange = function () {
 (function init() {
   // Optional deep link: /gps-episodes?date=YYYY-MM-DD
   const qs = new URLSearchParams(location.search);
+  // From the GPS Aircraft page (2026-11-08): ?icao=A,B&window=<s> (0 = all)
+  const qi = (qs.get('icao') || '').split(',').filter(x => /^[0-9A-Fa-f]{6}$/.test(x)).join(',').toUpperCase();
+  if (qi) {
+    gpeIcao = qi;
+    gpeIcaoWin = Math.max(0, Number(qs.get('window') || 0));
+    document.getElementById('gpe-f-dur').value = '0';
+  }
   const qd = qs.get('date');
   if (qd && /^\d{4}-\d{2}-\d{2}$/.test(qd)) {
     gpeDate = qd;
@@ -531,5 +552,5 @@ window.onThemeChange = function () {
   syncTimeButtons();
   loadEpisodes();
   // Live mode: new episodes are written every 60 s (with the GPS checkpoint)
-  setInterval(() => { if (!gpeDate) loadEpisodes(); }, 60_000);
+  setInterval(() => { if (!gpeDate && !gpeIcao) loadEpisodes(); }, 60_000);
 })();

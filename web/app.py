@@ -447,7 +447,7 @@ def create_app(
         return resp
 
     _PAGE_ENDPOINTS = {"index", "flights_page", "sounding_page", "windmap_page", "weather_page",
-                       "windshear_page", "gps_page", "gps_episodes_page", "msgstats_page",
+                       "windshear_page", "gps_page", "gps_episodes_page", "gps_aircraft_page", "msgstats_page",
                        "maintenance_page", "app_page", "pilot_page"}
     _PUBLIC_STATIC = {"icons/app-192.png", "icons/app-512.png", "icons/apple-touch-icon.png"}
 
@@ -611,6 +611,16 @@ def create_app(
                                receiver_lon=cfg.RECEIVER_LON,
                                episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
                                coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
+
+    @app.route("/gps-aircraft")
+    def gps_aircraft_page():
+        """GPS history of one aircraft or type, day by day (from 2026-11-08,
+        web/api/gps_aircraft.py) — as the other GPS pages, Full view only."""
+        if not _gnss_ok():
+            abort(404)
+        return render_template("gps_aircraft.html", airport_icao=cfg.AIRPORT_ICAO,
+                               episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
+                               hser_days=int(getattr(cfg, "HEIGHT_SERIES_DAYS", 30)))
 
     @app.route("/app")
     def app_page():
@@ -2590,6 +2600,10 @@ def create_app(
         Query params (one of):
           window — seconds back from now (default 86400, max 31 days)
           date   — UTC calendar day YYYY-MM-DD (episodes starting that day)
+        Optional (from 2026-11-08, the GPS Aircraft page's "On the map"):
+          icao   — only these aircraft (comma-separated ICAO24, up to 200);
+                   then window may be up to 400 days (0 = all); military,
+                   government and police aircraft are left out
         Each episode carries all table columns plus two derived fields:
           end_class   — end_reason, except "lost" at or beyond the receiver
                         coverage edge (end_dist_nm ≥ GPS_EPISODE_EDGE_NM,
@@ -2612,19 +2626,34 @@ def create_app(
             y, m, d = (int(x) for x in date.split("-"))
             t0 = _cal.timegm((y, m, d, 0, 0, 0))
             t1 = t0 + 86400
-        else:
+        icaos = [x.strip().upper() for x in (request.args.get("icao") or "").split(",")
+                 if _re.fullmatch(r"[0-9A-Fa-f]{6}", x.strip())][:200]
+        if icaos:
+            from web.api.gps_aircraft import _special
+            icaos = [i for i in icaos if not _special(i)] or ["------"]
+        if not date:
             window = request.args.get("window", default=86400, type=int)
-            window = max(600, min(window, 31 * 86400))
+            if icaos and window <= 0:
+                window = 400 * 86400
+            window = max(600, min(window, (400 if icaos else 31) * 86400))
             t1 = time.time() + 60
             t0 = time.time() - window
         db = get_db()
         try:
-            rows = db.execute(
-                """SELECT * FROM gps_episodes
-                   WHERE t_start >= ? AND t_start < ?
-                   ORDER BY t_start DESC LIMIT 5000""",
-                (t0, t1),
-            ).fetchall()
+            if icaos:
+                rows = db.execute(
+                    f"""SELECT * FROM gps_episodes
+                       WHERE t_start >= ? AND t_start < ? AND icao IN ({",".join("?" * len(icaos))})
+                       ORDER BY t_start DESC LIMIT 5000""",
+                    (t0, t1, *icaos),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT * FROM gps_episodes
+                       WHERE t_start >= ? AND t_start < ?
+                       ORDER BY t_start DESC LIMIT 5000""",
+                    (t0, t1),
+                ).fetchall()
         except Exception as exc:          # table missing on a very old DB
             log.warning("gps_episodes query failed: %s", exc)
             rows = []
@@ -2639,6 +2668,27 @@ def create_app(
             out.append(e)
         return _private(jsonify({"episodes": out, "radius_nm": radius, "edge_nm": edge,
                                  "t0": t0, "t1": t1}))
+
+    @app.route("/api/gps/aircraft")
+    def gps_aircraft_api():
+        """GPS history of the aircraft of ?q= (ICAO24, registration, callsign or
+        ICAO type) over ?days=30|60|90 (0 = everything stored): per day the
+        flights seen, the flights with a degradation episode, the degraded
+        minutes, the lowest NACp / NIC and the day's share of all aircraft
+        degraded; the flights and the episodes (from 2026-11-08)."""
+        if not _gnss_ok():
+            return _gnss_denied()
+        from web.api import gps_aircraft as _ga
+        days = request.args.get("days", default=30, type=int)
+        days = 0 if days <= 0 else min(days, 400)
+        try:
+            out = _ga.history(get_db(), (request.args.get("q") or "")[:40], days,
+                              float(getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0)),
+                              float(getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0)))
+        except Exception as exc:
+            log.warning("gps aircraft history failed: %s", exc)
+            return jsonify({"error": "history failed"}), 500
+        return _private(_gzip_json(out))
 
     # ── Pilot view (web/api/pilot.py, from 2026-11-05; the Pilot right) ─────
 
