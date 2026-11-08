@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.08112026 — 2026-11-08 (the MODE-S Wind Tactical field test report and brochure; the surface inversion on the Pilot view's Now tab; the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, week, time of day, weekday, type and airline, arrivals and departures, direction, altitude, kind of degradation and receiver coverage; the GPS user guide; Mobile guide 1.64)
+## v.08112026 — 2026-11-08 (the MODE-S Wind Tactical field test report and brochure, and Tactical in the receiving station documents; the surface inversion on the Pilot view's Now tab; the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, week, time of day, weekday, type and airline, arrivals and departures, direction, altitude, kind of degradation and receiver coverage; the GPS user guide; Mobile guide 1.64)
 
 ### GPS Aircraft page
 - New page **GPS → Aircraft** (`/gps-aircraft`, Full view, as the other GPS pages): the GPS history of one aircraft by ICAO24, registration, callsign or ICAO type (a whole fleet) over 7 / 30 / 60 / 90 days or all — key figures, a day-by-day chart (flights seen, flights with degradation coloured clean / light / moderate / heavy, spoofing marks, this aircraft's share against the share of all aircraft degraded that day), a calendar and the flights with their landing / departure, signals and degraded time. `web/api/gps_aircraft.py`, `web/templates/gps_aircraft.html`, `static/js/gps_aircraft.js`, `static/css/style.css`, `web/app.py` (`/gps-aircraft`, `/api/gps/aircraft`).
@@ -35,6 +35,11 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### MODE-S Wind Tactical field test report (evening)
 - `doc/MODE-S_Wind_Tactical_First_Outdoor_Test_08112026.pdf` (3 pages): the first off-grid field test of the deployable station on 8 Nov 2026 — from the car boot to live data in 8 minutes, packed in about 5, about 10 W from a portable battery; chronology from the photos and the server log. In the User guides (`doc/guides.md`) and in What's new.
 - `doc/MODE-S_Wind_Tactical_Brochure_Green_11_2026.pdf` (1 page, version 1.1): the MODE-S Wind Tactical brochure (military green) with the field photo of 8 Nov 2026 instead of the balcony, and the field test in *Goes where you go*. In the User guides and in What's new.
+
+### The receiving station documents: MODE-S Wind Tactical (evening)
+- `doc/MODE_S_Wind_Receiving_Station_OH2GAX.pdf` (and `_A3`), version 1.17, now 10 pages: a new page 10 *Tactical — the station that travels* — MODE-S Wind Tactical (MODES-RX-02) on its tripod, the key numbers, deploying it in three steps, what is inside, and the first off-grid field test of 8 Nov 2026 with its chronology and three photos; page 1's hardware line and page 9's RX-02 box and *Next* card point to it; '/ 10' on every page. The Finnish copy the same.
+- `doc/MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf` (and `_A3`), brochure 1.4: the Tactical field photo as a third photo in *How it works* and in the Receiver step; still two pages.
+- `doc/guides.md`, What's new.
 
 ### Pilot → Now: the boundary layer (evening)
 - A **Boundary layer** card under the METAR on the Pilot view's **Now** tab (phone and the full Pilot page): a **surface inversion** with its strength (weak / moderate / strong) and its top above the airport, the surface temperature against the warmest air above, the surface wind against the wind just above the top, since when it has lasted (hour by hour), and a short note; the **low-level jet** when there is one. From the last 60 minutes of landings and departures (else the last full hour), with the same detection as the Skew-T marks and the Departure tab. Cached 5 minutes. `web/api/pilot.py` (`bl_now()`), `static/js/app_pilot.js`, `static/css/pilot.css`, `web/app.py` (API text).

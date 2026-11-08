@@ -9,22 +9,22 @@ opens this guide: live and skewt (the Skew-T panels), sounding, windmap, windshe
 
 ## The receiving station (brochure)
 file: MODE_S_Wind_Receiving_Station_Poster_OH2GAX.pdf
-version: 1.3
-date: 2026-11-06
+version: 1.4
+date: 2026-11-08
 pages: 2
 
-A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The nine-page overview below has the details.
+A two-page brochure of MODE-S Wind and its receiving station — for handing to interested people; always two pages (A4; an A3 print version beside it in the repository). The ten-page overview below has the details.
 
-- **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape and the workstation), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
+- **Front**: airliners as weather sensors — the key numbers, how it works from the transponder to the browser (with photos of the antenna, the Radarcape, the workstation and the mobile **MODE-S Wind Tactical** station), what the aircraft measure (wind, temperature, the heights of the pressure surfaces) and a graph of how well they agree with the radiosonde and the MEPS model, with the self-correction
 - **Back**: low-level windshear and turbulence for every landing and departure (a front band by band in the space–time picture, the alert levels and message, wind shear flight by flight), the phone view `/app` with five screens (also the Pilot view for users with the Pilot right) and a QR code, the pages in the browser (the GPS page for users with the Full view right), and how to see it live — a research system, not for flight operations
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.16
-date: 2026-11-06
-pages: 9
+version: 1.17
+date: 2026-11-08
+pages: 10
 
-A nine-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
+A ten-page overview of the station behind MODE-S Wind — poster style, for printing or showing to others.
 
 - The hardware: the 1090 MHz antenna, the Jetvision Radarcape and the Raspberry Pi 4, and the signal chain from the aircraft's transponder to the browser
 - What the aircraft send: Mode S EHS, the Comm-B registers (BDS 5,0, 6,0 …), ADS-B and the quality gates
@@ -36,6 +36,7 @@ A nine-page overview of the station behind MODE-S Wind — poster style, for pri
 - **The ATC-style map** (page 7, research): the Live Map and the Windshear map as a radar display for readers with an air traffic control background — how a full label is read (callsign / level, trend and selected level / ground speed and type), history plots, speed vectors, labels kept apart, the selected altitude (BDS 4,0 / ADS-B), **Hover** — the six-line extended label of the aircraft under the mouse (airspeeds, Mach, heading, drift, bank, wind components, AP / APP) — with live traffic of 30 Oct 2026 drawn in the style; not for air traffic control
 - **Windshear v8 and the boundary layer per flight** (page 8): the headwind every 0.5 s from the aircraft's own ADS-B ground speed (detection v8, from 31 Oct 2026) with one landing's headwind profile, and the headwind, its change and the wind shear of every landing and departure as its own column
 - **More receivers, one weather** (page 9, from 2 Nov 2026): how the multi-receiver system works — each receiver sends its live stream through its own outbound, encrypted tunnel and the cloud server merges them into one stream of replies (one clock, each reply once, in time order); the merge in four steps with an illustration, what it gives (more of the low approach, fewer gaps, it keeps going when one receiver stops), where it shows, what comes next (RX-02 on 4G, the second Radarcape ready for its site), and how a new receiver joins
+- **MODE-S Wind Tactical** (page 10, from 8 Nov 2026): the station that travels — a whole receiving station on a tripod, fed over 4G (it is MODES-RX-02): the key numbers, deploying it in three steps, what is inside, and the first off-grid field test of 8 Nov 2026 with its chronology and photos
 
 ## MODE-S Wind Tactical (brochure)
 file: MODE-S_Wind_Tactical_Brochure_Green_11_2026.pdf
