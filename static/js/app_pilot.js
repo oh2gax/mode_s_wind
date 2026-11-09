@@ -222,8 +222,29 @@
     } else {
       body.push('<div class="apl-dim">Not enough flights in the last hour to tell.</div>');
     }
+    // inversion aloft (from 2026-11-09): a rise of >= 1 K over >= 400 ft above the surface zone
+    const al = b.aloft;
+    if (al) {
+      body.push(`<div class="apl-blinv apl-bl-${al.k}"><b>Inversion aloft +${al.dT.toFixed(1)} K</b> <span>${al.k}</span> — from about <b>${agl(al.base)} ft</b> to ${al.end ? 'at least ' : 'about '}<b>${agl(al.top)} ft</b> above the airport</div>`);
+      const ch = [];
+      const sg = v => (v > 0 ? '+' : '') + v.toFixed(1);
+      ch.push(`Temperature <b>${sg(al.tb)} °C</b> at ${agl(al.base)} ft → <b>${sg(al.tt)} °C</b> at ${agl(al.top)} ft`);
+      if (al.wb && al.wa) ch.push(`Wind <b>${dir(al.wb[2])}/${pad(al.wb[1])}</b> below → <b>${dir(al.wa[2])}/${pad(al.wa[1])}</b> kt above${al.dv != null ? ` · change <b>${al.dv} kt</b>` : ''}`);
+      const run = [];
+      for (let i = (b.hist || []).length - 1; i >= 0 && b.hist[i][2]; i--) run.unshift(b.hist[i]);
+      if (run.length) ch.push(`Since <b>${hm(run[0][0])} UTC</b>${run.length >= (b.hist || []).length ? ' or earlier' : ''} · `
+        + run.map(x => `${hm(x[0]).slice(0, 2)}h +${x[2].toFixed(1)}`).join(' → ') + ` → now <b>+${al.dT.toFixed(1)}</b> K`);
+      else if ((b.hist || []).length) ch.push('<b>New</b> — none in the last full hour');
+      body.push(`<div class="apl-chips">${ch.map(x => `<span>${x}</span>`).join('')}</div>`);
+      let t = `Warmer, stable air on top of cooler air: haze and low cloud are often trapped below it and the air above is smoother, but the wind can change and some turbulence is common across it${al.dv != null && al.dv >= 10 ? ` — here the wind changes by about ${al.dv} kt` : ''}.`;
+      if (al.end) t += ' The warming goes on to the top of the data (5 000 ft MSL), so the layer may reach higher.';
+      if (al.warm0) t += ' <b>A warm layer above 0 °C over air below 0 °C:</b> rain or drizzle from it can be supercooled in the colder air below — a risk of icing there.';
+      body.push(`<div class="apl-note apl-sm">${t}</div>`);
+    } else if (b.known && b.ttop != null && b.ttop >= 2000) {
+      body.push(`<div class="apl-ok">No inversion aloft up to ${agl(b.ttop)} ft.</div>`);
+    }
     if (b.llj) body.push(`<div class="apl-note apl-sm"><b>Low-level jet ${b.llj.kt} kt from ${dir(b.llj.dir)}°</b> at about ${agl(b.llj.ft)} ft above the airport — the wind falls off above it.</div>`);
-    body.push('<div class="apl-dim apl-sm">From the temperatures and winds the aircraft measured within 25 km; an inversion = the air at 600–1 000 ft at least 0.5 K warmer than the METAR. Research only.</div>');
+    body.push('<div class="apl-dim apl-sm">From the temperatures and winds the aircraft measured within 25 km; a surface inversion = the air at 600–1 000 ft at least 0.5 K warmer than the METAR; an inversion aloft = a rise of at least 1 K over at least 400 ft higher up (data to 5 000 ft MSL, above 3 000 ft from the climb-outs only). Research only.</div>');
     return card('Boundary layer', note, body.join(''));
   }
 

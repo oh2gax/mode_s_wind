@@ -7,6 +7,15 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.09112026 — 2026-11-09 (an inversion aloft on the Pilot view's Now tab; Mobile guide 1.66)
+
+### Pilot → Now: inversion aloft
+- The **Boundary layer** card on the Pilot view's **Now** tab (phone and the full Pilot page) also shows an **inversion aloft**: a layer above the surface-inversion zone (base at least 1 200 ft MSL) in which the temperatures of the landings and departures rise by at least 1 K over at least 400 ft, up to 5 000 ft MSL — base and top above the airport, strength (weak / moderate / strong from 4 K), the temperatures at base and top, the wind below and above with their difference, since when it has lasted, a short note, and an icing note for a warm layer above 0 °C over colder air below 0 °C; else *No inversion aloft up to … ft*. `web/api/pilot.py` (`inv_aloft()`, `bl_now()`: `aloft`, `ttop`, the stored hours' inversion aloft in `hist`), `static/js/app_pilot.js`, `static/css/pilot.css`.
+- Tested on the snapshot of 8 Nov 2026: found in 62 of 190 hours with data on 30 Oct – 8 Nov, e.g. +4.0 K at 2 800–4 400 ft MSL on 7 Nov 05:40 UTC (−1.9 → +2.1 °C, with the icing note) and the subsidence inversion of 31 Oct at about 3 200–4 800 ft.
+- **Mobile guide 1.66**: the inversion aloft in the Pilot section, with a figure of 7 Nov 05:40 UTC. `doc/Mobile_User_Guide.pdf`.
+
+---
+
 ## v.08112026 — 2026-11-08 (the MODE-S Wind Tactical field test report and brochure, and Tactical in the receiving station documents; the surface inversion on the Pilot view's Now tab; the GPS Aircraft page: one aircraft's or type's GPS degradation day by day, and an overview of all traffic by day, week, time of day, weekday, type and airline, arrivals and departures, direction, altitude, kind of degradation and receiver coverage; the GPS user guide; Mobile guide 1.64)
 
 ### GPS Aircraft page

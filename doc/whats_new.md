@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.09112026 — An inversion aloft on the Pilot view
+
+- **Pilot → Now: inversion aloft** (Pilot right) — the *Boundary layer* card now also shows an **inversion higher up**, between about 1 000 and 5 000 ft, not only at the surface: where it is above the airport, how strong, the temperature at its bottom and top, the wind below and above it and since when it has lasted. A warm layer above 0 °C over colder air gets an icing note. The Mobile guide (1.66) shows an example.
+
 ## v.08112026 — MODE-S Wind Tactical field test, surface inversion on the Pilot view, the GPS history of one aircraft, the GPS overview of all traffic, and a GPS user guide
 
 - **MODE-S Wind Tactical in the field** — the first real outdoor test of the deployable receiving station (MODES-RX-02): taken off the balcony, set up in a forest clearing on a portable battery, **from the car boot to live data in 8 minutes** and packed again in about 5, drawing only about 10 W. The whole test with its chronology and photos is in the **User guides**: *MODE-S Wind Tactical — first off-grid field test*; next to it the station's one-page **brochure**, *MODE-S Wind Tactical (brochure)*, now with a photo from the field.

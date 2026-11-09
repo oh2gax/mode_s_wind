@@ -592,6 +592,60 @@ def _t_at(pts, z):
     return next((t for a, t in pts if abs(a - z) <= 100), None)
 
 
+# Inversion aloft (from 2026-11-09): a layer above the surface-inversion zone in
+# which the 200-ft band temperatures of the landings and departures (smoothed
+# +-200 ft, >= 4 flights a band, to 5 000 ft) rise by at least ALOFT_DT over at
+# least ALOFT_MIN_FT.  Base at or above ALOFT_BASE_FT and above the top of a
+# surface inversion.  Strength: weak < 2, moderate < 4, strong >= 4 K.
+ALOFT_DT = 1.0
+ALOFT_MIN_FT = 400
+ALOFT_BASE_FT = 1200
+ALOFT_DIP = 0.15          # K: a smaller fall inside the layer does not end it
+
+
+def inv_aloft(t: list, inv: dict | None = None, w: list | None = None, tt=None) -> dict | None:
+    """The strongest inversion aloft in the bands t = [[ft, degC, n]] (ft MSL)."""
+    sm = {int(b): v for b, v, *_ in (t or []) if v is not None}
+    bs = sorted(sm)
+    if len(bs) < 3:
+        return None
+    lo = max(ALOFT_BASE_FT, ((inv or {}).get("top") or 0) + 200)
+    best, i = None, 0
+    while i < len(bs) - 1:
+        b0 = bs[i]
+        if b0 < lo or sm[bs[i + 1]] <= sm[b0]:
+            i += 1
+            continue
+        j, top = i, i
+        while j < len(bs) - 1 and bs[j + 1] - bs[j] <= 400 and sm[bs[j + 1]] >= sm[bs[top]] - ALOFT_DIP:
+            j += 1
+            if sm[bs[j]] > sm[bs[top]]:
+                top = j
+        dT = sm[bs[top]] - sm[b0]
+        if dT >= ALOFT_DT and bs[top] - b0 >= ALOFT_MIN_FT and (best is None or dT > best["dT"]):
+            best = {"base": b0, "top": bs[top], "dT": round(dT, 1), "tb": sm[b0], "tt": sm[bs[top]],
+                    "end": bs[top] == bs[-1]}
+        i = max(top, i + 1)
+    if not best:
+        return None
+    best["k"] = "strong" if best["dT"] >= 4 else "moderate" if best["dT"] >= 2 else "weak"
+    # a warm layer above 0 degC over air at or below 0 degC (below it, or at the surface)
+    below = [sm[b] for b in bs if b <= best["base"]] + ([tt] if tt is not None else [])
+    best["warm0"] = best["tt"] > 0 and bool(below) and min(below) < 0
+    # the wind just below the base and just above the top, and their vector difference
+    wb = [x for x in (w or []) if best["base"] - 600 <= x[0] <= best["base"] + 100]
+    wa = [x for x in (w or []) if best["top"] + 100 <= x[0] <= best["top"] + 800]
+    best["wb"] = wb[-1][:3] if wb else None
+    best["wa"] = wa[0][:3] if wa else None
+    if wb and wa:
+        import math
+        uv = [(x[1] * math.sin(math.radians(x[2])), x[1] * math.cos(math.radians(x[2]))) for x in (wb[-1], wa[0])]
+        best["dv"] = round(math.hypot(uv[1][0] - uv[0][0], uv[1][1] - uv[0][1]))
+    else:
+        best["dv"] = None
+    return best
+
+
 def _bl_now(db, now):
     h = int(now // 3600 * 3600)
     for hh in (h, h - 3600, h - 7200):
@@ -640,7 +694,8 @@ def bl_now(db, now: float) -> dict | None:
     if rec is not None:
         inv, t = rec.get("inv"), rec.get("t") or []
         out = {"src": src, "hour": hour, "known": known(rec), "inv": inv, "llj": rec.get("llj"),
-               "tt": rec.get("tt"), "warm": None, "wtop": None, "hist": []}
+               "tt": rec.get("tt"), "warm": None, "wtop": None, "hist": [],
+               "ttop": max((x[0] for x in t), default=None)}
         if inv:
             top = inv.get("top") or 1000
             near = [x for x in t if x[0] <= top + 400]
@@ -658,10 +713,19 @@ def bl_now(db, now: float) -> dict | None:
             for ts, data in db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
                                        (h - BL_HIST_H * 3600, h)).fetchall():
                 d = _j(data) or {}
-                hist.append([int(ts), (d.get("inv") or {}).get("dT", 0.0) if known(d) else None])
+                al = inv_aloft(d.get("t"), d.get("inv")) if known(d) else None
+                hist.append([int(ts), (d.get("inv") or {}).get("dT", 0.0) if known(d) else None,
+                             al["dT"] if al else None, al["base"] if al else None])
         except Exception:                              # noqa: BLE001
             pass
         out["hist"] = hist
+        if not rec.get("w"):
+            st_, _ = _bl_now(db, now)
+            rec["w"] = (st_ or {}).get("w") or []
+        try:
+            out["aloft"] = inv_aloft(t, inv, rec.get("w"), rec.get("tt"))
+        except Exception:                              # noqa: BLE001
+            out["aloft"] = None
     _BL_NOW["v"] = (key, out)
     return out
 

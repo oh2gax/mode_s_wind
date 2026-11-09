@@ -154,3 +154,5 @@
 .apl-bl-strong span { background: rgba(251,146,60,.2); }
 [data-theme="light"] .apl-bl-moderate span { color: #b45309; }
 [data-theme="light"] .apl-bl-strong b, [data-theme="light"] .apl-bl-strong span { color: #c2410c; }
+/* inversion aloft (2026-11-09): set apart from the surface-inversion lines above it */
+.apl-ok ~ .apl-blinv, .apl-note ~ .apl-blinv { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(148,163,184,.22); }
