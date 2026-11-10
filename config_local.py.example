@@ -41,6 +41,15 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 #                     "status_url": "http://127.0.0.1:8105/tar1090/data/",
 #                     "lat": 60.30, "lon": 24.90, "private": True}]
 
+# ── Wind checks (from 10 Nov 2026; README: Heading calibration → GNSS gate) ─
+# Types whose wind is not used while their GNSS is degraded (NACp < 8): they
+# have no inertial reference, so their reported ground speed goes wrong.
+# () switches the gate off.  The wind limit: WIND_MAX_SPEED_KT (150) below
+# WIND_MAX_HIGH_FT, WIND_MAX_SPEED_HIGH_KT from there up.
+# GNSS_GATE_TYPES = ("AT76", "PC12")
+# WIND_MAX_SPEED_HIGH_KT = 250.0
+# WIND_MAX_HIGH_FT = 15000.0
+
 # ── GFS forecast for the Weather pages (from 5 Nov 2026; viewing only) ─────
 # NOAA's GFS to +384 h (00 / 12 UTC runs), about 320 MB a day downloaded,
 # about 33 MB in data/gfs_wx.db. On / off also on the Maintenance page.

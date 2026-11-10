@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; Mobile guide 1.67)
+## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; Mobile guide 1.67)
 
 ### Surface inversion: the top
 - The **top** of a surface inversion is now the top of the warmest layer — where the temperature stops rising — instead of the highest band still at least half the inversion's strength warmer than the METAR. The old top ran far above the inversion whenever the air above cooled slowly: 3 200–4 400 ft MSL on the evening of 8 Nov 2026 while the temperature peaked at 1 400–2 000 ft; over the 95 stored inversion hours a median 600 ft, in 35 of them 1 000 ft or more. Against the Kivenlahti mast the old top was a median 900 ft above the mast's warmest level, the new one about 300 ft. `collector/boundary.py` (`inv_top()`, `detect_inv()`, `INV_TOP_TOL`).
@@ -25,6 +25,13 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### GPS pages: receiver coverage
 - A receiver's day could be stored **without its last hour**: the daily roll-up ran at 00:03 UTC, before the 23:00 hour had been written on a quiet night, and the day was never computed again — 8 Nov 2026 showed a gap for a receiver that was up all day. A day is now rolled up one hour after it ended, and a stored day is corrected while the 7-day statistics still hold it (8 Nov repairs itself). `web/api/gps_aircraft.py` (`rx_days_update()`).
+
+### Code audit: GNSS gate, wind limit, identity check
+- **GNSS gate of the winds**: no wind is used from an ATR 72-600 (`AT76`) or a PC-12 while its NACp is below 8 — without an inertial reference their reported ground speed goes wrong when GNSS is lost (winds more than 20 kt off the model: 11 % against 0.5 % for the ATR 72-600, 27 % below FL100; e.g. a 50-kt "wind" on final in 15–20 kt on 9 Nov). The ATR 72-500s and the jets are not affected and not gated. Raw values and the temperature are still stored; `hdg_src` = `G`; the type list is the optional `GNSS_GATE_TYPES`. Cost 0.15 % of all winds. `collector/receiver.py` (`gnss_gated()`), `collector/windshear.py`, `collector/departures.py`, `static/js/live_map.js`.
+- **Wind speed limit** on the corrected wind: 150 kt below 15 000 ft, 250 kt from there up (`WIND_MAX_SPEED_HIGH_KT`, `WIND_MAX_HIGH_FT`, optional). Before: 150 kt everywhere on the uncorrected wind, which cut aircraft with a large heading offset in a 125-kt jet and would have removed a real jet stream above 150 kt. `collector/receiver.py` (`wind_limit_kt()`).
+- **Identity check**: DF5 / DF21 replies whose squawk is not the aircraft's own are dropped (another aircraft's reply read with a wrong address), unless the new squawk repeats within 30 s. Rare — 12 of 8 486 on the second receiver in the 2 Nov recording. Shown as *identity-checked out* on the Statistics page. `collector/receiver.py` (`id_suspect()`), `collector/msg_stats.py`, `static/js/stats.js`.
+- The stored boundary-layer hour before last is computed again by the hourly job and replaced if it changed (the high bands of an hour's last climb-outs arrive late). `collector/boundary.py` (`refresh_hour()`), `run.py`.
+- The audit otherwise found the wind and atmosphere maths, the reply pairing, the database writing, thread safety and the login handling in order. The built-in web server stays as it is (user decision).
 
 ### Documents
 - **Mobile guide 1.67**: the new top of the surface inversion and the inversion aloft to 10 000 ft, both figures redrawn. `doc/Mobile_User_Guide.pdf`.

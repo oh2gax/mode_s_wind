@@ -180,6 +180,88 @@ _NIC_TABLE: dict[int, dict[int, tuple[int, float | None]]] = {
 }
 
 
+# The identity check (from 2026-11-10): DF5 / DF21 are Address/Parity replies
+# too, but carry the squawk instead of the altitude, so the altitude check
+# above cannot test them — and DF21 carries Comm-B (BDS 5,0 / 6,0).  A reply
+# whose squawk is not the aircraft's own of the last ID_REF_SEC is dropped as
+# a whole, unless the same new squawk came once already within
+# ID_CONFIRM_SEC: a real squawk change costs one reply.  Rare (2 Nov 2026
+# captures, 10 min: 10 of 6 405 identity replies on the second receiver, none
+# of 20 411 on the main one, none with a readable BDS 5,0 / 6,0).
+ID_REF_SEC = 120.0
+ID_CONFIRM_SEC = 30.0
+_SQ: dict[str, list] = {}        # icao → [squawk, ts, candidate, candidate ts]  (under _CACHE_LOCK)
+
+
+def squawk_of(result: dict) -> str | None:
+    """The squawk of a decoded DF5 / DF21 reply as four digits, or None."""
+    raw = result.get("squawk") or result.get("ident")
+    if raw is None:
+        return None
+    sq = str(raw).strip().zfill(4)[:4]
+    return sq if sq.isdigit() else None
+
+
+def id_suspect(icao: str, squawk: str, ts: float, state: dict | None = None) -> bool:
+    """True when an identity reply's squawk is not the aircraft's own (see
+    above); keeps the aircraft's squawk and a candidate new one in `state`."""
+    state = _SQ if state is None else state
+    e = state.get(icao)
+    if e is None or ts - e[1] > ID_REF_SEC:
+        state[icao] = [squawk, ts, None, 0.0]
+        return False
+    if squawk == e[0]:
+        e[1], e[2] = ts, None
+        return False
+    if e[2] == squawk and ts - e[3] <= ID_CONFIRM_SEC:
+        e[0], e[1], e[2] = squawk, ts, None            # the new squawk again: a real change
+        return False
+    e[2], e[3] = squawk, ts
+    return True
+
+
+# The GNSS gate of the winds (from 2026-11-10).  The wind needs the ground
+# speed and track of BDS 5,0, which come from the aircraft's navigation
+# system.  Airliners keep them right through a loss of GNSS (inertial
+# reference); some aircraft without one do not: 20 Oct – 10 Nov 2026, winds
+# more than 20 kt off the MEPS model with NACp < 8 against NACp >= 8 —
+# ATR 72-600 (AT76) 11.0 % against 0.5 % (below FL100 27 % against 0 %; e.g.
+# 9 Nov 21:20 UTC on final, ground speed 74 kt at 118 kt true airspeed: a
+# "wind" of 50 kt in 15–20 kt), PC-12 50 % against 16 %; ATR 72-500 2.1 %
+# against 1.7 % and the jets below FL100 0.1 % against 0.1 % — no effect.
+# For the types in GNSS_GATE_TYPES (config, default below) no wind is used
+# while the aircraft's NACp of the last GNSS_GATE_NACP_AGE_SEC is below
+# GNSS_GATE_NACP: the raw wind and the BDS values are still stored, the best
+# wind stays empty, hdg_src = "G".  The Mach/TAS temperature does not depend
+# on GNSS and is kept.
+GNSS_GATE_TYPES_DEFAULT = ("AT76", "PC12")
+GNSS_GATE_NACP = 8
+GNSS_GATE_NACP_AGE_SEC = 120.0
+
+
+def gnss_gated(typ, nacp, nacp_ts, ts: float, types) -> bool:
+    """True when the wind of this aircraft is not to be used: its type is in
+    `types` and its last NACp (at most GNSS_GATE_NACP_AGE_SEC old) is degraded."""
+    if not typ or typ not in types or nacp is None or nacp_ts is None:
+        return False
+    return ts - nacp_ts <= GNSS_GATE_NACP_AGE_SEC and nacp < GNSS_GATE_NACP
+
+
+# The wind speed limit (from 2026-11-10): tested on the wind after the heading
+# correction, WIND_MAX_SPEED_KT (150 kt) below WIND_MAX_HIGH_FT and
+# WIND_MAX_SPEED_HIGH_KT (250 kt) from there up.  Until then 150 kt at all
+# heights on the uncorrected wind: of the 104 stored winds with a raw 140–150 kt
+# 94 were under 130 kt after the correction (E190s with a 3.5° offset lost
+# their wind in a 125-kt jet for one flight direction), and a jet stream above
+# 150 kt would have been removed for every aircraft.
+WIND_MAX_HIGH_FT_DEFAULT = 15000.0
+WIND_MAX_SPEED_HIGH_KT_DEFAULT = 250.0
+
+
+def wind_limit_kt(altitude_ft, low_kt: float, high_kt: float, high_ft: float) -> float:
+    return high_kt if altitude_ft is not None and altitude_ft >= high_ft else low_kt
+
+
 def nic_from_position(tc: int, version: int | None,
                       nic_a: int | None, nic_b: int | None) -> tuple[int, float | None] | None:
     """NIC and containment radius Rc (m) for an airborne-position type code.
@@ -290,6 +372,8 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
         for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES, _VEL_SAMPLES):
             for icao in [k for k, dq in samples.items() if not dq or dq[-1][0] < cutoff]:
                 del samples[icao]
+        for icao in [k for k, e in _SQ.items() if e[1] < cutoff - ID_REF_SEC]:
+            del _SQ[icao]
         if _RX_MASK:                              # kept as long as the samples could be read
             mcut = cutoff - 600
             for k in [k for k in _RX_MASK if k[1] < mcut]:
@@ -339,7 +423,9 @@ def _try_pair_wind(icao: str, ts: float, cfg: Config,
         mag_declination = decl,
         max_roll      = cfg.WIND_MAX_ROLL_DEG,
         max_track_rate = cfg.WIND_MAX_TRACK_RATE,
-        max_wind_kt   = cfg.WIND_MAX_SPEED_KT,
+        # gross limit on the uncorrected wind; the real limits are tested on the
+        # corrected wind in run_collector (wind_limit_kt, from 2026-11-10)
+        max_wind_kt   = float(getattr(cfg, "WIND_MAX_SPEED_HIGH_KT", WIND_MAX_SPEED_HIGH_KT_DEFAULT)) + 50.0,
         icao          = icao,
         ts            = ts,
     )
@@ -532,6 +618,12 @@ def run_collector(
     # Max age (s) of the older BDS 5,0 / 6,0 reply for a computed wind to be
     # stored with the observation (optional config key)
     wind_max_age = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0))
+    # Wind limits on the corrected wind and the GNSS gate (from 2026-11-10)
+    lim_low = float(cfg.WIND_MAX_SPEED_KT)
+    lim_high = max(lim_low, float(getattr(cfg, "WIND_MAX_SPEED_HIGH_KT", WIND_MAX_SPEED_HIGH_KT_DEFAULT)))
+    lim_ft = float(getattr(cfg, "WIND_MAX_HIGH_FT", WIND_MAX_HIGH_FT_DEFAULT))
+    gate_types = frozenset(str(t).upper() for t in
+                           (getattr(cfg, "GNSS_GATE_TYPES", GNSS_GATE_TYPES_DEFAULT) or ()))
     # Dense pressure-altitude / GNSS − baro series per visit (height_series)
     hseries = HeightSeries(enabled=bool(getattr(cfg, "HEIGHT_SERIES", True)))
     # Message statistics of the Statistics page (collector/msg_stats.py, RAM only)
@@ -579,6 +671,8 @@ def run_collector(
             ts_ahead = ts_behind = 0
             ts_ahead_max = 0.0
             alt_rej = alt_rej_other = alt_rej_nb = 0   # AP replies dropped by the altitude check
+            id_rej = 0                                 # DF5 / DF21 dropped by the identity check
+            gate_n, gate_ac = 0, set()                 # winds not used by the GNSS gate
             for msg_hex, ts in source:
                 msg_count += 1
                 wall = time.time()                   # message time check (TS_MAX_AGE_SEC)
@@ -645,6 +739,18 @@ def run_collector(
                 # (The former pms.adsb.nac_p() call used the removed pyModeS
                 # v2 API and always failed silently; pyModeS v3 already
                 # returns nac_p in the decoded result.)
+                # Identity check (from 2026-11-10): a DF5 / DF21 reply whose squawk is
+                # not the aircraft's own is another aircraft's reply — dropped whole
+                if df in (5, 21):
+                    _sq = squawk_of(result)
+                    if _sq is not None:
+                        with _CACHE_LOCK:
+                            _bad_id = id_suspect(icao, _sq, ts)
+                        if _bad_id:
+                            mstats.count("id_rej")
+                            id_rej += 1
+                            continue
+
                 tc = result.get("typecode") if df == 17 else None
 
                 # Update BDS 5,0 / 6,0 cache for wind pairing
@@ -695,13 +801,28 @@ def run_collector(
                 # Learns the airframe's heading offset and (mode "apply")
                 # adds the corrected wind (cal_spd / cal_dir) → best_wind_*.
                 _hc = heading_cal.get()
-                if wind and _hc is not None and _hc.enabled:
+                _typ = None
+                if wind and (gate_types or (_hc is not None and _hc.enabled)):
                     _typ = cached.get("aircraft_type") or aircraft_db.lookup(icao)[1]
+                if wind and gate_types and gnss_gated(_typ, cached.get("nac_p"),
+                                                      cached.get("nac_p_ts"), ts, gate_types):
+                    # GNSS gate (from 2026-11-10): the ground speed / track of this type
+                    # cannot be trusted while its GNSS is degraded — no best wind, no
+                    # heading-calibration sample; raw values and the temperature stay
+                    wind.update(cal_spd=None, cal_dir=None, hdg_off=None, hdg_src="G")
+                    gate_n += 1
+                    gate_ac.add(icao)
+                elif wind and _hc is not None and _hc.enabled:
                     try:
                         wind.update(_hc.process(icao, ts, wind, _pos_lat, _pos_lon,
                                                 current_altitude, _typ))
                     except Exception as exc:
                         log.debug("Heading calibration error: %s", exc)
+                # Wind speed limit on the corrected wind (from 2026-11-10)
+                if wind:
+                    _ws = wind.get("cal_spd") if "cal_spd" in wind else wind.get("wind_spd")
+                    if _ws is not None and _ws > wind_limit_kt(current_altitude, lim_low, lim_high, lim_ft):
+                        wind = None
 
                 # ── Build observation ────────────────────────────────────
                 obs = _build_observation(icao, ts, result, msg_hex, wind, mrar, mhr)
@@ -769,6 +890,12 @@ def run_collector(
                     # callsign were erased by the aircraft's next message.)
                     merged = dict(existing)
                     merged.update({k: v for k, v in obs.items() if v is not None})
+                    if wind and wind.get("hdg_src") == "G":
+                        # GNSS gate: the best wind of before the GNSS loss must not
+                        # stay on show with the fresh wind time of the gated pair
+                        merged.pop("best_wind_spd", None)
+                        merged.pop("best_wind_dir", None)
+                        merged.pop("hdg_off", None)
                     merged["icao"]      = icao
                     merged["last_seen"] = ts
                     # When the altitude was last heard from the aircraft itself
@@ -942,6 +1069,15 @@ def run_collector(
                                  STATS_LOG_SEC // 60, alt_rej, alt_rej_nb,
                                  f", {alt_rej_other} of them not heard by the main receiver" if rx_merged else "")
                         alt_rej = alt_rej_other = alt_rej_nb = 0
+                    if id_rej:
+                        log.info("Identity check in the last %d min: %d DF5 / DF21 replies dropped "
+                                 "(squawk not the aircraft's own)", STATS_LOG_SEC // 60, id_rej)
+                        id_rej = 0
+                    if gate_n:
+                        log.info("GNSS gate in the last %d min: the winds of %d aircraft not used "
+                                 "(%d wind(s); GNSS degraded, type without inertial reference)",
+                                 STATS_LOG_SEC // 60, len(gate_ac), gate_n)
+                        gate_n, gate_ac = 0, set()
                     stats_count = msg_count
                     stats_next = now_s + STATS_LOG_SEC
 

@@ -215,6 +215,9 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                                         pause_sec=0.2 if first else 0.0)
                 if n_b > 1:
                     hj_log.info("Boundary layer: stored %d hour(s)", n_b)
+                # the hour before last once more (from 2026-11-10): the high bands
+                # of its last climb-outs came after its own job; replaced only if changed
+                _bl.refresh_hour(db, int(time.time() // 3600) * 3600 - 7200)
                 if first:
                     # one-time (10 Nov 2026): the new top of the surface inversion
                     n_i = _bl.reinvert(db)

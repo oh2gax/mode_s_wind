@@ -665,11 +665,12 @@ function removeStale(liveIcaos) {
 // "+1.6 own" — offset and its source: own airframe value, aircraft type,
 // fleet median or default; "excluded" for airframes beyond the 5° limit;
 // a lower-case source code means learn mode (not applied to the wind).
-const HDG_SRC = { A: 'own', T: 'type', F: 'fleet', D: 'default', X: 'excluded' };
+const HDG_SRC = { A: 'own', T: 'type', F: 'fleet', D: 'default', X: 'excluded', G: 'GPS degraded' };
 function hdgCorrText(ac, unit = '') {
   const hs = ac.hdg_src;
   if (!hs) return null;
   if (hs.toUpperCase() === 'X') return 'excluded';
+  if (hs === 'G') return 'wind not used — GPS degraded';   // GNSS gate (collector/receiver.py, from 2026-11-10)
   if (ac.hdg_off == null) return null;
   return (ac.hdg_off >= 0 ? '+' : '') + ac.hdg_off.toFixed(1) + unit + ' ' +
          (HDG_SRC[hs.toUpperCase()] || hs) + (hs === hs.toLowerCase() ? ' (learn)' : '');

@@ -1584,7 +1584,7 @@ class WindshearTracker:
         # crab angle and the raw series keep the reported heading.
         _hsrc = ac.get("hdg_src")
         _hoff = ac.get("hdg_off") if _hsrc in ("A", "T", "F", "D") else 0.0
-        _hexcl = _hsrc == "X"
+        _hexcl = _hsrc in ("X", "G")      # "G": GNSS gate (collector/receiver.py, from 2026-11-10)
         for smp in b60:
             ts, ias, mhdg, vri, vrb = smp[:5]
             mach = smp[5] if len(smp) > 5 else None

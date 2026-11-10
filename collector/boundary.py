@@ -338,6 +338,28 @@ def recompute(db, hours, now: float | None = None, pause_sec: float = 0.0) -> in
     return n
 
 
+def refresh_hour(db, h: int, now: float | None = None) -> bool:
+    """Compute the stored completed hour h again and replace it when the
+    record changed (from 2026-11-10: the hourly job does this for the hour
+    before last — the bands 5 200–10 000 ft of the climb-outs of an hour's
+    last minutes are added to their records only after the job of that hour
+    has run).  True when the row was replaced."""
+    now = time.time() if now is None else now
+    h = int(h)
+    if h + 3600 > now:
+        return False
+    row = db.execute("SELECT data FROM bl_hours WHERE ts = ?", (h,)).fetchone()
+    if not row:
+        return False
+    rec = compute_hour(db, h)
+    data = json.dumps({k: v for k, v in rec.items() if k != "ts"}, separators=(",", ":"))
+    if data == row[0] or (not rec["w"] and not rec["t"]):
+        return False
+    db.execute("UPDATE bl_hours SET data = ? WHERE ts = ?", (data, h))
+    db.commit()
+    return True
+
+
 _live = {"t": 0.0, "h": None, "rec": None}
 
 

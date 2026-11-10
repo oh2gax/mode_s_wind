@@ -428,7 +428,7 @@ class DepartureTracker:
             decl = self._decl
         hsrc = ac.get("hdg_src")
         hoff = (ac.get("hdg_off") or 0.0) if hsrc in ("A", "T", "F", "D") else 0.0
-        excluded = hsrc == "X"
+        excluded = hsrc in ("X", "G")       # "G": GNSS gate (collector/receiver.py, from 2026-11-10)
         gs = ac.get("groundspeed")
         since = st["since"]
 
