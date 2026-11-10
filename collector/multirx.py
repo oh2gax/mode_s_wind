@@ -125,6 +125,19 @@ def _gps_time(ticks: int, wall: float):
     return t
 
 
+def _why(exc) -> str:
+    """A lost connection's reason for the log and the health dot: the reader's
+    own text ("closed by the other end", "no data for 2 min"), the system's
+    text for a socket error ("ConnectionResetError: Connection reset by
+    peer"), else the exception's class."""
+    name = exc.__class__.__name__
+    if type(exc) is ConnectionError and exc.args and isinstance(exc.args[0], str):
+        return exc.args[0]
+    if isinstance(exc, OSError) and exc.strerror:
+        return f"{name}: {exc.strerror}"
+    return name
+
+
 # ── the main receiver's frames (for the comparison and the clock line-up) ────
 class _Rx1:
     def __init__(self) -> None:
@@ -497,8 +510,13 @@ class Rx:
             try:
                 self._read(sock)
             except Exception as exc:                # noqa: BLE001
-                self.err = f"connection lost ({exc.__class__.__name__})"
-                log.info("%s: %s — reconnecting in 10 s", self.id, self.err)
+                # the reason in words (from 2026-11-10; before only the exception's
+                # class): "closed by the other end" = the far end or the tunnel closed
+                # the Beast connection, "no data for 2 min" = the reader's own rule
+                self.err = f"connection lost ({_why(exc)})"
+                up = time.time() - self.connected_ts
+                log.info("%s: %s after %s — reconnecting in 10 s", self.id, self.err,
+                         f"{up:.0f} s" if up < 120 else f"{up / 60:.0f} min" if up < 7200 else f"{up / 3600:.1f} h")
             finally:
                 try:
                     sock.close()

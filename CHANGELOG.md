@@ -31,6 +31,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Wind speed limit** on the corrected wind: 150 kt below 15 000 ft, 250 kt from there up (`WIND_MAX_SPEED_HIGH_KT`, `WIND_MAX_HIGH_FT`, optional). Before: 150 kt everywhere on the uncorrected wind, which cut aircraft with a large heading offset in a 125-kt jet and would have removed a real jet stream above 150 kt. `collector/receiver.py` (`wind_limit_kt()`).
 - **Identity check**: DF5 / DF21 replies whose squawk is not the aircraft's own are dropped (another aircraft's reply read with a wrong address), unless the new squawk repeats within 30 s. Rare — 12 of 8 486 on the second receiver in the 2 Nov recording. Shown as *identity-checked out* on the Statistics page. `collector/receiver.py` (`id_suspect()`), `collector/msg_stats.py`, `static/js/stats.js`.
 - The stored boundary-layer hour before last is computed again by the hourly job and replaced if it changed (the high bands of an hour's last climb-outs arrive late). `collector/boundary.py` (`refresh_hour()`), `run.py`.
+- A receiver's *connection lost* log line now gives the reason in words (*closed by the other end*, *no data for 2 min*) and how long the connection had lasted. `collector/multirx.py`.
 - The audit otherwise found the wind and atmosphere maths, the reply pairing, the database writing, thread safety and the login handling in order. The built-in web server stays as it is (user decision).
 
 ### Documents
