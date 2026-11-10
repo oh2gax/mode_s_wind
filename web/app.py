@@ -1882,6 +1882,50 @@ def create_app(
                                          cfg.SOUNDING_RADIUS_KM, now=now,
                                          kin_radius_km=float(getattr(cfg, "KINEMATICS_RADIUS_KM", 200))))
 
+    @app.route("/api/sounding/th_extra")
+    def sounding_th_extra_api():
+        """The extras of the Time–height section (from 2026-11-10, web/api/
+        th_extra.py): ?hours= / ?end= as /api/sounding/timeheight → runway in
+        use, METAR weather / visibility / cloud base, GNSS-degraded share (Full
+        view only), turbulence 0–5 000 ft, pilot reports (Pilot right only) and
+        the MEPS model at the layers."""
+        from web.api import th_extra
+        now = time.time()
+        end = request.args.get("end", type=float) or now
+        hours = request.args.get("hours", 72, type=int)
+        try:
+            d = th_extra.build(get_db(), min(end, now), hours, cfg.AIRPORT_ICAO,
+                               float(getattr(cfg, "WINDSHEAR_THR_ELEVATION_FT", 0.0)), now=now)
+            # the GNSS data need Full view, the pilot reports the Pilot right (as the
+            # GPS pages and the Pilot view): left out of the answer for the others
+            gn, pl = _gnss_ok(), _pilot_ok()
+            if not (gn and pl):
+                d = dict(d)
+                if not gn:
+                    d["gnss"] = None
+                if not pl:
+                    d["reps"] = None
+            return _gzip_json(d)
+        except Exception:                              # noqa: BLE001
+            log.exception("th_extra")
+            return jsonify({})
+
+    @app.route("/api/sounding/calendar")
+    def sounding_calendar_api():
+        """Calendar view of the Sounding page (from 2026-11-10, web/api/th_extra.py
+        calendar): ?days=42 (7–120) → one value per UTC hour of inversion, low-level
+        jet, wind at 2 000 ft, windshear reports, turbulence, GNSS and aircraft."""
+        from web.api import th_extra
+        try:
+            d = th_extra.calendar(get_db(), request.args.get("days", 42, type=int))
+            if not _gnss_ok():                         # the GNSS column needs Full view
+                d = dict(d)
+                d["hours"] = [r[:11] + [None] + r[12:] for r in d["hours"]]
+            return _gzip_json(d)
+        except Exception:                              # noqa: BLE001
+            log.exception("calendar")
+            return jsonify({"hours": []})
+
     @app.route("/api/flights/<int:flight_id>/sounding")
     def flight_sounding_api(flight_id: int):
         """Skew-T profile for a single flight, binned by altitude."""
@@ -1960,6 +2004,23 @@ def create_app(
             return jsonify({"mode": "off"})
         inc = request.args.get("airframes", "1") not in ("0", "false", "no")
         return jsonify(hc.summary(include_airframes=inc))
+
+    @app.route("/api/sensors")
+    def sensors_api():
+        """The airframes as wind sensors (from 2026-11-10; the Statistics
+        page's "Aircraft as sensors" panel): per aircraft type the heading
+        offset, the direction-dependent heading error, the flight-to-flight
+        spread and the wind difference from the other aircraft, the
+        calibrated airframes without their identity, and the winds withheld
+        by the GNSS gate (collector/heading_cal.py sensors).  RAM only."""
+        from collector import heading_cal
+        hc = heading_cal.get()
+        if hc is None:
+            return jsonify({"mode": "off", "types": [], "airframes": []})
+        d = hc.sensors()
+        if not _gnss_ok():                             # the GNSS gate counts need Full view
+            d["gated"] = None
+        return _gzip_json(d)
 
     # ── Windshear approach state API ──────────────────────────────────────
 

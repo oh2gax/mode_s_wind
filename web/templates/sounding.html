@@ -14,6 +14,7 @@
         <button class="snd-mode-btn" data-mode="hour" title="Hourly profile archive (all aircraft within {{ sounding_radius|int }} km, one completed UTC hour) — kept after the observations are purged">Area · hour</button>
         <button class="snd-mode-btn" data-mode="flight" title="Profile from a single climbing or descending flight">Flight</button>
         <button class="snd-mode-btn" data-mode="th" title="Time–height cross-section: the hourly area profiles side by side (time across, height up) — fronts, inversions, jets and the daily cycle at a glance">Time–height</button>
+        <button class="snd-mode-btn" data-mode="cal" title="Calendar: one row per day, one column per UTC hour, coloured by one quantity — surface inversion, low-level jet, wind at 2 000 ft, windshear reports, turbulence, GNSS interference or the number of aircraft. Weeks at a glance; click an hour to open that day in the Time–height section">Calendar</button>
         <button class="snd-mode-btn" data-mode="verif" title="Automatic verification: the Mode S area profile compared with every stored Jokioinen radiosonde, and how the difference grows as a sounding ages">Sonde check</button>
         <button class="snd-mode-btn" data-mode="meps" title="The Mode S area profile compared every hour with the MEPS weather model (MET Norway open data) over the same area: temperature, wind and heights of the pressure surfaces by level — also at night and between the soundings — and, at each sounding, how much of the difference to the radiosonde is the distance to Jokioinen">MEPS check</button>
         <button class="snd-mode-btn" data-mode="mast" title="The Kivenlahti mast (FMI open data, every 10 minutes): wind at 26, 92, 217 and 327 m and temperature at 2–297 m above the ground, 24 km south-west of the airport — its profile with the Mode S boundary layer at the airport, the MEPS model and the sounding, the time series, and how the three compare with it">Mast</button>
@@ -57,6 +58,22 @@
           <button class="snd-mode-btn" data-days="90">90 d</button>
         </span>
       </span>
+      <span class="snd-ctl" id="snd-cal-ctl" style="display:none">
+        <select id="cal-q" class="filter-input" title="Quantity shown">
+          <option value="inv">Surface inversion (K)</option>
+          <option value="llj">Low-level jet (kt)</option>
+          <option value="wind">Wind at 2 000–3 000 ft (kt)</option>
+          <option value="ws">Windshear reports (per hour)</option>
+          <option value="edr">Turbulence (EDR, median)</option>
+          {% if gnss_view %}<option value="gnss">GNSS-degraded aircraft (%)</option>{% endif %}
+          <option value="ac">Aircraft in the area profile</option>
+        </select>
+        <span class="snd-mode-btns" id="cal-days-btns">
+          <button class="snd-mode-btn" data-days="28">4 weeks</button>
+          <button class="snd-mode-btn" data-days="56">8 weeks</button>
+          <button class="snd-mode-btn" data-days="120">120 d</button>
+        </span>
+      </span>
       <span class="snd-ctl" id="snd-th-ctl">
         <select id="th-hours" class="filter-input" title="Length of the section">
           <option value="24">24 h</option>
@@ -72,6 +89,8 @@
           <option value="anomaly">Temperature anomaly</option>
           <option value="change">Temperature change 3 h</option>
           <option value="wind">Wind speed</option>
+          <option value="wdir">Wind direction</option>
+          <option value="turn">Wind turning with height (advection)</option>
           <option value="lapse">Lapse rate</option>
           <option value="vvel">Vertical motion</option>
           <option value="vort">Vorticity</option>
@@ -79,11 +98,15 @@
           <option value="dchg">Height change 6 h</option>
           <option value="thk">Thickness temperature check</option>
           <option value="moist">Moisture (trial)</option>
+          <option value="mdt">Mode S − MEPS · temperature</option>
+          <option value="mdw">Mode S − MEPS · wind</option>
+          <option value="cov">Data coverage (aircraft per cell)</option>
           <option value="blw">Boundary layer · wind (0–5 000 ft)</option>
           <option value="blt">Boundary layer · temperature (0–5 000 ft)</option>
           <option value="blh">Boundary layer · headwind per flight (0–5 000 ft)</option>
           <option value="bld">Boundary layer · headwind change per flight (vs 45 min)</option>
           <option value="bls">Boundary layer · wind shear per flight</option>
+          <option value="turb">Boundary layer · turbulence (0–5 000 ft)</option>
         </select>
         <select id="th-flk" class="filter-input" title="Boundary layer flight by flight: which flights are drawn (the change is always against all flights of the same direction)">
           <option value="all">All flights</option>
@@ -92,12 +115,20 @@
         </select>
         <label class="toggle-label"><input type="checkbox" id="th-barbs"> Barbs</label>
         <label class="toggle-label" title="0 °C (solid), −10 and −20 °C (dashed) — the lowest crossing in each hour"><input type="checkbox" id="th-iso"> Isotherms</label>
+        <label class="toggle-label" title="Isentropes: lines of equal potential temperature every 5 K (labelled every 10 K), from the hourly layer temperatures smoothed over ±1 h. Air moves along them when no heat is added: a front or an inversion shows as lines packed together and sloping, sinking air as lines bending down"><input type="checkbox" id="th-theta"> Isentropes</label>
         <label class="toggle-label" title="Tropopause (magenta dashed): the lowest level above 5 km where the lapse rate falls to 2 K/km or less and stays so for 2 km (WMO), from the ±1 h smoothed layer temperatures — only where the aircraft data reach above it"><input type="checkbox" id="th-tp"> Tropopause</label>
         <label class="toggle-label" title="Height of the strongest wind above 10 000 ft in each hour (yellow), when it is at least 50 kt — the jet core"><input type="checkbox" id="th-vmax"> Max wind</label>
         <label class="toggle-label" title="Each Jokioinen sounding as its own narrow column at its launch time (pink frame), in the same colour field — temperature anomaly, wind speed, lapse rate, height of the pressure surfaces or moisture; hover for the sonde values against the aircraft"><input type="checkbox" id="th-sondecol"> Sonde</label>
         <label class="toggle-label" title="The Kivenlahti mast in its own strip under the section (from 1 Nov 2026): hourly wind barbs at 26, 92, 217 and 327 m and the stability of the lowest 300 m as the background (violet: inversion, blue: stable, none: well mixed, orange: unstable); hover for the values"><input type="checkbox" id="th-mast"> Mast</label>
         <label class="toggle-label" title="The mast inside the section (from 1 Nov 2026): with the boundary-layer fields a narrow column at the right of each hour in the field's colours — its temperature against the METAR at 2–297 m, or its wind speed at 26–327 m — with an amber cap; with Barbs on, its hourly winds as amber barbs at their heights (ft MSL) on any field"><input type="checkbox" id="th-mastov"> Mast in graph</label>
         <label class="toggle-label" title="Boundary layer at the airport on any field: the low-level jet (◆ with its speed in kt, joined hour to hour) and the surface inversion (red, from the ground to its top; red bar along the bottom) — research"><input type="checkbox" id="th-bl"> Boundary layer</label>
+        <label class="toggle-label" title="Cloud base from the airport's METAR in the boundary-layer fields (ft MSL): solid = ceiling (lowest BKN / OVC layer), dotted = the lowest cloud when it is lower (FEW / SCT)"><input type="checkbox" id="th-cld"> Cloud base</label>
+        <label class="toggle-label" title="MEPS model forecast: continues the section to the right of now (hatched, behind a dashed line) in the same colour field — temperature, wind speed and direction, lapse rate, isentropes, barbs. The model's area mean on its 10 pressure levels, from the newest run, 12–48 h ahead depending on the period shown. A forecast for comparison only: nothing in MODE-S Wind is computed from it. Only when the period ends now"><input type="checkbox" id="th-fc"> Forecast</label>
+        <label class="toggle-label" title="Average day: the shown period folded into the 24 UTC hours of the day — the mean of all days for each hour. Shows the daily cycle: the night inversion, the evening low-level jet, the afternoon mixing. Choose 7 or 14 days for a steady picture"><input type="checkbox" id="th-avg"> Average day</label>
+        <span class="th-ctl-lbl" title="Extra strips under the section">Strips</span>
+        <label class="toggle-label" title="Runway in use: the most used landing runway (upper row) and departure runway (lower row) of each hour"><input type="checkbox" id="th-srwy"> Runway</label>
+        <label class="toggle-label" title="METAR: upper row the visibility / ceiling class (blue reduced, amber low, red very low), lower row the present weather (rain, drizzle, snow, fog, freezing, thunder)"><input type="checkbox" id="th-swx"> Weather</label>
+        {% if gnss_view %}<label class="toggle-label" title="Share of the aircraft of the hour that reported a degraded GNSS position (the GPS pages have the details)"><input type="checkbox" id="th-sgnss"> GNSS</label>{% endif %}
         <button id="th-png" class="snd-mode-btn" type="button" title="Save the picture as a PNG file">PNG</button>
       </span>
 
@@ -159,8 +190,37 @@
       <b>Thickness temperature check</b>: the mean (virtual) temperature of 5 000 ft layers from the height gained by climbing and descending aircraft (GNSS) minus the Mach / TAS temperature of the same layers — an independent check of the measured temperatures (near 0; humid air adds a few tenths of a kelvin).
       <b>Moisture (trial)</b>, 1 000–15 000 ft: moist air is lighter, so the thickness temperature minus the Mach / TAS temperature measures the moisture of a layer; averaged over the flights of a few hours, corrected with offsets learnt against the soundings and divided by the value of saturated air, it is about the relative humidity — dry (brown, &lt; 40 %), moist (green) or humid (blue, ≥ 70 %). Experimental — a tendency, uncertain by about ±30–50 %: only where aircraft climb and descend, faint where the ± exceeds 40 %.
       <b>Boundary layer · wind / temperature</b> (research): the lowest 5 000 ft at the airport on a linear scale (ft MSL) — the wind speed of the aircraft within 25 km in 250-ft steps, or the temperature of the landings and departures against the surface (METAR; red warmer, blue colder); the low-level jet as ◆ with its speed, the surface inversion as a red bar along the bottom and a red line at its top; hatched hours had no flights. The <b>Boundary layer</b> tick box draws the jet and the inversion on any field.
+      <b>Wind direction</b>: where the wind blows from as a colour — a wind shift (a front, a trough line) is a sharp change of colour.
+      <b>Wind turning with height</b>: veering with height (red) means warm air is being brought in, backing (blue) cold air; the colour is the advection in K/h from the thermal wind (below 3 000 ft friction turns the wind too: faint).
+      <b>Mode S − MEPS</b>: the aircraft's temperature or wind minus the MEPS model's area mean at the same layer — where and when the model was off; a comparison only.
+      <b>Data coverage</b>: how many aircraft are behind each cell.
+      <b>Boundary layer · turbulence</b> (research): the turbulence (EDR) of the landings and departures in 500-ft bands, with pilot reports and SIGMETs as ▼.
+      <b>Isentropes</b> (potential temperature) show fronts and inversions as packed, sloping lines. <b>Forecast</b> continues the section with the MEPS model to the right of now (hatched).
+      <b>Average day</b> folds the period into the 24 hours of the day. The <b>strips</b> add the runway in use, the METAR weather and the GNSS interference under the section.
       Faint cells rest on fewer than 3 replies; night hours often have only a few aircraft (red bars in the aircraft strip).
       Hover for values; click a column to open that hour on the Skew-T.
+    </div>
+  </div>
+
+  <!-- Calendar (from 2026-11-10, sndcal.js): one row per day, 24 UTC hours, one quantity -->
+  <div id="snd-cal" class="snd-th" style="display:none">
+    <div class="th-panel">
+      <div class="panel-header panel-header-row">
+        <div id="cal-title">Calendar</div>
+        <div class="th-legend" id="cal-legend"></div>
+      </div>
+      <div class="cal-box" id="cal-box">
+        <canvas id="cal-canvas"></canvas>
+        <div id="cal-tip" class="mini-skewt-tip" style="display:none"></div>
+      </div>
+    </div>
+    <div class="sounding-note">
+      One row per UTC day (the newest at the top), one column per UTC hour; grey cells have no data (mostly the night hours without traffic).
+      <b>Surface inversion</b>: how much warmer the air at 600–1 000 ft is than at the surface (boundary layer at the airport; dark = flights but no inversion).
+      <b>Low-level jet</b>: the speed of the jet found below 5 000 ft. <b>Wind</b>: the area profile's wind in the 2 000–3 000 ft layer.
+      <b>Windshear reports</b>: landings and departures with a windshear level. <b>Turbulence</b>: the median EDR of the hour's flights (research).
+      {% if gnss_view %}<b>GNSS</b>: the share of aircraft with a degraded position. {% endif %}<b>Aircraft</b>: aircraft behind the hourly area profile.
+      Click an hour to open that day in the Time–height section.
     </div>
   </div>
 
@@ -366,6 +426,24 @@
 
     <!-- Data table -->
     <div class="sounding-table-wrap">
+      <!-- Hodograph (from 2026-11-10, hodograph.js): the wind of each layer as a point, joined in height order -->
+      <div class="panel-header panel-header-row">
+        <div title="Hodograph: the tip of the wind vector of each layer (where the air moves to, north up), joined from the ground upwards and coloured by height. Rings every 10 or 20 kt. A long curve means strong shear; turning clockwise with height (veering) warm advection, anticlockwise (backing) cold. The faint circle around a point is the scatter between the aircraft of that layer; hollow points rest on fewer than 3 aircraft. Amber: the airport low-level profile (200-ft steps), when shown">Hodograph</div>
+        <span class="skewt-hdr-ctl">
+          <label class="toggle-label" title="Also draw the two previous hours, faded (Area · now and Area · hour): how the wind profile is turning"><input type="checkbox" id="hodo-prev"> Previous hours</label>
+          <select id="hodo-top" class="label-mode-select" title="Height range of the hodograph">
+            <option value="46000">All levels</option>
+            <option value="20000">Below FL200</option>
+            <option value="10000">Below 10 000 ft</option>
+            <option value="5000">Below 5 000 ft</option>
+          </select>
+          <button id="hodo-hide" class="snd-idx-btn" type="button" title="Hide / show the hodograph">▾</button>
+        </span>
+      </div>
+      <div class="hodo-box" id="hodo-box">
+        <canvas id="hodo-canvas"></canvas>
+        <div id="hodo-tip" class="mini-skewt-tip" style="display:none"></div>
+      </div>
       <div class="panel-header" id="table-header">Profile levels</div>
       <table class="data-table compact">
         <thead>
@@ -404,6 +482,8 @@
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/timeheight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sndcal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/hodograph.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mast.js') }}"></script>
 <script src="{{ url_for('static', filename='js/sounding.js') }}"></script>
 
@@ -425,6 +505,8 @@
 .snd-mode-btn:hover  { color:var(--text-1); }
 .snd-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
 .snd-ctl { display:flex; gap:6px; align-items:center; }
+#snd-th-ctl { flex-wrap:wrap; row-gap:6px; max-width:100%; min-width:0; }
+.sounding-controls .snd-left { min-width:0; max-width:100%; }   /* the Time–height controls wrap (more tick boxes from 2026-11-10) */
 .snd-sonde-col { display:none; }
 table.with-sonde .snd-sonde-col { display:table-cell; }
 .snd-dev { color:#fbbf24; font-weight:600; }
@@ -459,6 +541,12 @@ table.with-sonde .snd-sonde-col { display:table-cell; }
 .th-bar-dv { background:linear-gradient(90deg, rgba(37,99,235,.9), rgba(37,99,235,.08) 50%, rgba(220,38,38,.08) 50%, rgba(220,38,38,.9)); }
 .th-bar-vv { background:linear-gradient(90deg, rgba(234,88,12,.9), rgba(234,88,12,.08) 50%, rgba(16,160,110,.08) 50%, rgba(16,160,110,.9)); }
 .th-ctl-lbl { font-size:12px; color:var(--text-2); display:flex; align-items:center; gap:5px; }
+/* Calendar view and hodograph (from 2026-11-10) */
+.cal-box { position:relative; height:calc(100vh - var(--navbar-h) - 250px); min-height:380px; margin:4px; overflow-y:auto; }
+.cal-box canvas { display:block; border-radius:4px; cursor:pointer; }
+.hodo-box { position:relative; height:320px; flex:0 0 320px; border-bottom:1px solid var(--border); }
+.hodo-box canvas { position:absolute; left:0; top:0; display:block; }
+.hodo-box.hodo-hidden { display:none; }
 .mc-dist { font-size:12px; color:var(--text-2); padding:6px 8px 8px; line-height:1.5; }
 .mc-dist b { color:var(--text-1); }
 .sv-tiles { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; }

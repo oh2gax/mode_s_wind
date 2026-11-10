@@ -64,6 +64,7 @@ Storage:
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
@@ -83,6 +84,22 @@ STATS_EVERY_SEC    = 600.0    # type / fleet medians recomputed this often
 TYPE_MIN_AF        = 3        # calibrated airframes needed for a type median
 FLEET_MIN_AF       = 10       # calibrated airframes needed for the fleet median
 PRUNE_HALFLIVES    = 8.0      # airframes unseen this many half-lives are dropped
+# Sensor quality sums (from 2026-11-10, the Statistics page's "Aircraft as
+# sensors" panel) — rec["e"], stored as JSON in the column "ext" and faded
+# like s / w / n.  With w2 = TAS², y = −(cross-nose residual) / TAS (the
+# heading offset one sample implies, rad) and h the true heading:
+#   0 Σ w2 sin h   1 Σ w2 cos h   2 Σ w2 sin² h   3 Σ w2 sin h cos h
+#   4 Σ w2 y sin h 5 Σ w2 y cos h                (the direction-dependent term)
+#   6 Σ |residual|²   7 Σ (cross-nose residual)²  (wind quality against the others)
+#   8 Σ flight offset °  9 Σ (flight offset °)²  10 flights (the flight-to-flight spread)
+#   11 samples  12 Σ w2  13 Σ TAS · cross-nose residual — the same as n / w / s, but only
+#      of the samples that are in these sums (n / w / s also hold the time before them)
+EXT_N              = 14
+HARM_MIN_SAMPLES   = 150.0    # samples needed for the direction-dependent term …
+HARM_SE_FACTOR     = 2.5      # … its standard error from the fit × this (samples of a flight are not independent)
+HARM_MAX_SE        = 0.35     # … at most this (°): the headings flown must determine the term
+FLIGHT_SD_MIN      = 5.0      # flights needed for the flight-to-flight spread …
+FLIGHT_SD_SAMPLES  = 15       # … of the flights with at least this many samples
 
 
 def _median(v: list) -> Optional[float]:
@@ -125,6 +142,8 @@ class HeadingCal:
         self._fleet_med: Optional[float] = None
         self._stats_ts = 0.0
         self.n_samples = 0                             # learning samples since start
+        self.gated: dict[str, int] = {}                # GNSS gate: winds withheld since the start, by type
+        self.started = time.time()
 
     # ── Helpers ────────────────────────────────────────────────────────────
     @property
@@ -138,6 +157,7 @@ class HeadingCal:
             rec["s"] *= f
             rec["w"] *= f
             rec["n"] *= f
+            rec["e"] = [x * f for x in rec["e"]]
         rec["t"] = max(rec["t"], now)
 
     @staticmethod
@@ -155,8 +175,63 @@ class HeadingCal:
     @staticmethod
     def _new_rec(typ: Optional[str], now: float) -> dict:
         return {"typ": typ, "s": 0.0, "w": 0.0, "n": 0.0, "t": now, "flights": 0,
-                "last_ts": 0.0, "fs": 0.0, "fw": 0.0, "fn": 0,
+                "last_ts": 0.0, "fs": 0.0, "fw": 0.0, "fn": 0, "e": [0.0] * EXT_N,
                 "recent": deque(maxlen=CHANGE_FLIGHTS), "disagree": 0, "dirty": True}
+
+    @staticmethod
+    def quality(rec: dict) -> dict:
+        """Sensor quality of an airframe from its sums (from 2026-11-10):
+        "amp" / "amp_hdg" the size (°) of the heading error that changes once
+        around the compass and the heading where it is largest (None until the
+        samples cover the directions), "rms_raw" / "rms_cal" / "rms_har" the
+        vector difference (kt) of its winds from the other aircraft without a
+        correction, with its constant offset and with the direction term too,
+        "flight_sd" the spread (°) of the offset between its flights."""
+        e = rec["e"]
+        n, w, s = e[11], e[12], e[13]
+        out = dict.fromkeys(("amp", "amp_hdg", "amp_se", "rms_raw", "rms_cal", "rms_har", "flight_sd"))
+        out["q_samples"] = round(n)
+        if n < 20 or w <= 0:
+            return out
+        q = e[6]
+        if q > 0:
+            out["rms_raw"] = round(math.sqrt(q / n), 2)
+            out["rms_cal"] = round(math.sqrt(max(0.0, q - s * s / w) / n), 2)
+        if e[10] >= FLIGHT_SD_MIN:
+            m = e[8] / e[10]
+            out["flight_sd"] = round(math.sqrt(max(0.0, e[9] / e[10] - m * m)), 2)
+        if n >= HARM_MIN_SAMPLES:
+            # weighted least squares for y = A + B sin h + C cos h.  The term is
+            # given only when the headings flown determine it: its standard
+            # error from the fit (× HARM_SE_FACTOR, because the samples of one
+            # flight share their reference error) at most HARM_MAX_SE °.
+            M = [[w, e[0], e[1]], [e[0], e[2], e[3]], [e[1], e[3], w - e[2]]]
+            R = [-s, e[4], e[5]]
+
+            def det3(m):
+                return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+            det = det3(M)
+            if abs(det) > 1e-9 * w ** 3:
+                def col(k):
+                    m = [row[:] for row in M]
+                    for i in range(3):
+                        m[i][k] = R[i]
+                    return det3(m) / det
+                A, B, C = col(0), col(1), col(2)
+                fit = A * R[0] + B * R[1] + C * R[2]
+                sig2 = max(0.0, e[7] - fit) / max(1.0, n - 3.0)        # weighted residual variance
+                ibb = (M[0][0] * M[2][2] - M[0][2] * M[2][0]) / det     # (M⁻¹) for B and C
+                icc = (M[0][0] * M[1][1] - M[0][1] * M[1][0]) / det
+                se = math.degrees(math.sqrt(max(0.0, sig2 * (ibb + icc)))) * HARM_SE_FACTOR
+                out["amp_se"] = round(se, 2)
+                if se <= HARM_MAX_SE:
+                    out["amp"] = round(math.degrees(math.hypot(B, C)), 2)
+                    out["amp_hdg"] = round(math.degrees(math.atan2(B, C)) % 360.0)
+                    if q > 0:
+                        out["rms_har"] = round(math.sqrt(max(0.0, q - fit) / n), 2)
+        return out
 
     def _offset_locked(self, icao: str, typ: Optional[str]) -> tuple[Optional[float], str]:
         rec = self._af.get(icao)
@@ -197,6 +272,10 @@ class HeadingCal:
                 rec["disagree"] = 0
             rec["recent"].append((rec["fs"], rec["fw"], rec["fn"]))
             rec["flights"] += 1
+            if rec["fn"] >= FLIGHT_SD_SAMPLES:
+                rec["e"][8] += fd
+                rec["e"][9] += fd * fd
+                rec["e"][10] += 1.0
             if rec["disagree"] >= CHANGE_FLIGHTS and len(rec["recent"]) >= CHANGE_FLIGHTS:
                 old = long_d
                 rec["s"] = sum(x[0] for x in rec["recent"])
@@ -204,6 +283,7 @@ class HeadingCal:
                 rec["n"] = float(sum(x[2] for x in rec["recent"]))
                 rec["flights"] = len(rec["recent"])
                 rec["disagree"] = 0
+                rec["e"] = [0.0] * EXT_N                 # the sensor changed: its quality sums start again
                 log.info("Heading offset of %s changed: %+.1f° → %+.1f° (restarted from "
                          "its last %d flights)", icao, old, self._delta(rec), rec["flights"])
         rec["fs"] = rec["fw"] = 0.0
@@ -263,6 +343,20 @@ class HeadingCal:
                             self._close_flight_locked(icao, rec)
                         self._decay(rec, ts)
                         rn = rx * nx + ry * ny
+                        # sensor quality sums (from 2026-11-10)
+                        w2, sh, ch, e = tas * tas, math.sin(psi), math.cos(psi), rec["e"]
+                        yv = -rn / tas
+                        e[0] += w2 * sh
+                        e[1] += w2 * ch
+                        e[2] += w2 * sh * sh
+                        e[3] += w2 * sh * ch
+                        e[4] += w2 * yv * sh
+                        e[5] += w2 * yv * ch
+                        e[6] += rx * rx + ry * ry
+                        e[7] += rn * rn
+                        e[11] += 1.0
+                        e[12] += w2
+                        e[13] += tas * rn
                         rec["s"] += tas * rn
                         rec["w"] += tas * tas
                         rec["n"] += 1.0
@@ -289,19 +383,42 @@ class HeadingCal:
             out["hdg_src"] = src.lower()          # learn mode: not applied
         return out
 
+    def note_gated(self, typ: Optional[str]) -> None:
+        """A wind withheld by the GNSS gate (from 2026-11-10; a count for the Statistics page)."""
+        with self._lock:
+            self.gated[typ or "?"] = self.gated.get(typ or "?", 0) + 1
+
     def offset_for(self, icao: str, typ: Optional[str] = None) -> tuple[Optional[float], str]:
         """(offset °, source) that would be applied to this airframe now."""
         with self._lock:
             return self._offset_locked(icao, typ)
 
     # ── Persistence ────────────────────────────────────────────────────────
+    @staticmethod
+    def _ensure_ext(db) -> None:
+        """The column "ext" (sensor quality sums, from 2026-11-10) on an older table."""
+        try:
+            if "ext" not in [r[1] for r in db.execute("PRAGMA table_info(heading_cal)")]:
+                db.execute("ALTER TABLE heading_cal ADD COLUMN ext TEXT")
+                db.commit()
+        except Exception as exc:                       # noqa: BLE001
+            log.warning("heading_cal: could not add the column ext: %s", exc)
+
     def load(self, db) -> int:
-        rows = db.execute("SELECT icao, typ, s, w, n, t, flights, last_ts FROM heading_cal").fetchall()
+        self._ensure_ext(db)
+        self._ext_ok = True
+        rows = db.execute("SELECT icao, typ, s, w, n, t, flights, last_ts, ext FROM heading_cal").fetchall()
         with self._lock:
             for r in rows:
                 rec = self._new_rec(r[1], r[5] or time.time())
                 rec.update(s=r[2] or 0.0, w=r[3] or 0.0, n=r[4] or 0.0,
                            flights=int(r[6] or 0), last_ts=r[7] or 0.0, dirty=False)
+                try:
+                    e = json.loads(r[8]) if r[8] else None
+                    if isinstance(e, list) and len(e) == EXT_N:
+                        rec["e"] = [float(x) for x in e]
+                except (ValueError, TypeError):
+                    pass
                 self._af[r[0]] = rec
             self._stats_locked(time.time())
         return len(rows)
@@ -320,19 +437,23 @@ class HeadingCal:
                 d = self._delta(rec)
                 rows.append((icao, rec["typ"], rec["s"], rec["w"], rec["n"], rec["t"],
                              rec["flights"], rec["last_ts"],
-                             None if d is None else round(d, 3), now))
+                             None if d is None else round(d, 3), now,
+                             json.dumps([round(x, 4) for x in rec["e"]], separators=(",", ":"))))
                 rec["dirty"] = False
             for icao in drop:
                 del self._af[icao]
             self._last_sample = {k: v for k, v in self._last_sample.items() if now - v < 3600}
+        if rows and not getattr(self, "_ext_ok", False):
+            self._ensure_ext(db)
+            self._ext_ok = True
         if rows:
             # Only completed flights are counted in the stored value (the
             # flight in progress counts again once it continues after a
             # restart); its samples are already part of s / w / n.
             db.executemany(
                 "INSERT OR REPLACE INTO heading_cal "
-                "(icao, typ, s, w, n, t, flights, last_ts, delta, updated) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+                "(icao, typ, s, w, n, t, flights, last_ts, delta, updated, ext) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
         if drop:
             db.executemany("DELETE FROM heading_cal WHERE icao = ?", [(i,) for i in drop])
         if rows or drop:
@@ -506,10 +627,12 @@ class HeadingCal:
                     n_cal += src == "A"
                     n_excl += src == "X"
                 if include_airframes:
-                    afs.append({"icao": icao, "type": rec["typ"],
-                                "offset_deg": None if d is None else round(d, 2),
-                                "flights": self._flights(rec), "samples": round(rec["n"], 1),
-                                "last_seen": rec["last_ts"] or None, "status": src or "learning"})
+                    a = {"icao": icao, "type": rec["typ"],
+                         "offset_deg": None if d is None else round(d, 2),
+                         "flights": self._flights(rec), "samples": round(rec["n"], 1),
+                         "last_seen": rec["last_ts"] or None, "status": src or "learning"}
+                    a.update(self.quality(rec))
+                    afs.append(a)
             types = {}
             for rec in self._af.values():
                 if self._calibrated(rec) and rec["typ"]:
@@ -522,6 +645,8 @@ class HeadingCal:
                 "default_deg": self.default_deg, "exclude_deg": self.exclude_deg,
                 "min_flights": self.min_flights, "halflife_days": self.halflife_sec / 86_400.0,
                 "samples_since_start": self.n_samples,
+                # GNSS gate (collector/receiver.py): winds withheld since the start, by type
+                "gated": dict(self.gated), "gated_since": self.started,
                 "types": sorted(({"type": t, "airframes": len(v), "median_deg": round(_median(v), 2)}
                                  for t, v in types.items()), key=lambda x: -x["airframes"]),
                 "generated": now,
@@ -529,6 +654,55 @@ class HeadingCal:
             if include_airframes:
                 out["airframe_list"] = sorted(afs, key=lambda x: -(x["last_seen"] or 0))
         return out
+
+
+    def sensors(self) -> dict:
+        """The airframes as wind sensors, for the Statistics page (from
+        2026-11-10): per aircraft type the number of calibrated airframes and
+        the median and 10–90 % range of the heading offset, the
+        direction-dependent heading error, the flight-to-flight spread and
+        the wind difference from the other aircraft; the calibrated airframes
+        themselves without their identity ([type, offset °, direction term °,
+        its heading, flight spread °, RMS raw, with the offset, with the
+        direction term, samples, status]); and the winds withheld by the GNSS
+        gate since the start, by type."""
+        def pct(v, q):
+            v = sorted(v)
+            if not v:
+                return None
+            k = (len(v) - 1) * q
+            lo = int(k)
+            hi = min(lo + 1, len(v) - 1)
+            return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 2)
+        with self._lock:
+            pts, by = [], {}
+            for rec in self._af.values():
+                if not self._calibrated(rec):
+                    continue
+                d = self._delta(rec)
+                if d is None:
+                    continue
+                q = self.quality(rec)
+                st = "X" if abs(d) > self.exclude_deg else "A"
+                t = rec["typ"] or "?"
+                pts.append([t, round(d, 2), q["amp"], q["amp_hdg"], q["flight_sd"], q["rms_raw"], q["rms_cal"],
+                            q["rms_har"], q["q_samples"], st])
+                if st == "A":
+                    by.setdefault(t, []).append((d, q))
+            types = []
+            for t, v in by.items():
+                row = {"type": t, "airframes": len(v)}
+                for key, vals in (("off", [d for d, _ in v]),
+                                  ("amp", [q["amp"] for _, q in v if q["amp"] is not None]),
+                                  ("fsd", [q["flight_sd"] for _, q in v if q["flight_sd"] is not None]),
+                                  ("rms", [q["rms_cal"] for _, q in v if q["rms_cal"] is not None])):
+                    row[key] = {"n": len(vals), "med": pct(vals, 0.5), "p10": pct(vals, 0.1), "p90": pct(vals, 0.9)}
+                types.append(row)
+            types.sort(key=lambda r: -r["airframes"])
+            return {"mode": self.mode, "generated": time.time(), "types": types, "airframes": pts,
+                    "gated": dict(self.gated), "since": self.started,
+                    "fleet_median_deg": None if self._fleet_med is None else round(self._fleet_med, 2),
+                    "exclude_deg": self.exclude_deg, "harm_min": HARM_MIN_SAMPLES, "halflife_days": self.halflife_sec / 86_400.0}
 
 
 # ── Module-level instance ────────────────────────────────────────────────────

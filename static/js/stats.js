@@ -916,6 +916,107 @@
   }
 
   // ── polling ───────────────────────────────────────────────────────────────
+  // ── Aircraft as sensors (from 2026-11-10, /api/sensors → collector/heading_cal.py sensors) ──
+  // One row per aircraft type, one dot per calibrated airframe (no identities),
+  // the type's median as a line; the quantity is chosen in the panel's header.
+  let sens = null, sensQ = 'off', sensAt = 0, sensGeo = null;
+  try { sensQ = localStorage.getItem('ms_statsSensQ') || 'off'; } catch (e) { /* */ }
+  const SENS = {
+    off: { name: 'Heading offset', unit: '°', idx: 1, lo: -3, hi: 5, zero: true },
+    amp: { name: 'Direction-dependent heading error', unit: '°', idx: 2, lo: 0, hi: 2.5 },
+    fsd: { name: 'Flight-to-flight spread', unit: '°', idx: 4, lo: 0, hi: 2.5 },
+    rms: { name: 'Wind difference from the others', unit: ' kt', idx: 6, lo: 2, hi: 14 },
+  };
+  const SENS_TP = /^(AT[4-7]|DH8|SF34|SB20|PC12|C208|B190|JS[34]|E120|L410|F50|D328$|BE[0-9]|PA|C[12][0-9][0-9]$|DA[46])/;   // propeller types: amber
+  async function pollSensors(force) {
+    if (!$('mst-sens-panel')) return;
+    if (!force && Date.now() - sensAt < 300000) return;
+    sensAt = Date.now();
+    try { sens = await fetch('/api/sensors').then(r => r.json()); } catch (e) { return; }
+    renderSensors();
+  }
+  function renderSensors() {
+    const cv = $('mst-sens-chart');
+    if (!cv || !sens) return;
+    const Q = SENS[sensQ] || SENS.off;
+    // the 10 most common types and, below them, the propeller types (at least 2 airframes) — they sense their heading magnetically
+    const allT = (sens.types || []).filter(t => t.type !== '?');
+    const jets = allT.filter(t => !SENS_TP.test(t.type) && t.airframes >= 3).slice(0, 10);
+    const types = jets.concat(allT.filter(t => SENS_TP.test(t.type) && t.airframes >= 2).slice(0, 8));
+    const note = $('mst-sens-note');
+    const nAf = (sens.airframes || []).filter(a => a[9] === 'A').length, nX = (sens.airframes || []).filter(a => a[9] === 'X').length;
+    const nQ = (sens.airframes || []).filter(a => a[Q.idx] != null).length;
+    if (note) note.textContent = sens.mode === 'off' ? 'heading calibration is off' : `${nAf} calibrated airframes` + (nX ? ` · ${nX} left out` : '') + (sensQ !== 'off' ? ` · ${nQ} with a value` : '');
+    const W = cv.parentElement.clientWidth - 12, rh = 17, mt = 20, mb = 6, ml = 46, mr = 12, H = mt + mb + Math.max(1, types.length) * rh;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const ink = css('--text-1') || '#e2e8f0', ink2 = css('--text-3') || '#94a3b8', grid = css('--border') || '#243447';
+    const X = v => ml + (Math.max(Q.lo, Math.min(Q.hi, v)) - Q.lo) / (Q.hi - Q.lo) * (W - ml - mr);
+    g.font = '10px system-ui'; g.textAlign = 'center';
+    const step = (Q.hi - Q.lo) > 6 ? 2 : (Q.hi - Q.lo) > 3 ? 1 : 0.5;
+    for (let v = Math.ceil(Q.lo / step) * step; v <= Q.hi + 1e-9; v += step) {
+      g.strokeStyle = grid; g.globalAlpha = Q.zero && Math.abs(v) < 1e-9 ? 1 : 0.5; g.beginPath(); g.moveTo(X(v), mt - 3); g.lineTo(X(v), H - mb); g.stroke(); g.globalAlpha = 1;
+      g.fillStyle = ink2; g.fillText((Q.zero && v > 0 ? '+' : '') + (step < 1 ? v.toFixed(1) : v) + (v + step > Q.hi + 1e-9 ? Q.unit : ''), X(v), 11);
+    }
+    sensGeo = { pts: [], Q };
+    if (!types.length) { g.fillStyle = ink2; g.textAlign = 'left'; g.fillText('No calibrated airframes yet', ml, mt + 12); }
+    const key = sensQ;
+    types.forEach((t, r) => {
+      const y = mt + r * rh + rh / 2, tp = SENS_TP.test(t.type), col = tp ? '#f59e0b' : '#38bdf8';
+      g.fillStyle = ink; g.textAlign = 'right'; g.font = '11px system-ui'; g.fillText(t.type, ml - 8, y + 4);
+      const afs = (sens.airframes || []).filter(a => a[0] === t.type && a[9] === 'A' && a[Q.idx] != null);
+      g.fillStyle = col; g.globalAlpha = afs.length > 40 ? 0.45 : 0.7;
+      afs.forEach((a, k) => {
+        const yy = y + (((k * 7919) % 9) - 4) * 0.9;                 // a little vertical scatter so that dots do not hide each other
+        g.beginPath(); g.arc(X(a[Q.idx]), yy, 2.4, 0, 2 * Math.PI); g.fill();
+        sensGeo.pts.push({ x: X(a[Q.idx]), y: yy, a });
+      });
+      g.globalAlpha = 1;
+      const m = t[key] && t[key].med;
+      if (m != null) { g.strokeStyle = ink; g.lineWidth = 2; g.beginPath(); g.moveTo(X(m), y - 7); g.lineTo(X(m), y + 7); g.stroke(); g.lineWidth = 1; }
+    });
+    // table: the types with their medians
+    const f = (o, d = 2, sign = false) => o && o.med != null ? (sign && o.med >= 0 ? '+' : '') + o.med.toFixed(d) : '—';
+    const rng = o => o && o.n >= 3 && o.p10 != null ? `${o.p10.toFixed(1)} … ${o.p90.toFixed(1)}` : '—';
+    const gated = sens.gated || {}, showGate = sens.gated !== null;       // the GNSS gate counts: Full view only
+    const rows = types.map(t => `<tr><td><b>${esc(t.type)}</b></td><td class="num">${t.airframes}</td><td class="num">${f(t.off, 2, true)}</td>` +
+      `<td class="num mst-dim2">${rng(t.off)}</td><td class="num" title="${t.amp ? t.amp.n : 0} airframes with a value">${f(t.amp)}</td><td class="num" title="${t.fsd ? t.fsd.n : 0} airframes with a value">${f(t.fsd)}</td><td class="num">${f(t.rms, 1)}</td>` +
+      (showGate ? `<td class="num">${gated[t.type] ? gated[t.type] : ''}</td>` : '') + '</tr>');
+    const extra = Object.keys(gated).filter(k => !types.some(t => t.type === k));
+    for (const k of extra) rows.push(`<tr><td><b>${esc(k)}</b></td><td class="num">—</td><td colspan="5"></td><td class="num">${gated[k]}</td></tr>`);
+    table('mst-sens', [['Type'], ['Airframes', 'Calibrated airframes of the type (at least 3 for a row)', 'num'], ['Offset °', 'Median heading offset', 'num'],
+      ['10–90 %', 'Range of the offsets of the type\'s airframes', 'num'], ['Direction °', 'Median size of the direction-dependent heading error', 'num'],
+      ['Flight ±°', 'Median flight-to-flight spread of the offset', 'num'], ['Wind kt', 'Median vector difference from the other aircraft, after the heading correction', 'num'],
+      ].concat(showGate ? [['GNSS gate', 'Winds withheld by the GNSS gate since the server started', 'num']] : []), rows);
+  }
+  function sensHover(ev) {
+    const tip = $('mst-sens-tip'), cv = $('mst-sens-chart');
+    if (!sensGeo || !tip) return;
+    const r = cv.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    let best = null, bd = 8;
+    for (const p of sensGeo.pts) { const d = Math.hypot(p.x - mx, p.y - my); if (d < bd) { bd = d; best = p; } }
+    if (!best) { tip.style.display = 'none'; return; }
+    const a = best.a, v = (x, d = 2, u = '°') => x == null ? '—' : x.toFixed(d) + u;
+    tip.innerHTML = `<b>${esc(a[0])}</b> · one airframe<br>heading offset ${a[1] >= 0 ? '+' : ''}${a[1].toFixed(2)}°` +
+      `<br>direction-dependent ${v(a[2])}${a[3] != null ? ` (largest on heading ${String(a[3]).padStart(3, '0')}°)` : ''}` +
+      `<br>flight-to-flight ±${v(a[4])}<br>wind difference ${v(a[6], 1, ' kt')} (raw ${v(a[5], 1, ' kt')}${a[7] != null ? `, with the direction term ${a[7].toFixed(1)} kt` : ''})` +
+      `<br><span style="opacity:.7">${a[8]} samples since 10 Nov 2026 or the last restart of its sums</span>`;
+    tip.style.display = '';
+    tip.style.left = Math.max(2, Math.min(cv.parentElement.clientWidth - tip.offsetWidth - 4, mx + 12)) + 'px';
+    tip.style.top = (my + 14) + 'px';
+  }
+  (function () {
+    const sel = $('mst-sens-q'), cv = $('mst-sens-chart');
+    if (!sel || !cv) return;
+    if (!SENS[sensQ]) sensQ = 'off';
+    sel.value = sensQ;
+    sel.addEventListener('change', () => { sensQ = sel.value; try { localStorage.setItem('ms_statsSensQ', sensQ); } catch (e) { /* */ } renderSensors(); });
+    cv.addEventListener('mousemove', sensHover);
+    cv.addEventListener('mouseleave', () => { $('mst-sens-tip').style.display = 'none'; });
+    window.addEventListener('resize', () => { if (sens) renderSensors(); });
+  })();
+
   function renderAll() {
     if (!data) return;
     const parts = [renderRx, renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
@@ -942,6 +1043,7 @@
     clearTimeout(timer);
     if (document.hidden || !active) return;
     pollHealth();
+    pollSensors();
     try {
       const wk = range === '7d' && tab === 'msgs';
       const r = await fetch('/api/msgstats?window=' + win + (wk ? '&trend=7d' : '') + (rxSel ? '&rx=' + encodeURIComponent(rxSel) : ''));
@@ -1029,6 +1131,7 @@
     if (chart) { chart.destroy(); chart = null; chartType = null; }
     if (sigChart) { sigChart.destroy(); sigChart = null; }
     if (data) { renderChart(data); renderSig(data); renderRange(data); }
+    if (sens) renderSensors();
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && active) poll(); });
   initButtons();

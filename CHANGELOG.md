@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; Mobile guide 1.67)
+## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; evening: a hodograph, a Calendar view, eleven additions to the Time–height section with a model forecast, Aircraft as sensors on the Statistics page; Mobile guide 1.67, Sounding guide 3.12, Statistics guide 1.16)
 
 ### Surface inversion: the top
 - The **top** of a surface inversion is now the top of the warmest layer — where the temperature stops rising — instead of the highest band still at least half the inversion's strength warmer than the METAR. The old top ran far above the inversion whenever the air above cooled slowly: 3 200–4 400 ft MSL on the evening of 8 Nov 2026 while the temperature peaked at 1 400–2 000 ft; over the 95 stored inversion hours a median 600 ft, in 35 of them 1 000 ft or more. Against the Kivenlahti mast the old top was a median 900 ft above the mast's warmest level, the new one about 300 ft. `collector/boundary.py` (`inv_top()`, `detect_inv()`, `INV_TOP_TOL`).
@@ -34,8 +34,33 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - A receiver's *connection lost* log line now gives the reason in words (*closed by the other end*, *no data for 2 min*) and how long the connection had lasted. `collector/multirx.py`.
 - The audit otherwise found the wind and atmosphere maths, the reply pairing, the database writing, thread safety and the login handling in order. The built-in web server stays as it is (user decision).
 
+### Sounding page: hodograph (evening)
+- **New**: a hodograph above the level table in Area · now, Area · hour and Flight — the layer winds as points joined in height order, coloured by height, the view fitted to the data; a faint disc for the uncertainty of each layer mean, hollow points under 3 aircraft, the two previous hours faded, the airport low-level profile in amber, the shear and the total turning in words. `static/js/hodograph.js` (new), `static/js/sounding.js`, `web/templates/sounding.html`.
+
+### Sounding page: Calendar view (evening)
+- **New**: the *Calendar* button — one row per UTC day, one column per UTC hour, coloured by the surface inversion, the low-level jet, the wind at 2 000–3 000 ft, the windshear reports, the turbulence, the GNSS-degraded share or the aircraft count; 4 / 8 weeks or 120 days; a click opens the day in the Time–height section in the matching field. `static/js/sndcal.js` (new), `/api/sounding/calendar`, `web/api/th_extra.py` (new).
+
+### Time–height section: new fields, overlays, strips, average day and forecast (evening)
+- **Fields**: *Wind direction*, *Wind turning with height (advection)*, *Mode S − MEPS · temperature* and *· wind*, *Data coverage*, *Boundary layer · turbulence (0–5 000 ft)* with the pilot reports and SIGMETs as markers.
+- **Overlays**: *Isentropes* (potential temperature every 5 K), *Cloud base* (METAR ceiling and lowest cloud in the boundary-layer fields).
+- **Strips** under the section: *Runway* in use (landings / departures), *Weather* (METAR visibility / ceiling class and present weather), *GNSS* (share of aircraft with a degraded position).
+- **Average day**: the period folded into the 24 UTC hours — the daily cycle of any field, the boundary-layer fields included.
+- **Forecast**: the MEPS model continues the section to the right of now (hatched). New data: from each new run the area mean on the 10 pressure levels for +3 … +48 h on a 30 km grid, about 5 MB a day, in the new table `meps_fc_hours` (overwritten in place, old hours removed); `MEPS_FORECAST_PROFILE` (default on). A display only.
+- The controls of the section now wrap onto a second row.
+- The GNSS strip, the Calendar's GNSS quantity and the GNSS gate column are for Full view only, the pilot reports for the Pilot right only.
+- `static/js/timeheight.js`, `web/templates/sounding.html`, `web/api/th_extra.py` (new; `/api/sounding/th_extra`), `collector/meps.py` (`fetch_forecast`, `forecast_due`), `web/app.py`.
+- Tested on the database of 10 Nov: the request for 14 days takes 0.2 s (366 kB before gzip); the forecast request was run against MET Norway's archive (46 hours, 0.6 MB, 35 s); every field and the average day were hovered through without an error.
+
+### Statistics page: Aircraft as sensors (evening)
+- **New panel**: per aircraft type the heading offset, the direction-dependent heading error, the flight-to-flight spread of the offset and the wind difference from the other aircraft — one dot per calibrated airframe, without identities — and the winds withheld by the GNSS gate since the start.
+- **Collector**: the heading calibration adds 14 sums per airframe to its learning step (faded with the same half-life) and stores them in the new column `heading_cal.ext` (added to an existing table at the start). The three new quantities start now and fill up over the coming days. The calibration itself is unchanged.
+- Replayed on the observations of 23 Oct – 10 Nov (485 000 winds, 7 s): flight-to-flight spread 0.4–0.5° for the jets, 0.8–1.2° for the ATR 72 and PC-12; the direction term is withheld for aircraft seen on one airway only.
+- `collector/heading_cal.py`, `collector/receiver.py` (a count for the gate), `database/schema.sql`, `static/js/stats.js`, `web/templates/_stats_panels.html`, `web/templates/stats.html`, `static/css/style.css`, `/api/sensors`.
+
 ### Documents
 - **Mobile guide 1.67**: the new top of the surface inversion and the inversion aloft to 10 000 ft, both figures redrawn. `doc/Mobile_User_Guide.pdf`.
+- **Sounding guide 3.12** (evening): the hodograph, the new Time–height fields, overlays, strips, the average day and the forecast, the Calendar view. `doc/Sounding_Page_User_Guide.pdf`.
+- **Statistics guide 1.16** (evening): the *Aircraft as sensors* panel. `doc/Statistics_User_Guide.pdf`.
 
 ---
 

@@ -432,7 +432,9 @@ CREATE TABLE IF NOT EXISTS heading_cal (
     flights  INTEGER NOT NULL DEFAULT 0,
     last_ts  REAL,              -- last learning sample
     delta    REAL,              -- current offset (°), for convenience
-    updated  REAL
+    updated  REAL,
+    ext      TEXT               -- sensor quality sums (JSON list, from 2026-11-10; added to an older
+                                -- table by collector/heading_cal.py at the start)
 );
 
 -- ── departure_profiles ────────────────────────────────────────────────────────

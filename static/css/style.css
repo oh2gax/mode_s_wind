@@ -3367,6 +3367,12 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-hl-ch:last-child { padding-bottom: 10px; }
 .mst-hl-foot { padding: 6px 12px 10px; color: var(--text-3); font-size: 11px; line-height: 1.45; }
 .mst-sig-wrap { height: 150px; }
+/* Aircraft as sensors (from 2026-11-10) */
+.mst-sens-wrap { position: relative; padding: 4px 6px 2px; }
+.mst-sens-wrap canvas { display: block; width: 100%; }
+.mst-sens-tip { position: absolute; z-index: 3; pointer-events: none; background: var(--bg-2, var(--bg-1)); color: var(--text-1);
+                border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; font-size: 11px; line-height: 1.4;
+                white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .mst-table tr.mst-click { cursor: pointer; }
 .mst-table tr.mst-click:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .mst-table tr.mst-sel td { background: color-mix(in srgb, var(--accent) 13%, transparent); }

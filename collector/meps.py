@@ -55,6 +55,12 @@ Optional config keys (read with defaults):
   MEPS_MODEL_LEVELS = True      also fetch the model levels (dense Skew-T profile)
   MEPS_BACKFILL_DAYS = 3        days fetched at the first start
   MEPS_URL = "https://thredds.met.no/thredds/dodsC/meps25epsarchive"
+  MEPS_FORECAST_PROFILE = True  forecast profiles for the Time–height section (from 2026-11-10):
+                                from each new run the area mean on the 10 pressure levels for
+                                +3 … +48 h on a 30 km grid (about 0.6 MB a run, 5 MB a day), one
+                                row per valid hour in meps_fc_hours (a newer run replaces an older
+                                one; hours more than 3 h in the past are removed) — the Forecast
+                                tick box of the Time–height section, a display only
 
 Nothing else depends on it: when MET Norway cannot be reached the views say
 the data is missing and the rest of the system works as before.
@@ -90,6 +96,10 @@ STRIDE = 4                   # every 4th cell: 10 km
 CHECK_SEC = 20 * 60          # look for new runs this often
 MAX_PER_CYCLE = 8            # runs fetched per look (backfill continues at the next)
 RETRY_RECENT_SEC = 30 * 60   # a run not yet published: try again after this
+FC_LEADS = (3, 48)           # forecast profile for the Time–height section (from 2026-11-10): leads +3 … +48 h
+FC_STRIDE = 12               # … every 12th cell (30 km: 11 × 11 points; only the area mean is kept)
+FC_VARS = (("air_temperature_pl", "t"), ("x_wind_pl", "xw"), ("y_wind_pl", "yw"))
+FC_KEEP_H = 3                # forecast hours older than this are removed (the analyses replace them)
 ML_LEADS = 7                 # model levels +0 … +6 h: they appear about 1 h after the pressure
                              # levels, so the extra hour keeps the present hour covered
 ML_LEV = (9, 64)             # model (hybrid) levels: about 190 hPa … 12 m above the ground
@@ -244,6 +254,11 @@ def ensure_table(db) -> None:
                       lead INTEGER NOT NULL,
                       meta TEXT    NOT NULL,
                       data BLOB    NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS meps_fc_hours (
+                      ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour) of a forecast profile (from 2026-11-10)
+                      run  INTEGER NOT NULL,      -- the newest run that reached the hour
+                      lead INTEGER NOT NULL,
+                      data TEXT    NOT NULL)""")   # {"p": [hPa], "n": points, "a": {"t": °C, "u": kt, "v": kt}}
     db.execute("""CREATE TABLE IF NOT EXISTS meps_wx_hours (
                       ts   INTEGER PRIMARY KEY,   -- valid time (UTC hour); rain / snow of the hour ending then
                       run  INTEGER NOT NULL,
@@ -278,8 +293,9 @@ class MepsFetcher:
                  backfill_days: float = 3.0, enabled: bool = True, model_levels: bool = True,
                  map_fields: bool = True, map_days: float = 7.0,
                  wx: bool = True, wx_days: float = 7.0, wx_hours: int = 48, wx_km: float = 3000.0,
-                 wx_fine_km: float = 300.0):
+                 wx_fine_km: float = 300.0, forecast: bool = True):
         self.lat, self.lon, self.radius = lat, lon, radius_km
+        self.forecast = forecast     # forecast profiles for the Time–height section (MEPS_FORECAST_PROFILE)
         self.model_levels = model_levels
         self.map_fields = map_fields
         self.map_days = map_days
@@ -374,6 +390,73 @@ class MepsFetcher:
         if kind == "map":
             return self._store_map(db, run, d)
         return self._store(db, run, d) if kind == "pl" else self._store_ml(db, run, d)
+
+    # ── Forecast profile for the Time–height section (from 2026-11-10) ──────
+    def fetch_forecast(self, db, run: int) -> int:
+        """The area-mean profile of one run on the 10 pressure levels for the
+        leads FC_LEADS, on a coarse grid (about 0.6 MB): one row per valid hour
+        in meps_fc_hours, a newer run replacing an older one.  A display only
+        (the Forecast tick box of the Time–height section)."""
+        url = self._url(run, "pl")
+        ix0, iy0, _, _ = self._box(url)
+        sx, sy = f"[{ix0}:{FC_STRIDE}:{ix0 + 2 * HALF}]", f"[{iy0}:{FC_STRIDE}:{iy0 + 2 * HALF}]"
+        t0, t1 = FC_LEADS
+        box = f"[{t0}:{t1}][{LEV[0]}:{LEV[1]}]{sy}{sx}"
+        cons = ",".join([f"time[{t0}:{t1}]", f"pressure[{LEV[0]}:{LEV[1]}]", f"x{sx}", f"y{sy}"]
+                        + [f"{v}.{v}{box}" for v, _ in FC_VARS])
+        d = _fetch(url, cons, TIMEOUT["pl"])
+        P = list(d["pressure"])
+        xs, ys = list(d["x"]), list(d["y"])
+        nl, np_ = len(P), len(xs) * len(ys)
+        pts, _, _ = self._geom(xs, ys)
+        f = {short: d[name] for name, short in FC_VARS}
+        ensure_table(db)
+        written = 0
+        for k in range(len(d["time"])):
+            valid = int(round(d["time"][k]))
+            area = {"t": [], "u": [], "v": []}
+            for lv in range(nl):
+                off = (k * nl + lv) * np_
+                st = su = sv = 0.0
+                cnt = 0
+                for idx, ca, sa in pts:
+                    t, xw, yw = f["t"][off + idx], f["xw"][off + idx], f["yw"][off + idx]
+                    if t > 1e30 or xw > 1e30:
+                        continue
+                    cnt += 1
+                    st += t
+                    su += xw * ca + yw * sa
+                    sv += -xw * sa + yw * ca
+                area["t"].append(round(st / cnt - 273.15, 2) if cnt else None)
+                area["u"].append(round(su / cnt * KT, 1) if cnt else None)
+                area["v"].append(round(sv / cnt * KT, 1) if cnt else None)
+            row = {"p": [round(p, 1) for p in P], "n": len(pts), "a": area}
+            cur = db.execute(
+                """INSERT INTO meps_fc_hours (ts, run, lead, data) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(ts) DO UPDATE SET run = excluded.run, lead = excluded.lead, data = excluded.data
+                   WHERE excluded.run >= meps_fc_hours.run""",
+                (valid, run, int(round((valid - run) / 3600)), json.dumps(row, separators=(",", ":"))))
+            written += cur.rowcount
+        db.execute("DELETE FROM meps_fc_hours WHERE ts < ?", (time.time() - FC_KEEP_H * 3600,))
+        db.commit()
+        return written
+
+    def forecast_due(self, db, now: float):
+        """The newest run whose forecast profile is not stored yet (of the last
+        three runs; a run not yet published is tried again later), or None."""
+        if not self.forecast:
+            return None
+        ensure_table(db)
+        newest = int(now // (RUN_STEP_H * 3600)) * RUN_STEP_H * 3600
+        have = db.execute("SELECT MAX(run) FROM meps_fc_hours").fetchone()[0] or 0
+        for k in range(3):
+            r = newest - k * RUN_STEP_H * 3600
+            if r <= have:
+                return None
+            seen = self.missing.get(("fc", r))
+            if seen is None or now - seen >= RETRY_RECENT_SEC:
+                return r
+        return None
 
     def _fetch_wx(self, db, run: int, url: str) -> int:
         """Weather maps of one run in pieces of WX_CHUNK hours (each request
@@ -839,10 +922,28 @@ class MepsFetcher:
                     self.missing[(kd, r)] = now
             n_runs += done
             time.sleep(1.0)
+        fc_rows = 0
+        while True:                                  # the newest published run's forecast profile
+            r = self.forecast_due(db, now)
+            if r is None:
+                break
+            try:
+                fc_rows = self.fetch_forecast(db, r)
+                self.missing.pop(("fc", r), None)
+                n_runs += 0 if n_runs else 1
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (400, 404):
+                    errors.append(f"fc {exc}")
+                self.missing[("fc", r)] = now
+            except Exception as exc:                     # noqa: BLE001
+                errors.append(f"fc {exc}")
+                self.missing[("fc", r)] = now
         txt = f"{n_runs} run(s), {rows['pl']} hour(s) stored" + \
               (f", {rows['ml']} model-level hour(s)" if self.model_levels else "") + \
               (f", {rows['map']} map hour(s)" if self.map_fields else "") + \
-              (f", {rows['wx']} weather hour(s)" if self.wx else "")
+              (f", {rows['wx']} weather hour(s)" if self.wx else "") + \
+              (f", {fc_rows} forecast-profile hour(s)" if fc_rows else "")
         if errors:
             txt += f"; failed: {errors[-1]}"
             log.warning("MEPS fetch: %d request(s) failed, last: %s", len(errors), errors[-1])
@@ -882,7 +983,8 @@ def init(cfg) -> MepsFetcher:
                             wx_days=float(getattr(cfg, "MEPS_WX_DAYS", 7)),
                             wx_hours=int(getattr(cfg, "MEPS_WX_FORECAST_H", 48)),
                             wx_km=float(getattr(cfg, "MEPS_WX_KM", 3000)),
-                            wx_fine_km=float(getattr(cfg, "MEPS_WX_FINE_KM", 300)))
+                            wx_fine_km=float(getattr(cfg, "MEPS_WX_FINE_KM", 300)),
+                            forecast=bool(getattr(cfg, "MEPS_FORECAST_PROFILE", True)))
     return _instance
 
 

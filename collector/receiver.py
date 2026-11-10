@@ -812,6 +812,8 @@ def run_collector(
                     wind.update(cal_spd=None, cal_dir=None, hdg_off=None, hdg_src="G")
                     gate_n += 1
                     gate_ac.add(icao)
+                    if _hc is not None:
+                        _hc.note_gated(_typ)
                 elif wind and _hc is not None and _hc.enabled:
                     try:
                         wind.update(_hc.process(icao, ts, wind, _pos_lat, _pos_lon,

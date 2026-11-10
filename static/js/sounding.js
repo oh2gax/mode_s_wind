@@ -15,6 +15,7 @@
 const ANA_NAMES = ['Off', 'Levels', 'Stability', 'Turbulence', 'Advection', 'Full'];
 const MODE_NOTES = {
   th:     'Time–height: the hourly area profiles side by side.',
+  cal:    'Calendar: one row per day, one column per hour.',
   verif:  'Sonde check: the Mode-S area profile compared with the radiosonde — at launch (±1 h) and hour by hour as the sounding ages.',
   mast:   'Mast: the Kivenlahti mast (FMI open data) against the Mode S boundary layer, MEPS and the sounding.',
   meps:   'MEPS check: the Mode-S area profile compared with the MEPS weather model every hour, by pressure level, and the distance effect at the soundings.',
@@ -73,7 +74,62 @@ function syncChart() {
               meps: mepsShow ? sndMeps : null, mast: mastShow ? sndMast : null,
               rh: rhShow, moist: rhShow && sndProfile && sndMode !== 'flight' ? sndProfile.moisture || null : null });
 }
-function drawChart() { syncChart(); skewt.draw(); renderIndices(); }
+function drawChart() { syncChart(); skewt.draw(); renderIndices(); drawHodo(); }
+
+// ── Hodograph (hodograph.js, from 2026-11-10) ─────────────────────────────
+// The wind of each layer of the shown profile as a point, joined in height
+// order; with "Previous hours" the two hours before it, faded (the hourly
+// archive: /api/sounding/hour).
+let hodoShow = _lsGet('ms_hodoShow', 'true') !== 'false';
+let hodoPrevOn = _lsGet('ms_hodoPrev', 'false') === 'true';
+let hodoTop = parseInt(_lsGet('ms_hodoTop', '46000'), 10) || 46000;
+let hodoPrev = [], hodoPrevKey = '';
+const hodo = typeof createHodograph === 'function' && document.getElementById('hodo-canvas')
+  ? createHodograph(document.getElementById('hodo-canvas'), document.getElementById('hodo-tip')) : null;
+function drawHodo() {
+  if (!hodo || !hodoShow) return;
+  const box = document.getElementById('hodo-box');
+  if (!box || box.clientWidth === 0) return;
+  hodo.resize(box.clientWidth, box.clientHeight);
+  hodo.set({ levels: sndProfile && sndProfile.levels ? sndProfile.levels : [], low: sndLow && sndLow.levels ? sndLow.levels : null,
+             prev: hodoPrevOn && sndMode !== 'flight' ? hodoPrev : [], top: hodoTop, flight: sndMode === 'flight' });
+  hodo.draw();
+}
+// the two completed hours before the shown profile (Area · now: before the hour in progress)
+async function fetchHodoPrev() {
+  if (!hodo || !hodoPrevOn || sndMode === 'flight' || !sndProfile) { hodoPrev = []; hodoPrevKey = ''; return; }
+  const base = sndMode === 'hour' && sndProfile.hour_ts ? sndProfile.hour_ts : Math.floor(Date.now() / 3600e3) * 3600;
+  const key = `${sndMode}|${base}`;
+  if (key === hodoPrevKey) return;
+  hodoPrevKey = key;
+  const out = [];
+  for (const k of [1, 2]) {
+    try {
+      const r = await fetch(`/api/sounding/hour?ts=${base - k * 3600}`);
+      if (!r.ok) continue;
+      const d = await r.json();
+      const t = new Date(d.hour_ts * 1000);
+      if (d.levels && d.levels.length) out.push([`${_pad(t.getUTCHours())}–${_pad((t.getUTCHours() + 1) % 24)} UTC`, d.levels]);
+    } catch (_) { /* silent */ }
+  }
+  if (key !== hodoPrevKey) return;
+  hodoPrev = out;
+  drawHodo();
+}
+(function () {
+  const box = document.getElementById('hodo-box');
+  if (!hodo || !box) return;
+  const hideBtn = document.getElementById('hodo-hide'), prevChk = document.getElementById('hodo-prev'), topSel = document.getElementById('hodo-top');
+  const sync = () => { box.classList.toggle('hodo-hidden', !hodoShow); hideBtn.textContent = hodoShow ? '▾' : '▸'; };
+  prevChk.checked = hodoPrevOn; topSel.value = String(hodoTop); sync();
+  hideBtn.addEventListener('click', () => { hodoShow = !hodoShow; _lsSet('ms_hodoShow', String(hodoShow)); sync(); drawHodo(); });
+  prevChk.addEventListener('change', () => { hodoPrevOn = prevChk.checked; _lsSet('ms_hodoPrev', String(hodoPrevOn)); hodoPrevKey = ''; fetchHodoPrev().then(drawHodo); });
+  topSel.addEventListener('change', () => { hodoTop = parseInt(topSel.value, 10); _lsSet('ms_hodoTop', String(hodoTop)); drawHodo(); });
+  const cv = document.getElementById('hodo-canvas');
+  cv.addEventListener('mousemove', ev => hodo.hover(ev));
+  cv.addEventListener('mouseleave', () => hodo.leave());
+  new ResizeObserver(() => drawHodo()).observe(box);
+})();
 
 // ── Indices panel (skewt_indices.js): the shown Mode S profile, the MEPS model
 // and the sonde, computed with the same method (MEPS and the sonde averaged
@@ -250,7 +306,7 @@ async function fetchLow(qs) {
 
 // ── Source selection (area now / hourly archive / flight) ─────────────────
 function setMode(mode) {
-  sndMode = ['area', 'hour', 'flight', 'th', 'verif', 'meps', 'mast'].includes(mode) ? mode : 'area';
+  sndMode = ['area', 'hour', 'flight', 'th', 'cal', 'verif', 'meps', 'mast'].includes(mode) ? mode : 'area';
   _lsSet('ms_snd_mode', sndMode);
   document.querySelectorAll('#snd-mode-btns .snd-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === sndMode));
@@ -261,8 +317,10 @@ function setMode(mode) {
   document.getElementById('snd-meps-ctl').style.display   = sndMode === 'meps'   ? '' : 'none';
   document.getElementById('snd-mast-ctl').style.display   = sndMode === 'mast'   ? '' : 'none';
   document.getElementById('snd-th-ctl').style.display     = sndMode === 'th'     ? '' : 'none';
+  document.getElementById('snd-cal-ctl').style.display    = sndMode === 'cal'    ? '' : 'none';
+  document.getElementById('snd-cal').style.display        = sndMode === 'cal'    ? '' : 'none';
   // Sonde check and Time–height replace the diagram and the level table
-  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th' || sndMode === 'meps' || sndMode === 'mast') ? 'none' : '';
+  document.querySelector('.sounding-layout').style.display = (sndMode === 'verif' || sndMode === 'th' || sndMode === 'cal' || sndMode === 'meps' || sndMode === 'mast') ? 'none' : '';
   document.getElementById('snd-verif').style.display = sndMode === 'verif' ? '' : 'none';
   document.getElementById('snd-meps').style.display = sndMode === 'meps' ? '' : 'none';
   document.getElementById('snd-mast').style.display = sndMode === 'mast' ? '' : 'none';
@@ -278,6 +336,7 @@ function setMode(mode) {
   if (sndMode === 'mast') { MastView.load(); return; }
   document.getElementById('flight-banner').classList.add('hidden');
   if (sndMode === 'th') { TimeHeight.load(); return; }
+  if (sndMode === 'cal') { SndCal.load(); return; }
   if (sndMode === 'hour') loadHourList();
   else loadCurrent();
 }
@@ -304,6 +363,7 @@ function loadCurrent() {
   if (sndMode === 'meps')   return loadMepsCheck();
   if (sndMode === 'mast')   return MastView.load();
   if (sndMode === 'th')     return TimeHeight.load();
+  if (sndMode === 'cal')    return SndCal.load();
   if (sndMode === 'area')   return loadAreaSounding();
   if (sndMode === 'hour')   return loadHourSounding();
   return loadFlightSounding();
@@ -452,6 +512,7 @@ function showProfile(d, header, metaPrefix, title, hint, lowQs, sfc) {
     `${metaPrefix}${d.obs_used} obs used${d.aircraft != null ? ' · ' + d.aircraft + ' aircraft' : ''} · ${levels.length} levels`;
   drawChart();
   fetchLow(lowQs);
+  fetchHodoPrev();
 }
 
 function clearProfile(msg) {
@@ -731,6 +792,7 @@ window.onThemeChange = () => {
   if (sndMode === 'meps') renderMepsCheck();
   if (sndMode === 'mast') MastView.render();
   if (sndMode === 'th') TimeHeight.render();
+  if (sndMode === 'cal') SndCal.render();
 };
 
 // ── Time–height section (timeheight.js); a click on a column opens that hour
@@ -741,6 +803,16 @@ TimeHeight.init({
       `${d.getUTCFullYear()}-${_pad(d.getUTCMonth() + 1)}-${_pad(d.getUTCDate())}`;
     sndHourPick = String(ts);
     setMode('hour');
+  },
+});
+
+// ── Calendar (sndcal.js, from 2026-11-10): a click opens the day in the Time–height
+// section, in the field that goes with the calendar's quantity
+SndCal.init({
+  openDay(date, q) {
+    const field = { inv: 'blt', llj: 'blw', wind: 'wind', ws: 'bld', edr: 'turb', ac: 'cov' }[q];
+    setMode('th');
+    TimeHeight.show({ end: date, hours: 24, field });
   },
 });
 

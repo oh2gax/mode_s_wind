@@ -94,6 +94,34 @@
       </div>
 {% endmacro %}
 
+{% macro sensors(fold=false) %}
+      <div class="mst-panel" id="mst-sens-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Aircraft as sensors</span>
+          <select id="mst-sens-q" class="gpe-input" title="What is compared">
+            <option value="off">Heading offset (°)</option>
+            <option value="amp">Direction-dependent heading error (°)</option>
+            <option value="fsd">Flight-to-flight spread (°)</option>
+            <option value="rms">Wind difference from the others (kt)</option>
+          </select>
+          <span class="mst-hdr-note" id="mst-sens-note"></span></div>
+        <div class="mst-sens-wrap"><canvas id="mst-sens-chart"></canvas><div id="mst-sens-tip" class="mst-sens-tip" style="display:none"></div></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-sens"></table></div>
+        {% if fold %}<details class="mst-fold"><summary>About this panel</summary>{% endif %}<div class="mst-foot" id="mst-sens-foot">
+          Every aircraft that sends its heading and speeds is a wind sensor, and not all are equally good. One dot is one airframe
+          (no identities are shown), one row an aircraft type — the ten most common and, in amber below them, the propeller types; the line is the type's median.
+          <b>Heading offset</b>: what the system has learnt to take off the airframe's reported heading so that its winds agree
+          with the other aircraft (airframes beyond the limit are left out of the winds).
+          <b>Direction-dependent heading error</b>: the part of the heading error that changes once around the compass —
+          large on aircraft that sense their heading magnetically (turboprops such as the ATR), near zero where it comes from an
+          inertial platform (the jets); given only when the headings an airframe has flown determine it. <b>Flight-to-flight spread</b>: how much an airframe's offset differs from one flight
+          to the next; a fixed correction cannot remove that. <b>Wind difference from the others</b>: the vector difference of
+          its winds from the other aircraft in the same layer and hour, after its heading correction (it includes the real
+          differences of the wind within the area). The last three are collected from 10 Nov 2026 on and fill up over the
+          following days. <b>GNSS gate</b>: winds of the ATR 72-600 and PC-12 withheld since the server started because the
+          aircraft reported a degraded GNSS position (their ground speed is then dead-reckoned).</div>{% if fold %}</details>{% endif %}
+      </div>
+{% endmacro %}
+
 {% macro cad(fold=false) %}
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Reply cadence per aircraft (WAM / radar)</span>
