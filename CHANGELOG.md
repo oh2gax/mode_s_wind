@@ -7,6 +7,30 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; Mobile guide 1.67)
+
+### Surface inversion: the top
+- The **top** of a surface inversion is now the top of the warmest layer — where the temperature stops rising — instead of the highest band still at least half the inversion's strength warmer than the METAR. The old top ran far above the inversion whenever the air above cooled slowly: 3 200–4 400 ft MSL on the evening of 8 Nov 2026 while the temperature peaked at 1 400–2 000 ft; over the 95 stored inversion hours a median 600 ft, in 35 of them 1 000 ft or more. Against the Kivenlahti mast the old top was a median 900 ft above the mast's warmest level, the new one about 300 ft. `collector/boundary.py` (`inv_top()`, `detect_inv()`, `INV_TOP_TOL`).
+- The stored hours get the new top once at the first start (`reinvert()`: only `inv.top` changes, 76 of 95 hours on the snapshot of 10 Nov; done-mark `bl_inv_top_v2`). `run.py`.
+- Everything that shows the top follows: Pilot → Now and Departure, the Windshear page's BL view and hover texts, the Time–height section, the Skew-T mark. The BL chart's hover says *the warmest layer up to about … ft*. `static/js/ws_cond_chart.js`.
+
+### Inversion aloft up to 10 000 ft
+- The climb-outs are followed on from 5 300 ft to **10 000 ft MSL** (or 40 NM, 10 minutes, a descent) for the Mach/TAS temperatures of the 200-ft bands 5 200–10 000 ft. The departure's record, raw series and windshear report are written when they were before; the high bands are added to the stored climb-out afterwards (one small UPDATE per jet departure). `collector/departures.py` (`DEP_HI_*`, `_update_hi()`, `_finish_hi()`), `run.py` (`_on_departure_high`).
+- The boundary-layer hour keeps these bands as `ta` and the median wind in 500-ft bins 5 500–10 000 ft within 40 km as `wh` (only with data; about 0.5 kB more an hour). `collector/boundary.py`. The airport profile, the BL charts and the Windshear page stay at 5 000 ft (`lowlevel_profile(top=…)`). `web/api/lowlevel.py`.
+- **Pilot → Now**: the inversion aloft is searched from 1 200 ft to the top of the hour's data, up to 10 000 ft; a grey line tells how high the temperatures of the hour reached. `web/api/pilot.py`, `static/js/app_pilot.js`.
+- The winds below and above an inversion (and above a surface inversion) no longer disappear in the first minutes of an hour: with fewer than 5 wind bins in the hour in progress the last stored hour's winds are used. `web/api/pilot.py`.
+- No back-fill is possible (the stored climb-outs end at 5 300 ft): the bands above 5 000 ft begin with this version, come from jet departures only and are often missing on quiet nights.
+- A height such as *1 400 ft* in the card's headings is no longer broken after the thousands. `static/css/pilot.css`.
+- Tested with synthetic climbs (the record identical with and without the high part) and with sounding profiles put into an hour's climb-outs with noise (no false layer above 5 000 ft; a layer at 5 600–6 800 ft found). The inversion aloft of 9 Nov agreed with the Jokioinen soundings (12Z: sonde 2 880–3 960 ft +7.2 K, aircraft 2 800–3 800 ft +6.8 K).
+
+### GPS pages: receiver coverage
+- A receiver's day could be stored **without its last hour**: the daily roll-up ran at 00:03 UTC, before the 23:00 hour had been written on a quiet night, and the day was never computed again — 8 Nov 2026 showed a gap for a receiver that was up all day. A day is now rolled up one hour after it ended, and a stored day is corrected while the 7-day statistics still hold it (8 Nov repairs itself). `web/api/gps_aircraft.py` (`rx_days_update()`).
+
+### Documents
+- **Mobile guide 1.67**: the new top of the surface inversion and the inversion aloft to 10 000 ft, both figures redrawn. `doc/Mobile_User_Guide.pdf`.
+
+---
+
 ## v.09112026 — 2026-11-09 (an inversion aloft on the Pilot view's Now tab; Mobile guide 1.66)
 
 ### Pilot → Now: inversion aloft

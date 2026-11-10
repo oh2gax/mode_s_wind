@@ -23,8 +23,23 @@ minutes after the hour; the hour in progress is computed when asked):
          lowest speed below it → {"ft", "kt", "dir", "drop" (m/s), "sh"
          (kt per 1 000 ft below the nose)}
   inv    surface inversion: the air at 600–1 000 ft MSL at least 0.5 K
-         warmer than the METAR temperature → {"dT" (K), "top" (the highest
-         band still at least half that much warmer, ft MSL)}
+         warmer than the METAR temperature → {"dT" (K), "top" (ft MSL)}.
+         "top" from 10 Nov 2026: the top of the warmest layer — of the bands
+         from the lowest one up that are still at least half dT warmer than
+         the METAR, the highest band within INV_TOP_TOL (0.2 K) of the warmest
+         one, counted up from the lowest such band without a gap.  Until then
+         the highest band still at least half dT warmer, which ran far above
+         the level where the temperature stops rising when the air above
+         cooled slowly (median 1 000 ft; against the Kivenlahti mast a
+         median 900 ft too high, the new top about 300 ft).  The stored hours
+         were given the new top once (reinvert()).
+  aloft  from 10 Nov 2026, for the inversion aloft of the Pilot page
+         (web/api/pilot.py inv_aloft): "ta" — the temperature bands
+         5 200–10 000 ft MSL of the climb-outs (collector/departures.py
+         DEP_HI_BANDS, at least 4 flights a band, smoothed as "t") and
+         "wh" — the median wind in 500-ft bins 5 500–10 000 ft within
+         BL_HI_RADIUS_KM (40 km).  Both only when there are data; "t" and
+         "w" stay at 5 000 ft, as the charts that draw them.
 
 Study (29 Sep – 29 Oct 2026): a jet in 10 % of the hours (16 % at night,
 4 % at midday; typical nose 1 500 ft, 23 kt); a surface inversion in 15 %
@@ -62,6 +77,13 @@ LLJ_BELOW_KT = 2 / KT_MS             # 2 m/s ≈ 3.9 kt above the lowest speed b
 
 INV_DT = 0.5                          # K
 INV_MIN_FLIGHTS = 4
+INV_TOP_TOL = 0.2                     # K: the warmest layer = within this of the warmest band
+INV_TOP_KEY = "bl_inv_top_v2"         # maintenance_config: reinvert() is done
+
+# above TOP_FT, for the inversion aloft only (from 2026-11-10)
+HI_TOP_FT = 10000
+HI_BIN_FT = 500
+BL_HI_RADIUS_KM = 40.0
 
 _cfg = {"lat": 60.3172, "lon": 24.9634, "elev": 179.0}
 
@@ -93,10 +115,14 @@ def _metar_for_hour(db, h: int) -> dict:
     return {}
 
 
-def _wind_bins(db, t0: float, t1: float, qnh: float | None) -> list:
+def _wind_bins(db, t0: float, t1: float, qnh: float | None, lo_ft: int = BIN_FT,
+               hi_ft: int = TOP_FT, bin_ft: int = BIN_FT, radius_km: float = BL_RADIUS_KM) -> list:
+    """Median wind per bin [[ft MSL, kt, dir, n]] of the observations within
+    radius_km: by default the 250-ft bins up to TOP_FT ("w"); from 10 Nov 2026
+    also the 500-ft bins above it, to HI_TOP_FT within BL_HI_RADIUS_KM ("wh")."""
     lat, lon = _cfg["lat"], _cfg["lon"]
-    dlat = BL_RADIUS_KM / 111.2
-    dlon = BL_RADIUS_KM / (111.2 * math.cos(math.radians(lat)))
+    dlat = radius_km / 111.2
+    dlon = radius_km / (111.2 * math.cos(math.radians(lat)))
     corr = (1013.25 - qnh) * QNH_FT_PER_HPA if qnh else 0.0
     bins: dict[int, list] = {}
     for alt, spd, dr in db.execute(
@@ -104,10 +130,10 @@ def _wind_bins(db, t0: float, t1: float, qnh: float | None) -> list:
             "WHERE ts >= ? AND ts < ? AND altitude BETWEEN ? AND ? "
             "AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
             "AND best_wind_spd IS NOT NULL AND best_wind_dir IS NOT NULL",
-            (t0, t1, -1000, TOP_FT + 1200, lat - dlat, lat + dlat, lon - dlon, lon + dlon)):
+            (t0, t1, lo_ft - 1250, hi_ft + 1200, lat - dlat, lat + dlat, lon - dlon, lon + dlon)):
         msl = alt - corr
-        b = int((msl + BIN_FT / 2) // BIN_FT * BIN_FT)
-        if b < BIN_FT or b > TOP_FT:
+        b = int((msl + bin_ft / 2) // bin_ft * bin_ft)
+        if b < lo_ft or b > hi_ft:
             continue
         r = math.radians(dr)
         bins.setdefault(b, []).append((spd * math.sin(r), spd * math.cos(r)))
@@ -156,13 +182,38 @@ def detect_llj(w: list, elev: float | None = None) -> dict | None:
     return best
 
 
-def _temps(db, t1: float) -> list:
+def _temps(db, t1: float, top: int = TOP_FT) -> list:
+    """The smoothed 200-ft temperature bands [[ft, °C, flights]] up to `top`."""
     from web.api.lowlevel import lowlevel_profile
-    prof = lowlevel_profile(db, minutes=60, now=t1)
+    prof = lowlevel_profile(db, minutes=60, now=t1, top=top)
     lv = {l["alt_msl"]: (l["temp"], l.get("temp_count", 0)) for l in prof.get("levels") or []
           if l.get("temp") is not None and (l.get("temp_count") or 0) >= INV_MIN_FLIGHTS}
     bs = sorted(lv)
     return [[b, round(st.mean(lv[c][0] for c in bs if abs(c - b) <= 200), 1), lv[b][1]] for b in bs]
+
+
+def inv_top(sm: dict, tt, dT) -> int | None:
+    """The top of a surface inversion (ft MSL) in the smoothed bands
+    sm = {ft: °C}: the bands from the lowest one up that are at least dT / 2
+    warmer than the METAR temperature tt are the warm run; in it, from the
+    lowest band within INV_TOP_TOL of the warmest one, upwards for as long as
+    the bands stay within INV_TOP_TOL of it (a gap of one band is allowed)."""
+    run = []
+    for b in sorted(sm):
+        if sm[b] >= tt + dT / 2:
+            run.append(b)
+        elif run:
+            break
+    if not run:
+        return None
+    warm = max(sm[b] for b in run)
+    near = [b for b in run if sm[b] >= warm - INV_TOP_TOL]
+    top = near[0]
+    for b in near[1:]:
+        if b - top > 400:
+            break
+        top = b
+    return top
 
 
 def detect_inv(t: list, tt) -> dict | None:
@@ -176,13 +227,37 @@ def detect_inv(t: list, tt) -> dict | None:
     dT = st.mean(low) - tt
     if dT < INV_DT:
         return None
-    top = None
-    for b in sorted(sm):
-        if sm[b] >= tt + dT / 2:
-            top = b
-        elif top is not None:
-            break
-    return {"dT": round(dT, 1), "top": top}
+    return {"dT": round(dT, 1), "top": inv_top(sm, tt, dT)}
+
+
+def reinvert(db) -> int:
+    """One-time (10 Nov 2026): the surface inversion of every stored hour
+    again from its stored bands and METAR temperature, for the new "top"
+    (detect_inv).  Only "inv" changes.  Marked done in maintenance_config.
+    Returns the hours changed."""
+    try:
+        if db.execute("SELECT value FROM maintenance_config WHERE key = ?", (INV_TOP_KEY,)).fetchone():
+            return 0
+    except Exception:                                # noqa: BLE001  (older database)
+        return 0
+    n = 0
+    for ts, data in db.execute("SELECT ts, data FROM bl_hours ORDER BY ts").fetchall():
+        try:
+            d = json.loads(data)
+        except ValueError:
+            continue
+        if not d.get("inv"):
+            continue
+        inv = detect_inv(d.get("t") or [], d.get("tt"))
+        if inv != d.get("inv"):
+            d["inv"] = inv
+            db.execute("UPDATE bl_hours SET data = ? WHERE ts = ?",
+                       (json.dumps(d, separators=(",", ":")), ts))
+            n += 1
+    db.execute("INSERT OR REPLACE INTO maintenance_config (key, value) VALUES (?, ?)", (INV_TOP_KEY, "1"))
+    db.commit()
+    _live["t"] = 0.0
+    return n
 
 
 def compute_hour(db, h: int, t1: float | None = None) -> dict:
@@ -190,10 +265,18 @@ def compute_hour(db, h: int, t1: float | None = None) -> dict:
     t1 = h + 3600 if t1 is None else t1
     m = _metar_for_hour(db, h)
     w = _wind_bins(db, h, t1, m.get("q"))
-    t = _temps(db, t1)
+    ta = _temps(db, t1, HI_TOP_FT)
+    t = [x for x in ta if x[0] <= TOP_FT]
     rec = {"ts": h, "w": w, "t": t, "tt": m.get("tt"), "q": m.get("q")}
     rec["llj"] = detect_llj(w)
     rec["inv"] = detect_inv(t, m.get("tt"))
+    # above TOP_FT, for the inversion aloft (from 2026-11-10); only with data
+    ta = [x for x in ta if x[0] > TOP_FT]
+    if ta:
+        rec["ta"] = ta
+        wh = _wind_bins(db, h, t1, m.get("q"), TOP_FT + HI_BIN_FT, HI_TOP_FT, HI_BIN_FT, BL_HI_RADIUS_KM)
+        if wh:
+            rec["wh"] = wh
     return rec
 
 

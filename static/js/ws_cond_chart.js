@@ -1080,7 +1080,7 @@ const WsCondChart = (() => {
       ctx.fillStyle = light ? '#b91c1c' : '#f87171'; ctx.fillRect(x + 1, T + PH - 5, x1 - x - 2, 5);
       ctx.restore();
       dots.push({ x: (x + x1) / 2, y: T + PH - 3, dotR: 5, color: light ? '#b91c1c' : '#f87171',
-        label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z surface inversion: the air at 600–1000 ft ${r.inv.dT.toFixed(1)} K warmer than at the surface (METAR ${r.tt} °C), warmer than the surface up to about ${r.inv.top} ft` });
+        label: `${_hm(r.ts)}–${_hm(r.ts + 3600)}Z surface inversion: the air at 600–1000 ft ${r.inv.dT.toFixed(1)} K warmer than at the surface (METAR ${r.tt} °C), the warmest layer up to about ${r.inv.top} ft` });
     }
     ctx.restore();
     // low-level jet: diamonds at the nose, joined hour to hour (the jet core)

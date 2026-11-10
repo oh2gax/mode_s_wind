@@ -278,10 +278,24 @@ def _rx_minutes(blob) -> int:
     return min(60, len(mins))
 
 
-def rx_days_update(db) -> int:
+_RX_REPAIRED = False       # the stored days were checked against the 7-day store once since the start
+
+
+def rx_days_update(db, now: float | None = None) -> int:
     """Roll the receivers' completed days still in msg_stats_rx_hours up into
-    gps_rx_days (days already there are skipped; the partial first day of the
-    7-day store is left out).  Returns the number of days written."""
+    gps_rx_days (the partial first day of the 7-day store is left out).
+    Returns the number of days written.
+
+    From 10 Nov 2026 a day is rolled up only one hour after it ended: an hour
+    of msg_stats_rx_hours is written when the first message of the next hour
+    has come (and the housekeeping round after it), so on a quiet night the
+    00:03 job found the day without its last hour and stored it short for good
+    (8 Nov 2026: 22 h 56 min for a receiver that was up all day — a false gap
+    on the GPS pages).  A stored day is also corrected: when the 7-day store
+    gives more minutes than the stored day has, the day is written again — all
+    days still in the store at the first run after a start, then the last two."""
+    global _RX_REPAIRED
+    now = time.time() if now is None else now
     db.execute(_DDL_RX)
     try:
         t_min = db.execute("SELECT MIN(ts) FROM msg_stats_rx_hours").fetchone()[0]
@@ -290,21 +304,27 @@ def rx_days_update(db) -> int:
     if t_min is None:
         return 0
     first = _day0(_day(t_min)) + (86400 if t_min % 86400 else 0)
-    today = _day0(_day(time.time()))
+    today = _day0(_day(now))
+    last = today if now >= today + 3600 else today - 86400      # exclusive
+    repair_from = first if not _RX_REPAIRED else last - 2 * 86400
     done = 0
-    for t in range(first, today, 86400):
+    for t in range(first, last, 86400):
         day = _day(t)
-        if db.execute("SELECT 1 FROM gps_rx_days WHERE day = ? LIMIT 1", (day,)).fetchone():
+        have = dict(db.execute("SELECT rx, minutes FROM gps_rx_days WHERE day = ?", (day,)).fetchall())
+        if have and t < repair_from:
             continue
         mins = {}
         for rx, blob in db.execute("SELECT rx, data FROM msg_stats_rx_hours WHERE ts >= ? AND ts < ?",
                                    (t, t + 86400)).fetchall():
             mins[rx] = mins.get(rx, 0) + _rx_minutes(blob)
-        if mins:
-            db.executemany("INSERT OR REPLACE INTO gps_rx_days (day, rx, minutes) VALUES (?,?,?)",
-                           [(day, rx, m) for rx, m in mins.items()])
+        rows = [(day, rx, m) for rx, m in mins.items() if m > have.get(rx, -1)]
+        if rows:
+            db.executemany("INSERT OR REPLACE INTO gps_rx_days (day, rx, minutes) VALUES (?,?,?)", rows)
             done += 1
+    _RX_REPAIRED = True
     db.commit()
+    if done:
+        _COV_CACHE.clear()
     return done
 
 

@@ -42,7 +42,12 @@ def _pct(v, q):
     return v[i] if i + 1 >= len(v) else v[i] + (v[i + 1] - v[i]) * (k - i)
 
 
-def lowlevel_profile(db, minutes: int = 60, now: float | None = None) -> dict:
+LOWLEVEL_TOP_FT = 5000         # the airport profile; the climb-outs' bands go on to 10 000 ft
+#                                (from 10 Nov 2026) for the inversion aloft only (top=…)
+
+
+def lowlevel_profile(db, minutes: int = 60, now: float | None = None,
+                     top: int = LOWLEVEL_TOP_FT) -> dict:
     now = now or time.time()
     minutes = max(10, min(int(minutes or 60), 360))
     t0 = now - minutes * 60
@@ -66,6 +71,8 @@ def lowlevel_profile(db, minutes: int = 60, now: float | None = None) -> dict:
             try:
                 band = int(b)
             except ValueError:
+                continue
+            if band > top:
                 continue
             B = bands.setdefault(band, {"t": [], "tn": [], "u": [], "v": [], "wn": [],
                                         "pa": [], "arr": 0, "dep": 0})

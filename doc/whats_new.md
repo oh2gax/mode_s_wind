@@ -3,6 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.10112026 — A truer top for the surface inversion, and inversions aloft up to 10 000 ft
+
+- **Surface inversion: where it ends** — the *top* of a surface inversion is now the height where the temperature stops rising. Before, it could read much too high (on some evenings 3 000–4 000 ft) when the air above the inversion cooled only slowly; compared with the Kivenlahti mast the new top is right to about 300 ft. Past hours were corrected too. You see it on the Pilot view, the Windshear page's boundary-layer view, the Time–height section and the Skew-T.
+- **Pilot → Now: inversion aloft up to 10 000 ft** (Pilot right) — the *Boundary layer* card now looks for an inversion as high as 10 000 ft, not only to 5 000 ft: the departing jets are followed that high. A grey line tells how high the temperatures of the last hour reached; on quiet nights that can still be low. The winds below and above the inversion no longer vanish just after the full hour.
+- **GPS pages** — a day could wrongly show a receiver gap (8 November) because its last hour was counted too late; fixed, and that day corrects itself.
+- The Mobile guide (1.67) has the new figures.
+
 ## v.09112026 — An inversion aloft on the Pilot view
 
 - **Pilot → Now: inversion aloft** (Pilot right) — the *Boundary layer* card now also shows an **inversion higher up**, between about 1 000 and 5 000 ft, not only at the surface: where it is above the airport, how strong, the temperature at its bottom and top, the wind below and above it and since when it has lasted. A warm layer above 0 °C over colder air gets an icing note. The Mobile guide (1.66) shows an example.

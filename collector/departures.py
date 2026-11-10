@@ -32,6 +32,15 @@ Detection (every windshear sweep, ~3 s, from live_state):
            temperature or wind is committed (one INSERT into
            departure_profiles; turboprops report no Mach, so their climbs
            give winds only).
+  high   — from 10 Nov 2026 a climb-out that ended above DEP_SERIES_TOP_FT
+           is followed on to DEP_HI_TOP_FT (10 000 ft MSL; or DEP_HI_MAX_NM,
+           DEP_HI_MAX_SEC, a descent, or DEP_STALE_SEC without an update) for
+           the temperatures of the 200 ft bands 5 200–10 000 ft only
+           (DEP_HI_BANDS) — the inversion aloft of the Pilot page
+           (collector/boundary.py "ta").  The record above is committed at
+           the same moment as before; the high bands are added to its
+           prof_json afterwards (on_hi_commit: one UPDATE, at least
+           DEP_HI_MIN_BANDS bands).  No series, no winds, no windshear.
 
 Compared with approaches, a departure gives fewer replies per band (it climbs
 4–5× faster than the 700–800 fpm of a 3° glide path) and turns earlier, so
@@ -90,6 +99,12 @@ DEP_MIN_GS       = 90.0        # kt
 DEP_TOP_FT       = 3000.0      # bands, band comparison, trial ramps
 DEP_SERIES_TOP_FT = 5000.0     # raw climb-out series (EDR), from 2026-10-29
 DEP_MAX_NM       = 25.0
+# the high part of the climb (from 2026-11-10): temperatures only, for the inversion aloft
+DEP_HI_TOP_FT    = 10000.0
+DEP_HI_BANDS     = tuple(range(5200, 10001, 200))
+DEP_HI_MAX_NM    = 40.0
+DEP_HI_MAX_SEC   = 600.0
+DEP_HI_MIN_BANDS = 3
 DEP_STALE_SEC    = 60.0
 DEP_MIN_BANDS    = 3
 PAIR_SEC         = 2.0
@@ -242,7 +257,7 @@ class DepartureTracker:
     def __init__(self, airport_lat: float, airport_lon: float, bds_sample_fn,
                  qnh_fn, on_commit=None, approach_state_fn=None,
                  mag_declination: float | None = None, shear_fn=None,
-                 vel_sample_fn=None) -> None:
+                 vel_sample_fn=None, on_hi_commit=None) -> None:
         """qnh_fn() → (qnh_hpa or None, pressure-alt − MSL correction ft);
         approach_state_fn(icao) → True if the windshear tracker is following
         the aircraft on an approach (go-around flag);
@@ -259,6 +274,9 @@ class DepartureTracker:
         self._vel = vel_sample_fn
         self._state: dict[str, dict] = {}
         self._recent: dict[str, tuple] = {}     # icao → (until, runway) of finished climb-outs
+        # the high part of committed climb-outs (from 2026-11-10): icao → state
+        self._hi: dict[str, dict] = {}
+        self._on_hi = on_hi_commit              # callable(ts, icao, {band: {"t", "tn"}})
         self._lock = threading.Lock()
         self.n_committed = 0
 
@@ -274,6 +292,9 @@ class DepartureTracker:
         dist = _dist_nm(self.apt_lat, self.apt_lon, lat, lon)
         vr = ac.get("vert_rate")
         st = self._state.get(icao)
+        if st is None and icao in self._hi:
+            self._update_hi(icao, now, alt_msl, dist, vr)
+            return
         if st is None:
             gs = ac.get("groundspeed")
             if (dist <= DEP_START_NM and alt_msl <= DEP_START_MAX_FT
@@ -314,7 +335,56 @@ class DepartureTracker:
             st["shear_res"] = self._final_shear(icao, st, now)
         if (alt_msl > DEP_SERIES_TOP_FT + 300 or dist > DEP_MAX_NM
                 or (vr is not None and vr < -500)):
-            self._finish(icao, ac, now)
+            hi = alt_msl > DEP_SERIES_TOP_FT + 300 and not (vr is not None and vr < -500)
+            self._finish(icao, ac, now, hi=hi)
+
+    # ── the high part of the climb (from 2026-11-10) ──────────────────────
+    def _update_hi(self, icao, now, alt_msl, dist, vr) -> None:
+        """One sweep of a committed climb-out above DEP_SERIES_TOP_FT: the
+        Mach/TAS temperature of every new BDS 6,0 reply (paired with the
+        nearest BDS 5,0 reply, ≤ PAIR_SEC) into its 200 ft band."""
+        hi = self._hi[icao]
+        try:
+            b50, b60 = self._bds(icao, hi["l6"] - PAIR_SEC)
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("High climb samples failed for %s: %s", icao, exc)
+            b50, b60 = [], []
+        t_prev, a_prev = hi["prev_t"], hi["prev_alt"]
+        hi["prev_t"], hi["prev_alt"], hi["last"] = now, alt_msl, now
+        lim = now + FUTURE_SEC
+        p5 = [x for x in b50 if x[5] is not None]
+        for smp in sorted((x for x in b60 if hi["l6"] < x[0] <= lim), key=lambda x: x[0]):
+            hi["l6"] = smp[0]
+            mach = smp[5] if len(smp) > 5 else None
+            if mach is None or not p5:
+                continue
+            q = min(p5, key=lambda x: abs(x[0] - smp[0]))
+            if abs(q[0] - smp[0]) > PAIR_SEC:
+                continue
+            f = 1.0 if now <= t_prev else min(1.0, max(0.0, (smp[0] - t_prev) / (now - t_prev)))
+            a = a_prev + f * (alt_msl - a_prev)
+            band = int(round(a / 200.0) * 200)
+            if band not in DEP_HI_BANDS or abs(a - band) > DEP_BAND_TOL:
+                continue
+            tm = tm_temp_c(q[5], mach)
+            if tm is not None:
+                hi["t"].setdefault(band, []).append(tm)
+        if (alt_msl > DEP_HI_TOP_FT + 100 or dist > DEP_HI_MAX_NM
+                or (vr is not None and vr < -500) or now - hi["t0"] > DEP_HI_MAX_SEC):
+            self._finish_hi(icao)
+
+    def _finish_hi(self, icao) -> None:
+        hi = self._hi.pop(icao, None)
+        if not hi or not self._on_hi:
+            return
+        bands = {str(b): {"t": round(trimmed_mean(v), 1), "tn": len(v)}
+                 for b, v in sorted(hi["t"].items()) if v}
+        if len(bands) < DEP_HI_MIN_BANDS:
+            return
+        try:
+            self._on_hi(hi["ts"], icao, bands)
+        except Exception as exc:                          # noqa: BLE001
+            log.warning("High climb bands commit failed: %s", exc)
 
     @staticmethod
     def _gnss(ac: dict, st: dict, now: float, alt_msl: float, lat: float, lon: float) -> None:
@@ -338,6 +408,8 @@ class DepartureTracker:
         now = now or time.time()
         for icao in [k for k, s in self._state.items() if now - s["last"] > DEP_STALE_SEC]:
             self._finish(icao, None, now)
+        for icao in [k for k, s in self._hi.items() if now - s["last"] > DEP_STALE_SEC]:
+            self._finish_hi(icao)
 
     # ── internals ─────────────────────────────────────────────────────────
     def _collect(self, icao, ac, st, now, alt_msl):
@@ -408,7 +480,14 @@ class DepartureTracker:
                 continue
             a = alt_at(ts)
             band = int(round(a / 200.0) * 200)
-            if band not in DEP_BANDS or abs(a - band) > DEP_BAND_TOL:
+            if abs(a - band) > DEP_BAND_TOL:
+                continue
+            if band not in DEP_BANDS:
+                # the first band(s) of the high part, passed while the record is still open
+                if self._on_hi and band in DEP_HI_BANDS:
+                    tm = tm_temp_c(tas5, mach)
+                    if tm is not None:
+                        st.setdefault("hi_t", {}).setdefault(band, []).append(tm)
                 continue
             P = st["prof"].setdefault(band, {"u": [], "v": [], "t": []})
             tm = tm_temp_c(tas5, mach)
@@ -434,7 +513,7 @@ class DepartureTracker:
             log.debug("Departure windshear report failed: %s", exc)
             return None
 
-    def _finish(self, icao, ac, now):
+    def _finish(self, icao, ac, now, hi: bool = False):
         st = self._state.pop(icao, None)
         if not st:
             return
@@ -471,6 +550,11 @@ class DepartureTracker:
                 self._on_commit(rec)
             except Exception as exc:
                 log.warning("Departure profile commit failed: %s", exc)
+        if hi and self._on_hi and not st["ga"]:
+            # followed on to DEP_HI_TOP_FT for the bands above DEP_SERIES_TOP_FT
+            self._hi[icao] = {"ts": rec["ts"], "t0": now, "last": now, "t": dict(st.get("hi_t") or {}),
+                              "l6": st.get("l6", st["since"]),
+                              "prev_t": st["prev_t"], "prev_alt": st["prev_alt"]}
 
     def active(self) -> int:
         return len(self._state)

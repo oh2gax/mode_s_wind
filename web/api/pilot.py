@@ -594,9 +594,13 @@ def _t_at(pts, z):
 
 # Inversion aloft (from 2026-11-09): a layer above the surface-inversion zone in
 # which the 200-ft band temperatures of the landings and departures (smoothed
-# +-200 ft, >= 4 flights a band, to 5 000 ft) rise by at least ALOFT_DT over at
-# least ALOFT_MIN_FT.  Base at or above ALOFT_BASE_FT and above the top of a
+# +-200 ft, >= 4 flights a band) rise by at least ALOFT_DT over at least
+# ALOFT_MIN_FT.  Base at or above ALOFT_BASE_FT and above the top of a
 # surface inversion.  Strength: weak < 2, moderate < 4, strong >= 4 K.
+# The bands reach 5 000 ft MSL ("t") and, from 2026-11-10, 10 000 ft from the
+# climb-outs followed on that high ("ta", with the 500-ft wind bins "wh";
+# collector/boundary.py, collector/departures.py) — as far as the hour's
+# flights went: "ttop" in the output is the highest band with data.
 ALOFT_DT = 1.0
 ALOFT_MIN_FT = 400
 ALOFT_BASE_FT = 1200
@@ -693,18 +697,25 @@ def bl_now(db, now: float) -> dict | None:
     out = None
     if rec is not None:
         inv, t = rec.get("inv"), rec.get("t") or []
+        t_all = t + (rec.get("ta") or [])           # with the bands above 5 000 ft (from 2026-11-10)
         out = {"src": src, "hour": hour, "known": known(rec), "inv": inv, "llj": rec.get("llj"),
                "tt": rec.get("tt"), "warm": None, "wtop": None, "hist": [],
-               "ttop": max((x[0] for x in t), default=None)}
+               "ttop": max((x[0] for x in t_all), default=None)}
+        # the winds above a surface inversion and around an inversion aloft: the
+        # hour in progress has few wind bins in its first minutes — then those of
+        # the last stored hour (from 2026-11-10; until then only when it had none)
+        if len(rec.get("w") or []) < 5 or (rec.get("ta") and not rec.get("wh")):
+            st_, _ = _bl_now(db, now)
+            if len(rec.get("w") or []) < 5:
+                rec["w"] = (st_ or {}).get("w") or rec.get("w") or []
+            if not rec.get("wh"):
+                rec["wh"] = (st_ or {}).get("wh") or []
         if inv:
             top = inv.get("top") or 1000
             near = [x for x in t if x[0] <= top + 400]
             if near:
                 w = max(near, key=lambda x: x[1])
                 out["warm"] = [w[0], w[1]]
-            if not rec.get("w"):
-                st_, _ = _bl_now(db, now)
-                rec["w"] = (st_ or {}).get("w") or []
             above = [x for x in rec.get("w") or [] if top + 200 <= x[0] <= top + 1200]
             if above:
                 out["wtop"] = above[0][:3]
@@ -713,17 +724,14 @@ def bl_now(db, now: float) -> dict | None:
             for ts, data in db.execute("SELECT ts, data FROM bl_hours WHERE ts >= ? AND ts < ? ORDER BY ts",
                                        (h - BL_HIST_H * 3600, h)).fetchall():
                 d = _j(data) or {}
-                al = inv_aloft(d.get("t"), d.get("inv")) if known(d) else None
+                al = inv_aloft((d.get("t") or []) + (d.get("ta") or []), d.get("inv")) if known(d) else None
                 hist.append([int(ts), (d.get("inv") or {}).get("dT", 0.0) if known(d) else None,
                              al["dT"] if al else None, al["base"] if al else None])
         except Exception:                              # noqa: BLE001
             pass
         out["hist"] = hist
-        if not rec.get("w"):
-            st_, _ = _bl_now(db, now)
-            rec["w"] = (st_ or {}).get("w") or []
         try:
-            out["aloft"] = inv_aloft(t, inv, rec.get("w"), rec.get("tt"))
+            out["aloft"] = inv_aloft(t_all, inv, (rec.get("w") or []) + (rec.get("wh") or []), rec.get("tt"))
         except Exception:                              # noqa: BLE001
             out["aloft"] = None
     _BL_NOW["v"] = (key, out)

@@ -215,6 +215,11 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                                         pause_sec=0.2 if first else 0.0)
                 if n_b > 1:
                     hj_log.info("Boundary layer: stored %d hour(s)", n_b)
+                if first:
+                    # one-time (10 Nov 2026): the new top of the surface inversion
+                    n_i = _bl.reinvert(db)
+                    if n_i:
+                        hj_log.info("Boundary layer: surface inversion top recomputed for %d hour(s)", n_i)
             except Exception as exc:
                 hj_log.warning("Boundary layer failed: %s", exc)
             first = False
@@ -735,6 +740,27 @@ def _on_departure_committed(record: dict) -> None:
         db.commit()
     except Exception as exc:
         log.warning("departure_profiles DB write failed: %s", exc)
+
+
+def _on_departure_high(ts: float, icao: str, bands: dict) -> None:
+    """The temperatures of the bands 5 200–10 000 ft of a climb-out already
+    stored (collector/departures.py, the high part of the climb, from
+    2026-11-10) → added to its prof_json: one UPDATE.  For the inversion aloft
+    of the Pilot page (collector/boundary.py "ta")."""
+    from database.db import get_db
+    db = get_db()
+    try:
+        row = db.execute("SELECT id, prof_json FROM departure_profiles WHERE ts = ? AND icao = ?",
+                         (ts, icao)).fetchone()
+        if not row:
+            return
+        prof = json.loads(row[1]) if row[1] else {}
+        prof.update(bands)
+        db.execute("UPDATE departure_profiles SET prof_json = ? WHERE id = ?",
+                   (json.dumps(prof, separators=(",", ":")), row[0]))
+        db.commit()
+    except Exception as exc:
+        log.warning("departure_profiles high bands write failed: %s", exc)
 
 
 def _preload_dep_refs(ws_tracker) -> None:
@@ -1400,6 +1426,8 @@ def main() -> None:
             cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON, get_bds_samples,
             qnh_fn=lambda: (ws_tracker._qnh_hpa, ws_tracker._qnh_corr_ft()),
             on_commit=_on_departure_committed,
+            # bands 5 200–10 000 ft of the climb, added afterwards (from 2026-11-10)
+            on_hi_commit=_on_departure_high,
             # go-around only when the aircraft was established on an approach:
             # the windshear tracker also holds departures seen on the runway
             approach_state_fn=lambda icao: (

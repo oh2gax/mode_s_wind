@@ -237,14 +237,16 @@
       else if ((b.hist || []).length) ch.push('<b>New</b> — none in the last full hour');
       body.push(`<div class="apl-chips">${ch.map(x => `<span>${x}</span>`).join('')}</div>`);
       let t = `Warmer, stable air on top of cooler air: haze and low cloud are often trapped below it and the air above is smoother, but the wind can change and some turbulence is common across it${al.dv != null && al.dv >= 10 ? ` — here the wind changes by about ${al.dv} kt` : ''}.`;
-      if (al.end) t += ' The warming goes on to the top of the data (5 000 ft MSL), so the layer may reach higher.';
+      if (al.end) t += ` The warming goes on to the top of this hour’s data (${num(b.ttop)} ft MSL), so the layer may reach higher.`;
       if (al.warm0) t += ' <b>A warm layer above 0 °C over air below 0 °C:</b> rain or drizzle from it can be supercooled in the colder air below — a risk of icing there.';
       body.push(`<div class="apl-note apl-sm">${t}</div>`);
     } else if (b.known && b.ttop != null && b.ttop >= 2000) {
       body.push(`<div class="apl-ok">No inversion aloft up to ${agl(b.ttop)} ft.</div>`);
     }
+    // how high the hour's bands reach (from 2026-11-10: up to 10 000 ft MSL from the climb-outs)
+    if (al && !al.end && b.ttop != null) body.push(`<div class="apl-dim apl-sm">Temperature data up to ${agl(b.ttop)} ft above the airport in this hour.</div>`);
     if (b.llj) body.push(`<div class="apl-note apl-sm"><b>Low-level jet ${b.llj.kt} kt from ${dir(b.llj.dir)}°</b> at about ${agl(b.llj.ft)} ft above the airport — the wind falls off above it.</div>`);
-    body.push('<div class="apl-dim apl-sm">From the temperatures and winds the aircraft measured within 25 km; a surface inversion = the air at 600–1 000 ft at least 0.5 K warmer than the METAR; an inversion aloft = a rise of at least 1 K over at least 400 ft higher up (data to 5 000 ft MSL, above 3 000 ft from the climb-outs only). Research only.</div>');
+    body.push('<div class="apl-dim apl-sm">From the temperatures and winds the aircraft measured within 25 km; a surface inversion = the air at 600–1 000 ft at least 0.5 K warmer than the METAR, its top = the top of the warmest layer; an inversion aloft = a rise of at least 1 K over at least 400 ft higher up (data to 10 000 ft MSL when the hour’s climb-outs reach it; above 3 000 ft from the climb-outs only, above 5 000 ft within 40 km). Research only.</div>');
     return card('Boundary layer', note, body.join(''));
   }
 
