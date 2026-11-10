@@ -947,6 +947,7 @@
     const nAf = (sens.airframes || []).filter(a => a[9] === 'A').length, nX = (sens.airframes || []).filter(a => a[9] === 'X').length;
     const nQ = (sens.airframes || []).filter(a => a[Q.idx] != null).length;
     if (note) note.textContent = sens.mode === 'off' ? 'heading calibration is off' : `${nAf} calibrated airframes` + (nX ? ` · ${nX} left out` : '') + (sensQ !== 'off' ? ` · ${nQ} with a value` : '');
+    if (cv.parentElement.clientWidth < 120) return;                  // the section is hidden (the phone view)
     const W = cv.parentElement.clientWidth - 12, rh = 17, mt = 20, mb = 6, ml = 46, mr = 12, H = mt + mb + Math.max(1, types.length) * rh;
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
@@ -1013,6 +1014,7 @@
     sel.value = sensQ;
     sel.addEventListener('change', () => { sensQ = sel.value; try { localStorage.setItem('ms_statsSensQ', sensQ); } catch (e) { /* */ } renderSensors(); });
     cv.addEventListener('mousemove', sensHover);
+    cv.addEventListener('pointerdown', sensHover);                   // a tap on a phone
     cv.addEventListener('mouseleave', () => { $('mst-sens-tip').style.display = 'none'; });
     window.addEventListener('resize', () => { if (sens) renderSensors(); });
   })();
@@ -1141,7 +1143,7 @@
       start() { active = true; poll(); },
       stop() { active = false; clearTimeout(timer); },
       setWindow(w) { win = +w; if (active) poll(); },
-      redraw() { if (data) { renderRange(data); renderChart(data); renderSig(data); } },
+      redraw() { if (data) { renderRange(data); renderChart(data); renderSig(data); } if (sens) renderSensors(); else pollSensors(); },
     };
   } else poll();
 })();

@@ -15,6 +15,12 @@
  * days were rough.  Hover for all values of the hour; click opens that day in
  * the Time–height section.
  *
+ * The phone view (/app, from the evening of 2026-11-10) uses the same code with
+ * its own elements: the period is a selector (#cal-days), the status text goes
+ * to #cal-meta, the labels are thinned on a narrow screen, and with
+ * init({twoTap: true}) the first tap on an hour shows its values and a second
+ * tap on the same hour opens the day.
+ *
  * window.SndCal = { init(opts), load(), render() }
  */
 (function () {
@@ -26,7 +32,8 @@
   const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const st = { q: lsGet('ms_cal_q', 'inv'), days: parseInt(lsGet('ms_cal_days', '56'), 10) || 56 };
-  let data = null, byTs = null, geo = null, openDay = null, seq = 0;
+  let data = null, byTs = null, geo = null, openDay = null, seq = 0, twoTap = false, lastTap = null;
+  const metaEl = () => $('cal-meta') || $('sounding-meta');
 
   // classes: [lower limit, colour, label]; a value below the first limit is the "zero" class
   const seqc = (dark, lite) => (light() ? lite : dark);
@@ -64,8 +71,9 @@
     const C = { bg: L ? '#f8fafc' : '#0f1923', plot: L ? '#eef2f6' : '#131e2b', ink: L ? '#0f172a' : '#e2e8f0', ink2: L ? '#475569' : '#94a3b8',
                 grid: L ? '#cbd5e1' : '#243447', wk: L ? '#94a3b8' : '#3b4b5f' };
     const nD = data ? data.days : st.days;
-    const ml = 78, mr = 14, mt = 24, mb = 8;
-    const W = box.clientWidth - 14;                                   // room for the scroll bar
+    const narrow = box.clientWidth < 520;                             // a phone
+    const ml = narrow ? 60 : 78, mr = narrow ? 4 : 14, mt = 24, mb = 8;
+    const W = box.clientWidth - (narrow ? 2 : 14);                    // room for the scroll bar
     const rh = Math.max(11, Math.min(22, Math.floor((box.clientHeight - mt - mb) / nD)));
     const H = mt + mb + nD * rh;
     const dpr = window.devicePixelRatio || 1;
@@ -79,13 +87,14 @@
     geo = { ml, mt, cw, rh, nD, W };
     g.fillStyle = C.plot; g.fillRect(ml, mt, cw * 24, rh * nD);
     g.font = '11px system-ui'; g.textAlign = 'center'; g.fillStyle = C.ink2;
-    for (let h = 0; h < 24; h++) g.fillText(pad(h), ml + (h + 0.5) * cw, mt - 8);
+    const hs = cw < 17 ? 3 : 1;                                       // narrow columns: every third hour
+    for (let h = 0; h < 24; h += hs) g.fillText(pad(h), ml + (h + 0.5) * cw, mt - 8);
     g.textAlign = 'right'; g.fillText('UTC', ml - 8, mt - 8);
     const q = Q[st.q], last = data.start + (nD - 1) * 86400;
     for (let r = 0; r < nD; r++) {
       const day = last - r * 86400, d = new Date(day * 1000), y0 = mt + r * rh;
       if (rh >= 13 || d.getUTCDay() === 1 || r === 0) {
-        g.fillStyle = d.getUTCDay() === 0 || d.getUTCDay() === 6 ? C.ink2 : C.ink; g.textAlign = 'right'; g.font = `${Math.min(11, rh - 1)}px system-ui`;
+        g.fillStyle = d.getUTCDay() === 0 || d.getUTCDay() === 6 ? C.ink2 : C.ink; g.textAlign = 'right'; g.font = `${Math.min(narrow ? 10 : 11, rh - 1)}px system-ui`;
         g.fillText(`${DAY[d.getUTCDay()]} ${d.getUTCDate()}.${d.getUTCMonth() + 1}.`, ml - 8, y0 + rh / 2 + 4);
       }
       for (let h = 0; h < 24; h++) {
@@ -114,7 +123,7 @@
     const sw = c => `<span class="th-sw" style="background:${c}"></span>`;
     el.innerHTML = (q.zero ? sw(ZERO()) + `<span class="th-lt">${q.zero}</span> ` : '') +
       q.cls().map(b => sw(b[1]) + `<span class="th-lt">${b[2]}</span>`).join(' ') +
-      ' <span class="th-lt">· empty: no data · line: start of a week · click: open the day in the Time–height section</span>';
+      ` <span class="th-lt">· empty: no data · line: start of a week · ${twoTap ? 'tap an hour, tap again: open the day in Time–height' : 'click: open the day in the Time–height section'}</span>`;
   }
 
   function locate(ev) {
@@ -143,23 +152,26 @@
       if (r[11] != null) parts.push(b('gnss', `GNSS degraded ${r[11]} % of the aircraft`));
       if (r[12] != null) parts.push(b('ac', `${r[12]} aircraft in the area profile`));
     }
-    parts.push('<span class="mini-tip-dim">click: open this day in the Time–height section</span>');
+    parts.push(`<span class="mini-tip-dim">${twoTap ? 'tap again: open this day in Time–height' : 'click: open this day in the Time–height section'}</span>`);
     tip.innerHTML = parts.join('<br>');
     tip.style.display = '';
     const box = $('cal-box');
     const tw = tip.offsetWidth, th = tip.offsetHeight;
-    tip.style.left = Math.max(2, Math.min(box.clientWidth - tw - 18, h.mx + 14)) + 'px';
+    if (tw > box.clientWidth - 8) tip.style.whiteSpace = 'normal';
+    tip.style.left = Math.max(2, Math.min(box.clientWidth - tip.offsetWidth - (twoTap ? 4 : 18), h.mx + 14)) + 'px';
     tip.style.top = Math.max(box.scrollTop + 2, Math.min(box.scrollTop + box.clientHeight - th - 4, h.my + 14)) + 'px';
   }
   function click(ev) {
     const h = locate(ev);
     if (!h || !openDay) return;
+    if (twoTap && lastTap !== h.ts) { lastTap = h.ts; hover(ev); return; }     // the first tap: the values
+    lastTap = null;
     const d = new Date(h.day * 1000);
     openDay(`${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`, st.q);
   }
 
   async function load() {
-    const req = ++seq, meta = $('sounding-meta');
+    const req = ++seq, meta = metaEl();
     if (meta && !meta.textContent) meta.textContent = 'Loading…';
     try {
       const d = await fetch(`/api/sounding/calendar?days=${st.days}`).then(r => r.json());
@@ -176,20 +188,25 @@
   function syncControls() {
     if ($('cal-q')) $('cal-q').value = st.q;
     document.querySelectorAll('#cal-days-btns .snd-mode-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === st.days));
+    if ($('cal-days')) $('cal-days').value = String(st.days);
   }
   function init(opts = {}) {
     openDay = opts.openDay || null;
+    twoTap = !!opts.twoTap;
     if (![28, 56, 120].includes(st.days)) st.days = 56;
     if (!Q[st.q] || ($('cal-q') && ![...$('cal-q').options].some(o => o.value === st.q))) st.q = 'inv';   // GNSS: Full view only
     syncControls();
     if ($('cal-q')) $('cal-q').addEventListener('change', e => {
       st.q = e.target.value; lsSet('ms_cal_q', st.q); renderLegend(); render();
-      const meta = $('sounding-meta');
+      const meta = metaEl();
       if (meta && data) meta.textContent = `${data.days} days · ${(data.hours || []).filter(r => r[Q[st.q].idx] != null).length} hours with a value`;
     });
     document.querySelectorAll('#cal-days-btns .snd-mode-btn').forEach(b => b.addEventListener('click', () => {
       st.days = parseInt(b.dataset.days, 10); lsSet('ms_cal_days', st.days); syncControls(); load();
     }));
+    if ($('cal-days')) $('cal-days').addEventListener('change', e => {
+      st.days = parseInt(e.target.value, 10) || 56; lsSet('ms_cal_days', st.days); load();
+    });
     const cv = $('cal-canvas');
     if (!cv) return;
     cv.addEventListener('mousemove', hover);

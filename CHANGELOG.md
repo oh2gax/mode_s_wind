@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; evening: a hodograph, a Calendar view, eleven additions to the Time–height section with a model forecast, Aircraft as sensors on the Statistics page; Mobile guide 1.67, Sounding guide 3.12, Statistics guide 1.16)
+## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; evening: a hodograph, a Calendar view, eleven additions to the Time–height section with a model forecast, Aircraft as sensors on the Statistics page, and all of these on the phone view; Mobile guide 1.68, Sounding guide 3.12, Statistics guide 1.16)
 
 ### Surface inversion: the top
 - The **top** of a surface inversion is now the top of the warmest layer — where the temperature stops rising — instead of the highest band still at least half the inversion's strength warmer than the METAR. The old top ran far above the inversion whenever the air above cooled slowly: 3 200–4 400 ft MSL on the evening of 8 Nov 2026 while the temperature peaked at 1 400–2 000 ft; over the 95 stored inversion hours a median 600 ft, in 35 of them 1 000 ft or more. Against the Kivenlahti mast the old top was a median 900 ft above the mast's warmest level, the new one about 300 ft. `collector/boundary.py` (`inv_top()`, `detect_inv()`, `INV_TOP_TOL`).
@@ -57,10 +57,20 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - Replayed on the observations of 23 Oct – 10 Nov (485 000 winds, 7 s): flight-to-flight spread 0.4–0.5° for the jets, 0.8–1.2° for the ATR 72 and PC-12; the direction term is withheld for aircraft seen on one airway only.
 - `collector/heading_cal.py`, `collector/receiver.py` (a count for the gate), `database/schema.sql`, `static/js/stats.js`, `web/templates/_stats_panels.html`, `web/templates/stats.html`, `static/css/style.css`, `/api/sensors`.
 
+### Mobile view: hodograph, Calendar, the Time–height additions, Aircraft as sensors (late evening)
+- **Skew-T**: the *Hodograph* switch draws the hodograph under the diagram in Area · now and Area · hour (off by default on a phone), with *Hodograph: previous hours* and *Hodograph range*; tap a point for its layer. `static/js/app.js` (`drawHodo()`, `fetchHodoPrev()`), `web/templates/app.html`, `static/css/app.css`.
+- **Calendar**: a new tile and view — the Sounding page's Calendar for a phone, with *Calendar options* (quantity, period). A tap shows the hour's values, a second tap on the same hour opens that day in Time–height. Narrower margins and hour labels on a narrow screen. `static/js/sndcal.js` (`twoTap`, `#cal-meta`, `#cal-days` as a select), `static/js/app.js` (`loadCal()`, `sizeCal()`).
+- **Time–height**: the six new fields as chips and the switches *Isentropes*, *Cloud base*, *Forecast (MEPS)*, *Average day*, *Strip: runway*, *Strip: weather* and (Full view) *Strip: GNSS*. The graph follows the height of its legend. `web/templates/app.html`, `static/js/app.js`.
+- **Statistics**: the section *Aircraft as sensors* (off by default). `static/js/stats.js` (drawn when the section is shown, tap on a dot, `MsStats.redraw()`), `static/js/app.js` (`ST_SECS`), `static/css/app.css`.
+- The same rights as on the full pages: GNSS strip and GNSS quantity only with Full view, pilot reports and SIGMETs only with the Pilot right.
+- Both pages: the GNSS strip's label is *GNSS / degraded* (it was cut at the left edge on a phone), and the *UTC* label of the time axis no longer touches the first hour label when the period starts at a labelled hour. `static/js/timeheight.js`.
+- Tested on a copy of the database with a phone-sized browser in both themes, with and without the Full view and Pilot rights (every field and switch, the hodograph taps, the two taps of the Calendar, the sensors section), and the full Sounding and Statistics pages again; no page errors.
+
 ### Documents
 - **Mobile guide 1.67**: the new top of the surface inversion and the inversion aloft to 10 000 ft, both figures redrawn. `doc/Mobile_User_Guide.pdf`.
 - **Sounding guide 3.12** (evening): the hodograph, the new Time–height fields, overlays, strips, the average day and the forecast, the Calendar view. `doc/Sounding_Page_User_Guide.pdf`.
 - **Statistics guide 1.16** (evening): the *Aircraft as sensors* panel. `doc/Statistics_User_Guide.pdf`.
+- **Mobile guide 1.68** (late evening): the hodograph, the new Time–height fields, switches and strips, the new Calendar section, *Aircraft as sensors*; the option tables of the Skew-T and the ILS approach wrap their *Choices* column (the ILS table ran off its page). 61 pages. `doc/Mobile_User_Guide.pdf`.
 
 ---
 

@@ -61,6 +61,11 @@
       <div id="app-skewt-tip" class="mini-skewt-tip app-tip" style="display:none"></div>
     </div>
     <div id="app-skewt-meta" class="app-meta"></div>
+    <!-- Hodograph (from 2026-11-10 evening, hodograph.js; Skew-T options → Hodograph): under the diagram -->
+    <div id="app-hodo-box" class="app-hodo-box" hidden>
+      <canvas id="app-hodo"></canvas>
+      <div id="app-hodo-tip" class="mini-skewt-tip app-tip" style="display:none"></div>
+    </div>
   </section>
 
   <!-- Time–height (timeheight.js uses these ids) -->
@@ -71,6 +76,16 @@
     </div>
     <div class="th-legend app-th-legend" id="th-legend"></div>
     <div id="sounding-meta" class="app-meta"></div>
+  </section>
+
+  <!-- Calendar (from 2026-11-10 evening, sndcal.js uses these ids): one row per day, 24 hours -->
+  <section id="v-cal" class="app-view app-th" hidden>
+    <div class="cal-box app-cal-box" id="cal-box">
+      <canvas id="cal-canvas"></canvas>
+      <div id="cal-tip" class="mini-skewt-tip app-tip" style="display:none"></div>
+    </div>
+    <div class="th-legend app-th-legend" id="cal-legend"></div>
+    <div id="cal-meta" class="app-meta"></div>
   </section>
 
   <!-- ILS approach (ils_profile.js, the Windshear page's ILS profile) -->
@@ -284,6 +299,7 @@
     <div class="app-st-sec" data-sec="cad">{{ sp.cad(fold=true) }}</div>
     <div class="app-st-sec" data-sec="rc">{{ sp.rc(fold=true) }}</div>
     <div class="app-st-sec" data-sec="iid">{{ sp.iid(fold=true) }}</div>
+    <div class="app-st-sec" data-sec="sens">{{ sp.sensors(fold=true) }}</div>
     <div class="app-st-sec" data-sec="health">
       <div class="mst-panel"><div class="mst-hl-panel app-st-health" id="mst-hl-panel"><div class="mst-hl-foot">Loading…</div></div></div>
     </div>
@@ -306,6 +322,7 @@
     <button type="button" class="app-tile" data-view="skewt-now"><b>Skew-T</b><small>Area · now</small></button>
     <button type="button" class="app-tile" data-view="skewt-hour"><b>Skew-T</b><small>Area · hour</small></button>
     <button type="button" class="app-tile" data-view="th"><b>Time–height</b><small>hourly profiles</small></button>
+    <button type="button" class="app-tile" data-view="cal"><b>Calendar</b><small>weeks at a glance</small></button>
     <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
     <button type="button" class="app-tile" data-view="aci"><b>EDR · WS · ACI · ST</b><small>turbulence · windshear · conditions</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
@@ -355,7 +372,12 @@
       <label class="app-switch"><span>MEPS</span><input type="checkbox" id="app-meps"></label>
       <label class="app-switch"><span>RH</span><input type="checkbox" id="app-rh"></label>
       <label class="app-switch"><span>Data quality</span><input type="checkbox" id="app-dq"></label>
+      <label class="app-switch"><span>Hodograph</span><input type="checkbox" id="app-hodo-on"></label>
+      <label class="app-switch"><span>Hodograph: previous hours</span><input type="checkbox" id="app-hodo-prev"></label>
     </div>
+    <div class="app-field"><span>Hodograph range</span>
+      <select id="app-hodo-top" data-chips><option value="46000">All levels</option><option value="20000">Below FL200</option><option value="10000">Below 10 000 ft</option><option value="5000">Below 5 000 ft</option></select></div>
+    <div class="app-small">Hodograph: the wind of each layer as a point, joined from the ground up — drawn under the diagram (scroll down).</div>
   </details>
 
   <details class="app-sec" data-for="th">
@@ -365,6 +387,8 @@
         <option value="anomaly" data-short="T anomaly">Temperature anomaly</option>
         <option value="change" data-short="ΔT 3 h">Temperature change 3 h</option>
         <option value="wind" data-short="Wind">Wind speed</option>
+        <option value="wdir" data-short="Wind dir">Wind direction</option>
+        <option value="turn" data-short="Turning">Wind turning with height (advection)</option>
         <option value="lapse" data-short="Lapse rate">Lapse rate</option>
         <option value="vvel" data-short="Vertical motion">Vertical motion</option>
         <option value="vort" data-short="Vorticity">Vorticity</option>
@@ -372,11 +396,15 @@
         <option value="dchg" data-short="ΔHeight 6 h">Height change 6 h</option>
         <option value="thk" data-short="Thickness T">Thickness temperature check</option>
         <option value="moist" data-short="Moisture">Moisture (trial)</option>
+        <option value="mdt" data-short="MEPS ΔT">Mode S − MEPS · temperature</option>
+        <option value="mdw" data-short="MEPS Δwind">Mode S − MEPS · wind</option>
+        <option value="cov" data-short="Coverage">Data coverage (aircraft per cell)</option>
         <option value="blw" data-short="BL wind">Boundary layer · wind</option>
         <option value="blt" data-short="BL temp">Boundary layer · temperature</option>
         <option value="blh" data-short="BL headwind">Boundary layer · headwind per flight</option>
         <option value="bld" data-short="BL Δ headwind">Boundary layer · headwind change per flight</option>
         <option value="bls" data-short="BL shear">Boundary layer · wind shear per flight</option>
+        <option value="turb" data-short="BL turbulence">Boundary layer · turbulence (0–5 000 ft)</option>
       </select></div>
     <div class="app-field"><span>Flights</span>
       <select id="th-flk" data-chips>
@@ -398,8 +426,32 @@
       <label class="app-switch"><span>Boundary layer</span><input type="checkbox" id="th-bl"></label>
       <label class="app-switch"><span>Mast strip</span><input type="checkbox" id="th-mast"></label>
       <label class="app-switch"><span>Mast in graph</span><input type="checkbox" id="th-mastov"></label>
+      <label class="app-switch"><span>Isentropes</span><input type="checkbox" id="th-theta"></label>
+      <label class="app-switch"><span>Cloud base</span><input type="checkbox" id="th-cld"></label>
+      <label class="app-switch"><span>Forecast (MEPS)</span><input type="checkbox" id="th-fc"></label>
+      <label class="app-switch"><span>Average day</span><input type="checkbox" id="th-avg"></label>
+      <label class="app-switch"><span>Strip: runway</span><input type="checkbox" id="th-srwy"></label>
+      <label class="app-switch"><span>Strip: weather</span><input type="checkbox" id="th-swx"></label>
+      {% if gnss_view %}<label class="app-switch"><span>Strip: GNSS</span><input type="checkbox" id="th-sgnss"></label>{% endif %}
     </div>
     <button id="th-png" class="app-btn app-btn-wide" type="button">Save picture (PNG)</button>
+  </details>
+
+  <details class="app-sec" data-for="cal">
+    <summary>Calendar options</summary>
+    <div class="app-field"><span>Quantity</span>
+      <select id="cal-q" data-chips>
+        <option value="inv" data-short="Inversion">Surface inversion (K)</option>
+        <option value="llj" data-short="Low-level jet">Low-level jet (kt)</option>
+        <option value="wind" data-short="Wind 2 000 ft">Wind at 2 000–3 000 ft (kt)</option>
+        <option value="ws" data-short="Windshear">Windshear reports (per hour)</option>
+        <option value="edr" data-short="Turbulence">Turbulence (EDR, median)</option>
+        {% if gnss_view %}<option value="gnss" data-short="GNSS">GNSS-degraded aircraft (%)</option>{% endif %}
+        <option value="ac" data-short="Aircraft">Aircraft in the area profile</option>
+      </select></div>
+    <div class="app-field"><span>Period</span>
+      <select id="cal-days" data-chips><option value="28">4 weeks</option><option value="56">8 weeks</option><option value="120">120 d</option></select></div>
+    <div class="app-small">One row per UTC day, one column per UTC hour. Tap an hour for its values; tap it again to open that day in Time–height.</div>
   </details>
 
   <details class="app-sec" data-for="ils">
@@ -601,6 +653,7 @@
       <label class="app-switch"><span>Reply cadence</span><input type="checkbox" data-sec="cad"></label>
       <label class="app-switch"><span>Radarcape receiver</span><input type="checkbox" data-sec="rc"></label>
       <label class="app-switch"><span>Interrogators</span><input type="checkbox" data-sec="iid"></label>
+      <label class="app-switch"><span>Aircraft as sensors</span><input type="checkbox" data-sec="sens"></label>
       <label class="app-switch"><span>System health</span><input type="checkbox" data-sec="health"></label>
     </div>
     <div class="app-small">Shown in this order; the data transfer is the second tab of Message rate. Remembered on the phone.</div>
@@ -688,6 +741,8 @@
 <script src="{{ url_for('static', filename='js/skewt_indices.js') }}"></script>
 <script src="{{ url_for('static', filename='js/skewt_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/timeheight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sndcal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/hodograph.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ws_cond_chart.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ils_profile.js') }}"></script>
 <script>

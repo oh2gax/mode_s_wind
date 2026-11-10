@@ -729,7 +729,7 @@
         if (!(P.avg && t === P.start)) { g.fillStyle = C.ink2; g.fillText(pad(h), xx, mt + ph + 15); }
       }
     }
-    g.fillStyle = C.ink2; g.textAlign = 'right'; g.fillText('UTC', ml - 6, mt + ph + 15);
+    g.fillStyle = C.ink2; g.textAlign = 'right'; g.fillText('UTC', ml - 11, mt + ph + 15);
     // altitude axis (left: altitude, right: pressure)
     if (BLF) {
       g.textAlign = 'right';
@@ -974,7 +974,7 @@
     g.restore();
     g.strokeStyle = C.grid; g.lineWidth = 1; g.strokeRect(ml + 0.5, sy + 0.5, pw, h);
     g.fillStyle = C.ink2; g.textAlign = 'right'; g.font = '10px system-ui';
-    const lab = { rwy: ['rwy landing', 'departure'], wx: ['vis / ceiling', 'weather'], gnss: ['GNSS', 'degraded %'] }[key];
+    const lab = { rwy: ['rwy landing', 'departure'], wx: ['vis / ceiling', 'weather'], gnss: ['GNSS', 'degraded'] }[key];
     g.fillText(lab[0], ml - 6, sy + 10); g.fillText(lab[1], ml - 6, sy + 21);
     if (!ex) { g.textAlign = 'left'; g.fillText('loading…', ml + 8, sy + h / 2 + 4); }
   }

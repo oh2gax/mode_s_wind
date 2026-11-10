@@ -49,6 +49,8 @@
     wx:           { title: 'Weather', sec: 'wx', el: 'v-wx' },        // from 2026-10-30 (app_wx.js)
     mast:         { title: 'Mast', sec: 'mast', el: 'v-mast' },       // from 2026-11-01 night (app_mast.js)
   };
+  // Calendar (from 2026-11-10 evening, sndcal.js)
+  if (window.SndCal && $('v-cal')) VIEWS.cal = { title: 'Calendar', sec: 'cal', el: 'v-cal' };
   // Meteogram (from 2026-11-05, app_mg.js + meteogram.js)
   if (window.AppMg && $('v-mg')) VIEWS.mg = { title: 'Meteogram', sec: 'mg', el: 'v-mg' };
   // GNSS (from 2026-11-03, app_gnss.js): only for the Full view right — the server leaves
@@ -183,6 +185,10 @@
     rh: lsGet('ms_skewtRH', 'false') === 'true',
     dq: lsGet('ms_skewtDq', 'true') !== 'false',
     minutes: lsGet('ms_app_minutes', '60'),
+    // hodograph under the diagram (from 2026-11-10 evening; its own keys: off by default on a phone)
+    hodo: lsGet('ms_app_hodo', 'false') === 'true',
+    hodoPrev: lsGet('ms_app_hodo_prev', 'false') === 'true',
+    hodoTop: parseInt(lsGet('ms_app_hodo_top', '46000'), 10) || 46000,
   };
   if (!(S.ana >= 0 && S.ana <= 5)) S.ana = 0;
   if (!['modes', 'meps', 'sonde'].includes(S.anaSrc)) S.anaSrc = 'modes';
@@ -200,6 +206,43 @@
                 sonde: S.sonde ? sonde : null, sondeRef, meps: S.meps ? meps : null,
                 rh: S.rh, moist: S.rh && prof ? prof.moisture || null : null });
     skewt.draw();
+    drawHodo();
+  }
+  // ── Hodograph under the diagram (from 2026-11-10 evening, hodograph.js) ──
+  // The wind of each layer of the shown profile as a point, joined in height
+  // order; "previous hours": the two hours before, faded (/api/sounding/hour).
+  const hodo = typeof createHodograph === 'function' && $('app-hodo') ? createHodograph($('app-hodo'), $('app-hodo-tip')) : null;
+  let hodoPrev = [], hodoPrevKey = '';
+  function drawHodo() {
+    const box = $('app-hodo-box');
+    if (!hodo || !box) return;
+    box.hidden = !S.hodo;
+    if (!S.hodo || $('v-skewt').hidden) return;
+    const w = Math.max(260, Math.min($('v-skewt').clientWidth - 8, 560)), h = Math.round(Math.min(w, 360));
+    box.style.width = w + 'px'; box.style.height = h + 'px';
+    hodo.resize(w, h);
+    hodo.set({ levels: prof && prof.levels ? prof.levels : [], low: low && low.levels ? low.levels : null,
+               prev: S.hodoPrev ? hodoPrev : [], top: S.hodoTop, flight: false });
+    hodo.draw();
+  }
+  async function fetchHodoPrev() {
+    if (!hodo || !S.hodo || !S.hodoPrev || !prof) { hodoPrev = []; hodoPrevKey = ''; return; }
+    const base = view === 'skewt-hour' && prof.hour_ts ? prof.hour_ts : Math.floor(Date.now() / 3600e3) * 3600;
+    const key = `${view}|${base}`;
+    if (key === hodoPrevKey) return;
+    hodoPrevKey = key;
+    const out = [];
+    for (const k of [1, 2]) {
+      try {
+        const r = await fetch(`/api/sounding/hour?ts=${base - k * 3600}`);
+        if (!r.ok) continue;
+        const d = await r.json(), t = new Date(d.hour_ts * 1000);
+        if (d.levels && d.levels.length) out.push([`${pad(t.getUTCHours())}–${pad((t.getUTCHours() + 1) % 24)} UTC`, d.levels]);
+      } catch (_) { /* silent */ }
+    }
+    if (key !== hodoPrevKey) return;
+    hodoPrev = out;
+    drawHodo(); markScroll();
   }
   function sizeSkewT() {
     const v = $('v-skewt');
@@ -268,6 +311,8 @@
     fetchLow(qs);
     fetchSonde(sondeAt, ref);
     fetchMeps(mepsAt);
+    fetchHodoPrev();
+    markScroll();
   }
   async function loadNow() {
     const n = ++req;
@@ -349,6 +394,17 @@
   bind('app-meps', 'meps', el => el.checked, { k: 'ms_skewtMeps', fn: reload });
   bind('app-rh', 'rh', el => el.checked, { k: 'ms_skewtRH', fn: () => { sizeSkewT(); reload(); } });
   bind('app-dq', 'dq', el => el.checked, { k: 'ms_skewtDq', fn: drawSkewT });
+  if ($('app-hodo-on')) {                                 // hodograph (from 2026-11-10 evening)
+    if (![46000, 20000, 10000, 5000].includes(S.hodoTop)) S.hodoTop = 46000;
+    $('app-hodo-on').checked = S.hodo; $('app-hodo-prev').checked = S.hodoPrev; $('app-hodo-top').value = String(S.hodoTop);
+    bind('app-hodo-on', 'hodo', el => el.checked, { k: 'ms_app_hodo', fn: () => { drawHodo(); hodoPrevKey = ''; fetchHodoPrev(); markScroll(); } });
+    bind('app-hodo-prev', 'hodoPrev', el => el.checked, { k: 'ms_app_hodo_prev', fn: () => { hodoPrevKey = ''; fetchHodoPrev().then(drawHodo); } });
+    bind('app-hodo-top', 'hodoTop', el => parseInt(el.value, 10), { k: 'ms_app_hodo_top', fn: drawHodo });
+    const hc = $('app-hodo');
+    hc.addEventListener('mousemove', e => { if (viaMouse()) hodo.hover(e); });
+    hc.addEventListener('mouseleave', () => { if (viaMouse()) hodo.leave(); });
+    hc.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { lastTouch = Date.now(); hodo.hover(e); } });
+  }
   $('app-date').addEventListener('change', () => loadHourList());
   $('app-hour').addEventListener('change', loadHour);
   // ‹ › steppers: a day back / forward; an hour back / forward, over midnight
@@ -396,9 +452,43 @@
     $('th-box').style.height = h + 'px';
     if (thReady) TimeHeight.render();
   }
+  // the legend grows and shrinks with the field and the tick boxes (from 2026-11-10 evening): keep the graph in the view
+  if (window.ResizeObserver) {
+    let lh = -1;
+    new ResizeObserver(() => {
+      const h = $('th-legend').offsetHeight;
+      if (h !== lh) { lh = h; if (view === 'th' && thReady) sizeTh(); }
+    }).observe($('th-legend'));
+  }
   function loadTh() {
     if (!thReady) { TimeHeight.init({}); thReady = true; }
     Promise.resolve(TimeHeight.load()).then(() => sizeTh());      // the legend's height is known after the load
+  }
+  // ══ Calendar (from 2026-11-10 evening, sndcal.js) ═══════════════════════
+  // One row per day, one column per hour; a tap shows the hour's values, a second
+  // tap on the same hour opens that day in the Time–height view.
+  let calReady = false;
+  function sizeCal() {
+    const v = $('v-cal');
+    if (!v || v.hidden) return;
+    const h = Math.max(300, v.clientHeight - 8 - $('cal-legend').offsetHeight - $('cal-meta').offsetHeight);
+    $('cal-box').style.height = h + 'px';
+    if (calReady) SndCal.render();
+  }
+  function loadCal() {
+    if (!calReady) {
+      SndCal.init({ twoTap: true, openDay(date, q) {
+        const field = { inv: 'blt', llj: 'blw', wind: 'wind', ws: 'bld', edr: 'turb', ac: 'cov' }[q];
+        setView('th');
+        if ($('th-tip')) $('th-tip').style.display = 'none';
+        Promise.resolve(TimeHeight.show({ end: date, hours: 24, field })).then(() => { syncChips(); sizeTh(); });
+      } });
+      calReady = true;
+      syncChips();
+      // a tap is a click (sndcal.js): keep its read-out when the finger lifts
+      $('cal-canvas').addEventListener('mouseleave', e => { if (!viaMouse()) e.stopImmediatePropagation(); }, true);
+    }
+    Promise.resolve(SndCal.load()).then(() => sizeCal());
   }
   touchHover($('th-canvas'), e => $('th-canvas').dispatchEvent(new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY })));
   // registered before timeheight.js's own listener: keep the read-out after a tap
@@ -1715,6 +1805,7 @@
   function layout(redraw) {
     if (view.startsWith('skewt')) sizeSkewT();
     else if (view === 'th') sizeTh();
+    else if (view === 'cal') sizeCal();
     else if (view === 'ils') drawIls();
     else if (view === 'aci') drawAci();
     else if (view === 'hist') drawHist();
@@ -1730,6 +1821,7 @@
     if (document.hidden) return;
     if (view === 'skewt-now') { loadNow(); }
     else if (view === 'th') loadTh();
+    else if (view === 'cal') loadCal();
     else if (view === 'ils') loadIls();
     else if (view === 'aci') loadAci();
     else if (view === 'hist' && !H.date) loadHist();
@@ -1741,7 +1833,7 @@
   }
   function startTimer() {
     clearInterval(timer);
-    const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, ils: 5e3, aci: 60e3,
+    const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, cal: 900e3, ils: 5e3, aci: 60e3,
                     hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, mg: 600e3, gnss: 30e3, pilot: 60e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
@@ -1775,6 +1867,7 @@
     if (view === 'skewt-now') { prof = null; sfc = wxSfc; drawSkewT(); loadNow(); }
     else if (view === 'skewt-hour') { prof = null; drawSkewT(); loadHourList(); }
     else if (view === 'th') { $('app-sub').textContent = 'hourly area profiles'; loadTh(); }
+    else if (view === 'cal') { $('app-sub').textContent = 'one row per day · UTC hours'; loadCal(); }
     else if (view === 'ils') { I.fetched = 0; fetchWx(); loadIls(); }
     else if (view === 'aci') loadAci();
     else if (view === 'hist') loadHist();
@@ -1828,7 +1921,7 @@
   // The Statistics page's panels (stats.js, reused) in one column.  Chart.js and
   // stats.js are loaded on the first visit only (they are not needed elsewhere
   // on the phone); stats.js polls every 30 s, only while this view is shown.
-  const ST_SECS = ['rate', 'df', 'meteo', 'rng', 'sig', 'bds', 'tc', 'cad', 'rc', 'iid', 'health'];
+  const ST_SECS = ['rate', 'df', 'meteo', 'rng', 'sig', 'bds', 'tc', 'cad', 'rc', 'iid', 'sens', 'health'];
   const ST_DEFAULT = ['rate', 'df', 'meteo', 'rng'];
   const ST = { win: parseInt(lsGet('ms_app_stats_win', '1440'), 10), on: null, loading: null };
   if (![10, 60, 1440, 10080].includes(ST.win)) ST.win = 1440;

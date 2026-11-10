@@ -12,13 +12,14 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **Time–height: Average day** — folds the shown days into one 24-hour day: the night inversion, the evening jet and the afternoon mixing as an average picture.
 - **Time–height: strips** — *Runway* in use, METAR *Weather* and *GNSS* interference as strips under the graph, to see what the airport experienced at the same time.
 - **Statistics: Aircraft as sensors** — a new panel compares the aircraft types as wind sensors: heading offset, how much the heading error depends on the flight direction, how much it changes from flight to flight, and how well the winds agree with the others. Turboprops with a magnetic compass (ATR 72, PC-12) clearly differ from the jets. The last three fill up over the coming days.
+- **On the phone too** — the mobile view `/app` has all of the above: a *Hodograph* switch in the Skew-T options (scroll down under the diagram), a new **Calendar** tile (tap an hour for its values, tap it again to open that day in Time–height), the new Time–height fields and switches, and *Aircraft as sensors* in the Statistics options.
 
 - **Surface inversion: where it ends** — the *top* of a surface inversion is now the height where the temperature stops rising. Before, it could read much too high (on some evenings 3 000–4 000 ft) when the air above the inversion cooled only slowly; compared with the Kivenlahti mast the new top is right to about 300 ft. Past hours were corrected too. You see it on the Pilot view, the Windshear page's boundary-layer view, the Time–height section and the Skew-T.
 - **Pilot → Now: inversion aloft up to 10 000 ft** (Pilot right) — the *Boundary layer* card now looks for an inversion as high as 10 000 ft, not only to 5 000 ft: the departing jets are followed that high. A grey line tells how high the temperatures of the last hour reached; on quiet nights that can still be low. The winds below and above the inversion no longer vanish just after the full hour.
 - **GPS pages** — a day could wrongly show a receiver gap (8 November) because its last hour was counted too late; fixed, and that day corrects itself.
 - **Winds during GPS loss** — an aircraft without inertial navigation (here the ATR 72-600 and the PC-12) can report a wrong ground speed when it loses GPS, which gave a few wildly wrong winds near the ground. Their winds are now left out while their GPS is degraded; the Live Map then says *wind not used — GPS degraded*. Jets and the ATR 72-500s were not affected.
 - **Strong jet streams** — winds up to 250 kt are now accepted above 15 000 ft (before, anything above 150 kt was dropped), so a strong jet is no longer cut out of the profiles.
-- The Mobile guide (1.67) has the new figures.
+- The Mobile guide (1.68) has the new figures and a new Calendar section.
 
 ## v.09112026 — An inversion aloft on the Pilot view
 
