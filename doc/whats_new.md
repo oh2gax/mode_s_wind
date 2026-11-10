@@ -19,7 +19,8 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 - **GPS pages** — a day could wrongly show a receiver gap (8 November) because its last hour was counted too late; fixed, and that day corrects itself.
 - **Winds during GPS loss** — an aircraft without inertial navigation (here the ATR 72-600 and the PC-12) can report a wrong ground speed when it loses GPS, which gave a few wildly wrong winds near the ground. Their winds are now left out while their GPS is degraded; the Live Map then says *wind not used — GPS degraded*. Jets and the ATR 72-500s were not affected.
 - **Strong jet streams** — winds up to 250 kt are now accepted above 15 000 ft (before, anything above 150 kt was dropped), so a strong jet is no longer cut out of the profiles.
-- The Mobile guide (1.68) has the new figures and a new Calendar section.
+- The Mobile guide (1.69) has the new figures and a new Calendar section; in it and in the Sounding guide (3.13) the boundary-layer pictures now show the corrected top of the surface inversion.
+- **The receiving station** documents are up to date (overview 1.18, brochure 1.5): the boundary-layer pictures on page 6 now show the corrected top of the surface inversion, and the new views are named.
 
 ## v.09112026 — An inversion aloft on the Pilot view
 
