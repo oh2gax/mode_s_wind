@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM
+
+- **Pilot · GNSS** — a new *Area* selector at the top of the tab: *Coverage*, *50 NM* or *20 NM* from the airport. It applies to the aircraft degraded now and to the bars of the last 24 hours. The default is 50 NM and your choice is remembered; *Coverage* is what the "now" count showed before.
+
 ## v.10112026 — A hodograph, a Calendar, a much richer Time–height graph with a model forecast, aircraft compared as sensors; a truer top for the surface inversion, inversions aloft up to 10 000 ft, and no wrong winds from aircraft that lost GPS
 
 - **Sounding: hodograph** — above the level table, the wind of every layer as one point, joined from the ground upwards and coloured by height. The length of the curve is the wind shear; clockwise turning means warm air arriving, anticlockwise cold. The faint discs show how well each point is known; tick *Previous hours* to see the profile turning.

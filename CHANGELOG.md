@@ -7,6 +7,21 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM)
+
+### Pilot view: an area selector on the GNSS tab
+- The **GNSS** tab of the Pilot view (phone view and the Pilot page) has an **Area** selector: *Coverage* (everything the receiver hears), *50 NM* or *20 NM* from the airport. It applies to the *GNSS now* counts (degraded, severe, FL bands) and to the bars of the last 24 hours; the titles of the two cards name the area. Default 50 NM; the choice is remembered in the browser.
+- Until now the tab had no choice: the counts of now were always the receiver's whole coverage and the 24 h bars always within 50 NM. *Coverage* gives the old count of now.
+- The *At EFHK* card (landings on final, departures on the climb-out) is as before — those flights are inside every area.
+- Still counts only, for users with the Pilot right; the aircraft themselves stay on the GPS pages (Full view).
+- How: each aircraft in the tracker's live list of degraded aircraft now carries the distance zones it was in on that sweep (`zones`, the same rule as the hourly zone counts: a position updated within the last 2 minutes, measured from the airport), so an aircraft without a current position counts only in *Coverage*. `collector/gps_quality.py` (`update()`, `rebuild_live()`), `web/api/pilot.py` (`gnss(zone=)`, `GNSS_ZONES`), `web/app.py` (`/api/pilot/gnss?zone=all|50nm|20nm`), `static/js/app_pilot.js`, `static/css/pilot.css`.
+- Tested on a copy of the database (24 h to 10 Nov 05 UTC: 679 degraded aircraft-hours in the coverage, 248 within 50 NM, 105 within 20 NM) and, for the counts of now, with made-up aircraft in a unit test (no live feed in the test); phone view and Pilot page, no page errors.
+
+### Documents
+- **Mobile guide 1.70**: the Area selector of the Pilot view's GNSS tab. 61 pages. `doc/Mobile_User_Guide.pdf`.
+
+---
+
 ## v.10112026 — 2026-11-10 (the top of the surface inversion; the inversion aloft up to 10 000 ft; a receiver day stored without its last hour; a GNSS gate for the winds of aircraft without inertial reference, the wind limit on the corrected wind, an identity check; evening: a hodograph, a Calendar view, eleven additions to the Time–height section with a model forecast, Aircraft as sensors on the Statistics page, and all of these on the phone view; Mobile guide 1.68, Sounding guide 3.12, Statistics guide 1.16; the receiving station 1.18 and its brochure 1.5; Sounding guide 3.13 and Mobile guide 1.69 with the corrected inversion top)
 
 ### Surface inversion: the top

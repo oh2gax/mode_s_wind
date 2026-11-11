@@ -146,6 +146,9 @@
 .apl-nrwy > span.apl-hlbl { flex-basis: auto; margin: 0 2px 0 2px; }
 
 .apl-nrwy button[data-hts] { min-width: 34px; }
+/* GNSS: the area selector (from 2026-11-11) */
+.apl-gz { align-items: center; }
+.apl-gz > span { margin: 0 4px 0 2px; }
 /* Now: boundary layer card (from 2026-11-08) */
 .apl-blinv { font-size: 14px; margin: 2px 0 4px; }
 .apl-blinv b { white-space: nowrap; }      /* "1 400 ft" is not broken after the thousands (from 2026-11-10) */

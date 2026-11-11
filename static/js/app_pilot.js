@@ -56,11 +56,13 @@
     hts: ['more', 'all'].includes(lsGet('ms_app_pilot_hts', 'basic')) ? lsGet('ms_app_pilot_hts', 'basic') : 'basic',   // Now: 3, 7 (2026-11-06) or 13 heights (2026-11-07)
     filt: lsGet('ms_app_pilot_filter', 'all'),          // all / cls
     q: lsGet('ms_app_pilot_q', ''),
+    gz: lsGet('ms_app_pilot_gz', '50nm'),               // GNSS: all / 50nm / 20nm (from 2026-11-11)
   };
   if (!TABS[S.tab]) S.tab = 'now';
   if (!CLS[S.cls]) S.cls = 'T';
   if (![30, 60, 120].includes(S.min)) S.min = 60;
   if (!['all', 'cls'].includes(S.filt)) S.filt = 'all';
+  if (!['all', '50nm', '20nm'].includes(S.gz)) S.gz = '50nm';
   let on = false, inited = false, sub = () => {};
   const OPT = { wide: false, wx: null, wxSaved: () => false };
   const D = { now: null, app: null, dep: null, alo: null, ice: null, turb: null, gnss: null, list: null, fl: null };
@@ -88,7 +90,7 @@
       } else if (tab === 'alo') D.alo = await get(`/api/pilot/aloft?cls=${S.cls}`);
       else if (tab === 'ice') D.ice = await get(`/api/pilot/icing?cls=${S.cls}`);
       else if (tab === 'turb') D.turb = await get(`/api/pilot/turbulence?min=${S.min}`);
-      else if (tab === 'gnss') D.gnss = await get('/api/pilot/gnss');
+      else if (tab === 'gnss') D.gnss = await get(`/api/pilot/gnss?zone=${S.gz}`);
       else if (tab === 'map') { /* nothing to load */ }
       else if (tab === 'fl' && S.q.length >= 2) D.list = await get(`/api/pilot/flight?q=${encodeURIComponent(S.q)}`);
       ERR[tab] = '';
@@ -609,10 +611,15 @@
   // ── GNSS ───────────────────────────────────────────────────────────────
   function renderGnss() {
     const d = D.gnss;
-    if (!d) return `<div class="apl-dim apl-pad">${ERR.gnss || 'Loading…'}</div>`;
+    // the area (from 2026-11-11): the receiver's coverage, or within 50 / 20 NM of the airport
+    const GZ = { all: 'Coverage', '50nm': '50 NM', '20nm': '20 NM' };
+    const seg = `<div class="apl-seg apl-gz"><span class="apl-dim apl-sm">Area</span>${Object.entries(GZ).map(([k, t]) => `<button type="button" data-gz="${k}" class="${k === S.gz ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+    if (!d) return seg + `<div class="apl-dim apl-pad">${ERR.gnss || 'Loading…'}</div>`;
+    const dz = GZ[d.zone] ? d.zone : '50nm';               // what the data on the screen is of
+    const where = dz === 'all' ? 'the receiver’s coverage' : `within ${GZ[dz]} of EFHK`;
     const lv = d.live, ap = d.apt || {}, a6 = (ap['6'] || {}).a || [0, 0], d6 = (ap['6'] || {}).d || [0, 0];
     const pct = v => v[1] ? `${Math.round(100 * v[0] / v[1])} %` : '—';
-    const out = [card('GNSS now', 'the receiver’s coverage', big([
+    const out = [seg, card('GNSS now', where, big([
       [lv ? String(lv.n) : '—', 'aircraft degraded now', lv && lv.n ? 'apl-xh' : ''],
       [lv ? String(lv.sev) : '—', 'severe (NACp 0, NIC 0 or frozen)', lv && lv.sev ? 'apl-tw' : ''],
       [a6[1] ? `${a6[0]}/${a6[1]}` : '—', 'landings degraded on final · 6 h', a6[0] ? 'apl-xh' : '']])
@@ -632,7 +639,7 @@
         if (i % 6 === 0) s.push(`<text class="t" x="${(L + i * bw).toFixed(1)}" y="${Hh - 4}">${hm(ts)}</text>`);
       });
       s.push('</svg>');
-      out.push(card('The last 24 h within 50 NM', `${n24.degraded} degraded aircraft-hours${n24.peak ? ' · peak ' + n24.peak : ''}`, s.join(''), 'apl-cdc'));
+      out.push(card(dz === 'all' ? 'The last 24 h · the receiver’s coverage' : `The last 24 h within ${GZ[dz]}`, `${n24.degraded} degraded aircraft-hours${n24.peak ? ' · peak ' + n24.peak : ''}`, s.join(''), 'apl-cdc'));
     }
     const rowsA = ['6', '24'].map(k => { const e = ap[k] || {}; return `<tr><td>last ${k} h</td><td>${(e.a || [0, 0])[0]}/${(e.a || [0, 0])[1]} <span class="apl-dim">${pct(e.a || [0, 0])}</span></td><td>${(e.d || [0, 0])[1] ? `${e.d[0]}/${e.d[1]} <span class="apl-dim">${pct(e.d)}</span>` : '—'}</td></tr>`; }).join('');
     out.push(card('At EFHK', 'flights with degraded GNSS in their own replies',
@@ -706,6 +713,11 @@
       const ht = e.target.closest('[data-hts]');
       if (ht) {                                            // Now: 3 or 7 heights
         if (ht.dataset.hts !== S.hts) { S.hts = ht.dataset.hts; lsSet('ms_app_pilot_hts', S.hts); load('now'); }
+        return;
+      }
+      const gz = e.target.closest('[data-gz]');
+      if (gz) {                                            // GNSS: the area
+        if (gz.dataset.gz !== S.gz) { S.gz = gz.dataset.gz; lsSet('ms_app_pilot_gz', S.gz); render(); load('gnss'); }
         return;
       }
       const nr = e.target.closest('[data-nrwy]');

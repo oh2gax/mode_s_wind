@@ -2851,13 +2851,14 @@ def create_app(
     @app.route("/api/pilot/gnss")
     def pilot_gnss_api():
         """GNSS for pilots (from 2026-11-05 evening): counts only — degraded aircraft
-        now by FL band, the last 24 h within 50 NM and the share of the landings and
-        departures at EFHK with degraded GNSS (no callsigns or positions; the GPS
-        pages stay Full view)."""
+        now by FL band, the last 24 h and the share of the landings and departures
+        at EFHK with degraded GNSS (no callsigns or positions; the GPS pages stay
+        Full view).  ?zone=all|50nm|20nm (from 2026-11-11, default 50nm): the
+        receiver's coverage or within 50 / 20 NM of the airport."""
         if not _pilot_ok():
             return _pilot_denied()
         from web.api import pilot as _p
-        return _private(_gzip_json(_p.gnss(get_db(), gps_tracker)))
+        return _private(_gzip_json(_p.gnss(get_db(), gps_tracker, zone=request.args.get("zone", "50nm"))))
 
     @app.route("/api/pilot/flight")
     def pilot_flight_api():

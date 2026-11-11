@@ -1043,15 +1043,27 @@ def turbulence(db, minutes: int = 60, now: float | None = None) -> dict:
 
 # ── GNSS for pilots (from 2026-11-05 evening) ───────────────────────────────
 
-def gnss(db, tracker, now: float | None = None) -> dict:
+GNSS_ZONES = ("all", "50nm", "20nm")        # the receiver's coverage, or within 50 / 20 NM of the airport
+
+
+def gnss(db, tracker, now: float | None = None, zone: str = "50nm") -> dict:
     """Counts only — no callsigns or positions (the GPS pages, with the aircraft, are
-    for the Full view right)."""
+    for the Full view right).
+
+    zone (from 2026-11-11): 'all' = everything the receiver hears, '50nm' (default) or
+    '20nm' = only the aircraft within that distance of the airport; it applies to the
+    live counts and to the 24 hourly bars alike.  The landings and departures of the
+    'apt' part are on final and on the climb-out, inside every zone."""
     now = time.time() if now is None else now
-    out = {"now": int(now), "live": None, "near24": None, "apt": {}}
+    if zone not in GNSS_ZONES:
+        zone = "50nm"
+    out = {"now": int(now), "zone": zone, "live": None, "near24": None, "apt": {}}
     if tracker is not None:
         try:
-            st = tracker.get_state(zone="50nm")
+            st = tracker.get_state(zone=zone)
             live = st.get("live") or []
+            if zone != "all":
+                live = [a for a in live if zone in (a.get("zones") or ())]
             fb = {}
             sev = 0
             for a in live:

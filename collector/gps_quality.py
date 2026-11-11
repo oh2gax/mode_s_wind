@@ -1222,6 +1222,7 @@ class GpsQualityTracker:
             flags, state = self._signals(ac, prev, now)
             kinds, vals, counts, sp_state = self._spoof_checks(ac, prev, now)
             state.update(sp_state)
+            state["zones"] = active_zones            # for rebuild_live() (from 2026-11-11)
             self._ac_state[icao] = state
             sev = self._severity(ac, flags, now) if flags else []
             if flags:
@@ -1378,6 +1379,9 @@ class GpsQualityTracker:
                     "nac_v":       ac.get("nac_v"),
                     "flags":       list(st["flags"]),
                     "last_seen":   ac.get("last_seen", now),
+                    # distance zones of the aircraft in this sweep ('50nm', '20nm';
+                    # from 2026-11-11, for the Pilot view's area selector)
+                    "zones":       list(st.get("zones") or ()),
                 })
 
             # Sort by altitude descending (highest first)
