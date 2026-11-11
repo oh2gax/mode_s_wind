@@ -149,7 +149,7 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.71
+version: 1.72
 date: 2026-11-11
 pages: 61
 

@@ -3,10 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version
+## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version; FMI radar from FMI's new layer
 
 - **Pilot · GNSS** — a new *Area* selector at the top of the tab: *Coverage*, *50 NM* or *20 NM* from the airport. It applies to the aircraft degraded now and to the bars of the last 24 hours. The default is 50 NM and your choice is remembered; *Coverage* is what the "now" count showed before.
 - **Phone app: new versions** — when a new version arrives while the app is open, a bar *New version available* appears at the bottom: tap *Reload*. You can also reload at any time from the menu: ☰ → General → *Reload*. Your view and options are kept. (Returning to the app after an update still reloads it by itself.)
+- **FMI radar** — FMI is renewing its open-data radar layers and removes the old ones this November. The radar on the Live Map's weather panel, the Weather page and the phone's Weather view is now read from FMI's new rain-rate composite, so it keeps working. It is a different product: quality-filtered by FMI, so it shows fewer echoes than before, and it reaches a little further (Stockholm and northernmost Lapland are inside).
 
 ## v.10112026 — A hodograph, a Calendar, a much richer Time–height graph with a model forecast, aircraft compared as sensors; a truer top for the surface inversion, inversions aloft up to 10 000 ft, and no wrong winds from aircraft that lost GPS
 

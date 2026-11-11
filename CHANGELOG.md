@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button)
+## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button; the FMI radar read from FMI's new layer)
 
 ### Pilot view: an area selector on the GNSS tab
 - The **GNSS** tab of the Pilot view (phone view and the Pilot page) has an **Area** selector: *Coverage* (everything the receiver hears), *50 NM* or *20 NM* from the airport. It applies to the *GNSS now* counts (degraded, severe, FL bands) and to the bars of the last 24 hours; the titles of the two cards name the area. Default 50 NM; the choice is remembered in the browser.
@@ -25,7 +25,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - `static/js/app.js` (`serverBuild()`, `checkUpdate()`, `doReload()`, `wake()`), `web/templates/app.html` (`#app-upd`, `#app-reload-btn`), `static/css/app.css` (`.app-upd`).
 - Tested with a phone-sized browser against a made-up newer build: no bar for the same build, the bar after the next check and at once when What's new opens, × until a still newer build, no navigation without a connection, reload back on the same view; the way back to the app with the same build, without a connection and with a newer build. The live site was checked to serve its scripts with `no-cache` and an ETag, so a reload gets the new files.
 
+### FMI radar: read from FMI's new radar layer (evening)
+- FMI is replacing its open-data radar layers and phases the old ones out in November 2026. The radar of the Live Map's weather panel, the Weather page, the phone's Weather view and the airport weather box came from the old rain-rate layer (`suomi_rr_eureffin`, through the download service's file reference) and would have stopped with it.
+- The composite is now read from the **new layer `radar_finland_cappi_rate`** first — FMI's renewed rain-rate composite (CAPPI, 1 km, filtered, every 5 minutes), asked at 2 km per cell as before. The old way stays as the fallback for as long as FMI serves it; the log says which layer is read, and `/api/radar/latest` has it as `layer`.
+- Reading it needed a new method: the new layer holds floating-point mm/h, and a plain GeoTIFF of it is an 8-bit picture stretched anew for each request. The request now carries our own style (a colour ramp in a 16-bit palette), from which the rate is read back to 0.01 mm/h. Checked against FMI's own point values at about 50 places: within 0.004 mm/h for light rain and 0.03 mm/h at 10–13 mm/h; dry and outside-coverage cells exact; positions checked against the old composite and FMI's own picture.
+- The answer to the pages has the same form, so no page changed. What looks different: the new composite is another product — quality-filtered by FMI, and it shows fewer echoes than the old one (on the evening of 11 Nov 12 500 cells of at least 0.1 mm/h against 22 600, the largest value 11 mm/h against 171 mm/h), and it covers a somewhat larger area (880 000 against 760 000 km²; Stockholm and northernmost Lapland are now inside).
+- One image is 1.4 MB (0.8 MB before), fetched at most every 5 minutes and only while someone has the radar on. It depends on FMI's server accepting a style with the request; if that is ever refused, the log says so and the old way is tried.
+- `web/api/radar.py` (`_fetch_new()`, `_new_layer_info()`, `_read_pal16()`, `_rate100()`, `_SLD`, `_fetch_old()`, `_pack()`). Tested against FMI's live service: the new layer, a second look without a new download, the fallback (new refused, or its newest image over 45 min old), both failing (the last composite kept, the error shown), and the phone's Weather view drawing it.
+
 ### Documents
+- **Mobile guide 1.72** (evening): the FMI radar's new source in the Weather view's description.
 - **Mobile guide 1.71**: the Area selector of the Pilot view's GNSS tab (1.70); *Getting a new version* — the bar and the Reload button (1.71). 61 pages. `doc/Mobile_User_Guide.pdf`.
 
 ---

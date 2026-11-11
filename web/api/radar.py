@@ -11,6 +11,21 @@ at a quarter of its size, about 2 km per pixel (497 × 786 pixels, an
 uncompressed 16-bit image of 0.8 MB: value × 0.01 = mm/h, 0 = no rain,
 65535 = outside the radar coverage), so the Pi needs no image library.
 
+From 2026-11-11 the composite is read from FMI's NEW radar layer first
+(Radar:radar_finland_cappi_rate, the CAPPI rain-rate composite of the renewed
+radar production, 1 km, every 5 minutes); FMI phases the old layers out in
+November 2026.  The new layer holds the rain rate as floating-point mm/h
+(-1 = no data), and a plain GeoTIFF of it comes out as an 8-bit picture
+stretched anew for every request — no numbers to read.  So the request
+carries our own style (sld_body): a colour ramp in an extended (16-bit)
+palette, from which the rate is read back to 0.01 mm/h (_SLD, _rate100; checked
+against the layer's own point values).  The newest time and the layer's extent
+come from the layer's own capabilities document (12 kB).  It is asked at
+2 km per pixel (640 × 768, 1.4 MB).  The old way — the download service's
+file reference, below — stays as the fallback for as long as FMI serves it;
+"layer" in the answer tells which one was read.  Either way the answer has the
+same form, so the pages need no change.
+
 Only on demand: the newest composite is fetched when a browser asks and at
 most every 5 minutes (shared by all viewers, kept in memory, nothing written
 to disk).  latest() returns the rainy cells only (sparse), the grid and the
@@ -40,12 +55,30 @@ log = logging.getLogger("modes.web")
 WFS = ("https://opendata.fmi.fi/wfs?service=WFS&version=2.0.0&request=getFeature"
        "&storedquery_id=fmi::radar::composite::rr&starttime={t0}&endtime={t1}")
 SHRINK = 4                     # the file reference's width / height divided by this (≈ 2 km)
+# the new layer (from 2026-11-11)
+NEW_WMS = "https://openwms.fmi.fi/geoserver/Radar/"
+NEW_LAYER = "radar_finland_cappi_rate"
+NEW_CELL_M = 2000.0            # asked at this cell size (the composite itself is 1 km)
+NEW_MAX_AGE = 45 * 60          # s: an older "newest" composite is not used (then the old way is tried)
+# our own style: the rain rate (mm/h) as a colour, read back by _rate100().  The entries
+# below zero are needed — without them zero itself falls off the ramp and comes out as
+# "no data"; the layer's no-data cells (-1) come out as the white background.
+_Q1, _Q2, _Q3 = 2.55, 25.5, 300.0
+_SLD = ('<?xml version="1.0" encoding="UTF-8"?>'
+        '<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld">'
+        '<NamedLayer><Name>Radar:%s</Name><UserStyle><FeatureTypeStyle><Rule><RasterSymbolizer>'
+        '<ColorMap type="ramp" extended="true">'
+        '<ColorMapEntry color="#FF0000" quantity="-1"/><ColorMapEntry color="#FF0000" quantity="-0.5"/>'
+        '<ColorMapEntry color="#000000" quantity="0"/><ColorMapEntry color="#0000FF" quantity="%s"/>'
+        '<ColorMapEntry color="#00FFFF" quantity="%s"/><ColorMapEntry color="#FFFFFF" quantity="%s"/>'
+        '</ColorMap></RasterSymbolizer></Rule></FeatureTypeStyle></UserStyle></NamedLayer>'
+        '</StyledLayerDescriptor>') % (NEW_LAYER, _Q1, _Q2, _Q3)
 MIN_INTERVAL = 300             # s between looks for a newer composite
 MIN_RAIN = 10                  # 0.1 mm/h (value × 0.01) — weaker echoes left out
 UA = {"User-Agent": "MODE-S-Wind/1.0"}
 
 _lock = threading.Lock()
-_cache = {"checked": 0.0, "data": None, "error": None}
+_cache = {"checked": 0.0, "data": None, "error": None, "layer": None, "new_err": None}
 
 
 def _get(url: str, timeout: float = 40.0) -> bytes:
@@ -100,21 +133,10 @@ def _read_tiff16(b: bytes):
     return w, h, a
 
 
-def _fetch(now: float) -> dict:
-    ref = _newest_reference(now)
-    if not ref:
-        raise ValueError("no radar composite listed for the last 45 min")
-    t, url, q = ref
-    if _cache["data"] and _cache["data"]["time"] == t:
-        return _cache["data"]
-    W = max(50, int(float(q["width"][0]) / SHRINK))
-    H = max(50, int(float(q["height"][0]) / SHRINK))
-    parts = urllib.parse.urlsplit(url)
-    qs = {k: v[0] for k, v in q.items()}
-    qs.update(width=str(W), height=str(H))
-    body = _get(urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(qs, safe=":,/"))))
-    w, h, a = _read_tiff16(body)
-    x0, y0, x1, y1 = (float(v) for v in qs["bbox"].split(","))
+def _pack(t: str, w: int, h: int, a, bbox, layer: str) -> dict:
+    """The answer of latest() from a composite: a = uint16, rain rate × 100, 65535 =
+    outside the radar coverage, row 0 = north."""
+    x0, y0, x1, y1 = bbox
     dx, dy = (x1 - x0) / w, (y1 - y0) / h
     # rows from the south (as the MEPS frames); rainy cells only: [index, value, …];
     # the radar coverage as runs of covered cells per row: [row, first, last, …]
@@ -142,8 +164,151 @@ def _fetch(now: float) -> dict:
     ts = calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
     return {"time": t, "ts": ts,
             "grid": {"proj": "tm35fin", "x": [x0 + dx / 2, dx, w], "y": [y0 + dy / 2, dy, h]},
-            "rs": sparse, "cov": cov, "covered": covered, "km": round(dx / 1000, 2),
+            "rs": sparse, "cov": cov, "covered": covered, "km": round(dx / 1000, 2), "layer": layer,
             "source": "FMI radar composite (FMI open data, CC BY 4.0)"}
+
+
+def _fetch_old(now: float) -> dict:
+    """The old way (until FMI removes the old layers): the download service's newest
+    file reference, a 16-bit GeoTIFF of Radar:suomi_rr_eureffin."""
+    ref = _newest_reference(now)
+    if not ref:
+        raise ValueError("no radar composite listed for the last 45 min")
+    t, url, q = ref
+    layer = (q.get("layers") or ["?"])[0].split(":")[-1]
+    if _cache["data"] and _cache["data"]["time"] == t and _cache["data"].get("layer") == layer:
+        return _cache["data"]
+    W = max(50, int(float(q["width"][0]) / SHRINK))
+    H = max(50, int(float(q["height"][0]) / SHRINK))
+    parts = urllib.parse.urlsplit(url)
+    qs = {k: v[0] for k, v in q.items()}
+    qs.update(width=str(W), height=str(H))
+    body = _get(urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(qs, safe=":,/"))))
+    w, h, a = _read_tiff16(body)
+    return _pack(t, w, h, a, tuple(float(v) for v in qs["bbox"].split(",")), layer)
+
+
+# ── The new layer (from 2026-11-11) ──────────────────────────────────────────
+
+def _new_layer_info():
+    """(newest time 'YYYY-MM-DDTHH:MM:SSZ', (x0, y0, x1, y1) in EPSG:3067) from the
+    layer's own capabilities."""
+    xml = _get(NEW_WMS + NEW_LAYER + "/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+               timeout=30.0).decode("utf-8", "replace")
+    m = re.search(r'<Dimension name="time"[^>]*>([^<]+)</Dimension>', xml)
+    if not m:
+        raise ValueError("the layer %s is not listed (no time dimension)" % NEW_LAYER)
+    # "start/end/PT5M", a list of times, or a mix: the newest time named
+    times = re.findall(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", m.group(1))
+    if not times:
+        raise ValueError("the layer %s lists no times" % NEW_LAYER)
+    b = re.search(r'<BoundingBox CRS="EPSG:3067" minx="([-\d.eE+]+)" miny="([-\d.eE+]+)"'
+                  r' maxx="([-\d.eE+]+)" maxy="([-\d.eE+]+)"', xml)
+    if not b:
+        raise ValueError("the layer %s has no EPSG:3067 extent" % NEW_LAYER)
+    bbox = tuple(float(v) for v in b.groups())
+    if not (bbox[2] - bbox[0] > 1e5 and bbox[3] - bbox[1] > 1e5):
+        raise ValueError("unexpected extent of the layer %s" % NEW_LAYER)
+    return max(times) + "Z", bbox
+
+
+def _read_pal16(b: bytes):
+    """(width, height, array of uint16 palette indices with row 0 = north, the colour
+    map as an array of uint16: all reds, all greens, all blues) of an uncompressed
+    16-bit palette TIFF in strips."""
+    bo = {b"MM": ">", b"II": "<"}.get(b[:2])
+    if bo is None or struct.unpack(bo + "H", b[2:4])[0] != 42:
+        # a refused request comes back as a small XML report: its text into the log
+        msg = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", b[:1500].decode("utf-8", "replace"))).strip()
+        raise ValueError("not a TIFF" + (": " + msg[:200] if msg else ""))
+    ifd = struct.unpack(bo + "I", b[4:8])[0]
+    n = struct.unpack(bo + "H", b[ifd:ifd + 2])[0]
+    tags = {}
+    for k in range(n):
+        e = ifd + 2 + 12 * k
+        tag, typ, cnt = struct.unpack(bo + "HHI", b[e:e + 8])
+        fmt = {3: "H", 4: "I"}.get(typ)
+        if not fmt:
+            continue
+        nbytes = struct.calcsize(fmt) * cnt
+        raw = b[e + 8:e + 8 + nbytes] if nbytes <= 4 else b[struct.unpack(bo + "I", b[e + 8:e + 12])[0]:][:nbytes]
+        tags[tag] = raw if tag == 320 else list(struct.unpack(bo + fmt * cnt, raw))
+    w, h = tags[256][0], tags[257][0]
+    if (tags.get(258, [0])[0] != 16 or tags.get(259, [1])[0] != 1 or tags.get(262, [0])[0] != 3
+            or tags.get(277, [1])[0] != 1 or 320 not in tags):
+        raise ValueError("unexpected TIFF layout (want an uncompressed 16-bit palette image)")
+    data = bytearray()
+    for off, cnt in zip(tags[273], tags[279]):
+        data += b[off:off + cnt]
+    a = array.array("H")
+    a.frombytes(bytes(data[:w * h * 2]))
+    cm = array.array("H")
+    cm.frombytes(tags[320][:len(tags[320]) // 6 * 6])
+    if (bo == ">") != (sys.byteorder == "big"):
+        a.byteswap()
+        cm.byteswap()
+    if len(a) != w * h:
+        raise ValueError("TIFF cut short")
+    return w, h, a, cm
+
+
+def _rate100(r: int, g: int, b: int) -> int:
+    """Rain rate × 100 (as the old layer's numbers) of a colour of _SLD's ramp, 16-bit
+    components; 65535 = no data (the white background, or the red of below zero)."""
+    if r and (g != 65535 or b != 65535 or r == 65535):
+        return 65535
+    if not r and not g:
+        v = b / 65535.0 * _Q1
+    elif not r:
+        v = _Q1 + g / 65535.0 * (_Q2 - _Q1)
+    else:
+        v = _Q2 + r / 65535.0 * (_Q3 - _Q2)
+    return min(65534, int(round(v * 100)))
+
+
+def _fetch_new(now: float) -> dict:
+    """The newest composite of the new layer, read through our own style."""
+    t, bbox = _new_layer_info()
+    age = now - calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
+    if age > NEW_MAX_AGE:
+        raise ValueError("the newest composite of %s is from %s, over %d min ago" % (NEW_LAYER, t, NEW_MAX_AGE // 60))
+    if _cache["data"] and _cache["data"]["time"] == t and _cache["data"].get("layer") == NEW_LAYER:
+        return _cache["data"]
+    W = min(2000, max(50, int(round((bbox[2] - bbox[0]) / NEW_CELL_M))))
+    H = min(2500, max(50, int(round((bbox[3] - bbox[1]) / NEW_CELL_M))))
+    url = (NEW_WMS + "wms?service=WMS&version=1.3.0&request=GetMap&srs=EPSG:3067&bbox=%s"
+           "&width=%d&height=%d&time=%s&format=image%%2Fgeotiff&transparent=false&bgcolor=0xFFFFFF&sld_body=%s"
+           % (",".join("%.3f" % v for v in bbox), W, H, t, urllib.parse.quote(_SLD, safe="")))
+    w, h, idx, cm = _read_pal16(_get(url, timeout=60.0))
+    n = len(cm) // 3
+    lut = {}
+    for i in set(idx):                                   # a few hundred different colours at most
+        if i >= n:
+            raise ValueError("palette index outside the colour map")
+        lut[i] = _rate100(cm[i], cm[n + i], cm[2 * n + i])
+    a = array.array("H", [lut[i] for i in idx])
+    return _pack(t, w, h, a, bbox, NEW_LAYER)
+
+
+def _fetch(now: float) -> dict:
+    """The new layer first; the old download-service reference while it still works."""
+    try:
+        d = _fetch_new(now)
+        if _cache["layer"] != d["layer"]:
+            log.info("FMI radar: reading the layer %s (%d × %d cells of %.1f km)",
+                     d["layer"], d["grid"]["x"][2], d["grid"]["y"][2], d["km"])
+        _cache["layer"], _cache["new_err"] = d["layer"], None
+        return d
+    except Exception as exc:                            # noqa: BLE001
+        err = str(exc)
+    try:
+        d = _fetch_old(now)
+    except Exception as exc:                            # noqa: BLE001
+        raise ValueError("new layer: %s; old layer: %s" % (err, exc)) from None
+    if _cache["new_err"] != err or _cache["layer"] != d["layer"]:        # said once per reason
+        log.warning("FMI radar: the new layer %s failed (%s) — read the old one, %s", NEW_LAYER, err, d["layer"])
+    _cache["layer"], _cache["new_err"] = d["layer"], err
+    return d
 
 
 def _tm35_xy(lat: float, lon: float):
