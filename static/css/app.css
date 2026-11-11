@@ -267,6 +267,14 @@ body.app-body {
 .app-btn-wide { display: block; width: calc(100% - 30px); margin-top: 10px; }
 .app-small { font-size: 12px; color: var(--text-2); margin: 6px 0; line-height: 1.45; }
 .app-link { display: inline-block; margin-top: 6px; font-size: 14px; color: var(--accent); text-decoration: none; }
+/* A newer build while the app is open (from 2026-11-11): a bar at the bottom, above everything */
+.app-upd { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom));
+           display: flex; align-items: center; gap: 10px; padding: 7px 6px 7px 14px; border-radius: 14px; max-width: calc(100vw - 24px);
+           background: var(--bg-2); color: var(--text-1); border: 1px solid var(--accent); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+           font-size: 14px; white-space: nowrap; }
+.app-upd[hidden] { display: none; }
+.app-upd .app-btn { min-height: 34px; padding: 4px 14px; }
+.app-upd .app-icon-btn { width: 34px; height: 34px; min-width: 34px; font-size: 20px; }
 .app-foot { padding: 12px 16px; font-size: 10.5px; color: var(--text-3); line-height: 1.4; }
 
 /* ── History view (from 2026-10-28): search, band header, cards ── */

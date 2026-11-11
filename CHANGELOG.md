@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM)
+## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button)
 
 ### Pilot view: an area selector on the GNSS tab
 - The **GNSS** tab of the Pilot view (phone view and the Pilot page) has an **Area** selector: *Coverage* (everything the receiver hears), *50 NM* or *20 NM* from the airport. It applies to the *GNSS now* counts (degraded, severe, FL bands) and to the bars of the last 24 hours; the titles of the two cards name the area. Default 50 NM; the choice is remembered in the browser.
@@ -17,8 +17,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - How: each aircraft in the tracker's live list of degraded aircraft now carries the distance zones it was in on that sweep (`zones`, the same rule as the hourly zone counts: a position updated within the last 2 minutes, measured from the airport), so an aircraft without a current position counts only in *Coverage*. `collector/gps_quality.py` (`update()`, `rebuild_live()`), `web/api/pilot.py` (`gnss(zone=)`, `GNSS_ZONES`), `web/app.py` (`/api/pilot/gnss?zone=all|50nm|20nm`), `static/js/app_pilot.js`, `static/css/pilot.css`.
 - Tested on a copy of the database (24 h to 10 Nov 05 UTC: 679 degraded aircraft-hours in the coverage, 248 within 50 NM, 105 within 20 NM) and, for the counts of now, with made-up aircraft in a unit test (no live feed in the test); phone view and Pilot page, no page errors.
 
+### Mobile view: getting a new version
+- An installed app (Add to Home Screen) has no browser Refresh, and the app looked for a newer build only on the way back to it. A page that stayed in front through a deploy kept its old scripts, while *What's new* (fetched fresh) already showed the new notes — as seen this morning with the Pilot view's Area selector.
+- **While the app is open** the build is now asked every 5 minutes and when *What's new* is opened. A newer build shows a bar at the bottom, *New version available · Reload · ×*; nothing reloads under the user's fingers, and × hides the bar until the next build.
+- **☰ → General → Reload** reloads the app by hand at any time; the view and the options are kept.
+- Reloading asks the server first: without a connection nothing is reloaded (the button shows *No connection*), also on the way back to the app after an hour — an installed app is no longer left on the browser's error page.
+- `static/js/app.js` (`serverBuild()`, `checkUpdate()`, `doReload()`, `wake()`), `web/templates/app.html` (`#app-upd`, `#app-reload-btn`), `static/css/app.css` (`.app-upd`).
+- Tested with a phone-sized browser against a made-up newer build: no bar for the same build, the bar after the next check and at once when What's new opens, × until a still newer build, no navigation without a connection, reload back on the same view; the way back to the app with the same build, without a connection and with a newer build. The live site was checked to serve its scripts with `no-cache` and an ETag, so a reload gets the new files.
+
 ### Documents
-- **Mobile guide 1.70**: the Area selector of the Pilot view's GNSS tab. 61 pages. `doc/Mobile_User_Guide.pdf`.
+- **Mobile guide 1.71**: the Area selector of the Pilot view's GNSS tab (1.70); *Getting a new version* — the bar and the Reload button (1.71). 61 pages. `doc/Mobile_User_Guide.pdf`.
 
 ---
 

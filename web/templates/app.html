@@ -49,6 +49,12 @@
     <svg class="ic-auto" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.8a8.2 8.2 0 0 0 0 16.4z" fill="currentColor"/></svg>
   </button>
   <div id="app-theme-note" class="app-theme-note" role="status" aria-live="polite" hidden></div>
+  <!-- a newer build on the server while the app is open (from 2026-11-11): a tap reloads -->
+  <div id="app-upd" class="app-upd" role="status" aria-live="polite" hidden>
+    <span id="app-upd-txt">New version available</span>
+    <button type="button" id="app-upd-btn" class="app-btn app-btn-primary">Reload</button>
+    <button type="button" id="app-upd-x" class="app-icon-btn" aria-label="Later" title="Later">×</button>
+  </div>
   <span id="app-health" class="app-health" title="System health"></span>
 </header>
 {% if site_moved %}{% with mv_app=true %}{% include "_moved_notice.html" %}{% endwith %}{% endif %}
@@ -691,7 +697,9 @@
       <button type="button" class="app-btn" id="app-news-btn">What's new<span id="app-news-dot" class="app-news-dot" hidden></span></button>
       <button type="button" class="app-btn" id="app-about-btn">About</button>
       <button type="button" class="app-btn" id="app-guides-btn">User guides</button>
+      <button type="button" class="app-btn" id="app-reload-btn">Reload</button>
     </div>
+    <div class="app-small"><i>Reload</i> loads this view again from the server, as a browser's refresh — the view and your options are kept. The app also reloads itself when you return to it after an update, and offers a reload when a new version arrives while it is open.</div>
     <a class="app-link" href="/">Full site ↗</a><br>
     <a class="app-link" href="{{ mobile_guide_url }}" target="_blank" rel="noopener">This view's guide (PDF) ↗</a>
   </details>

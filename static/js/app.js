@@ -1893,20 +1893,57 @@
   // (AppWx.wake).
   const RELOAD_AFTER_MS = 3600e3;
   let hiddenAt = document.hidden ? Date.now() : 0, reloading = false;
-  async function newBuild() {
-    if (typeof APP_BUILD === 'undefined' || !APP_BUILD) return false;
+  // the server's build: '' when it cannot be reached (then nothing is reloaded — a
+  // reload without a connection would leave an installed app on an error page)
+  async function serverBuild() {
     try {
-      const r = await fetch('/api/app/build', { cache: 'no-store' });
-      if (!r.ok) return false;
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      const to = ctl ? setTimeout(() => ctl.abort(), 8000) : 0;
+      const r = await fetch('/api/app/build', { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+      clearTimeout(to);
+      if (!r.ok) return '';
       const d = await r.json();
-      return !!d.build && d.build !== APP_BUILD;
-    } catch (_) { return false; }
+      return d.build ? String(d.build) : '';
+    } catch (_) { return ''; }
   }
+  // ── A newer build while the app stays open, and Reload by hand (from 2026-11-11) ──
+  // The check above runs only on the way back to the app.  It now also runs every
+  // 5 minutes in the foreground and when What's new is opened; a newer build then
+  // shows a bar with a Reload button (no reload under the user's fingers; × = later,
+  // until the next build).  ☰ → General → Reload does the same by hand: an installed
+  // app has no browser Refresh.
+  const UPD_CHECK_MS = 300e3;
+  let updSkip = '';
+  async function doReload(btn) {
+    if (reloading) return;
+    const old = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Reloading…'; }
+    const b = await serverBuild();
+    if (!b) {                                              // no connection: stay on the page
+      if (btn) { btn.textContent = 'No connection'; setTimeout(() => { btn.disabled = false; btn.textContent = old; }, 2500); }
+      return;
+    }
+    reloading = true;
+    location.reload();
+  }
+  async function checkUpdate() {
+    if (reloading || document.hidden || typeof APP_BUILD === 'undefined' || !APP_BUILD) return;
+    const b = await serverBuild();
+    if (b && b !== APP_BUILD && b !== updSkip) { $('app-upd').dataset.build = b; $('app-upd').hidden = false; }
+  }
+  if ($('app-upd')) {
+    $('app-upd-btn').addEventListener('click', e => doReload(e.currentTarget));
+    $('app-upd-x').addEventListener('click', () => { updSkip = $('app-upd').dataset.build || ''; $('app-upd').hidden = true; });
+    setInterval(checkUpdate, UPD_CHECK_MS);
+  }
+  if ($('app-reload-btn')) $('app-reload-btn').addEventListener('click', e => doReload(e.currentTarget));
   async function wake() {
     if (reloading) return;
     const away = hiddenAt ? Date.now() - hiddenAt : 0;
     hiddenAt = 0;
-    if (away > RELOAD_AFTER_MS || await newBuild()) { reloading = true; location.reload(); return; }
+    const sb = await serverBuild();                        // '' = no connection: no reload (from 2026-11-11)
+    const newer = !!sb && typeof APP_BUILD !== 'undefined' && !!APP_BUILD && sb !== APP_BUILD;
+    if (sb && (away > RELOAD_AFTER_MS || newer)) { reloading = true; location.reload(); return; }
     if (view === 'wx' && window.AppWx && window.AppWx.ready()) window.AppWx.wake(away);
     refresh(); pollHealth(); fetchWx();
   }
@@ -2158,6 +2195,7 @@
       if (!newsLoaded) { $('app-sheet-news').innerHTML = '<p class="app-small">Loading…</p>'; loadNews(); }
       if (APP_VERSION) lsSet('ms_seen_version', APP_VERSION);
       newsDots();
+      checkUpdate();                                       // the notes may be of a newer build than this page (2026-11-11)
     }
     sheet.hidden = false;
     $('app-sheet-body').scrollTop = 0;
