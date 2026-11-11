@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button; the FMI radar read from FMI's new layer)
+## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button; the FMI radar read from FMI's new layer; the Meteogram's sun times on the long ranges too; Finnish time in the Finnish Meteogram)
 
 ### Pilot view: an area selector on the GNSS tab
 - The **GNSS** tab of the Pilot view (phone view and the Pilot page) has an **Area** selector: *Coverage* (everything the receiver hears), *50 NM* or *20 NM* from the airport. It applies to the *GNSS now* counts (degraded, severe, FL bands) and to the bars of the last 24 hours; the titles of the two cards name the area. Default 50 NM; the choice is remembered in the browser.
@@ -33,7 +33,29 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - One image is 1.4 MB (0.8 MB before), fetched at most every 5 minutes and only while someone has the radar on. It depends on FMI's server accepting a style with the request; if that is ever refused, the log says so and the old way is tried.
 - `web/api/radar.py` (`_fetch_new()`, `_new_layer_info()`, `_read_pal16()`, `_rate100()`, `_SLD`, `_fetch_old()`, `_pack()`). Tested against FMI's live service: the new layer, a second look without a new download, the fallback (new refused, or its newest image over 45 min old), both failing (the last composite kept, the error shown), and the phone's Weather view drawing it.
 
+### Meteogram: the sun times on the long ranges too (late evening)
+- With **Sun** on, the sunrise and sunset were written on the day's label only when a day was at least 130 px wide (105 px on the phone). At **16 days** a day is 70–100 px wide on the Weather page (its chart is at most 1 700 px wide), so the times never appeared there — nor at 10 days in a smaller window, nor on the phone beyond 2 days.
+- Now the place follows the width of the day:
+  - wide days — on the label as before (*Tue 10.11. ☀ 06:07–14:00*), nothing changes;
+  - from 64 px (54 px on the phone) — on a **row of their own** under the labels (*06:07–14:00*), one ☀ at the left edge of the row: 16 days on the Weather page, 5 days on the phone;
+  - narrower — on **two short rows**, the sunrise above the sunset, ☀↑ and ☀↓ at the left edge: a small window, the phone at 7 and 10 days; and where a day is narrower than the text (the phone at 16 days) at **every second day** — the times change by only a few minutes a day.
+- The chart is one row taller (11 px; 10 px on the phone) only in the two new forms. In the polar night or the midnight sun: *none* / *all day*, on the short rows a dash or *24 h*.
+- `static/js/meteogram.js` (`sunMode`, `sunStep`; the header height `TOP` now follows it), the option's help text in `web/templates/weather.html` and `web/templates/app.html` (English and Finnish).
+- Tested in a browser on the Weather page (1 000–1 920 px wide; GFS and Both; 7, 10 and 16 days) and in the phone view (360 and 390 px, upright and on its side; 2–16 days), with places in the polar night and the midnight sun, and the read-out under the mouse. With Sun off, and with Sun on where the old form fits, the drawn chart is identical to before (compared as SVG). The layout tests used a made-up 16-day series; the guides' figures use the live server's real GFS run of 7 Nov 2026.
+
+### Meteogram in Finnish: UTC or Finnish time (late evening)
+- The Finnish version of the Meteogram (users with the FIN right; Weather page and phone view) has a new selector **Aika**: *UTC* (the default, as before) or *Suomen aika*. The English meteogram has no selector and stays in UTC.
+- With *Suomen aika* the chart follows the Finnish clock: the day lines, day labels and hour ticks at Finnish midnight and hours; the day's highest and lowest temperature and the day's precipitation total counted over the Finnish day (they can differ a little from the UTC view); the sun times; the read-out's hour (*ma 9.11. klo 13* for 11 UTC) with the METAR time and the measured hours. The line under the chart says *ajat Suomen aikaa (ajojen nimet UTC)*.
+- Still UTC: the names of the model runs, the forecast-check table and the rest of the site.
+- Summer time: the offset is taken hour by hour from the browser's time-zone data (Europe/Helsinki; +2 h, +3 h in summer), with the EU rule as the fallback. A chart that crosses the change has one day of 23 or 25 hours.
+- All in the browser — the server and its API are unchanged. `static/js/meteogram.js` (`opts.tz`, `fiOff()`, `dayStart()`, the list of the chart's days `DAYS` in place of the fixed 24 h steps; `sunTimes()` takes the day's end), `static/js/weather_mg.js` and `static/js/app_mg.js` (the choice, `fiTime()`, the footer), `web/templates/weather.html` (`#wx-mg-tz`) and `web/templates/app.html` (`#app-mg-tz`, the help text) — both only with `mg_fin`.
+- Tested: the offset against the EU rule for every half hour of 2020–2031 and the day starts for every hour of 2025–2027 (no difference, no wrong day); in a browser with the live server's runs of 7 Nov 2026 — Weather page and phone, the selector there and back, the read-out, the sun times (08:02–16:05 at EFHK on 8 Nov); charts crossing the spring and autumn change (a 23 h and a 25 h day); a user without the FIN right (no selector, UTC even with a stored choice). In UTC the drawn chart and the read-out are identical to before (six cases compared as SVG).
+
 ### Documents
+- **Meteogrammit 1.03** (the Finnish guide; late evening): a new section *Aika: UTC tai Suomen aika* with a figure, the *Aika* row in the controls table. 13 pages. **Meteograms guide 1.03**: a paragraph on the Finnish version's time selector. 12 pages.
+- **Mobile guide 1.74** (late evening): *Finnish time in the Finnish Meteogram*. 63 pages.
+- **Meteograms guide 1.02** and its Finnish version (late evening): the Sun section with the three forms and a new figure (the Weather page at 16 days, the phone at 7 and 16 days). 12 pages each. `doc/Meteogram_User_Guide.pdf`, `doc/Meteogram_User_Guide_FI.pdf`.
+- **Mobile guide 1.73** (late evening): *Sun times* on the long ranges, with a figure. 62 pages.
 - **Mobile guide 1.72** (evening): the FMI radar's new source in the Weather view's description.
 - **Mobile guide 1.71**: the Area selector of the Pilot view's GNSS tab (1.70); *Getting a new version* — the bar and the Reload button (1.71). 61 pages. `doc/Mobile_User_Guide.pdf`.
 

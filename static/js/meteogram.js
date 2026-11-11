@@ -25,7 +25,9 @@
  *                  point), wind / gust and pressure panels; near the airport only
  *     opts.lw      the landings' band winds at 1 000 and 2 000 ft above the runway (data.*.lw)
  *                  in the wind panel; near the airport only
- *     opts.sun     the sunrise and sunset (UTC) at the day labels
+ *     opts.sun     the sunrise and sunset (UTC) at the day labels: on the label's line on wide days,
+ *                  (from 2026-11-11) on a row of their own on narrower ones, stacked on two short
+ *                  rows on the narrowest (at every 2nd … day when a day is narrower than the text)
  *     opts.dew     the dew point (td) in the temperature panel, a strip where the spread is
  *                  ≤ 2 °C (mist and fog risk) and a visibility row (vi) under the clouds
  *     opts.w850    a second barb row: the models' 850 hPa wind (u8 / v8) and, in the past hours,
@@ -34,6 +36,10 @@
  *                  under the 10 m barbs — the direction to 10° above, the speed (kt or m/s) below
  *   opts.lang     'fi' (from 2026-11-07; or window.MG_LANG — the users with the FIN right): the texts in
  *                  Finnish (weekdays, labels, legend, read-out; decimal commas); times stay UTC
+ *   opts.tz       'fi' (from 2026-11-11 late evening; the Finnish version's Aika selector): Finnish
+ *                  time (Europe/Helsinki, +2 h or +3 h in summer time) in place of UTC — the day lines,
+ *                  labels and hour ticks at Finnish midnight and hours, the day's highest / lowest and
+ *                  precipitation total over the Finnish day, the sun times and the read-out's times
  *
  * One time axis (UTC) for all panels: day lines and labels, the night shaded from the
  * sun's elevation at the place, the forecast tinted, the now-line.  With both models
@@ -87,20 +93,47 @@ const Meteogram = (() => {
     return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) * 180 / Math.PI;
   }
 
-  // the sunrise and sunset (ts) of the UTC day starting at d0 at a place (from 2026-11-07); null = none
-  function sunTimes(lat, lon, d0) {
+  // the sunrise and sunset (ts) of the day d0 … d1 (the UTC day starting at d0 when d1 is left out) at
+  // a place (from 2026-11-07); null = none
+  function sunTimes(lat, lon, d0, d1 = d0 + DAY) {
     const H0 = -0.833, st = 600;
     let rise = null, set = null, prev = sunElev(lat, lon, d0) - H0;
-    for (let t = d0 + st; t <= d0 + DAY; t += st) {
+    for (let t = d0 + st; t <= d1; t += st) {
       const e = sunElev(lat, lon, t) - H0;
       if (prev < 0 && e >= 0 && rise == null) rise = t - st * e / (e - prev);
       if (prev >= 0 && e < 0 && set == null) set = t - st * e / (e - prev);
       prev = e;
     }
-    return { rise, set, up: sunElev(lat, lon, d0 + DAY / 2) > H0 };
+    return { rise, set, up: sunElev(lat, lon, (d0 + d1) / 2) > H0 };
+  }
+  // Finnish time (from 2026-11-11 late evening): the seconds Europe/Helsinki is ahead of UTC at ts — from
+  // the browser's time-zone data; where that is missing, the EU rule (summer time from the last Sunday of
+  // March 01 UTC to the last Sunday of October 01 UTC)
+  let fiFmt, fiOffC = new Map();
+  function fiOffRule(ts) {
+    const y = new Date(ts * 1000).getUTCFullYear();
+    const lastSun = m => { const d = new Date(Date.UTC(y, m + 1, 0, 1)); return d.getTime() / 1000 - d.getUTCDay() * DAY; };
+    return ts >= lastSun(2) && ts < lastSun(9) ? 3 * HOUR : 2 * HOUR;
+  }
+  function fiOff(ts) {
+    const k = Math.floor(ts / HOUR);
+    let o = fiOffC.get(k);
+    if (o === undefined) {
+      try {
+        if (fiFmt === undefined) fiFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Helsinki', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+        const q = {};
+        fiFmt.formatToParts(new Date(k * HOUR * 1000)).forEach(x => { q[x.type] = +x.value; });
+        o = Date.UTC(q.year, q.month - 1, q.day, q.hour % 24, q.minute, q.second) / 1000 - k * HOUR;
+        if (!Number.isFinite(o) || Math.abs(o) > 14 * HOUR) throw new Error('offset');
+      } catch (e) { fiFmt = null; o = fiOffRule(k * HOUR); }
+      if (fiOffC.size > 4000) fiOffC.clear();
+      fiOffC.set(k, o);
+    }
+    return o;
   }
   const fmtFt = v => String(Math.round(v / 100) * 100).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   const hhmm = ts => { const d = new Date(Math.round(ts / 60) * 60000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+  const fiOffAt = ts => { try { return fiOff(ts); } catch (e) { return fiOffRule(ts); } };
 
   // ── a wind barb (wind from dir, kt) as SVG, centred at the station point ──
   function barbSvg(x, y, dir, kt, col, len = 17) {
@@ -172,6 +205,14 @@ const Meteogram = (() => {
     const OZL = OB.ozl || [], O8W = opts.w850 ? OB.o850w || [] : [];
     const DEW = !!opts.dew, W850 = !!opts.w850, SUN = !!opts.sun;
     const WNUM = opts.wnum === 'kt' || opts.wnum === 'ms' ? opts.wnum : null;   // the wind values (from 2026-11-07 evening)
+    // the clock of the chart (from 2026-11-11 late evening): UTC, or Finnish time with opts.tz 'fi'.
+    // loc(ts) is a Date whose UTC fields are the clock's date and time; dayStart(ts) the clock's midnight
+    // at or before ts (Finnish days are 23 or 25 h long at the change of summer time)
+    const TZ = opts.tz === 'fi';
+    const off = ts => (TZ ? fiOffAt(ts) : 0);
+    const loc = ts => new Date((ts + off(ts)) * 1000);
+    const dayStart = ts => { const m = Math.floor((ts + off(ts)) / DAY) * DAY; return m - off(m - off(ts)); };
+    const hm = ts => hhmm(ts + off(ts));
     el.innerHTML = '';
     if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.'))}</div>`; return { destroy() {} }; }
     const read = document.createElement('div');
@@ -186,7 +227,7 @@ const Meteogram = (() => {
       FI = LANG_FI;
       const T = pal();
       const W = Math.max(280, box.clientWidth || el.clientWidth || 600);
-      const AL = C ? 34 : 46, AR = C ? 8 : 14, TOP = C ? 30 : 34, GAP = C ? 6 : 9;
+      const AL = C ? 34 : 46, AR = C ? 8 : 14, GAP = C ? 6 : 9;
       const H = { temp: C ? 112 : 150, frz: C ? 56 : 72, precip: C ? 54 : 80, cape: C ? 14 : 18,
                   wind: (C ? 92 : 118) + (W850 ? (C ? 18 : 22) : 0) + (WNUM ? (C ? 20 : 24) : 0), pres: C ? 58 : 78, cloud: 0 };
       const rowH = C ? 10 : 13;
@@ -196,7 +237,17 @@ const Meteogram = (() => {
       const panels = ['temp', 'frz', 'precip', 'cape', 'wind', 'pres', 'cloud'].filter(k => P0[k]);
       const t0 = Math.min(...[SM, SG].filter(Boolean).map(s => s.t0)), t1 = Math.max(...[SM, SG].filter(Boolean).map(s => s.t1));
       const pw = W - AL - AR, X = ts => AL + (ts - t0) / (t1 - t0) * pw;
+      const dayW = DAY / (t1 - t0) * pw;
+      // where the sunrise and sunset go (from 2026-11-11 evening; until then only on wide days):
+      // 1 on the day label's line, 2 on a row of their own under it, 3 stacked on two short rows
+      // (at every 2nd … day when the days are narrower than the text) — 2 and 3 add one row
+      const sunMode = !SUN ? 0 : dayW >= (C ? 105 : 130) ? 1 : dayW >= (C ? 54 : 64) ? 2 : 3;
+      const SROW = sunMode > 1 ? (C ? 10 : 11) : 0;
+      const TOP = (C ? 30 : 34) + SROW;
       const now = opts.now || Date.now() / 1000;
+      // the days of the chart [start, end] by its clock
+      const DAYS = [];
+      for (let a = dayStart(t0); a <= t1 && DAYS.length < 60;) { const b = dayStart(a + DAY + 2 * HOUR); DAYS.push([a, b]); a = b; }
       let y = TOP;
       const box0 = {};
       panels.forEach(k => { box0[k] = { y0: y, y1: y + H[k] }; y += H[k] + GAP; });
@@ -256,28 +307,43 @@ const Meteogram = (() => {
         }
       }
       if (now < t1) panels.forEach(k => { const a = Math.max(t0, now); out.push(`<rect x="${X(a).toFixed(1)}" y="${box0[k].y0}" width="${(X(t1) - X(a)).toFixed(1)}" height="${H[k]}" fill="${T.fc}"/>`); });
-      const dayW = DAY / (t1 - t0) * pw;
-      for (let t = Math.ceil(t0 / DAY) * DAY; t <= t1; t += DAY) {
+      for (const [t] of DAYS) {
+        if (t < t0) continue;
         out.push(`<line x1="${X(t).toFixed(1)}" x2="${X(t).toFixed(1)}" y1="${TOP - 4}" y2="${y - GAP}" stroke="${T.day}" stroke-width="1"/>`);
       }
-      for (let t = Math.floor(t0 / DAY) * DAY; t <= t1; t += DAY) {
-        const a = Math.max(t0, t), b = Math.min(t1, t + DAY);
+      const yDay = TOP - SROW - (C ? 18 : 20), sunFs = C ? 8 : 9.5;
+      const sunStep = sunMode === 3 ? Math.max(1, Math.ceil((C ? 25 : 30) / dayW)) : 1;
+      let sunK = 0;
+      for (const [t, tE] of DAYS) {
+        const a = Math.max(t0, t), b = Math.min(t1, tE);
         if (X(b) - X(a) < 14) continue;
-        const dt = new Date(t * 1000);
+        const dt = loc(t);
         let lab = dayW >= 78 ? `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}.` : dayW >= 34 ? `${wd(dt.getUTCDay()).slice(0, 2)} ${dt.getUTCDate()}.` : `${dt.getUTCDate()}`;
-        // the sunrise and sunset (UTC) when the day is wide enough (from 2026-11-07)
-        if (SUN && dayW >= (C ? 105 : 130) && X(b) - X(a) >= dayW * 0.8) {
-          const sn = sunTimes(lat, lon, t);
-          lab += sn.rise != null || sn.set != null ? `  ☀ ${sn.rise != null ? hhmm(sn.rise) : '—'}–${sn.set != null ? hhmm(sn.set) : '—'}`
-            : sn.up ? tr('  ☀ all day', '  ☀ koko päivän') : tr('  ☀ none', '  ☀ ei lainkaan');
+        // the sunrise and sunset (by the chart's clock) of the whole days (from 2026-11-07; on the narrow days too from 2026-11-11)
+        if (sunMode && X(b) - X(a) >= dayW * 0.8) {
+          const sn = sunTimes(lat, lon, t, tE), some = sn.rise != null || sn.set != null;
+          const xm = (X(a) + X(b)) / 2, so = { anchor: 'middle', col: T.text, fs: sunFs };
+          if (sunMode === 1) {
+            lab += some ? `  ☀ ${sn.rise != null ? hm(sn.rise) : '—'}–${sn.set != null ? hm(sn.set) : '—'}`
+              : sn.up ? tr('  ☀ all day', '  ☀ koko päivän') : tr('  ☀ none', '  ☀ ei lainkaan');
+          } else if (sunMode === 2) {
+            out.push(txt(xm, yDay + (C ? 10 : 11.5), some ? `${sn.rise != null ? hm(sn.rise) : '—'}–${sn.set != null ? hm(sn.set) : '—'}`
+              : sn.up ? tr('all day', 'koko päivän') : tr('none', 'ei lainkaan'), so));
+          } else if (sunK++ % sunStep === 0) {
+            out.push(txt(xm, yDay + (C ? 10 : 11.5), some ? (sn.rise != null ? hm(sn.rise) : '—') : sn.up ? '24 h' : '—', so));
+            if (some || !sn.up) out.push(txt(xm, yDay + (C ? 19.5 : 22.5), sn.set != null ? hm(sn.set) : '—', so));
+          }
         }
-        out.push(txt((X(a) + X(b)) / 2, TOP - (C ? 18 : 20), lab, { anchor: 'middle', col: T.text, w: 600 }));
+        out.push(txt((X(a) + X(b)) / 2, yDay, lab, { anchor: 'middle', col: T.text, w: 600 }));
       }
+      // the rows' sign at the left edge
+      if (sunMode === 2) out.push(txt(AL - 4, yDay + (C ? 10 : 11.5), '☀', { anchor: 'end', col: T.text, fs: sunFs }));
+      if (sunMode === 3) [['☀↑', C ? 10 : 11.5], ['☀↓', C ? 19.5 : 22.5]].forEach(([g, dy]) => out.push(txt(AL - 4, yDay + dy, g, { anchor: 'end', col: T.text, fs: sunFs })));
       // hour ticks when the days are wide
       const tickH = dayW >= 260 ? 3 : dayW >= 130 ? 6 : dayW >= 70 ? 12 : 0;
-      if (tickH) for (let t = Math.ceil(t0 / (tickH * HOUR)) * tickH * HOUR; t <= t1; t += tickH * HOUR) {
-        const h = new Date(t * 1000).getUTCHours();
-        if (h === 0) continue;
+      if (tickH) for (let t = Math.ceil(t0 / HOUR) * HOUR; t <= t1; t += HOUR) {
+        const h = loc(t).getUTCHours();
+        if (h === 0 || h % tickH) continue;
         out.push(txt(X(t), TOP - 6, String(h).padStart(2, '0'), { anchor: 'middle', fs: C ? 8 : 9 }));
       }
       const ylab = (k, s) => out.push(txt(4, box0[k].y0 + (C ? 9 : 11), s, { col: T.text, fs: C ? 8.5 : 10, w: 600 }));
@@ -352,9 +418,9 @@ const Meteogram = (() => {
             if (DEW && m[2] != null) out.push(`<circle cx="${X(m[0]).toFixed(1)}" cy="${Y(m[2]).toFixed(1)}" r="${C ? 1.9 : 2.3}" fill="${T.obsRim}" stroke="${T.dew}" stroke-width="1.1"/>`);
           }
           // the day's highest and lowest (the primary model) when the days are wide enough
-          if (dayW >= 64) for (let t = Math.floor(t0 / DAY) * DAY; t <= t1; t += DAY) {
-            const day = (prim.pts).filter(q => q.ts > t && q.ts <= t + DAY && q.t != null && (!both || !pick(q)))
-              .concat(both && SM ? SM.pts.filter(q => q.ts > t && q.ts <= t + DAY && q.t != null) : []);
+          if (dayW >= 64) for (const [t, tE] of DAYS) {
+            const day = (prim.pts).filter(q => q.ts > t && q.ts <= tE && q.t != null && (!both || !pick(q)))
+              .concat(both && SM ? SM.pts.filter(q => q.ts > t && q.ts <= tE && q.t != null) : []);
             if (day.length < 4) continue;
             const mx = day.reduce((a, q) => q.t > a.t ? q : a), mn = day.reduce((a, q) => q.t < a.t ? q : a);
             out.push(txt(X(mx.ts), Y(mx.t) - 5, (mx.t > 0 ? '+' : '') + Math.round(mx.t), { anchor: 'middle', col: T.warm, fs: C ? 8 : 9.5, w: 600 }));
@@ -402,15 +468,15 @@ const Meteogram = (() => {
           }
         }
         // the day's total (mm), from MEPS where it has the hour, else GFS
-        if (dayW >= 22) for (let t = Math.floor(t0 / DAY) * DAY; t <= t1; t += DAY) {
+        if (dayW >= 22) for (const [t, tE] of DAYS) {
           let sum = 0, n = 0;
           for (const S of [SM, SG].filter(Boolean)) for (const q of S.pts) {
-            if (q.ts <= t || q.ts > t + DAY || q.r == null) continue;
+            if (q.ts <= t || q.ts > tE || q.r == null) continue;
             if (both && S.key === 'gfs' && pick(q)) continue;
             sum += q.r * (q.pi || 1); n++;
           }
           if (!n || sum < 0.1) continue;
-          const a = Math.max(t0, t), bb = Math.min(t1, t + DAY);
+          const a = Math.max(t0, t), bb = Math.min(t1, tE);
           out.push(txt((X(a) + X(bb)) / 2, b.y0 + (C ? 9 : 11), sum >= 10 ? Math.round(sum) + (dayW >= 40 ? ' mm' : '') : nf(sum, 1) + (dayW >= 40 ? ' mm' : ''), { anchor: 'middle', col: T.rain, fs: C ? 8 : 9.5, w: 600 }));
         }
       }
@@ -629,8 +695,8 @@ const Meteogram = (() => {
     }
     function readText(ts) {
       const qm = nearest(SM, ts), qg = nearest(SG, ts), q = qm || qg;
-      const dt = new Date((q ? q.ts : Math.round(ts / HOUR) * HOUR) * 1000);
-      const head = `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${String(dt.getUTCHours()).padStart(2, '0')} UTC</b>`;
+      const dt = loc(q ? q.ts : Math.round(ts / HOUR) * HOUR);
+      const head = `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${TZ ? 'klo ' : ''}${String(dt.getUTCHours()).padStart(2, '0')}${TZ ? '' : ' UTC'}</b>`;
       const parts = [one(qm, 'MEPS'), one(qg, 'GFS')].filter(Boolean);
       // the measured 850 hPa temperature of that hour (from 2026-11-07)
       let o = null;
@@ -638,7 +704,7 @@ const Meteogram = (() => {
 
       // what MODE-S Wind measured in that hour (from 2026-11-07 afternoon)
       const near = (arr, w, f = () => true) => { let b = null; for (const x of arr) if (f(x) && Math.abs(x[0] - ts) <= w && (!b || Math.abs(x[0] - ts) < Math.abs(b[0] - ts))) b = x; return b; };
-      const hh = x => { const h = new Date((x[0] - 1800) * 1000).getUTCHours(); return `${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')} UTC`; };
+      const hh = x => { const h = loc(x[0] - 1800).getUTCHours(); return `${TZ ? 'klo ' : ''}${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')}${TZ ? '' : ' UTC'}`; };
       const meas = [];
       if (o) meas.push(`850 hPa ${o[1] > 0 ? '+' : o[1] < 0 ? '−' : ''}${nf(Math.abs(o[1]), 1)} °C (${hh(o)}, ${o[2]} ${tr('values', 'arvoa')})`);
       const w8 = W850 ? near(O8W, 1800) : null;
@@ -651,14 +717,14 @@ const Meteogram = (() => {
       if (meas.length) parts.unshift(`<b>${tr('Measured', 'Mitattu')}</b> ${esc(meas.join(' · '))}`);
       const m = near(MET, 2100);
       if (m) {
-        const d = new Date(m[0] * 1000), sg = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+        const d = loc(m[0]), sg = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
         const mp = [];
         if (m[1] != null) mp.push(`${sg(m[1])}${m[2] != null ? ' / ' + sg(m[2]) : ''} °C`);
         if (m[4] != null) mp.push(m[4] === 0 ? tr('calm', 'tyyntä') : `${m[3] == null ? 'VRB' : String(m[3]).padStart(3, '0') + '°'} ${m[4]} kt${m[5] ? ' G' + m[5] : ''}`);
         if (m[6] != null) mp.push(`Q${Math.round(m[6])}`);
         if (m[7] != null) mp.push(m[7] >= 9999 ? tr('vis ≥10 km', 'näk. ≥10 km') : `${tr('vis', 'näk.')} ${m[7] >= 1000 ? nf(m[7] / 1000, 1) + ' km' : m[7] + ' m'}`);
         mp.push(m[8] != null ? `${tr('ceiling', 'pilvikatto')} ${fmtFt(m[8])} ft` : tr('no ceiling', 'ei pilvikattoa'));
-        parts.unshift(`<b>METAR</b> ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}: ${esc(mp.join(' · '))}`);
+        parts.unshift(`<b>METAR</b> ${TZ ? 'klo ' : ''}${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}: ${esc(mp.join(' · '))}`);
       }
       return head + ' · ' + (parts.length ? parts.join(C ? '<br>' : ' &nbsp;|&nbsp; ') : tr('no model hour', 'ei mallin tuntia'));
     }

@@ -24,6 +24,8 @@
  *          within it (/api/weather/gfs_skill) — and a line under the chart
  * FIN (from 2026-11-07): for a user with the FIN right (window.MG_LANG 'fi', app.html) the texts
  * of this view and the chart are in Finnish (decimal commas; times UTC).
+ * From 2026-11-11 (late evening) the Finnish version has an Aika option (#app-mg-tz; ms_app_mg_tz
+ * 'utc' | 'fi'): the chart's times in UTC or in Finnish time (meteogram.js opts.tz).
  * A tap or a drag on the chart gives the values of that hour above it.  The
  * choices are remembered on the phone (ms_app_mg_*).  app.js calls show / hide /
  * refresh (every 10 min while shown) / layout; openAt(lat, lon) is called by the
@@ -54,6 +56,7 @@
     panels: {},
     err: lsGet('ms_app_mg_err', 'true') !== 'false',
     t850: lsGet('ms_app_mg_t850', 'false') === 'true',     // the 850 hPa temperature (from 2026-11-07; off by default)
+    tz: lsGet('ms_app_mg_tz', 'utc'),                         // the chart's clock: utc / fi (the Finnish version; from 2026-11-11)
     wnum: lsGet('ms_app_mg_wnum', 'off'),                    // the wind values: off / kt / ms (from 2026-11-07 evening)
   };
   PANELS.forEach(k => { S.panels[k] = lsGet('ms_app_mg_' + k, ['pres', 'frz', 'cape'].includes(k) ? 'false' : 'true') !== 'false'; });
@@ -64,6 +67,7 @@
   let rxs = [];                                   // Meteogram.receivers()
 
   let on = false, seq = 0, chart = null, data = null, fetched = 0, skill = null;
+  const fiTime = () => FI && S.tz === 'fi' && !!$('app-mg-tz');
   const fmtLL = (lat, lon) => `${dc(Math.abs(lat).toFixed(2))}° ${lat >= 0 ? 'N' : 'S'} ${dc(Math.abs(lon).toFixed(2))}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
   const place = () => {
@@ -130,7 +134,7 @@
     chart = Meteogram.render($('amg-chart'), { meps: data.meps, gfs: data.gfs }, {
       compact: true, panels: Object.assign({}, S.panels), errBand: eb, t850: S.t850,
       obs: S.obs, lw: S.lw, sun: S.sun, dew: S.dew, w850: S.w850, wnum: S.wnum,
-      lang: FI ? 'fi' : 'en',
+      lang: FI ? 'fi' : 'en', tz: fiTime() ? 'fi' : 'utc',
       emptyText: err.length ? err.join(' · ') : tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.') });
     const runs = [];
     if (data.meps) runs.push(`${tr('MEPS run', 'MEPS-ajo')} ${runTxt(Math.max(...data.meps.runs))} — MET Norway, CC BY 4.0`);
@@ -138,7 +142,7 @@
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
     const sk = GFS && S.err ? skillLine() : '';
     $('amg-foot').textContent = (sk ? sk + ' · ' : '') + runs.join(' · ') + tr(' · times UTC · the model at the grid cell of the place, for viewing — for flight operations use the official forecasts (TAF, GAFOR).',
-      ' · ajat UTC · malli paikan hilaruudussa, vain katseluun — lentotoimintaan käytä virallisia ennusteita (TAF, GAFOR).');
+      (fiTime() ? ' · ajat Suomen aikaa (ajojen nimet UTC)' : ' · ajat UTC') + ' · malli paikan hilaruudussa, vain katseluun — lentotoimintaan käytä virallisia ennusteita (TAF, GAFOR).');
     const sub = $('app-sub');
     if (sub && on) sub.textContent = p.sub;
   }
@@ -188,6 +192,11 @@
     if (!['off', 'kt', 'ms'].includes(S.wnum)) S.wnum = 'off';
     wsel.value = S.wnum;
     wsel.addEventListener('change', () => { S.wnum = wsel.value; lsSet('ms_app_mg_wnum', wsel.value); if (on) draw(); });
+  }
+  const zsel = $('app-mg-tz');                     // the chart's clock (the Finnish version only)
+  if (zsel) {
+    zsel.value = S.tz === 'fi' ? 'fi' : 'utc';
+    zsel.addEventListener('change', () => { S.tz = zsel.value === 'fi' ? 'fi' : 'utc'; lsSet('ms_app_mg_tz', S.tz); if (on) draw(); });
   }
   syncChips();
   // the receiver sites (the place chosen before comes back once they are known)

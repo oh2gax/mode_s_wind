@@ -3,11 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version; FMI radar from FMI's new layer
+## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version; FMI radar from FMI's new layer; sun times in the 16-day Meteogram; Finnish time in the Finnish Meteogram
 
 - **Pilot · GNSS** — a new *Area* selector at the top of the tab: *Coverage*, *50 NM* or *20 NM* from the airport. It applies to the aircraft degraded now and to the bars of the last 24 hours. The default is 50 NM and your choice is remembered; *Coverage* is what the "now" count showed before.
 - **Phone app: new versions** — when a new version arrives while the app is open, a bar *New version available* appears at the bottom: tap *Reload*. You can also reload at any time from the menu: ☰ → General → *Reload*. Your view and options are kept. (Returning to the app after an update still reloads it by itself.)
 - **FMI radar** — FMI is renewing its open-data radar layers and removes the old ones this November. The radar on the Live Map's weather panel, the Weather page and the phone's Weather view is now read from FMI's new rain-rate composite, so it keeps working. It is a different product: quality-filtered by FMI, so it shows fewer echoes than before, and it reaches a little further (Stockholm and northernmost Lapland are inside).
+- **Meteogram: Sun on the long ranges** — with *Sun* (phone: *Sun times*) on, the sunrise and sunset are now shown at 16 days too. Where the days are too narrow for the day's title, the times get a row of their own under it; on the phone they are stacked on two short rows (☀↑ sunrise, ☀↓ sunset), at 16 days at every second day.
+- **Meteogrammi suomeksi: Suomen aika** — the Finnish Meteogram (users with the Finnish version) has a new *Aika* selector: *UTC* or *Suomen aika*. With Finnish time the days change at Finnish midnight, the day's highest and lowest temperature and rain total are for the Finnish day, and the sun times and the values under the pointer are in Finnish time. The names of the model runs stay in UTC. On the phone: ☰ → Meteogrammi → *Aika*.
 
 ## v.10112026 — A hodograph, a Calendar, a much richer Time–height graph with a model forecast, aircraft compared as sensors; a truer top for the surface inversion, inversions aloft up to 10 000 ft, and no wrong winds from aircraft that lost GPS
 
