@@ -36,7 +36,7 @@
  *                  under the 10 m barbs — the direction to 10° above, the speed (kt or m/s) below
  *   opts.lang     'fi' (from 2026-11-07; or window.MG_LANG — the users with the FIN right): the texts in
  *                  Finnish (weekdays, labels, legend, read-out; decimal commas); times stay UTC
- *   opts.tz       'fi' (from 2026-11-11 late evening; the Finnish version's Aika selector): Finnish
+ *   opts.tz       'fi' (from 2026-11-11 late evening; the Time / Aika selector of both versions): Finnish
  *                  time (Europe/Helsinki, +2 h or +3 h in summer time) in place of UTC — the day lines,
  *                  labels and hour ticks at Finnish midnight and hours, the day's highest / lowest and
  *                  precipitation total over the Finnish day, the sun times and the read-out's times
@@ -213,6 +213,8 @@ const Meteogram = (() => {
     const loc = ts => new Date((ts + off(ts)) * 1000);
     const dayStart = ts => { const m = Math.floor((ts + off(ts)) / DAY) * DAY; return m - off(m - off(ts)); };
     const hm = ts => hhmm(ts + off(ts));
+    // an hour's text with its clock: '11 UTC'; in Finnish time 'klo 13' (the Finnish texts) or '13 EET' / '13 EEST'
+    const clk = (s, ts) => (!TZ ? `${s} UTC` : LANG_FI ? `klo ${s}` : `${s} ${off(ts) >= 3 * HOUR ? 'EEST' : 'EET'}`);
     el.innerHTML = '';
     if (!prim) { el.innerHTML = `<div class="mg-empty">${esc(opts.emptyText || tr('No model hours for this place.', 'Tälle paikalle ei ole mallin tunteja.'))}</div>`; return { destroy() {} }; }
     const read = document.createElement('div');
@@ -695,8 +697,8 @@ const Meteogram = (() => {
     }
     function readText(ts) {
       const qm = nearest(SM, ts), qg = nearest(SG, ts), q = qm || qg;
-      const dt = loc(q ? q.ts : Math.round(ts / HOUR) * HOUR);
-      const head = `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${TZ ? 'klo ' : ''}${String(dt.getUTCHours()).padStart(2, '0')}${TZ ? '' : ' UTC'}</b>`;
+      const tsH = q ? q.ts : Math.round(ts / HOUR) * HOUR, dt = loc(tsH);
+      const head = `${wd(dt.getUTCDay())} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}. <b>${clk(String(dt.getUTCHours()).padStart(2, '0'), tsH)}</b>`;
       const parts = [one(qm, 'MEPS'), one(qg, 'GFS')].filter(Boolean);
       // the measured 850 hPa temperature of that hour (from 2026-11-07)
       let o = null;
@@ -704,7 +706,7 @@ const Meteogram = (() => {
 
       // what MODE-S Wind measured in that hour (from 2026-11-07 afternoon)
       const near = (arr, w, f = () => true) => { let b = null; for (const x of arr) if (f(x) && Math.abs(x[0] - ts) <= w && (!b || Math.abs(x[0] - ts) < Math.abs(b[0] - ts))) b = x; return b; };
-      const hh = x => { const h = loc(x[0] - 1800).getUTCHours(); return `${TZ ? 'klo ' : ''}${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')}${TZ ? '' : ' UTC'}`; };
+      const hh = x => { const h = loc(x[0] - 1800).getUTCHours(); return clk(`${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')}`, x[0] - 1800); };
       const meas = [];
       if (o) meas.push(`850 hPa ${o[1] > 0 ? '+' : o[1] < 0 ? '−' : ''}${nf(Math.abs(o[1]), 1)} °C (${hh(o)}, ${o[2]} ${tr('values', 'arvoa')})`);
       const w8 = W850 ? near(O8W, 1800) : null;
@@ -724,7 +726,8 @@ const Meteogram = (() => {
         if (m[6] != null) mp.push(`Q${Math.round(m[6])}`);
         if (m[7] != null) mp.push(m[7] >= 9999 ? tr('vis ≥10 km', 'näk. ≥10 km') : `${tr('vis', 'näk.')} ${m[7] >= 1000 ? nf(m[7] / 1000, 1) + ' km' : m[7] + ' m'}`);
         mp.push(m[8] != null ? `${tr('ceiling', 'pilvikatto')} ${fmtFt(m[8])} ft` : tr('no ceiling', 'ei pilvikattoa'));
-        parts.unshift(`<b>METAR</b> ${TZ ? 'klo ' : ''}${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}: ${esc(mp.join(' · '))}`);
+        const mt = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        parts.unshift(`<b>METAR</b> ${TZ ? clk(mt, m[0]) : mt}: ${esc(mp.join(' · '))}`);
       }
       return head + ' · ' + (parts.length ? parts.join(C ? '<br>' : ' &nbsp;|&nbsp; ') : tr('no model hour', 'ei mallin tuntia'));
     }

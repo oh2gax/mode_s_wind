@@ -21,7 +21,7 @@
  *          numbers under the 10 m barbs (meteogram.js opts.wnum)
  * FIN (from 2026-11-07): for a user with the FIN right (window.MG_LANG 'fi', weather.html) the
  * texts of this view, its controls and the chart are in Finnish (decimal commas; times UTC).
- * From 2026-11-11 (late evening) the Finnish version has an Aika selector (#wx-mg-tz; st.tz 'utc' |
+ * From 2026-11-11 (late evening) both versions have a Time / Aika selector (#wx-mg-tz; st.tz 'utc' |
  * 'fi'): the chart's times in UTC or in Finnish time (meteogram.js opts.tz); the runs' names stay UTC.
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
@@ -62,8 +62,8 @@ const WxMg = (() => {
     place = r ? rxPlace(r) : v === 'pin' && st.pin ? pinPlace() : APT;
   }
   let chart = null, run = 0, timer = 0, lastData = null, skillData = null;
-  // Finnish time in the chart (from 2026-11-11 late evening): the Finnish version's Aika selector only
-  const fiTime = () => FI && st.tz === 'fi' && !!$('wx-mg-tz');
+  // Finnish time in the chart (from 2026-11-11 late evening): the Time / Aika selector
+  const fiTime = () => st.tz === 'fi' && !!$('wx-mg-tz');
 
   const fmtLL = (lat, lon) => `${dc(Math.abs(lat).toFixed(2))}° ${lat >= 0 ? 'N' : 'S'} ${dc(Math.abs(lon).toFixed(2))}° ${lon >= 0 ? 'E' : 'W'}`;
   const runTxt = r => { const d = new Date(r * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${String(d.getUTCHours()).padStart(2, '0')} UTC`; };
@@ -155,7 +155,7 @@ const WxMg = (() => {
     if (data.meps) runs.push(`${tr('MEPS run', 'MEPS-ajo')} ${runTxt(Math.max(...data.meps.runs))}${data.meps.runs.length > 1 ? tr(' (the past hours from the earlier runs)', ' (menneet tunnit aiemmista ajoista)') : ''}${data.meps.cell.fine_grid ? tr(', the 2.5 km cell where that run has the hour', ', 2,5 km:n ruutu niiltä tunneilta, jotka ajossa on') : ''} — MET Norway, CC BY 4.0`);
     if (data.gfs) runs.push(`${tr('GFS run', 'GFS-ajo')} ${runTxt(Math.max(...data.gfs.runs))}${data.gfs.runs.length > 1 ? tr(' (partly the run before)', ' (osin edellinen ajo)') : ''}${tr(', hourly to +120 h then every 3 h — NOAA/NCEP; beyond a week a rough guide only', ', tunneittain +120 h asti, sitten 3 h välein — NOAA/NCEP; yli viikon päähän vain suuntaa antava')}`);
     if (err.length && (data.meps || data.gfs)) runs.push(err.join(' · '));
-    $('wx-mg-foot').textContent = runs.join(' · ') + tr(' · times UTC · the model at the grid cell of the place; for viewing', fiTime() ? ' · ajat Suomen aikaa (ajojen nimet UTC) · malli paikan hilaruudussa; vain katseluun' : ' · ajat UTC · malli paikan hilaruudussa; vain katseluun');
+    $('wx-mg-foot').textContent = runs.join(' · ') + tr(fiTime() ? ' · times in Finnish time (the runs\' names UTC) · the model at the grid cell of the place; for viewing' : ' · times UTC · the model at the grid cell of the place; for viewing', fiTime() ? ' · ajat Suomen aikaa (ajojen nimet UTC) · malli paikan hilaruudussa; vain katseluun' : ' · ajat UTC · malli paikan hilaruudussa; vain katseluun');
   }
 
   // ── how good the forecast has been at the airport (from 2026-11-06) ───────

@@ -149,7 +149,7 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.74
+version: 1.75
 date: 2026-11-11
 pages: 63
 
@@ -168,9 +168,9 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## Meteograms
 file: Meteogram_User_Guide.pdf
-version: 1.03
+version: 1.04
 date: 2026-11-11
-pages: 12
+pages: 13
 open: mg
 
 How to read the **meteograms** of the Weather page and the phone: the model weather of one place over the days, with what was measured next to it.
@@ -180,19 +180,20 @@ How to read the **meteograms** of the Weather page and the phone: the model weat
 - The panels one by one: **temperature** with the **850 hPa** temperature and the **dew point**, the **freezing level**, **precipitation**, **thunderstorm (CAPE)**, **wind** with barbs, **wind values** in kt or m/s, the **850 hPa wind** and the **landings' winds**, **pressure**, **clouds** with the cloud base / ceiling and visibility, the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
 - **What MODE-S Wind measures itself**: the aircraft's 850 hPa temperature and wind and the freezing level, the landings' winds and the METAR
 - The values of one hour, the **typical error** band and the forecast-check table — how far the forecast can be trusted, day by day
-- The meteograms **in Finnish** (FIN right) — from 11 Nov 2026 with a choice of UTC or **Finnish time** —, sensible reading, and the terms in English and Finnish
+- **UTC or Finnish time** (from 11 Nov 2026): the *Time* selector and what follows the Finnish clock
+- The meteograms **in Finnish** (FIN right), sensible reading, and the terms in English and Finnish
 - All figures with real data: the model runs and the forecast check of 6–7 Nov 2026
 
 ## Meteogrammit (suomeksi)
 file: Meteogram_User_Guide_FI.pdf
-version: 1.03
+version: 1.04
 date: 2026-11-11
 pages: 13
 open: mgfi
 
 The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: the same contents with the Finnish meteogram (FIN right) in the figures. The Weather page's meteogram opens it with **?** for the users with the FIN right.
 
-- Meteogrammin avaaminen ja ohjaimet, MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, suomenkielinen meteogrammi ja sen **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), järkevä lukeminen ja termit suomeksi ja englanniksi
+- Meteogrammin avaaminen ja ohjaimet, MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
