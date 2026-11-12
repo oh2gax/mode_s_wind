@@ -7,6 +7,23 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.12112026 — 2026-11-12 (Weather map: the fetched forecast hours are kept in memory — a switch of model, grid or layers no longer downloads them again)
+
+### Weather map: the fetched hours kept in memory
+- **Before:** the Weather page's map (and the phone's Weather view) held one set of model hours for the combination *model + grid + layers shown* and dropped it when any of them changed. MEPS → GFS → MEPS downloaded MEPS a second time; turning on Wind, Gust, Temperature or a cloud layer fetched every hour again with all its layers. (A longer range within one model already fetched only the new hours, and the slider downloads nothing.)
+- **Now** (`WxLayer.createStore` in `static/js/wx_layer.js`, used by `static/js/weather.js` and `static/js/app_wx.js`):
+  - the hours are kept in **sets, one per model and grid**; going to the other model or grid and back downloads nothing and shows at once. Every hour is still checked against the server's list, so a newer model run replaces it as before;
+  - a layer turned on fetches **only its own field** for the hours already loaded (e.g. `fields=u,v` in place of `fields=p,r,s,u,v`); turned off and on again it fetches nothing. The 2.5 km Detail box likewise, and it is kept over a model switch;
+  - **memory**: the set shown is always kept whole; the others share a budget — 12 million grid values on the Weather page (about 60 MB in Chrome), 4 million in the phone view (about 20 MB) — the set used last first. A set too large for the room left keeps the hours nearest the one it showed (a 10 km MEPS set with many layers: part of it is fetched again on return).
+- The buffer is the open page's memory: a reload or closing the tab starts empty. Nothing is stored on the disk; the server and its API are unchanged (it already answered requests for single fields).
+- The load strip under the slider shows an hour as loaded when it has every field of the layers now on. The phone view's megabytes are those downloaded into the hours shown.
+- Tested in a browser with the old and the new scripts side by side, 13 steps (open, MEPS ↔ GFS three times, Wind on / off / on, Gust and Temperature on, grid 10 km and back): **774 hour-downloads before, 357 after**, of which 156 bring only the new layers' fields; the phone view 11 steps (492 → 330) and the Detail box. The drawn map is identical to before at every step (pixel hash). The store itself: unit tests (missing fields, a newer run, hours without wind, the budget, shortening around the shown hour).
+
+### Documents
+- **Mobile guide 1.76**: *Kept hours* in the Weather view's Speed part; the status line's megabytes. 63 pages.
+
+---
+
 ## v.11112026 — 2026-11-11 (Pilot view: the GNSS counts for the coverage, 50 NM or 20 NM; the phone app tells of a new version and has a Reload button; the FMI radar read from FMI's new layer; the Meteogram's sun times on the long ranges too; the Meteogram in UTC or Finnish time)
 
 ### Pilot view: an area selector on the GNSS tab

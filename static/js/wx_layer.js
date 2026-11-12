@@ -64,6 +64,11 @@
  *    radar overlay, options, theme and view): showing one again is a single
  *    drawImage, and prerender(list) draws hours ahead into that cache while the
  *    page is idle.  0 (default) = no cache (the Live Map).
+ *
+ * The frame store (from 2026-11-12; WxLayer.createStore, at the end of the file): the
+ * fetched model hours of a Weather view kept in memory in sets, one per model and grid,
+ * within a budget — a switch to the other model or grid and back downloads nothing again,
+ * and a layer turned on fetches only its own field.
  */
 'use strict';
 
@@ -1369,5 +1374,126 @@ const WxLayer = (() => {
     return parts.join(' &nbsp;·&nbsp; ');
   }
 
-  return { create, legendHtml, barb, windDir, LCC, TM35, LATLON, gridKm, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C, WS_T, WS_C };
+  // ── The frame store (from 2026-11-12) ──────────────────────────────────
+  // The model hours a Weather view has fetched, kept in the page's memory in sets — one per
+  // model and grid (the page's key) — so that going to the other model or grid and back
+  // downloads nothing again, and so that a layer turned on fetches only its own field for
+  // the hours already there.
+  //   const store = WxLayer.createStore({ budget, activeMax });
+  //   const set = store.use(key)        the set shown from now on (made when new)
+  //   set.need(h, want[, noW])          h = [ts, run, lead, has wind] of the index, want = the
+  //                                      fields wanted: null = the hour is there with them all,
+  //                                      else the fields to ask for (the missing ones, or all of
+  //                                      them when the hour is not there or is of another run)
+  //   set.put(frame, asked)             a fetched frame and the fields that were asked for it:
+  //                                      added to the stored hour of the same run (a new object,
+  //                                      so the layer's pictures of the old one are not reused)
+  //   set.get(ts) · set.has(ts) · set.grid · set.setGrid(g) (another grid empties the set)
+  //   set.retain(tsList)                drop the hours not in the list (gone from the index)
+  //   set.prune(want)                   drop the fields not wanted now (when the set is large)
+  //   store.clear() · store.info()
+  //   set.at = ts                       (the page) the hour shown: what a shortened set keeps
+  // Memory: the set in use is always kept whole; the others share the budget (counted in grid
+  // values, 4–8 bytes each), the one used last first — a set that does not fit the room left
+  // keeps the hours nearest the one it showed and loses the rest.
+  // A set left is stripped of what the layer worked out for its frames (_gimg, _p, …).
+  function createStore(opts = {}) {
+    const BUDGET = opts.budget > 0 ? opts.budget : 12e6;
+    const ACTIVE_MAX = opts.activeMax > 0 ? opts.activeMax : 2 * BUDGET;
+    const sets = new Map();                                   // key → set
+    let cur = null, clock = 0;
+    const HEAD = new Set(['ts', 'run', 'lead', 'w', 'pi']);
+    const count = f => { let n = 0; for (const k in f) if (k[0] !== '_' && Array.isArray(f[k])) n += f[k].length; return n; };
+    const sameRun = (f, h, noW) => f.run === h[1] && f.lead === h[2] && (noW || (f.w || 0) === (h[3] || 0));
+    function makeSet(key) {
+      const e = new Map();                                    // ts → { f: frame, q: Set of fields asked, n: values }
+      const set = {
+        key, grid: null, n: 0, used: ++clock,
+        get(ts) { const o = e.get(ts); return o ? o.f : undefined; },
+        has(ts) { return e.has(ts); },
+        get size() { return e.size; },
+        setGrid(g) {
+          if (!g) return;
+          if (set.grid && JSON.stringify(g) !== JSON.stringify(set.grid)) { e.clear(); set.n = 0; }
+          set.grid = g;
+        },
+        need(h, want, noW) {
+          const o = e.get(h[0]);
+          if (!o || !sameRun(o.f, h, noW)) return want.slice();
+          const miss = want.filter(k => !o.q.has(k));
+          return miss.length ? miss : null;
+        },
+        put(f, asked) {
+          if (!f || f.ts == null) return;
+          const o = e.get(f.ts);
+          if (o && o.f.run === f.run && o.f.lead === f.lead) {
+            const m = {};
+            for (const k in o.f) if (k[0] !== '_') m[k] = o.f[k];
+            for (const k in f) m[k] = f[k];
+            const q = new Set(o.q); (asked || []).forEach(k => q.add(k));
+            const n = count(m);
+            set.n += n - o.n; e.set(f.ts, { f: m, q, n });
+          } else {
+            const n = count(f);
+            set.n += n - (o ? o.n : 0); e.set(f.ts, { f, q: new Set(asked || []), n });
+          }
+          trim();
+        },
+        // down to max values: the hours farthest from the one shown (set.at) go first
+        shrink(max) {
+          if (set.n <= max) return;
+          const at = set.at != null ? set.at : Math.min(...e.keys());
+          for (const ts of [...e.keys()].sort((a, c) => Math.abs(c - at) - Math.abs(a - at))) {
+            if (set.n <= max) break;
+            set.n -= e.get(ts).n; e.delete(ts);
+          }
+        },
+        retain(tsList) {
+          const keep = new Set(tsList);
+          for (const [ts, o] of e) if (!keep.has(ts)) { set.n -= o.n; e.delete(ts); }
+        },
+        prune(want) {
+          const keep = new Set(want);
+          for (const o of e.values()) {
+            let cut = false;
+            for (const k of Object.keys(o.f)) {
+              if (k[0] === '_') { delete o.f[k]; continue; }
+              if (!HEAD.has(k) && !keep.has(k)) { delete o.f[k]; o.q.delete(k); cut = true; }
+            }
+            if (cut) { const n = count(o.f); set.n += n - o.n; o.n = n; }
+          }
+        },
+        strip() { for (const o of e.values()) for (const k of Object.keys(o.f)) if (k[0] === '_') delete o.f[k]; },
+        clear() { e.clear(); set.n = 0; set.grid = null; },
+      };
+      return set;
+    }
+    // the sets not in use share the budget, the one used last first; what does not fit goes
+    function trim() {
+      let room = BUDGET;
+      const rest = [...sets.values()].filter(x => x !== cur).sort((a, b) => b.used - a.used);
+      for (const x of rest) {
+        if (x.n > room) x.shrink(room);
+        if (!x.size) { x.clear(); sets.delete(x.key); }
+        room = Math.max(0, room - x.n);
+      }
+    }
+    function use(key) {
+      let set = sets.get(key);
+      if (!set) { set = makeSet(key); sets.set(key, set); }
+      if (cur && cur !== set) cur.strip();
+      set.used = ++clock; cur = set;
+      trim();
+      return set;
+    }
+    return {
+      use,
+      get current() { return cur; },
+      activeMax: ACTIVE_MAX,
+      clear() { for (const x of sets.values()) x.clear(); sets.clear(); cur = null; },
+      info() { return { sets: [...sets.values()].map(x => ({ key: x.key, hours: x.size, values: x.n, used: x === cur })), values: [...sets.values()].reduce((t, x) => t + x.n, 0), budget: BUDGET }; },
+    };
+  }
+
+  return { create, createStore, legendHtml, barb, windDir, LCC, TM35, LATLON, gridKm, RAIN_T, RAIN_C, SNOW_C, CLOUD_NAME, GUST_T, GUST_C, WS_T, WS_C };
 })();

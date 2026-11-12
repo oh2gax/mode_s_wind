@@ -149,8 +149,8 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.75
-date: 2026-11-11
+version: 1.76
+date: 2026-11-12
 pages: 63
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.

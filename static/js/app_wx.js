@@ -63,7 +63,28 @@ window.AppWx = (() => {
   let borderSeq = 0;
   let C = null;               // from app.js: { $, lsGet, lsSet, esc, S (settings), sub(text) }
   let map = null, wx = null, tiles = null, tileTheme = null, atcLines = null, border = null, borderGeo = null;
-  let hours = [], view = [], grid = null, frames = new Map(), loadedKey = '', loadRun = 0, bytes = 0;
+  // The fetched hours (from 2026-11-12 in the frame store of wx_layer.js): kept in memory in
+  // sets, one per model and grid — a switch to the other model or grid and back downloads
+  // nothing again, and a layer turned on fetches only its own field.  The set shown is always
+  // kept, the others within about 15–30 MB (4 million grid values).  frames = the set shown
+  // (.get(ts), .grid, .bytes = what was downloaded into it).
+  const store = WxLayer.createStore({ budget: 4e6 });
+  let hours = [], view = [], frames = store.use('meps|2'), loadRun = 0;
+  const wantFields = () => fieldList().split(',');
+  // the status line's MB: what was downloaded into the set shown (0 when it came from memory), the box and the radar
+  let radarBytes = 0;
+  const bytesNow = () => (frames.bytes || 0) + (fineFrames.bytes || 0) + radarBytes;
+  // requests of up to CHUNK hours that ask for the same fields (need: [{h, miss}], nearest first)
+  function batchesOf(need) {
+    const out = [], open = new Map();
+    for (const o of need) {
+      const k = o.miss.join(',');
+      let b = open.get(k);
+      if (!b || b.o.length >= CHUNK) { b = { fields: k, o: [] }; open.set(k, b); out.push(b); }
+      b.o.push(o);
+    }
+    return out;
+  }
   let current = null, playing = false, playRun = 0, indexAt = 0, shown = false;
   let rxLayer = null;          // the receivers' triangles (rx_markers.js)
   let traffic = null, trafficAt = 0, trafficLayer = null, trails = {}, lblPos = {}, tip = null, tipMk = null;
@@ -72,8 +93,8 @@ window.AppWx = (() => {
   let ext = { key: null, data: null, timer: null }, lblRects = {};
   let radar = null, radarAt = 0, radarErr = '', radarOn = false;    // the FMI radar (Rain source)
   const FINE_ZOOM = 7;
-  let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = '', fineRun = 0, fineWas = false;
-  const fineFrames = new Map();                                     // the 2.5 km box (Detail)
+  let fineInfo = { hours: [], grid: null }, fineBox = null, fineRun = 0, fineWas = false;
+  const fineFrames = WxLayer.createStore().use('fine');             // the 2.5 km box (Detail): a set of the frame store
   const pad = n => String(n).padStart(2, '0');
   const nowTs = () => Math.floor(Date.now() / 1000);
   const isLight = () => document.documentElement.dataset.theme === 'light';
@@ -264,24 +285,23 @@ window.AppWx = (() => {
   // the hours of the box near the slider first; Load: Near the slider — only ±6 h
   async function loadFine() {
     if (!shown || !fineWanted()) return;
-    const fields = fieldList();
-    if (fineKey !== fields) { fineFrames.clear(); fineKey = fields; }
+    const want = wantFields();
+    if (fineFrames.n > store.activeMax) fineFrames.prune(want);
     const run = ++fineRun, cur = +$('app-wx-t').value, near = S().load === 'near';
     const have = new Map(fineInfo.hours.map(h => [h[0], h]));
     const need = view.map((h, i) => ({ h, i, fh: have.get(h[0]) }))
-      .filter(o => o.fh && (!near || Math.abs(o.i - cur) <= NEAR_H) &&
-                   !(fineFrames.get(o.h[0]) && fineFrames.get(o.h[0]).run === o.fh[1] && fineFrames.get(o.h[0]).lead === o.fh[2]))
+      .filter(o => o.fh && (!near || Math.abs(o.i - cur) <= NEAR_H))
+      .map(o => Object.assign(o, { miss: fineFrames.need(o.fh, want, true) })).filter(o => o.miss)
       .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-    for (let k = 0; k < need.length; k += CHUNK) {
+    for (const b of batchesOf(need)) {
       if (run !== fineRun || !shown || !fineWanted()) return;
-      const ts = need.slice(k, k + CHUNK).map(o => o.h[0]).sort((a, b) => a - b);
+      const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
       try {
-        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${fields}&fine=1`);
+        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${b.fields}&fine=1`);
         const txt = await r.text();
+        fineFrames.bytes = (fineFrames.bytes || 0) + (+(r.headers.get('content-length') || 0) || Math.round(txt.length / 3));
+        for (const f of JSON.parse(txt).frames || []) fineFrames.put(f, b.fields.split(','));
         if (run !== fineRun) return;
-        const n = +(r.headers.get('content-length') || 0) || Math.round(txt.length / 3);
-        bytes += n;
-        for (const f of JSON.parse(txt).frames || []) fineFrames.set(f.ts, f);
       } catch (_) { return; }
       const h = view[+$('app-wx-t').value];
       if (h && ts.includes(h[0])) showFrame(); else statusLine();
@@ -312,27 +332,34 @@ window.AppWx = (() => {
     showFrame();
     loadFine();
   }
-  const fresh = h => { const f = frames.get(h[0]); return f && f.run === h[1] && f.lead === h[2] && (f.w || 0) === (h[3] || 0); };
+  const fresh = h => !frames.need(h, wantFields());
   async function loadFrames() {
-    const step = isGfs() ? +S().ggrid || 2 : S().grid === '20' ? 2 : 1, fields = fieldList(), key = model() + '|' + step + '|' + fields;
-    if (loadedKey !== key) { frames.clear(); loadedKey = key; grid = null; }
+    const m = model(), mq = modelQs();
+    const step = isGfs() ? +S().ggrid || 2 : S().grid === '20' ? 2 : 1, want = wantFields(), key = m + '|' + step;
+    const changed = frames.key !== key;
+    if (changed) frames = store.use(key);               // the other sets stay in memory (within the budget)
+    const set = frames;
+    if (hours.length) set.retain(hours.map(h => h[0]));  // hours gone from the server's list
+    if (set.n > store.activeMax) set.prune(want);        // a very large set: only the fields shown now
     const run = ++loadRun, cur = +$('app-wx-t').value;
     const near = S().load === 'near';
-    const need = view.map((h, i) => ({ h, i }))
-      .filter(o => !fresh(o.h) && (!near || Math.abs(o.i - cur) <= NEAR_H))
+    // the hours not there, of another run, or without a field wanted now (then only that field)
+    const need = view.map((h, i) => ({ h, i, miss: set.need(h, want) }))
+      .filter(o => o.miss && (!near || Math.abs(o.i - cur) <= NEAR_H))
       .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-    for (let k = 0; k < need.length; k += CHUNK) {
+    if (changed) { drawStrip(); showFrame(); }
+    for (const b of batchesOf(need)) {
       if (run !== loadRun || !shown) return;
-      const ts = need.slice(k, k + CHUNK).map(o => o.h[0]).sort((a, b) => a - b);
+      const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
       try {
-        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${fields}&bbox=${BBOX.join(',')}${modelQs()}`);
+        const r = await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${b.fields}&bbox=${BBOX.join(',')}${mq}`);
         const txt = await r.text();
-        if (run !== loadRun || !key.startsWith(model() + '|')) return;
-        bytes += +(r.headers.get('content-length') || 0) || Math.round(txt.length / 3);
+        set.bytes = (set.bytes || 0) + (+(r.headers.get('content-length') || 0) || Math.round(txt.length / 3));
         const d = JSON.parse(txt);
-        if (d.grid && (!grid || JSON.stringify(d.grid) !== JSON.stringify(grid))) { if (grid) frames.clear(); grid = d.grid; }
-        for (const f of d.frames || []) frames.set(f.ts, f);
-      } catch (_) { status('Could not load the weather maps.'); return; }
+        set.setGrid(d.grid);                             // another grid empties the set
+        for (const f of d.frames || []) set.put(f, b.fields.split(','));
+        if (run !== loadRun) return;
+      } catch (_) { if (run === loadRun) status('Could not load the weather maps.'); return; }
       drawStrip();
       const h = view[+$('app-wx-t').value];
       if (h && ts.includes(h[0])) showFrame();
@@ -415,6 +442,7 @@ window.AppWx = (() => {
     const fcTxt = fcH() > 48 ? `${fcH() / 24} d` : `${fcH()} h`;
     C.sub(isGfs() ? `GFS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC · ${S().ggrid === '1' ? '0.25' : '0.5'}° · −${pastH()} h … +${fcTxt}`
                   : `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad(r.getUTCHours())} UTC · ${S().grid} km · −${PAST_H} … +${S().fc} h`);
+    frames.at = h[0];                                  // the frame store: the hour a shortened set keeps
     const f = frames.get(h[0]);
     if (!f) { statusLine('loading this hour…'); return; }
     current = f;
@@ -425,7 +453,7 @@ window.AppWx = (() => {
     const ff = fineWanted() ? fineFrames.get(h[0]) : null, hadFine = wx.fineShown();
     wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
     if (hadFine !== wx.fineShown()) renderLegend();
-    wx.setFrame(on && S().src === 'radar' ? (f._noRain || (f._noRain = Object.assign({}, f, { r: null, s: null }))) : f, grid);   // one copy per hour (the picture cache knows it again)
+    wx.setFrame(on && S().src === 'radar' ? (f._noRain || (f._noRain = Object.assign({}, f, { r: null, s: null }))) : f, frames.grid);   // one copy per hour (the picture cache knows it again)
     prefetchDraw();
     if (on) { const t = new Date(radar.ts * 1000); $('app-wx-rel').innerHTML = `now · <span class="rd">radar ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}</span>`; }
     if (tip && tip.ll && !tip.ac) showTip(tip.ll);
@@ -478,8 +506,8 @@ window.AppWx = (() => {
     if (isGfs()) {
       const pi = current && current.pi > 1 ? current.pi : 1;
       if (!radarOn) rain = pi > 1 ? `rain / snow the mean of the ${pi} h before the shown time` : 'rain of the hour before the shown time';
-      status(`${tr}${rd}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · GFS NOAA/NCEP — beyond a week a rough guide only`);
-    } else status(`${tr}${rd}${fn}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytes / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
+      status(`${tr}${rd}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytesNow() / 1e6).toFixed(1)} MB · ${rain} · GFS NOAA/NCEP — beyond a week a rough guide only`);
+    } else status(`${tr}${rd}${fn}${extra ? extra + ' · ' : ''}${n} / ${view.length} hours loaded · ${(bytesNow() / 1e6).toFixed(1)} MB · ${rain} · MET Norway, CC BY 4.0`);
     $('app-wx-loading').hidden = n >= view.length || !view.length || S().load === 'near';
     $('app-wx-loading').textContent = `Loading ${n} / ${view.length} hours…`;
   }
@@ -604,7 +632,7 @@ window.AppWx = (() => {
     try {
       const r = await fetch('/api/radar/latest', { cache: 'no-store' });
       d = await r.json();
-      bytes += +(r.headers.get('content-length') || 0);
+      radarBytes += +(r.headers.get('content-length') || 0);
     } catch (_) { d = null; }
     if (d && d.ts && d.grid) {
       if (!radar || radar.ts !== d.ts) radar = { ts: d.ts, rs: d.rs, cov: d.cov, grid: d.grid, km: d.km };
@@ -759,11 +787,12 @@ window.AppWx = (() => {
       if (key !== 'rain' && key !== 'pres' && (key !== 'tnum' || S().temp === 'off')) { loadFrames(); loadFine(); }
       else showFrame();
     } else if (key === 'fc' || key === 'gfc') buildView();
-    else if (key === 'grid' || key === 'ggrid') { bytes = 0; loadFrames(); }
+    else if (key === 'grid' || key === 'ggrid') loadFrames();
     else if (key === 'model') {                            // MEPS ↔ GFS (from 2026-11-05): the shown hour kept if the other has it
       if (playing) play();
       const keep = view[+$('app-wx-t').value]?.[0] ?? null;
-      hours = []; frames.clear(); loadedKey = ''; grid = null; fineFrames.clear(); fineKey = ''; bytes = 0;
+      // the other model's hours stay in the frame store (from 2026-11-12); running loads stop
+      hours = []; loadRun++; fineRun++;
       wx.setFine(null, null, true);
       setModelAttr(); wx.setOptions(layerOptions()); renderLegend();
       loadIndex(false, keep);

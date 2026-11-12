@@ -181,10 +181,27 @@ function fieldList() {
 // ── Data ──────────────────────────────────────────────────────────────────
 let hours = [];            // [[ts, run, lead, has wind]] stored
 let view = [];             // the hours of the slider
-let grid = null;           // {x:[x0,dx,nx], y:[y0,dy,ny]} of the loaded frames
-const frames = new Map();  // ts → frame (for the current step and fields)
-let loadedKey = null;
+// The fetched hours (from 2026-11-12 in the frame store of wx_layer.js): kept in memory in
+// sets, one per model and grid, so a switch to the other model or grid and back downloads
+// nothing again, and a layer turned on fetches only its own field for the hours already
+// there.  The set shown is always kept; the others within about 50–100 MB (12 million grid
+// values), the one used longest ago going first.  frames = the set of the model and grid
+// shown (.get(ts), .has(ts), .grid = {x:[x0,dx,nx], y:[y0,dy,ny]}).
+const store = WxLayer.createStore({ budget: 12e6 });
+let frames = store.use('meps|2');
 let loadRun = 0;
+const wantFields = () => fieldList().split(',');
+// requests of up to 12 hours that ask for the same fields (need: [{h, miss}], nearest first)
+function batchesOf(need) {
+  const out = [], open = new Map();
+  for (const o of need) {
+    const k = o.miss.join(',');
+    let b = open.get(k);
+    if (!b || b.o.length >= 12) { b = { fields: k, o: [] }; open.set(k, b); out.push(b); }
+    b.o.push(o);
+  }
+  return out;
+}
 
 async function loadIndex(keepTs = null) {
   const m = model();
@@ -205,8 +222,8 @@ let indexErr = null;
 // map zoomed to FINE_ZOOM or closer and the box in view; an hour of the box
 // is used only with the same run as the 10 km hour.
 const FINE_ZOOM = 7;
-let fineInfo = { hours: [], grid: null }, fineBox = null, fineKey = null, fineRun = 0;
-const fineFrames = new Map();
+let fineInfo = { hours: [], grid: null }, fineBox = null, fineRun = 0;
+const fineFrames = WxLayer.createStore().use('fine');   // the box's hours (a set of the frame store, from 2026-11-12)
 function fineBounds() {
   const g = fineInfo.grid;
   if (!g) return null;
@@ -223,20 +240,21 @@ function fineWanted() {
 }
 async function loadFine() {
   if (!fineWanted()) return;
-  const fields = fieldList();
-  if (fineKey !== fields) { fineFrames.clear(); fineKey = fields; }
+  const want = wantFields();
+  if (fineFrames.n > store.activeMax) fineFrames.prune(want);
   const run = ++fineRun, cur = parseInt($('wx-t').value, 10);
   const have = new Map(fineInfo.hours.map(h => [h[0], h]));
   const need = view.map((h, i) => ({ h, i, fh: have.get(h[0]) }))
-    .filter(o => o.fh && !(fineFrames.get(o.h[0]) && fineFrames.get(o.h[0]).run === o.fh[1] && fineFrames.get(o.h[0]).lead === o.fh[2]))
+    .map(o => Object.assign(o, { miss: o.fh ? fineFrames.need(o.fh, want, true) : null }))
+    .filter(o => o.miss)
     .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-  for (let k = 0; k < need.length; k += 12) {
+  for (const b of batchesOf(need)) {
     if (run !== fineRun || !fineWanted()) return;
-    const ts = need.slice(k, k + 12).map(o => o.h[0]).sort((a, b) => a - b);
+    const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
     try {
-      const d = await (await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${fields}&fine=1`)).json();
+      const d = await (await fetch(`/api/weather/frames?ts=${ts.join(',')}&fields=${b.fields}&fine=1`)).json();
+      for (const f of d.frames || []) fineFrames.put(f, b.fields.split(','));
       if (run !== fineRun) return;
-      for (const f of d.frames || []) fineFrames.set(f.ts, f);
     } catch (e) { console.error('Weather 2.5 km frames:', e); return; }
     const shown = view[parseInt($('wx-t').value, 10)];
     if (shown && ts.includes(shown[0])) showFrame();
@@ -277,29 +295,31 @@ function presentIndex() {
 }
 
 async function loadFrames() {
-  const step = parseInt($(isGfs() ? 'wx-gstep' : 'wx-step').value, 10), fields = fieldList();
-  const key = model() + '|' + step + '|' + fields;
-  if (loadedKey !== key) { frames.clear(); loadedKey = key; grid = null; }
+  const m = model(), mq = modelQs();
+  const step = parseInt($(isGfs() ? 'wx-gstep' : 'wx-step').value, 10), want = wantFields();
+  const key = m + '|' + step;
+  const changed = frames.key !== key;
+  if (changed) frames = store.use(key);               // the other sets stay in memory (within the budget)
+  const set = frames;
+  if (hours.length) set.retain(hours.map(h => h[0]));  // hours gone from the server's list
+  if (set.n > store.activeMax) set.prune(want);        // a very large set: only the fields shown now
   const run = ++loadRun;
   const cur = parseInt($('wx-t').value, 10);
-  const need = view.map((h, i) => ({ h, i })).filter(o => {
-    const f = frames.get(o.h[0]);
-    return !f || f.run !== o.h[1] || f.lead !== o.h[2] || (f.w || 0) !== (o.h[3] || 0);
-  }).sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-  for (let k = 0; k < need.length; k += 12) {
+  // the hours not there, of another run, or without a field wanted now (then only that field)
+  const need = view.map((h, i) => ({ h, i, miss: set.need(h, want) })).filter(o => o.miss)
+    .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
+  if (changed) { drawLoadStrip(); showFrame(); }
+  for (const b of batchesOf(need)) {
     if (run !== loadRun) return;
-    const ts = need.slice(k, k + 12).map(o => o.h[0]).sort((a, b) => a - b);
+    const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
     try {
-      const d = await (await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${fields}${modelQs()}`)).json();
+      const d = await (await fetch(`/api/weather/frames?ts=${ts.join(',')}&step=${step}&fields=${b.fields}${mq}`)).json();
+      set.setGrid(d.grid);                             // another grid empties the set
+      for (const f of d.frames || []) set.put(f, b.fields.split(','));
       if (run !== loadRun) return;
-      if (d.grid && (!grid || JSON.stringify(d.grid) !== JSON.stringify(grid))) {
-        if (grid) frames.clear();
-        grid = d.grid;
-      }
-      for (const f of d.frames || []) frames.set(f.ts, f);
     } catch (e) {
       console.error('Weather frames:', e);
-      $('wx-status').textContent = 'Error loading the weather maps.';
+      if (run === loadRun) $('wx-status').textContent = 'Error loading the weather maps.';
       return;
     }
     drawLoadStrip();
@@ -313,10 +333,9 @@ function drawLoadStrip() {
   if (!view.length) { el.classList.add('wm-hidden'); return; }
   el.classList.remove('wm-hidden');
   if (el.children.length !== view.length) el.innerHTML = '<i></i>'.repeat(view.length);
-  const now = nowTs();
+  const now = nowTs(), want = wantFields();
   view.forEach((h, i) => {
-    const f = frames.get(h[0]);
-    el.children[i].className = (f && f.run === h[1] && f.lead === h[2] && (f.w || 0) === (h[3] || 0) ? 'ok' : '') + (h[0] > now ? ' fc' : '');
+    el.children[i].className = (frames.need(h, want) ? '' : 'ok') + (h[0] > now ? ' fc' : '');
   });
 }
 
@@ -360,12 +379,13 @@ function showFrame() {
     showPoint();
     return;
   }
+  frames.at = h[0];                                    // the frame store: the hour a shortened set keeps
   const f = frames.get(h[0]);
   if (!f) { $('wx-status').textContent = 'Loading…'; showPoint(); return; }
   current = f;
   const ff = fineWanted() ? fineFrames.get(h[0]) : null;
   wx.setFine(ff && ff.run === f.run ? ff : null, fineInfo.grid, true);
-  wx.setFrame(f, grid);
+  wx.setFrame(f, frames.grid);
   prefetchDraw();
   // hours stored before 24 Oct 2026 have no wind / gust
   const noWind = ($('wx-wind').value !== 'off' && !f.u) || ($('wx-gust').checked && !f.g);
@@ -392,13 +412,13 @@ function statusLine(f, noWind = false, noTemp = false) {
     $('wx-status').textContent =
       `GFS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${f.lead} h` +
       ` · rain / snow ${pi > 1 ? `the mean of the ${pi} h` : 'of the hour'} ${pad2((t.getUTCHours() + 24 - pi) % 24)}–${pad2(t.getUTCHours())} UTC` +
-      ` · grid ${grid ? grid.x[1] : '—'}° · ${loaded} / ${view.length} hours loaded · NOAA/NCEP · global model, beyond a week a rough guide only; for viewing`;
+      ` · grid ${frames.grid ? frames.grid.x[1] : '—'}° · ${loaded} / ${view.length} hours loaded · NOAA/NCEP · global model, beyond a week a rough guide only; for viewing`;
     return;
   }
   $('wx-status').textContent =
     `MEPS ${r.getUTCDate()}.${r.getUTCMonth() + 1}. ${pad2(r.getUTCHours())} UTC run +${f.lead} h` +
     ` · rain / snow of the hour ${pad2((t.getUTCHours() + 23) % 24)}–${pad2(t.getUTCHours())} UTC` +
-    ` · grid ${grid ? Math.round(grid.x[1] / 1000) : '—'} km${wx.fineShown() ? ' (2.5 km near the airport)' : ''} · ${loaded} / ${view.length} hours loaded · MET Norway, CC BY 4.0` +
+    ` · grid ${frames.grid ? Math.round(frames.grid.x[1] / 1000) : '—'} km${wx.fineShown() ? ' (2.5 km near the airport)' : ''} · ${loaded} / ${view.length} hours loaded · MET Norway, CC BY 4.0` +
     (noWind ? ' · no wind stored for this hour (wind from 24 Oct 2026)' : '') +
     (noTemp ? ' · no temperature stored for this hour (from the runs fetched after 1 Nov 2026)' : '');
 }
@@ -607,8 +627,8 @@ if ($('wx-model')) $('wx-model').addEventListener('change', () => {
   saveSettings();
   if (playing) play();
   const shown = view[parseInt($('wx-t').value, 10)];
-  hours = []; view = []; frames.clear(); loadedKey = null; grid = null; current = null;
-  fineFrames.clear(); fineKey = null;
+  // the other model's hours stay in the frame store (from 2026-11-12); running loads stop
+  hours = []; view = []; current = null; loadRun++; fineRun++;
   modelUi(); wx.setOptions(layerOptions()); renderLegend();
   $('wx-status').textContent = 'Loading…';
   loadIndex(shown ? shown[0] : null).catch(e => { console.error(e); $('wx-status').textContent = 'Error loading the weather map index.'; });

@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.12112026 — Weather map: switching model, grid or layers no longer downloads the forecast again
+
+- **Weather map (page and phone)** — the forecast hours you have loaded now stay in the page's memory. Go from MEPS to GFS and back, or from the 20 km grid to 10 km and back, and the hours are there at once without a new download. Turning on a layer (wind, gust, temperature, clouds) fetches only that layer for the hours already loaded. A reload of the page starts empty again; a very large set (10 km grid with many layers) may be fetched partly again.
+
 ## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version; FMI radar from FMI's new layer; sun times in the 16-day Meteogram; the Meteogram in UTC or Finnish time
 
 - **Pilot · GNSS** — a new *Area* selector at the top of the tab: *Coverage*, *50 NM* or *20 NM* from the airport. It applies to the aircraft degraded now and to the bars of the last 24 hours. The default is 50 NM and your choice is remembered; *Coverage* is what the "now" count showed before.
