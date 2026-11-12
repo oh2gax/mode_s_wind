@@ -356,6 +356,17 @@ const WxLayer = (() => {
     }
     map.on('zoomstart', () => { canvas.style.visibility = 'hidden'; });
     map.on('zoomend moveend resize', () => { canvas.style.visibility = ''; place(); });
+    // A map without a size (a page opened in a hidden pane or tab, a container not laid out yet;
+    // from 2026-11-12): nothing is drawn — a canvas of no size cannot be drawn from, and the
+    // error stopped the page's loading of the hours — and when the container gets a size the map
+    // is measured again, which places the canvas and draws the hour set meanwhile.
+    const noSize = () => !shownCanvas.width || !shownCanvas.height;
+    if (window.ResizeObserver) {
+      new ResizeObserver(() => {
+        const c = map.getContainer();
+        if (noSize() && c.clientWidth > 0 && c.clientHeight > 0) map.invalidateSize({ animate: false, pan: false });
+      }).observe(map.getContainer());
+    }
 
     function setGrid(g) {
       const k = JSON.stringify(g);
@@ -425,6 +436,7 @@ const WxLayer = (() => {
 
     function draw() {
       draftShown = false;
+      if (noSize()) { drawn = []; return; }                   // (drawn when the map gets a size: place())
       if (CACHE_N) {
         picsFor(viewKey());
         const key = picKey(frame, fine), hit = pics.get(key);
@@ -448,7 +460,7 @@ const WxLayer = (() => {
     // page calls this when idle; ov: the radar overlay of that hour, null = none, left out =
     // the one shown); returns how many were drawn.  Only with opts.cache.
     function prerender(list) {
-      if (!CACHE_N || draft || !list || !list.length || shownCanvas.style.display === 'none') return 0;
+      if (!CACHE_N || draft || !list || !list.length || shownCanvas.style.display === 'none' || noSize()) return 0;
       picsFor(viewKey());
       let n = 0;
       for (const it of list) {
@@ -475,6 +487,7 @@ const WxLayer = (() => {
       const hasF = frame && geo, hasO = ov && ovGeo;
       drawn = [];
       if (!hasF && !hasO) return;
+      if (!canvas.width || !canvas.height || !off.width || !off.height) return;   // no size: nothing to draw into
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const T = theme();
       const P = ll => map.latLngToContainerPoint(ll);

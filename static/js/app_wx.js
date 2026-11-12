@@ -304,7 +304,7 @@ window.AppWx = (() => {
         if (run !== fineRun) return;
       } catch (_) { return; }
       const h = view[+$('app-wx-t').value];
-      if (h && ts.includes(h[0])) showFrame(); else statusLine();
+      if (h && ts.includes(h[0])) showFrameSafe(); else statusLine();
     }
   }
   function presentIndex() {
@@ -329,7 +329,7 @@ window.AppWx = (() => {
     ticks();
     drawStrip();
     loadFrames();
-    showFrame();
+    showFrameSafe();
     loadFine();
   }
   const fresh = h => !frames.need(h, wantFields());
@@ -347,7 +347,7 @@ window.AppWx = (() => {
     const need = view.map((h, i) => ({ h, i, miss: set.need(h, want) }))
       .filter(o => o.miss && (!near || Math.abs(o.i - cur) <= NEAR_H))
       .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-    if (changed) { drawStrip(); showFrame(); }
+    if (changed) { drawStrip(); showFrameSafe(); }
     for (const b of batchesOf(need)) {
       if (run !== loadRun || !shown) return;
       const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
@@ -362,7 +362,7 @@ window.AppWx = (() => {
       } catch (_) { if (run === loadRun) status('Could not load the weather maps.'); return; }
       drawStrip();
       const h = view[+$('app-wx-t').value];
-      if (h && ts.includes(h[0])) showFrame();
+      if (h && ts.includes(h[0])) showFrameSafe();
       else statusLine();
     }
   }
@@ -421,6 +421,8 @@ window.AppWx = (() => {
     };
     idle(step);
   }
+  // a drawing error must not stop the loading of the hours (from 2026-11-12)
+  function showFrameSafe() { try { showFrame(); } catch (e) { console.error('Weather map drawing:', e); } }
   function showFrame() {
     const el = $('app-wx-t'), k = +el.value, h = view[k];
     stepButtons(k);

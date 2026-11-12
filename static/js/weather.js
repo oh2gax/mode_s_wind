@@ -258,7 +258,7 @@ async function loadFine() {
       if (run !== fineRun) return;
     } catch (e) { console.error('Weather 2.5 km frames:', e); return; }
     const shown = view[parseInt($('wx-t').value, 10)];
-    if (shown && ts.includes(shown[0])) showFrame();
+    if (shown && ts.includes(shown[0])) showFrameSafe();
   }
 }
 // a redraw only when the detail comes or goes (the layer redraws itself on a move)
@@ -285,7 +285,7 @@ function buildView(keepTs = null) {
   el.value = Math.max(0, k);
   drawLoadStrip();
   loadFrames();
-  showFrame();
+  showFrameSafe();
   loadFine();
 }
 function presentIndex() {
@@ -309,7 +309,7 @@ async function loadFrames() {
   // the hours not there, of another run, or without a field wanted now (then only that field)
   const need = view.map((h, i) => ({ h, i, miss: set.need(h, want) })).filter(o => o.miss)
     .sort((a, b) => Math.abs(a.i - cur) - Math.abs(b.i - cur));
-  if (changed) { drawLoadStrip(); showFrame(); }
+  if (changed) { drawLoadStrip(); showFrameSafe(); }
   for (const b of batchesOf(need)) {
     if (run !== loadRun) return;
     const ts = b.o.map(o => o.h[0]).sort((a, c) => a - c);
@@ -325,7 +325,7 @@ async function loadFrames() {
     }
     drawLoadStrip();
     const shown = view[parseInt($('wx-t').value, 10)];
-    if (shown && ts.includes(shown[0])) showFrame();
+    if (shown && ts.includes(shown[0])) showFrameSafe();
   }
 }
 
@@ -367,6 +367,8 @@ function prefetchDraw() {
   };
   idle(step);
 }
+// a drawing error must not stop the loading of the hours (from 2026-11-12)
+function showFrameSafe() { try { showFrame(); } catch (e) { console.error('Weather map drawing:', e); } }
 function showFrame() {
   stepButtons();
   const k = parseInt($('wx-t').value, 10);
