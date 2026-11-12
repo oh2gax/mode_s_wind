@@ -16,6 +16,7 @@ It communicates with Flask via two shared objects:
 """
 
 import logging
+import math
 import time
 import threading
 from collections import deque
@@ -247,6 +248,78 @@ def gnss_gated(typ, nacp, nacp_ts, ts: float, types) -> bool:
     return ts - nacp_ts <= GNSS_GATE_NACP_AGE_SEC and nacp < GNSS_GATE_NACP
 
 
+# The own-wind check (from 2026-11-12).  Now and then one BDS 5,0 or 6,0 reply
+# carries values that are not the aircraft's own state of that moment — a ground
+# speed of 472 kt between replies of 294 and 322 kt, a heading 31° off for one
+# reply — and the wind computed from it is far from everything around it:
+# 248 kt at FL380 where the same aircraft had 31–36 kt seconds before and after
+# (11 Nov 2026).  Such winds pass the speed limits.  In the 890 000 stored winds
+# of 13 Oct – 12 Nov 2026, 141 (18 in 100 000) were more than 50 kt from the
+# aircraft's own winds before and after, which agreed with each other.
+# A wind more than WIND_JUMP_KT (config, default 60 kt; 0 = off) from the median
+# of the aircraft's own last winds (at most five, of the last
+# WIND_JUMP_REF_SEC, at least two) is not used.  A real change — rare at this
+# size within seconds — is accepted with its second wind: a later pair made of
+# two newer replies that agrees with the held one within half the limit, at
+# most WIND_JUMP_CONFIRM_SEC after it.  Two reference winds that disagree by
+# more than the limit are no reference.  On the stored winds the rule (run on
+# the sparser stored rows) held 134: 112 of the 141 above and 22 others, 18 of
+# them the first wind of a real change.  The winds of the GNSS gate are not
+# judged and do not enter the reference.
+WIND_JUMP_KT_DEFAULT = 60.0
+WIND_JUMP_REF_SEC = 120.0
+WIND_JUMP_CONFIRM_SEC = 90.0
+_WJ: dict = {}        # icao → {"key", "bad", "acc": [(t, u, v)], "pend": (t, u, v) | None, "t"}
+
+
+def wind_jump_suspect(icao: str, wind: dict, limit_kt: float, state: dict | None = None,
+                      count: list | None = None) -> bool:
+    """True when the wind of this BDS 5,0 / 6,0 pair is not to be used (see
+    above).  The same pair comes again with every message of the aircraft until
+    a new reply arrives: it gets the same answer, and count[0] grows only with
+    a new pair that is held."""
+    state = _WJ if state is None else state
+    t_old = wind.get("wind_ts")
+    spd, wdir = wind.get("wind_spd"), wind.get("wind_dir")
+    if limit_kt <= 0 or t_old is None or spd is None or wdir is None:
+        return False
+    t = wind.get("pair_ts") or t_old
+    key = (t_old, t)
+    e = state.get(icao)
+    if e is None:
+        e = state[icao] = {"key": None, "bad": False, "acc": [], "pend": None, "t": t}
+    if key == e["key"]:
+        return e["bad"]
+    e["key"], e["t"] = key, t
+    u = -spd * math.sin(math.radians(wdir))
+    v = -spd * math.cos(math.radians(wdir))
+    ref = [a for a in e["acc"][-5:] if 0 <= t - a[0] <= WIND_JUMP_REF_SEC]
+    ok = len(ref) < 2 or (len(ref) == 2 and math.hypot(ref[0][1] - ref[1][1], ref[0][2] - ref[1][2]) > limit_kt)
+    if not ok:                                    # (two winds that disagree are no reference)
+        us, vs = sorted(a[1] for a in ref), sorted(a[2] for a in ref)
+        n = len(ref)
+        mu = us[n // 2] if n % 2 else (us[n // 2 - 1] + us[n // 2]) / 2
+        mv = vs[n // 2] if n % 2 else (vs[n // 2 - 1] + vs[n // 2]) / 2
+        ok = math.hypot(u - mu, v - mv) <= limit_kt
+    if ok:
+        e["acc"] = e["acc"][-7:] + [(t, u, v)]
+        e["pend"], e["bad"] = None, False
+        return False
+    pend = e["pend"]
+    if pend is not None and t - pend[0] <= WIND_JUMP_CONFIRM_SEC \
+            and math.hypot(u - pend[1], v - pend[2]) <= limit_kt / 2:
+        if t_old > pend[0]:                       # both replies newer than the held pair's: a real change
+            e["acc"] = [pend, (t, u, v)]
+            e["pend"], e["bad"] = None, False
+            return False
+    else:
+        e["pend"] = (t, u, v)                     # (a pair sharing a reply with the held one leaves it)
+    e["bad"] = True
+    if count is not None:
+        count[0] += 1
+    return True
+
+
 # The wind speed limit (from 2026-11-10): tested on the wind after the heading
 # correction, WIND_MAX_SPEED_KT (150 kt) below WIND_MAX_HIGH_FT and
 # WIND_MAX_SPEED_HIGH_KT (250 kt) from there up.  Until then 150 kt at all
@@ -372,8 +445,13 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
         for samples in (_BDS50_SAMPLES, _BDS60_SAMPLES, _VEL_SAMPLES):
             for icao in [k for k, dq in samples.items() if not dq or dq[-1][0] < cutoff]:
                 del samples[icao]
-        for icao in [k for k, e in _SQ.items() if e[1] < cutoff - ID_REF_SEC]:
-            del _SQ[icao]
+        # (list(…) first: the collector thread adds entries to these two meanwhile)
+        for icao, e in list(_SQ.items()):
+            if e[1] < cutoff - ID_REF_SEC:
+                _SQ.pop(icao, None)
+        for icao, e in list(_WJ.items()):
+            if e["t"] < cutoff - WIND_JUMP_REF_SEC:
+                _WJ.pop(icao, None)
         if _RX_MASK:                              # kept as long as the samples could be read
             mcut = cutoff - 600
             for k in [k for k in _RX_MASK if k[1] < mcut]:
@@ -437,6 +515,7 @@ def _try_pair_wind(icao: str, ts: float, cfg: Config,
         # bands, Live Map aircraft profile) skip it when it is older than
         # WIND_MAX_AGE_SEC.
         wind["wind_ts"] = min(ts50, ts60)
+        wind["pair_ts"] = max(ts50, ts60)           # the newer reply (own-wind check)
     return wind
 
 
@@ -624,6 +703,8 @@ def run_collector(
     lim_ft = float(getattr(cfg, "WIND_MAX_HIGH_FT", WIND_MAX_HIGH_FT_DEFAULT))
     gate_types = frozenset(str(t).upper() for t in
                            (getattr(cfg, "GNSS_GATE_TYPES", GNSS_GATE_TYPES_DEFAULT) or ()))
+    # The own-wind check (from 2026-11-12)
+    jump_kt = float(getattr(cfg, "WIND_JUMP_KT", WIND_JUMP_KT_DEFAULT) or 0.0)
     # Dense pressure-altitude / GNSS − baro series per visit (height_series)
     hseries = HeightSeries(enabled=bool(getattr(cfg, "HEIGHT_SERIES", True)))
     # Message statistics of the Statistics page (collector/msg_stats.py, RAM only)
@@ -673,6 +754,7 @@ def run_collector(
             alt_rej = alt_rej_other = alt_rej_nb = 0   # AP replies dropped by the altitude check
             id_rej = 0                                 # DF5 / DF21 dropped by the identity check
             gate_n, gate_ac = 0, set()                 # winds not used by the GNSS gate
+            jump_n, jump_ac = [0], set()               # … and by the own-wind check (pairs, aircraft)
             for msg_hex, ts in source:
                 msg_count += 1
                 wall = time.time()                   # message time check (TS_MAX_AGE_SEC)
@@ -814,6 +896,12 @@ def run_collector(
                     gate_ac.add(icao)
                     if _hc is not None:
                         _hc.note_gated(_typ)
+                elif wind and jump_kt > 0 and wind_jump_suspect(icao, wind, jump_kt, count=jump_n):
+                    # Own-wind check (from 2026-11-12): far from the aircraft's own winds
+                    # of the last minutes — one reply with foreign values; nothing of the
+                    # pair is used (no wind, no Mach/TAS temperature, no calibration sample)
+                    jump_ac.add(icao)
+                    wind = None
                 elif wind and _hc is not None and _hc.enabled:
                     try:
                         wind.update(_hc.process(icao, ts, wind, _pos_lat, _pos_lon,
@@ -1080,6 +1168,11 @@ def run_collector(
                                  "(%d wind(s); GNSS degraded, type without inertial reference)",
                                  STATS_LOG_SEC // 60, len(gate_ac), gate_n)
                         gate_n, gate_ac = 0, set()
+                    if jump_n[0]:
+                        log.info("Own-wind check in the last %d min: %d wind(s) of %d aircraft not used "
+                                 "(more than %.0f kt from the aircraft's own winds)",
+                                 STATS_LOG_SEC // 60, jump_n[0], len(jump_ac), jump_kt)
+                        jump_n, jump_ac = [0], set()
                     stats_count = msg_count
                     stats_next = now_s + STATS_LOG_SEC
 

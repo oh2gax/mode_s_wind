@@ -229,6 +229,17 @@ def _fetch(url: str, cons: str, timeout: float = 120.0, tries: int = TRIES) -> d
     raise RuntimeError("unreachable")
 
 
+def _why(exc) -> str:
+    """A failed request in a few words for the log: "HTTP 500", "timed out", …"""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}"
+    reason = getattr(exc, "reason", None)
+    txt = str(reason if reason is not None else exc).strip() or type(exc).__name__
+    if "timed out" in txt.lower() or isinstance(exc, TimeoutError):
+        return "timed out"
+    return f"{type(exc).__name__}: {txt}"[:70]
+
+
 # ── Table ───────────────────────────────────────────────────────────────────
 
 def ensure_table(db) -> None:
@@ -443,7 +454,10 @@ class MepsFetcher:
 
     def forecast_due(self, db, now: float):
         """The newest run whose forecast profile is not stored yet (of the last
-        three runs; a run not yet published is tried again later), or None."""
+        three runs), or None.  Only a run whose pressure-level hours are already
+        stored is asked (from 2026-11-12): the forecast comes from the same file,
+        so a run that is not there yet — or that the server cannot serve — gets
+        no extra request; a failed request is tried again later."""
         if not self.forecast:
             return None
         ensure_table(db)
@@ -453,6 +467,8 @@ class MepsFetcher:
             r = newest - k * RUN_STEP_H * 3600
             if r <= have:
                 return None
+            if db.execute("SELECT 1 FROM meps_hours WHERE run = ? LIMIT 1", (r,)).fetchone() is None:
+                continue
             seen = self.missing.get(("fc", r))
             if seen is None or now - seen >= RETRY_RECENT_SEC:
                 return r
@@ -904,9 +920,17 @@ class MepsFetcher:
         n_runs = 0
         rows = {"pl": 0, "ml": 0, "map": 0, "wx": 0}
         errors = []
+        detail = []                                  # every failed request, for the log (from 2026-11-12)
+
+        def failed(kd: str, r: int, exc, t0: float) -> None:
+            errors.append(f"{kd} {exc}")
+            detail.append(f"{kd} {time.strftime('%d.%m. %H UTC', time.gmtime(r))} {_why(exc)} "
+                          f"({time.time() - t0:.0f} s)")
+
         for r, kinds in self.due_runs(db, now, span)[:MAX_PER_CYCLE]:
             done = False
             for kd in kinds:
+                t0 = time.time()
                 try:
                     rows[kd] += self.fetch_run(db, r, kd)
                     self.missing.pop((kd, r), None)
@@ -915,18 +939,19 @@ class MepsFetcher:
                         self.newest_run = max(self.newest_run or 0, r)
                 except urllib.error.HTTPError as exc:
                     if exc.code not in (400, 404):           # 400 / 404: not (yet) published
-                        errors.append(f"{kd} {exc}")
+                        failed(kd, r, exc, t0)
                     self.missing[(kd, r)] = now
                 except Exception as exc:                     # noqa: BLE001  (after the retries)
-                    errors.append(f"{kd} {exc}")
+                    failed(kd, r, exc, t0)
                     self.missing[(kd, r)] = now
             n_runs += done
             time.sleep(1.0)
         fc_rows = 0
-        while True:                                  # the newest published run's forecast profile
+        while True:                                  # the newest stored run's forecast profile
             r = self.forecast_due(db, now)
             if r is None:
                 break
+            t0 = time.time()
             try:
                 fc_rows = self.fetch_forecast(db, r)
                 self.missing.pop(("fc", r), None)
@@ -934,10 +959,10 @@ class MepsFetcher:
                 break
             except urllib.error.HTTPError as exc:
                 if exc.code not in (400, 404):
-                    errors.append(f"fc {exc}")
+                    failed("fc", r, exc, t0)
                 self.missing[("fc", r)] = now
             except Exception as exc:                     # noqa: BLE001
-                errors.append(f"fc {exc}")
+                failed("fc", r, exc, t0)
                 self.missing[("fc", r)] = now
         txt = f"{n_runs} run(s), {rows['pl']} hour(s) stored" + \
               (f", {rows['ml']} model-level hour(s)" if self.model_levels else "") + \
@@ -946,7 +971,10 @@ class MepsFetcher:
               (f", {fc_rows} forecast-profile hour(s)" if fc_rows else "")
         if errors:
             txt += f"; failed: {errors[-1]}"
-            log.warning("MEPS fetch: %d request(s) failed, last: %s", len(errors), errors[-1])
+            # each request with its run, the server's answer and the time it took (three
+            # attempts with their pauses): "pl 12.11. 03 UTC HTTP 500 (46 s)"
+            log.warning("MEPS fetch: %d request(s) failed — %s", len(errors),
+                        "; ".join(detail[:12]) + (f"; … {len(detail) - 12} more" if len(detail) > 12 else ""))
         self.last = (time.time(), txt)
         return n_runs
 

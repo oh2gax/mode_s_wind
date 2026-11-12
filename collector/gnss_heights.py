@@ -61,7 +61,26 @@ geoid at the receiver subtracted when read):
         read side: thickness (virtual) temperature
             Tv = g0 · ΔH / (R · ln(p1 / p2))
         with H the geopotential height — independent of the Mach / TAS
-        temperatures, and the per-airframe offset cancels
+        temperatures, and the per-airframe offset cancels.
+        The slope of the pressure surfaces (from 2026-11-12, cells v4): the
+        aircraft crosses the two edges at different places (14 / 20 / 25 km
+        apart in the median for 1–5 / 5–10 / 10–15 thousand ft), so the two
+        heights differ also by the slope of the pressure surface times that
+        distance — with the geostrophic relation
+            Δz = (f / g) · (v · Δx − u · Δy)
+        ((Δx, Δy) east / north from the lower to the upper crossing, (u, v)
+        the wind of the layer).  30 kt across 20 km is 4 m, 0.7 K in a
+        5 000 ft layer, and (Δx, Δy) points away from the airport for climbs
+        and descents alike, so it does not average out: it was the "drift"
+        of the thickness temperature against the MEPS model (+0.6…+0.9 K at
+        5–15 thousand ft on 3–9 Nov 2026, −0.2…0.0 K on 10–12 Nov after the
+        flow turned).  Each row carries (Δx, Δy) in km and Δz in m, computed
+        with the hour's own area wind (profile_hours; the hour before while
+        the hour is in progress) — no model; the read side subtracts Δz.
+        Tested on 6 083 layer crossings of 3–12 Nov 2026: aircraft − MEPS
+        against the predicted Δz, regression slope 0.96 / 1.17 / 1.23 and
+        r 0.24 / 0.57 / 0.68; hourly SD against MEPS 0.44 / 0.57 / 0.63 →
+        0.33 / 0.33 / 0.35 K.
 Rows are stored STORE_DELAY_H hours after the hour (a visit is only written
 when the aircraft has left), newer hours are computed when asked for.
 
@@ -104,8 +123,12 @@ CELLS_VERSION = 3               # sonde cells older than this are computed again
 THK_LAYERS = [(0, 5000), (5000, 10000), (10000, 15000), (15000, 20000), (20000, 25000),
               (25000, 30000), (30000, 35000), (35000, 40000), (10000, 30000),
               (1000, 5000)]             # 1 000 ft: crossed whatever the QNH (moisture indicator)
-CELLS_V = 3                     # gnss_hours cells: 2 = with 1 000–5 000 ft and the climb / descent flag,
-                                # 3 = heights above mean sea level (EGM96 geoid removed, "g": 1)
+CELLS_V = 4                     # gnss_hours cells: 2 = with 1 000–5 000 ft and the climb / descent flag,
+                                # 3 = heights above mean sea level (EGM96 geoid removed, "g": 1),
+                                # 4 = thickness rows with the slope of the pressure surface (2026-11-12)
+OMEGA = 7.2921159e-5            # Earth's rotation, rad/s (Coriolis parameter of the slope term)
+SLOPE_MIN_COVER = 0.5           # the layer's wind: at least this share of its 1 000 ft levels
+SLOPE_WIND_BACK_H = 3           # … from the hour itself or at most this many hours before
 THK_EDGE_FT = 300               # rows within ± this of a layer edge give its height
 THK_MAX_SEC = 1500              # both edges within 25 min
 STORE_DELAY_H = 4               # gnss_hours rows written this long after the hour
@@ -417,9 +440,9 @@ def _geoid_cells(d: dict) -> dict:
 # ── hourly raw cells ────────────────────────────────────────────────────────
 
 def _edge(D: dict, ft: float):
-    """(height m above mean sea level of pressure altitude ft, time) at a
-    single crossing, from the rows within ±THK_EDGE_FT with a difference and
-    NACp ≥ 8; the EGM96 geoid at the crossing is removed."""
+    """(height m above mean sea level of pressure altitude ft, time, lat, lon)
+    at a single crossing, from the rows within ±THK_EDGE_FT with a difference
+    and NACp ≥ 8; the EGM96 geoid at the crossing is removed."""
     idx = [i for i, a in enumerate(D["alt"])
            if a is not None and abs(a - ft) <= THK_EDGE_FT and D["gmb"][i] is not None
            and (D["nacp"][i] or 0) >= MIN_NACP]
@@ -436,14 +459,55 @@ def _edge(D: dict, ft: float):
             return None
         j = min(near, key=lambda i: abs(D["t"][i] - tm))
         pos = [(D["lat"][j], D["lon"][j])]
-    n_ = undulation(sum(p[0] for p in pos) / len(pos), sum(p[1] for p in pos) / len(pos))
-    return (ft + sum(D["gmb"][i] for i in idx) / len(idx)) * FT - n_, sum(ts) / len(ts)
+    la, lo = sum(p[0] for p in pos) / len(pos), sum(p[1] for p in pos) / len(pos)
+    return (ft + sum(D["gmb"][i] for i in idx) / len(idx)) * FT - undulation(la, lo), sum(ts) / len(ts), la, lo
+
+
+def layer_winds(db, h: int) -> dict:
+    """{layer bottom ft: (u, v) m/s} — the area wind of the hour h from its
+    stored profile (profile_hours), or of the nearest of the SLOPE_WIND_BACK_H
+    hours before it (the hour in progress has no stored profile yet)."""
+    try:
+        rows = dict(db.execute("SELECT ts, data FROM profile_hours WHERE ts > ? AND ts <= ?",
+                               (h - (SLOPE_WIND_BACK_H + 1) * 3600, h)).fetchall())
+    except Exception:                                    # noqa: BLE001  (table missing)
+        return {}
+    for ts in sorted(rows, reverse=True):
+        try:
+            out = {}
+            for r in json.loads(rows[ts]).get("lv") or []:
+                if len(r) > 6 and r[5] is not None and r[6] is not None:
+                    sp, d = r[6] * 0.514444, math.radians(r[5])
+                    out[r[0]] = (-sp * math.sin(d), -sp * math.cos(d))
+            if out:
+                return out
+        except (ValueError, TypeError, IndexError):
+            continue
+    return {}
+
+
+def slope_dz(winds: dict, lo_ft: float, hi_ft: float, dx_km: float, dy_km: float, lat: float):
+    """The height difference (m) the slope of the pressure surface adds to a
+    thickness measured between two places: (f / g) · (v · Δx − u · Δy), with
+    (Δx, Δy) km east / north from the lower to the upper crossing and (u, v)
+    the mean wind of the layer's levels.  None when the wind covers less than
+    SLOPE_MIN_COVER of the layer."""
+    ws = [w for a, w in winds.items() if lo_ft <= a < hi_ft]
+    n_lv = sum(1 for a in LAYER_EDGES[:-1] if lo_ft <= a < hi_ft)
+    if not ws or len(ws) < SLOPE_MIN_COVER * n_lv:
+        return None
+    u = sum(w[0] for w in ws) / len(ws)
+    v = sum(w[1] for w in ws) / len(ws)
+    f = 2 * OMEGA * math.sin(math.radians(lat))
+    return f / G0 * (v * dx_km - u * dy_km) * 1000.0
 
 
 def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
     """Raw cells of the hour [h, h + 3600): see the module docstring.
     {"d": [[layer bottom, icao, mean gmb ft, mean alt ft, replies], …],
-     "tk": [[lo, hi, icao, z_lo m, z_hi m, mid time, +1 climb / −1 descent], …],
+     "tk": [[lo, hi, icao, z_lo m, z_hi m, mid time, +1 climb / −1 descent,
+             Δx km, Δy km (east / north from the lower to the upper crossing),
+             Δz m of the pressure surface's slope over that distance or None], …],
      "v": CELLS_V, "g": 1} — gmb and the heights above mean sea level (the
     EGM96 geoid at each position removed); cells without "g" still contain it."""
     from collector.height_series import decode
@@ -471,6 +535,7 @@ def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
             (h, h + 3600)).fetchall()
     except Exception:                                    # noqa: BLE001  (table missing)
         blobs = []
+    winds = layer_winds(db, h) if blobs else {}
     for icao, blob in blobs:
         try:
             D = decode(blob)
@@ -488,8 +553,13 @@ def hour_cells(db, h: int, lat: float, lon: float, radius_km: float) -> dict:
             la, lo = D["lat"][j], D["lon"][j]
             if la is None or lo is None or _km(la, lo, lat, lon) > radius_km:
                 continue
+            mla = (a[2] + b[2]) / 2
+            dx = (b[3] - a[3]) * 111.32 * math.cos(math.radians(mla))
+            dy = (b[2] - a[2]) * 110.57
+            dz = slope_dz(winds, lo_ft, hi_ft, dx, dy, mla)
             tk.append([lo_ft, hi_ft, icao, round(a[0], 1), round(b[0], 1), round(mid),
-                       1 if b[1] > a[1] else -1])
+                       1 if b[1] > a[1] else -1, round(dx, 1), round(dy, 1),
+                       round(dz, 2) if dz is not None else None])
     return {"d": d, "tk": tk, "v": CELLS_V, "g": 1}
 
 
@@ -527,7 +597,8 @@ def _upgrade_cells(db, lat: float, lon: float, radius_km: float) -> int:
     computed again while their data still exist — the observations (D-value
     cells) and, for hours that had thickness rows, the height_series (v2:
     the 1 000–5 000 ft layer and the climb / descent flag; v3: the geoid
-    removed).  Older hours keep their cells; the read side allows for them.
+    removed; v4: the slope of the pressure surface in the thickness rows).
+    Older hours keep their cells; the read side allows for them.
     One commit."""
     global _upgraded
     if _upgraded:
@@ -560,6 +631,11 @@ def _upgrade_cells(db, lat: float, lon: float, radius_km: float) -> int:
     if rows:
         db.executemany("UPDATE gnss_hours SET data = ? WHERE ts = ?", rows)
         db.commit()
+        try:                                             # offsets learnt from the old cells: learn again
+            from collector import moisture as _mo
+            _mo._cache.update(key=None, t=0.0, val=None)
+        except Exception:                                # noqa: BLE001
+            pass
     return len(rows)
 
 
@@ -623,6 +699,13 @@ def _layer_temp_k(lv_temps: dict, lo_ft: float, hi_ft: float):
     return num / den if den >= 0.8 * full else None
 
 
+def tk_slope(row: list) -> float:
+    """Δz (m) of a thickness row: the part of its height difference that is the
+    slope of the pressure surface between the two crossings (0 for rows stored
+    before cells v4 and where the hour had no wind)."""
+    return row[9] if len(row) > 9 and row[9] is not None else 0.0
+
+
 def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float, lon: float | None = None):
     """(dv, tk) of one hour from its raw cells (cells stored before the geoid
     was removed: the geoid at (lat, lon) subtracted from their D-values):
@@ -650,9 +733,10 @@ def column_products(cells: dict, cal: dict, lv_temps: dict, lat: float, lon: flo
         dv.append([lo_ft, round(med, 1), round(sd, 1), len(v)])
     tk = []
     by_thk: dict = {}
-    for lo_ft, hi_ft, icao, z1, z2, *_ in cells.get("tk") or []:
+    for r in cells.get("tk") or []:
+        lo_ft, hi_ft, icao, z1, z2 = r[:5]
         z1c = z1 - correction(cal, lo_ft, icao)
-        z2c = z2 - correction(cal, hi_ft, icao)
+        z2c = z2 - correction(cal, hi_ft, icao) - tk_slope(r)
         dH = geopotential(z2c, lat) - geopotential(z1c, lat)
         tv = G0 * dH / (R_D * math.log(isa_pressure(lo_ft) / isa_pressure(hi_ft))) - 273.15
         by_thk.setdefault((lo_ft, hi_ft), []).append(tv)

@@ -64,6 +64,20 @@ layer): the bias against the sondes went from +11 / +1 / +13 to +0 / +2 / −6
 points (1–5k / 5–10k / 10–15k ft); the scatter (RMS 30 / 50 / 63) is not
 changed by any offset — that is the noise of the method itself.
 
+The slope of the pressure surfaces (from 2026-11-12)
+----------------------------------------------------
+The aircraft's Tv − T drifted against the model by up to 1.6 K over days —
+far more than the moisture signal.  The cause: the two edges of a layer are
+crossed 14–25 km apart, and the thickness then includes the slope of the
+pressure surface over that distance (see collector/gnss_heights.py, "tk"):
+with 30 kt across the track 0.7–1 K, with the same sign for climbs and
+descents, changing when the flow turns.  The thickness rows now carry that
+term, computed with the hour's own area wind, and it is subtracted here.  On
+3–12 Nov 2026 the hourly difference from MEPS fell from SD 0.44 / 0.57 / 0.63
+to 0.33 / 0.33 / 0.35 K and the step of 10 Nov (−0.5 / −0.9 / −0.9 K) to
+−0.1 / −0.2 / 0.0 K.  The noise that is left is still above the moisture
+signal (SD 0.06–0.12 K in those days): the bias is gone, the skill is not there.
+
 Read only, pure Python.  An experiment: to be tuned with more weather.
 """
 
@@ -138,7 +152,9 @@ def flight_values(cells: dict, cal: dict, lv_temps: dict, lat: float) -> dict:
         if tref is None:
             continue
         z1c = z1 - gh.correction(cal, lo_ft, icao)
-        z2c = z2 - gh.correction(cal, hi_ft, icao)
+        # … less the slope of the pressure surface between the two crossings (from
+        # 2026-11-12, gnss_heights cells v4): it was the "drift" of this indicator
+        z2c = z2 - gh.correction(cal, hi_ft, icao) - gh.tk_slope(r)
         dH = gh.geopotential(z2c, lat) - gh.geopotential(z1c, lat)
         tv = gh.G0 * dH / (gh.R_D * math.log(gh.isa_pressure(lo_ft) / gh.isa_pressure(hi_ft)))
         out.setdefault(lo_ft, []).append((tv - tref, mid, dr))

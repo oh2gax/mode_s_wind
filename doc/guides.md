@@ -80,10 +80,10 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.13
-date: 2026-11-10
-pages: 57
-open: sounding, windmap@43
+version: 3.14
+date: 2026-11-12
+pages: 58
+open: sounding, windmap@44
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
 
@@ -91,9 +91,10 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 - The **Time–height section**: temperature anomaly, wind, vertical motion, vorticity, heights of the pressure surfaces, tropopause and max-wind lines, the airport's **boundary layer** (low-level jet and surface inversion, also as an overlay; and **flight by flight** — the headwind of every landing and departure, its change against the flights before it and its vertical shear) — and the **Moisture (trial)** indicator, with its offsets from the MEPS model and the check through the front of 23–24 October
 - **Sonde check**: how well the aircraft profile agrees with the Jokioinen radiosonde, and the GNSS height calibration
 - **MEPS check**: the aircraft against the MEPS weather model every hour, and how much of the difference to the sonde is the distance to Jokioinen; the MEPS profile on the Skew-T on the model's own levels, the comparison at the aircraft's own positions, and the **upper-level temperature correction** learnt from it
+- **New in 3.14**: the **slope of the pressure surfaces** taken out of the thickness temperature and the Moisture (trial) — why both drifted with the weather, with a sketch and a before / after figure
 - **New in 3.12**: the **hodograph** beside the level table; in the Time–height section the fields *wind direction*, *wind turning with height*, *Mode S − MEPS*, *data coverage* and *boundary-layer turbulence*, the **isentropes**, the METAR cloud base, the **MEPS forecast** to the right of now, the **average day** and the runway / weather / GNSS strips; and the **Calendar** view — weeks at a glance, one row per day
 - **Mast** (new in 3.11): the Kivenlahti mast's 10-minute temperatures and winds of the lowest 300 m against the aircraft, MEPS and the sonde — tiles, profile, time series and comparison — and the mast in the time–height section and on the Skew-T, with the night inversion of 3–4 November 2026
-- The **Wind Map** (Section 9): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider
+- The **Wind Map** (Section 10): cells and averaging, ΔT, isotachs and streamlines, jet stream, height contours and geostrophic wind, the MEPS model at the level, cross-section, compare modes (also Mode S − MEPS) and the time slider
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf

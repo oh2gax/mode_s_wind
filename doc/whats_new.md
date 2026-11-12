@@ -3,9 +3,12 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.12112026 — Weather map: switching model, grid or layers no longer downloads the forecast again
+## v.12112026 — Weather map: switching model, grid or layers no longer downloads the forecast again; the thickness temperature and the Moisture trial corrected for the slope of the pressure surfaces; rare wrong winds removed
 
 - **Weather map (page and phone)** — the forecast hours you have loaded now stay in the page's memory. Go from MEPS to GFS and back, or from the 20 km grid to 10 km and back, and the hours are there at once without a new download. Turning on a layer (wind, gust, temperature, clouds) fetches only that layer for the hours already loaded. A reload of the page starts empty again; only a very large set (the 10 km grid with *Past* 3 or 7 days and several layers) is fetched partly again.
+- **Thickness temperature and Moisture (trial)** — both had a slow error that followed the weather: up to 1–2 K too warm or too cold for days, depending on the direction of the wind. The cause was found: an aircraft crosses the bottom and the top of a layer 14–25 km apart, and the pressure surfaces slope between those two places. That slope is now taken out with the aircraft's own winds, also for the past hours (they are recomputed within an hour or so after the update). The *Thickness temperature check* field of the Time–height section is steadier, and the Moisture (trial) no longer reads far too dry or too humid for days — but it is still a trial with a lot of noise; the MEPS line in the RH strip remains the better guide. The Sounding guide (3.14) explains it with a sketch and a before / after figure.
+- **Winds: rare wrong values removed** — now and then a single reply from an aircraft carried a wrong speed or heading, which gave one wildly wrong wind (for example 248 kt between winds of 31–36 kt). A wind far from the same aircraft's own winds of the last two minutes is now left out. About 15–18 winds in 100 000 were affected.
+- **Pilot reports** — an icing or turbulence layer reported top first (*FL080/FL050*) is now shown the right way round (5 000–8 000 ft).
 
 ## v.11112026 — Pilot view: GNSS counts for the whole coverage, 50 NM or 20 NM; the phone app tells you of a new version; FMI radar from FMI's new layer; sun times in the 16-day Meteogram; the Meteogram in UTC or Finnish time
 

@@ -275,7 +275,7 @@ def parse_pilot_report(text: str, ts: int, apt: tuple | None = None, near_nm: fl
         lon = int(pos.group(5)) + int(pos.group(6) or 0) / 60
         rec["lat"] = round(-lat if pos.group(1) == "S" else lat, 4)
         rec["lon"] = round(-lon if pos.group(4) == "W" else lon, 4)
-    # heights (ft): "FL140/160", "SFC/FL080", "FL060/FL080", "1500FT", "SFC/2000FT"
+    # heights (ft): "FL140/160", "SFC/FL080", "FL060/FL080", "FL080/FL050", "1500FT", "SFC/2000FT"
     fl = _FL_RE.search(raw)
     ft = _FT_RE.search(raw)
     if ft and (not fl or ft.start() < fl.start()):
@@ -286,8 +286,10 @@ def parse_pilot_report(text: str, ts: int, apt: tuple | None = None, near_nm: fl
             rec["lo_ft"] = rec["hi_ft"] = int(ft.group(3))
     elif fl:
         if fl.group(2):
-            rec["lo_ft"] = int(fl.group(1)) * 100 if fl.group(1) else 0
-            rec["hi_ft"] = int(fl.group(2)) * 100
+            # the top may come first ("FL080/FL050", from 2026-11-12: stored as 8000–5000 ft
+            # until then, and "near" was missed when the top was above 10 000 ft)
+            a, b = (int(fl.group(1)) * 100 if fl.group(1) else 0), int(fl.group(2)) * 100
+            rec["lo_ft"], rec["hi_ft"] = min(a, b), max(a, b)
         else:
             rec["lo_ft"] = rec["hi_ft"] = int(fl.group(3)) * 100
     o = _OBS_RE.search(raw)
