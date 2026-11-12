@@ -1391,27 +1391,67 @@ const WxLayer = (() => {
   //   set.get(ts) · set.has(ts) · set.grid · set.setGrid(g) (another grid empties the set)
   //   set.retain(tsList)                drop the hours not in the list (gone from the index)
   //   set.prune(want)                   drop the fields not wanted now (when the set is large)
-  //   store.clear() · store.info()
   //   set.at = ts                       (the page) the hour shown: what a shortened set keeps
-  // Memory: the set in use is always kept whole; the others share the budget (counted in grid
-  // values, 4–8 bytes each), the one used last first — a set that does not fit the room left
-  // keeps the hours nearest the one it showed and loses the rest.
-  // A set left is stripped of what the layer worked out for its frames (_gimg, _p, …).
+  //   store.clear() · store.info()
+  // Memory: the set in use is always kept whole, as the plain arrays the layer draws from
+  // (5–8 bytes a value).  A set left is packed a moment later — its fields into 16-bit arrays
+  // (2 bytes a value; the server's values are 16-bit integers, a missing one −32768), without
+  // what the layer worked out for its frames (_gimg, _p, …) — and its hours are unpacked one
+  // by one when they are shown again.  The sets not in use share the budget (counted in grid
+  // values), the one used last first; a set that does not fit the room left keeps the hours
+  // nearest the one it showed and loses the rest.  A frame handed out is never changed: packing
+  // and unpacking make a new object.
   function createStore(opts = {}) {
-    const BUDGET = opts.budget > 0 ? opts.budget : 12e6;
-    const ACTIVE_MAX = opts.activeMax > 0 ? opts.activeMax : 2 * BUDGET;
+    const BUDGET = opts.budget > 0 ? opts.budget : 40e6;
+    const ACTIVE_MAX = opts.activeMax > 0 ? opts.activeMax : 30e6;
     const sets = new Map();                                   // key → set
     let cur = null, clock = 0;
     const HEAD = new Set(['ts', 'run', 'lead', 'w', 'pi']);
-    const count = f => { let n = 0; for (const k in f) if (k[0] !== '_' && Array.isArray(f[k])) n += f[k].length; return n; };
+    const NONE = -32768;
+    const isArr = v => Array.isArray(v) || v instanceof Int16Array;
+    const count = f => { let n = 0; for (const k in f) if (k[0] !== '_' && isArr(f[k])) n += f[k].length; return n; };
     const sameRun = (f, h, noW) => f.run === h[1] && f.lead === h[2] && (noW || (f.w || 0) === (h[3] || 0));
+    // a field as 16-bit integers, or null when it has something else (then it stays as it is)
+    function pack16(a) {
+      const z = new Int16Array(a.length);
+      for (let i = 0; i < a.length; i++) {
+        const v = a[i];
+        if (v == null) z[i] = NONE;
+        else if (Number.isInteger(v) && v > NONE && v <= 32767) z[i] = v;
+        else return null;
+      }
+      return z;
+    }
+    function unpack16(z) {
+      const a = new Array(z.length);
+      for (let i = 0; i < z.length; i++) a[i] = z[i] === NONE ? null : z[i];
+      return a;
+    }
+    function packEntry(o) {
+      const m = {};
+      for (const k in o.f) {
+        if (k[0] === '_') continue;
+        const v = o.f[k];
+        m[k] = Array.isArray(v) ? (pack16(v) || v) : v;
+      }
+      o.f = m; o.z = true;
+    }
+    function plain(o) {                                       // the entry's frame as plain arrays
+      if (o.z) {
+        const m = {};
+        for (const k in o.f) m[k] = o.f[k] instanceof Int16Array ? unpack16(o.f[k]) : o.f[k];
+        o.f = m; o.z = false;
+      }
+      return o.f;
+    }
     function makeSet(key) {
-      const e = new Map();                                    // ts → { f: frame, q: Set of fields asked, n: values }
+      const e = new Map();                                    // ts → { f: frame, q: Set of fields asked, n: values, z: packed }
       const set = {
-        key, grid: null, n: 0, used: ++clock,
-        get(ts) { const o = e.get(ts); return o ? o.f : undefined; },
+        key, grid: null, n: 0, used: ++clock, packing: false,
+        get(ts) { const o = e.get(ts); return o ? plain(o) : undefined; },
         has(ts) { return e.has(ts); },
         get size() { return e.size; },
+        get packed() { let n = 0; for (const o of e.values()) if (o.z) n++; return n; },
         setGrid(g) {
           if (!g) return;
           if (set.grid && JSON.stringify(g) !== JSON.stringify(set.grid)) { e.clear(); set.n = 0; }
@@ -1427,16 +1467,17 @@ const WxLayer = (() => {
           if (!f || f.ts == null) return;
           const o = e.get(f.ts);
           if (o && o.f.run === f.run && o.f.lead === f.lead) {
-            const m = {};
-            for (const k in o.f) if (k[0] !== '_') m[k] = o.f[k];
+            const old = plain(o), m = {};
+            for (const k in old) if (k[0] !== '_') m[k] = old[k];
             for (const k in f) m[k] = f[k];
             const q = new Set(o.q); (asked || []).forEach(k => q.add(k));
             const n = count(m);
-            set.n += n - o.n; e.set(f.ts, { f: m, q, n });
+            set.n += n - o.n; e.set(f.ts, { f: m, q, n, z: false });
           } else {
             const n = count(f);
-            set.n += n - (o ? o.n : 0); e.set(f.ts, { f, q: new Set(asked || []), n });
+            set.n += n - (o ? o.n : 0); e.set(f.ts, { f, q: new Set(asked || []), n, z: false });
           }
+          if (set !== cur) packLater(set);
           trim();
         },
         // down to max values: the hours farthest from the one shown (set.at) go first
@@ -1455,18 +1496,39 @@ const WxLayer = (() => {
         prune(want) {
           const keep = new Set(want);
           for (const o of e.values()) {
+            const m = {};
             let cut = false;
             for (const k of Object.keys(o.f)) {
-              if (k[0] === '_') { delete o.f[k]; continue; }
-              if (!HEAD.has(k) && !keep.has(k)) { delete o.f[k]; o.q.delete(k); cut = true; }
+              if (k[0] === '_') continue;
+              if (!HEAD.has(k) && !keep.has(k)) { o.q.delete(k); cut = true; } else m[k] = o.f[k];
             }
-            if (cut) { const n = count(o.f); set.n += n - o.n; o.n = n; }
+            if (cut) { o.f = m; const n = count(m); set.n += n - o.n; o.n = n; }
           }
         },
         strip() { for (const o of e.values()) for (const k of Object.keys(o.f)) if (k[0] === '_') delete o.f[k]; },
+        // pack hours not packed yet, about max values of them; true when some are left
+        pack(max) {
+          let v = 0;
+          for (const o of e.values()) {
+            if (o.z) continue;
+            if (v >= max) return true;
+            packEntry(o); v += o.n;
+          }
+          return false;
+        },
         clear() { e.clear(); set.n = 0; set.grid = null; },
       };
       return set;
+    }
+    // a set left is packed in slices, so the switch itself is not held up
+    function packLater(set) {
+      if (set.packing) return;
+      set.packing = true;
+      const tick = () => {
+        if (set === cur || sets.get(set.key) !== set) { set.packing = false; return; }
+        if (set.pack(1.5e6)) setTimeout(tick, 15); else set.packing = false;
+      };
+      setTimeout(tick, 150);
     }
     // the sets not in use share the budget, the one used last first; what does not fit goes
     function trim() {
@@ -1481,8 +1543,9 @@ const WxLayer = (() => {
     function use(key) {
       let set = sets.get(key);
       if (!set) { set = makeSet(key); sets.set(key, set); }
-      if (cur && cur !== set) cur.strip();
+      const left = cur && cur !== set ? cur : null;
       set.used = ++clock; cur = set;
+      if (left) { left.strip(); packLater(left); }
       trim();
       return set;
     }
@@ -1491,7 +1554,7 @@ const WxLayer = (() => {
       get current() { return cur; },
       activeMax: ACTIVE_MAX,
       clear() { for (const x of sets.values()) x.clear(); sets.clear(); cur = null; },
-      info() { return { sets: [...sets.values()].map(x => ({ key: x.key, hours: x.size, values: x.n, used: x === cur })), values: [...sets.values()].reduce((t, x) => t + x.n, 0), budget: BUDGET }; },
+      info() { return { sets: [...sets.values()].map(x => ({ key: x.key, hours: x.size, values: x.n, packed: x.packed, used: x === cur })), values: [...sets.values()].reduce((t, x) => t + x.n, 0), budget: BUDGET }; },
     };
   }
 

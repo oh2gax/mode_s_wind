@@ -184,10 +184,11 @@ let view = [];             // the hours of the slider
 // The fetched hours (from 2026-11-12 in the frame store of wx_layer.js): kept in memory in
 // sets, one per model and grid, so a switch to the other model or grid and back downloads
 // nothing again, and a layer turned on fetches only its own field for the hours already
-// there.  The set shown is always kept; the others within about 50–100 MB (12 million grid
-// values), the one used longest ago going first.  frames = the set of the model and grid
-// shown (.get(ts), .has(ts), .grid = {x:[x0,dx,nx], y:[y0,dy,ny]}).
-const store = WxLayer.createStore({ budget: 12e6 });
+// there.  The set shown is always kept; the others are packed into 16-bit arrays (2 bytes a
+// value) and kept within 48 million grid values (about 100 MB), the one used last first.
+// frames = the set of the model and grid shown (.get(ts), .has(ts), .grid = {x:[x0,dx,nx],
+// y:[y0,dy,ny]}).
+const store = WxLayer.createStore({ budget: 48e6, activeMax: 44e6 });
 let frames = store.use('meps|2');
 let loadRun = 0;
 const wantFields = () => fieldList().split(',');

@@ -66,9 +66,9 @@ window.AppWx = (() => {
   // The fetched hours (from 2026-11-12 in the frame store of wx_layer.js): kept in memory in
   // sets, one per model and grid — a switch to the other model or grid and back downloads
   // nothing again, and a layer turned on fetches only its own field.  The set shown is always
-  // kept, the others within about 15–30 MB (4 million grid values).  frames = the set shown
-  // (.get(ts), .grid, .bytes = what was downloaded into it).
-  const store = WxLayer.createStore({ budget: 4e6 });
+  // kept; the others are packed into 16-bit arrays and kept within 12 million grid values
+  // (about 24 MB).  frames = the set shown (.get(ts), .grid, .bytes = what was downloaded into it).
+  const store = WxLayer.createStore({ budget: 12e6, activeMax: 10e6 });
   let hours = [], view = [], frames = store.use('meps|2'), loadRun = 0;
   const wantFields = () => fieldList().split(',');
   // the status line's MB: what was downloaded into the set shown (0 when it came from memory), the box and the radar
