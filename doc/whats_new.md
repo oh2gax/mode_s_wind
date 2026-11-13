@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.13112026 — MEPS model: no gap when a run is late
+
+- **MEPS model** — on three mornings the model's 03 UTC run reached MET Norway's archive about three hours late, and for a short time around 07:30 UTC the model profile of the current hour was missing on the Skew-T and in the other MEPS comparisons. The station now keeps three more hours of every run, so the run before covers a late one.
+- **Winds** — the winds that the own-wind check leaves out are now kept in the database (marked, not used on any page), so that the data checks can show what the check removes.
+
 ## v.12112026 — Weather map: switching model, grid or layers no longer downloads the forecast again; the thickness temperature and the Moisture trial corrected for the slope of the pressure surfaces; rare wrong winds removed
 
 - **Weather map (page and phone)** — the forecast hours you have loaded now stay in the page's memory. Go from MEPS to GFS and back, or from the 20 km grid to 10 km and back, and the hours are there at once without a new download. Turning on a layer (wind, gust, temperature, clouds) fetches only that layer for the hours already loaded. A reload of the page starts empty again; only a very large set (the 10 km grid with *Past* 3 or 7 days and several layers) is fetched partly again.

@@ -266,6 +266,15 @@ def gnss_gated(typ, nacp, nacp_ts, ts: float, types) -> bool:
 # the sparser stored rows) held 134: 112 of the 141 above and 22 others, 18 of
 # them the first wind of a real change.  The winds of the GNSS gate are not
 # judged and do not enter the reference.
+# In live use (12–13 Nov 2026) 230 pairs were held in 28 hours, mostly in
+# bursts of one aircraft that coincide with GNSS interference episodes — but
+# the held values were thrown away and could not be judged.  From 2026-11-13
+# a held pair is kept in the row that is stored while it is current, marked
+# hdg_src = "J": the raw wind and the BDS 5,0 / 6,0 values, without a best
+# wind and without the Mach (so that no temperature is computed from the row,
+# collector/atmos.TEMP_SQL).  Nothing reads these rows — the pages use the
+# best wind, the live state never sees a held pair — they are there for the
+# data checks.
 WIND_JUMP_KT_DEFAULT = 60.0
 WIND_JUMP_REF_SEC = 120.0
 WIND_JUMP_CONFIRM_SEC = 90.0
@@ -639,6 +648,22 @@ _WIND_FIELDS = ("wind_spd", "wind_dir", "wind_qual", "tas_source", "mag_decl",
                 "meteo_source")
 
 
+_HELD_FIELDS = ("wind_spd", "wind_dir", "wind_qual", "tas_source", "mag_decl",
+                "bds50_true_track", "bds50_groundspeed", "bds50_true_airspeed",
+                "bds50_roll", "bds60_mag_heading", "bds60_ias", "wind_ts")
+
+
+def _with_held_wind(obs: dict, held: dict) -> dict:
+    """Copy of obs for the database with the pair of replies that the own-wind
+    check held (from 2026-11-13): raw wind and BDS values, hdg_src "J"; no best
+    wind, no Mach/TAS temperature and no Mach (see the own-wind check above)."""
+    out = dict(obs)
+    for k in _HELD_FIELDS:
+        out[k] = held.get(k)
+    out["hdg_src"] = "J"
+    return out
+
+
 def _without_stale_wind(obs: dict, mrar: Optional[dict], mhr: Optional[dict]) -> dict:
     """Copy of obs for the database without the (stale) computed wind and
     Mach/TAS temperature; MRAR / MHR values of the same message are kept."""
@@ -884,6 +909,7 @@ def run_collector(
                 # adds the corrected wind (cal_spd / cal_dir) → best_wind_*.
                 _hc = heading_cal.get()
                 _typ = None
+                _held = None                 # a pair held by the own-wind check (for the stored row)
                 if wind and (gate_types or (_hc is not None and _hc.enabled)):
                     _typ = cached.get("aircraft_type") or aircraft_db.lookup(icao)[1]
                 if wind and gate_types and gnss_gated(_typ, cached.get("nac_p"),
@@ -899,8 +925,10 @@ def run_collector(
                 elif wind and jump_kt > 0 and wind_jump_suspect(icao, wind, jump_kt, count=jump_n):
                     # Own-wind check (from 2026-11-12): far from the aircraft's own winds
                     # of the last minutes — one reply with foreign values; nothing of the
-                    # pair is used (no wind, no Mach/TAS temperature, no calibration sample)
+                    # pair is used (no wind, no Mach/TAS temperature, no calibration sample).
+                    # From 2026-11-13 the pair is kept for the stored row only (hdg_src "J")
                     jump_ac.add(icao)
+                    _held = wind
                     wind = None
                 elif wind and _hc is not None and _hc.enabled:
                     try:
@@ -1136,6 +1164,9 @@ def run_collector(
                     mstats.meteo("mrar")
                 elif mhr is not None:
                     mstats.meteo("mhr")
+                if _held is not None and _held.get("wind_ts") is not None \
+                        and ts - _held["wind_ts"] <= wind_max_age:
+                    obs = _with_held_wind(obs, _held)
                 if _is_worth_storing(obs):
                     writer.add(obs)
 

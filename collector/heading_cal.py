@@ -478,6 +478,7 @@ class HeadingCal:
                FROM observations
                WHERE ts >= ? AND wind_spd IS NOT NULL AND bds50_true_airspeed >= ?
                  AND bds60_mag_heading IS NOT NULL AND mag_decl IS NOT NULL
+                 AND (hdg_src IS NULL OR hdg_src NOT IN ('G', 'J'))
                  AND lat IS NOT NULL AND altitude IS NOT NULL
                ORDER BY ts""",
             (t0, self.min_tas))

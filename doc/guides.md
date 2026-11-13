@@ -80,8 +80,8 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.14
-date: 2026-11-12
+version: 3.15
+date: 2026-11-13
 pages: 58
 open: sounding, windmap@44
 

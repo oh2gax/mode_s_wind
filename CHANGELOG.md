@@ -7,6 +7,24 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.13112026 — 2026-11-13 (Own-wind check: the held winds are kept for checking; MEPS: three more hours of each run)
+
+### Own-wind check: held winds kept in the stored row
+- **Found in the data check of 13 Nov:** in its first 28 hours the check held 230 pairs of replies — four to five times what the test on stored rows had suggested — mostly in bursts of one aircraft (up to 41 in ten minutes) that coincide with GNSS interference episodes. In one, an aircraft's ADS-B ground speed ran from 462 to 564 kt against 384–388 kt before and after. That looks like real garbage being caught, but the held values were thrown away, so it could not be shown. The share of rows with a wind is unchanged (92–93 %).
+- **Now** (`collector/receiver.py`, `_with_held_wind()`): the row that is stored while a held pair is current carries its raw wind and its BDS 5,0 / 6,0 values, marked `hdg_src = "J"` — no best wind, no Mach/TAS temperature, and no Mach, so that no temperature is computed from the row. Nothing reads these rows: the pages use the best wind and the live state never sees a held pair. They are there for the next data check.
+- The start-up replay of the heading calibration (`collector/heading_cal.py`) now leaves out rows marked `G` (GNSS gate) or `J`; the *data coverage* count of the Time–height section counts the best wind (`collector/meps.py`).
+- Tested: a held pair through the row and the table (raw wind stored, best wind and temperature empty, not read by the calibration replay); the constructed sequences and the replay of the check as before.
+
+### MEPS: three more hours of each run
+- **Found in the data check:** the 03 UTC run was late for the third morning (stored 08:01, 07:41 and 07:41 UTC on 11, 12 and 13 Nov). The new log lines show that every request for it was answered *500* at once from about 03:45 to 07:40 UTC — on 13 Nov also for the 06 UTC run before its publication — and that no forecast request was among them: our forecast fetch is not the trigger. Each time the hour from about 07:30 UTC had no model profile (*No model profile for the current hour*).
+- **Now** (`collector/meps.py`): `LEADS` 6 → 9 and `ML_LEADS` 7 → 10 — the pressure-level profiles and the Wind Map fields +0 … +8 h, the model levels +0 … +9 h. A run that arrives up to three hours late is covered by the run before it. The hours of a newer run replace the longer ones as before, so nothing changes while the runs are on time. The downloads grow by about half (about 2, 9 and 1.5 MB a run).
+- Tested with a real run from the archive (13 Nov 12 UTC): 9 / 10 / 9 hours stored in 15 / 37 / 8 s; the next run's hours replace them.
+
+### Documents
+- **Sounding guide 3.15**: the stored hours of each model run (+0 to +8 h) in *How the data are made* and the note on a late run. 58 pages.
+
+---
+
 ## v.12112026 — 2026-11-12 (Weather map: the fetched forecast hours are kept in memory — a switch of model, grid or layers no longer downloads them again; the slope of the pressure surfaces taken out of the thickness temperature and the Moisture trial; an own-wind check; MEPS fetch failures in the log; pilot report layers given top first)
 
 ### Weather map: the fetched hours kept in memory

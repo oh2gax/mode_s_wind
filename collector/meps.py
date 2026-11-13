@@ -86,7 +86,10 @@ log = logging.getLogger("modes.meps")
 
 BASE_URL = "https://thredds.met.no/thredds/dodsC/meps25epsarchive"
 RUN_STEP_H = 3
-LEADS = 6                    # +0 … +5 h; +0 … +2 are the verification values
+LEADS = 9                    # +0 … +8 h; +0 … +2 are the verification values.  +6 … +8 from 2026-11-13:
+                             # a run that arrives 3 h late (the 03 UTC run on 11–13 Nov 2026, stored
+                             # 07:41–08:01 UTC) then leaves no hour without a model profile — the run
+                             # before it covers the gap; a newer run replaces these hours as before
 VERIF_MAX_LEAD = 2
 LEV = (3, 12)                # level indices: 200, 250, 300, 400, 500, 700, 800, 850, 925, 1000 hPa
 VARS = (("air_temperature_pl", "t"), ("x_wind_pl", "xw"), ("y_wind_pl", "yw"),
@@ -100,8 +103,9 @@ FC_LEADS = (3, 48)           # forecast profile for the Time–height section (f
 FC_STRIDE = 12               # … every 12th cell (30 km: 11 × 11 points; only the area mean is kept)
 FC_VARS = (("air_temperature_pl", "t"), ("x_wind_pl", "xw"), ("y_wind_pl", "yw"))
 FC_KEEP_H = 3                # forecast hours older than this are removed (the analyses replace them)
-ML_LEADS = 7                 # model levels +0 … +6 h: they appear about 1 h after the pressure
-                             # levels, so the extra hour keeps the present hour covered
+ML_LEADS = 10                # model levels +0 … +9 h (+7 … +9 from 2026-11-13, as LEADS): they appear
+                             # about 1 h after the pressure levels, so the extra hour keeps the
+                             # present hour covered
 ML_LEV = (9, 64)             # model (hybrid) levels: about 190 hPa … 12 m above the ground
 ML_VARS = (("air_temperature_ml", "t"), ("specific_humidity_ml", "q"),
            ("x_wind_ml", "xw"), ("y_wind_ml", "yw"))
@@ -1479,7 +1483,7 @@ def _pos_offsets(db, t0: int, t1: int, P: list, lat: float, lon: float, radius_k
     cnt: dict = {}                                       # (h, j, kind) → {bin: n}
     lev_of: dict = {}                                    # 100-ft step → level index or -1
     for ts, la, lo, alt, has_t, has_w, has_z in db.execute(
-            "SELECT ts, lat, lon, altitude, best_temp IS NOT NULL, wind_spd IS NOT NULL, gmb_ft IS NOT NULL "
+            "SELECT ts, lat, lon, altitude, best_temp IS NOT NULL, best_wind_spd IS NOT NULL, gmb_ft IS NOT NULL "
             "FROM observations WHERE ts >= ? AND ts < ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? "
             "AND altitude IS NOT NULL", (t0, t1, lat - dlat, lat + dlat, lon - dlon, lon + dlon)):
         if ((la - lat) * 111.2) ** 2 + ((lo - lon) * 111.2 * cl) ** 2 > radius_km ** 2:
