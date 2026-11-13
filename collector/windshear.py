@@ -2042,9 +2042,14 @@ class WindshearTracker:
             self._ws_last_an = now
             self._ws_dep_an_ts[icao] = now
             ba = None
+            # the bands of an ATR 42 / 72-500 flown after its first turn: no band level, no reference
+            # (from 13 Nov 2026, REPORT_V 11; collector/shear.turned_bands)
+            turned = _shear.turned_bands(st.get("prof"), hdg, st.get("aircraft_type"))
             if hdg is not None and prof:
+                cmp_prof = ({b: v for b, v in prof.items() if int(b) not in turned}
+                            if turned else prof)
                 ba = _shear.gate_band(
-                    _shear.band_anomaly(_shear.vec_bands(prof, _shear.VEC_MIN_N_DEP),
+                    _shear.band_anomaly(_shear.vec_bands(cmp_prof, _shear.VEC_MIN_N_DEP),
                                         self._band_refs(now), hdg, phase="dep",
                                         aircraft_type=st.get("aircraft_type")), bad)
             if not final:
@@ -2060,11 +2065,14 @@ class WindshearTracker:
             for key in [k for k in self._ws_dep_hits if k.startswith(f"{icao}:dep:")]:
                 del self._ws_dep_hits[key]
             if prof:                         # every climb-out is a reference (also off the runway axes)
-                self._dep_refs.append({"ts": now, "prof": prof, "ph": "dep", "gbad": bad,
+                self._dep_refs.append({"ts": now, "prof": prof, "ph": "dep",
+                                       "gbad": sorted(set(bad) | set(turned)),
                                        "hdg": hdg if hdg is not None else st.get("track")})
             self._ws_dep_an_ts.pop(icao, None)
             rep = {"rwy": rwy, "hdg": hdg, "band": ba,
                    "lvl": (ba or {}).get("lvl") or "none", "v": _shear.REPORT_V}
+            if turned:
+                rep["tb"] = turned
             if bad:
                 rep["gq"] = bad
                 # which of them by the position-freeze test (from 5 Nov 2026; the rest: low NACp)

@@ -56,6 +56,13 @@ open, and logged.
 from __future__ import annotations
 
 DECODE_MIN_EHS = 8            # EHS aircraft in 10 min before "no / few winds" is judged
+DECODE_FEW_SEC = 30 * 60      # "few winds" warns only after this long (from 13 Nov 2026): it fired for
+#   3–20 min around 02–03 UTC on most mornings (28 Oct – 13 Nov 2026) — a handful of aircraft,
+#   one or two of them night arrivals with a jammed GNSS whose winds are rightly rejected
+#   (13 Nov 02:06–02:19: one aircraft with 33 rows and no wind, its ground speed frozen at
+#   445 kt through a descent of 21 000 ft; the two others gave a wind with every row).
+#   A decoder fault lasts; "no winds at all" is still an error at once.
+_few_winds = {"since": None}
 PI_HOT_ON, PI_HOT_OFF = 72.0, 68.0     # °C: amber on / off (hysteresis: no flapping at 70 °C)
 _pi_hot = {"on": False}
 
@@ -554,14 +561,25 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
         items["decode"] = _item("decode", "warn", "Nothing to decode — no messages", det)
     elif ehs >= DECODE_MIN_EHS and pairs >= 100 and m["wind"] == 0:
         items["decode"] = _item("decode", "err", f"{ehs} EHS aircraft heard but no winds computed in 10 min", det)
+    elif (ehs >= DECODE_MIN_EHS and pairs >= 200 and m["wind"] / pairs < 0.2
+          and now - (_few_winds["since"] or now) < DECODE_FEW_SEC):
+        if _few_winds["since"] is None:
+            _few_winds["since"] = now
+        items["decode"] = _item("decode", "ok", f"{m['wind'] / 10:.0f} winds/min from {ehs} EHS aircraft",
+                                det + [f"few winds for {_ago(now - _few_winds['since'])}: "
+                                       f"{100 * m['wind'] / pairs:.0f} % of the BDS 5,0 / 6,0 replies "
+                                       f"(a warning after {DECODE_FEW_SEC // 60} min)"])
     elif ehs >= DECODE_MIN_EHS and pairs >= 200 and m["wind"] / pairs < 0.2:
-        items["decode"] = _item("decode", "warn", f"Few winds: {100 * m['wind'] / pairs:.0f} % of the BDS 5,0 / 6,0 replies", det)
+        items["decode"] = _item("decode", "warn", f"Few winds: {100 * m['wind'] / pairs:.0f} % of the BDS 5,0 / 6,0 replies"
+                                f" for {_ago(now - _few_winds['since'])}", det)
     elif tot["msgs"] > 1000 and bad / tot["msgs"] > 0.3:
         items["decode"] = _item("decode", "warn", f"Many undecodable messages ({100 * bad / tot['msgs']:.0f} %)", det)
     elif ehs == 0:
         items["decode"] = _item("decode", "ok", "No EHS aircraft at the moment", det)
     else:
         items["decode"] = _item("decode", "ok", f"{m['wind'] / 10:.0f} winds/min from {ehs} EHS aircraft", det)
+    if not (ehs >= DECODE_MIN_EHS and pairs >= 200 and m["wind"] / pairs < 0.2):
+        _few_winds["since"] = None
 
     # database & jobs
     d = hb.get("db")

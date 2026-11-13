@@ -3,10 +3,14 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.13112026 — MEPS model: no gap when a run is late
+## v.13112026 — MEPS model: no gap when a run is late; windshear detection sharper on four landings in ten, fewer false advisories from ATR departures
 
 - **MEPS model** — on three mornings the model's 03 UTC run reached MET Norway's archive about three hours late, and for a short time around 07:30 UTC the model profile of the current hour was missing on the Skew-T and in the other MEPS comparisons. The station now keeps three more hours of every run, so the run before covers a late one.
 - **Winds** — the winds that the own-wind check leaves out are now kept in the database (marked, not used on any page), so that the data checks can show what the check removes.
+- **Windshear: more data on many landings** — the detection uses two of the aircraft's airspeed reports. A check of two weeks showed that on almost four landings in ten the second one had been left out, because of a too strict timing rule. It is now used on nearly every landing: those landings are analysed from almost three times as many headwind values. The stored landings are recomputed after the update; a few more short ramps (8–11 kt over about half a kilometre) now show as advisories.
+- **Windshear: ATR departures** — the older ATR 72s (the -500) gave a false advisory now and then at 1 400–1 800 ft, always after their first turn, where their reported heading is slightly off. Those heights of their climb-out are no longer compared (the hover of the departure says *flown after the first turn — not compared*). Five such advisories of the last two weeks are gone; the real ones, such as those of the front of 4 November, stay.
+- **Approach Conditions Index** — the class factors were measured again from almost 8 000 landings. Regional jets are now divided by 1.1 (was 1.15) and widebodies by 0.9 (was 1.0), and the A220 counts as a narrowbody — also as the *Aircraft class* of the Pilot view. Past landings are shown with the new factors; the changes are small.
+- **System health** — the amber *Few winds* of the Decoding dot now appears only when it has lasted 30 minutes. It used to come on for a few minutes on many nights, when one or two aircraft with jammed GPS were most of the traffic.
 
 ## v.12112026 — Weather map: switching model, grid or layers no longer downloads the forecast again; the thickness temperature and the Moisture trial corrected for the slope of the pressure surfaces; rare wrong winds removed
 

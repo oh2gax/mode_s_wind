@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.13112026 — 2026-11-13 (Own-wind check: the held winds are kept for checking; MEPS: three more hours of each run)
+## v.13112026 — 2026-11-13 (Own-wind check: the held winds are kept for checking; MEPS: three more hours of each run; after a wide check of the algorithms: windshear detection v8 uses both registers on nearly every landing, older ATRs are not compared after their first turn, the ACI class factors measured again, *Few winds* warns only after 30 minutes)
 
 ### Own-wind check: held winds kept in the stored row
 - **Found in the data check of 13 Nov:** in its first 28 hours the check held 230 pairs of replies — four to five times what the test on stored rows had suggested — mostly in bursts of one aircraft (up to 41 in ten minutes) that coincide with GNSS interference episodes. In one, an aircraft's ADS-B ground speed ran from 462 to 564 kt against 384–388 kt before and after. That looks like real garbage being caught, but the held values were thrown away, so it could not be shown. The share of rows with a wind is unchanged (92–93 %).
@@ -20,8 +20,37 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Now** (`collector/meps.py`): `LEADS` 6 → 9 and `ML_LEADS` 7 → 10 — the pressure-level profiles and the Wind Map fields +0 … +8 h, the model levels +0 … +9 h. A run that arrives up to three hours late is covered by the run before it. The hours of a newer run replace the longer ones as before, so nothing changes while the runs are on time. The downloads grow by about half (about 2, 9 and 1.5 MB a run).
 - Tested with a real run from the archive (13 Nov 12 UTC): 9 / 10 / 9 hours stored in 15 / 37 / 8 s; the next run's hours replace them.
 
+### A wide check of the algorithms (evening)
+The windshear detection, the turbulence (EDR), the Approach Conditions Index, the landing and departure winds, the boundary layer and the mast comparison were checked against the data of 31 Oct – 13 Nov 2026 (2 715 landings, 2 849 departures). Four things are changed; the rest is left as it is, with the figures below.
+
+### Windshear: both registers on nearly every landing (report version 11)
+- **Found:** detection v8 had dropped its second register (BDS 6,0) on 992 of 2 632 landings (38 %) and analysed them from BDS 5,0 alone. The offset between the registers needs ten BDS 6,0 values that lie between two BDS 5,0 values at most 2.5 s apart — and many aircraft are asked for BDS 5,0 only every 3–5 s.
+- **Now** (`V8_OFF_GAP` = 5 s in `collector/shear.py`): 32 landings (1.2 %) without the second register. Those landings get 112 headwind values in place of 40, noise 0.87 against 0.97 kt; the offsets are no wider. Four more landings get a ramp advisory (8–11 kt over 400–600 m), none loses one; over all stored landings from 25 Oct eight more, one fewer.
+- **Back-fill** (`_shear_backfill` in `run.py`): the stored reports are recomputed once after the restart, in the background (7 230 landings and 7 213 departures in 25 s on a desktop). A landing whose temperature came from the flights nearby now gets that temperature again — before, a turboprop landing in a quiet hour could lose its second register when its report was recomputed (5 landings, one advisory).
+
+### Windshear: ATR 42 / 72-500 departures are not compared after their first turn (report version 11)
+- **Found:** the turboprop departure advisories that were left all came from bands flown after the first turn. The largest band change of an ATR 72-500 climb-out is 3.8 kt (median; 90 % below 6.4 kt) in a band flown within 30° of the runway heading and 6.2 kt (10.9 kt) further off it; the ATR 72-600 shows no difference (3.3 / 3.7 kt). In one flight looked at closely the airspeed and ground speed are right and the wind vector differs from the jets' across the aircraft's own track — a heading about 4° off after the turn.
+- **Now** (`turned_bands()` in `collector/shear.py`, the track of each wind pair kept in `collector/departures.py`, used in `WindshearTracker.dep_shear()`): a band of an ATR 42 / 72 of the older series (AT43, AT44, AT45, AT72, AT73, AT75) flown more than 30° off the runway heading gives no band level and is no reference for the flights after it. The report lists the bands (`"tb"`); the hover of the departure says so (`static/js/windshear.js`, `static/js/app.js`). The back-fill finds them from the stored climb-out series, and the references loaded after a restart leave them out (`run.py`).
+- **Effect on the stored reports:** the five ATR 72-500 departure advisories of 31 Oct – 13 Nov go (+15.4, −13.5, +17.0, +17.5, +18.5 kt at 1 400–1 800 ft; the jets around them within 4.5–9.4 kt) and one landing advisory that had been compared with such bands; two flights at the limit change sides (−10.1 → −9.8 kt, +9.9 → +10.1 kt). The other turboprops keep their bands — the PC-12 of the 4 Nov front had the jets' wind after its turn and keeps its advisory. Departures 31 Oct – 13 Nov: 17 advisories → 11, the 2 windshear alerts unchanged.
+
+### Approach Conditions Index: class factors measured again
+- On 7 879 landings (6 Oct – 13 Nov), each against the narrowbodies landing within ±45 minutes: turboprops 1.62 (1.44 in rougher air), Embraer E-jets 1.07–1.10, A220-300 0.79, widebodies 0.87–0.89 (A330 1.07, A350 0.83, B787-9 0.69), business jets 1.18 (106 landings).
+- **Now** (`collector/approach_cond.py`): regional jets 1.15 → **1.10**, widebodies 1.0 → **0.9**, and the **A220** counts as a narrowbody (also as the *Aircraft class* of the Pilot view). Turboprops 1.5 and business jets 1.25 stay. The index is computed on request, so past landings are re-scored: 31 Oct – 13 Nov Smooth 1 657 → 1 634, Light 844 → 861, Choppy 153 → 157, Rough 7 → 9.
+
+### Health: *Few winds* only after 30 minutes
+- The amber *Few winds* of the Decoding dot came on many nights for 3–20 minutes around 02–03 UTC: a handful of aircraft, of which one or two arrivals with jammed GNSS — whose winds are rightly held back — were most of the replies. It now warns when under 20 % of the replies have given a wind for 30 minutes; until then the dot stays green and its details say *few winds for …* (`DECODE_FEW_SEC` in `web/api/health.py`). *No winds at all* is still red at once.
+
+### Checked and left as it is
+- **Turbulence (EDR):** 72 % of the landings and 75 % of the departures get a value; median 0.057, light or more 19 %, moderate 0.5 %; it follows the surface wind (median 0.046 at 0–3 kt, 0.108 at 12–15 kt) and is nearly the same for every aircraft class (0.86–1.05 of the others). No tuning. A version built on the v8 headwinds (ADS-B ground speed, both registers) would cover 82 % and halve the noise floor, but needs its own calibration — a candidate for a study, not built.
+- **Landing and departure winds:** the phase correction of the band comparison (landing −1.45, departure +1.38 kt headwind) against 36 375 simultaneous pairs and against MEPS: within about 0.6 kt. Left.
+- **Band comparison:** jets 0.4 % of the departures and 0.1 % of the landings flagged, turboprop landings 0.3 % — no change beyond the ATR rule above.
+- **Boundary layer:** the surface-inversion flag against the Kivenlahti mast, 409 hours: both 33, flag only 11, mast only 39 (15 of them under 1 K; among the others nights without flights, and hours when the mast's own 2 m site was colder than the airport), neither 326. Left. The low-level jet: 29 hours in 18 episodes since 28 Oct; in 24 of the 27 hours that could be compared the MEPS wind also falls above the same height, but less (median 1.0 m/s against 3.4 m/s from the aircraft). No change without a better reference; noted for a later look.
+- **Mast comparison** (19 days, 402 hours with aircraft data): temperature −0.02 … −0.57 K from 297 m down to 92 m, wind speed +1.7 / −0.3 / −1.6 kt at 92 / 217 / 327 m — as in the study log of 2 Nov.
+
 ### Documents
 - **Sounding guide 3.15**: the stored hours of each model run (+0 to +8 h) in *How the data are made* and the note on a late run. 58 pages.
+- **Windshear guide 2.46**: both registers on nearly every landing, the older ATRs after their first turn, the class factors of the ACI, the parameter table. 32 pages.
+- **Statistics guide 1.17**: the *Few winds* rule in the table of the health dots.
 
 ---
 

@@ -22,6 +22,15 @@ PROVISIONAL.  Tuning history:
               stable for ±30–60 min windows.  Turboprop 1.35 → 1.5, widebody
               0.85 → 1.0; regional unchanged; business jet unchanged (only
               5–8 landings, too few to tell).
+  2026-11-13  checked again on 7 879 landings (6 Oct – 13 Nov), same method
+              (narrowbodies within ±45 min, their median raw score ≥ 1):
+              turboprops 1.62 (1.44 when the narrowbodies read ≥ 2.5; ATR 72-500
+              1.65 / 1.46, ATR 72-600 1.24 / 1.14), Embraer E-jets 1.07 / 1.10,
+              A220-300 0.79 / 0.79, widebodies 0.87 / 0.89 (A350 0.83, A330
+              1.07, B787-9 0.69), business jets 1.18 / 1.06 (106 landings).
+              Regional 1.15 → 1.10, widebody 1.0 → 0.9, the A220 moved from the
+              regional jets to the narrowbodies (factor 1.0); turboprop and
+              business jet unchanged.
 The index is computed when the API is called and is never stored, so
 changing the constants here re-scores all past landings.
 
@@ -68,9 +77,11 @@ LEVELS = (                   # (upper bound, label)
 )
 
 # Aircraft class → response factor (index divided by this).  Measured
-# relative to narrowbodies under the same conditions (2026-10-08); the
-# business-jet value is still the original estimate (too few landings).
-CLASS_FACTOR = {"T": 1.5, "B": 1.25, "R": 1.15, "N": 1.0, "W": 1.0, "?": 1.0}
+# relative to narrowbodies under the same conditions (2026-10-08, again
+# 2026-11-13 on 7 879 landings — see the tuning history above).  One factor
+# per class is an approximation: the types of a class differ (A330 1.07,
+# A350 0.83, B787-9 0.69 of the narrowbodies' score).
+CLASS_FACTOR = {"T": 1.5, "B": 1.25, "R": 1.10, "N": 1.0, "W": 0.9, "?": 1.0}
 CLASS_NAME   = {"T": "turboprop", "B": "business jet", "R": "regional jet",
                 "N": "narrowbody", "W": "widebody", "?": "unknown"}
 
@@ -78,7 +89,7 @@ _TURBOPROP = ("AT4", "AT7", "ATP", "DH8", "SF34", "SB20", "D328", "F50", "JS3",
               "JS4", "E120", "L410", "PC12", "C208", "B190", "BE20", "BE9",
               "SW4", "DHC6", "C130", "AN26", "AN24", "P180", "TBM", "PC6")
 _REGIONAL  = ("E170", "E75", "E190", "E195", "E290", "E295", "E135", "E145",
-              "CRJ", "BCS1", "BCS3", "F100", "F70", "RJ8", "RJ1", "B462",
+              "CRJ", "F100", "F70", "RJ8", "RJ1", "B462",
               "B463", "SU95")
 _WIDEBODY  = ("A30", "A310", "A33", "A34", "A35", "A38", "B74", "B76", "B77",
               "B78", "MD11", "IL96", "A3ST")

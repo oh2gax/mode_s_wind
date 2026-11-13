@@ -924,6 +924,7 @@
                          w.fh != null ? `Horizontal F-factor over 1 km: ${w.fh.toFixed(3)}` : '');
       txt.push(b ? `Band ${b.b} ft: ${sgn(b.a)} kt against ${b.ref} kt in the last 45 min (${refWho(b, dep)})` : 'Band change: no reference flights');
       if (b && b.thr) txt.push(`Turboprop climb-out: limits ${b.thr} / ${+(b.thr * 1.5).toFixed(1)} kt`);
+      if (dep && w.tb && w.tb.length) txt.push(`Bands from ${w.tb[0]} ft: flown after the first turn — not compared`);
       if (!dep && w.cf) txt.push(cfTxt(w.cf));
       if (!dep && w.a) txt.push(`Followed ${w.a[0]}→${w.a[1]} ft · ${w.n} replies, noise ±${w.noise != null ? w.noise : '?'} kt`);
       if (dep) {

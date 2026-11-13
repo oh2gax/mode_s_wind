@@ -4361,6 +4361,7 @@ function _wsDepTitle(e) {
     b ? `Band ${b.b} ft: ${b.a > 0 ? '+' : ''}${b.a} kt against ${b.ref} kt in the last 45 min (${wsRefWho(b.ph, true, b.n)})` +
         (b.thr ? `\nTurboprop climb-out: limits ${b.thr} / ${+(b.thr * 1.5).toFixed(1)} kt` : '')
       : 'Band change: no reference flights',
+    w.tb && w.tb.length ? `Bands from ${w.tb[0]} ft: flown after the first turn — not compared (ATR 42 / 72-500, from 13 Nov 2026)` : '',
     t ? `TRIAL — headwind ramps along the climb (no alert yet${t.lvl && t.lvl !== 'none' ? `; would be ${WS_LEVEL[t.lvl].short}` : ''}):` : 'Trial ramps: no climb-out series (departures before 27 Oct 2026, or too few replies)',
     t ? '  ' + ramp(t.loss, 'Strongest loss') : '',
     t ? '  ' + ramp(t.gain, 'Strongest gain') : '',

@@ -119,7 +119,7 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 10                 # report version (3: band comparison on the wind vector,
+REPORT_V = 11                 # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
                               #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
@@ -129,7 +129,12 @@ REPORT_V = 10                 # report version (3: band comparison on the wind v
                               #        beside it as "v7", from 31 Oct 2026,
                               #     9: the GNSS gate, see gnss_bad_bands — 4 Nov 2026,
                               #     10: the turboprop departures' limits by height, see
-                              #         TP_DEP_SCALE_HI — 5 Nov 2026)
+                              #         TP_DEP_SCALE_HI — 5 Nov 2026,
+                              #     11: the second register also on landings with sparse
+                              #         BDS 5,0 replies, see V8_OFF_GAP, and no band
+                              #         level from the bands of an older ATR's climb-out
+                              #         after its first turn, see TP_DEP_TURN_TYPES —
+                              #         13 Nov 2026)
 
 # GNSS gate (from 4 Nov 2026, REPORT_V 9).  The wind of a band and the ramps
 # rest on the aircraft's own ground speed (BDS 5,0 GS, ADS-B velocity), which
@@ -194,6 +199,28 @@ TP_DEP_SCALE = 1.3            # band limits × this for a turboprop's departure
 # the 25 days, the frontal ones (17 Oct 09:29 WSA +29.5 kt, 4 Nov 10:36) kept.
 TP_DEP_HI_FT = 1500           # ft MSL: from this band on
 TP_DEP_SCALE_HI = 1.5         # band limits × this there for a turboprop's departure
+# … and not after the first turn of an ATR 42 / 72 with the older avionics
+# (from 13 Nov 2026, REPORT_V 11).  A turboprop reaches 1 400–2 000 ft about
+# 80 s after lift-off, by then turned onto its route and several km from the
+# runway axis; the jets pass those heights still on the runway heading (92 % of
+# their largest band changes within 10° of it).  27 Oct – 13 Nov 2026, largest
+# band change of each climb-out, in a band flown within / more than 30° off the
+# runway heading: ATR 72-500 median 3.8 / 6.2 kt, 90 % below 6.4 / 10.9 kt
+# (488 / 198 climb-outs; ≥ 13 kt: 2 / 12); ATR 72-600 3.3 / 3.7 kt and
+# 5.3 / 6.4 kt (49 / 21) — no difference; PC-12 too few (17 / 7).  The five
+# ATR 72-500 band advisories of 31 Oct – 13 Nov were all in such bands (+15.4,
+# −13.5, +17.0, +17.5, +18.5 kt at 1 400–1 800 ft, the jets around them within
+# 4.5–9.4 kt): there its heading-based wind vector differed from the jets' at
+# the same height by 10–13 kt across its own track (9 Nov 13:28: 31 kt from
+# 240° against 23 kt from 262°; its TAS agreed with the BDS 6,0 airspeed and
+# its ground speed with ADS-B, so it is the heading after the turn — about 4°).
+# So a band of such a climb-out flown more than TP_DEP_TURN_DEG off the runway
+# heading gives no band level and is no reference for the flights after it
+# ("tb" in the report).  The other turboprops keep their bands: the PC-12 of
+# the 4 Nov front (10:36, −17.1 kt at 1 400 ft after its turn) agreed with the
+# jets (22 kt from 306° against 23 kt from 296°).
+TP_DEP_TURN_TYPES = frozenset(("AT43", "AT44", "AT45", "AT72", "AT73", "AT75"))
+TP_DEP_TURN_DEG = 30.0
 
 
 def band_scale(phase: str | None, aircraft_type: str | None, band_ft: float | None = None) -> float:
@@ -202,6 +229,42 @@ def band_scale(phase: str | None, aircraft_type: str | None, band_ft: float | No
     if phase == "dep" and aircraft_type and aircraft_type.upper() in TURBOPROP_TYPES:
         return TP_DEP_SCALE_HI if band_ft is not None and band_ft >= TP_DEP_HI_FT else TP_DEP_SCALE
     return 1.0
+
+def turned_bands(prof_raw: dict | None, hdg, aircraft_type: str | None) -> list:
+    """The bands (ft) of the climb-out of an ATR of TP_DEP_TURN_TYPES that
+    were flown more than TP_DEP_TURN_DEG off the runway heading hdg: prof_raw
+    is the tracker's {band: {"k": [true track of each wind pair], …}}; the
+    circular mean counts."""
+    if hdg is None or not aircraft_type or aircraft_type.upper() not in TP_DEP_TURN_TYPES:
+        return []
+    out = []
+    for b, P in (prof_raw or {}).items():
+        ks = [k for k in ((P or {}).get("k") or []) if k is not None]
+        if not ks:
+            continue
+        sx = sum(math.sin(math.radians(k)) for k in ks)
+        cx = sum(math.cos(math.radians(k)) for k in ks)
+        if abs((math.degrees(math.atan2(sx, cx)) - hdg + 180.0) % 360.0 - 180.0) > TP_DEP_TURN_DEG:
+            try:
+                out.append(int(b))
+            except (TypeError, ValueError):
+                continue
+    return sorted(out)
+
+
+def turned_bands_series(b50: list | None, hdg, aircraft_type: str | None) -> list:
+    """turned_bands for a stored climb-out (run.py _shear_backfill): b50 is
+    the raw series' BDS 5,0 rows (t, roll, track-rate, true track, gs, tas,
+    alt ft MSL); the 200-ft band of each reply as in collector/departures.py."""
+    prof: dict = {}
+    for r in b50 or ():
+        if len(r) < 7 or r[3] is None or r[6] is None:
+            continue
+        band = int(round(r[6] / 200.0) * 200)
+        if abs(r[6] - band) <= 100.0:
+            prof.setdefault(band, {"k": []})["k"].append(r[3])
+    return turned_bands(prof, hdg, aircraft_type)
+
 
 LEVELS = ("none", "adv", "wsa", "mba")
 
@@ -987,6 +1050,20 @@ V8_GS_LAG = -0.5              # s: the ADS-B GS at t − 0.5 s matches the reply
 V8_ROLL_SEC = 4.0             # a BDS 6,0 reply takes the roll of a BDS 5,0 reply within this
 V8_MIN_DT_PAIRS = 5           # TAS / Mach pairs for the flight's own ISA deviation
 V8_MIN_OFF_PAIRS = 10         # BDS 6,0 / BDS 5,0 pairs for the per-flight offset
+V8_OFF_GAP = 5.0              # s: … a BDS 6,0 value is paired when it lies between two BDS 5,0
+#   values at most this far apart.  2.5 s until 13 Nov 2026: on the 2 632 landings of
+#   31 Oct – 13 Nov 2026, 992 (38 %) then lost all their BDS 6,0 values — their BDS 5,0
+#   replies come every 3–5 s, so fewer than 10 pairs were found although a median of 78
+#   BDS 6,0 values had passed every other test — and were analysed from a median of 40
+#   values, like v7.  Replay with 5 s: 98 % of the landings use the second register;
+#   those 952 landings get 112 values (noise 0.97 → 0.87 kt), the others are unchanged;
+#   the offsets are no wider (p10 / p90 −0.37 / +0.39 kt, before −0.50 / +0.46); 13 more
+#   landings reach a ramp of 10 kt per km in the zone, none fewer, and all 12 of them
+#   that had neighbouring landings are matched by a neighbour (same kind, ≥ 6 kt per km).
+#   8 or 12 s add only 0.5 % of the landings.  The stored reports recomputed (REPORT_V
+#   11, run.py _shear_backfill): 32 landings (1.2 %) without the second register in
+#   place of 992; 4 more ramp advisories (8–11 kt over 400–600 m), none lost; over all
+#   stored landings from 25 Oct 8 more, 1 fewer.
 _A0 = 661.4788                # kt, speed of sound at sea level (ISA)
 _AK = 38.967854               # kt per √K
 _P0 = 1013.25
@@ -1114,7 +1191,7 @@ def v8_rows(b50: list, b60: list, v19: list, sw: list, dt_fallback=None):
         hv = [r[5] - r[4] for r in rows]
         dif = []
         for r in r60:
-            h = _interp_gap(ht, hv, r[0], 2.5)
+            h = _interp_gap(ht, hv, r[0], V8_OFF_GAP)
             if h is not None:
                 dif.append((r[5] - r[4]) - h)
         if len(dif) >= V8_MIN_OFF_PAIRS:

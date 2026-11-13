@@ -773,11 +773,14 @@ def _preload_dep_refs(ws_tracker) -> None:
     from database.db import get_db
     try:
         rows = get_db().execute(
-            "SELECT ts, prof_json, track, json_extract(shear_json, '$.gq') FROM departure_profiles "
+            "SELECT ts, prof_json, track, json_extract(shear_json, '$.gq'), json_extract(shear_json, '$.tb') "
+            "FROM departure_profiles "
             "WHERE ts >= ? AND ga = 0 AND prof_json IS NOT NULL", (time.time() - 2700,)).fetchall()
-        # "gbad": the climb's bands with a degraded GNSS (GNSS gate, from 4 Nov 2026)
+        # "gbad": the climb's bands with a degraded GNSS (GNSS gate, from 4 Nov 2026) and an
+        # older ATR's bands flown after its first turn ("tb", from 13 Nov 2026)
         ws_tracker.preload_dep_refs([{"ts": r[0], "prof": json.loads(r[1]), "ph": "dep", "hdg": r[2],
-                                      "gbad": json.loads(r[3]) if r[3] else None}
+                                      "gbad": sorted(set(json.loads(r[3]) if r[3] else ())
+                                                     | set(json.loads(r[4]) if r[4] else ())) or None}
                                      for r in rows])
     except Exception as exc:                              # noqa: BLE001
         log.debug("Departure windshear references not loaded: %s", exc)
@@ -1012,7 +1015,10 @@ def _shear_backfill(ws_tracker) -> None:
     ramp advisories against the reference profile; 5 (from 27 Oct 2026) redoes
     the band comparison by flight phase; 6 (27 Oct 2026, evening) with the
     higher band limits of turboprop departures (TP_DEP_SCALE); 10 (5 Nov 2026)
-    those limits by height (TP_DEP_SCALE_HI from TP_DEP_HI_FT).  In time order, so each flight is
+    those limits by height (TP_DEP_SCALE_HI from TP_DEP_HI_FT); 11 (13 Nov 2026)
+    the second register of detection v8 with BDS 5,0 replies up to 5 s apart
+    (shear.V8_OFF_GAP), and the bands of an ATR 42 / 72-500 climb-out flown after
+    its first turn left out (shear.turned_bands, from the stored series).  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -1044,13 +1050,34 @@ def _shear_backfill(ws_tracker) -> None:
                FROM approach_history h LEFT JOIN approach_series s ON s.ts = h.ts AND s.icao = h.icao
                WHERE h.ts >= ? ORDER BY h.ts""", (t_from,)).fetchall()
         dep = db.execute(
-            """SELECT id, ts, track, lat, lon, prof_json, shear_json, aircraft_type FROM departure_profiles
+            """SELECT id, ts, icao, track, lat, lon, prof_json, shear_json, aircraft_type FROM departure_profiles
                WHERE ts >= ? AND ga = 0 ORDER BY ts""", (t_from,)).fetchall()
         events = sorted([(r["ts"], 0, r) for r in land] + [(r["ts"], 1, r) for r in dep],
                         key=lambda e: (e[0], e[1]))
         hist: deque = deque()
         dts: deque = deque(maxlen=200)          # ISA deviations of the flights (v8)
         done: dict = {}
+
+        def dep_turned(row) -> list:
+            """The bands of an ATR's climb-out flown after its first turn (REPORT_V 11):
+            as stored with a report of that version, else from the raw series."""
+            if (row["aircraft_type"] or "").upper() not in _shear.TP_DEP_TURN_TYPES:
+                return []
+            try:
+                sj = (json.loads(row["shear_json"]) if row["shear_json"] else None) or {}
+                if sj.get("v", 0) >= 11:
+                    return [int(b) for b in sj.get("tb") or ()]
+                ser = db.execute("SELECT data FROM departure_series WHERE ts = ? AND icao = ?",
+                                 (row["ts"], row["icao"])).fetchone()
+                if not ser or not ser["data"]:
+                    return []
+                dd = WindshearTracker.decode_series(ser["data"])
+                hdg = ws_tracker._dep_runway(row["lat"], row["lon"], row["track"])[1]
+                return _shear.turned_bands_series(
+                    _rows(dd, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt")), hdg, row["aircraft_type"])
+            except Exception:                   # noqa: BLE001  (a damaged record)
+                return []
+
         b_land, b_dep = [], []
         n_dep = 0
 
@@ -1090,6 +1117,9 @@ def _shear_backfill(ws_tracker) -> None:
                         ((json.loads(row["shear_json"]) if row["shear_json"] else None) or {}).get("gq"))
             except (ValueError, AttributeError, TypeError):
                 d, bad = None, []
+            turned = dep_turned(row) if kind == 1 else []
+            if turned and prof:
+                prof = {b: v for b, v in prof.items() if int(b) not in turned}
             if ts >= first and is_old(row["shear_json"]):
                 refs = _shear.vec_refs(hist, ts)
                 try:
@@ -1105,9 +1135,15 @@ def _shear_backfill(ws_tracker) -> None:
                             thr = ws_tracker._thr_ft(row["runway"])
                             b50 = _rows(d, "b50", ("t", "roll", "trate", "trk", "gs", "tas", "alt"))
                             sw = _rows(d, "sw", ("t", "alt", "palt", "dthr", "xt"))
+                            # the temperature of the flights nearby: the one the stored report
+                            # was made with (live it comes from the flights of the hour around,
+                            # here only from those recomputed before — from 13 Nov 2026), else
+                            # as before
+                            dt_near = (rep_old["dT"] if rep_old and rep_old.get("dTsrc") == "near"
+                                       and rep_old.get("dT") is not None else _dt_near(dts, ts))
                             a8 = _shear.analyze_v8(b50, _rows(d, "b60", ("t", "ias", "hdg", "vri", "vrb", "mach", "alt")),
                                                    _rows(d, "v19", ("t", "gs", "trk", "vr", "alt")), sw, thr,
-                                                   _dt_near(dts, ts))
+                                                   dt_near)
                             if a8 is not None:
                                 info = a8.get("v8") or {}
                                 if info.get("dTsrc") == "own" and info.get("dT") is not None:
@@ -1157,6 +1193,8 @@ def _shear_backfill(ws_tracker) -> None:
                             hp_old = None
                         if hp_old:
                             rep["hp"] = hp_old
+                        if turned:
+                            rep["tb"] = turned
                         if bad:
                             rep["gq"] = bad
                         try:            # keep the frozen-position bands of the gate (from 5 Nov 2026)

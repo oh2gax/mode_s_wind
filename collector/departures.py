@@ -500,6 +500,9 @@ class DepartureTracker:
                 rd = math.radians(wdir)
                 P["u"].append(-wspd * math.sin(rd))
                 P["v"].append(-wspd * math.cos(rd))
+                # the track of the pair: bands flown after the first turn
+                # (collector/shear.turned_bands, from 2026-11-13)
+                P.setdefault("k", []).append(float(ttrk5))
         st["since"] = max(since, now)
 
     def _final_shear(self, icao, st, now):
