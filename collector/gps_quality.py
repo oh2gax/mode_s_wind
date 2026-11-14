@@ -149,6 +149,14 @@ HEATMAP_MAX_BUCKETS = 31 * 24  # heatmap only ever renders the most recent 14 da
                                 # capped independently so its payload doesn't grow
                                 # with the longer time-series window above
 
+# The heatmap's long ranges (3 m / 6 m / 1 y in weekly columns, from 14 Nov 2026)
+# are served per UTC day by get_heat_days(), from the stored hours — up to
+# 53 weeks, whatever MAX_BUCKETS keeps in RAM.
+HEAT_DAYS_MAX = 53 * 7
+HEAT_LIVE_DAYS = 2             # today and yesterday come from the buckets in RAM
+OLD_BAND_LABEL = "050-100"     # one band until 2026-09-07 (see the NOTE above)
+OLD_BAND_SPLIT = ("050-080", "080-100")
+
 # ── Counting-method version ───────────────────────────────────────────────────
 # Stored with every hourly bucket so charts can mark where the way events are
 # counted changed (numbers before and after a change are not comparable).
@@ -452,6 +460,10 @@ class GpsQualityTracker:
 
         # Rolling hourly buckets for 'all' zone — oldest first
         self._buckets: deque = deque(maxlen=MAX_BUCKETS)
+        # get_heat_days(): finished days per zone, read once from the stored hours
+        self._heat_days: dict[str, dict] = {}
+        self._heat_upto: dict[str, int] = {}
+        self._heat_lock = threading.Lock()
 
         # Rolling hourly buckets for each distance zone
         self._zone_buckets: dict[str, deque] = {
@@ -816,6 +828,9 @@ class GpsQualityTracker:
             self._buckets.clear()
             for zb in self._zone_buckets.values():
                 zb.clear()
+        with self._heat_lock:
+            self._heat_days.clear()
+            self._heat_upto.clear()
         self._load_from_db()
         self._load_zones_from_db()
         with self._lock:
@@ -1581,6 +1596,108 @@ class GpsQualityTracker:
             if n is not None:
                 e[3] = (e[3] or 0) + n
         return [out[k] for k in sorted(out)]
+
+    @staticmethod
+    def _heat_add(days: dict, ts: float, fl: dict, method: int, det: dict | None) -> None:
+        """Add one hour (its events per FL band, counting method and band
+        detail) to the per-day sums of get_heat_days()."""
+        e = days.setdefault(int(ts // 86400 * 86400), {"ev": {}, "h": 0, "m": 1, "bd": {}})
+        e["h"] += 1
+        e["m"] = method or 1                      # hours come in time order: the day's last
+        for lbl in FL_BAND_LABELS:
+            n = fl.get(lbl) or 0
+            if n:
+                e["ev"][lbl] = e["ev"].get(lbl, 0) + n
+        if OLD_BAND_LABEL in fl:                  # before the split of 7 Sep 2026
+            e["old"] = e.get("old", 0) + (fl.get(OLD_BAND_LABEL) or 0)
+            e["oh"] = e.get("oh", 0) + 1
+        if not det:
+            return
+        bd = e["bd"]
+        for key in ("ac", "deg", "sev"):
+            for lbl, n in (det.get(key) or {}).items():
+                if n:
+                    t = bd.setdefault(lbl, {"ac": 0, "deg": 0, "sig": {}})
+                    t[key] = t.get(key, 0) + n
+        for lbl, sig in (det.get("sig") or {}).items():
+            tgt = bd.setdefault(lbl, {"ac": 0, "deg": 0, "sig": {}})["sig"]
+            for k, n in sig.items():
+                if n:
+                    tgt[k] = tgt.get(k, 0) + n
+
+    def get_heat_days(self, zone: str = "all", days: int = HEAT_DAYS_MAX) -> dict:
+        """Per UTC day over the last `days` days (1 – HEAT_DAYS_MAX) — the FL
+        band heatmap's long ranges (3 m / 6 m / 1 y in weekly columns on the GPS
+        Quality page, 3 m on the phone; from 14 Nov 2026):
+
+          days      {day_ts: {band: events}}             (bands with events only)
+          hours     {day_ts: stored hours of the day}    (24 when nothing is missing)
+          method    {day_ts: counting method of the day's last hour}
+          band_days {day_ts: {band: {ac, deg, sev, sig}}} as get_state() (from 6 Oct 2026)
+          old       {day_ts: [events of the former band FL050–100, its hours]}
+                    — until 7 Sep 2026 FL050–080 and FL080–100 were one band
+
+        The finished days (all but today and yesterday) are read once from the
+        stored hours (gps_quality_hours / gps_quality_zone_hours) and kept; after
+        that only the new days are read.  Today and yesterday come from the
+        buckets in RAM, with the hour in progress.  No database writes."""
+        if zone not in self._zone_buckets:
+            zone = "all"
+        days = max(1, min(int(days), HEAT_DAYS_MAX))
+        today = int(time.time() // 86400 * 86400)
+        t_first = today - (HEAT_DAYS_MAX - 1) * 86400
+        t_live = today - (HEAT_LIVE_DAYS - 1) * 86400          # from here on: RAM
+        with self._heat_lock:
+            fin = self._heat_days.setdefault(zone, {})
+            upto = max(self._heat_upto.get(zone, 0), t_first)
+            if upto < t_live and self._db_path:
+                try:
+                    conn = get_db()
+                    if zone == "all":
+                        rows = conn.execute(
+                            "SELECT ts, fl_bands, method, band_detail FROM gps_quality_hours "
+                            "WHERE ts >= ? AND ts < ? ORDER BY ts", (upto, t_live)).fetchall()
+                    else:
+                        rows = conn.execute(
+                            "SELECT ts, fl_bands, method, band_detail FROM gps_quality_zone_hours "
+                            "WHERE zone = ? AND ts >= ? AND ts < ? ORDER BY ts", (zone, upto, t_live)).fetchall()
+                    for r in rows:
+                        try:
+                            fl = json.loads(r["fl_bands"] or "{}")
+                            det = json.loads(r["band_detail"]) if r["band_detail"] else None
+                        except (TypeError, ValueError):
+                            continue
+                        self._heat_add(fin, r["ts"], fl, r["method"] or 1, det)
+                    self._heat_upto[zone] = t_live
+                except Exception as exc:             # noqa: BLE001
+                    log.warning("GPS quality: heatmap days not read (zone %s): %s", zone, exc)
+            for d in [d for d in fin if d < t_first]:
+                del fin[d]
+            out_days = {d: e for d, e in fin.items() if d < t_live}
+        with self._lock:
+            buckets = [b for b in (self._zone_buckets[zone] if zone != "all" else self._buckets)
+                       if b["ts"] >= t_live]
+            live: dict = {}
+            for b in buckets:
+                det = b.get("band_detail")
+                if det is None and "_band_seen" in b:
+                    det = _band_detail(b)
+                self._heat_add(live, b["ts"], b["fl_bands"], b.get("method", 1), det)
+        out_days = {**out_days, **live}
+        t0 = today - (days - 1) * 86400
+        res: dict = {"days": {}, "hours": {}, "method": {}, "band_days": {}, "old": {}}
+        for d in sorted(out_days):
+            if d < t0:
+                continue
+            e, k = out_days[d], str(d)
+            res["days"][k] = e["ev"]
+            res["hours"][k] = e["h"]
+            res["method"][k] = e["m"]
+            if e["bd"]:
+                res["band_days"][k] = e["bd"]
+            if "old" in e:
+                res["old"][k] = [e["old"], e["oh"]]
+        return res
 
     def get_state(self, zone: str = "all") -> dict:
         """

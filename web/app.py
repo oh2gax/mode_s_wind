@@ -2938,6 +2938,28 @@ def create_app(
         n = request.args.get("days", 31, type=int) or 31
         return _private(jsonify({"zone": zone, "days": gps_tracker.get_daily(zone=zone, days=n)}))
 
+    @app.route("/api/gps/heat")
+    def gps_heat_api():
+        """Per UTC day: events per FL band, the stored hours, the counting
+        method and the aircraft counts per band — the FL band heatmap's long
+        ranges (3 m / 6 m / 1 y in weekly columns on the GPS Quality page, 3 m
+        on the phone; from 2026-11-14).  ?zone=all|50nm|20nm, ?days=1–371
+        (default 371).  Finished days are read once from the stored hours and
+        kept in RAM (collector/gps_quality.py get_heat_days).
+        Full view only (web/rights.py)."""
+        if not _gnss_ok():
+            return _gnss_denied()
+        zone = request.args.get("zone", "all")
+        if zone not in ("all", "50nm", "20nm"):
+            zone = "all"
+        if gps_tracker is None:
+            return _private(jsonify({"zone": zone, "fl_bands": [], "days": {}, "hours": {},
+                                     "method": {}, "band_days": {}, "old": {}}))
+        from collector.gps_quality import FL_BAND_LABELS, HEAT_DAYS_MAX
+        n = request.args.get("days", HEAT_DAYS_MAX, type=int) or HEAT_DAYS_MAX
+        return _private(_gzip_json({"zone": zone, "fl_bands": FL_BAND_LABELS,
+                                    **gps_tracker.get_heat_days(zone=zone, days=n)}))
+
     @app.route("/api/gps/detail")
     def gps_detail_api():
         """10-minute slots, severity split and spoofing indicators for the

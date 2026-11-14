@@ -4,7 +4,7 @@
  * Polls /api/gps/state every 30 seconds and renders:
  *   • 24-hour time-series chart  (Chart.js); "10 min" view from /api/gps/detail
  *   • Severity & spoofing panel (/api/gps/detail, every 60 s)
- *   • FL-band heatmap  (Canvas) — 14d / 1m day-range selector, 9 FL bands
+ *   • FL-band heatmap  (Canvas) — 14d / 1m in days, 3m / 6m / 1y in weeks (from 14 Nov 2026), 9 FL bands
  *   • Live degraded aircraft table
  */
 
@@ -158,11 +158,41 @@ function applyRange(range) {
 // The server already caps the heatmap payload at HEATMAP_MAX_BUCKETS (31 days
 // — see collector/gps_quality.py), so both options here are served from data
 // already present in lastHeatmapData; switching never needs a new fetch.
+//
+// From 14 Nov 2026 also 3m / 6m / 1y, drawn in weekly columns (Monday–Sunday,
+// UTC; 13 / 26 / 52 weeks): the cell is the week's events per day, so a week
+// in progress or one with missing hours compares with the others.  Their data
+// are the per-day sums of /api/gps/heat (read from the stored hours on the
+// server), fetched when such a range is chosen and then every 10 minutes —
+// not with the 30-second poll.  The FL Band Analysis panel next to the
+// heatmap keeps to the hourly data it has: at most the last 31 days.
 const HEATMAP_RANGE_CONFIG = {
   '14d': { days: 14, title: 'Last 14 Days' },
   '1m':  { days: 31, title: 'Last 31 Days' },
+  '3m':  { weeks: 13, title: 'Last 13 Weeks' },
+  '6m':  { weeks: 26, title: 'Last 26 Weeks' },
+  '1y':  { weeks: 52, title: 'Last 52 Weeks' },
 };
 let currentHeatmapRange = localStorage.getItem('ms_gps_heatmap_range') || '14d';
+if (!HEATMAP_RANGE_CONFIG[currentHeatmapRange]) currentHeatmapRange = '14d';
+const heatWeeks = () => (HEATMAP_RANGE_CONFIG[currentHeatmapRange] || {}).weeks || 0;
+
+// The per-day sums of the long ranges: {zone, at, data} of the last answer
+let heatLong = null, heatLongBusy = false;
+const HEAT_LONG_MAX_AGE_MS = 10 * 60 * 1000;
+async function fetchHeatLong(force) {
+  if (!heatWeeks() || heatLongBusy) return;
+  if (!force && heatLong && heatLong.zone === currentZone && Date.now() - heatLong.at < HEAT_LONG_MAX_AGE_MS) return;
+  heatLongBusy = true;
+  const zone = currentZone;
+  try {
+    const r = await fetch(`/api/gps/heat?zone=${encodeURIComponent(zone)}`);
+    if (r.ok) heatLong = { zone, at: Date.now(), data: await r.json() };
+  } catch (_) { /* keep the last answer */ }
+  heatLongBusy = false;
+  if (zone !== currentZone) { fetchHeatLong(true); return; }
+  if (heatWeeks()) drawHeatmap(lastHeatmapData, lastFlBands);
+}
 
 function applyHeatmapRange(range) {
   if (!HEATMAP_RANGE_CONFIG[range]) return;
@@ -174,8 +204,14 @@ function applyHeatmapRange(range) {
   const cfg = HEATMAP_RANGE_CONFIG[range];
   const titleEl = document.getElementById('gps-heatmap-title');
   if (titleEl) titleEl.textContent = 'FL Band Heatmap — ' + cfg.title;
-  // Redraw immediately from cached data — no fetch needed (see comment above).
-  if (lastHeatmapData.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
+  const tip = document.getElementById('gps-heat-tip');
+  if (tip) tip.style.display = 'none';
+  syncHeatLegend();
+  // Redraw immediately from cached data — the day ranges need no fetch (see
+  // the comment above); the weekly ranges fetch their days when they are stale.
+  if (lastFlBands.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
+  if (cfg.weeks) fetchHeatLong(false);
+  if (lastFlBands.length > 0) drawDonutAndStats(lastHeatmapData, lastFlBands);
 }
 
 // ── Chart.js time-series ──────────────────────────────────────────────────────
@@ -581,6 +617,19 @@ const HEAT_LEGEND = {
   pct:    { txt: '0 · <10 · <25 · <50 · ≥50 %',
             tip: 'Share of the aircraft seen in each FL band that had at least one degradation event — counted per hour and summed over the day (aircraft-hours). One colour scale for all rows. Empty cells: no per-band data (recorded from 6 Oct 2026) or no traffic.' },
 };
+const HEAT_LEGEND_WEEKS = {
+  events: { txt: 'None → High · events a day',
+            tip: 'Weekly columns (Monday–Sunday, UTC): the number in a cell is the week\u2019s events per day, so a week in progress or one with missing hours compares with the others. Each FL row is coloured relative to its own busiest week. Weeks on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable.' },
+  pct:    { txt: '0 · <10 · <25 · <50 · ≥50 %',
+            tip: 'Weekly columns (Monday–Sunday, UTC): share of the aircraft seen in each FL band that had at least one degradation event — counted per hour and summed over the week (aircraft-hours). One colour scale for all rows. Empty cells: no per-band data (recorded from 6 Oct 2026) or no traffic.' },
+};
+function syncHeatLegend() {
+  const leg = (heatWeeks() ? HEAT_LEGEND_WEEKS : HEAT_LEGEND)[heatmapMode];
+  const lg = document.getElementById('gps-heat-legend');
+  const lt = document.getElementById('gps-heat-legend-txt');
+  if (lg) lg.title = leg.tip;
+  if (lt) lt.textContent = leg.txt;
+}
 const SIG_NAMES = { nacp: 'NACp', nic: 'NIC', freeze: 'Freeze', gap: 'Gap', adsb_loss: 'ADS-B' };
 
 function heatColorStep(step) {
@@ -599,11 +648,8 @@ function applyHeatmapMode(mode) {
   localStorage.setItem('ms_gps_heatmap_mode', heatmapMode);
   document.querySelectorAll('#gps-heatmap-mode-btns .gps-range-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.heatmapMode === heatmapMode));
-  const lg = document.getElementById('gps-heat-legend');
-  const lt = document.getElementById('gps-heat-legend-txt');
-  if (lg) lg.title = HEAT_LEGEND[heatmapMode].tip;
-  if (lt) lt.textContent = HEAT_LEGEND[heatmapMode].txt;
-  if (lastHeatmapData.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
+  syncHeatLegend();
+  if (lastFlBands.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
 }
 
 /**
@@ -634,7 +680,211 @@ function heatmapSegments(dayKeys, changes, daySec) {
   segs.forEach((seg, si) => seg.forEach(xi => { out[xi] = si; }));
   return out;
 }
+// ── Weekly columns: 3m / 6m / 1y (from 14 Nov 2026) ─────────────────────────
+const WEEK_SEC = 7 * 86_400;
+const HEATMAP_MIN_SEGMENT_WEEKS = 2;
+const HEAT_OLD_SPLIT = ['050-080', '080-100'];   // one band FL050–100 until 7 Sep 2026
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Monday 00 UTC of the week of a UTC day (1 Jan 1970 was a Thursday). */
+const weekStart = dayTs => dayTs - ((new Date(dayTs * 1000).getUTCDay() + 6) % 7) * 86_400;
+/** 81 234 → "81k", 8 123 → "8.1k" (cells too narrow for the whole number). */
+function heatShort(v) {
+  if (v >= 99_500) return Math.round(v / 1000) + 'k';
+  if (v >= 10_000) return (v / 1000).toFixed(0) + 'k';
+  if (v >= 1000)  return (v / 1000).toFixed(1) + 'k';
+  return String(v);
+}
+
+/**
+ * The per-day sums of /api/gps/heat as weeks: the last nWeeks weeks up to the
+ * current one, not further back than the first week with data.
+ * → { keys: [weekTs], wk: {weekTs: {val: {band: events a day | null}, ev: {band: events},
+ *      hrs: {band: hours}, hours, days, bd: {band: {ac, deg, sev, sig}}, old, partial}},
+ *     marks: [{week, frac}] of the counting-method changes, segOf: [segment id] }
+ */
+function heatWeekData(d, flBands, nWeeks) {
+  const dayKeys = Object.keys(d.days || {}).map(Number).sort((a, b) => a - b);
+  if (!dayKeys.length) return null;
+  const today = Math.floor(Date.now() / 1000 / 86_400) * 86_400;
+  const wLast = weekStart(today);
+  const wFirst = Math.max(wLast - (nWeeks - 1) * WEEK_SEC, weekStart(dayKeys[0]));
+  const keys = [];
+  for (let w = wFirst; w <= wLast; w += WEEK_SEC) keys.push(w);
+  const wk = {};
+  keys.forEach(w => { wk[w] = { ev: {}, hrs: {}, val: {}, hours: 0, days: 0, bd: {}, old: null, partial: w === wLast }; });
+  const marks = [], segStart = new Set();
+  let prevM = null;
+  for (const dt of dayKeys) {
+    const m = (d.method || {})[dt] || 1;
+    const w = weekStart(dt), W = wk[w];
+    if (prevM !== null && m !== prevM && W) {
+      const di = Math.round((dt - w) / 86_400);
+      marks.push({ week: w, frac: di / 7, method: m });
+      // the week of the change is scaled with the side most of its days are on
+      segStart.add(di <= 3 ? w : w + WEEK_SEC);
+    }
+    prevM = m;
+    if (!W) continue;
+    const h = (d.hours || {})[dt] || 0, old = (d.old || {})[dt];
+    W.hours += h; W.days += 1;
+    if (old) { W.old = W.old || { ev: 0, hrs: 0 }; W.old.ev += old[0] || 0; W.old.hrs += old[1] || 0; }
+    for (const band of flBands) {
+      // the hours before the split of FL050–100 do not count for its two halves
+      const hb = old && HEAT_OLD_SPLIT.includes(band) ? h - (old[1] || 0) : h;
+      if (hb <= 0) continue;
+      W.ev[band]  = (W.ev[band] || 0) + (((d.days || {})[dt] || {})[band] || 0);
+      W.hrs[band] = (W.hrs[band] || 0) + hb;
+    }
+    const bd = (d.band_days || {})[dt] || {};
+    for (const [band, e] of Object.entries(bd)) {
+      const t = W.bd[band] = W.bd[band] || { ac: 0, deg: 0, sev: 0, sig: {} };
+      t.ac += e.ac || 0; t.deg += e.deg || 0; t.sev += e.sev || 0;
+      for (const [k, n] of Object.entries(e.sig || {})) t.sig[k] = (t.sig[k] || 0) + n;
+    }
+  }
+  keys.forEach(w => flBands.forEach(band => {
+    const h = wk[w].hrs[band];
+    wk[w].val[band] = h ? Math.round(wk[w].ev[band] * 24 / h) : null;
+  }));
+  // colour-scaling segments, split at the method changes; short ones merged
+  const segs = [];
+  keys.forEach((w, i) => { if (i === 0 || segStart.has(w)) segs.push([]); segs[segs.length - 1].push(i); });
+  for (let i = 0; i < segs.length - 1; ) {
+    if (segs[i].length < HEATMAP_MIN_SEGMENT_WEEKS) { segs[i + 1] = segs[i].concat(segs[i + 1]); segs.splice(i, 1); } else i++;
+  }
+  if (segs.length > 1 && segs[segs.length - 1].length < HEATMAP_MIN_SEGMENT_WEEKS) {
+    const last = segs.pop(); segs[segs.length - 1] = segs[segs.length - 1].concat(last);
+  }
+  const segOf = new Array(keys.length).fill(0);
+  segs.forEach((sg, si) => sg.forEach(i => { segOf[i] = si; }));
+  return { keys, wk, marks, segOf };
+}
+
+function drawHeatmapWeeks(flBands) {
+  const canvas = document.getElementById('gps-heatmap-canvas');
+  if (!canvas || !flBands.length) return;
+  const th = canvasTheme(), ctx = canvas.getContext('2d');
+  const ML = 68, MB = 46, MT = 8, MR = 12;
+  const W = canvas.parentElement.clientWidth || 600, H = 220;
+  canvas.width = W; canvas.height = H;
+  ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
+  heatLayout = null;
+  const have = heatLong && heatLong.zone === currentZone;
+  const D = have ? heatWeekData(heatLong.data, flBands, heatWeeks()) : null;
+  if (!D) {
+    ctx.fillStyle = th.textDim; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(have ? 'No data' : 'Loading\u2026', W / 2, H / 2);
+    if (!have) fetchHeatLong(false);
+    return;
+  }
+  const { keys, wk, marks, segOf } = D;
+  const nB = flBands.length, plotW = W - ML - MR, plotH = H - MT - MB;
+  const cellW = plotW / keys.length, cellH = plotH / nB;
+  const gap = cellW >= 14 ? 1 : 0.5;
+
+  const mx = {};
+  flBands.forEach(band => keys.forEach((w, xi) => {
+    const k = segOf[xi] + '|' + band;
+    mx[k] = Math.max(mx[k] || 1, wk[w].val[band] || 0);
+  }));
+  // the font follows the cell's height and, in the narrow columns of a year, its
+  // width: three characters ("81k") still fit
+  const fontSize = Math.max(7, Math.min(11, Math.floor(cellH * 0.45), Math.floor((cellW - 3) / 1.86)));
+  ctx.font = `${fontSize}px monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const outline = (x, y) => { ctx.strokeStyle = th.grid; ctx.lineWidth = 0.5; ctx.strokeRect(x + 1.5, y + 1.5, cellW - 3, cellH - 3); };
+  // a number only where it fits the cell: whole, else shortened (8.1k, then 8k), else none
+  const label = (txt, short, x, y, dark) => {
+    let t = txt;
+    if (ctx.measureText(t).width > cellW - 4) t = short;
+    if (ctx.measureText(t).width > cellW - 3 && /\.\dk$/.test(t)) t = Math.round(parseFloat(t)) + 'k';   // 8.1k → 8k
+    if (ctx.measureText(t).width > cellW - 3) return;
+    ctx.fillStyle = heatText(dark);
+    ctx.fillText(t, x + cellW / 2, y + cellH / 2);
+  };
+  keys.forEach((w, xi) => flBands.forEach((band, yi) => {
+    const x = ML + xi * cellW, y = MT + yi * cellH;
+    if (heatmapMode === 'pct') {
+      const bd = wk[w].bd[band];
+      if (!bd || !bd.ac) { outline(x, y); return; }
+      const pct = 100 * bd.deg / bd.ac, step = pctStep(pct);
+      ctx.fillStyle = heatColorStep(step);
+      ctx.fillRect(x + gap, y + 1, cellW - 2 * gap, cellH - 2);
+      label(String(Math.round(pct)), String(Math.round(pct)), x, y, step >= 3);
+      return;
+    }
+    const val = wk[w].val[band];
+    if (val == null) { outline(x, y); return; }          // no hours, or before the band was split
+    const norm = val / mx[segOf[xi] + '|' + band];
+    ctx.fillStyle = heatColor(norm);
+    ctx.fillRect(x + gap, y + 1, cellW - 2 * gap, cellH - 2);
+    if (val > 0) label(String(val), heatShort(val), x, y, norm > 0.5);
+  }));
+
+  // counting-method changes: a dashed line at the day of the change
+  for (const mk of marks) {
+    const xi = keys.indexOf(mk.week);
+    if (xi < 0 || (xi === 0 && mk.frac === 0)) continue;
+    const x = ML + (xi + mk.frac) * cellW;
+    ctx.save();
+    ctx.strokeStyle = gpsPal().mark; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + plotH); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.fillStyle = th.axisLabel; ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  flBands.forEach((band, yi) => ctx.fillText('FL' + band, ML - 4, MT + yi * cellH + cellH / 2));
+
+  // X axis: the Monday of the week (every week where there is room), below it
+  // the month at its first week (with the year at the first column and in January)
+  ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+  const every = cellW >= 30 ? 1 : cellW >= 15 ? 2 : 4;
+  let prevMonth = null;
+  const months = [];
+  keys.forEach((w, xi) => {
+    const d = new Date(w * 1000), x = ML + xi * cellW;
+    if ((keys.length - 1 - xi) % every === 0) {
+      ctx.fillStyle = th.axisLabel;
+      ctx.fillText(`${d.getUTCMonth() + 1}/${d.getUTCDate()}`, x + cellW / 2, MT + plotH + 4);
+    }
+    // the month a week belongs to: that of its Thursday (as ISO weeks do)
+    const t = new Date((w + 3 * 86_400) * 1000), mo = t.getUTCFullYear() * 12 + t.getUTCMonth();
+    if (mo !== prevMonth) {
+      months.push({ x, name: MONTHS[t.getUTCMonth()], year: t.getUTCFullYear(),
+                    withYear: prevMonth === null || t.getUTCMonth() === 0, line: prevMonth !== null });
+      prevMonth = mo;
+    }
+  });
+  // a month without room for its name (a single week at the left edge) passes
+  // its year on to the next one
+  ctx.textAlign = 'left';
+  months.forEach((m, i) => {
+    if (m.line) {
+      ctx.strokeStyle = th.grid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(m.x, MT + plotH); ctx.lineTo(m.x, MT + plotH + 30); ctx.stroke();
+    }
+    const lbl = m.name + (m.withYear ? ' ' + m.year : '');
+    const end = i + 1 < months.length ? months[i + 1].x : W - 2;
+    if (m.x + 2 + ctx.measureText(lbl).width > end - 3) {
+      if (m.withYear && i + 1 < months.length) months[i + 1].withYear = true;
+      return;
+    }
+    ctx.fillStyle = th.textDim;
+    ctx.fillText(lbl, m.x + 3, MT + plotH + 18);
+  });
+  ctx.textAlign = 'center';
+
+  ctx.strokeStyle = th.grid; ctx.lineWidth = 0.5;
+  for (let yi = 1; yi < nB; yi++) {
+    const y = MT + yi * cellH;
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
+  }
+  heatLayout = { ML, MT, cellW, cellH, plotW, plotH, dayKeys: keys, flBands, weekly: true, wk, marks };
+}
+
 function drawHeatmap(heatmapData, flBands) {
+  if (heatWeeks()) { drawHeatmapWeeks(flBands); return; }
   const canvas = document.getElementById('gps-heatmap-canvas');
   if (!canvas || !heatmapData || heatmapData.length === 0) return;
 
@@ -822,7 +1072,44 @@ function heatCellAt(ev) {
   return { dt: L.dayKeys[xi], band: L.flBands[yi] };
 }
 
+function heatWeekTipHtml(cell) {
+  const W = heatLayout.wk[cell.dt];
+  const a = new Date(cell.dt * 1000), z = new Date((cell.dt + 6 * 86_400) * 1000);
+  const dm = x => `${x.getUTCDate()}.${x.getUTCMonth() + 1}.`;
+  const n  = v => Math.round(v).toLocaleString('en-US').replace(/,/g, '\u202f');
+  const lines = [`<b>Week ${dm(a)}–${dm(z)}${z.getUTCFullYear()} · FL${cell.band}</b>`];
+  const val = W.val[cell.band], hrs = W.hrs[cell.band] || 0;
+  const span = h => { const dd = Math.floor(h / 24), hh = h % 24; return (dd ? `${dd} d` : '') + (dd && hh ? ' ' : '') + (hh || !dd ? `${hh} h` : ''); };
+  if (val == null) {
+    if (W.old && HEAT_OLD_SPLIT.includes(cell.band)) {
+      lines.push(`FL050–100 was one band until 7 Sep 2026: ${n(W.old.ev * 24 / Math.max(1, W.old.hrs))} events a day`);
+    } else lines.push('<span class="gps-heat-tip-dim">No data for this week</span>');
+  } else {
+    lines.push(`Events: ${n(val)} a day (${n(W.ev[cell.band])} in ${span(hrs)} of data)`);
+    if (W.partial) lines.push('<span class="gps-heat-tip-dim">Week in progress</span>');
+    else if (hrs < 168) lines.push(`<span class="gps-heat-tip-dim">${168 - hrs} h of the week missing</span>`);
+  }
+  const bd = W.bd[cell.band];
+  if (bd && bd.ac) {
+    lines.push(`Aircraft degraded: ${n(bd.deg)} of ${n(bd.ac)} (${Math.round(100 * bd.deg / bd.ac)} %, aircraft-hours)`);
+    if (bd.sev) lines.push(`Severe (position unusable): ${n(bd.sev)}`);
+    const sig = Object.entries(bd.sig || {}).filter(([, v]) => v > 0);
+    const tot = sig.reduce((s, [, v]) => s + v, 0);
+    if (tot > 0) {
+      lines.push('Signals: ' + sig.sort((p, q) => q[1] - p[1])
+        .map(([k, v]) => `${SIG_NAMES[k] || k} ${Math.round(100 * v / tot)} %`).join(' · '));
+    }
+  } else if (val != null) {
+    lines.push('<span class="gps-heat-tip-dim">Aircraft counts: not recorded (from 6 Oct 2026)</span>');
+  }
+  const mk = [...heatLayout.marks].reverse().find(m => m.week === cell.dt);   // the week's last change
+  if (mk) lines.push(`<span class="gps-heat-tip-dim">Counting method changed in this week (${METHOD_LABELS[mk.method] || 'method v' + mk.method})</span>`);
+  lines.push('<span class="gps-heat-tip-dim">Click: open GPS Episodes for the Monday of this week and this band</span>');
+  return lines.join('<br>');
+}
+
 function heatTipHtml(cell) {
+  if (heatLayout.weekly) return heatWeekTipHtml(cell);
   const d   = new Date(cell.dt * 1000);
   const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
   const ev  = (heatLayout.dayMap[cell.dt] || {})[cell.band] || 0;
@@ -954,7 +1241,10 @@ function drawDonutAndStats(heatmapData, flBands) {
   // cutoff to a selector that goes up to 6 months would silently do nothing
   // beyond 31 days. Falls back to 14 days if the range config is unavailable.
   const DAY_SEC   = 86_400;
-  const rangeCfg  = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
+  // With a weekly range (3m / 6m / 1y, from 14 Nov 2026) the panel shows the
+  // last 31 days — all the hourly data it has — and says so in its title.
+  let rangeCfg = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
+  if (rangeCfg && !rangeCfg.days) rangeCfg = HEATMAP_RANGE_CONFIG['1m'];
   const cutoffSec = (Date.now() / 1000) - (rangeCfg ? rangeCfg.days * DAY_SEC : 14 * DAY_SEC);
   const recent    = heatmapData.filter(b => b.ts >= cutoffSec);
   if (recent.length === 0) return;
@@ -1376,6 +1666,7 @@ async function fetchGpsState() {
     renderStats(d.stats || {});
     updateTsChart(d.time_series || []);
     drawHeatmap(d.heatmap || [], lastFlBands);
+    fetchHeatLong(false);          // the weekly ranges: their days, when stale
     // Donut drawn on first load and whenever the zone or heatmap range changes; hourly interval handles the rest
     if (!donutDrawn || lastDonutZone !== currentZone || lastDonutRange !== currentHeatmapRange) {
       drawDonutAndStats(lastHeatmapData, lastFlBands);

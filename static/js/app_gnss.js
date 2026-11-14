@@ -13,7 +13,10 @@
  *    aircraft-hours per day (1 m = 31 days / 3 m = 90 days, from 3 Nov 2026): severe and mild as stacked bars; a tap gives the numbers.
  *  - FL band heatmap (optional, the menu's switch; from 3 Nov 2026): the GPS Quality page's heatmap — days × FL bands, 14 d or
  *    1 m, Events (each row against its own busiest day) or % aircraft, in
- *    colour only (no numbers in the cells); a tap gives the cell.
+ *    colour only (no numbers in the cells); a tap gives the cell.  From
+ *    14 Nov 2026 also 3 m: 13 weekly columns (Monday–Sunday, UTC), the cell
+ *    the week's events per day, from the per-day sums of /api/gps/heat
+ *    (fetched when 3 m is chosen and then every 10 minutes).
  *  - Live list: callsign, level, NACp / NIC and the signal flags.
  *  - Spoofing indicators of the window (at most the last 31 days): aircraft
  *    per indicator, those with two or more independent indicators, and the
@@ -45,13 +48,14 @@
     zone: lsGet('ms_app_gnss_zone', 'all'),
     win: parseInt(lsGet('ms_app_gnss_win', '24'), 10),
     heat: lsGet('ms_app_gnss_heat', 'off'),            // FL band heatmap shown (from 3 Nov 2026)
-    hrange: lsGet('ms_app_gnss_hrange', '14'),         // its days: 14 / 31
+    hrange: lsGet('ms_app_gnss_hrange', '14'),         // its days: 14 / 31, or '3m' (13 weeks, from 14 Nov 2026)
     hmode: lsGet('ms_app_gnss_hmode', 'events'),       // events / pct
   };
   if (!ZONES[S.zone]) S.zone = 'all';
   if (!WINS[S.win]) S.win = 24;
   if (!['on', 'off'].includes(S.heat)) S.heat = 'off';
-  if (!['14', '31'].includes(S.hrange)) S.hrange = '14';
+  if (!['14', '31', '3m'].includes(S.hrange)) S.hrange = '14';
+  const weekly = () => S.hrange === '3m';
   if (!['events', 'pct'].includes(S.hmode)) S.hmode = 'events';
   const daily = () => S.win > 168;
 
@@ -82,6 +86,7 @@
 
   let on = false, inited = false, st = null, det = null, day = null, detAt = 0, sel = null, n = 0, err = '';
   let hsel = null, hlay = null;
+  let hw = null, hwBusy = false;                     // the 3 m heatmap's days: {zone, at, data}
   let sub = () => {};
 
   function init(o) {
@@ -137,6 +142,21 @@
     sync();
   }
 
+  // the per-day sums of the 3 m heatmap (13 weeks: at most 91 days)
+  async function loadWeeks(force) {
+    if (S.heat !== 'on' || !weekly() || hwBusy) return;
+    if (!force && hw && hw.zone === S.zone && Date.now() - hw.at < 600e3) return;
+    hwBusy = true;
+    const zone = S.zone;
+    try {
+      const r = await fetch(`/api/gps/heat?days=92&zone=${encodeURIComponent(zone)}`, { cache: 'no-store' });
+      if (r.ok) hw = { zone, at: Date.now(), data: await r.json() };
+    } catch (_) { /* keep the last answer */ }
+    hwBusy = false;
+    if (zone !== S.zone) { loadWeeks(true); return; }
+    if (on && weekly()) { drawHeat(); heatTxtOut(); }
+  }
+
   async function load(force, stateOnly) {
     n++;
     const want = n;
@@ -165,6 +185,7 @@
       }
     } catch (_) { err = 'Could not load the GNSS data — retrying.'; }
     if (on) render();
+    loadWeeks(false);
   }
 
   // the chart's bars: hours (24 h – 7 d) or days (1 m / 3 m) — {ts, ac, deg, sev, spf, ev}
@@ -324,9 +345,143 @@
     segs.forEach((sg, si) => sg.forEach(i => { out[i] = si; }));
     return out;
   }
+  // ── 3 m: weekly columns (from 14 Nov 2026; gps_quality.js heatWeekData) ──
+  const WEEK = 7 * 86400, OLD_SPLIT = ['050-080', '080-100'];   // FL050–100 was one band until 7 Sep 2026
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const weekStart = d => d - ((new Date(d * 1000).getUTCDay() + 6) % 7) * 86400;
+  function weekData(d, bands, nWeeks) {
+    const dk = Object.keys(d.days || {}).map(Number).sort((a, b) => a - b);
+    if (!dk.length) return null;
+    const wLast = weekStart(Math.floor(Date.now() / 1000 / 86400) * 86400);
+    const wFirst = Math.max(wLast - (nWeeks - 1) * WEEK, weekStart(dk[0]));
+    const keys = [], wk = {}, marks = [], segStart = new Set();
+    for (let w = wFirst; w <= wLast; w += WEEK) { keys.push(w); wk[w] = { ev: {}, hrs: {}, val: {}, bd: {}, old: null, partial: w === wLast }; }
+    let prevM = null;
+    for (const dt of dk) {
+      const m = (d.method || {})[dt] || 1, w = weekStart(dt), W = wk[w];
+      if (prevM !== null && m !== prevM && W) {
+        const di = Math.round((dt - w) / 86400);
+        marks.push({ week: w, frac: di / 7 });
+        segStart.add(di <= 3 ? w : w + WEEK);          // scaled with the side most of its days are on
+      }
+      prevM = m;
+      if (!W) continue;
+      const h = (d.hours || {})[dt] || 0, old = (d.old || {})[dt];
+      if (old) { W.old = W.old || { ev: 0, hrs: 0 }; W.old.ev += old[0] || 0; W.old.hrs += old[1] || 0; }
+      for (const b of bands) {
+        const hb = old && OLD_SPLIT.includes(b) ? h - (old[1] || 0) : h;
+        if (hb <= 0) continue;
+        W.ev[b] = (W.ev[b] || 0) + (((d.days || {})[dt] || {})[b] || 0);
+        W.hrs[b] = (W.hrs[b] || 0) + hb;
+      }
+      for (const [b, e] of Object.entries((d.band_days || {})[dt] || {})) {
+        const t = W.bd[b] = W.bd[b] || { ac: 0, deg: 0, sev: 0, sig: {} };
+        t.ac += e.ac || 0; t.deg += e.deg || 0; t.sev += e.sev || 0;
+        for (const [k, v] of Object.entries(e.sig || {})) t.sig[k] = (t.sig[k] || 0) + v;
+      }
+    }
+    keys.forEach(w => bands.forEach(b => { const h = wk[w].hrs[b]; wk[w].val[b] = h ? Math.round(wk[w].ev[b] * 24 / h) : null; }));
+    const segs = [];
+    keys.forEach((w, i) => { if (i === 0 || segStart.has(w)) segs.push([]); segs[segs.length - 1].push(i); });
+    for (let i = 0; i < segs.length - 1;) {
+      if (segs[i].length < 2) { segs[i + 1] = segs[i].concat(segs[i + 1]); segs.splice(i, 1); } else i++;
+    }
+    if (segs.length > 1 && segs[segs.length - 1].length < 2) { const l = segs.pop(); segs[segs.length - 1] = segs[segs.length - 1].concat(l); }
+    const segOf = new Array(keys.length).fill(0);
+    segs.forEach((sg, si) => sg.forEach(i => { segOf[i] = si; }));
+    return { keys, wk, marks, segOf };
+  }
+  function drawHeatWeeks() {
+    const cv = $('agn-heat');
+    const bands = (hw && hw.data.fl_bands) || (st && st.fl_bands) || [];
+    const H = 26 + Math.max(1, bands.length) * 22, [c, W] = sizeCanvas(cv, H);
+    const P = pal(), cols = HEAT[light() ? 'light' : 'dark'];
+    hlay = null;
+    c.font = '10px system-ui, sans-serif'; c.fillStyle = P.txt;
+    const have = hw && hw.zone === S.zone;
+    const D = have && bands.length ? weekData(hw.data, bands, 13) : null;
+    if (!D) {
+      c.textAlign = 'center'; c.fillText(have ? 'No data' : 'Loading…', W / 2, H / 2);
+      if (!have) loadWeeks(false);
+      return;
+    }
+    const { keys, wk, marks, segOf } = D;
+    const L = 62, R = 2, T = 2, B = 24, cw = (W - L - R) / keys.length, ch = (H - T - B) / bands.length;
+    const mx = {};
+    keys.forEach((w, xi) => bands.forEach(b => { const k = segOf[xi] + '|' + b; mx[k] = Math.max(mx[k] || 1, wk[w].val[b] || 0); }));
+    keys.forEach((w, xi) => bands.forEach((b, yi) => {
+      const x = L + xi * cw, y = T + yi * ch;
+      const none = () => { c.strokeStyle = P.grid; c.lineWidth = 0.5; c.strokeRect(x + 1.5, y + 1.5, cw - 3, ch - 3); };
+      let step;
+      if (S.hmode === 'pct') {
+        const e = wk[w].bd[b];
+        if (!e || !e.ac) { none(); return; }
+        step = pctStep(100 * e.deg / e.ac);
+      } else {
+        const v = wk[w].val[b];
+        if (v == null) { none(); return; }             // no hours, or before the band was split
+        step = Math.min(4, Math.round(v / mx[segOf[xi] + '|' + b] * 4));
+      }
+      c.fillStyle = cols[step]; c.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
+    }));
+    if (hsel) {
+      const xi = keys.indexOf(hsel[0]), yi = bands.indexOf(hsel[1]);
+      if (xi >= 0 && yi >= 0) { c.strokeStyle = light() ? '#0f172a' : '#e2e8f0'; c.lineWidth = 1.5; c.strokeRect(L + xi * cw + 1, T + yi * ch + 1, cw - 2, ch - 2); }
+    }
+    if (S.hmode !== 'pct') marks.forEach(mk => {
+      const xi = keys.indexOf(mk.week);
+      if (xi < 0 || (xi === 0 && !mk.frac)) return;
+      const x = L + (xi + mk.frac) * cw;
+      c.save(); c.strokeStyle = P.mark; c.lineWidth = 1.5; c.setLineDash([4, 3]);
+      c.beginPath(); c.moveTo(x, T); c.lineTo(x, H - B); c.stroke(); c.restore();
+    });
+    c.font = '9.5px system-ui, sans-serif'; c.fillStyle = P.txt; c.textAlign = 'right'; c.textBaseline = 'middle';
+    bands.forEach((b, yi) => c.fillText('FL' + b, L - 4, T + yi * ch + ch / 2));
+    // the Monday of every second week; below it the month at its first week
+    c.textBaseline = 'top';
+    let pm = null;
+    keys.forEach((w, xi) => {
+      const x = L + xi * cw;
+      c.textAlign = 'center';
+      if ((keys.length - 1 - xi) % 2 === 0) c.fillText(dm(w), x + cw / 2, H - B + 3);
+      const t = new Date((w + 3 * 86400) * 1000), mo = t.getUTCMonth();
+      if (mo !== pm) {
+        c.textAlign = 'left';
+        if (pm !== null || keys.length < 2 || new Date((keys[1] + 3 * 86400) * 1000).getUTCMonth() === mo) c.fillText(MON[mo], x + 1, H - B + 13);
+        pm = mo;
+      }
+    });
+    hlay = { L, T, cw, ch, days: keys, bands, wk };
+  }
+  function heatWeekTxt() {
+    const el = $('agn-heat-pick');
+    $('agn-heat-leg').textContent = S.hmode === 'pct'
+      ? 'Weeks (Mon–Sun, UTC): share of the band’s aircraft-hours degraded: 0 · <10 · <25 · <50 · ≥50 % (recorded from 6 Oct 2026); tap a cell for the values'
+      : 'Weeks (Mon–Sun, UTC): events a day, each row against its own busiest week (None → High); tap a cell for the values';
+    if (!hsel || !hlay || !hlay.wk || !hlay.wk[hsel[0]]) { el.textContent = 'Tap a cell for the week and the flight level band.'; return; }
+    const [w, b] = hsel, W = hlay.wk[w], v = W.val[b], h = W.hrs[b] || 0;
+    const span = `${Math.floor(h / 24) ? Math.floor(h / 24) + ' d' : ''}${Math.floor(h / 24) && h % 24 ? ' ' : ''}${h % 24 || !Math.floor(h / 24) ? (h % 24) + ' h' : ''}`;
+    let t = `Week ${dm(w)}–${dm(w + 6 * 86400)} · FL${b}`;
+    if (v == null) {
+      t += W.old && OLD_SPLIT.includes(b)
+        ? ` · FL050–100 was one band until 7 Sep 2026: ${num(Math.round(W.old.ev * 24 / Math.max(1, W.old.hrs)))} events a day`
+        : ' · no data';
+    } else {
+      t += ` · ${num(v)} events a day (${num(W.ev[b])} in ${span}${W.partial ? ', week in progress' : ''})`;
+      const e = W.bd[b];
+      if (e && e.ac) {
+        t += ` · ${num(e.deg)} of ${num(e.ac)} aircraft-hours degraded (${Math.round(100 * e.deg / e.ac)} %)` + (e.sev ? ` · severe ${num(e.sev)}` : '');
+        const sig = Object.entries(e.sig || {}).filter(([, x]) => x > 0), tot = sig.reduce((a, [, x]) => a + x, 0);
+        if (tot) t += '\nSignals: ' + sig.sort((a, b2) => b2[1] - a[1]).map(([k, x]) => `${SIG[k] || k} ${Math.round(100 * x / tot)} %`).join(' · ');
+      } else t += ' · aircraft counts not recorded (from 6 Oct 2026)';
+    }
+    el.textContent = t;
+  }
+
   function drawHeat() {
     const cv = $('agn-heat');
     if (S.heat !== 'on') return;
+    if (weekly()) { drawHeatWeeks(); return; }
     const hd = st && st.heat_days, bands = (st && st.fl_bands) || [];
     const H = 26 + Math.max(1, bands.length) * 22, [c, W] = sizeCanvas(cv, H);
     const P = pal(), cols = HEAT[light() ? 'light' : 'dark'];
@@ -380,6 +535,7 @@
   function heatTxtOut() {
     const el = $('agn-heat-pick');
     if (!el || S.heat !== 'on') return;
+    if (weekly()) { heatWeekTxt(); return; }
     $('agn-heat-leg').textContent = S.hmode === 'pct'
       ? 'Share of the band’s aircraft-hours degraded: 0 · <10 · <25 · <50 · ≥50 % (recorded from 6 Oct 2026); tap a cell for the values'
       : 'Events: each row against its own busiest day (None → High); tap a cell for the values';

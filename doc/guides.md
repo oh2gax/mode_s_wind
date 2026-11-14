@@ -134,15 +134,15 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## The GPS pages — Quality, Episodes and Aircraft
 file: GPS_User_Guide.pdf
-version: 1.0
-date: 2026-11-08
+version: 1.1
+date: 2026-11-14
 pages: 10
 open: gps@3, gpsep@4, gpsac@5
 
 GPS interference as the aircraft themselves report it, and how to read the three **GPS** pages (shown to users with the **Full view** right).
 
 - What is measured: the aircraft's own **NACp** and **NIC**, the five degradation signals (NACp, NIC, Freeze, Gap, ADS-B loss), severe looks, **episodes** within 100 NM of EFHK and how they end, the four **spoofing indicators** and *2+*, and what a flight is
-- **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap, the live table, the FL-band analysis and the severity and spoofing panel
+- **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap (days, or weeks over 3 months, 6 months and a year), the live table, the FL-band analysis and the severity and spoofing panel
 - **GPS Episodes**: the window and filters, the map, the list with its chips and *altitude vs distance*
 - **GPS Aircraft**: one aircraft, a callsign or a type — key figures, the days with the **receivers' coverage**, the calendar and the flights
 - **The overview of all traffic**: the Hours and Airline filters, key figures with *today vs the last 7 days*, day by day, **week by week**, **time of day × weekday**, **arrivals and departures** (where GPS came back, still degraded below 1 000 ft; where it was lost), **direction and altitude**, the **kind of degradation**, and the tables by type, airline and aircraft
@@ -150,8 +150,8 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.77
-date: 2026-11-12
+version: 1.78
+date: 2026-11-14
 pages: 63
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.

@@ -78,8 +78,11 @@
         <div class="gps-panel-hdr">
           <span class="gps-panel-title" id="gps-heatmap-title">FL Band Heatmap — Last 14 Days</span>
           <div class="gps-heatmap-range-btns" id="gps-heatmap-range-btns">
-            <button class="gps-range-btn active" data-heatmap-range="14d">14d</button>
-            <button class="gps-range-btn" data-heatmap-range="1m">1m</button>
+            <button class="gps-range-btn active" data-heatmap-range="14d" title="The last 14 days, a column per day">14d</button>
+            <button class="gps-range-btn" data-heatmap-range="1m" title="The last 31 days, a column per day">1m</button>
+            <button class="gps-range-btn" data-heatmap-range="3m" title="The last 13 weeks, a column per week (Monday–Sunday, UTC): the week's events per day">3m</button>
+            <button class="gps-range-btn" data-heatmap-range="6m" title="The last 26 weeks, a column per week (Monday–Sunday, UTC): the week's events per day">6m</button>
+            <button class="gps-range-btn" data-heatmap-range="1y" title="The last 52 weeks, a column per week (Monday–Sunday, UTC): the week's events per day. The stored hours begin on 30 May 2026">1y</button>
           </div>
           <div class="gps-heatmap-range-btns" id="gps-heatmap-mode-btns">
             <button class="gps-range-btn active" data-heatmap-mode="events" title="Cell = number of degradation events (5-s detections); each row coloured relative to its own busiest day">Events</button>

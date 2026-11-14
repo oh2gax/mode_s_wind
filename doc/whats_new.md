@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.14112026 — GPS Quality: the heatmap over 3 months, 6 months or a year
+
+- **GPS Quality: longer heatmap ranges** (the GPS pages are shown to users with the Full view right) — the FL Band Heatmap has three new buttons, *3m*, *6m* and *1y*. They show one column per week (Monday–Sunday), and the number in a cell is that week's events per day, so the current week compares with the full ones. Hover a cell for the week's details, click it to open GPS Episodes for the Monday of that week. The stored data begin on 30 May 2026, so *1y* fills up over the coming months. Two things to remember when looking far back: the way events are counted changed on 25–26 September (the dashed line; the two sides have their own colour scales and are not comparable), and FL050–080 and FL080–100 were a single band until 7 September (empty cells before that).
+- **Phone app: 3 m heatmap** — the FL band heatmap of the GNSS view has a third choice, *3 m*: 13 weekly columns with the same rules. Tap a cell for the week's figures.
+
 ## v.13112026 — MEPS model: no gap when a run is late; windshear detection sharper on four landings in ten, fewer false advisories from ATR departures
 
 - **MEPS model** — on three mornings the model's 03 UTC run reached MET Norway's archive about three hours late, and for a short time around 07:30 UTC the model profile of the current hour was missing on the Skew-T and in the other MEPS comparisons. The station now keeps three more hours of every run, so the run before covers a late one.
