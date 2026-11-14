@@ -84,6 +84,10 @@
             <button class="gps-range-btn" data-heatmap-range="6m" title="The last 26 weeks, a column per week (Monday–Sunday, UTC): the week's events per day">6m</button>
             <button class="gps-range-btn" data-heatmap-range="1y" title="The last 52 weeks, a column per week (Monday–Sunday, UTC): the week's events per day. The stored hours begin on 30 May 2026">1y</button>
           </div>
+          <div class="gps-heatmap-range-btns" id="gps-heatmap-view-btns" style="display:none">
+            <button class="gps-range-btn active" data-heatmap-view="weeks" title="3m as 13 weekly columns with the week's events per day in the cells">Weeks</button>
+            <button class="gps-range-btn" data-heatmap-view="days" title="3m day by day: about 91 daily columns in colour only — hover a cell for its numbers, click it for that day's episodes">Days</button>
+          </div>
           <div class="gps-heatmap-range-btns" id="gps-heatmap-mode-btns">
             <button class="gps-range-btn active" data-heatmap-mode="events" title="Cell = number of degradation events (5-s detections); each row coloured relative to its own busiest day">Events</button>
             <button class="gps-range-btn" data-heatmap-mode="pct" title="Cell = % of aircraft in that FL band that were degraded (counted per hour, summed over the day — aircraft-hours); one colour scale for all rows. Recorded from 6 Oct 2026">% aircraft</button>

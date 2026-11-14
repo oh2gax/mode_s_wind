@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.14112026 — 2026-11-14 (GPS Quality: the FL band heatmap also over 3 months, 6 months and a year, in weekly columns; 3 m in the phone app)
+## v.14112026 — 2026-11-14 (GPS Quality: the FL band heatmap also over 3 months, 6 months and a year, in weekly columns — 3 months also day by day; 3 m in the phone app)
 
 ### GPS Quality: 3m / 6m / 1y heatmap ranges
 - **New range buttons** `3m`, `6m`, `1y` next to `14d` / `1m` in the FL Band Heatmap (`web/templates/gps_quality.html`, `static/js/gps_quality.js`). They draw **one column per week** (Monday–Sunday, UTC) — 13, 26 or 52 weeks up to the week in progress, not further back than the stored hours (from 30 May 2026).
@@ -17,11 +17,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 - **Server:** new `/api/gps/heat` (Full view only) with the per-day sums of up to 53 weeks, from `GpsQualityTracker.get_heat_days()` in `collector/gps_quality.py`: the finished days are read once from the stored hours and kept in RAM, today and yesterday come from the live buckets. No database writes; fetched when a weekly range is chosen and then every 10 minutes, not with the 30-second poll.
 - **FL Band Analysis** keeps to the hourly data: with a weekly range it shows the last 31 days (its title says so). The time-series chart is unchanged.
 
+### GPS Quality: 3m also day by day
+- With `3m` a **`Weeks | Days`** switch is shown next to the range buttons (`web/templates/gps_quality.html`, `static/js/gps_quality.js`). `Days` draws the same 13 weeks as about 91 daily columns, in **colour only** — a column is 11–15 px wide, too narrow for the numbers.
+- **Hover:** the cell under the pointer is outlined and the box gives the day, its events, the aircraft-hours and the signal mix, as in `14d` / `1m`. **Click:** GPS Episodes for exactly that day and band.
+- Thin gaps mark the Mondays; the colour scales, the counting-method lines and the empty cells follow the rules of the day ranges. No new request: the per-day sums of `/api/gps/heat` are already on the page. `6m` and `1y` stay weekly.
+
 ### Phone app: 3 m in the FL band heatmap
 - A third chip **3 m** in the GNSS view's heatmap (`static/js/app_gnss.js`, `web/templates/app.html`): 13 weekly columns with the same rules as on the page, in colour only; a tap gives the week, the band, the events per day and in all, the aircraft-hours and the signal mix.
 
 ### Documents
-- **GPS pages guide 1.1**: the longer ranges with a figure of 26 weeks. 10 pages.
+- **GPS pages guide 1.2**: the longer ranges with a figure of 26 weeks, and 3m day by day with a figure (1.1 earlier the same day, without the day view). 11 pages.
 - **Mobile guide 1.78**: the 3 m range of the GNSS view's heatmap. 63 pages.
 
 ## v.13112026 — 2026-11-13 (Own-wind check: the held winds are kept for checking; MEPS: three more hours of each run; after a wide check of the algorithms: windshear detection v8 uses both registers on nearly every landing, older ATRs are not compared after their first turn, the ACI class factors measured again, *Few winds* warns only after 30 minutes)

@@ -177,6 +177,36 @@ let currentHeatmapRange = localStorage.getItem('ms_gps_heatmap_range') || '14d';
 if (!HEATMAP_RANGE_CONFIG[currentHeatmapRange]) currentHeatmapRange = '14d';
 const heatWeeks = () => (HEATMAP_RANGE_CONFIG[currentHeatmapRange] || {}).weeks || 0;
 
+// 3m can also be drawn day by day (from 14 Nov 2026, later the same day): the
+// same 13 weeks as about 91 daily columns in colour only — a 4–5 digit number
+// needs about 30 px and a column is 11–15 px — with the numbers in the hover.
+// Chosen with the Weeks | Days switch that is shown with 3m; kept on the browser.
+let heat3mView = localStorage.getItem('ms_gps_heatmap_3m_view') === 'days' ? 'days' : 'weeks';
+const heatLongDays = () => currentHeatmapRange === '3m' && heat3mView === 'days';
+function heatmapTitle() {
+  const cfg = HEATMAP_RANGE_CONFIG[currentHeatmapRange] || HEATMAP_RANGE_CONFIG['14d'];
+  return 'FL Band Heatmap — ' + cfg.title + (heatLongDays() ? ', by Day' : '');
+}
+function syncHeat3mView() {
+  const box = document.getElementById('gps-heatmap-view-btns');
+  if (box) {
+    box.style.display = currentHeatmapRange === '3m' ? '' : 'none';
+    box.querySelectorAll('.gps-range-btn').forEach(b => b.classList.toggle('active', b.dataset.heatmapView === heat3mView));
+  }
+  const titleEl = document.getElementById('gps-heatmap-title');
+  if (titleEl) titleEl.textContent = heatmapTitle();
+}
+function applyHeat3mView(view) {
+  heat3mView = view === 'days' ? 'days' : 'weeks';
+  localStorage.setItem('ms_gps_heatmap_3m_view', heat3mView);
+  const tip = document.getElementById('gps-heat-tip');
+  if (tip) tip.style.display = 'none';
+  heatHover = null;
+  syncHeat3mView();
+  syncHeatLegend();
+  if (lastFlBands.length > 0) drawHeatmap(lastHeatmapData, lastFlBands);
+}
+
 // The per-day sums of the long ranges: {zone, at, data} of the last answer
 let heatLong = null, heatLongBusy = false;
 const HEAT_LONG_MAX_AGE_MS = 10 * 60 * 1000;
@@ -202,10 +232,10 @@ function applyHeatmapRange(range) {
     btn.classList.toggle('active', btn.dataset.heatmapRange === range);
   });
   const cfg = HEATMAP_RANGE_CONFIG[range];
-  const titleEl = document.getElementById('gps-heatmap-title');
-  if (titleEl) titleEl.textContent = 'FL Band Heatmap — ' + cfg.title;
   const tip = document.getElementById('gps-heat-tip');
   if (tip) tip.style.display = 'none';
+  heatHover = null;
+  syncHeat3mView();
   syncHeatLegend();
   // Redraw immediately from cached data — the day ranges need no fetch (see
   // the comment above); the weekly ranges fetch their days when they are stale.
@@ -623,8 +653,14 @@ const HEAT_LEGEND_WEEKS = {
   pct:    { txt: '0 · <10 · <25 · <50 · ≥50 %',
             tip: 'Weekly columns (Monday–Sunday, UTC): share of the aircraft seen in each FL band that had at least one degradation event — counted per hour and summed over the week (aircraft-hours). One colour scale for all rows. Empty cells: no per-band data (recorded from 6 Oct 2026) or no traffic.' },
 };
+const HEAT_LEGEND_LONG_DAYS = {
+  events: { txt: 'None → High · hover a cell',
+            tip: 'A column per day over 13 weeks, in colour only — hover a cell for its numbers. Each FL row is coloured relative to its own busiest day. Days on either side of a counting-method change (dashed amber line) are scaled separately, as their counts are not comparable. Thin lines mark the Mondays.' },
+  pct:    { txt: '0 · <10 · <25 · <50 · ≥50 % · hover a cell',
+            tip: 'A column per day over 13 weeks, in colour only — hover a cell for its numbers. Share of the aircraft seen in each FL band that had at least one degradation event — counted per hour and summed over the day (aircraft-hours). One colour scale for all rows. Empty cells: no per-band data (recorded from 6 Oct 2026) or no traffic.' },
+};
 function syncHeatLegend() {
-  const leg = (heatWeeks() ? HEAT_LEGEND_WEEKS : HEAT_LEGEND)[heatmapMode];
+  const leg = (heatLongDays() ? HEAT_LEGEND_LONG_DAYS : heatWeeks() ? HEAT_LEGEND_WEEKS : HEAT_LEGEND)[heatmapMode];
   const lg = document.getElementById('gps-heat-legend');
   const lt = document.getElementById('gps-heat-legend-txt');
   if (lg) lg.title = leg.tip;
@@ -883,7 +919,150 @@ function drawHeatmapWeeks(flBands) {
   heatLayout = { ML, MT, cellW, cellH, plotW, plotH, dayKeys: keys, flBands, weekly: true, wk, marks };
 }
 
+// ── 3m day by day: about 91 daily columns in colour only (from 14 Nov 2026) ──
+let heatHover = null;      // the cell under the pointer in this view: `${dayTs}|${band}`
+function drawHeatmapLongDays(flBands) {
+  const canvas = document.getElementById('gps-heatmap-canvas');
+  if (!canvas || !flBands.length) return;
+  const th = canvasTheme(), ctx = canvas.getContext('2d');
+  const ML = 68, MB = 46, MT = 8, MR = 12, DAY = 86_400;
+  const W = canvas.parentElement.clientWidth || 600, H = 220;
+  canvas.width = W; canvas.height = H;
+  ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
+  heatLayout = null;
+  const have = heatLong && heatLong.zone === currentZone;
+  const d = have ? heatLong.data : null;
+  const dataDays = d ? Object.keys(d.days || {}).map(Number).sort((a, b) => a - b) : [];
+  if (!dataDays.length) {
+    ctx.fillStyle = th.textDim; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(have ? 'No data' : 'Loading\u2026', W / 2, H / 2);
+    if (!have) fetchHeatLong(false);
+    return;
+  }
+  // the same period as the weekly view: from the Monday twelve weeks before
+  // this week's (not before the first day with data) to today
+  const today = Math.floor(Date.now() / 1000 / DAY) * DAY;
+  const first = Math.max(weekStart(today) - (heatWeeks() - 1) * WEEK_SEC, dataDays[0]);
+  const keys = [];
+  for (let t = first; t <= today; t += DAY) keys.push(t);
+  // a day's value per band: its events; null without stored hours, and for the
+  // two halves of FL050–100 while that was one band (until 7 Sep 2026)
+  const dayMap = {};
+  keys.forEach(dt => {
+    const h = (d.hours || {})[dt] || 0, old = (d.old || {})[dt];
+    dayMap[dt] = {};
+    flBands.forEach(band => {
+      const hb = old && HEAT_OLD_SPLIT.includes(band) ? h - (old[1] || 0) : h;
+      dayMap[dt][band] = hb > 0 ? (((d.days || {})[dt] || {})[band] || 0) : null;
+    });
+  });
+  const changes = [];
+  let prevM = null;
+  for (const dt of dataDays) {
+    const m = (d.method || {})[dt] || 1;
+    if (prevM !== null && m !== prevM) changes.push({ ts: dt, method: m });
+    prevM = m;
+  }
+  const segOf = heatmapSegments(keys, changes, DAY);
+  const nB = flBands.length, plotW = W - ML - MR, plotH = H - MT - MB;
+  const cellW = plotW / keys.length, cellH = plotH / nB;
+  const gap = cellW >= 8 ? 0.5 : 0;
+  const mx = {};
+  flBands.forEach(band => keys.forEach((dt, xi) => {
+    const k = segOf[xi] + '|' + band;
+    mx[k] = Math.max(mx[k] || 1, dayMap[dt][band] || 0);
+  }));
+  keys.forEach((dt, xi) => flBands.forEach((band, yi) => {
+    const x = ML + xi * cellW, y = MT + yi * cellH;
+    const none = () => { ctx.fillStyle = th.grid; ctx.globalAlpha = 0.25; ctx.fillRect(x + gap, y + 1, cellW - 2 * gap, cellH - 2); ctx.globalAlpha = 1; };
+    if (heatmapMode === 'pct') {
+      const bd = ((d.band_days || {})[dt] || {})[band];
+      if (!bd || !bd.ac) { none(); return; }
+      ctx.fillStyle = heatColorStep(pctStep(100 * bd.deg / bd.ac));
+    } else {
+      const val = dayMap[dt][band];
+      if (val == null) { none(); return; }
+      ctx.fillStyle = heatColor(val / mx[segOf[xi] + '|' + band]);
+    }
+    ctx.fillRect(x + gap, y + 1, cellW - 2 * gap, cellH - 2);
+  }));
+
+  // thin lines at the Mondays, to read the columns against the weekly view
+  ctx.strokeStyle = th.bg; ctx.lineWidth = 1.5;
+  keys.forEach((dt, xi) => {
+    if (xi === 0 || weekStart(dt) !== dt) return;
+    const x = ML + xi * cellW;
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + plotH); ctx.stroke();
+  });
+  for (const mk of changes) {
+    const xi = keys.indexOf(mk.ts);
+    if (xi <= 0) continue;
+    const x = ML + xi * cellW;
+    ctx.save();
+    ctx.strokeStyle = gpsPal().mark; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + plotH); ctx.stroke();
+    ctx.restore();
+  }
+  // the cell under the pointer
+  if (heatHover) {
+    const [hd, hb] = heatHover.split('|');
+    const xi = keys.indexOf(Number(hd)), yi = flBands.indexOf(hb);
+    if (xi >= 0 && yi >= 0) {
+      ctx.strokeStyle = th.text; ctx.lineWidth = 1.5;
+      ctx.strokeRect(ML + xi * cellW - 0.5, MT + yi * cellH + 0.5, cellW + 1, cellH - 1);
+    }
+  }
+
+  ctx.fillStyle = th.axisLabel; ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  flBands.forEach((band, yi) => ctx.fillText('FL' + band, ML - 4, MT + yi * cellH + cellH / 2));
+
+  // X axis: the Mondays (every second one when the columns are narrow), the months below
+  ctx.textBaseline = 'top';
+  const wkEvery = cellW * 7 >= 34 ? 1 : 2;
+  let nMon = 0, prevMonth = null;
+  const months = [];
+  keys.forEach((dt, xi) => {
+    const dd = new Date(dt * 1000), x = ML + xi * cellW;
+    if (weekStart(dt) === dt) {
+      if (nMon++ % wkEvery === 0 && x + 14 < W) {
+        ctx.fillStyle = th.axisLabel; ctx.textAlign = 'left';
+        ctx.fillText(`${dd.getUTCMonth() + 1}/${dd.getUTCDate()}`, x + 1, MT + plotH + 4);
+      }
+    }
+    const mo = dd.getUTCFullYear() * 12 + dd.getUTCMonth();
+    if (mo !== prevMonth) {
+      months.push({ x, name: MONTHS[dd.getUTCMonth()], year: dd.getUTCFullYear(),
+                    withYear: prevMonth === null || dd.getUTCMonth() === 0, line: prevMonth !== null });
+      prevMonth = mo;
+    }
+  });
+  ctx.textAlign = 'left';
+  months.forEach((m, i) => {
+    if (m.line) {
+      ctx.strokeStyle = th.grid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(m.x, MT + plotH + 16); ctx.lineTo(m.x, MT + plotH + 30); ctx.stroke();
+    }
+    const lbl = m.name + (m.withYear ? ' ' + m.year : '');
+    const end = i + 1 < months.length ? months[i + 1].x : W - 2;
+    if (m.x + 2 + ctx.measureText(lbl).width > end - 3) {
+      if (m.withYear && i + 1 < months.length) months[i + 1].withYear = true;
+      return;
+    }
+    ctx.fillStyle = th.textDim;
+    ctx.fillText(lbl, m.x + 3, MT + plotH + 18);
+  });
+
+  ctx.strokeStyle = th.grid; ctx.lineWidth = 0.5;
+  for (let yi = 1; yi < nB; yi++) {
+    const y = MT + yi * cellH;
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(W - MR, y); ctx.stroke();
+  }
+  heatLayout = { ML, MT, cellW, cellH, plotW, plotH, dayKeys: keys, flBands, dayMap, longDays: true, data: d, changes };
+}
+
 function drawHeatmap(heatmapData, flBands) {
+  if (heatLongDays()) { drawHeatmapLongDays(flBands); return; }
   if (heatWeeks()) { drawHeatmapWeeks(flBands); return; }
   const canvas = document.getElementById('gps-heatmap-canvas');
   if (!canvas || !heatmapData || heatmapData.length === 0) return;
@@ -1108,7 +1287,40 @@ function heatWeekTipHtml(cell) {
   return lines.join('<br>');
 }
 
+function heatLongDayTipHtml(cell) {
+  const d = heatLayout.data, dt = cell.dt, dd = new Date(dt * 1000);
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dd.getUTCDay()];
+  const n   = v => Math.round(v).toLocaleString('en-US').replace(/,/g, '\u202f');
+  const lines = [`<b>${dow} ${dd.getUTCDate()}.${dd.getUTCMonth() + 1}.${dd.getUTCFullYear()} · FL${cell.band}</b>`];
+  const val = heatLayout.dayMap[dt][cell.band], hrs = (d.hours || {})[dt] || 0, old = (d.old || {})[dt];
+  if (val == null) {
+    if (old && HEAT_OLD_SPLIT.includes(cell.band)) lines.push(`FL050–100 was one band until 7 Sep 2026: ${n(old[0])} events`);
+    else lines.push('<span class="gps-heat-tip-dim">No data for this day</span>');
+  } else {
+    lines.push(`Events: ${n(val)}`);
+    if (hrs < 24) lines.push(`<span class="gps-heat-tip-dim">${hrs} h of data${dt >= Math.floor(Date.now() / 86_400_000) * 86_400 ? ' so far' : ''}</span>`);
+  }
+  const bd = ((d.band_days || {})[dt] || {})[cell.band];
+  if (bd && bd.ac) {
+    lines.push(`Aircraft degraded: ${n(bd.deg)} of ${n(bd.ac)} (${Math.round(100 * bd.deg / bd.ac)} %, aircraft-hours)`);
+    if (bd.sev) lines.push(`Severe (position unusable): ${n(bd.sev)}`);
+    const sig = Object.entries(bd.sig || {}).filter(([, v]) => v > 0);
+    const tot = sig.reduce((s, [, v]) => s + v, 0);
+    if (tot > 0) {
+      lines.push('Signals: ' + sig.sort((p, q) => q[1] - p[1])
+        .map(([k, v]) => `${SIG_NAMES[k] || k} ${Math.round(100 * v / tot)} %`).join(' · '));
+    }
+  } else if (val != null) {
+    lines.push('<span class="gps-heat-tip-dim">Aircraft counts: not recorded (from 6 Oct 2026)</span>');
+  }
+  const mk = heatLayout.changes.find(m => m.ts === dt);
+  if (mk) lines.push(`<span class="gps-heat-tip-dim">Counting method changed on this day (${METHOD_LABELS[mk.method] || 'method v' + mk.method})</span>`);
+  lines.push('<span class="gps-heat-tip-dim">Click: open GPS Episodes for this day and band</span>');
+  return lines.join('<br>');
+}
+
 function heatTipHtml(cell) {
+  if (heatLayout.longDays) return heatLongDayTipHtml(cell);
   if (heatLayout.weekly) return heatWeekTipHtml(cell);
   const d   = new Date(cell.dt * 1000);
   const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
@@ -1138,6 +1350,11 @@ function heatTipHtml(cell) {
   if (!canvas || !tip) return;
   canvas.addEventListener('mousemove', ev => {
     const cell = heatCellAt(ev);
+    // 3m day by day: the narrow cell under the pointer is outlined
+    if (heatLayout && heatLayout.longDays) {
+      const k = cell ? cell.dt + '|' + cell.band : null;
+      if (k !== heatHover) { heatHover = k; drawHeatmapLongDays(lastFlBands); }
+    }
     canvas.style.cursor = cell ? 'pointer' : 'default';
     if (!cell) { tip.style.display = 'none'; return; }
     tip.innerHTML = heatTipHtml(cell);
@@ -1150,7 +1367,10 @@ function heatTipHtml(cell) {
     tip.style.left = x + 'px';
     tip.style.top  = y + 'px';
   });
-  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => {
+    tip.style.display = 'none';
+    if (heatHover) { heatHover = null; if (heatLongDays()) drawHeatmapLongDays(lastFlBands); }
+  });
   canvas.addEventListener('click', ev => {
     const cell = heatCellAt(ev);
     if (!cell) return;
@@ -1706,9 +1926,11 @@ document.querySelectorAll('#gps-heatmap-range-btns .gps-range-btn').forEach(btn 
   btn.classList.toggle('active', btn.dataset.heatmapRange === currentHeatmapRange);
 });
 {
-  const heatmapTitleEl = document.getElementById('gps-heatmap-title');
-  const heatmapCfg = HEATMAP_RANGE_CONFIG[currentHeatmapRange];
-  if (heatmapTitleEl && heatmapCfg) heatmapTitleEl.textContent = 'FL Band Heatmap — ' + heatmapCfg.title;
+  // the title, and the Weeks | Days switch of 3m (shown with 3m only)
+  document.querySelectorAll('#gps-heatmap-view-btns .gps-range-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyHeat3mView(btn.dataset.heatmapView));
+  });
+  syncHeat3mView();
 }
 
 // Heatmap mode (Events / % aircraft)
