@@ -1967,6 +1967,7 @@ class WindshearTracker:
                 # seen by the landings of the last 15 min on this runway direction? (label only)
                 nb = self._neighbours(now, runway, before=True)
                 ev["cf"], ev["cfn"] = _shear.confirm_count(d, c, nb), len(nb)
+                ev["cfc"] = _shear.confirmed(ev["cf"], ev["cfn"])     # by the rule of 15 Nov 2026
             else:
                 ev.update({"b": c["b"], "a": c["a"], "ref": c["ref"], "n": c["n"],
                            "np": c.get("np"), "dv": c.get("dv"), "bph": c.get("ph"),
@@ -2303,6 +2304,7 @@ class WindshearTracker:
                     if (le.get("icao") == e.get("icao") and le.get("kind") == "ramp"
                             and le.get("ph", "arr") == "arr" and ts - 900 <= (le.get("ts") or 0) <= ts + 60):
                         le["cf"], le["cfn"] = cf["b"] + cf["a"], cf["nb"] + cf["na"]
+                        le["cfc"] = _shear.confirmed(le["cf"], le["cfn"])
                         le["cfin"] = True
         return done
 

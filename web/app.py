@@ -35,6 +35,7 @@ from web import shared_login
 from web import session_cookie
 from web import rights as rx_rights
 from collector import traffic as _traffic
+from collector import shear as _shear_mod
 
 log = logging.getLogger("modes.web")
 
@@ -2453,7 +2454,7 @@ def create_app(
                      "rw": r["runway"] or w.get("rwy"), "h": w.get("hdg") if k == "d" and w.get("hdg") is not None else r["hdg"],
                      "lo": hp.get("lo"), "v": hp["v"], "lv": w.get("lvl") or "none", "src": w.get("src")}
                 if e["lv"] != "none":
-                    zs = [c for c in (w.get("loss"), w.get("gain")) if c and c.get("zone") and (c.get("sc") or 0) >= 10]
+                    zs = [c for c in (w.get("loss"), w.get("gain")) if c and c.get("zone") and _shear_mod.ramp_at_advisory(c)]
                     if zs:
                         c = max(zs, key=lambda c: c.get("sc") or 0)
                         e["wa"] = sorted([c.get("a1"), c.get("a2")])

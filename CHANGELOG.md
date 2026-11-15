@@ -7,6 +7,41 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.15112026 — 2026-11-15 (Windshear: the alert log scrolls, an advisory needs a real change of 10 kt, *Confirmed* needs more than one neighbour — report version 12; the held winds are all stored; the MEPS dot steady through a server outage)
+
+### Windshear page: the alert log scrolls
+- **Fault:** on a gusty day the Windshear Alert log had more entries than fit, and instead of scrolling every line was squeezed to a few pixels. The list is a column flexbox and its one-line entries could shrink without limit (60 entries: 6 px each).
+- **Now** (`static/css/style.css`): the entries keep their height (17 px) and the list scrolls, with a thin scrollbar. Nothing else on the page changes.
+
+### Windshear: an advisory needs a headwind change of 10 kt (report version 12)
+- **Found:** on gusty days the alert log filled with small short ramps. The 1-km scaling lifts a 400-m ramp by 1.36, so a change of 7.4 kt was an advisory: on 14 Nov 8 of the 9 advisories were ramps of 7.4–8.9 kt over 400–800 m. The share of landings with a level rises from 0.4 % when the flight's own scatter is below 1 kt to 16 % at 2–2.5 kt.
+- **Test with the neighbouring landings** (same runway direction, ±15 min; chance = the same ramp 700 ft higher or lower): ramps below 10 kt were seen by 26 % of the neighbours against 16 % by chance, ramps of 10 kt or more by 46 % against 15 %. The small ones are mostly single gusts — turbulence, which EDR and ACI already describe.
+- **Now** (`RAMP_ADV_MIN_DV` = 10 kt in `collector/shear.py`, as a windshear alert needs 14 kt; the same in `static/js/windshear.js`, `static/js/ws_cond_chart.js`, `web/api/pilot.py`, `web/app.py`): a ramp is an advisory only when its headwind change itself is at least 10 kt. A smaller ramp stays in the hover as the strongest ramp, without a level.
+- **Stored reports recomputed** once after the restart (`run.py`): landing advisories **99 → 60**, the 4 windshear alerts unchanged, no flight raised; 14 Nov 9 → 2, 15 Nov 8 → 6, 26 Oct 19 → 10, 27 Oct 18 → 6. Departures unchanged.
+
+### Windshear: *Confirmed* needs more than one neighbour
+- **Found:** a ramp was *confirmed* when one landing within 15 minutes had a similar ramp at the same height. On a gusty day that happens by chance: 66 % of the advisories were confirmed where chance alone gave 50 %.
+- **Now** (`confirmed()` in `collector/shear.py`; `cf.c` in the report, `cfc` in the alert log; the same rule in `windshear.js`, `ws_cond_chart.js`, `app.js`, `app_pilot.js` for reports stored before): confirmed with at least 2 landings that are also a quarter of those compared, or 1 of up to 3 — 46 % against 26 % by chance, 61 % for ramps of 10 kt or more. The tag is `✓n` only then, else `iso`; the hover says *Not confirmed: seen by only 1 of 8 nearby landings* when too few saw it. The levels are not affected.
+- After the recomputation: of the 53 ramp advisories left, 34 confirmed, 9 seen by too few, 10 isolated.
+
+### Own-wind check: every held wind is stored
+- **Found in the data check:** of the 483 winds the own-wind check held on 13–15 Nov, only 2 were in the database. The held pair was attached to the row of its own reply, and the per-aircraft write throttle stores only one row of an aircraft per interval.
+- **Now** (`collector/receiver.py`, `collector/writer.py`): a row with a held wind (`hdg_src` `J`) is written outside the throttle and does not count for it — a few hundred rows a day. As before these rows are used on no page. The two that were stored were far off the aircraft's own winds (275 kt against 42 kt, 194 kt against 76 kt).
+
+### Health: the MEPS dot steady through an outage
+- **Found:** during the morning outage of MET Norway's server on 15 Nov the MEPS dot went amber and green in turn (06:09–08:01 UTC). A failed run is asked again only after 30 minutes, and the looks in between read as a success.
+- **Now** (`collector/meps.py`, `web/api/health.py`): a failed request counts as *fetch failing* for an hour, until a run has been stored again.
+
+### Data check 13–15 Nov
+- **Windshear after the changes of 13 Nov:** the stored reports were recomputed once (7 247 landings and 7 221 departures in 71 s on the server). Since then the second register is used on 235 of 236 landings; no advisory from an ATR 72-500 departure (its bands after the first turn are left out on 38 of 50 departures).
+- **Two gusty days:** 14 Nov 9 advisories on 168 landings, 15 Nov (to 12:51 UTC) 7 advisories and 1 windshear alert on 71 landings and 5 departure advisories; turbulence (EDR) median 0.113 and 0.151 against 0.06–0.09 on the days before. Over all landings since 24 Oct the share with an advisory rises with the flight's own scatter: 0.4 % below 1 kt, 6 % at 1.5–2 kt, 16 % at 2–2.5 kt.
+- **MEPS:** the 03 UTC run came at 06:36 (14 Nov) and 07:40 / 08:22 UTC (15 Nov) after HTTP 500 from about 03:45; the extra forecast hours carried the model profile through both mornings (no *No model profile*).
+- **Health:** no *Few winds* warning on either night.
+
+### Documents
+- **Windshear guide 2.47**: the 10 kt for an advisory, the rule for *Confirmed*, the scrolling log. 32 pages.
+- **Windshear study log 1.11** (`doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf`, 34 pages; was 1.10 of 1 Nov): **Phase 9** — the first two weeks of v8: the GNSS gate (report version 9), the turboprop climb-outs (versions 10 and 11) and the second airspeed register on every landing (version 11); **Phase 10** — the two gusty days, the neighbouring landings tested against chance, the 10 kt for an advisory and the stricter *Confirmed* (version 12), with the replay. Three new figures from the stored data (the ATR climb-outs by turn, the ramps and the test against chance, the levels per day before and after), the checks of 3–15 Nov in the dated log, the results with the current rules first, the parameter table, limits and next steps updated. The figures of the earlier phases are unchanged.
+
 ## v.14112026 — 2026-11-14 (GPS Quality: the FL band heatmap also over 3 months, 6 months and a year, in weekly columns — 3 months also day by day; 3 m in the phone app)
 
 ### GPS Quality: 3m / 6m / 1y heatmap ranges

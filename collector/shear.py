@@ -104,6 +104,19 @@ RAMP_WSA_MIN_DV = 14.0
 # above RAMP_ADV_ABS, and with no references (quiet night), the ramp alone
 # decides as before; windshear and microburst alerts are never relative.
 RAMP_ADV_ABS = 12.0
+# An advisory from a ramp needs |ΔV| ≥ this as well (from 15 Nov 2026, REPORT_V
+# 12) — as a WSA needs RAMP_WSA_MIN_DV.  The 1-km scaling lifts a 400-m ramp by
+# 1.36, so a change of 7.4 kt was an advisory, and on gusty days the log filled
+# with them: 14 Nov 2026 (W–NW 12–18 kt, snow showers) 9 advisories on 168
+# landings, 8 of them ramps of 7.4–8.9 kt over 400–800 m.  All v8 landings of
+# 24 Oct – 15 Nov 2026 (4 126; 79 ramp advisories, 44 of them below 10 kt):
+# the share of the landings within ±15 min on the same runway direction that
+# had the same ramp (confirm_count) was 26 % for the ramps below 10 kt and
+# 46 % for those of 10 kt or more — against 16 % / 15 % for a ramp placed
+# 700 ft higher or lower, i.e. by chance.  The small short ramps are mostly
+# single gusts, which the turbulence figures (EDR, ACI) already describe; they
+# stay in the report as the strongest ramp, without a level.
+RAMP_ADV_MIN_DV = 10.0
 
 HP_BIN_FT, HP_LO_FT, HP_HI_FT = 100, 200, 5000   # fine headwind profile "hp" (from 31 Oct 2026)
 BAND_WINDOW_SEC = 45 * 60     # reference landings for the band anomaly
@@ -119,7 +132,7 @@ VEC_MAX_SD = 15.0             # kt — spread of the band's wind pairs above thi
 VEC_MIN_N_ARR = 2             # wind pairs needed in a band of a landing
 VEC_MIN_N_DEP = 1             # … of a departure (they climb 4–5× faster); a single-pair band
                               #     alerts only when a neighbouring band agrees
-REPORT_V = 11                 # report version (3: band comparison on the wind vector,
+REPORT_V = 12                 # report version (3: band comparison on the wind vector,
                               #     4: ramp advisories relative to the reference profile,
                               #     5: band comparison by flight phase, see PHASE_HW_BIAS,
                               #     6: higher band limits for turboprop departures, see TP_DEP_SCALE,
@@ -134,7 +147,9 @@ REPORT_V = 11                 # report version (3: band comparison on the wind v
                               #         BDS 5,0 replies, see V8_OFF_GAP, and no band
                               #         level from the bands of an older ATR's climb-out
                               #         after its first turn, see TP_DEP_TURN_TYPES —
-                              #         13 Nov 2026)
+                              #         13 Nov 2026; 12: an advisory from a ramp needs
+                              #         |ΔV| ≥ RAMP_ADV_MIN_DV, and the confirmation
+                              #         carries "c", see confirmed() — 15 Nov 2026)
 
 # GNSS gate (from 4 Nov 2026, REPORT_V 9).  The wind of a band and the ramps
 # rest on the aircraft's own ground speed (BDS 5,0 GS, ADS-B velocity), which
@@ -271,8 +286,11 @@ LEVELS = ("none", "adv", "wsa", "mba")
 
 def level_of(sc_kt: float | None, loss: bool, dv_kt: float | None = None) -> str:
     """Level of a 1-km-equivalent ramp (kt, magnitude); with its headwind
-    change dv_kt a WSA / MBA also needs |ΔV| ≥ RAMP_WSA_MIN_DV (v7)."""
-    if sc_kt is None:
+    change dv_kt a WSA / MBA also needs |ΔV| ≥ RAMP_WSA_MIN_DV (v7) and an
+    advisory |ΔV| ≥ RAMP_ADV_MIN_DV (REPORT_V 12)."""
+    if sc_kt is None or sc_kt < LEVEL_ADVISORY:
+        return "none"
+    if dv_kt is not None and abs(dv_kt) < RAMP_ADV_MIN_DV:
         return "none"
     if sc_kt >= LEVEL_WSA and dv_kt is not None and abs(dv_kt) < RAMP_WSA_MIN_DV:
         return "adv"
@@ -280,9 +298,17 @@ def level_of(sc_kt: float | None, loss: bool, dv_kt: float | None = None) -> str
         return "mba"
     if sc_kt >= LEVEL_WSA:
         return "wsa"
-    if sc_kt >= LEVEL_ADVISORY:
-        return "adv"
-    return "none"
+    return "adv"
+
+
+def ramp_at_advisory(c: dict | None) -> bool:
+    """A ramp (report "loss" / "gain") at advisory strength or more: 1-km
+    equivalent ≥ LEVEL_ADVISORY and |ΔV| ≥ RAMP_ADV_MIN_DV — what the pages
+    draw as a ramp."""
+    if not c or (c.get("sc") or 0) < LEVEL_ADVISORY:
+        return False
+    dv = c.get("dv")
+    return dv is None or abs(dv) >= RAMP_ADV_MIN_DV
 
 
 def vel_bands(v19) -> set:
@@ -864,6 +890,27 @@ def ramps_level(rep: dict | None, refs: list | None, heading) -> str:
 CONFIRM_WINDOW_SEC = 15 * 60
 CONFIRM_ALT_FT = 300.0
 CONFIRM_MIN_SC = 7.0
+# "Confirmed" needs more than one such neighbour (from 15 Nov 2026).  Until then
+# one was enough — but on a gusty day most landings have some ramp of 7 kt per
+# km, and one of six neighbours has it at the right height by chance: of the 74
+# ramp advisories of 24 Oct – 15 Nov 2026 with neighbours, 66 % were "confirmed",
+# and 50 % would have been with the ramp placed 700 ft higher or lower.  With at
+# least CONFIRM_MIN neighbours that are also CONFIRM_SHARE of those checked (one
+# is enough among at most CONFIRM_FEW): 46 % against 26 %; for ramps of 10 kt
+# or more 61 %.  The counts are shown as before.
+CONFIRM_MIN = 2
+CONFIRM_SHARE = 0.25
+CONFIRM_FEW = 3
+
+
+def confirmed(count, checked) -> bool:
+    """Is a ramp seen by count of the checked neighbouring landings confirmed?"""
+    count, checked = count or 0, checked or 0
+    if count <= 0:
+        return False
+    if checked <= CONFIRM_FEW:
+        return True
+    return count >= CONFIRM_MIN and count >= CONFIRM_SHARE * checked
 
 
 def rwy_dir(runway) -> str:
@@ -884,7 +931,7 @@ def alert_ramp(rep: dict | None):
     best = (None, None)
     for k in ("loss", "gain"):
         c = (rep or {}).get(k)
-        if c and c.get("zone") and not c.get("unv") and (c.get("sc") or 0) >= LEVEL_ADVISORY:
+        if c and c.get("zone") and not c.get("unv") and ramp_at_advisory(c):
             if best[1] is None or c["sc"] > best[1]["sc"]:
                 best = (k, c)
     return best
@@ -909,8 +956,9 @@ def confirm_count(kind: str, c: dict, others: list) -> int:
 def confirmation(rep: dict | None, before: list, after: list | None = None) -> dict | None:
     """Confirmation of a report's ramp alert: {"k": kind, "b": confirming
     landings before, "nb": landings before checked, "a" / "na": the same after
-    (None until the following window has passed), "fin": final}.  before /
-    after: the reports of the landings on the same runway direction within
+    (None until the following window has passed), "fin": final, "c": confirmed
+    by the rule of confirmed() (from 15 Nov 2026)}.  before / after: the
+    reports of the landings on the same runway direction within
     CONFIRM_WINDOW_SEC.  None when the report has no ramp at advisory level."""
     kind, c = alert_ramp(rep)
     if c is None:
@@ -919,6 +967,7 @@ def confirmation(rep: dict | None, before: list, after: list | None = None) -> d
            "a": None, "na": None, "fin": False}
     if after is not None:
         out.update({"a": confirm_count(kind, c, after), "na": len(after), "fin": True})
+    out["c"] = confirmed(out["b"] + (out["a"] or 0), out["nb"] + (out["na"] or 0))
     return out
 
 

@@ -1398,27 +1398,38 @@ function wsRefWho(ph, dep, n) {
 // Server side (collector/shear.py confirmation()): another landing on the same
 // runway direction within ±15 min had a ramp of the same sign (≥ 7 kt per 1 km)
 // within ±300 ft.  Only a label — the alert level is not changed.
-const WS_CF_RULE = 'same runway direction ±15 min, same-sign ramp ≥ 7 kt per 1 km within ±300 ft';
+// From 15 Nov 2026 "confirmed" needs at least 2 such landings that are also a
+// quarter of those checked (1 is enough among up to 3): on a gusty day one of
+// six neighbours has such a ramp at the right height by chance, and with the
+// old rule (1 is enough) 66 % of the advisories were "confirmed" where chance
+// alone gave 50 %.  The server sends the verdict as cf.c (collector/shear.py
+// confirmed()); reports stored before that are judged here by the same rule.
+const WS_CF_RULE = 'same runway direction ±15 min, same-sign ramp ≥ 7 kt per 1 km within ±300 ft; confirmed when at least 2 and a quarter of them had it, or 1 of up to 3';
+function wsCfOk(cf) { if (!cf) return false; if (cf.c != null) return !!cf.c;
+  const n = (cf.b || 0) + (cf.a || 0), m = (cf.nb || 0) + (cf.na || 0);
+  return n > 0 && (m <= 3 || (n >= 2 && n >= 0.25 * m)); }
 /** Short tag of a report's confirmation (cf): ' ✓2', ' iso', or '' (none). */
 function wsCfTag(cf) {
   if (!cf) return '';
   const n = (cf.b || 0) + (cf.a || 0);
-  return n ? ` ✓${n}` : (cf.fin ? ' iso' : ' iso?');
+  return wsCfOk(cf) ? ` ✓${n}` : (cf.fin ? ' iso' : ' iso?');
 }
-/** One line for a tooltip: confirmed / isolated, with the counts. */
+/** One line for a tooltip: confirmed / not confirmed / isolated, with the counts. */
 function wsCfText(cf) {
   if (!cf) return '';
   const n = (cf.b || 0) + (cf.a || 0);
   const seen = cf.fin ? `${cf.nb + cf.na} nearby landings (${cf.nb} before, ${cf.na} after)` : `${cf.nb} earlier landings (the following ones not yet known)`;
-  return n ? `Confirmed: the same ramp was seen by ${n} of ${seen} — a shear layer or front`
-           : `Isolated: not seen by ${seen} — a single aircraft, probably turbulence` +
-             (cf.fin ? '' : ' (checked again 15 min after the landing)');
+  const again = cf.fin ? '' : ' (checked again 15 min after the landing)';
+  if (wsCfOk(cf)) return `Confirmed: the same ramp was seen by ${n} of ${seen} — a shear layer or front`;
+  return (n ? `Not confirmed: the same ramp was seen by only ${n} of ${seen} — as often happens by chance in gusty air; probably turbulence`
+            : `Isolated: not seen by ${seen} — a single aircraft, probably turbulence`) + again;
 }
-/** The same for a live alert of the log (cf / cfn / cfin). */
+/** The same for a live alert of the log (cf / cfn / cfin; cfc = the server's verdict). */
 function wsEvCf(e) {
   if (e.kind !== 'ramp' || e.cfn == null) return null;
-  return e.cfin ? { b: e.cf || 0, a: 0, nb: e.cfn, na: 0, fin: true, _ev: true }
-                : { b: e.cf || 0, a: null, nb: e.cfn, na: null, fin: false };
+  const c = e.cfc == null ? undefined : e.cfc;
+  return e.cfin ? { b: e.cf || 0, a: 0, nb: e.cfn, na: 0, fin: true, c, _ev: true }
+                : { b: e.cf || 0, a: null, nb: e.cfn, na: null, fin: false, c };
 }
 
 // ── Windshear helpers ────────────────────────────────────────────────────────
@@ -2158,7 +2169,7 @@ function renderWsLog() {
     const compact = `${A.date}${e._time.slice(0, 5)} ${wsMsg(e)} ${e.cs || e.icao}${wsCfTag(cfe)}${blAtTag(e._ts / 1000)}`;
     const how = dep ? 'climb-out compared with the earlier landings and departures'
               : e.kind === 'band' ? 'change against the earlier landings and departures' : 'headwind ramp along the path';
-    const cfLine = cfe ? '\n' + (cfe._ev ? (cfe.b ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
+    const cfLine = cfe ? '\n' + (cfe._ev ? (wsCfOk(cfe) ? `Confirmed: the same ramp was seen by ${cfe.b} of ${cfe.nb} nearby landings` : cfe.b ? `Not confirmed: the same ramp was seen by only ${cfe.b} of ${cfe.nb} nearby landings — probably turbulence` : `Isolated: not seen by ${cfe.nb} nearby landings — probably turbulence`) : wsCfText(cfe)) : '';
     const tip = `${A.full} ${e._time} UTC  ·  ${A.ago}\nRWY ${e.rwy}${dep ? ' departure' : ''}  ·  ${lv.name}\n${wsMsgTip(e)}\n${wsEventText(e, true)}\n(${how})${cfLine}${blAtLine(e._ts / 1000, '\n')}\n${e.cs || e.icao}${e.type ? '  ' + e.type : ''}`;
 
     return `<div class="ws-log-entry-compact${sevCls}${A.cls}"
@@ -4166,12 +4177,14 @@ function formatCondCells(e) {
 
 // ── Windshear report columns ('ws' mode) ─────────────────────────────────────
 const WS_LV_COLOR = { adv: '#3b82f6', wsa: '#d97706', mba: '#ef4444' };
-// v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt
+// v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt;
+// from 15 Nov 2026 an advisory one of ≥ 10 kt (collector/shear.py level_of)
 function _wsLvOfSc(sc, loss, dv) {
-  if (sc == null) return null;
+  if (sc == null || sc < 10) return null;
+  if (dv != null && Math.abs(dv) < 10) return null;
   if (sc >= 15 && dv != null && Math.abs(dv) < 14) return 'adv';
   if (loss && sc >= 30) return 'mba';
-  return sc >= 15 ? 'wsa' : sc >= 10 ? 'adv' : null;
+  return sc >= 15 ? 'wsa' : 'adv';
 }
 function _wsCell(html, lvl) {
   const c = lvl ? ` style="color:${WS_LV_COLOR[lvl]};font-weight:600"` : '';

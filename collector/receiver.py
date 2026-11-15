@@ -1164,11 +1164,16 @@ def run_collector(
                     mstats.meteo("mrar")
                 elif mhr is not None:
                     mstats.meteo("mhr")
+                _keep = False
                 if _held is not None and _held.get("wind_ts") is not None \
                         and ts - _held["wind_ts"] <= wind_max_age:
                     obs = _with_held_wind(obs, _held)
+                    # every held pair is stored (from 15 Nov 2026): the writer's
+                    # per-aircraft throttle kept only 2 of the 483 pairs held on
+                    # 13–15 Nov, too few to judge the check from
+                    _keep = True
                 if _is_worth_storing(obs):
-                    writer.add(obs)
+                    writer.add(obs, force=_keep)
 
                 # Periodic stats (every STATS_LOG_SEC)
                 now_s = time.time()

@@ -2837,6 +2837,12 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
   flex: 0 0 55%; overflow-y: auto; padding: 4px 6px;
   display: flex; flex-direction: column; gap: 3px;
 }
+/* The entries keep their height and the list scrolls (15 Nov 2026).  The list
+   is a column flexbox, and its one-line entries have overflow hidden, so they
+   could shrink without limit: with more alerts than fit — a gusty day — every
+   line was squeezed to a few pixels instead of the list scrolling. */
+.ws-ws-log-entries > * { flex-shrink: 0; }
+.ws-ws-log-entries { scrollbar-width: thin; overscroll-behavior: contain; }
 .ws-engine {
   flex-shrink: 0; padding: 3px 10px; border-bottom: 1px solid var(--border);
   font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 10.5px; color: var(--text-2);

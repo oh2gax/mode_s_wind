@@ -98,8 +98,8 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.46
-date: 2026-11-13
+version: 2.47
+date: 2026-11-15
 pages: 32
 open: windshear
 
@@ -198,9 +198,9 @@ The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: t
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.10
-date: 2026-11-01
-pages: 26
+version: 1.11
+date: 2026-11-15
+pages: 34
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -210,7 +210,9 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Turbulence (EDR)** from the replies (method, the rejected first version, results against the ACI and the wind, class independence, why the departure series now reach 5 000 ft), the **boundary layer** (low-level jet and surface inversion hour by hour, and how both relate to the windshear flags and the turbulence) and the **validation data** (METAR windshear groups, pilot reports)
 - **Phase 7: the ADS-B ground speed and the BDS 6,0 airspeed** in the headwind — timing, temperature, agreement of the two registers, noise and density, the replay of the ramps and whether the extra short ramps are real; detection v8 running in shadow beside v7
 - **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
-- The dated log of the database checks (the latest of 1 November 2026: the first day of v8 as the detection, and the landings that GNSS jamming leaves without a record), the results so far, the current parameters, the limits and the next steps (the short v8 ramps on windy days, the convective season, validation)
+- **Phase 9: two weeks of v8** (4–13 November 2026, version 1.11) — a false alert from an aircraft with jammed GNSS and the **GNSS gate** (unverified levels), the **turboprop climb-outs** (limits by height; no level from the older ATRs' bands after their first turn, with the test that kept a real advisory of a frontal passage), and the **second airspeed register** that 38 % of the landings had not used
+- **Phase 10: a real change of 10 kt for an advisory, and a stricter *confirmed*** (15 November 2026) — two gusty days, the neighbouring landings tested against chance (a small short ramp is seen by the next aircraft 1.7 times as often as chance, a larger one three times), the two new rules and their replay over all stored landings (103 → 64 with a level)
+- The dated log of the database checks (to 15 November 2026: a wind shift, a frontal passage, two gusty days), the results with the current rules (first, then the earlier states), the current parameters, the limits (gusts and shear, no independent reference yet) and the next steps (the convective season, validation, showers)
 
 ## Mode S and the Kivenlahti mast (study log)
 file: EFHK_Mode_S_Mast_Wind_Study.pdf

@@ -55,13 +55,20 @@ const WsCondChart = (() => {
     if (l == null) return null;
     return isLight() ? COND_LVL_TEXT_LIGHT[l] : COND_LVL_COLORS[l];
   }
-  // v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt
+  // v7 (28 Oct 2026): a WSA / MBA from a ramp also needs a headwind change of ≥ 14 kt;
+  // from 15 Nov 2026 an advisory one of ≥ 10 kt (collector/shear.py level_of)
   function _wsLvOfSc(sc, loss, dv) {
-    if (sc == null) return null;
+    if (sc == null || sc < 10) return null;
+    if (dv != null && Math.abs(dv) < 10) return null;
     if (sc >= 15 && dv != null && Math.abs(dv) < 14) return 'adv';
     if (loss && sc >= 30) return 'mba';
-    return sc >= 15 ? 'wsa' : sc >= 10 ? 'adv' : null;
+    return sc >= 15 ? 'wsa' : 'adv';
   }
+  // confirmed by the neighbouring landings: the server's verdict cf.c, else the same
+  // rule from the counts (collector/shear.py confirmed(), from 15 Nov 2026)
+  function _cfOk(cf) { if (!cf) return false; if (cf.c != null) return !!cf.c;
+    const n = (cf.b || 0) + (cf.a || 0), m = (cf.nb || 0) + (cf.na || 0);
+    return n > 0 && (m <= 3 || (n >= 2 && n >= 0.25 * m)); }
   const wrRangeLabel = h => (h === 24 ? '1d' : `${h}h`);
   function theme() {
     const light = isLight();
@@ -106,8 +113,10 @@ const WsCondChart = (() => {
     const lv = _wsStrongLv(w);
     // confirmation of a ramp alert by the neighbouring landings (from 27 Oct 2026)
     if (lv && w.cf) {
-      const n = (w.cf.b || 0) + (w.cf.a || 0);
-      parts.push(n ? `confirmed by ${n} landing${n > 1 ? 's' : ''}` : `isolated${w.cf.fin ? '' : ' so far'} (turbulence?)`);
+      const n = (w.cf.b || 0) + (w.cf.a || 0), m = (w.cf.nb || 0) + (w.cf.na || 0);
+      parts.push(_cfOk(w.cf) ? `confirmed by ${n} of ${m} landings`
+        : n ? `not confirmed (${n} of ${m} landings${w.cf.fin ? '' : ' so far'}; turbulence?)`
+            : `isolated${w.cf.fin ? '' : ' so far'} (turbulence?)`);
     }
     return (lv ? WS_LEVEL[lv].short + ' · ' : '') + (parts.join(' · ') || 'nothing above the noise');
   }

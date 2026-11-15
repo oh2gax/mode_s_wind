@@ -3,6 +3,14 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.15112026 — Windshear: fewer advisories on gusty days, the alert log scrolls
+
+- **Windshear page** — on a gusty day the Windshear Alert log can have more entries than fit. The lines were then squeezed until they could not be read; now they keep their size and the list scrolls.
+- **Windshear: an advisory needs a real change of 10 kt** — on gusty days the log filled with advisories from small, short headwind changes (7–9 kt within 400–800 m). A comparison with the landings around them showed these are mostly single gusts, not a shear layer. A ramp is now an advisory only when the headwind really changes by 10 kt or more (a windshear alert needs 14 kt, as before). The stored landings were recomputed: 99 advisories became 60, the windshear alerts stayed. The gustiness itself is shown by the turbulence figures (EDR, ACI).
+- **Windshear: *Confirmed*** — a ramp used to be *confirmed* when one nearby landing saw a similar one, which on a gusty day happens by chance. It now needs at least two landings that are also a quarter of those compared (one is enough when there are only up to three). Otherwise the hover says *Not confirmed* or *Isolated*.
+- **System health** — the MEPS dot no longer flickers between amber and green while the model server at MET Norway is down in the early morning; it stays amber until a run has been received again.
+- **Windshear study log 1.11** (User guides) — two new chapters for those who follow how the detection is developed: the first two weeks of the new detection (the GNSS gate, the ATR climb-outs, the second airspeed report on every landing) and the test behind this version's two rules, with the numbers and three new figures. 34 pages.
+
 ## v.14112026 — GPS Quality: the heatmap over 3 months, 6 months or a year
 
 - **GPS Quality: longer heatmap ranges** (the GPS pages are shown to users with the Full view right) — the FL Band Heatmap has three new buttons, *3m*, *6m* and *1y*. They show one column per week (Monday–Sunday), and the number in a cell is that week's events per day, so the current week compares with the full ones. Hover a cell for the week's details, click it to open GPS Episodes for the Monday of that week. The stored data begin on 30 May 2026, so *1y* fills up over the coming months. Two things to remember when looking far back: the way events are counted changed on 25–26 September (the dashed line; the two sides have their own colour scales and are not comparable), and FL050–080 and FL080–100 were a single band until 7 September (empty cells before that).

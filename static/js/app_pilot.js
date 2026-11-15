@@ -37,6 +37,11 @@
   const dhm = ts => { const d = new Date(ts * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${hm(ts)}`; };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const num = v => (v == null ? '—' : String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '));
+  // a ramp confirmed by the neighbouring landings: the server's verdict cf.c, else the same
+  // rule from the counts (collector/shear.py confirmed(), from 15 Nov 2026)
+  const cfOk = cf => { if (!cf) return false; if (cf.c != null) return !!cf.c;
+    const n = (cf.b || 0) + (cf.a || 0), m = (cf.nb || 0) + (cf.na || 0);
+    return n > 0 && (m <= 3 || (n >= 2 && n >= 0.25 * m)); };
 
   const CLS = { T: 'Turboprop', R: 'Regional jet', N: 'Narrowbody', W: 'Widebody' };
   const TABS = { now: 'Now', app: 'Approach', dep: 'Departure', alo: 'Aloft', ice: 'Icing', turb: 'Turbulence',
@@ -402,7 +407,7 @@
     const t = [];
     (f.ramps || []).forEach(r => t.push(`${r.trial ? '<span class="apl-lv apl-unv">trial</span>' : ''} <b>Headwind ${r.kind} ${Math.abs(r.dv).toFixed(0)} kt over ${(r.L / 1000).toFixed(1)} km</b>, ${num(r.a1)} → ${num(r.a2)} ft above the runway` + (r.d1 != null ? ` (${r.d1.toFixed(1)} → ${r.d2.toFixed(1)} NM)` : '') + (r.unv ? ' — unverified (GNSS)' : '')));
     if (f.band && f.band.a != null) t.push(`Band ${num(f.band.b)} ft: ${f.band.a > 0 ? '+' : ''}${f.band.a.toFixed(0)} kt against the flights before ${badge(f.band.lvl, f.band.ulvl)}`);
-    if (f.cf) t.push(`Ramp seen also by ${f.cf.b} of ${f.cf.nb} landings before` + (f.cf.a != null ? ` and ${f.cf.a} of ${f.cf.na} after` : '') + ((f.cf.b || 0) + (f.cf.a || 0) ? ' — a real layer, not one gust' : ' — isolated'));
+    if (f.cf) t.push(`Ramp seen also by ${f.cf.b} of ${f.cf.nb} landings before` + (f.cf.a != null ? ` and ${f.cf.a} of ${f.cf.na} after` : '') + (cfOk(f.cf) ? ' — a real layer, not one gust' : (f.cf.b || 0) + (f.cf.a || 0) ? ' — too few to tell it from chance; probably turbulence' : ' — isolated'));
     out.push(card('Windshear report', '', `<div class="apl-note">${badge(f.lvl, f.ulvl) || '<span class="apl-ok">No windshear level.</span>'} ${t.join('<br>') || ''}</div>`
       + (f.unv ? '<div class="apl-dim apl-sm">Unverified: the GNSS was degraded at these heights, so the level was not raised.</div>' : '')));
     const e = f.edr || {}, gq = f.gnss;

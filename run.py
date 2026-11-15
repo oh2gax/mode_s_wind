@@ -1018,7 +1018,10 @@ def _shear_backfill(ws_tracker) -> None:
     those limits by height (TP_DEP_SCALE_HI from TP_DEP_HI_FT); 11 (13 Nov 2026)
     the second register of detection v8 with BDS 5,0 replies up to 5 s apart
     (shear.V8_OFF_GAP), and the bands of an ATR 42 / 72-500 climb-out flown after
-    its first turn left out (shear.turned_bands, from the stored series).  In time order, so each flight is
+    its first turn left out (shear.turned_bands, from the stored series); 12 (15 Nov
+    2026) an advisory from a ramp needs a headwind change of at least 10 kt
+    (shear.RAMP_ADV_MIN_DV) and the confirmation carries its verdict "c"
+    (shear.confirmed).  In time order, so each flight is
     compared with the landings and departures before it; written in batches,
     then put on the landings in RAM.  Background thread, low priority."""
     from collections import deque
@@ -1176,8 +1179,13 @@ def _shear_backfill(ws_tracker) -> None:
                             rep = _shear.report8(None, _shear.analyze(b50, sw, ws_tracker._thr_ft(row["runway"])),
                                                  band, refs, row["rwy_heading"], bad)
                         if rep is not None:
-                            if rep_old and rep_old.get("cf") and rep.get("src") != "v8":
+                            if (rep_old and rep_old.get("cf") and rep.get("src") != "v8"
+                                    and _shear.alert_ramp(rep)[1] is not None):
                                 rep["cf"] = rep_old["cf"]       # same ramps: the confirmation stays
+                                # (not for a ramp below the advisory limits of REPORT_V 12)
+                                cfo = rep["cf"]
+                                cfo["c"] = _shear.confirmed((cfo.get("b") or 0) + (cfo.get("a") or 0),
+                                                            (cfo.get("nb") or 0) + (cfo.get("na") or 0))
                             b_land.append((json.dumps(rep, separators=(",", ":")), row["id"]))
                             done[(int(ts), row["icao"])] = rep
                     else:

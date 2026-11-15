@@ -816,8 +816,15 @@
     (r.d1 != null && r.d2 != null ? ` (${r.d1.toFixed(1)}→${r.d2.toFixed(1)} NM)` : '') + ` = ${r.sc} kt per 1 km${r.zone ? '' : ' (outside the low-level zone)'}` : 'none above the noise';
   const refWho = (b, dep) => b.ph === 'same' ? `${b.n} ${dep ? 'departures' : 'landings'}`
     : b.ph === 'all' ? `${b.n} landings and departures, phase bias removed` : `${b.n} flights`;
-  const cfTxt = cf => { if (!cf) return ''; const n = (cf.b || 0) + (cf.a || 0);
-    return n ? `Confirmed: the same ramp was seen by ${n} of ${(cf.nb || 0) + (cf.na || 0)} nearby landings`
+  // confirmed by the neighbouring landings: the server's verdict cf.c, else the same rule
+  // from the counts (collector/shear.py confirmed(), from 15 Nov 2026: at least 2 and a
+  // quarter of the landings checked, or 1 of up to 3)
+  const cfOk = cf => { if (!cf) return false; if (cf.c != null) return !!cf.c;
+    const n = (cf.b || 0) + (cf.a || 0), m = (cf.nb || 0) + (cf.na || 0);
+    return n > 0 && (m <= 3 || (n >= 2 && n >= 0.25 * m)); };
+  const cfTxt = cf => { if (!cf) return ''; const n = (cf.b || 0) + (cf.a || 0), m = (cf.nb || 0) + (cf.na || 0);
+    return cfOk(cf) ? `Confirmed: the same ramp was seen by ${n} of ${m} nearby landings`
+         : n ? `Not confirmed${cf.fin ? '' : ' so far'}: the same ramp was seen by only ${n} of ${m} nearby landings — probably turbulence`
              : `Isolated${cf.fin ? '' : ' so far'}: not seen by the nearby landings — probably turbulence`; };
 
   // turbulence (EDR, collector/edr.py; from 2026-10-29, research): the ICAO
@@ -884,7 +891,7 @@
       const strong = t ? [t.loss, t.gain].filter(Boolean).sort((x, y) => y.sc - x.sc)[0] : null;
       if (strong) parts.push(`<span${dep ? ' class="trial"' : ''}>${strong.dv < 0 ? 'loss' : 'gain'} ${Math.abs(strong.dv).toFixed(0)} kt/${(strong.L / 1000).toFixed(1)} km${dep ? ' (trial)' : ''}</span>`);
       if (b) parts.push(`band ${sgn(Math.round(b.a))} @${b.b}`);
-      if (!dep && w.cf && w.lvl && w.lvl !== 'none') { const n = (w.cf.b || 0) + (w.cf.a || 0); parts.push(n ? `✓${n}` : 'iso'); }
+      if (!dep && w.cf && w.lvl && w.lvl !== 'none') { const n = (w.cf.b || 0) + (w.cf.a || 0); parts.push(cfOk(w.cf) ? `✓${n}` : 'iso'); }
       return parts.length ? parts.join(' · ') : '<span class="dim">nothing above the noise</span>';
     }
     const bands = S.res === 'hi' ? HB_HI : HB_LO;

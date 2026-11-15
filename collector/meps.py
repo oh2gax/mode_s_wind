@@ -327,6 +327,7 @@ class MepsFetcher:
         self.grid = None             # (ix0, iy0, nx, ny) of the box in the model grid
         self.missing: dict = {}      # (kind, run) → time it was last found missing or failed
         self.last = None             # (time, text) of the last look
+        self.last_fail = None        # time of the last look with a failed request (None after a stored run)
         self.newest_run = None
 
     def _wx_leads(self, run: int, now: Optional[float] = None) -> int:
@@ -941,6 +942,7 @@ class MepsFetcher:
                     done = True
                     if kd == "pl":
                         self.newest_run = max(self.newest_run or 0, r)
+                        self.last_fail = None            # a run came through: the outage is over
                 except urllib.error.HTTPError as exc:
                     if exc.code not in (400, 404):           # 400 / 404: not (yet) published
                         failed(kd, r, exc, t0)
@@ -974,6 +976,9 @@ class MepsFetcher:
               (f", {rows['wx']} weather hour(s)" if self.wx else "") + \
               (f", {fc_rows} forecast-profile hour(s)" if fc_rows else "")
         if errors:
+            # for the health dot: the looks of the next RETRY_RECENT_SEC do not ask the
+            # failed runs again and would read as a success (15 Nov 2026)
+            self.last_fail = time.time()
             txt += f"; failed: {errors[-1]}"
             # each request with its run, the server's answer and the time it took (three
             # attempts with their pauses): "pl 12.11. 03 UTC HTTP 500 (46 s)"
@@ -994,6 +999,7 @@ class MepsFetcher:
                 first = first and n >= MAX_PER_CYCLE   # keep back-filling while there is more
             except Exception as exc:                     # noqa: BLE001
                 self.last = (time.time(), f"failed: {exc}")
+                self.last_fail = time.time()
                 log.warning("MEPS fetch failed: %s", exc)
             time.sleep(CHECK_SEC if not first else 5)
 

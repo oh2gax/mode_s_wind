@@ -57,6 +57,7 @@ import math
 import time
 
 from collector.approach_cond import aircraft_class
+from collector.shear import ramp_at_advisory     # 1-km equivalent ≥ 10 kt and |ΔV| ≥ 10 kt (15 Nov 2026)
 from collector.windshear import EFHK_RUNWAYS
 
 KT_MS = 0.514444
@@ -312,7 +313,7 @@ def approach(db, rwy: str | None, minutes: int = 60, now: float | None = None) -
         e = {"t": int(r["ts"]), "cs": r["callsign"], "ty": r["aircraft_type"], "c": aircraft_class(r["aircraft_type"]),
              "lo": lo, "v": hp["v"], "lvl": s.get("lvl") or "none", "ulvl": s.get("ulvl")}
         rp = [dict(kind=k, dv=c.get("dv"), a1=_r(c["a1"] - thr, 0), a2=_r(c["a2"] - thr, 0))
-              for k in ("loss", "gain") for c in [s.get(k)] if c and c.get("zone") and (c.get("sc") or 0) >= 10]
+              for k in ("loss", "gain") for c in [s.get(k)] if c and c.get("zone") and ramp_at_advisory(c)]
         if rp:
             e["ramps"] = rp
         b = s.get("band") or {}
@@ -511,7 +512,7 @@ def flight(db, kind: str, rid: int) -> dict | None:
     if kind == "a":
         out["ramps"] = [dict(kind=k, dv=c.get("dv"), sc=c.get("sc"), L=c.get("L"), a1=_r(c["a1"] - thr, 0),
                              a2=_r(c["a2"] - thr, 0), d1=c.get("d1"), d2=c.get("d2"), unv=c.get("unv"))
-                        for k in ("loss", "gain") for c in [s.get(k)] if c and c.get("zone") and (c.get("sc") or 0) >= 10]
+                        for k in ("loss", "gain") for c in [s.get(k)] if c and c.get("zone") and ramp_at_advisory(c)]
         out["cf"] = s.get("cf")
         out["ga"] = r["go_arounds"] or 0
         g = _j(r["gnss_json"]) or {}
@@ -522,7 +523,7 @@ def flight(db, kind: str, rid: int) -> dict | None:
         t8 = s.get("trial8") or s.get("trial") or {}
         out["ramps"] = [dict(kind=k, dv=c.get("dv"), sc=c.get("sc"), L=c.get("L"), a1=_r(c["a1"] - thr, 0),
                              a2=_r(c["a2"] - thr, 0), trial=True)
-                        for k in ("loss", "gain") for c in [t8.get(k)] if c and c.get("zone") and (c.get("sc") or 0) >= 10]
+                        for k in ("loss", "gain") for c in [t8.get(k)] if c and c.get("zone") and ramp_at_advisory(c)]
     b = s.get("band") or {}
     if b:
         out["band"] = {"b": int(round((b["b"] - thr) / 10.0) * 10), "a": b.get("a"), "ref": b.get("ref"), "lvl": b.get("lvl"), "ulvl": b.get("ulvl")}

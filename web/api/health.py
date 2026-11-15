@@ -62,6 +62,7 @@ DECODE_FEW_SEC = 30 * 60      # "few winds" warns only after this long (from 13 
 #   (13 Nov 02:06–02:19: one aircraft with 33 rows and no wind, its ground speed frozen at
 #   445 kt through a descent of 21 000 ft; the two others gave a wind with every row).
 #   A decoder fault lasts; "no winds at all" is still an error at once.
+MEPS_FAIL_HOLD_SEC = 3600     # a failed MEPS request counts as "fetch failing" this long (from 15 Nov 2026)
 _few_winds = {"since": None}
 PI_HOT_ON, PI_HOT_OFF = 72.0, 68.0     # °C: amber on / off (hysteresis: no flapping at 70 °C)
 _pi_hot = {"on": False}
@@ -665,6 +666,15 @@ def evaluate(cfg, ws_tracker=None, wx_cache: dict | None = None) -> dict:
             det.append(f"last look {_ago(now - mf.last[0])} ago" + (" — a request failed" if failed else ""))
         else:
             failed = False
+        # A failed run is asked again only after 30 min, and the looks in between read
+        # as a success: the dot went amber and green in turn through an outage of the
+        # server (15 Nov 2026, 06:09–08:01 UTC).  A failure within the last hour counts
+        # until a run has been stored again.
+        lf = getattr(mf, "last_fail", None)
+        if lf and now - lf <= MEPS_FAIL_HOLD_SEC:
+            if not failed:
+                det.append(f"a request failed {_ago(now - lf)} ago")
+            failed = True
         nh = _cached("meps_hour", 60, lambda: meps.newest_hour(get_db()))
         behind = now - nh[0] if nh else None
         if newest:

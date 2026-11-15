@@ -67,8 +67,15 @@ class BatchWriter:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def add(self, obs: dict) -> None:
+    def add(self, obs: dict, force: bool = False) -> None:
         """Add one observation to the in-memory buffer.
+
+        force (from 15 Nov 2026): the row is written whatever the per-aircraft
+        throttle says, and does not count for it — for the rows that record a
+        wind held back by the own-wind check (hdg_src "J", receiver.py), a few
+        hundred a day.  Without it only the held pair that happened to be the
+        aircraft's one stored row of the interval was kept: 2 of 483 on
+        13–15 Nov 2026.
 
         Two optional filters are applied before buffering:
 
@@ -86,7 +93,7 @@ class BatchWriter:
                 and obs.get("meteo_source", "NONE") == "NONE"):
             return
 
-        if self._write_min_interval > 0:
+        if self._write_min_interval > 0 and not force:
             icao = obs.get("icao", "")
             ts   = obs.get("ts", 0.0)
             last = self._last_written.get(icao, 0.0)
