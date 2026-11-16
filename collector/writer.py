@@ -75,7 +75,12 @@ class BatchWriter:
         wind held back by the own-wind check (hdg_src "J", receiver.py), a few
         hundred a day.  Without it only the held pair that happened to be the
         aircraft's one stored row of the interval was kept: 2 of 483 on
-        13–15 Nov 2026.
+        13–15 Nov 2026.  From 16 Nov 2026 it also passes the METEO_ONLY filter:
+        a held row has no best wind and no temperature, so its meteo source is
+        NONE and the filter dropped it — only the 49 rows whose message also
+        carried an MHR report were kept of 338 held pairs on 15–16 Nov.  The
+        readers take the best wind or a meteo source other than NONE, so such
+        a row is in the database only for judging the check.
 
         Two optional filters are applied before buffering:
 
@@ -89,7 +94,7 @@ class BatchWriter:
            a new sounding layer since its last stored row (at least
            LAYER_MIN_SPACING_SEC after it).
         """
-        if (self._storage_mode == "METEO_ONLY"
+        if (self._storage_mode == "METEO_ONLY" and not force
                 and obs.get("meteo_source", "NONE") == "NONE"):
             return
 

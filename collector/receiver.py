@@ -274,11 +274,13 @@ def gnss_gated(typ, nacp, nacp_ts, ts: float, types) -> bool:
 # wind and without the Mach (so that no temperature is computed from the row,
 # collector/atmos.TEMP_SQL).  Nothing reads these rows — the pages use the
 # best wind, the live state never sees a held pair — they are there for the
-# data checks.
+# data checks.  Each held pair is one row (from 16 Nov 2026), and it is stored
+# whatever the writer's throttle and METEO_ONLY filter say.
 WIND_JUMP_KT_DEFAULT = 60.0
 WIND_JUMP_REF_SEC = 120.0
 WIND_JUMP_CONFIRM_SEC = 90.0
-_WJ: dict = {}        # icao → {"key", "bad", "acc": [(t, u, v)], "pend": (t, u, v) | None, "t"}
+_WJ: dict = {}        # icao → {"key", "bad", "acc": [(t, u, v)], "pend": (t, u, v) | None, "t",
+                      #         "stored": key of the held pair already written to the database}
 
 
 def wind_jump_suspect(icao: str, wind: dict, limit_kt: float, state: dict | None = None,
@@ -1165,15 +1167,24 @@ def run_collector(
                 elif mhr is not None:
                     mstats.meteo("mhr")
                 _keep = False
+                _wj = None
                 if _held is not None and _held.get("wind_ts") is not None \
                         and ts - _held["wind_ts"] <= wind_max_age:
-                    obs = _with_held_wind(obs, _held)
-                    # every held pair is stored (from 15 Nov 2026): the writer's
-                    # per-aircraft throttle kept only 2 of the 483 pairs held on
-                    # 13–15 Nov, too few to judge the check from
-                    _keep = True
+                    # Every held pair is stored (from 15 Nov 2026) — and once
+                    # (from 16 Nov 2026): the pair stays current for every message
+                    # of the aircraft until a new reply comes, and each of them
+                    # would write the same row again (up to 14 rows of one pair on
+                    # 15–16 Nov).  The writer's throttle and its METEO_ONLY filter
+                    # are passed (force): they had kept 2 of 483 held pairs on
+                    # 13–15 Nov and 16 of 338 on 15–16 Nov.
+                    _wj = _WJ.get(icao)
+                    if _wj is None or _wj.get("stored") != _wj.get("key"):
+                        obs = _with_held_wind(obs, _held)
+                        _keep = True
                 if _is_worth_storing(obs):
                     writer.add(obs, force=_keep)
+                    if _keep and _wj is not None:
+                        _wj["stored"] = _wj.get("key")
 
                 # Periodic stats (every STATS_LOG_SEC)
                 now_s = time.time()
