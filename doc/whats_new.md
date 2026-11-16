@@ -3,6 +3,13 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.16112026 — Behind the scenes: a data check, no changes to the pages
+
+- **Nothing looks different today** — this version is corrections behind the pages, found in the regular check of the collected data.
+- **Windshear: the first windshear report in a METAR** — the EFHK METAR of 16 Nov 17:50 UTC carried *WS R15*, the first such report since the detection began in October. MODE-S Wind showed no advisory on runway 15 at that time: the landings around it had headwind changes of only 4–7 kt. The same morning and the evening before it had shown clear, confirmed advisories without any report in the METAR. One report cannot settle which is right; the case is kept and studied.
+- **Rejected wind values are kept for checking** — a wind that is far from the aircraft's own other winds is not used on any page. These values are now all stored (each one once), so that the rule that rejects them can be judged from the data.
+- **Update script** — after an update it now reports the same version as the top bar.
+
 ## v.15112026 — Windshear: fewer advisories on gusty days, the alert log scrolls
 
 - **Windshear page** — on a gusty day the Windshear Alert log can have more entries than fit. The lines were then squeezed until they could not be read; now they keep their size and the list scrolls.
