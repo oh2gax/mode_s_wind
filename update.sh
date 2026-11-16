@@ -68,7 +68,15 @@ main() {
         local a; read -r -p "  $1 [y/N] " a
         [ "$a" = y ] || [ "$a" = Y ] || [ "$a" = yes ]
     }
-    version() { grep -m1 '^## v\.' doc/whats_new.md 2>/dev/null | awk '{print $2}'; }
+    # the newer of the first version headings of doc/whats_new.md and CHANGELOG.md
+    # (v.DDMMYYYY) — the same choice as the pages' top bar (web/whats_new.py)
+    version() {
+        { grep -m1 '^## v\.' doc/whats_new.md 2>/dev/null
+          grep -m1 '^## v\.' CHANGELOG.md 2>/dev/null; } \
+            | awk '{ k = substr($2, 7, 4) substr($2, 5, 2) substr($2, 3, 2)
+                     if (k > best) { best = k; v = $2 } }
+                   END { print v }'
+    }
 
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
         || fail "Not a git clone — install with git clone (README, Installation)."

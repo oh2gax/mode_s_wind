@@ -7,12 +7,15 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.16112026 — 2026-11-16 (Own-wind check: each held wind is stored, once; data check 15–16 Nov — the first windshear group in a METAR since the detection began, the rules of 15 Nov in use, RX-02 on the 2.5 m coax)
+## v.16112026 — 2026-11-16 (Own-wind check: each held wind is stored, once; the update script reports the pages' version; data check 15–16 Nov — the first windshear group in a METAR since the detection began, the rules of 15 Nov in use, RX-02 on the 2.5 m coax)
 
 ### Own-wind check: each held wind is stored, once
 - **Found in the data check:** the change of 15 Nov did not do what it said. Of the 338 winds the own-wind check held between the deploy (15 Nov 13:44 UTC) and 16 Nov 18:14 UTC, only 16 were in the database (as 49 rows). A held row has no best wind and no temperature, so the writer's `METEO_ONLY` filter dropped it; only rows whose message also carried an MHR report were kept — and those were written again with every message of the aircraft while the pair was current.
 - **Now** (`collector/writer.py`, `collector/receiver.py`): a row with a held wind (`hdg_src` `J`) also passes the `METEO_ONLY` filter, and each held pair is written once. As before, no page uses these rows. Tested with the real storing code against a database: two held pairs give two rows.
 - **What the 16 stored ones show:** 12 are far off (100–270 kt against the aircraft's own 45–68 kt). In one case two foreign replies came in a row, the second was taken as a real change and its wind was used (84 kt from 348° where the aircraft's own winds were 65 kt from 238°), and the aircraft's next good wind was held instead. To be judged when a few days of all held winds are stored.
+
+### Update script: the version it reports
+- `update.sh` took the version from `doc/whats_new.md` alone, so after an update whose only new heading was in this file it still said the old one (*Updated to … — version v.15112026* on 16 Nov) while the pages' top bar already showed the new one. It now takes the newer of the two files, as the pages do.
 
 ### Data check 15–16 Nov
 - **A windshear group in the METAR** — `WS R15` in the EFHK METAR of 16 Nov 17:50 UTC (180° 12 kt, drizzle and rain, cloud base 400 ft): the first since the detection began on 9 Oct, and the first independent report to compare with. The aircraft data of that time do **not** show it: of the 25 landings on runway 15 between 16:30 and 18:13 UTC none had a level; their loss ramps were 4–7 kt (one of 10 kt, spread over 3 km), the median headwind fell from 16 kt at 1 000–2 000 ft to 13 kt at 400–600 ft, turbulence was light (EDR median 0.09). The lowest 230–330 ft above the airport are not seen by the receivers. The same morning (06:16–09:54 UTC, gusts to 28 kt) five landings on runway 15 had advisories for a loss of 10–12 kt at 950–640 ft, four of them confirmed, and on the evening before (15 Nov 20:37–21:30 UTC, gusts to 30 kt) nine landings in an hour — without a windshear group in the METAR. One report cannot decide either way; the case is kept for the study log.
