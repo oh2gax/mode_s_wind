@@ -198,9 +198,9 @@ The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: t
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.11
-date: 2026-11-15
-pages: 34
+version: 1.12
+date: 2026-11-17
+pages: 36
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -212,7 +212,8 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Phase 8: v8 becomes the detection** (31 October 2026) — receiver message times ahead of the clock found and corrected, the replay of v8 against v7 with the correction, and why v8 was switched on after one day in shadow, with v7 kept beside it
 - **Phase 9: two weeks of v8** (4–13 November 2026, version 1.11) — a false alert from an aircraft with jammed GNSS and the **GNSS gate** (unverified levels), the **turboprop climb-outs** (limits by height; no level from the older ATRs' bands after their first turn, with the test that kept a real advisory of a frontal passage), and the **second airspeed register** that 38 % of the landings had not used
 - **Phase 10: a real change of 10 kt for an advisory, and a stricter *confirmed*** (15 November 2026) — two gusty days, the neighbouring landings tested against chance (a small short ramp is seen by the next aircraft 1.7 times as often as chance, a larger one three times), the two new rules and their replay over all stored landings (103 → 64 with a level)
-- The dated log of the database checks (to 15 November 2026: a wind shift, a frontal passage, two gusty days), the results with the current rules (first, then the earlier states), the current parameters, the limits (gusts and shear, no independent reference yet) and the next steps (the convective season, validation, showers)
+- **The first windshear group in a METAR** (16 November 2026, version 1.12) — *WS R15* in two METARs, against the landings of that hour (no level, losses of 4–7 kt) and of the two louder periods of the day before (9 of 23 and 5 of 34 landings flagged, no group): what the receivers and an observer at the airport can and cannot see, and how further cases will be tabulated
+- The dated log of the database checks (to 17 November 2026: a wind shift, a frontal passage, gusty days, a third receiver), the results with the current rules (first, then the earlier states), the current parameters, the limits (gusts and shear, no independent reference yet) and the next steps (the convective season, validation, showers)
 
 ## Mode S and the Kivenlahti mast (study log)
 file: EFHK_Mode_S_Mast_Wind_Study.pdf

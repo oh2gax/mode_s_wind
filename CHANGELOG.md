@@ -7,6 +7,18 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.17112026 — 2026-11-17 (Windshear study log 1.12: the first windshear group in a METAR; data check 16–17 Nov — the first hours of a third receiver)
+
+### Documents
+- **Windshear study log 1.12** (`doc/EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf`, 36 pages; was 1.11 of 15 Nov): a new section, *The first windshear group in a METAR (16 November 2026)* — the `WS R15` of the 17:50 and 18:20 UTC METARs against the 29 landings on runway 15 of that time (no level; losses of 4–7 kt; headwind 17 kt at 2 000 ft, 13 kt at 400 ft) and against the two louder periods before it without a group (15 Nov 20:30–21:35 UTC: 9 of 23 landings flagged, headwind 37 → 20 kt; 16 Nov 06–10 UTC: 5 of 34), with a figure and a table from the stored data, four reasons why a crew may report what the replies do not show (below the lowest height seen, across the track, short-lived, a different yardstick), and how further cases will be tabulated. The checks of 16 and 17 Nov in the dated log; the limits (*one independent report, not matched*; *the last 300 ft are not seen*) and the next steps updated. No change of the method.
+
+### Data check 16–17 Nov
+- **A third receiver** (MODES-RX-03, a Radarcape) has been merged since 17 Nov 13:26 UTC. In its first hours: GPS time and all status flags in order, 1.0–1.2 million messages an hour (1.3–1.4 times RX-01), range to 225 NM, 45 % of its replies heard by no other receiver, 60 % more stored wind observations — mostly at cruise levels and 50–140 NM from EFHK. It hears nothing below 2 000 ft near the airport, so the landings are followed as before. One reply dropped by the altitude check in 88 minutes. The merged totals (messages, aircraft, range) step up from that time.
+- **The windshear group of 16 Nov** was in two METARs (17:50 and 18:20 UTC). No windshear level since (181 landings, 192 departures in quiet weather).
+- **Held winds:** the change of 16 Nov works — 278 of the 308 winds held by the own-wind check are stored. With the third receiver there are more of them (58 an hour against 9), most from four aircraft at cruise level that repeat one impossible value. Seen in the rows: a wrong value repeated in several replies within a second is taken as a real change; to be tightened after some days of data.
+- **RX-02:** off 16 Nov 23:28 → 17 Nov 14:54 UTC (its 4G router). 16 Nov was the first full day on the 2.5 m coax: signal level +0.8 dB against the 5 m days, the number of messages unchanged.
+- **MEPS:** HTTP 500 from MET Norway's server 17 Nov 03:51–07:32 UTC; the dot amber once and green once.
+
 ## v.16112026 — 2026-11-16 (Own-wind check: each held wind is stored, once; the update script reports the pages' version; data check 15–16 Nov — the first windshear group in a METAR since the detection began, the rules of 15 Nov in use, RX-02 on the 2.5 m coax)
 
 ### Own-wind check: each held wind is stored, once

@@ -3,6 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.17112026 — The windshear study log 1.12
+
+- **Windshear study log 1.12** (User guides) — a new chapter on the windshear report in the METARs of 16 Nov (*WS R15*, 17:50 and 18:20 UTC): what the landings of that hour showed (no advisory, headwind losses of 4–7 kt), the two stronger periods of the day before that had no report, and why an observer at the airport and the receivers can see different things. 36 pages.
+- **Nothing else looks different today** — no changes to the pages.
+
 ## v.16112026 — Behind the scenes: a data check, no changes to the pages
 
 - **Nothing looks different today** — this version is corrections behind the pages, found in the regular check of the collected data.
