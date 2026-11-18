@@ -198,9 +198,9 @@ The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: t
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
-version: 1.12
-date: 2026-11-17
-pages: 36
+version: 1.13
+date: 2026-11-18
+pages: 38
 
 The development of the windshear detection as a study log for aviation meteorologists and atmospheric scientists — each change of the method, why it was made and what the stored data showed. Updated whenever the method changes or the database is checked.
 
@@ -213,6 +213,7 @@ The development of the windshear detection as a study log for aviation meteorolo
 - **Phase 9: two weeks of v8** (4–13 November 2026, version 1.11) — a false alert from an aircraft with jammed GNSS and the **GNSS gate** (unverified levels), the **turboprop climb-outs** (limits by height; no level from the older ATRs' bands after their first turn, with the test that kept a real advisory of a frontal passage), and the **second airspeed register** that 38 % of the landings had not used
 - **Phase 10: a real change of 10 kt for an advisory, and a stricter *confirmed*** (15 November 2026) — two gusty days, the neighbouring landings tested against chance (a small short ramp is seen by the next aircraft 1.7 times as often as chance, a larger one three times), the two new rules and their replay over all stored landings (103 → 64 with a level)
 - **The first windshear group in a METAR** (16 November 2026, version 1.12) — *WS R15* in two METARs, against the landings of that hour (no level, losses of 4–7 kt) and of the two louder periods of the day before (9 of 23 and 5 of 34 landings flagged, no group): what the receivers and an observer at the airport can and cannot see, and how further cases will be tabulated
+- **An outside reference** (18 November 2026, version 1.13) — the accuracy of Mode S winds near the ground in the European UFO project (EHS winds against a lidar: bias 1.8, scatter 2.5 m/s; the detection here uses airspeed minus ground speed along the track, which needs no heading), the same numbers for MODE-S Wind against the Kivenlahti mast, and published targets for a glide-path wind product
 - The dated log of the database checks (to 17 November 2026: a wind shift, a frontal passage, gusty days, a third receiver), the results with the current rules (first, then the earlier states), the current parameters, the limits (gusts and shear, no independent reference yet) and the next steps (the convective season, validation, showers)
 
 ## Mode S and the Kivenlahti mast (study log)
@@ -233,9 +234,9 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
-version: 1.2
-date: 2026-11-01
-pages: 12
+version: 1.3
+date: 2026-11-18
+pages: 14
 open: edr
 
 The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation meteorologists and atmospheric scientists — with a first section in plain words for everyone. Updated whenever the MODE-S Wind calculation changes.
@@ -246,6 +247,7 @@ The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation me
 - **Hong Kong International Airport**: the Hong Kong Observatory's anemometer, lidar and flight-data EDR and ADS-B turbulence detection
 - **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters (method v2 from 31 October 2026: repeated and out-of-order reply times dropped) and the scale problem
 - **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown (also the Windshear map and one flight's headwind profile); limitations, calibration (the first pilot reports) and the version history
+- **Three checks of the method** (18 November 2026, version 1.3): how accurate Mode S winds are near the ground (the UFO project's comparison with lidars, and MODE-S Wind against the Kivenlahti mast), what the outer scale of the turbulence costs at the 100–200 m separation used (about 10 %, from simulated turbulence), and the EDR expected from the surface wind (same order of magnitude; measured 1.0–1.5 times the expected value in winds of 10 kt and more)
 
 ## Data-Driven Development (D-D-D) — method note
 file: Data_Driven_Development_DDD.pdf
