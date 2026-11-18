@@ -23,6 +23,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ### Documents
 - README: *Running in the cloud → 5. More receivers* (the pair recorder, its files and settings, the MLAT right and tab), the file tree.
+- **Own multilateration study log 1.0** (`doc/MODE_S_Own_Multilateration_Study.pdf`, 7 pages; new, not yet in the guides list or in What's new): the principle of multilateration, the starting point with two GPS-timed receivers, the plan and its state, step 0a (the pair recorder) with the simulated test and the first half hour of data.
 
 ## v.17112026 — 2026-11-17 (Windshear study log 1.12: the first windshear group in a METAR; data check 16–17 Nov — the first hours of a third receiver)
 
