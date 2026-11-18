@@ -1397,6 +1397,13 @@ def main() -> None:
     collector_thread.start()
     log.info("Collector thread started")
 
+    # ── Pair recorder (own multilateration, step 0a; collector/mlat_rec.py,
+    # from 2026-11-18): only with merged receivers and two or more of them on
+    # GPS time; it records the time differences, nothing goes into the weather
+    from collector import mlat_rec as _mlat
+    if _mlat.init(cfg, live_state) is None:
+        log.info("MLAT recorder off: %s", _mlat.public().get("why"))
+
     # ── Start Radarcape JSON poller thread ────────────────────────────────
     json_thread = threading.Thread(
         target=run_json_poller,

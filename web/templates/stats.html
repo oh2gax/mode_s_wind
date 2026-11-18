@@ -94,9 +94,44 @@
       {{ sp.cad() }}
     </div>
   </div>
+
+  {# ── MLAT tab (from 2026-11-18): only for a user with the MLAT right (web/rights.py);
+        the pair recorder's state and the clock agreement, stats.js renderMlat ── #}
+  {% if mlat_view %}
+  <style>
+    @media (min-width: 1501px) { #mst-mlat .mst-mlat-wide { grid-column: span 2; } }
+    #mst-mlat .mst-chart-wrap { height: 300px; }
+  </style>
+  <div class="mst-body" id="mst-mlat" style="display:none">
+    <div class="mst-col">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · pair recorder</span>
+          <span class="mst-hdr-note" id="mst-mlat-note"></span></div>
+        <div class="mst-table-wrap"><table class="mst-table mst-kv" id="mst-mlat-state"></table></div>
+        <div class="mst-foot">Two receivers with GPS time stamp the same reply at their own antennas. The difference of the two
+          stamps is the raw material of multilateration: 1 ns is 0.3 m of range difference. The recorder keeps every such pair
+          (raw files by the hour) and a summary per aircraft; it only records, and nothing of it goes into the weather. Two
+          receivers give one time difference per reply, which is not yet a position.</div>
+      </div>
+    </div>
+    <div class="mst-col mst-mlat-wide">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · clock agreement</span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-clock"></table></div>
+        <div class="mst-chart-wrap" id="mst-mlat-chart-wrap" style="display:none"><canvas id="mst-mlat-chart"></canvas></div>
+        <div class="mst-foot">For an aircraft with a fresh own ADS-B position the expected time difference follows from the
+          distances to the two sites; the table shows measured − expected. The median is the constant part (cable and receiver
+          delays, errors of the site positions), the spread is the timing noise that limits the accuracy of a later position.
+          A first, rough value: the aircraft's height is its barometric altitude and the sites are the receivers' GPS antennas
+          unless the 1090 MHz antenna positions are given in the settings. The values of a window are the median of its minutes and the typical range within a minute; the line shows the last 24 h by the minute.</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
+{% if mlat_view %}<script>window.MST_MLAT = true;</script>{% endif %}
 <script src="{{ url_for('static', filename='js/stats.js') }}"></script>
 {% endblock %}

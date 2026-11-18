@@ -433,6 +433,111 @@
       + ((d.receivers || []).length > 1 ? 'choose a receiver above for what it alone hears, its signal levels and its own status.'
         : 'a receiver\'s own statistics are shown to its owners.');
   }
+  // ── MLAT tab (from 2026-11-18; the MLAT right, web/rights.py) ───────────
+  // the pair recorder's state and the agreement of the GPS-timed receivers'
+  // clocks (collector/mlat_rec.py, /api/mlat/state); the page has the tab only
+  // for a user with the right (window.MST_MLAT, stats.html)
+  const MLAT = !EMBED && !!window.MST_MLAT;
+  let mlatOn = false, mlatTimer = null, mlatChart = null, mlatData = null;
+  const bytesTxt = v => v == null ? '—' : v >= 1e9 ? (v / 1e9).toFixed(2) + ' GB' : v >= 1e6 ? (v / 1e6).toFixed(1) + ' MB' : Math.round(v / 1e3) + ' kB';
+  const nsTxt = v => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(0) + ' ns';
+  const rawHour = s => s ? `${s.slice(6, 8)}.${s.slice(4, 6)}. ${s.slice(9, 11)} UTC` : '—';
+  // the tab's dot: green while the recorder runs, amber when it is off or has an error, grey before the first answer
+  const mlatDot = () => !mlatData ? '' : (mlatData.on && !mlatData.err ? 'ok' : 'warn');
+  function setMlat(on) {
+    if (!MLAT || on === mlatOn) return;
+    mlatOn = on;
+    const body = document.querySelector('.mst-page > .mst-body:not(#mst-mlat)');
+    if (body) body.style.display = on ? 'none' : '';
+    $('mst-mlat').style.display = on ? '' : 'none';
+    clearTimeout(mlatTimer);
+    if ($('mst-rx')) $('mst-rx').dataset.key = '';
+    if (data) renderRx(data);
+    if (on) pollMlat();
+    else if (data) { renderRange(data); fitIid(); }
+  }
+  async function pollMlat(once) {
+    clearTimeout(mlatTimer);
+    if (!once && (!mlatOn || document.hidden)) return;
+    try {
+      const r = await fetch('/api/mlat/state');
+      if (!r.ok) throw new Error(r.status);
+      mlatData = await r.json();
+      if (mlatOn) renderMlat(mlatData);
+      if (data) renderRx(data);                              // the tab's dot
+    } catch (e) {
+      if (mlatOn) $('mst-mlat-note').textContent = 'Update failed — retrying';
+    }
+    if (mlatOn) mlatTimer = setTimeout(pollMlat, POLL_MS);
+  }
+  function renderMlat(d) {
+    const kv = (k, v, tip) => `<tr><td${tip ? ` title="${esc(tip)}"` : ''}>${k}</td><td>${v}</td></tr>`;
+    const st = $('mst-mlat-state');
+    $('mst-mlat-note').textContent = d.on ? 'updated ' + hhmm(d.now) + ' UTC' : '';
+    if (!d.on) {
+      st.innerHTML = '<tbody>' + kv('Recorder', `<span class="mst-rc-warn">off</span> — ${esc(d.why || '')}`) + '</tbody>';
+      $('mst-mlat-clock').innerHTML = '';
+      $('mst-mlat-chart-wrap').style.display = 'none';
+      return;
+    }
+    const c = d.counters || {}, raw = d.raw || {}, name = {};
+    (d.receivers || []).forEach(r => { name[r.bit] = r.id; });
+    const site = r => r.site === 'config' ? 'antenna position from the settings'
+      : r.site === 'gps' ? `its own GPS position, mean of ${r.site_n} min` : '<span class="mst-rc-warn">position not known yet</span>';
+    const ck = { gps: '<span class="mst-ok">GPS time</span>', nogps: '<span class="mst-rc-warn">no GPS time</span>', starting: 'starting' };
+    st.innerHTML = '<tbody>'
+      + kv('Recorder', (d.err ? `<span class="mst-rc-warn">error: ${esc(d.err)}</span>` : '<span class="mst-ok">running</span>') + ` since ${hhmm(d.since)} UTC (${dur(d.now - d.since)})`,
+           'Runs beside the weather: it only records, nothing of it goes into the weather')
+      + (d.receivers || []).map(r => kv(esc(r.id), `${ck[r.clock] || esc(r.clock)} · ${site(r)}`,
+           'A receiver with GPS time (a Radarcape). Its place: the 1090 MHz antenna when it is given in the settings, else the mean of the Radarcape\'s own GPS position')).join('')
+      + kv('Shared replies', `${d.rate == null ? '—' : fmtRate(d.rate)} pairs/s · last ${d.last_group ? ago(d.now - d.last_group) + ' ago' : '—'}`,
+           'Replies that two or more GPS-timed receivers heard, in the last complete minutes')
+      + kv('Since the start', `${nfmt(c.groups)} shared replies · ${nfmt(c.rows)} summary rows`,
+           'A summary row: one aircraft and receiver pair for ' + (d.bucket_sec || 30) + ' s')
+      + kv('Not used', `${nfmt(c.unknown)} address not checkable · ${nfmt(c.far)} too far apart · ${nfmt(c.blocked)} blocked · ${nfmt(c.no_address)} no address`
+           + (d.ambiguous_24h != null ? ` · ${nfmt(d.ambiguous_24h)} twice within 5 ms (24 h)` : '') + (c.overflow ? ` · <span class="mst-rc-warn">${nfmt(c.overflow)} queue overflow</span>` : ''),
+           'Address not checkable: a reply with its address in the parity field from an aircraft not seen before (kept in the raw file only). Too far apart: the two stamps differ by more than the distance between the sites allows. Twice within 5 ms: the same bits twice at one receiver (replies to two interrogators) — which copy belongs to which is not certain')
+      + kv('Raw files', `${nfmt(raw.files)} hour${raw.files === 1 ? '' : 's'} · ${bytesTxt(raw.bytes)} of ${bytesTxt(raw.cap)} · ${rawHour(raw.oldest)} – ${rawHour(raw.newest)}`
+           + (raw.why ? ` · <span class="mst-rc-warn">not writing: ${esc(raw.why)}</span>` : ''),
+           'Every shared reply with each receiver\'s GPS stamp, one file per UTC hour; over the cap the oldest hours are removed. The numbers are refreshed every 10 min')
+      + kv('Disk', `${bytesTxt(raw.dir_free)} free · summary database ${bytesTxt(d.db_bytes)}`)
+      + '</tbody>';
+    const rows = [];
+    (d.pairs || []).forEach(p => {
+      [['10', '10 min'], ['60', '1 h'], ['1440', '24 h']].forEach(([w, lbl], i) => {
+        const x = p.windows[w] || {};
+        rows.push(`<tr${i === 0 ? ' class="mst-sep"' : ''}><td>${i === 0 ? `<b>${esc(name[p.a])} → ${esc(name[p.b])}</b> ` : ''}<span class="mst-dim2">${lbl}</span></td>`
+          + `<td class="num">${nfmt(x.n)}</td><td class="num">${nfmt(x.n_res)}</td><td class="num"><b>${nsTxt(x.med)}</b></td>`
+          + `<td class="num">${x.lo == null ? '—' : nsTxt(x.lo) + ' … ' + nsTxt(x.hi)}</td>`
+          + `<td class="num">${x.lo == null ? '—' : '±' + ((x.hi - x.lo) / 2).toFixed(0) + ' ns'}</td></tr>`);
+      });
+    });
+    $('mst-mlat-clock').innerHTML = '<thead><tr><th>Receiver pair</th><th class="num" title="Replies both receivers stamped">Pairs</th>'
+      + '<th class="num" title="Pairs of aircraft with a fresh own ADS-B position: the time difference can be compared with the expected one">With position</th>'
+      + '<th class="num" title="Median of measured − expected time difference. A constant value is cable and receiver delay and the error of the site positions">Median</th>'
+      + '<th class="num" title="16th … 84th percentile of the same">Middle 68 %</th><th class="num" title="Half of that range: about one standard deviation">Spread</th></tr></thead><tbody>'
+      + (rows.join('') || '<tr><td colspan="6" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
+    mlatDraw(d);
+  }
+  function mlatDraw(d) {
+    const p = (d.pairs || [])[0], wrap = $('mst-mlat-chart-wrap');
+    const pts = p ? p.series.filter(m => m[3] != null) : [];
+    const can = pts.length > 1 && typeof Chart !== 'undefined';
+    wrap.style.display = can ? '' : 'none';
+    if (!can) return;
+    const line = (i, lbl, col, w) => ({ label: lbl, data: pts.map(m => ({ x: m[0], y: m[i] })), borderColor: col, borderWidth: w, pointRadius: 0, tension: 0 });
+    const sets = [line(3, 'Median', css('--accent'), 1.6), line(4, '16th percentile', css('--text-3'), 0.8), line(5, '84th percentile', css('--text-3'), 0.8)];
+    const grid = css('--border'), txt = css('--text-2');
+    if (mlatChart) { mlatChart.data.datasets = sets; mlatChart.update('none'); return; }
+    mlatChart = new Chart($('mst-mlat-chart'), {
+      type: 'line', data: { datasets: sets },
+      options: { animation: false, parsing: false, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: false },
+        plugins: { legend: { labels: { color: txt, boxWidth: 14 } },
+          tooltip: { callbacks: { title: it => hhmm(it[0].parsed.x) + ' UTC', label: c => `${c.dataset.label}: ${nsTxt(c.parsed.y)}` } } },
+        scales: { x: { type: 'linear', grid: { color: grid }, ticks: { color: txt, maxTicksLimit: 9, callback: v => hhmm(v) } },
+          y: { grid: { color: grid }, ticks: { color: txt }, title: { display: true, text: 'measured − expected, ns', color: txt } } } },
+    });
+  }
   // who sees which receivers (web/rights.py): Full view, own receivers or All receivers only
   function accNote(d, acc) {
     const own = (acc.own || []);
@@ -453,7 +558,7 @@
     const own = new Set(acc.own || []);
     el.hidden = false;
     const cur = rxSel;
-    const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur + '#' + acc.level + (d.rx_live ?? '');
+    const key = list.map(r => r.id + (r.live ? '+' : '-')).join('|') + '#' + cur + '#' + acc.level + (d.rx_live ?? '') + (mlatOn ? '#mlat' : '') + (MLAT ? mlatDot() : '');
     if (el.dataset.key === key) return;
     el.dataset.key = key;
     el.innerHTML = (EMBED ? '' : '<span class="gps-summary-label mst-rx-lbl">Receiver</span>')
@@ -464,13 +569,18 @@
         const tip = r.type === 'merged' ? 'All receivers: the replies of every receiver, a reply heard by more than one counted once — the weather is computed from these'
           : d.merged ? `${r.id}: what this receiver alone hears (its replies also go into the weather)`
           : r.main ? `${r.id}: the weather is computed from this receiver's replies` : `${r.id}: watched — its own statistics, compared with ${list[0].id}`;
-        return `<button type="button" class="mst-rx-btn${sel === cur ? ' active' : ''}" data-rx="${esc(sel)}" title="${esc(tip)}">`
+        return `<button type="button" class="mst-rx-btn${sel === cur && !mlatOn ? ' active' : ''}" data-rx="${esc(sel)}" title="${esc(tip)}">`
           + `<i class="mst-rx-dot ${r.live ? 'ok' : r.off ? '' : 'warn'}"></i><b>${esc(r.type === 'merged' ? 'All receivers' : r.id)}`
           + `${own.has(r.id) ? '<em class="mst-rx-own" title="Your receiver: you see its own statistics">yours</em>' : ''}</b><small>${esc(sub)}</small></button>`;
-      }).join('') + '</span>'
+      }).join('')
+      // the MLAT tab: only for a user with the MLAT right (from 2026-11-18)
+      + (MLAT ? `<button type="button" class="mst-rx-btn${mlatOn ? ' active' : ''}" data-mlat="1" title="MLAT: the pair recorder and how well the clocks of the GPS-timed receivers agree (shown to users with the MLAT right)"><i class="mst-rx-dot ${mlatDot()}"></i><b>MLAT</b><small>recorder · clock agreement</small></button>` : '')
+      + '</span>'
       + (EMBED ? '' : `<span class="mst-rx-note">${d.merged ? 'The weather is computed from all receivers together'
           : `The weather is computed from ${esc(list[0].id)}; the other receivers are watched`}${accNote(d, acc)}</span>`);
     el.querySelectorAll('.mst-rx-btn').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.mlat) { setMlat(true); return; }
+      if (mlatOn) { const same = b.dataset.rx === rxSel; setMlat(false); if (same) return; }
       if (b.dataset.rx === rxSel) return;
       rxSel = b.dataset.rx;
       try { if (rxSel) localStorage.setItem('ms_statsRx', rxSel); else localStorage.removeItem('ms_statsRx'); } catch (e) { /* */ }
@@ -1134,8 +1244,9 @@
     if (sigChart) { sigChart.destroy(); sigChart = null; }
     if (data) { renderChart(data); renderSig(data); renderRange(data); }
     if (sens) renderSensors();
+    if (mlatChart) { mlatChart.destroy(); mlatChart = null; if (mlatData && mlatOn) mlatDraw(mlatData); }
   };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && active) poll(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && active) { poll(); if (mlatOn) pollMlat(); } });
   initButtons();
   if (EMBED) {
     // the mobile view drives the polling: only while its Statistics view is shown
@@ -1145,5 +1256,5 @@
       setWindow(w) { win = +w; if (active) poll(); },
       redraw() { if (data) { renderRange(data); renderChart(data); renderSig(data); } if (sens) renderSensors(); else pollSensors(); },
     };
-  } else poll();
+  } else { poll(); if (MLAT) setTimeout(() => pollMlat(true), 1500); }
 })();

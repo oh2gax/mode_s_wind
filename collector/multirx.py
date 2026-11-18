@@ -234,8 +234,11 @@ class Merger:
                 self.cmp.append(self._cur)
             self._cur[1][key] += n
 
-    def push(self, bit: int, t: float, sig, hx: str, precise: bool) -> None:
-        """A frame of receiver `bit` (reader threads)."""
+    def push(self, bit: int, t: float, sig, hx: str, precise: bool, gps=None) -> None:
+        """A frame of receiver `bit` (reader threads).  gps: the raw 48-bit GPS
+        stamp of a Radarcape with GPS time (None otherwise) — kept with the
+        reply for the pair recorder (collector/mlat_rec.py, from 2026-11-18):
+        the float time t is good to 0.24 µs only."""
         b = 1 << bit
         with self.cv:
             # a frame delivered in a burst after a stall of its tunnel (a 4G
@@ -252,17 +255,27 @@ class Merger:
             # those stay separate replies, as without merging
             lst = self.pend.get(hx)
             if lst:
-                best, bd = None, None
+                best, bd, nc = None, None, 0
                 for e in lst:
                     if e[2] & b:
                         continue
                     d = abs(e[0] - t)
-                    if d < (DUP_SEC if (precise and e[4]) else DUP_SEC_LOOSE) and (bd is None or d < bd):
-                        best, bd = e, d
+                    if d < (DUP_SEC if (precise and e[4]) else DUP_SEC_LOOSE):
+                        nc += 1
+                        if bd is None or d < bd:
+                            best, bd = e, d
                 if best is not None:
                     best[2] |= b
                     if best[3] is None:
                         best[3] = sig
+                    st = best[5]
+                    if st and gps is not None:
+                        if nc > 1:                 # two replies it could belong to: no timing
+                            for e in lst:
+                                if e[5] and (e is best or not e[2] & b) and abs(e[0] - t) < DUP_SEC:
+                                    e[5] = False
+                        else:
+                            st.append((bit, gps, sig))
                     self._count("dup")
                     return
             done = self.done.get(hx)
@@ -270,8 +283,19 @@ class Merger:
                             for d, m in done):
                 self._count("late_dup")
                 return
-            # entry: [t, hex, mask, sig, precise]
-            e = [t, hx, 1 << bit, sig, precise]
+            # entry: [t, hex, mask, sig, precise, stamps]; stamps: [(bit, GPS
+            # ticks, signal), …] of the GPS-timed receivers, None without GPS
+            # time, False when the same bits came twice within DUP_SEC from one
+            # receiver (replies to two interrogators: which copy belongs to
+            # which reply is then not certain, so they are not used for timing)
+            st = [(bit, gps, sig)] if gps is not None else None
+            if lst and st is not None:
+                for e2 in lst:
+                    if abs(e2[0] - t) < DUP_SEC:
+                        if e2[5]:
+                            e2[5] = False
+                        st = False
+            e = [t, hx, 1 << bit, sig, precise, st]
             self.seq += 1
             heapq.heappush(self.heap, (t, self.seq, e))
             self.pend.setdefault(hx, []).append(e)
@@ -304,6 +328,12 @@ class Merger:
                     self.done.setdefault(e[1], []).append(dn)
                     self.done_order.append((dn, e[1]))
                     out.append(e)
+                    st = e[5]
+                    if st:
+                        if len(st) > 1 and _MLAT_PUT is not None:
+                            _MLAT_PUT(t, e[1], st)
+                    elif st is False and e[2] & (e[2] - 1):
+                        self._count("mlat_amb")
                 cut = now - MERGE_DONE_SEC
                 while self.done_order and self.done_order[0][0][0] < cut:
                     td, hd = self.done_order.popleft()
@@ -335,11 +365,16 @@ class Merger:
                     tot.update(c)
         masks = {str(k[1]): v for k, v in tot.items() if isinstance(k, tuple) and k[0] == "mask"}
         return {"window_min": w, "out": tot["out"], "dup": tot["dup"], "late_dup": tot["late_dup"],
-                "late": tot["late"], "stale": tot["stale"], "masks": masks, "hold_sec": MERGE_HOLD_SEC,
+                "late": tot["late"], "stale": tot["stale"], "mlat_amb": tot["mlat_amb"],
+                "masks": masks, "hold_sec": MERGE_HOLD_SEC,
                 "stale_sec": MERGE_STALE_SEC}
 
 
 _MERGER: Merger | None = None
+# the pair recorder's hook (collector/mlat_rec.py, from 2026-11-18): called with
+# (t, hex, [(bit, GPS ticks, signal), …]) for a reply two or more GPS-timed
+# receivers heard; None = no recorder
+_MLAT_PUT = None
 
 
 def _pct(vals, q):
@@ -613,7 +648,7 @@ class Rx:
             if self.main and kind == "gps":
                 _RX1.add(t, hx, wall)
             if _MERGER is not None:
-                _MERGER.push(self.bit, t, sig, hx, precise)
+                _MERGER.push(self.bit, t, sig, hx, precise, ctr if kind == "gps" else None)
             pend.append((wall, ctr, t, kind, sig, hx))
         rest = buf[last:]
         return rest if len(rest) < 1 << 16 else b""

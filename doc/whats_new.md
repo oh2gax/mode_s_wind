@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.18112026 — Behind the scenes: the first step towards multilateration
+
+- **Multilateration: recording has started** — the receivers with GPS time stamp each reply very precisely. From today the time differences between them are recorded, so that the accuracy of the clocks can be measured before positions are computed from them. This runs beside the weather and changes nothing on the pages.
+
 ## v.17112026 — A third receiver in the network, and the windshear study log 1.12
 
 - **A third receiver** — one new receiver has been added to the network, which now consists of three receivers. On the Statistics page the *All receivers* numbers are larger since it joined. More sites are planned.

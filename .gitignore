@@ -29,6 +29,9 @@ data/*.sqb-shm
 # Monthly archive files and snapshots (Maintenance page)
 data/archive/
 
+# Pair recorder's raw files (collector/mlat_rec.py; its database data/mlat.db is covered by data/*.db)
+data/mlat_raw/
+
 # Radiosonde soundings fetched from FMI open data
 data/soundings/
 

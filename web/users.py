@@ -292,11 +292,12 @@ def list_users(cfg, maint_password: Optional[str] = None) -> dict:
     from web import rights
     rr = rights.all_rights(cfg)
     if st["maint"]:
-        rows[-1].update(full=True, own=rr.get(st["maint"][0], {}).get("own", []), pilot=True)
+        rows[-1].update(full=True, own=rr.get(st["maint"][0], {}).get("own", []), pilot=True, mlat=True)
     for name in sorted(st["users"], key=str.lower):
         row = {"user": name, "kind": "user", "changed": st["users"][name]["changed"],
                "full": bool(rr.get(name, {}).get("full")), "own": rr.get(name, {}).get("own", []),
-               "pilot": bool(rr.get(name, {}).get("pilot")), "fin": bool(rr.get(name, {}).get("fin"))}
+               "pilot": bool(rr.get(name, {}).get("pilot")), "fin": bool(rr.get(name, {}).get("fin")),
+               "mlat": bool(rr.get(name, {}).get("mlat"))}
         n = nm["names"].get(name)
         if n:
             row.update(first=n["first"], last=n["last"])

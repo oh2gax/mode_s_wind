@@ -7,6 +7,22 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.18112026 — 2026-11-18 (Own multilateration, step 0a: the pair recorder, the MLAT right and the MLAT tab)
+
+### Pair recorder (`collector/mlat_rec.py`, new; `collector/multirx.py`, `run.py`)
+- **What it is.** Two receivers with GPS time (Radarcapes) stamp the same reply at their own antennas; the difference of the stamps is the raw material of multilateration (1 ns = 0.3 m of range difference). Two receivers give one time difference per reply — not a position — but that is what is needed to measure how well the clocks agree and to calibrate the sites before a third GPS-timed receiver exists. The recorder only records: nothing of it goes into the weather.
+- **The merger keeps the raw stamps.** `Merger.push()` takes the raw 48-bit GPS stamp of a Radarcape's frame (its float time is good to 0.24 µs only, about 70 m) and keeps the stamps of every copy with the reply; a reply heard by two or more GPS-timed receivers is handed to the recorder when it is passed on. The same bits twice within 5 ms at one receiver (replies to two interrogators) are not used for timing and are counted (`mlat_amb`). The merged output is unchanged.
+- **Stored** — raw files `data/mlat_raw/YYYYMMDD_HH.mlr[.gz]` (every shared reply with each receiver's stamp and signal; capped at `MLAT_RAW_MAX_GB` = 10, the oldest hours removed first) and a database of its own, `data/mlat.db` (`mlat_sum`: one row per aircraft, receiver pair and 30 s; `mlat_min`: one row per pair and minute; kept `MLAT_SUM_DAYS` = 90). For an aircraft with a fresh own ADS-B position the residual (measured − expected time difference) is stored too — a first, rough value (barometric altitude; the Radarcapes' averaged GPS positions unless `MLAT_SITES` gives the 1090 MHz antennas).
+- **Where it runs** — only on a server that merges its receivers and has two or more with GPS time; elsewhere the log says *MLAT recorder off* with the reason. `MLAT_RECORD = False` switches it off. `.gitignore`: `data/mlat_raw/`.
+- **Tested end to end** with two simulated GPS-timed receivers and one counter-clock receiver through the real readers, the merger, the decoder and the recorder: an offset of 150 ns between the two clocks and 30 ns of noise at each came back as a median of 148 ns and a spread of ±40 ns.
+
+### The MLAT right and the MLAT tab (`web/rights.py`, `web/app.py`, `web/users.py`, Statistics and Maintenance pages)
+- **A new right, MLAT**, beside Full view, Pilot and FIN, and independent of them. A user with it gets an **MLAT** tab at the end of the Statistics page's receiver row: the recorder's state (running or why not, the receivers' clocks, shared replies per second, what was not used, the raw files, free disk) and the clock agreement (per receiver pair for 10 min / 1 h / 24 h and the last 24 h as a line).
+- `/api/mlat/state` answers a plain 404 without the right; no positions are sent. Details in the README.
+
+### Documents
+- README: *Running in the cloud → 5. More receivers* (the pair recorder, its files and settings, the MLAT right and tab), the file tree.
+
 ## v.17112026 — 2026-11-17 (Windshear study log 1.12: the first windshear group in a METAR; data check 16–17 Nov — the first hours of a third receiver)
 
 ### Documents

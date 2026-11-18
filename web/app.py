@@ -371,6 +371,8 @@ def create_app(
             "pilot_view":        _pilot_ok(),
             # the meteograms in Finnish: the FIN right (web/rights.py, from 2026-11-07)
             "mg_fin":            _fin_ok(),
+            # the Statistics page's MLAT tab: the MLAT right (web/rights.py, from 2026-11-18)
+            "mlat_view":         _mlat_ok(),
         }
 
     # ── Authentication ────────────────────────────────────────────────────
@@ -499,6 +501,12 @@ def create_app(
         FIN right (from 2026-11-07; the Weather page's and the phone's Meteogram view)."""
         g.user_page = True
         return rx_rights.fin(_user_rights())
+
+    def _mlat_ok() -> bool:
+        """Whether the logged-in user may see the MLAT tab of the Statistics page
+        and /api/mlat/*: the MLAT right (from 2026-11-18; independent of Full view)."""
+        g.user_page = True
+        return rx_rights.mlat(_user_rights())
 
     def _pilot_denied():
         return _private(jsonify({"error": "The Pilot view needs the Pilot right (ask the maintenance user)."})), 403
@@ -694,6 +702,23 @@ def create_app(
         hears — downlink formats, ADS-B type codes, Comm-B registers, the reply
         cadence per flight phase, the interrogators (DF11) and the meteo yield."""
         return render_template("stats.html", airport_icao=cfg.AIRPORT_ICAO)
+
+    @app.route("/api/mlat/state")
+    def mlat_state_api():
+        """The pair recorder's state and the agreement of the GPS-timed
+        receivers' clocks (collector/mlat_rec.py, from 2026-11-18) for the
+        Statistics page's MLAT tab: the MLAT right only — a plain 404 for
+        everyone else.  A receiver the user may not see one by one is named
+        "Receiver n"; no positions are sent."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        out = mlat_rec.public()
+        r = _user_rights()
+        for i, x in enumerate(out.get("receivers") or []):
+            if not rx_rights.visible(r, x["id"]):
+                x["id"] = f"Receiver {i + 1}"
+        return _private(_gzip_json(out))
 
     @app.route("/api/msgstats")
     def msgstats_api():
@@ -3202,14 +3227,16 @@ def create_app(
     def maintenance_users_rights():
         """A personal user's receiver rights (web/rights.py, from 2026-11-02):
         {"target": user, "full": bool, "own": [receiver ids], "pilot": bool
-        (from 2026-11-05), "fin": bool (from 2026-11-07; left out = kept as it is)}."""
+        (from 2026-11-05), "fin": bool (from 2026-11-07; left out = kept as it is),
+        "mlat": bool (from 2026-11-18; left out = kept as it is)}."""
         data = request.get_json(silent=True) or {}
         if not _maint_auth_required(data):
             return jsonify({"error": "Unauthorized"}), 401
         try:
             rx_rights.set_rights(cfg, str(data.get("target", "")), bool(data.get("full")), data.get("own") or [],
                                  None if data.get("pilot") is None else bool(data.get("pilot")),
-                                 None if data.get("fin") is None else bool(data.get("fin")))
+                                 None if data.get("fin") is None else bool(data.get("fin")),
+                                 None if data.get("mlat") is None else bool(data.get("mlat")))
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except OSError as exc:
