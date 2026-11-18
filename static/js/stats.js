@@ -490,6 +490,9 @@
            'Runs beside the weather: it only records, nothing of it goes into the weather')
       + (d.receivers || []).map(r => kv(esc(r.id), `${ck[r.clock] || esc(r.clock)} · ${site(r)}`,
            'A receiver with GPS time (a Radarcape). Its place: the 1090 MHz antenna when it is given in the settings, else the mean of the Radarcape\'s own GPS position')).join('')
+      // a receiver with a counter clock (from the evening of 2026-11-18): its raw stamps are recorded, nothing more
+      + (d.counter_receivers || []).map(r => kv(esc(r.id), `${r.clock === 'sync' ? 'own counter, lined up' : '<span class="mst-rc-warn">own counter, not lined up — not recorded now</span>'} · raw stamps only · ${nfmt(r.n)} since the start`,
+           'A receiver without GPS time: its own counter value is stored with each shared reply in the raw files (while the counter is lined up with the main receiver). No time difference is computed from it yet')).join('')
       + kv('Shared replies', `${d.rate == null ? '—' : fmtRate(d.rate)} pairs/s · last ${d.last_group ? ago(d.now - d.last_group) + ' ago' : '—'}`,
            'Replies that two or more GPS-timed receivers heard, in the last complete minutes')
       + kv('Since the start', `${nfmt(c.groups)} shared replies · ${nfmt(c.rows)} summary rows`,

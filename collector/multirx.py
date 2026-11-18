@@ -234,11 +234,13 @@ class Merger:
                 self.cmp.append(self._cur)
             self._cur[1][key] += n
 
-    def push(self, bit: int, t: float, sig, hx: str, precise: bool, gps=None) -> None:
-        """A frame of receiver `bit` (reader threads).  gps: the raw 48-bit GPS
-        stamp of a Radarcape with GPS time (None otherwise) — kept with the
-        reply for the pair recorder (collector/mlat_rec.py, from 2026-11-18):
-        the float time t is good to 0.24 µs only."""
+    def push(self, bit: int, t: float, sig, hx: str, precise: bool, raw=None) -> None:
+        """A frame of receiver `bit` (reader threads).  raw: the receiver's own
+        48-bit stamp — a Radarcape's GPS time, or the counter of a receiver whose
+        clock is lined up with the main receiver's (None otherwise) — kept with
+        the reply for the pair recorder (collector/mlat_rec.py, from 2026-11-18):
+        the float time t is good to 0.24 µs only, and a lined-up counter's t to
+        some tens of µs."""
         b = 1 << bit
         with self.cv:
             # a frame delivered in a burst after a stall of its tunnel (a 4G
@@ -269,13 +271,13 @@ class Merger:
                     if best[3] is None:
                         best[3] = sig
                     st = best[5]
-                    if st and gps is not None:
+                    if st and raw is not None:
                         if nc > 1:                 # two replies it could belong to: no timing
                             for e in lst:
                                 if e[5] and (e is best or not e[2] & b) and abs(e[0] - t) < DUP_SEC:
                                     e[5] = False
                         else:
-                            st.append((bit, gps, sig))
+                            st.append((bit, raw, sig))
                     self._count("dup")
                     return
             done = self.done.get(hx)
@@ -283,12 +285,12 @@ class Merger:
                             for d, m in done):
                 self._count("late_dup")
                 return
-            # entry: [t, hex, mask, sig, precise, stamps]; stamps: [(bit, GPS
-            # ticks, signal), …] of the GPS-timed receivers, None without GPS
-            # time, False when the same bits came twice within DUP_SEC from one
+            # entry: [t, hex, mask, sig, precise, stamps]; stamps: [(bit, raw
+            # stamp, signal), …] of the receivers with a precise clock, None
+            # without one, False when the same bits came twice within DUP_SEC from one
             # receiver (replies to two interrogators: which copy belongs to
             # which reply is then not certain, so they are not used for timing)
-            st = [(bit, gps, sig)] if gps is not None else None
+            st = [(bit, raw, sig)] if raw is not None else None
             if lst and st is not None:
                 for e2 in lst:
                     if abs(e2[0] - t) < DUP_SEC:
@@ -372,8 +374,8 @@ class Merger:
 
 _MERGER: Merger | None = None
 # the pair recorder's hook (collector/mlat_rec.py, from 2026-11-18): called with
-# (t, hex, [(bit, GPS ticks, signal), …]) for a reply two or more GPS-timed
-# receivers heard; None = no recorder
+# (t, hex, [(bit, raw stamp, signal), …]) for a reply two or more receivers
+# with a precise clock heard; None = no recorder
 _MLAT_PUT = None
 
 
@@ -648,7 +650,7 @@ class Rx:
             if self.main and kind == "gps":
                 _RX1.add(t, hx, wall)
             if _MERGER is not None:
-                _MERGER.push(self.bit, t, sig, hx, precise, ctr if kind == "gps" else None)
+                _MERGER.push(self.bit, t, sig, hx, precise, ctr if kind in ("gps", "sync") else None)
             pend.append((wall, ctr, t, kind, sig, hx))
         rest = buf[last:]
         return rest if len(rest) < 1 << 16 else b""

@@ -21,8 +21,9 @@ What is stored (all under the data folder, none of it in the main database):
       a text line  MLR1 {"rx": {bit: id}, "hour": …}  and then per reply
         <d  time (Unix s, the merger's)      B  message bytes (7 / 14)
         B  receivers                          the message
-        per receiver: B bit, 6 bytes GPS stamp (big-endian: 18 bit second of
-        the UTC day, 30 bit ns), B signal
+        per receiver: B bit, 6 bytes stamp (big-endian; a Radarcape's GPS
+        time: 18 bit second of the UTC day, 30 bit ns; another receiver: its
+        counter), B signal
       A closed hour is gzip-compressed.  The folder is capped (MLAT_RAW_MAX_GB,
       default 10): the oldest hours are removed first; nothing is written
       while less than 2 GB of the disk is free.
@@ -43,6 +44,14 @@ reply (at most 3 s), its height the barometric altitude, the sites the
 Radarcapes' averaged GPS positions (the GPS antenna, not the 1090 MHz one)
 unless MLAT_SITES gives them.  Everything needed to do it better later is in
 the raw files.
+
+A receiver without GPS time (an SDR with a free-running counter, e.g. 12 MHz)
+is recorded too once its counter is lined up with the main receiver (from the
+evening of 2026-11-18): its raw counter value goes into the raw files with
+the reply, nothing else — no time difference is computed from it here.  The
+files' first line says which bit has which clock ("clock": {bit: "gps" |
+"12mhz" | …}).  Whether such a receiver can be lined up well enough to serve
+as a rough third station is a question for the stored data.
 
 Not recorded: addresses the system blocks (BLOCKED_ICAO_PREFIXES), replies
 whose address cannot be checked (a parity-overlaid reply of an aircraft not
@@ -164,9 +173,11 @@ def stamp_ns(ticks: int) -> int:
 
 
 class Recorder:
-    def __init__(self, cfg, rxs: list, live_state: dict) -> None:
+    def __init__(self, cfg, rxs: list, live_state: dict, counter_rxs: list = ()) -> None:
         self.cfg = cfg
         self.rxs = {r.bit: r for r in rxs}         # the GPS-timed receivers
+        self.crx = {r.bit: r for r in counter_rxs} # counter-clock receivers: raw stamps recorded only
+        self.crx_n = Counter()                     # bit → shared replies with its stamp (since the start)
         self.live = live_state
         self.blocked = tuple(p.upper() for p in (getattr(cfg, "BLOCKED_ICAO_PREFIXES", ()) or ()))
         data_dir = os.path.dirname(os.path.abspath(cfg.DB_PATH))
@@ -218,9 +229,10 @@ class Recorder:
             return
         self._sites()
         self._raw_scan()
-        log.info("MLAT recorder started: %s; raw files in %s (cap %.0f GB), summaries in %s",
-                 " + ".join(self.rxs[b].id for b in sorted(self.rxs)), self.raw_dir,
-                 self.raw_cap / 1024 ** 3, self.db_path)
+        log.info("MLAT recorder started: %s%s; raw files in %s (cap %.0f GB), summaries in %s",
+                 " + ".join(self.rxs[b].id for b in sorted(self.rxs)),
+                 (" (raw stamps also of " + ", ".join(self.crx[b].id for b in sorted(self.crx)) + ")") if self.crx else "",
+                 self.raw_dir, self.raw_cap / 1024 ** 3, self.db_path)
         last_site = last_scan = time.time()
         while True:
             time.sleep(1.0)
@@ -281,7 +293,8 @@ class Recorder:
             v = ss.get(rx.id)
             if isinstance(v, list) and len(v) == 4:
                 self.site_sum[rx.bit] = v
-        self._meta("rx", {str(b): r.id for b, r in self.rxs.items()})
+        self._meta("rx", {str(b): r.id for b, r in {**self.rxs, **self.crx}.items()})
+        self._meta("clock", self._clocks())
         self._db.commit()
 
     def _prune(self, now: float) -> None:
@@ -289,6 +302,9 @@ class Recorder:
         self._db.execute("DELETE FROM mlat_sum WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
         self._db.commit()
+
+    def _clocks(self) -> dict:
+        return {**{str(b): "gps" for b in self.rxs}, **{str(b): r.clock for b, r in self.crx.items()}}
 
     # ── the sites ───────────────────────────────────────────────────────
     def _gps_pos(self, rx):
@@ -403,7 +419,10 @@ class Recorder:
                 return
             ls = {}
         self.last_group = t
-        st = sorted(st)
+        for bit, _, _ in st:
+            if bit in self.crx:
+                self.crx_n[bit] += 1
+        st = sorted(x for x in st if x[0] in self.rxs)     # time differences: the GPS-timed receivers only
         for i, (a, ta, siga) in enumerate(st):
             for b, tb, sigb in st[i + 1:]:
                 d = stamp_ns(tb) - stamp_ns(ta)
@@ -517,7 +536,8 @@ class Recorder:
             self.raw_hour = hour
             self.raw_why = None
             if new:
-                head = {"rx": {str(b): r.id for b, r in self.rxs.items()}, "hour": hour}
+                head = {"rx": {str(b): r.id for b, r in {**self.rxs, **self.crx}.items()},
+                        "clock": self._clocks(), "hour": hour}
                 self.raw_f.write(b"MLR1 " + json.dumps(head).encode() + b"\n")
                 self._raw_scan()
         self.raw_f.write(self.raw_buf)
@@ -635,6 +655,8 @@ class Recorder:
             "receivers": [{"bit": b, "id": self.rxs[b].id, "clock": self.rxs[b].clock_state,
                            "site": (self.sites.get(b) or {}).get("src"),
                            "site_n": (self.sites.get(b) or {}).get("n")} for b in bits],
+            "counter_receivers": [{"bit": b, "id": r.id, "clock": r.clock_state, "kind": r.clock,
+                                   "n": self.crx_n.get(b, 0)} for b, r in sorted(self.crx.items())],
             "pairs": pairs,
             "rate": (sum(m[3] for m in last_min) / (60.0 * max(1, len({m[0] for m in last_min})))
                      if last_min else None),
@@ -668,7 +690,10 @@ def init(cfg, live_state: dict):
     if len(rxs) < 2:
         _WHY = "fewer than two receivers with GPS time"
         return None
-    _REC = Recorder(cfg, rxs, live_state)
+    # the receivers with a counter clock: their raw stamps are recorded with the
+    # replies (once lined up with the main receiver), no time differences yet
+    counters = [r for r in multirx.extras() if r.hz is not None]
+    _REC = Recorder(cfg, rxs, live_state, counters)
     multirx._MLAT_PUT = _REC.put
     threading.Thread(target=_REC.run, name="mlat_rec", daemon=True).start()
     return _REC

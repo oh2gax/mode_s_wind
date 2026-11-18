@@ -715,7 +715,7 @@ def create_app(
         from collector import mlat_rec
         out = mlat_rec.public()
         r = _user_rights()
-        for i, x in enumerate(out.get("receivers") or []):
+        for i, x in enumerate((out.get("receivers") or []) + (out.get("counter_receivers") or [])):
             if not rx_rights.visible(r, x["id"]):
                 x["id"] = f"Receiver {i + 1}"
         return _private(_gzip_json(out))
