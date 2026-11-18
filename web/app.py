@@ -713,7 +713,11 @@ def create_app(
         if not _mlat_ok():
             abort(404)
         from collector import mlat_rec
-        out = mlat_rec.public()
+        # ?detail=1 (from the evening of 2026-11-18): the last 10 minutes summed up
+        # for the tab's charts and tables, aircraft with their addresses (also
+        # those without an own ADS-B position, marked as such — the user's
+        # decision of 18 Nov: users with the MLAT right may see them)
+        out = mlat_rec.public(detail=request.args.get("detail") == "1")
         r = _user_rights()
         for i, x in enumerate((out.get("receivers") or []) + (out.get("counter_receivers") or [])):
             if not rx_rights.visible(r, x["id"]):

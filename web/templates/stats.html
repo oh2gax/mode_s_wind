@@ -101,6 +101,11 @@
   <style>
     @media (min-width: 1501px) { #mst-mlat .mst-mlat-wide { grid-column: span 2; } }
     #mst-mlat .mst-chart-wrap { height: 300px; }
+    #mst-mlat .mst-mlat-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+    #mst-mlat .mst-mlat-two .mst-chart-wrap { height: 230px; }
+    #mst-mlat .mst-mlat-sub { font-size: 11px; font-weight: 600; color: var(--text-2); padding: 8px 10px 0; }
+    #mst-mlat .mst-mlat-scroll { max-height: 330px; overflow-y: auto; }
+    @media (max-width: 900px) { #mst-mlat .mst-mlat-two { grid-template-columns: 1fr; } }
   </style>
   <div class="mst-body" id="mst-mlat" style="display:none">
     <div class="mst-col">
@@ -113,17 +118,47 @@
           (raw files by the hour) and a summary per aircraft; it only records, and nothing of it goes into the weather. Two
           receivers give one time difference per reply, which is not yet a position.</div>
       </div>
+      {# from the evening of 2026-11-18: the last 10 minutes by reply type and by signal strength #}
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · by reply type and signal</span>
+          <span class="mst-hdr-note">last 10 min</span></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-df"></table></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-sig"></table></div>
+        <div class="mst-foot">Signal: the weaker of the two receivers' levels for each pair, in four equal groups from the
+          weakest to the strongest. A timing error that grows as the signal weakens shows as a larger spread in the first rows.</div>
+      </div>
     </div>
     <div class="mst-col mst-mlat-wide">
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · clock agreement</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-clock"></table></div>
         <div class="mst-chart-wrap" id="mst-mlat-chart-wrap" style="display:none"><canvas id="mst-mlat-chart"></canvas></div>
+        {# from the evening of 2026-11-18: the shape of the scatter and the direction pattern, last 10 min #}
+        <div class="mst-mlat-two" id="mst-mlat-two" style="display:none">
+          <div><div class="mst-mlat-sub">Measured − expected, last 10 min (pairs per 25 ns; the label is the lower edge)</div>
+            <div class="mst-chart-wrap"><canvas id="mst-mlat-hist"></canvas></div></div>
+          <div><div class="mst-mlat-sub">Median by direction from the middle of the two sites (ns)</div>
+            <div class="mst-chart-wrap"><canvas id="mst-mlat-sect"></canvas></div></div>
+        </div>
         <div class="mst-foot">For an aircraft with a fresh own ADS-B position the expected time difference follows from the
           distances to the two sites; the table shows measured − expected. The median is the constant part (cable and receiver
           delays, errors of the site positions), the spread is the timing noise that limits the accuracy of a later position.
-          A first, rough value: the aircraft's height is its barometric altitude and the sites are the receivers' GPS antennas
-          unless the 1090 MHz antenna positions are given in the settings. The values of a window are the median of its minutes and the typical range within a minute; the line shows the last 24 h by the minute.</div>
+          A first, rough value: the aircraft's height is its barometric altitude, corrected with its own GPS height difference where it sends one, and the sites are the receivers' GPS antennas
+          unless the 1090 MHz antenna positions are given in the settings. The values of a window are the median of its minutes and the typical range within a minute; the line shows the last 24 h by the minute.
+          The histogram shows the shape of the scatter. The direction chart shows whether the median depends on where the aircraft
+          is: an error in a site position gives a pattern there, a cable or receiver delay does not.</div>
+      </div>
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · by aircraft</span>
+          <span class="mst-hdr-note" id="mst-mlat-ac-note"></span></div>
+        <div class="mst-table-wrap mst-mlat-scroll"><table class="mst-table" id="mst-mlat-ac"></table></div>
+        <div class="mst-foot">The aircraft both receivers heard in the last 5 minutes, most pairs first. An aircraft without an
+          own ADS-B position is listed too and marked; its pairs have no expected time difference.</div>
+      </div>
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · latest pairs</span>
+          <span class="mst-hdr-note">newest first</span></div>
+        <div class="mst-table-wrap mst-mlat-scroll"><table class="mst-table" id="mst-mlat-raw"></table></div>
       </div>
     </div>
   </div>

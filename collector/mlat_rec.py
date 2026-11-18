@@ -53,6 +53,17 @@ files' first line says which bit has which clock ("clock": {bit: "gps" |
 "12mhz" | …}).  Whether such a receiver can be lined up well enough to serve
 as a rough third station is a question for the stored data.
 
+Also from that evening: each minute's row keeps the GPS-timed receivers' clock
+state, their Radarcapes' GPS flags and GPS module temperature and where their
+position came from (mlat_min.extra "rx" — none of this is in the raw files);
+the expected time difference uses the aircraft's GNSS − barometric height
+difference when it has sent one; and public(detail=True) sums up the last 10
+minutes pair by pair for the MLAT tab (histogram of the residual, by
+direction from the middle of the two sites, by signal level, by reply type,
+by aircraft, the newest pairs).  An aircraft without an own ADS-B position is
+listed there too, with its address and marked as such (the page is for users
+with the MLAT right only).
+
 Not recorded: addresses the system blocks (BLOCKED_ICAO_PREFIXES), replies
 whose address cannot be checked (a parity-overlaid reply of an aircraft not
 seen before) — those are in the raw files only — pairs further apart than the
@@ -206,6 +217,8 @@ class Recorder:
         self.raw_info = {"files": 0, "bytes": 0, "cur_at": 0, "oldest": None, "newest": None}
         self.raw_buf = bytearray()
         self.last_group = None
+        self.recent: deque = deque(maxlen=150_000)   # the last minutes pair by pair, for the page
+        self._detail_cache = (0.0, None)
         self.err = None
         self._lock = threading.Lock()
         self._db = None
@@ -303,6 +316,27 @@ class Recorder:
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
         self._db.commit()
 
+    def _rx_state(self) -> dict:
+        """Each GPS-timed receiver now: clock state, its Radarcape's GPS flags
+        and GPS module temperature, and where its position comes from — stored
+        with every minute (from the evening of 2026-11-18): none of it is in
+        the raw files."""
+        out = {}
+        for bit, rx in self.rxs.items():
+            try:
+                if rx.main:
+                    from collector import radarcape_status
+                    rcs = radarcape_status.get()
+                else:
+                    rcs = rx.rcs
+                d = (rcs.data or {}) if rcs is not None else {}
+            except Exception:                      # noqa: BLE001
+                d = {}
+            st = self.sites.get(bit) or {}
+            out[rx.id] = {"clock": rx.clock_state, "gps": d.get("gps"), "temp": d.get("temp"),
+                          "site": st.get("src"), "site_n": st.get("n")}
+        return out
+
     def _clocks(self) -> dict:
         return {**{str(b): "gps" for b in self.rxs}, **{str(b): r.clock for b, r in self.crx.items()}}
 
@@ -330,7 +364,8 @@ class Recorder:
             cs = self.cfg_sites.get(rx.id)
             if cs and len(cs) >= 2:
                 h = float(cs[2]) if len(cs) > 2 and cs[2] is not None else 0.0
-                self.sites[bit] = {"src": "config", "xyz": ecef(float(cs[0]), float(cs[1]), h), "n": None}
+                self.sites[bit] = {"src": "config", "xyz": ecef(float(cs[0]), float(cs[1]), h), "n": None,
+                                   "ll": (float(cs[0]), float(cs[1]))}
                 continue
             try:
                 p = self._gps_pos(rx)
@@ -347,7 +382,7 @@ class Recorder:
                 s[0] = n + 1
                 changed = True
             if s and s[0] >= 1:
-                self.sites[bit] = {"src": "gps", "xyz": ecef(s[1], s[2], s[3]), "n": s[0]}
+                self.sites[bit] = {"src": "gps", "xyz": ecef(s[1], s[2], s[3]), "n": s[0], "ll": (s[1], s[2])}
         bits = sorted(self.rxs)
         for i, a in enumerate(bits):
             for b in bits[i + 1:]:
@@ -369,8 +404,11 @@ class Recorder:
             self._one(t, hx, st)
 
     def _expected(self, ls: dict, t: float, a: int, b: int):
-        """Expected TDOA (ns, receiver b − receiver a) from the aircraft's own
-        ADS-B position, None without a fresh one or without both sites."""
+        """(expected TDOA in ns, receiver b − receiver a; lat; lon) from the
+        aircraft's own ADS-B position, None without a fresh one or without both
+        sites.  The height is the barometric altitude plus the aircraft's own
+        GNSS − barometric difference when it has sent one (from the evening of
+        2026-11-18; before: the barometric altitude alone)."""
         sa, sb = self.sites.get(a), self.sites.get(b)
         if sa is None or sb is None:
             return None
@@ -390,8 +428,10 @@ class Recorder:
             tr = math.radians(float(trk))
             lat = lat + math.degrees(d * math.cos(tr) / m_r)
             lon = lon + math.degrees(d * math.sin(tr) / (n_r * math.cos(la)))
-        p = ecef(lat, lon, float(alt) * 0.3048)
-        return (math.dist(p, sb["xyz"]) - math.dist(p, sa["xyz"])) / C_AIR * 1e9
+        gmb = ls.get("geo_minus_baro")
+        h_ft = float(alt) + (float(gmb) if isinstance(gmb, (int, float)) and abs(gmb) < 3000 else 0.0)
+        p = ecef(lat, lon, h_ft * 0.3048)
+        return (math.dist(p, sb["xyz"]) - math.dist(p, sa["xyz"])) / C_AIR * 1e9, lat, lon
 
     def _one(self, t: float, hx: str, st: tuple) -> None:
         try:
@@ -433,8 +473,21 @@ class Recorder:
                 if abs(d) > self.far.get((a, b), FAR_DEFAULT_NS):
                     c["far"] += 1
                     continue
-                exp = self._expected(ls, t, a, b)
-                res = d - exp if exp is not None else None
+                ex = self._expected(ls, t, a, b)
+                res = d - ex[0] if ex is not None else None
+                # for the page: the last minutes pair by pair (direction from the
+                # middle of the two sites; has_pos: the aircraft has an own
+                # ADS-B position)
+                sec = None
+                if ex is not None:
+                    la, lb = self.sites[a]["ll"], self.sites[b]["ll"]
+                    mlat, mlon = (la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2
+                    brg = math.degrees(math.atan2((ex[2] - mlon) * math.cos(math.radians(mlat)), ex[1] - mlat)) % 360
+                    sec = int(brg // 30)
+                pts = ls.get("last_adsb_pos_ts")
+                has_pos = pts is not None and abs(t - pts) < 60
+                self.recent.append((t, icao, df, d, res, siga or 0, sigb or 0, a, b, sec,
+                                    ls.get("altitude"), has_pos))
                 self.min_n[(a, b)] += 1
                 if res is not None:
                     self.min_res.setdefault((a, b), []).append(res)
@@ -492,7 +545,9 @@ class Recorder:
             return
         cm, self.cmin = self.cmin, Counter()
         cm["overflow"], self.overflow = self.overflow, 0
-        extra = json.dumps({k: v for k, v in cm.items() if v})
+        ex = {k: v for k, v in cm.items() if v}
+        ex["rx"] = self._rx_state()
+        extra = json.dumps(ex)
         with self._lock:
             self.c.update(cm)
             for (a, b), n in self.min_n.items():
@@ -599,7 +654,68 @@ class Recorder:
                          "newest": files[-1][0][:11] if files else None}
 
     # ── for the page (web threads) ──────────────────────────────────────
-    def public(self) -> dict:
+    def _detail(self, now: float) -> dict:
+        """The last 10 minutes pair by pair, summed up for the MLAT tab
+        (cached 5 s): histogram of the residual, by direction, by signal
+        level, by reply type, by aircraft (5 min) and the newest pairs."""
+        if now - self._detail_cache[0] < 5 and self._detail_cache[1] is not None:
+            return self._detail_cache[1]
+        rec = [r for r in list(self.recent) if r[0] >= now - 600]
+        wr = [r for r in rec if r[4] is not None]
+
+        def st(vals):
+            med, lo, hi = _stats(vals)
+            return (None, None) if med is None else (round(med, 1), round((hi - lo) / 2, 1))
+
+        hist = [0] * 34                            # < −400, 32 bins of 25 ns, ≥ 400
+        for r in wr:
+            hist[min(33, max(0, int((r[4] + 400) // 25) + 1))] += 1
+        sect = []
+        for k in range(12):
+            v = [r[4] for r in wr if r[9] == k]
+            sect.append([len(v), st(v)[0] if len(v) >= 20 else None])
+        sig = []
+        if len(wr) >= 200:
+            ws = sorted(min(r[5], r[6]) for r in wr)
+            cuts = [ws[len(ws) // 4], ws[len(ws) // 2], ws[3 * len(ws) // 4]]
+            for q in range(4):
+                v = [r for r in wr if (q == 0 or min(r[5], r[6]) > cuts[q - 1]) and (q == 3 or min(r[5], r[6]) <= cuts[q])]
+                if v:
+                    m = sorted(min(r[5], r[6]) for r in v)[len(v) // 2]
+                    s_ = st([r[4] for r in v])
+                    sig.append([round(20 * math.log10(max(m, 1) / 255.0), 1), len(v), s_[0], s_[1], q])
+        dfs = {}
+        for r in rec:
+            dfs.setdefault(r[2], []).append(r[4])
+        by_df = []
+        for df, v in sorted(dfs.items()):
+            w = [x for x in v if x is not None]
+            s_ = st(w)
+            by_df.append([df, len(v), len(w), s_[0], s_[1]])
+        ac = {}
+        for r in rec:
+            if r[0] >= now - 300:
+                ac.setdefault(r[1], []).append(r)
+        rows = []
+        for icao, v in ac.items():
+            w = [x[4] for x in v if x[4] is not None]
+            s_ = st(w)
+            rows.append([icao, len(v), len(w), s_[0], s_[1],
+                         round(20 * math.log10(max(sum(x[5] for x in v) / len(v), 1) / 255.0), 1),
+                         round(20 * math.log10(max(sum(x[6] for x in v) / len(v), 1) / 255.0), 1), v[-1][10],
+                         any(x[11] for x in v)])
+        rows.sort(key=lambda x: -x[1])
+        latest = [[round(r[0], 3), r[1], r[2], r[3], None if r[4] is None else round(r[4]), r[5], r[6], r[10], r[11]]
+                  for r in rec[-60:]][::-1]
+        all_s = st([r[4] for r in wr])
+        out = {"window_sec": 600, "n": len(rec), "n_res": len(wr), "med": all_s[0], "spread": all_s[1],
+               "hist": hist, "sectors": sect, "by_signal": sig, "by_df": by_df,
+               "aircraft": rows[:80], "aircraft_n": len(rows), "no_position_n": sum(1 for x in rows if not x[8]),
+               "latest": latest}
+        self._detail_cache = (now, out)
+        return out
+
+    def public(self, detail: bool = False) -> dict:
         now = time.time()
         with self._lock:
             minutes = [m for m in self.minutes if m[0] >= now - 86400]
@@ -650,11 +766,19 @@ class Recorder:
             except OSError:
                 pass
         raw.pop("cur_at", None)
+        rxs = self._rx_state()
+        from collector import radarcape_status as _rs
+        recv = []
+        for b in bits:
+            x = rxs.get(self.rxs[b].id) or {}
+            red, amber = _rs.gps_problems(x["gps"]) if isinstance(x.get("gps"), list) else ([], [])
+            recv.append({"bit": b, "id": self.rxs[b].id, "clock": self.rxs[b].clock_state,
+                         "site": x.get("site"), "site_n": x.get("site_n"), "temp": x.get("temp"),
+                         "gps_known": isinstance(x.get("gps"), list), "gps_red": red, "gps_amber": amber})
         return {
             "on": True, "since": self.started, "err": self.err, "now": now,
-            "receivers": [{"bit": b, "id": self.rxs[b].id, "clock": self.rxs[b].clock_state,
-                           "site": (self.sites.get(b) or {}).get("src"),
-                           "site_n": (self.sites.get(b) or {}).get("n")} for b in bits],
+            "detail": self._detail(now) if detail else None,
+            "receivers": recv,
             "counter_receivers": [{"bit": b, "id": r.id, "clock": r.clock_state, "kind": r.clock,
                                    "n": self.crx_n.get(b, 0)} for b, r in sorted(self.crx.items())],
             "pairs": pairs,
@@ -703,7 +827,7 @@ def get() -> Recorder | None:
     return _REC
 
 
-def public() -> dict:
+def public(detail: bool = False) -> dict:
     if _REC is None:
         return {"on": False, "why": _WHY}
-    return _REC.public()
+    return _REC.public(detail)

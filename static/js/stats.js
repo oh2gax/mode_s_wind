@@ -438,7 +438,7 @@
   // clocks (collector/mlat_rec.py, /api/mlat/state); the page has the tab only
   // for a user with the right (window.MST_MLAT, stats.html)
   const MLAT = !EMBED && !!window.MST_MLAT;
-  let mlatOn = false, mlatTimer = null, mlatChart = null, mlatData = null;
+  let mlatOn = false, mlatTimer = null, mlatChart = null, mlatData = null, mlatHist = null, mlatSect = null;
   const bytesTxt = v => v == null ? '—' : v >= 1e9 ? (v / 1e9).toFixed(2) + ' GB' : v >= 1e6 ? (v / 1e6).toFixed(1) + ' MB' : Math.round(v / 1e3) + ' kB';
   const nsTxt = v => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(0) + ' ns';
   const rawHour = s => s ? `${s.slice(6, 8)}.${s.slice(4, 6)}. ${s.slice(9, 11)} UTC` : '—';
@@ -460,7 +460,7 @@
     clearTimeout(mlatTimer);
     if (!once && (!mlatOn || document.hidden)) return;
     try {
-      const r = await fetch('/api/mlat/state');
+      const r = await fetch('/api/mlat/state' + (mlatOn ? '?detail=1' : ''));
       if (!r.ok) throw new Error(r.status);
       mlatData = await r.json();
       if (mlatOn) renderMlat(mlatData);
@@ -478,6 +478,7 @@
       st.innerHTML = '<tbody>' + kv('Recorder', `<span class="mst-rc-warn">off</span> — ${esc(d.why || '')}`) + '</tbody>';
       $('mst-mlat-clock').innerHTML = '';
       $('mst-mlat-chart-wrap').style.display = 'none';
+      $('mst-mlat-two').style.display = 'none';
       return;
     }
     const c = d.counters || {}, raw = d.raw || {}, name = {};
@@ -488,7 +489,9 @@
     st.innerHTML = '<tbody>'
       + kv('Recorder', (d.err ? `<span class="mst-rc-warn">error: ${esc(d.err)}</span>` : '<span class="mst-ok">running</span>') + ` since ${hhmm(d.since)} UTC (${dur(d.now - d.since)})`,
            'Runs beside the weather: it only records, nothing of it goes into the weather')
-      + (d.receivers || []).map(r => kv(esc(r.id), `${ck[r.clock] || esc(r.clock)} · ${site(r)}`,
+      + (d.receivers || []).map(r => kv(esc(r.id), `${ck[r.clock] || esc(r.clock)} · ${site(r)}`
+           + (r.gps_known ? ((r.gps_red || []).length ? ` · <span class="mst-rc-warn">GPS: ${esc(r.gps_red.join('; '))}</span>` : (r.gps_amber || []).length ? ` · GPS: ${esc(r.gps_amber.join('; '))}` : ' · GPS flags in order') : '')
+           + (r.temp != null ? ` · ${fmt(r.temp, 1)} °C` : ''),
            'A receiver with GPS time (a Radarcape). Its place: the 1090 MHz antenna when it is given in the settings, else the mean of the Radarcape\'s own GPS position')).join('')
       // a receiver with a counter clock (from the evening of 2026-11-18): its raw stamps are recorded, nothing more
       + (d.counter_receivers || []).map(r => kv(esc(r.id), `${r.clock === 'sync' ? 'own counter, lined up' : '<span class="mst-rc-warn">own counter, not lined up — not recorded now</span>'} · raw stamps only · ${nfmt(r.n)} since the start`,
@@ -521,6 +524,48 @@
       + '<th class="num" title="16th … 84th percentile of the same">Middle 68 %</th><th class="num" title="Half of that range: about one standard deviation">Spread</th></tr></thead><tbody>'
       + (rows.join('') || '<tr><td colspan="6" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
     mlatDraw(d);
+    renderMlatDetail(d);
+  }
+  // ── the last 10 minutes in detail (from the evening of 2026-11-18) ──────
+  const DFN = { 0: 'DF0 ACAS', 4: 'DF4 altitude', 5: 'DF5 squawk', 11: 'DF11 all-call', 16: 'DF16 ACAS', 17: 'DF17 ADS-B', 18: 'DF18', 20: 'DF20 Comm-B, altitude', 21: 'DF21 Comm-B, squawk' };
+  const dbTxt = b => b ? (20 * Math.log10(b / 255)).toFixed(0) : '—';
+  function renderMlatDetail(d) {
+    const x = d.detail, name = {};
+    (d.receivers || []).forEach(r => { name[r.bit] = r.id; });
+    $('mst-mlat-two').style.display = x && x.n_res > 50 && typeof Chart !== 'undefined' ? '' : 'none';
+    if (!x) return;
+    $('mst-mlat-df').innerHTML = '<thead><tr><th>Reply type</th><th class="num">Pairs</th><th class="num">With position</th><th class="num">Median</th><th class="num">Spread</th></tr></thead><tbody>'
+      + (x.by_df.map(r => `<tr><td>${esc(DFN[r[0]] || 'DF' + r[0])}</td><td class="num">${nfmt(r[1])}</td><td class="num">${pct(r[2], r[1])}</td><td class="num">${nsTxt(r[3])}</td><td class="num">${r[4] == null ? '—' : '±' + r[4].toFixed(0) + ' ns'}</td></tr>`).join('')
+         || '<tr><td colspan="5" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
+    $('mst-mlat-sig').innerHTML = '<thead><tr><th title="The weaker of the two receivers\' signal levels, median of the group">Signal (dBFS)</th><th class="num">Pairs</th><th class="num">Median</th><th class="num">Spread</th></tr></thead><tbody>'
+      + (x.by_signal.map((r, i) => `<tr><td>${['weakest quarter', 'second quarter', 'third quarter', 'strongest quarter'][r[4] != null ? r[4] : i]} <span class="mst-dim2">${r[0].toFixed(0)}</span></td><td class="num">${nfmt(r[1])}</td><td class="num">${nsTxt(r[2])}</td><td class="num">${r[3] == null ? '—' : '±' + r[3].toFixed(0) + ' ns'}</td></tr>`).join('')
+         || '<tr><td colspan="4" class="mst-dim2">Not enough pairs with a position yet</td></tr>') + '</tbody>';
+    $('mst-mlat-ac-note').textContent = `${x.aircraft_n} aircraft · last 5 min` + (x.no_position_n ? ` · ${x.no_position_n} without an ADS-B position` : '');
+    const noPos = '<span class="mst-dim2" title="This aircraft has sent no own ADS-B position in the last minute: its pairs have no expected time difference"> no ADS-B position</span>';
+    $('mst-mlat-ac').innerHTML = '<thead><tr><th>Address</th><th class="num">Pairs</th><th class="num">With position</th><th class="num">Median</th><th class="num">Spread</th>'
+      + `<th class="num" title="Mean signal level at each receiver, dBFS">Signal ${esc(name[(d.pairs[0] || {}).a] || '')} / ${esc(name[(d.pairs[0] || {}).b] || '')}</th><th class="num">Altitude</th></tr></thead><tbody>`
+      + (x.aircraft.map(r => `<tr><td><code>${esc(r[0])}</code>${r[8] ? '' : noPos}</td><td class="num">${nfmt(r[1])}</td><td class="num">${nfmt(r[2])}</td><td class="num">${nsTxt(r[3])}</td><td class="num">${r[4] == null ? '—' : '±' + r[4].toFixed(0) + ' ns'}</td><td class="num">${r[5].toFixed(0)} / ${r[6].toFixed(0)}</td><td class="num">${r[7] == null ? '—' : nfmt(Math.round(r[7])) + ' ft'}</td></tr>`).join('')
+         || '<tr><td colspan="7" class="mst-dim2">No aircraft yet</td></tr>') + '</tbody>';
+    const hms = t => { const q = new Date(t * 1000); return q.toISOString().slice(11, 19) + '.' + String(q.getUTCMilliseconds()).padStart(3, '0'); };
+    $('mst-mlat-raw').innerHTML = '<thead><tr><th>UTC</th><th>Address</th><th>Reply</th><th class="num" title="Second receiver\'s stamp minus the first\'s">Time difference</th><th class="num">Measured − expected</th><th class="num">Signal (dBFS)</th><th class="num">Altitude</th></tr></thead><tbody>'
+      + (x.latest.map(r => `<tr><td>${hms(r[0])}</td><td><code>${esc(r[1])}</code>${r[8] ? '' : noPos}</td><td>DF${r[2]}</td><td class="num">${(r[3] / 1000).toFixed(3)} µs</td><td class="num">${r[4] == null ? '—' : nsTxt(r[4])}</td><td class="num">${dbTxt(r[5])} / ${dbTxt(r[6])}</td><td class="num">${r[7] == null ? '—' : nfmt(Math.round(r[7])) + ' ft'}</td></tr>`).join('')
+         || '<tr><td colspan="7" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
+    if ($('mst-mlat-two').style.display === 'none') return;
+    const grid = css('--border'), txt = css('--text-2'), acc = css('--accent');
+    const hl = ['< −400'].concat(Array.from({ length: 32 }, (_, i) => String(-400 + 25 * i))).concat(['≥ 400']);
+    const opt = yt => ({ animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false }, ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 9 } },
+        y: { grid: { color: grid }, ticks: { color: txt }, title: { display: !!yt, text: yt, color: txt } } } });
+    if (mlatHist) { mlatHist.data.datasets[0].data = x.hist; mlatHist.update('none'); }
+    else mlatHist = new Chart($('mst-mlat-hist'), { type: 'bar', data: { labels: hl, datasets: [{ data: x.hist, backgroundColor: acc, barPercentage: 1, categoryPercentage: 0.95 }] }, options: opt('') });
+    const sl = ['N', '30°', '60°', 'E', '120°', '150°', 'S', '210°', '240°', 'W', '300°', '330°'], sv = x.sectors.map(r => r[1]);
+    if (mlatSect) { mlatSect.data.datasets[0].data = sv; mlatSect.$n = x.sectors.map(r => r[0]); mlatSect.update('none'); }
+    else {
+      const o = opt('ns');
+      o.plugins.tooltip = { callbacks: { label: c => `${nsTxt(c.parsed.y)} · ${nfmt((c.chart.$n || [])[c.dataIndex])} pairs` } };
+      mlatSect = new Chart($('mst-mlat-sect'), { type: 'bar', data: { labels: sl, datasets: [{ data: sv, backgroundColor: acc }] }, options: o });
+      mlatSect.$n = x.sectors.map(r => r[0]);
+    }
   }
   function mlatDraw(d) {
     const p = (d.pairs || [])[0], wrap = $('mst-mlat-chart-wrap');
@@ -1247,7 +1292,9 @@
     if (sigChart) { sigChart.destroy(); sigChart = null; }
     if (data) { renderChart(data); renderSig(data); renderRange(data); }
     if (sens) renderSensors();
+    [mlatHist, mlatSect].forEach(c => { if (c) c.destroy(); }); mlatHist = mlatSect = null;
     if (mlatChart) { mlatChart.destroy(); mlatChart = null; if (mlatData && mlatOn) mlatDraw(mlatData); }
+    if (mlatData && mlatOn) renderMlatDetail(mlatData);
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && active) { poll(); if (mlatOn) pollMlat(); } });
   initButtons();
