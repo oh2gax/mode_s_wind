@@ -5,7 +5,7 @@ development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
 ## v.17112026 — A third receiver in the network, and the windshear study log 1.12
 
-- **A third receiver** — one new receiver has been added to the network, which now consists of three receivers. Its replies are merged with those of the other two: it hears further and adds wind observations mainly at cruise levels, while near the airport and on the approaches the data are as before. On the Statistics page the *All receivers* numbers are larger from 17 Nov 13:26 UTC on. More sites are planned.
+- **A third receiver** — one new receiver has been added to the network, which now consists of three receivers. On the Statistics page the *All receivers* numbers are larger from 17 Nov 13:26 UTC on. More sites are planned.
 - **Multilateration** — preliminary studies on implementing multilateration (finding the position of an aircraft from the times at which several receivers hear the same reply) are under way. Nothing of it is on the pages yet.
 - **Windshear study log 1.12** (User guides) — a new chapter on the windshear report in the METARs of 16 Nov (*WS R15*, 17:50 and 18:20 UTC): what the landings of that hour showed (no advisory, headwind losses of 4–7 kt), the two stronger periods of the day before that had no report, and why an observer at the airport and the receivers can see different things. 36 pages.
 
