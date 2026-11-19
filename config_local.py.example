@@ -80,6 +80,13 @@ WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 12
 # SITE_MOVED_REDIRECT = False    # True: visitors from outside are sent straight
 #                                # to the same page on the new server (pages only)
 
+# ── Approach records without a position (from 2026-11-19) ───────────────────
+# A landing whose aircraft has lost GNSS before the final is found from its
+# altitude and BDS 5,0 track (collector/blind_approach.py).  On by default;
+# nothing is needed.
+# APPROACH_NO_POSITION = False   # switch it off
+# NOPOS_LOG_DAYS = 90            # days the check log (table nopos_log) is kept
+
 # Other settings can be overridden the same way, e.g.
 # DB_PATH = "/mnt/ssd/modes_meteo.db"
 # WEB_PASS = "…"             # keep passwords out of git: here, not in config.py

@@ -820,6 +820,38 @@ def _on_go_around(ev: dict) -> None:
         log.warning("go_arounds DB write failed: %s", exc)
 
 
+_NOPOS_BUF: list = []
+_NOPOS_T0 = [0.0]
+
+
+def _on_blind_event(row: dict) -> None:
+    """Callback of the position-free approach logic (collector/
+    blind_approach.py, from 2026-11-19): one nopos_log row per event.  The
+    rows of the check (about 200 a day) are written in batches — at 20 rows,
+    after 10 minutes or with the next record made without a position."""
+    from database.db import get_db
+    info = {k: v for k, v in row.items()
+            if k not in ("ts", "icao", "callsign", "aircraft_type", "kind", "result", "runway", "true_rwy")
+            and v is not None}
+    if not _NOPOS_BUF:
+        _NOPOS_T0[0] = time.time()
+    _NOPOS_BUF.append((row.get("ts") or time.time(), row.get("icao", ""), row.get("callsign"),
+                       row.get("aircraft_type"), row.get("kind", ""), row.get("result", ""),
+                       row.get("runway"), row.get("true_rwy"),
+                       json.dumps(info, separators=(",", ":")) if info else None))
+    if len(_NOPOS_BUF) < 20 and time.time() - _NOPOS_T0[0] < 600 and row.get("kind") != "blind":
+        return
+    rows = list(_NOPOS_BUF)
+    del _NOPOS_BUF[:]
+    try:
+        db = get_db()
+        db.executemany("INSERT INTO nopos_log (ts, icao, callsign, aircraft_type, kind, result, "
+                       "runway, true_rwy, info_json) VALUES (?,?,?,?,?,?,?,?,?)", rows)
+        db.commit()
+    except Exception as exc:                              # noqa: BLE001
+        log.warning("nopos_log DB write failed: %s", exc)
+
+
 def _ga_fix_landings() -> None:
     """Landings stored with go_arounds 0 although the go_arounds table has a
     go-around of the same aircraft in the 2 h before (and after its previous
@@ -1454,6 +1486,26 @@ def main() -> None:
         mag_declination       = cfg.MAG_DECLINATION,
         wind_max_age          = float(getattr(cfg, "WIND_MAX_AGE_SEC", 6.0)),
     )
+
+    # Approach record without a position (collector/blind_approach.py, from
+    # 2026-11-19): on unless APPROACH_NO_POSITION = False; the runway side from
+    # the pair recorder's time differences where it runs
+    ws_tracker.blind_enabled = bool(getattr(cfg, "APPROACH_NO_POSITION", True))
+    ws_tracker.on_blind_event = _on_blind_event
+    if _mlat.get() is not None:
+        ws_tracker.tdoa_fn = _mlat.tdoa_rows
+        ws_tracker.tdoa_expected_fn = _mlat.tdoa_expected
+    try:
+        from database.db import get_db as _gdb
+        _nd = int(getattr(cfg, "NOPOS_LOG_DAYS", 90) or 0)
+        if _nd > 0:
+            _gdb().execute("DELETE FROM nopos_log WHERE ts < ?", (time.time() - _nd * 86400,))
+            _gdb().commit()
+    except Exception as exc:                              # noqa: BLE001
+        log.debug("nopos_log not pruned: %s", exc)
+    log.info("Approach records without a position: %s%s",
+             "on" if ws_tracker.blind_enabled else "off (APPROACH_NO_POSITION = False)",
+             ", runway side from time differences" if ws_tracker.tdoa_fn else "")
 
     # Pre-populate RAM approach history from the last 24 h of DB records so
     # the list is immediately available without waiting for the first landing.

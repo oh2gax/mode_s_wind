@@ -487,6 +487,29 @@ CREATE TABLE IF NOT EXISTS go_arounds (
 );
 CREATE INDEX IF NOT EXISTS idx_go_arounds_ts ON go_arounds(ts);
 
+-- ── nopos_log ─────────────────────────────────────────────────────────────────
+-- Approach records without a position (from 2026-11-19, collector/
+-- blind_approach.py): one row per event.  kind 'blind' = an arrival without a
+-- position (result 'record' → also in approach_history, 'unconfirmed' → only
+-- here); kind 'check' = the same logic run on a landing that has a position
+-- (result 'match' = found, with the runway / distance / time compared,
+-- 'missed' = not found, 'extra' = found where no landing was recorded).
+-- About 200 rows a day, 0.2 kB each, written in batches; rows older than
+-- NOPOS_LOG_DAYS (default 90) are deleted at start-up.
+CREATE TABLE IF NOT EXISTS nopos_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            REAL    NOT NULL,   -- landing time
+    icao          TEXT    NOT NULL,
+    callsign      TEXT,
+    aircraft_type TEXT,
+    kind          TEXT    NOT NULL,   -- blind / check
+    result        TEXT    NOT NULL,   -- record / unconfirmed / match / missed / extra
+    runway        TEXT,               -- the runway of the position-free logic
+    true_rwy      TEXT,               -- the runway of the landing recorded from the position
+    info_json     TEXT                -- the rest (side source, seconds on final, distance errors …)
+);
+CREATE INDEX IF NOT EXISTS idx_nopos_log_ts ON nopos_log(ts);
+
 -- ── msg_stats_hours / msg_stats_state ────────────────────────────────────────
 -- Statistics page history kept over restarts (from 2026-10-25,
 -- collector/msg_stats.py): one row per closed clock hour (zlib-compressed JSON:

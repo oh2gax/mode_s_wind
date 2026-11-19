@@ -2278,6 +2278,14 @@ def create_app(
             """gzip-compressed (from 2026-10-28); ?lite=1 (the mobile view /app):
             without the large per-landing details gnss / rough / prof and the
             report's band means — about a third of the size."""
+            # "np" (from 2026-11-19): a landing found without a position
+            # (collector/blind_approach.py) — {"rs": how the runway side was
+            # chosen (td / assumed / one), "s": seconds on final, "hmin": lowest
+            # height heard above the threshold, …}; kept in the lite form too
+            for r in result:
+                np_ = (r.get("gnss") or {}).get("np")
+                if np_:
+                    r["np"] = np_
             if request.args.get("lite") == "1":
                 for r in result:
                     for k in ("gnss", "rough", "prof"):
@@ -2362,9 +2370,87 @@ def create_app(
         if ws_tracker is None:
             return jsonify([])
         return jsonify([
-            {**e, "cond": approach_index(e.get("rough"), e.get("aircraft_type"))}
+            {**e, "cond": approach_index(e.get("rough"), e.get("aircraft_type")),
+             **({"np": e["gnss"]["np"]} if (e.get("gnss") or {}).get("np") else {})}
             for e in ws_tracker.get_approach_history()
         ])
+
+    @app.route("/api/windshear/nopos")
+    def windshear_nopos_api():
+        """Approach records without a position (from 2026-11-19, collector/
+        blind_approach.py): the aircraft followed without a position now, the
+        events of the last ?days= (1–31, default 7) per UTC day — records made,
+        candidates not recorded, and the check on the landings that have a
+        position (found, runway direction and side right, distance and time
+        difference) — and the latest rows."""
+        import json as _json
+        days = max(1, min(request.args.get("days", default=7, type=int) or 7, 31))
+        cutoff = time.time() - days * 86400
+        rows, seen = [], set()
+        try:
+            for r in get_db().execute(
+                    "SELECT ts, icao, callsign, aircraft_type, kind, result, runway, true_rwy, info_json "
+                    "FROM nopos_log WHERE ts > ? ORDER BY ts DESC", (cutoff,)).fetchall():
+                d = dict(r)
+                try:
+                    d.update(_json.loads(d.pop("info_json") or "{}"))
+                except Exception:                      # noqa: BLE001
+                    d.pop("info_json", None)
+                rows.append(d)
+                seen.add((round(d["ts"]), d["icao"], d["kind"], d["result"]))
+        except Exception as exc:                       # noqa: BLE001  (older database)
+            log.debug("nopos_log not read: %s", exc)
+        st = ws_tracker.blind_state() if ws_tracker is not None else {"on": False, "live": [], "log": []}
+        for d in st.get("log") or []:                  # rows not yet written (batched)
+            k = (round(d.get("ts") or 0), d.get("icao"), d.get("kind"), d.get("result"))
+            if k not in seen and (d.get("ts") or 0) > cutoff:
+                rows.append(dict(d))
+        rows.sort(key=lambda d: -(d.get("ts") or 0))
+
+        def _med(v):
+            v = sorted(v)
+            return None if not v else v[len(v) // 2]
+        by = {}
+        for d in rows:
+            day = time.strftime("%Y-%m-%d", time.gmtime(d["ts"]))
+            a = by.setdefault(day, {"day": day, "rec": 0, "unconf": 0, "chk": 0, "found": 0, "fam_ok": 0,
+                                    "td_n": 0, "td_ok": 0, "as_n": 0, "as_ok": 0, "extra": 0,
+                                    "_d": [], "_dt": []})
+            if d["kind"] == "blind":
+                a["rec" if d["result"] == "record" else "unconf"] += 1
+                continue
+            if d["result"] == "extra":
+                a["extra"] += 1
+                continue
+            a["chk"] += 1
+            if d["result"] != "match":
+                continue
+            a["found"] += 1
+            a["fam_ok"] += 1 if d.get("fam_ok") else 0
+            tr_ = d.get("true_rwy")
+            if d.get("fam_ok") and (d.get("np") or {}).get("rs") != "one":
+                if d.get("rwy_t"):
+                    a["td_n"] += 1
+                    a["td_ok"] += 1 if d["rwy_t"] == tr_ else 0
+                if d.get("rwy_a"):
+                    a["as_n"] += 1
+                    a["as_ok"] += 1 if d["rwy_a"] == tr_ else 0
+            if d.get("d_med") is not None:
+                a["_d"].append(d["d_med"])
+            if d.get("dt") is not None:
+                a["_dt"].append(abs(d["dt"]))
+        out_days = []
+        for day in sorted(by, reverse=True):
+            a = by[day]
+            a["d_med"] = _med(a.pop("_d"))
+            a["dt_med"] = _med(a.pop("_dt"))
+            out_days.append(a)
+        keep = ("ts", "icao", "callsign", "aircraft_type", "kind", "result", "runway", "true_rwy",
+                "rwy_a", "rwy_t", "why", "chow", "np", "d_med", "dt")
+        last = [{k: d.get(k) for k in keep if d.get(k) is not None}
+                for d in rows if d["kind"] == "blind" or d["result"] != "match"][:40]
+        return jsonify({"on": bool(st.get("on")), "qnh": bool(st.get("qnh")), "td": bool(st.get("td")),
+                        "live": st.get("live") or [], "days": out_days, "last": last})
 
     @app.route("/api/windshear/departures")
     def windshear_departures_api():
@@ -2659,6 +2745,10 @@ def create_app(
         db.execute("DELETE FROM approach_history")
         db.execute("DELETE FROM approach_series")
         db.execute("DELETE FROM go_arounds")
+        try:                               # the position-free approach log (from 2026-11-19)
+            db.execute("DELETE FROM nopos_log")
+        except Exception:                  # noqa: BLE001  (older database)
+            pass
         db.commit()
         return jsonify({"ok": True})
 

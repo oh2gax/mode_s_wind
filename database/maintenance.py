@@ -434,6 +434,10 @@ def purge_approach_data(conn, days: int) -> dict:
     ).rowcount
     conn.execute("DELETE FROM approach_series WHERE ts < ?", (cutoff,))
     conn.execute("DELETE FROM go_arounds WHERE ts < ?", (cutoff,))
+    try:                                   # the position-free approach log (from 2026-11-19)
+        conn.execute("DELETE FROM nopos_log WHERE ts < ?", (cutoff,))
+    except Exception:                      # noqa: BLE001  (older database)
+        pass
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows", deleted)
     return {"approaches_deleted": deleted}
@@ -465,6 +469,11 @@ def purge_approach_date_range(conn, date_from: str, date_to: str) -> dict:
                  (date_from, date_to))
     conn.execute("DELETE FROM go_arounds WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
                  (date_from, date_to))
+    try:                                   # the position-free approach log (from 2026-11-19)
+        conn.execute("DELETE FROM nopos_log WHERE date(ts, 'unixepoch') BETWEEN ? AND ?",
+                     (date_from, date_to))
+    except Exception:                      # noqa: BLE001  (older database)
+        pass
     conn.commit()
     log.info("Maintenance: deleted %d approach_history rows (%s – %s)",
              deleted, date_from, date_to)

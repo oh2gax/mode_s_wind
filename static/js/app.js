@@ -918,6 +918,8 @@
     const tbl = rows.length ? `<table><thead><tr><th>ft</th><th>Wind</th><th class="num">HW</th><th class="num">XW</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
                             : '<div class="dim">No band winds stored.</div>';
     const txt = [];
+    // a landing found without a position (GNSS lost; from 2026-11-19)
+    if (!dep && e.np) txt.push(`No position (GNSS lost): found from the altitude and the BDS 5,0 track. Runway side ${e.np.rs === 'td' ? 'from the receivers’ time difference' : e.np.rs === 'assumed' ? 'assumed from the other landings' : 'from the track'}; on final ${e.np.s} s, heard down to ${e.np.hmin} ft above the threshold. No windshear alert from such a landing.`, '');
     if (!dep && e.cond && e.cond.idx != null) {
       const c = e.cond, seg = (s, l) => s ? `${l}: ${s.idx.toFixed(1)} (${[s.roll != null ? `bank ${s.roll}°` : '', s.ias != null ? `IAS ${s.ias} kt` : '',
         s.vr != null ? `VS ${s.vr} fpm` : '', s.crab != null ? `crab sd ${s.crab}°` : ''].filter(Boolean).join(', ')}; ${s.n} replies)` : `${l}: no data`;
@@ -1020,7 +1022,7 @@
       const S = both ? { kind: e._dep ? 'dep' : 'arr', show: H.show, res: H.res } : H;
       return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
         `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
-        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${both && e._dep ? ' dep' : ''}"${both && e._dep ? ' title="Departure"' : ''}>${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${both && e._dep ? ' dep' : ''}${e.np ? ' np' : ''}"${both && e._dep ? ' title="Departure"' : e.np ? ' title="No position"' : ''}>${esc(e.runway || '')}${e.np && e.np.rs === 'assumed' ? '?' : ''}</span><span class="chs">${histChips(e, S)}</span></span>` +
         `<span class="l2">${histLine2(e, S)}</span></button>` +
         (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
     }).join('') : `<div class="app-empty">${H.fetched ? (H.q && all.length ? `No ${what}s match “${esc($('app-hist-q').value)}”.` : `No ${what}s in this range.`) : 'Loading…'}</div>`;
@@ -1718,7 +1720,7 @@
       const tm = (isoDay(d) !== today ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ` : '') + (e.time_utc || hhmm(e.ts));
       return `<div class="app-card${open ? ' open' : ''}" data-k="${esc(k)}">` +
         `<button type="button" class="hd"><span class="l1"><span class="t">${esc(tm)}</span><b>${esc(e.callsign || e.icao)}</b>` +
-        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${e._dep ? ' dep' : ''}"${e._dep ? ' title="Departure"' : ''}>${esc(e.runway || '')}</span><span class="chs">${histChips(e, S)}</span></span>` +
+        `<span class="ty">${esc(e.aircraft_type || '')}</span><span class="rw${e._dep ? ' dep' : ''}${e.np ? ' np' : ''}"${e._dep ? ' title="Departure"' : e.np ? ' title="No position"' : ''}>${esc(e.runway || '')}${e.np && e.np.rs === 'assumed' ? '?' : ''}</span><span class="chs">${histChips(e, S)}</span></span>` +
         `<span class="l2">${histLine2(e, S)}</span></button>` +
         (open ? `<div class="bd">${histBody(e, S)}</div>` : '') + '</div>';
     }).join('') || (IHist.fetched ? `<div class="app-empty">No ${both ? 'landings or departures' : 'landings'}${I.rwy ? ' on ' + esc(I.rwy) : ''} in the last ${h} h.</div>` : '');

@@ -308,6 +308,7 @@ body.app-body {
 .app-card .l1 .rw:empty { visibility: hidden; }
 /* History Both (from 2026-11-03): a departure's runway box filled light blue */
 .app-card .l1 .rw.dep { background: #7dd3fc; border-color: #7dd3fc; color: #0c2a3e; }
+.app-card .l1 .rw.np { border-style: dashed; }    /* a landing found without a position (from 2026-11-19) */
 [data-theme="light"] .app-card .l1 .rw.dep { background: #bae6fd; border-color: #7dd3fc; color: #0c4a6e; }    /* no runway (a climb off the runway axes): the place is kept */
 .app-card .chs { margin-left: auto; display: flex; gap: 4px; align-items: baseline; flex: none; }
 .app-card .ch { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 9px; background: var(--bg-3); white-space: nowrap; }

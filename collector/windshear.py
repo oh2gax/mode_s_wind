@@ -65,6 +65,7 @@ from collector.filter import is_blocked_registration
 from collector.atmos import tm_temp_c, trimmed_mean
 from collector.wind_calc import compute_wind
 from collector import shear as _shear
+from collector.blind_approach import BlindApproachMixin
 
 log = logging.getLogger("modes.windshear")
 
@@ -403,7 +404,7 @@ def parse_metar_surface(metar_text: str) -> dict:
         out["cld"] = c.group(1)
     return out
 
-class WindshearTracker:
+class WindshearTracker(BlindApproachMixin):
     """
     Thread-safe in-RAM store for aircraft currently on approach.
 
@@ -514,6 +515,8 @@ class WindshearTracker:
         # aircraft with "dep" / "dep_rwy" so the maps can hide them (2026-10-29)
         self.departures_fn = None
         self._lock  = threading.RLock()
+        # Approach record without a position (collector/blind_approach.py, from 2026-11-19)
+        self._blind_init()
 
     # ── QNH ───────────────────────────────────────────────────────────────────
 
@@ -642,6 +645,16 @@ class WindshearTracker:
         lat  = aircraft.get("lat")
         lon  = aircraft.get("lon")
         alt  = aircraft.get("altitude")
+
+        # An arrival without a position (GNSS lost): followed from its altitude
+        # and BDS 5,0 track instead (collector/blind_approach.py, from
+        # 2026-11-19).  The same logic runs as a check on every low aircraft;
+        # True only while this aircraft is followed without a position.
+        try:
+            if self._blind_pre(aircraft, time.time()):
+                return
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Approach without position: %s", exc)
 
         if not (icao and lat is not None and lon is not None and alt is not None):
             return
@@ -1225,6 +1238,10 @@ class WindshearTracker:
         """
         cutoff = time.time() - STALE_TIMEOUT_SEC
         now    = time.time()
+        try:
+            self._blind_prune(now)
+        except Exception as exc:                          # noqa: BLE001
+            log.debug("Approach without position (prune): %s", exc)
         with self._lock:
             stale = [k for k, v in self._state.items() if v["last_seen"] < cutoff]
             for k in stale:
@@ -1299,8 +1316,13 @@ class WindshearTracker:
                          now: float, rec_ts: float | None = None,
                          runway: str | None = None, ga_count: int = 0,
                          reason: str = "", gnss: dict | None = None,
-                         rough: dict | None = None) -> None:
+                         rough: dict | None = None, nopos: dict | None = None) -> bool:
         """Harvest windrose obs and write one landing to the approach history.
+
+        nopos (from 2026-11-19): the landing was found without a position
+        (collector/blind_approach.py) — kept in the GNSS record as "np", the
+        windshear report raises no alert.  Returns False when the cooldown
+        gate suppressed the record.
 
         Called with self._lock held, from prune_stale() (contact lost on final)
         or update() (confirmed threshold-pass landing).  rec_ts / runway
@@ -1327,7 +1349,7 @@ class WindshearTracker:
         # re-admit).  Go-around second approaches happen 10–15+ minutes later
         # and are never suppressed by this gate.
         if (now - self._recent_commits.get(k, 0.0)) < COMMIT_COOLDOWN_SEC:
-            return
+            return False
 
         # bw may be None when the aircraft never produced valid wind data
         # (e.g. meteo_source always NONE) — still record the landing with all
@@ -1357,8 +1379,12 @@ class WindshearTracker:
             # Wind / headwind / Mach-TAS temperature per 200-ft band (from 2026-10-09)
             "prof":          self._prof_record(rough),
         }
+        if nopos:
+            record["gnss"] = dict(record["gnss"] or {"bands": {}, "n": 0, "deg_n": 0,
+                                                     "first_deg": None, "last_deg": None, "rec": None},
+                                  np=nopos)
         # Windshear report of the landing (from 2026-10-24, collector/shear.py)
-        record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts, record["gnss"])
+        record["shear"] = self._shear_report(rough, rwy, rwy_hdg, ts, record["gnss"], blind=bool(nopos))
         if record["shear"]:
             # confirmation of a ramp alert by the earlier landings (final after the following ones)
             cf = _shear.confirmation(record["shear"], self._neighbours(ts, rwy, before=True))
@@ -1388,6 +1414,12 @@ class WindshearTracker:
             record["callsign"], k, rwy, reason,
             [ft for ft, v in record["bands"].items() if v],
         )
+        if not nopos:
+            try:
+                self._blind_norm_commit(k, ts, rwy, record["callsign"], record["aircraft_type"])
+            except Exception as exc:                      # noqa: BLE001
+                log.debug("Approach without position (check): %s", exc)
+        return True
 
     # ── GNSS quality capture on final ─────────────────────────────────────────
 
@@ -1466,7 +1498,8 @@ class WindshearTracker:
 
     def _capture_rough(self, icao: str, ac: dict, now: float, alt_msl: float,
                        runway: str | None, cross_track: float | None,
-                       ga_phase: str, dist_thr: float | None = None) -> None:
+                       ga_phase: str, dist_thr: float | None = None,
+                       key: str | None = None, blind: bool = False) -> None:
         """Collect the raw BDS 5,0 / 6,0 replies received since the previous
         sweep into the current altitude segment (lock held).
 
@@ -1482,9 +1515,12 @@ class WindshearTracker:
         """
         if self._bds_sample_fn is None:
             return
-        r = self._rough.get(icao)
+        # key / blind (from 2026-11-19): an approach followed without a position
+        # (collector/blind_approach.py) — its own buffer, the track is the
+        # BDS 5,0 one, no ADS-B ground speed series, no cross-track / position
+        r = self._rough.get(key or icao)
         if r is None:
-            r = self._rough[icao] = {"last": now - 4.0, "seg": {}, "bad": 0}
+            r = self._rough[key or icao] = {"last": now - 4.0, "seg": {}, "bad": 0}
         try:
             b50, b60 = self._bds_sample_fn(icao, r["last"])
         except Exception as exc:
@@ -1495,7 +1531,7 @@ class WindshearTracker:
             r["last"] = newest
         # ADS-B ground speed (TC 19, about twice a second), from 2026-10-24
         v19 = []
-        if self._vel_sample_fn is not None:
+        if self._vel_sample_fn is not None and not blind:
             try:
                 v19 = self._vel_sample_fn(icao, r.get("vlast", now - 4.0))
             except Exception as exc:                      # noqa: BLE001
@@ -1543,7 +1579,7 @@ class WindshearTracker:
             def _f(v, nd):
                 return None if v is None else round(v, nd)
             sw.append([round(now, 1), alt_r, ac.get("altitude"), _f(dist_thr, 2),
-                       _f(cross_track, 2), _f(ac.get("lat"), 5), _f(ac.get("lon"), 5),
+                       _f(None if blind else cross_track, 2), _f(ac.get("lat"), 5), _f(ac.get("lon"), 5),
                        ac.get("groundspeed"), _f(ac.get("track"), 1),
                        None if ap is None else int(ap), None if app is None else int(app)])
         band = min(APPROACH_HISTORY_BANDS, key=lambda b: abs(alt_msl - b))
@@ -2309,7 +2345,8 @@ class WindshearTracker:
         return done
 
     def _shear_report(self, rough: dict | None, runway: str | None,
-                      heading, ts: float, gnss: dict | None = None) -> dict | None:
+                      heading, ts: float, gnss: dict | None = None,
+                      blind: bool = False) -> dict | None:
         """The windshear report of a landing (approach_history.shear_json):
         from 31 Oct 2026 (REPORT_V 8) the ramps of detection v8, with v7 beside
         them as "v7" (collector/shear.py report8); v7 alone for a flight without
@@ -2322,9 +2359,11 @@ class WindshearTracker:
             refs = self._band_refs(ts)
             band = _shear.band_anomaly(_shear.vec_bands(self._prof_record(rough), _shear.VEC_MIN_N_ARR),
                                        refs, heading, phase="arr")
-            return _shear.report8(a8, a7, band, refs, heading,
-                                  _shear.gnss_bad_bands((gnss or {}).get("bands"),
-                                                        _shear.vel_bands(r.get("raw19"))))
+            # blind: a landing found without a position — every band counts as
+            # degraded, so the report is stored but raises no alert
+            bad = (sorted(APPROACH_HISTORY_BANDS) if blind else
+                   _shear.gnss_bad_bands((gnss or {}).get("bands"), _shear.vel_bands(r.get("raw19"))))
+            return _shear.report8(a8, a7, band, refs, heading, bad)
         except Exception as exc:                          # noqa: BLE001
             log.debug("Windshear report failed: %s", exc)
             return None

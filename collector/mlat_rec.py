@@ -909,6 +909,30 @@ def get() -> Recorder | None:
     return _REC
 
 
+def tdoa_rows(icao: str, t0: float, t1: float) -> list:
+    """[(t, a, b, tdoa ns (receiver b − a), pressure altitude ft)] of one
+    aircraft between t0 and t1, from the pairs of the last minutes — for the
+    runway side of a landing found without a position (collector/
+    blind_approach.py, from 2026-11-19).  [] without a recorder."""
+    if _REC is None:
+        return []
+    ic = (icao or "").upper()
+    return [(r[0], r[7], r[8], r[3], r[10]) for r in list(_REC.recent)
+            if t0 <= r[0] <= t1 and r[1] is not None and r[1].upper() == ic]
+
+
+def tdoa_expected(a: int, b: int, lat: float, lon: float, h_m: float):
+    """Expected time difference in ns (receiver b − a) of a reply sent at
+    (lat, lon, height h_m), None without both sites."""
+    if _REC is None:
+        return None
+    sa, sb = _REC.sites.get(a), _REC.sites.get(b)
+    if sa is None or sb is None:
+        return None
+    p = ecef(lat, lon, h_m)
+    return (math.dist(p, sb["xyz"]) - math.dist(p, sa["xyz"])) / C_AIR * 1e9
+
+
 def public(detail: bool = False) -> dict:
     if _REC is None:
         return {"on": False, "why": _WHY}

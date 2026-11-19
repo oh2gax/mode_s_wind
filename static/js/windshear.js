@@ -4518,11 +4518,89 @@ function renderApproachHistory(entries) {
   <td class="ws-aphist-cell ws-aphist-cs${e.go_arounds > 0 || e.ga ? ' ws-aphist-cs-ga' : ''}"${e.go_arounds > 0 ? ` title="${e.go_arounds}× go-around${(e.ga_ev || []).map(g => `, RWY ${g.rwy || '?'} ${_hm(g.ts)}`).join('')}"` : e.ga ? ' title="Climb-out of a go-around"' : ''}>${e.callsign || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-reg">${e.registration  || '—'}</td>
   <td class="ws-aphist-cell ws-aphist-type">${e.aircraft_type || '—'}</td>
-  <td class="ws-aphist-cell ws-aphist-rwy">${e.runway       || '—'}</td>
+  <td class="ws-aphist-cell ws-aphist-rwy${e.np ? ' ws-aphist-np' : ''}"${e.np ? ` title="${_npTitle(e.np)}"` : ''}>${e.runway       || '—'}${e.np ? (e.np.rs === 'assumed' ? '?' : '') + '<span class="ws-np-tag">no pos</span>' : ''}</td>
   ${bandCells}
 </tr>`;
   }).join('');
+  _npChip(aphKind === 'dep' ? null : _aphLastEntries);
 }
+
+// ── Landings found without a position (from 2026-11-19) ─────────────────────
+// An arrival that lost GNSS before the final has no position: the server finds
+// it from its altitude and BDS 5,0 track (collector/blind_approach.py) and
+// stores it with "np".  The row gets a "no pos" tag (the runway with "?" when
+// its side is assumed); the chip in the header counts them and opens the daily
+// check of the method (/api/windshear/nopos).
+function _npTitle(np) {
+  const side = np.rs === 'td' ? 'Runway side from the time difference of two GPS-timed receivers'
+    : np.rs === 'assumed' ? 'Runway side assumed: the side used by the recent landings with a position'
+    : 'Runway from the track';
+  return ('No position (GNSS lost): found from the altitude and the BDS 5,0 track. ' + side + '. ' +
+    `On final for ${np.s} s, lowest height heard ${np.hmin} ft above the threshold. ` +
+    'Distances are from the altitude on the 3° path. No windshear alert is raised from such a landing.').replace(/"/g, '&quot;');
+}
+let _npOpen = false;
+function _npChip(entries) {
+  const chip = document.getElementById('ws-nopos-chip');
+  if (!chip) return;
+  if (!entries) { chip.hidden = true; _npBox(false); return; }
+  const n = entries.filter(e => e.np).length;
+  chip.hidden = false;
+  chip.textContent = `no position: ${n}`;
+  chip.classList.toggle('ws-nopos-some', n > 0);
+}
+const _npEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+async function _npBox(open) {
+  const box = document.getElementById('ws-nopos-box');
+  if (!box) return;
+  _npOpen = open;
+  box.hidden = !open;
+  if (!open) return;
+  box.innerHTML = '<div class="ws-nopos-dim">Loading…</div>';
+  let d = null;
+  try { d = await (await fetch('/api/windshear/nopos?days=7', { cache: 'no-store' })).json(); } catch (_) { /* below */ }
+  if (!_npOpen) return;
+  if (!d) { box.innerHTML = '<div class="ws-nopos-dim">Not available</div>'; return; }
+  const pc = (a, b) => b ? Math.round(100 * a / b) + ' %' : '—';
+  const hm = ts => { const t = new Date(ts * 1000); return `${t.getUTCDate()}.${t.getUTCMonth() + 1} ${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
+  let h = '<div class="ws-nopos-h">Landings without a position</div>' +
+    '<div class="ws-nopos-p">An arrival that has lost GNSS before the final sends no position, so it is found from what it still sends: ' +
+    'the runway direction from its BDS 5,0 track, the distance from its altitude on the 3° path, the landing from the descent down to the runway. ' +
+    (d.td ? 'On parallel runways the side comes from the time difference of two GPS-timed receivers where they both hear the aircraft; otherwise it is assumed from the other landings (runway shown with “?”). '
+          : 'On parallel runways the side is assumed from the other landings (runway shown with “?”). ') +
+    'Such a landing raises no windshear alert and is not drawn on the maps.</div>';
+  if (!d.on) h += '<div class="ws-nopos-dim">Switched off on this server.</div>';
+  else if (!d.qnh) h += '<div class="ws-nopos-dim">Waiting for the first METAR (the QNH is needed).</div>';
+  if (d.live && d.live.length) {
+    h += '<div class="ws-nopos-sub">Followed without a position now</div>' + d.live.map(a =>
+      `<div class="ws-nopos-row"><b>${_npEsc(a.callsign || a.icao)}</b> ${_npEsc(a.aircraft_type || '')} · RWY ${_npEsc(a.runway || '?')} · ` +
+      `${a.dist != null ? a.dist.toFixed(1) + ' NM' : '—'} · ${a.hat != null ? a.hat + ' ft above the threshold' : ''}</div>`).join('');
+  }
+  h += '<div class="ws-nopos-sub">The daily check: the same method on the landings that have a position</div>';
+  if (d.days && d.days.length) {
+    h += '<table class="ws-nopos-tbl"><thead><tr><th>Day</th><th title="Landings recorded without a position">Recorded</th>' +
+      '<th title="Candidates not recorded: the runway direction was not in use">Not rec.</th>' +
+      '<th title="Landings with a position that the method was checked on">Checked</th><th title="… of which the method found the landing">Found</th>' +
+      '<th title="Runway direction right, of those found">Direction</th><th title="Runway side from the time difference: right / tried">Side (time)</th>' +
+      '<th title="Runway side assumed from the other landings: right / tried">Side (assumed)</th>' +
+      '<th title="Median of distance from the altitude − distance from the position, NM">Distance</th>' +
+      '<th title="Median difference of the landing time, s">Time</th>' +
+      '<th title="Found by the method where no landing was recorded from the position">Extra</th></tr></thead><tbody>' +
+      d.days.map(a => `<tr><td>${a.day.slice(5)}</td><td>${a.rec}</td><td>${a.unconf}</td><td>${a.chk}</td><td>${pc(a.found, a.chk)}</td>` +
+        `<td>${pc(a.fam_ok, a.found)}</td><td>${a.td_n ? a.td_ok + ' / ' + a.td_n : '—'}</td><td>${a.as_n ? a.as_ok + ' / ' + a.as_n : '—'}</td>` +
+        `<td>${a.d_med != null ? (a.d_med > 0 ? '+' : '') + a.d_med.toFixed(2) + ' NM' : '—'}</td><td>${a.dt_med != null ? Math.round(a.dt_med) + ' s' : '—'}</td><td>${a.extra}</td></tr>`).join('') +
+      '</tbody></table>';
+  } else h += '<div class="ws-nopos-dim">No landings checked yet.</div>';
+  const RES = { record: 'recorded', unconfirmed: 'not recorded', missed: 'check: not found', extra: 'check: found, no landing recorded' };
+  if (d.last && d.last.length) {
+    h += '<div class="ws-nopos-sub">Latest</div><div class="ws-nopos-last">' + d.last.slice(0, 25).map(r =>
+      `<div class="ws-nopos-row${r.kind === 'blind' ? ' ws-nopos-rec' : ''}">${hm(r.ts)} <b>${_npEsc(r.callsign || r.icao)}</b> ${_npEsc(r.aircraft_type || '')} · ` +
+      `${RES[r.result] || r.result}${r.runway ? ' · RWY ' + _npEsc(r.runway) + ((r.np || {}).rs === 'assumed' ? '?' : '') : ''}` +
+      `${r.true_rwy && r.result !== 'record' ? ' (landed ' + _npEsc(r.true_rwy) + ')' : ''}${r.why || (r.result === 'unconfirmed' && r.chow) ? ' — ' + _npEsc(r.why || r.chow) : ''}</div>`).join('') + '</div>';
+  }
+  box.innerHTML = h;
+}
+document.getElementById('ws-nopos-chip')?.addEventListener('click', () => _npBox(!_npOpen));
 
 
 

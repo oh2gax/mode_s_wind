@@ -3875,3 +3875,33 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
 .gpa-svg .gpa-rxl { font-size: 7.5px; }
 .gps-guide-q { margin: 0 4px 0 -2px; flex: 0 0 auto; }
 #gpa-al { width: auto; max-width: 150px; }
+
+/* ── Landings found without a position (Windshear page, from 2026-11-19) ── */
+.ws-np-tag { margin-left: 4px; padding: 0 3px; border: 1px dashed currentColor; border-radius: 3px; font-size: 8.5px; font-weight: 600;
+  letter-spacing: .02em; opacity: .8; vertical-align: 1px; white-space: nowrap; }
+.ws-aphist-np { white-space: nowrap; }
+.ws-nopos-chip { margin-left: 6px; padding: 1px 7px; border: 1px dashed #64748b; border-radius: 9px; background: transparent; color: #94a3b8;
+  font: inherit; font-size: 10.5px; cursor: pointer; white-space: nowrap; }
+.ws-nopos-chip:hover { color: #e2e8f0; border-color: #94a3b8; }
+.ws-nopos-chip.ws-nopos-some { color: #fcd34d; border-color: #b4933a; }
+.ws-nopos-box { margin: 4px 6px 6px; padding: 8px 10px; border: 1px solid #334155; border-radius: 6px; background: rgba(15, 23, 42, .96);
+  color: #cbd5e1; font-size: 11px; line-height: 1.45; max-height: 60vh; overflow: auto; }
+.ws-nopos-h { font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+.ws-nopos-p { color: #94a3b8; }
+.ws-nopos-sub { margin-top: 8px; font-weight: 600; color: #e2e8f0; }
+.ws-nopos-dim { color: #94a3b8; padding: 2px 0; }
+.ws-nopos-tbl { border-collapse: collapse; margin-top: 3px; width: 100%; }
+.ws-nopos-tbl th, .ws-nopos-tbl td { padding: 2px 4px; text-align: right; white-space: nowrap; border-bottom: 1px solid #1e293b; }
+.ws-nopos-tbl th { font-weight: 600; color: #94a3b8; font-size: 10px; }
+.ws-nopos-tbl th:first-child, .ws-nopos-tbl td:first-child { text-align: left; }
+.ws-nopos-row { padding: 1px 0; color: #94a3b8; }
+.ws-nopos-row b { color: #e2e8f0; font-weight: 600; }
+.ws-nopos-row.ws-nopos-rec { color: #cbd5e1; }
+.ws-nopos-last { max-height: 180px; overflow: auto; }
+[data-theme="light"] .ws-nopos-chip { color: #64748b; border-color: #94a3b8; }
+[data-theme="light"] .ws-nopos-chip:hover { color: #0f172a; }
+[data-theme="light"] .ws-nopos-chip.ws-nopos-some { color: #a16207; border-color: #ca8a04; }
+[data-theme="light"] .ws-nopos-box { background: rgba(255, 255, 255, .98); border-color: #cbd5e1; color: #334155; }
+[data-theme="light"] .ws-nopos-h, [data-theme="light"] .ws-nopos-sub, [data-theme="light"] .ws-nopos-row b { color: #0f172a; }
+[data-theme="light"] .ws-nopos-p, [data-theme="light"] .ws-nopos-dim, [data-theme="light"] .ws-nopos-row, [data-theme="light"] .ws-nopos-tbl th { color: #64748b; }
+[data-theme="light"] .ws-nopos-tbl th, [data-theme="light"] .ws-nopos-tbl td { border-bottom-color: #e2e8f0; }

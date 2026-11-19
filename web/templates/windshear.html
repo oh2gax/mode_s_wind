@@ -99,10 +99,12 @@
             <button class="ws-aphist-ctrl-btn ws-aphist-min-btn" id="ws-aphist-min-btn" title="Minimize: only the time, callsign, registration, type and runway of each landing (or departure) in a narrow panel — more room for the map, e.g. beside a full-size boundary-layer chart. Click again for the full table. Remembered in the browser." aria-label="Minimize the Approach History">&laquo;</button>
             <span class="ws-aphist-title">Approach History</span>
             <span class="ws-aphist-count" id="ws-aphist-count" title="Flights in the selected time window or date"></span>
+            <button type="button" class="ws-nopos-chip" id="ws-nopos-chip" hidden title="Landings found without a position (GNSS lost before the final) in this list — click for how they are found and the daily check of the method"></button>
             <span class="ws-aphist-kind">
               <button class="ws-aphist-ctrl-btn ws-aphist-kind-btn active" data-kind="arr" title="Landings: the wind on final, approach conditions (ACI) and the windshear report of each landing">Landings</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="dep" title="Departures: the wind of each climb-out per band and its windshear report — the band comparison, and the headwind ramps along the climb as a TRIAL (no alerts yet)">Departures</button><button class="ws-aphist-ctrl-btn ws-aphist-kind-btn" data-kind="rep" title="METAR & pilot reports: the stored METARs of the airport (windshear group WS R22L highlighted) and the ARS / WXREP pilot reports and SIGMETs of the FMI aviation weather service (ilmailusaa.fi) — for comparing with what the landings and departures showed">Reports</button>
             </span>
           </div>
+          <div class="ws-nopos-box" id="ws-nopos-box" hidden></div>
           <div class="ws-aphist-timerow">
             <button class="ws-aphist-time-btn" data-window="3600">1h</button>
             <button class="ws-aphist-time-btn ws-aphist-time-active" data-window="10800">3h</button>
