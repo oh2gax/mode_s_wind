@@ -574,6 +574,10 @@ body.app-body {
 .agn-sub { font-size: 11.5px; font-weight: 600; color: var(--text-2); margin: 10px 4px 2px; }
 .agn-sub small { font-weight: 400; color: var(--text-3); }
 .agn-none { padding: 10px 4px; color: var(--text-3); font-style: italic; font-size: 12px; }
+/* the MLAT view (from 2026-11-19, app_mlat.js): reuses the GNSS view's parts */
+.aml-nopos { font-weight: 400; color: var(--text-3); font-size: 10px; }
+#v-mlat .agn-now small { line-height: 1.5; }
+#v-mlat .agn-list td.num, #v-mlat .agn-list th.num { text-align: right; }
 [data-theme="light"] .agn-list .agn-hit { color: #a8457a; }
 /* the chart heading and its legend: the legend goes under the heading, at the right, when both do not fit */
 .app-gnss .am-hd { flex-wrap: wrap; row-gap: 2px; }

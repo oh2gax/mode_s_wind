@@ -256,6 +256,31 @@
   </section>
   {% endif %}
 
+  {% if mlat_view %}
+  <!-- MLAT (from 2026-11-19): the Statistics page's MLAT tab in short — the pair recorder's state and
+       the agreement of the GPS-timed receivers' clocks; the MLAT right only (web/rights.py);
+       static/js/app_mlat.js -->
+  <section id="v-mlat" class="app-view app-mast app-gnss" hidden>
+    <div id="aml-now" class="agn-now"></div>
+    <div id="aml-tiles" class="am-tiles"></div>
+    <div class="am-hd">Clock agreement <span class="agn-leg">measured − expected</span></div>
+    <div id="aml-clock" class="app-list agn-list"></div>
+    <div class="am-hd">Last 24 h by the minute <span class="agn-leg">median · middle 68 %</span></div>
+    <div class="app-aci-box agn-chart-box"><canvas id="aml-line"></canvas></div>
+    <div class="am-hd">Last 10 min <span class="agn-leg">pairs per 25 ns</span></div>
+    <div class="app-aci-box agn-chart-box"><canvas id="aml-hist"></canvas></div>
+    <div class="am-hd">Median by direction <span class="agn-leg">from the middle of the two sites, ns</span></div>
+    <div class="app-aci-box agn-chart-box"><canvas id="aml-sect"></canvas></div>
+    <div class="am-hd">By reply type <span class="agn-leg">last 10 min</span></div>
+    <div id="aml-df" class="app-list agn-list"></div>
+    <div class="am-hd">By signal strength <span class="agn-leg">last 10 min</span></div>
+    <div id="aml-sig" class="app-list agn-list"></div>
+    <div class="am-hd">Aircraft heard by both <span class="agn-leg">last 5 min</span></div>
+    <div id="aml-ac" class="app-list agn-list"></div>
+    <div class="app-small am-disc">Research data — two receivers with GPS time stamp the same reply; the difference of the stamps is compared with the one expected from the aircraft's own ADS-B position (1 ns = 0.3 m). The median is the constant part (cables, site positions), the spread the timing noise. Two receivers give no position yet. The newest single pairs are on the Statistics page's MLAT tab.</div>
+  </section>
+  {% endif %}
+
   {% if pilot_view %}
   <!-- Pilot (from 2026-11-05): EFHK now, the final approach and the climb-out by runway, winds
        aloft, icing, turbulence, GNSS, My flight and the weather map presets — the Pilot right
@@ -338,6 +363,7 @@
     <button type="button" class="app-tile" data-view="mg"><b>Meteogram</b><small>{{ airport_icao }} · MEPS{% if gfs_on %} · GFS{% endif %}</small></button>
     {% if gnss_view %}<button type="button" class="app-tile" data-view="gnss"><b>GNSS</b><small>GPS quality · Full view</small></button>{% endif %}
     {% if pilot_view %}<button type="button" class="app-tile" data-view="pilot"><b>Pilot</b><small>EFHK now · approach · aloft · icing</small></button>{% endif %}
+    {% if mlat_view %}<button type="button" class="app-tile" data-view="mlat"><b>MLAT</b><small>pair recorder · clock agreement</small></button>{% endif %}
   </div>
 
   <!-- options of each product, folded; the shown view's section opens by itself -->
@@ -784,6 +810,7 @@
 <script src="{{ url_for('static', filename='js/rx_markers.js') }}"></script>
 {% if gnss_view %}<script src="{{ url_for('static', filename='js/app_gnss.js') }}"></script>{% endif %}
 {% if pilot_view %}<script src="{{ url_for('static', filename='js/app_pilot.js') }}"></script>{% endif %}
+{% if mlat_view %}<script src="{{ url_for('static', filename='js/app_mlat.js') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

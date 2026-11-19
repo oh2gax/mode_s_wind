@@ -58,6 +58,8 @@
   if (window.AppGnss && $('v-gnss')) VIEWS.gnss = { title: 'GNSS', sec: 'gnss', el: 'v-gnss' };
   // Pilot (from 2026-11-05, app_pilot.js): only for the Pilot right — left out for everyone else
   if (window.AppPilot && $('v-pilot')) VIEWS.pilot = { title: 'Pilot · EFHK', sec: 'pilot', el: 'v-pilot' };
+  // MLAT (from 2026-11-19, app_mlat.js): only for the MLAT right — left out for everyone else
+  if (window.AppMlat && $('v-mlat')) VIEWS.mlat = { title: 'MLAT', sec: 'mlat', el: 'v-mlat' };
   let view = lsGet('ms_app_view', 'skewt-now');
   if (!VIEWS[view]) view = 'skewt-now';
   let timer = null;
@@ -1823,6 +1825,7 @@
     else if (view === 'mg') window.AppMg.layout();
     else if (view === 'gnss') window.AppGnss.layout();
     else if (view === 'pilot') window.AppPilot.layout();
+    else if (view === 'mlat') window.AppMlat.layout();
     markScroll();
   }
   function refresh() {
@@ -1838,11 +1841,12 @@
     else if (view === 'mg') window.AppMg.refresh();
     else if (view === 'gnss') window.AppGnss.refresh();
     else if (view === 'pilot') window.AppPilot.refresh();
+    else if (view === 'mlat') window.AppMlat.refresh();
   }
   function startTimer() {
     clearInterval(timer);
     const every = { 'skewt-now': 120e3, 'skewt-hour': 0, th: 600e3, cal: 900e3, ils: 5e3, aci: 60e3,
-                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, mg: 600e3, gnss: 30e3, pilot: 60e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
+                    hist: H.date ? 0 : 60e3, stats: 0, wx: 6e3, mast: 300e3, mg: 600e3, gnss: 30e3, pilot: 60e3, mlat: 10e3 }[view];   // wx: the air traffic (and the index every 10 min)          // stats.js polls itself (30 s)
     if (every) timer = setInterval(refresh, every);
   }
   function setView(v, fromMenu) {
@@ -1853,6 +1857,7 @@
     if (view !== 'mg' && VIEWS.mg) window.AppMg.hide();
     if (view !== 'gnss' && VIEWS.gnss) window.AppGnss.hide();
     if (view !== 'pilot' && VIEWS.pilot) window.AppPilot.hide();
+    if (view !== 'mlat' && VIEWS.mlat) window.AppMlat.hide();
     lsSet('ms_app_view', view);
     const cfgv = VIEWS[view];
     for (const k of Object.keys(VIEWS)) $(VIEWS[k].el).hidden = VIEWS[k].el !== cfgv.el;
@@ -1885,6 +1890,7 @@
     else if (view === 'mg') window.AppMg.show();
     else if (view === 'gnss') window.AppGnss.show();
     else if (view === 'pilot') window.AppPilot.show();
+    else if (view === 'mlat') window.AppMlat.show();
     startTimer();
     if (fromMenu) setTimeout(() => menu(false), 150);
   }
@@ -2056,6 +2062,8 @@
 
   // the GNSS view's options and the sub line (from 2026-11-03, app_gnss.js)
   if (VIEWS.gnss) window.AppGnss.init({ sub: t => { if (view === 'gnss') $('app-sub').textContent = t; } });
+  // the MLAT view's sub line (from 2026-11-19, app_mlat.js)
+  if (VIEWS.mlat) window.AppMlat.init({ sub: t => { if (view === 'mlat') $('app-sub').textContent = t; } });
   // the Pilot view's options and the sub line (from 2026-11-05, app_pilot.js)
   // Map (from 2026-11-05 evening): a preset sets the Weather options (as the menu would) and opens
   // the Weather view; the options before the first preset are kept (ms_app_pilot_wxsave) for

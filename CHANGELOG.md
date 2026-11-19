@@ -7,6 +7,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.19112026 — 2026-11-19 (Phone app: an MLAT view for users with the MLAT right)
+
+### Phone app (`static/js/app_mlat.js` new, `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`)
+- **MLAT view.** The Statistics page's MLAT tab in short for a phone, behind a new tile *MLAT · pair recorder · clock agreement*. Shown only to users with the MLAT right: for everyone else the tile, the view and its script are not in the page.
+- **Content**, top to bottom: the recorder's state with each receiver's clock, GPS state and temperature; tiles for pairs per second, aircraft, median and spread; the clock agreement for 10 min / 1 h / 24 h; the last 24 h by the minute (median with the middle 68 % as a band), the histogram of the last 10 minutes and the median by direction; lists by reply type, by signal strength and by aircraft. The newest-pairs table of the web tab is left out (too wide for a phone).
+- Reads `/api/mlat/state?detail=1` every 10 s while the view is open; nothing new on the server.
+
+### Documents
+- README: *Mobile view* (the MLAT view), the file tree.
+
 ## v.18112026 — 2026-11-18 (Own multilateration, step 0a: the pair recorder, the MLAT right and the MLAT tab)
 
 ### Pair recorder (`collector/mlat_rec.py`, new; `collector/multirx.py`, `run.py`)

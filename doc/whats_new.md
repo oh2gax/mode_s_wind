@@ -3,6 +3,10 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.19112026 — Phone app: a monitoring view for the multilateration recording
+
+- **Phone app** — users with the MLAT right get an *MLAT* tile: the state of the recording that started yesterday and how well the receivers' clocks agree, as on the Statistics page. For everyone else the app is unchanged.
+
 ## v.18112026 — Two documents updated, and the first step towards multilateration
 
 - **Two documents updated** (User guides) — *EDR explained* 1.3 has a new chapter with three checks of the turbulence estimate: what others have measured for Mode S winds near the ground, how much the size of the eddies changes the result (about 10 %), and whether the values fit the surface wind (they do, in order of magnitude). The *windshear study log* 1.13 sets the detection beside the same published comparison. Nothing in the calculations has changed.
