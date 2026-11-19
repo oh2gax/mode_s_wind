@@ -7,7 +7,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.19112026 — 2026-11-19 (Phone app: an MLAT view for users with the MLAT right, the order of the menu tiles; Mobile guide 1.79)
+## v.19112026 — 2026-11-19 (Phone app: an MLAT view for users with the MLAT right, the order of the menu tiles; own multilateration after the first data check; Mobile guide 1.79, multilateration study log 1.2)
 
 ### Phone app (`static/js/app_mlat.js` new, `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`)
 - **MLAT view.** The Statistics page's MLAT tab in short for a phone, behind a new tile *MLAT · pair recorder · clock agreement*. Shown only to users with the MLAT right: for everyone else the tile, the view and its script are not in the page.
@@ -32,6 +32,7 @@ The first day and a half of recording was checked against the stored data (pairs
 ### Documents
 - **Mobile guide 1.79** (`doc/Mobile_User_Guide.pdf`, 67 pages): a new section *MLAT (MLAT right)* — what the view is for, each part from the top, how to read it, its updates and data use — with a figure of the real values of 19 Nov 05:49 UTC (no aircraft addresses); the order of the tiles in *The menu*; the troubleshooting list and the quick reference.
 - `doc/guides.md`: the Mobile guide's entry.
+- **Own multilateration study log 1.2** (`doc/MODE_S_Own_Multilateration_Study.pdf`, 12 pages; was 1.1 of 18 Nov; still not in the guides list or in What's new): a new section, *The first data check (19 November 2026)* — the night's replies without a position; a broadcast position that drifted while its declared quality was zero; the antenna positions found again from the timing alone; how good the clocks are (about 23 ns for a GPS-timed receiver); the receiver without GPS time — its stamps become usable with one correction and a clock model from aircraft with known positions; **the first positions of our own**, computed afterwards from one recorded hour of three receivers (half of the fixes within 48 m of the aircraft's own position inside 10 NM of the airport, 54 m at 10–20 NM, 128 m at 20–40 NM; two possible solutions in 41 % of the fixes, which a later tracker has to resolve); the parallel runways from one time difference; and what was changed in the recorder. The plan table shows the state on 19 Nov; the diary and the open questions are brought up to date. Nothing of this is computed live yet: the fixes are a test on stored data.
 - **The author's place on the title pages** is now *Vantaa, Finland* (it read *Tuusula, Finland*) in the ten documents of `doc/` that carry it: *EDR explained*, the windshear study log, the mast study, the multilateration study log, the D-D-D note and the Mobile, Skew-T, Sounding, Statistics and Windshear guides. Only that line was replaced, in the finished PDFs: versions, dates, page counts and contents are unchanged, and the guides list needs no change. The main receiver is still described as standing in Tuusula, where it is.
 - README: *Mobile view* (the MLAT view, the order of the tiles), *Own multilateration* (the chart; position quality, the position's age, positions that do not fit, the checkpoint, the height of a site), the file tree.
 
