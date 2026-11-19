@@ -9,6 +9,12 @@
  * The Radarcape's own MLAT positions are not shown here (they are on the Live
  * Map as before).
  *
+ * Targets as on the Live Map's ATC style (static/js/atc_display.js): an open
+ * square, the optional 30-second speed vector — from the speed and direction
+ * of OUR track, not from what the aircraft reports — and the radar-display
+ * label (callsign / flight level with the trend arrow / speed in tens of knots
+ * and type) with a leader line, placed so that labels do not overlap.
+ *
  *   blue    an aircraft that also broadcasts its position — the error against
  *           it is measured (list, table by distance)
  *   orange  an aircraft that sends no position of its own
@@ -24,7 +30,8 @@
   const $ = id => document.getElementById(id);
   if (!$('mst-mlat-map')) return;
   const POLL = 5000;
-  const LS = { win: 'ms_mlm_win', exp: 'ms_mlm_exp', adsb: 'ms_mlm_adsb', amb: 'ms_mlm_amb', lbl: 'ms_mlm_lbl', view: 'ms_mlm_view' };
+  const LS = { win: 'ms_mlm_win', exp: 'ms_mlm_exp', adsb: 'ms_mlm_adsb', amb: 'ms_mlm_amb', lbl: 'ms_mlm_lbl', vec: 'ms_mlm_vec', view: 'ms_mlm_view' };
+  const VEC_SEC = 30;
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (_) { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* a convenience only */ } };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -39,7 +46,10 @@
   const S = {
     win: +lsGet(LS.win, '300'), exp: +lsGet(LS.exp, '500'),
     adsb: lsGet(LS.adsb, '1') === '1', amb: lsGet(LS.amb, '0') === '1', lbl: lsGet(LS.lbl, '1') === '1',
+    vec: lsGet(LS.vec, '1') === '1',
   };
+  let atc = null;                             // the canvas with the squares, vectors and labels
+  const lblPos = {};                          // icao → the label's chosen position
 
   // ── the two views of the tab ────────────────────────────────────────────
   function apply() {
@@ -63,10 +73,10 @@
 
   // ── controls ────────────────────────────────────────────────────────────
   $('mlm-win').value = String(S.win); $('mlm-exp').value = String(S.exp);
-  $('mlm-adsb').checked = S.adsb; $('mlm-amb').checked = S.amb; $('mlm-lbl').checked = S.lbl;
+  $('mlm-adsb').checked = S.adsb; $('mlm-amb').checked = S.amb; $('mlm-lbl').checked = S.lbl; $('mlm-vec').checked = S.vec;
   $('mlm-win').addEventListener('change', e => { S.win = +e.target.value; lsSet(LS.win, S.win); poll(true); });
   $('mlm-exp').addEventListener('change', e => { S.exp = +e.target.value; lsSet(LS.exp, S.exp); draw(); });
-  for (const [id, k] of [['mlm-adsb', 'adsb'], ['mlm-amb', 'amb'], ['mlm-lbl', 'lbl']]) {
+  for (const [id, k] of [['mlm-adsb', 'adsb'], ['mlm-amb', 'amb'], ['mlm-lbl', 'lbl'], ['mlm-vec', 'vec']]) {
     $(id).addEventListener('change', e => { S[k] = e.target.checked; lsSet(LS[k], S[k] ? '1' : '0'); draw(); });
   }
 
@@ -87,6 +97,7 @@
     renderer = L.canvas({ padding: 0.3 });
     setTiles();
     layer = L.layerGroup().addTo(map);
+    if (typeof AtcDisplay !== 'undefined') atc = AtcDisplay.canvasLayer(map, drawTargets);
     if (window.msRxMarkers) { try { window.msRxMarkers(map).addTo(map); } catch (_) { /* the receivers are optional */ } }
     L.control.scale({ imperial: false, nautic: false }).addTo(map);
     new MutationObserver(() => { setTiles(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
@@ -120,7 +131,7 @@
       seen.add(a.icao);
       let o = AC.get(a.icao);
       if (!o) { o = { trk: [], adsb: [] }; AC.set(a.icao, o); }
-      Object.assign(o, { cs: a.cs, typ: a.typ, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last });
+      Object.assign(o, { cs: a.cs, typ: a.typ, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr });
       if (whole) { o.trk = a.trk || []; o.adsb = a.adsb || []; continue; }
       const t1 = o.trk.length ? o.trk[o.trk.length - 1][0] : 0, t2 = o.adsb.length ? o.adsb[o.adsb.length - 1][0] : 0;
       for (const p of a.trk || []) if (p[0] > t1) o.trk.push(p);
@@ -163,18 +174,44 @@
         const ap = o.adsb[o.adsb.length - 1];
         if (Math.abs(ap[0] - lp[0]) < 4) L.polyline([[lp[1], lp[2]], [ap[1], ap[2]]], { renderer, color: C.link, weight: 1.5, opacity: 0.9, interactive: false }).addTo(layer);
       }
-      const m = L.circleMarker([lp[1], lp[2]], { renderer, radius: on ? 6.5 : (o.pos ? 4 : 5), color: col, weight: o.pos ? 1.5 : 2.5,
-        fillColor: o.pos ? col : (light() ? '#ffffff' : '#0b1220'), fillOpacity: 1, dashArray: amb ? '2 3' : null }).addTo(layer);
+      // the target itself is drawn on the canvas (drawTargets); this invisible disc takes the click and the hover
+      const m = L.circleMarker([lp[1], lp[2]], { renderer, radius: 9, stroke: false, fillOpacity: 0 }).addTo(layer);
       m.on('click', () => { sel = sel === k ? null : k; draw(); renderList(); });
-      m.bindTooltip(tip(k, o), { direction: 'top', offset: [0, -6] });
-      if (S.lbl) L.tooltip({ permanent: true, direction: 'right', offset: [7, 0], className: 'mlm-lbl', interactive: false })
-        .setLatLng([lp[1], lp[2]]).setContent(esc(name(k, o))).addTo(layer);
+      m.bindTooltip(tip(k, o), { direction: 'top', offset: [0, -8] });
+      if (!atc) L.circleMarker([lp[1], lp[2]], { renderer, radius: 4, color: col, weight: 1.5, fillOpacity: 0, interactive: false }).addTo(layer);
     }
+    if (atc) atc.redraw();
     $('mlm-legend').innerHTML =
       `<div><i style="border-color:${C.pos}"></i>our fix — aircraft also broadcasts its position</div>` +
-      `<div><i style="border-color:${C.nopos}"></i>our fix — aircraft sends no position</div>` +
+      `<div><i style="border-color:${C.nopos}"></i>our fix — aircraft sends no position (a dot in its square)</div>` +
       (S.adsb ? `<div><i style="border-color:${C.adsb};border-top-width:1px"></i>broadcast ADS-B track · <i style="border-color:${C.link};border-top-width:2px;width:10px"></i>difference now</div>` : '') +
       (S.amb ? '<div>dashed: unresolved — two positions possible</div>' : '');
+  }
+  // Squares, speed vectors and labels, as the Live Map's ATC style (one canvas over the map)
+  const fl3 = alt => String(Math.max(0, Math.round(alt / 100))).padStart(3, '0');
+  function drawTargets(g, m, W, H) {
+    if (!state || !state.on) return;
+    const C = COL(), now = state.now, obst = [], items = [];
+    for (const [k, o] of AC) {
+      if (!shown(o)) continue;
+      const lp = o.last;
+      if ((lp[4] != null && lp[4] > S.exp) || now - lp[0] > 60) continue;
+      const p = m.latLngToContainerPoint([lp[1], lp[2]]);
+      if (p.x < -40 || p.y < -40 || p.x > W + 40 || p.y > H + 40) continue;
+      const col = o.pos ? C.pos : C.nopos, on = sel === k, sz = on ? 9 : 8;
+      const ac = { lat: lp[1], lon: lp[2], altitude: lp[3], icao: k, aircraft_type: o.typ, vert_rate: o.vr,
+                   groundspeed: o.vel ? o.vel[0] : null, track: o.vel ? o.vel[1] : null };
+      if (S.vec) AtcDisplay.drawVector(g, m, p, ac, VEC_SEC, col, 0.95, 1.5, obst);
+      g.globalAlpha = 1;
+      g.strokeStyle = col; g.lineWidth = on ? 1.8 : 1.5;
+      g.setLineDash(lp[6] ? [2, 2] : []);
+      g.strokeRect(Math.round(p.x - sz / 2) + 0.5, Math.round(p.y - sz / 2) + 0.5, sz, sz);
+      g.setLineDash([]);
+      if (!o.pos) { g.fillStyle = col; g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3); }      // no position of its own: a dot inside
+      if (on) { g.globalAlpha = 0.75; g.lineWidth = 1; g.strokeRect(Math.round(p.x - sz / 2 - 4) + 0.5, Math.round(p.y - sz / 2 - 4) + 0.5, sz + 8, sz + 8); g.globalAlpha = 1; }
+      if (S.lbl) items.push({ key: k, p, lines: AtcDisplay.labelLines(ac, 'std', name(k, o), fl3), col, sel: on, fade: 1, alt: lp[3] });
+    }
+    if (items.length) AtcDisplay.drawLabels(g, items, W, H, obst, lblPos, 12, { halo: light() ? 'rgba(255,255,255,.9)' : 'rgba(11,18,32,.9)', leader: C.adsb });
   }
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
   function tip(k, o) {

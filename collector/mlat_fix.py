@@ -696,11 +696,27 @@ class Fixer:
             while self.stat and t - self.stat[0][0] > STAT_SEC:
                 self.stat.popleft()
         lat, lon = self.fr.ll(e, n, h)
+        # the track's own speed and direction (for the map's speed vector and label): from the
+        # first and last third of the hypothesis' fixes of the last seconds, else the filter's
+        vel = None
+        hi = hy["hist"]
+        if len(hi) >= 6 and hi[-1][0] - hi[0][0] >= 8.0:
+            k = max(2, len(hi) // 3)
+            h0, h1 = list(hi)[:k], list(hi)[-k:]
+            dtm = (sum(p[0] for p in h1) - sum(p[0] for p in h0)) / k
+            if dtm > 3.0:
+                vel = ((sum(p[1] for p in h1) - sum(p[1] for p in h0)) / k / dtm,
+                       (sum(p[2] for p in h1) - sum(p[2] for p in h0)) / k / dtm)
+        if vel is None and hy["k"] >= 8:
+            vel = (hy["ve"], hy["vn"])
         pt = [round(t, 1), round(lat, 5), round(lon, 5), int(alt),
               None if exp is None else int(min(exp, 99999)), None if err_trk is None else int(err_trk), 1 if amb else 0,
               hy["id"]]
         with self._lock:
             a["last"] = pt
+            a["vel"] = None if vel is None else (int(round(math.hypot(vel[0], vel[1]) / KT)),
+                                                 int(round(math.degrees(math.atan2(vel[0], vel[1])) % 360)))
+            a["vr"] = ls.get("vert_rate")
             a["nrx"] = nrx
             a["cs"] = ls.get("callsign") or a.get("cs")
             a["typ"] = ls.get("aircraft_type") or a.get("typ")
@@ -737,6 +753,7 @@ class Fixer:
                 acs.append({"icao": icao, "cs": a.get("cs"), "typ": a.get("typ"), "last": last[:7],
                             "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")),
                             "res": bool(a["res"]), "err": None if not er else int(er[len(er) // 2]),
+                            "vel": a.get("vel"), "vr": a.get("vr"),
                             "trk": [p[:7] for p in a["trk"] if p[0] > t_from],
                             "adsb": [p for p in a["adsb"] if p[0] > t_from]})
             st = list(self.stat)

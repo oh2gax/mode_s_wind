@@ -146,7 +146,8 @@
       <label title="Only fixes whose expected error (from the geometry of the receivers and the timing) is below this">Expected error ≤ <select id="mlm-exp"><option value="200">200 m</option><option value="500" selected>500 m</option><option value="1000">1 km</option><option value="99999">all</option></select></label>
       <label title="The track the aircraft broadcasts itself (ADS-B), as a thin line beside ours"><input type="checkbox" id="mlm-adsb" checked> ADS-B track</label>
       <label title="Aircraft for which two positions are still possible (three receivers leave two solutions until the motion tells them apart): the more likely one, dashed"><input type="checkbox" id="mlm-amb"> Unresolved</label>
-      <label><input type="checkbox" id="mlm-lbl" checked> Labels</label>
+      <label title="Speed vector: where the aircraft is in 30 seconds, from the speed and direction of our own track"><input type="checkbox" id="mlm-vec" checked> Vector 30 s</label>
+      <label title="Radar-display labels: callsign; flight level with the climb / descent arrow; our own ground speed in tens of knots and the type"><input type="checkbox" id="mlm-lbl" checked> Labels</label>
     </span>
     <span class="mst-hdr-note" id="mlm-note"></span>
   </div>
@@ -236,5 +237,6 @@
 {% block scripts %}
 {% if mlat_view %}<script>window.MST_MLAT = true;</script>{% endif %}
 <script src="{{ url_for('static', filename='js/stats.js') }}"></script>
-{% if mlat_view %}<script src="{{ url_for('static', filename='js/mlat_map.js') }}"></script>{% endif %}
+{% if mlat_view %}<script src="{{ url_for('static', filename='js/atc_display.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mlat_map.js') }}"></script>{% endif %}
 {% endblock %}
