@@ -119,9 +119,9 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.17
-date: 2026-11-13
-pages: 19
+version: 1.18
+date: 2026-11-19
+pages: 22
 open: stats
 
 What the receiver hears from the aircraft, and how to read and use the **Statistics** page.
@@ -131,6 +131,8 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - The page part by part: summary bar, the **system health** dots and panel (including the magnetic declination model, and the **Pi / Server** dot of the computer the page runs on), the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), the **data transfer** meter (bytes from the receiver, served to the users and through the network interface — per minute, hour, day and month), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
+- **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day
+- **The MLAT tab** (new in 1.18; for users with the MLAT right): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## The GPS pages — Quality, Episodes and Aircraft
@@ -233,6 +235,22 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 - **Mast data quality** (version 1.1): the wind differences by wind sector — the mast's 217-m and 327-m directions off by a nearly constant +16° / −8° (a sensor alignment, not the flow; a 30° turn between them where the aircraft see 6°), its 92-m speed low in south-westerly winds; temperatures without a fault
 - **Update to 4 November 2026** (version 1.2, 237 hours): the tables for the whole period; the direction offsets unchanged in the new north-westerly and northerly winds, the 92-m speed loss confined to the south-west; the strong surface inversion of 3–4 November ahead of a front (up to 5 K), seen by the aircraft from 04 UTC and with MEPS 2.8 K too warm at 26 m
 - What the mast adds, the dated log of the checks (the latest of 4 November 2026), limits and next steps
+
+## Own multilateration from Mode S replies (study log)
+file: MODE_S_Own_Multilateration_Study.pdf
+version: 1.3
+date: 2026-11-19
+pages: 20
+
+How a small network of receivers learns to locate aircraft by itself, from the tiny differences in the time at which the receivers hear the same Mode S reply — a study log that explains each step as it is taken, for readers who know Mode S and ADS-B from the receiving side. The positions are for study only; the map and charts of the *MLAT* tab are for users with the MLAT right.
+
+- **The principle**: one reply, several arrival times; lines of equal time difference; how many receivers give what; what limits the accuracy (clocks, antenna positions, cables, the air, reflections, geometry)
+- **The pair recorder** (18 November 2026): every reply heard by two receivers with GPS time, how the expected time difference is computed, the test with simulated receivers and the first half hour of data
+- **The first data check** (19 November 2026): replies without positions at night, how well the clocks agree, the receiver without GPS time, the first positions and the parallel runways from one time difference
+- **How two receivers with GPS time and one without can locate an aircraft** (new in 1.3): aircraft that broadcast a good position set the third receiver's counter, reply by reply; then any aircraft can be located, also one that sends no position. The two possible positions and how the aircraft's own motion picks one; the result on six hours
+- **What two receivers alone can do** (new in 1.3): one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
+- **Calibrating the receivers from the traffic** (new in 1.3): positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
+- What others have published (two readings, 20 references), the plan and its state, open questions, a dated diary and the terms
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf

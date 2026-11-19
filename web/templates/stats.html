@@ -135,7 +135,10 @@
     .mlm-lbl::before { display: none; }
     [data-theme="light"] .mlm-lbl { color: #0f172a; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
     /* Charts view */
-    .mlc-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 8px 12px 12px; align-items: start; }
+    /* the Charts view scrolls inside the page like the other tabs (from the evening of 2026-11-19: with the
+       GPS-time panel it is taller than a 1080-px screen, and the page itself does not scroll) */
+    .mlc-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 8px 12px 12px; align-items: start;
+                align-content: start; grid-auto-rows: max-content; flex: 1 1 0; min-height: 0; overflow-y: auto; }
     .mlc-body .mlc-wide { grid-column: 1 / -1; }
     .mlc-chart { position: relative; height: 210px; padding: 4px 8px 2px; }
     .mlc-chart.mlc-s { height: 110px; }
