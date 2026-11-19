@@ -3,9 +3,11 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.19112026 — Phone app: a monitoring view for the multilateration recording
+## v.19112026 — Phone app: a monitoring view for the multilateration recording, a new order of the menu tiles
 
-- **Phone app** — users with the MLAT right get an *MLAT* tile: the state of the recording that started yesterday and how well the receivers' clocks agree, as on the Statistics page. For everyone else the app is unchanged.
+- **Phone app** — users with the MLAT right get an *MLAT* tile: the state of the recording that started yesterday and how well the receivers' clocks agree, as on the Statistics page. It is described in the *Mobile guide* 1.79 (User guides).
+- **Phone app: the order of the menu tiles** — *Mast* now comes before *Weather*, and *Statistics* after *Meteogram*. With the GNSS and MLAT tiles this puts *GNSS*, *Statistics* and *MLAT* one above the other in the right-hand column.
+- **MLAT charts** (MLAT right) — the *by the minute* line no longer runs straight across minutes without data, and on the Statistics page a single wild minute no longer flattens it.
 
 ## v.18112026 — Two documents updated, and the first step towards multilateration
 

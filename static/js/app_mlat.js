@@ -11,7 +11,7 @@
  *    expected time difference of the last 10 minutes.
  *  - Clock agreement for 10 min / 1 h / 24 h (pairs, median, spread).
  *  - Charts drawn on canvases: the minute medians of the last 24 h with the
- *    middle 68 % as a band, the histogram of the last 10 minutes, and the
+ *    middle 68 % as a band (broken where minutes have no pair with a position), the histogram of the last 10 minutes, and the
  *    median by direction from the middle of the two sites (twelve 30°
  *    sectors).
  *  - Lists: by reply type, by signal strength, and the aircraft both
@@ -94,12 +94,23 @@
     const y = frame(c, W, H, L, T, B, mn, mx, st, P, true);
     const t0 = pts[0][0], t1 = pts[pts.length - 1][0], x = t => L + (t - t0) / Math.max(60, t1 - t0) * pw;
     const cl = v => Math.max(mn, Math.min(mx, v));
-    c.fillStyle = P.acc; c.globalAlpha = 0.18; c.beginPath();
-    pts.forEach((m, i) => { const X = x(m[0]), Y = y(cl(m[5])); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
-    for (let i = pts.length - 1; i >= 0; i--) c.lineTo(x(pts[i][0]), y(cl(pts[i][4])));
-    c.closePath(); c.fill(); c.globalAlpha = 1;
-    c.strokeStyle = P.acc; c.lineWidth = 1.4; c.beginPath();
-    pts.forEach((m, i) => { const X = x(m[0]), Y = y(cl(m[3])); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
+    // minutes without a pair with a position (no aircraft in range, or none sending positions) are gaps:
+    // the line and the band stop there instead of running straight across (from 2026-11-19)
+    const segs = [];
+    pts.forEach((m, i) => { if (!i || m[0] - pts[i - 1][0] > 90) segs.push([]); segs[segs.length - 1].push(m); });
+    c.fillStyle = P.acc; c.globalAlpha = 0.18;
+    segs.forEach(g => {
+      if (g.length < 2) return;
+      c.beginPath();
+      g.forEach((m, i) => { const X = x(m[0]), Y = y(cl(m[5])); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
+      for (let i = g.length - 1; i >= 0; i--) c.lineTo(x(g[i][0]), y(cl(g[i][4])));
+      c.closePath(); c.fill();
+    });
+    c.globalAlpha = 1; c.strokeStyle = P.acc; c.lineWidth = 1.4; c.beginPath();
+    segs.forEach(g => {
+      if (g.length < 2) { const X = x(g[0][0]), Y = y(cl(g[0][3])); c.moveTo(X - 0.7, Y); c.lineTo(X + 0.7, Y); return; }
+      g.forEach((m, i) => { const X = x(m[0]), Y = y(cl(m[3])); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
+    });
     c.stroke(); c.lineWidth = 1;
     c.fillStyle = P.txt; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillText(hm(t0), L, H - 4);
     c.textAlign = 'right'; c.fillText(hm(t1) + ' UTC', W - 4, H - 4);

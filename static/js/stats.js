@@ -573,17 +573,25 @@
     const can = pts.length > 1 && typeof Chart !== 'undefined';
     wrap.style.display = can ? '' : 'none';
     if (!can) return;
-    const line = (i, lbl, col, w) => ({ label: lbl, data: pts.map(m => ({ x: m[0], y: m[i] })), borderColor: col, borderWidth: w, pointRadius: 0, tension: 0 });
+    // minutes without a pair with a position are gaps: a point without a value breaks the line there (from 2026-11-19)
+    const gap = [];
+    pts.forEach((m, i) => { if (i && m[0] - pts[i - 1][0] > 90) gap.push([pts[i - 1][0] + 30, null, null, null, null, null]); gap.push(m); });
+    const line = (i, lbl, col, w) => ({ label: lbl, data: gap.map(m => ({ x: m[0], y: m[i] == null ? NaN : m[i] })), borderColor: col, borderWidth: w, pointRadius: 0, tension: 0, spanGaps: false });
     const sets = [line(3, 'Median', css('--accent'), 1.6), line(4, '16th percentile', css('--text-3'), 0.8), line(5, '84th percentile', css('--text-3'), 0.8)];
     const grid = css('--border'), txt = css('--text-2');
-    if (mlatChart) { mlatChart.data.datasets = sets; mlatChart.update('none'); return; }
+    // the y axis from the 5th–95th percentile of the band's edges (as in the phone app), so that one wild
+    // minute does not flatten the rest; what lies outside is cut at the edge of the chart (from 2026-11-19)
+    const los = pts.map(m => m[4]).sort((a, b) => a - b), his = pts.map(m => m[5]).sort((a, b) => a - b);
+    const yLo = Math.floor(Math.min(0, los[Math.floor(los.length * 0.05)]) / 50) * 50 - 50;
+    const yHi = Math.ceil(Math.max(0, his[Math.min(his.length - 1, Math.floor(his.length * 0.95))]) / 50) * 50 + 50;
+    if (mlatChart) { mlatChart.data.datasets = sets; mlatChart.options.scales.y.min = yLo; mlatChart.options.scales.y.max = yHi; mlatChart.update('none'); return; }
     mlatChart = new Chart($('mst-mlat-chart'), {
       type: 'line', data: { datasets: sets },
       options: { animation: false, parsing: false, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: false },
         plugins: { legend: { labels: { color: txt, boxWidth: 14 } },
           tooltip: { callbacks: { title: it => hhmm(it[0].parsed.x) + ' UTC', label: c => `${c.dataset.label}: ${nsTxt(c.parsed.y)}` } } },
         scales: { x: { type: 'linear', grid: { color: grid }, ticks: { color: txt, maxTicksLimit: 9, callback: v => hhmm(v) } },
-          y: { grid: { color: grid }, ticks: { color: txt }, title: { display: true, text: 'measured − expected, ns', color: txt } } } },
+          y: { min: yLo, max: yHi, grid: { color: grid }, ticks: { color: txt }, title: { display: true, text: 'measured − expected, ns', color: txt } } } },
     });
   }
   // who sees which receivers (web/rights.py): Full view, own receivers or All receivers only

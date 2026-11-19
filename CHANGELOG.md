@@ -7,15 +7,22 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.19112026 — 2026-11-19 (Phone app: an MLAT view for users with the MLAT right)
+## v.19112026 — 2026-11-19 (Phone app: an MLAT view for users with the MLAT right, the order of the menu tiles; Mobile guide 1.79)
 
 ### Phone app (`static/js/app_mlat.js` new, `web/templates/app.html`, `static/js/app.js`, `static/css/app.css`)
 - **MLAT view.** The Statistics page's MLAT tab in short for a phone, behind a new tile *MLAT · pair recorder · clock agreement*. Shown only to users with the MLAT right: for everyone else the tile, the view and its script are not in the page.
 - **Content**, top to bottom: the recorder's state with each receiver's clock, GPS state and temperature; tiles for pairs per second, aircraft, median and spread; the clock agreement for 10 min / 1 h / 24 h; the last 24 h by the minute (median with the middle 68 % as a band), the histogram of the last 10 minutes and the median by direction; lists by reply type, by signal strength and by aircraft. The newest-pairs table of the web tab is left out (too wide for a phone).
 - Reads `/api/mlat/state?detail=1` every 10 s while the view is open; nothing new on the server.
+- **Order of the menu tiles** (`web/templates/app.html`): Mast now comes before Weather, GNSS before Meteogram and Statistics after it — … History, Mast, Weather, GNSS, Meteogram, Statistics, Pilot, MLAT. The menu has two columns on a phone, so with all the rights the right-hand one ends Mast, GNSS, Statistics, MLAT: the two views about the receivers are one above the other (Statistics and MLAT were two rows apart). Without some of the rights the remaining tiles move up as before.
+
+### MLAT charts (`static/js/app_mlat.js`, `static/js/stats.js`)
+- **Gaps stay gaps.** The *by the minute* line (phone app and the Statistics page's MLAT tab) ran straight across minutes without any pair with a position — in the first night of recording there were hours of them — which looked like measured values. The line and its band now stop at such a gap and start again after it.
+- **The web chart's scale.** Its y axis followed the largest value, so one wild minute (an upper edge of 53 000 ns in one minute of 19 Nov) flattened the whole day to a line. The axis is now set from the 5th–95th percentile of the band's edges, as the phone app does; what lies outside is cut at the chart's edge.
 
 ### Documents
-- README: *Mobile view* (the MLAT view), the file tree.
+- **Mobile guide 1.79** (`doc/Mobile_User_Guide.pdf`, 67 pages): a new section *MLAT (MLAT right)* — what the view is for, each part from the top, how to read it, its updates and data use — with a figure of the real values of 19 Nov 05:49 UTC (no aircraft addresses); the order of the tiles in *The menu*; the troubleshooting list and the quick reference.
+- `doc/guides.md`: the Mobile guide's entry.
+- README: *Mobile view* (the MLAT view, the order of the tiles), *Own multilateration* (the chart), the file tree.
 
 ## v.18112026 — 2026-11-18 (Own multilateration, step 0a: the pair recorder, the MLAT right and the MLAT tab)
 

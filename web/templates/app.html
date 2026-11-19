@@ -350,6 +350,7 @@
 
   <!-- the views as tiles (buttons: a tap switches the view and closes the menu) -->
   <div class="app-tiles" role="group" aria-label="View">
+    {# the order (from 2026-11-19): two columns on the phone, and with all rights the right-hand one ends Mast, GNSS, Statistics, MLAT — the two receiver views one above the other #}
     <button type="button" class="app-tile" data-view="skewt-now"><b>Skew-T</b><small>Area · now</small></button>
     <button type="button" class="app-tile" data-view="skewt-hour"><b>Skew-T</b><small>Area · hour</small></button>
     <button type="button" class="app-tile" data-view="th"><b>Time–height</b><small>hourly profiles</small></button>
@@ -357,11 +358,11 @@
     <button type="button" class="app-tile" data-view="ils"><b>ILS approach</b><small>glideslope · live</small></button>
     <button type="button" class="app-tile" data-view="aci"><b>EDR · WS · ACI · ST</b><small>turbulence · windshear · conditions</small></button>
     <button type="button" class="app-tile" data-view="hist"><b>History</b><small>landings · departures</small></button>
-    <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
-    <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS{% if gfs_on %} · GFS 16 d{% endif %} maps · air traffic</small></button>
     <button type="button" class="app-tile" data-view="mast"><b>Mast</b><small>Kivenlahti · lowest 300 m</small></button>
-    <button type="button" class="app-tile" data-view="mg"><b>Meteogram</b><small>{{ airport_icao }} · MEPS{% if gfs_on %} · GFS{% endif %}</small></button>
+    <button type="button" class="app-tile" data-view="wx"><b>Weather</b><small>MEPS{% if gfs_on %} · GFS 16 d{% endif %} maps · air traffic</small></button>
     {% if gnss_view %}<button type="button" class="app-tile" data-view="gnss"><b>GNSS</b><small>GPS quality · Full view</small></button>{% endif %}
+    <button type="button" class="app-tile" data-view="mg"><b>Meteogram</b><small>{{ airport_icao }} · MEPS{% if gfs_on %} · GFS{% endif %}</small></button>
+    <button type="button" class="app-tile" data-view="stats"><b>Statistics</b><small>what the receiver hears</small></button>
     {% if pilot_view %}<button type="button" class="app-tile" data-view="pilot"><b>Pilot</b><small>EFHK now · approach · aloft · icing</small></button>{% endif %}
     {% if mlat_view %}<button type="button" class="app-tile" data-view="mlat"><b>MLAT</b><small>pair recorder · clock agreement</small></button>{% endif %}
   </div>

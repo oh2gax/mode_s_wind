@@ -150,9 +150,9 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.78
-date: 2026-11-14
-pages: 63
+version: 1.79
+date: 2026-11-19
+pages: 67
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
@@ -165,6 +165,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - **Weather with GFS** (from 5 Nov 2026, where the server has it): *Model* MEPS or NOAA's GFS to 16 days, the 3-hour steps after +120 h, −1d / +1d, the GFS grid
 - **Mast** (from 1 Nov 2026): the Kivenlahti mast's lowest 300 m — EFHK now with the mast against MEPS and the aircraft, the tiles, the profile, the boundary layer with the mast's 10-minute steps, the time series and the comparison
 - **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a place tapped on the Weather map — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
+- **MLAT** (the MLAT right, from 19 Nov 2026): the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
 - What to do when something looks wrong, and a quick reference
 
 ## Meteograms
