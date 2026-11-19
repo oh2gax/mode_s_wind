@@ -54,6 +54,9 @@ CLK_MAX_SIG  = 250.0    # ns: a worse line gives no fix
 CLK_BIN_MAX  = 40       # references kept per second
 SHORT_NS     = 56_000   # counter receivers: stamp of a 56-bit reply minus this
 GOOD_NACP, GOOD_NIC = 8, 7
+BIAS_SEC     = 600.0    # a GPS receiver's constant: median over this long …
+BIAS_MIN_N   = 15       # … of the medians of the aircraft with this many replies (each aircraft counts once)
+BIAS_EVERY   = 10.0     # s between recalculations
 POS_MAX_AGE  = 3.0      # s: own position used as a reference
 POS_LATENCY  = 0.09     # s: age of a broadcast position when sent
 SIG_GPS_NS   = 25.0     # timing error of a GPS-timed receiver (measured 19 Nov 2026: about 23 ns)
@@ -230,7 +233,9 @@ class Fixer:
         self.blocked_reg = tuple(getattr(cfg, "BLOCKED_REG_PREFIXES", ()) or ())
         self.main = min(self.gps) if self.gps else None
         self.bias: dict = {b: 0.0 for b in self.gps}       # ns, GPS receiver against the main one
-        self._bias_buf: dict = {b: deque(maxlen=400) for b in self.gps}
+        self._bias_ac: dict = {b: {} for b in self.gps}    # bit → {icao: deque[(t, residual ns)]}
+        self._bias_t: dict = {b: 0.0 for b in self.gps}
+        self.bias_n: dict = {b: 0 for b in self.gps}       # aircraft behind the constant
         self.refs: dict = {b: {} for b in self.cnt}        # bit → {second: [(t, o, icao)]}
         self.base: dict = {}                               # bit → integer ns base of the offsets
         self.clk: dict = {}                                # bit → last line {"t", "n", "ac", "sig", "drift"}
@@ -362,10 +367,14 @@ class Fixer:
                 if b != m:
                     r = (arr[b] - arr[m]) - (rng[b] - rng[m]) / C_AIR * 1e9
                     if abs(r) < 2000:
-                        buf = self._bias_buf[b]
-                        buf.append(r)
-                        if len(buf) >= 50 and len(buf) % 25 == 0:
-                            self.bias[b] = _med(buf)
+                        dq = self._bias_ac[b].get(icao)
+                        if dq is None:
+                            dq = self._bias_ac[b][icao] = deque()
+                        if not dq or t - dq[-1][0] >= 0.5:
+                            dq.append((t, r))
+                        if t - self._bias_t[b] >= BIAS_EVERY:
+                            self._bias_t[b] = t
+                            self._bias_update(b, t)
         # the counter receivers' offset against GPS time
         g = m if m in rng else gbits[0]
         for b in cbits:
@@ -393,6 +402,35 @@ class Fixer:
             else:
                 g0[0] += 0.05 * (float(gmb) - g0[0])
                 g0[1] = t
+
+    def _bias_update(self, bit: int, t: float) -> None:
+        """The constant of a GPS receiver against the main one: every aircraft
+        with a good position counts once (the median of its residuals of the
+        last BIAS_SEC), the constant is the median of the aircraft — one
+        aircraft whose position is a little off cannot pull it.  (Leaving the
+        aircraft far from it out of the references was tried on the recording
+        of 19 Nov 2026 and made the fixes worse — not done.)"""
+        meds = {}
+        allr = []
+        acs = self._bias_ac[bit]
+        for ic in list(acs):
+            dq = acs[ic]
+            while dq and t - dq[0][0] > BIAS_SEC:
+                dq.popleft()
+            if not dq:
+                del acs[ic]
+                continue
+            allr.extend(x[1] for x in dq)
+            if len(dq) >= BIAS_MIN_N:
+                meds[ic] = _med([x[1] for x in dq])
+        if meds:
+            c = _med(list(meds.values()))
+        elif len(allr) >= 30:
+            c = _med(allr)
+        else:
+            return
+        self.bias[bit] = c
+        self.bias_n[bit] = len(meds)
 
     # ── the counter clock ────────────────────────────────────────────────
     def _line(self, bit: int, t: float, icao: str):
@@ -718,6 +756,7 @@ class Fixer:
             "receivers": [{"id": self.names[b], "bit": b, "gps": b in self.gps, "site": b in self.site,
                            "why": self.why_site.get(b),
                            "bias": None if b not in self.gps else round(self.bias.get(b, 0.0), 1),
+                           "bias_ac": self.bias_n.get(b),
                            "clock": None if b not in self.cnt else (
                                dict(self.clk[b], age=round(now - self.clk[b]["t"], 1)) if b in self.clk else None)}
                           for b in sorted(self.names)],

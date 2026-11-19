@@ -214,7 +214,7 @@
     $('mlm-rx').innerHTML = '<thead><tr><th>Receiver</th><th>Clock</th><th>State</th></tr></thead><tbody>' + (d.receivers || []).map(r => {
       let stt;
       if (!r.site) stt = `<span class="mst-warn">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
-      else if (r.gps) stt = r.bit === (d.receivers.find(x => x.gps) || {}).bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns`;
+      else if (r.gps) stt = r.bit === (d.receivers.find(x => x.gps) || {}).bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) stt = '<span class="mst-warn">no clock line yet</span>';
       else stt = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm` +
         (r.clock.age > 30 ? ` · <span class="mst-warn">${Math.round(r.clock.age)} s old</span>` : '');
