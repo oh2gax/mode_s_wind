@@ -155,6 +155,18 @@
       </div>
 {% endmacro %}
 
+{# from 2026-11-20: how far beyond the radio horizon low aircraft are heard (collector/radio_horizon.py) #}
+{% macro hz(fold=false) %}
+      <div class="mst-panel" id="mst-hz-panel" style="display:none">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Radio horizon (1090 MHz)</span>
+          <span class="mst-hdr-note" id="mst-hz-note"></span></div>
+        <div class="mst-hz-now" id="mst-hz-now"></div>
+        <div class="mst-hz-chart" id="mst-hz-chart-wrap"><canvas id="mst-hz-chart"></canvas></div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mst-hz-rx"></table></div>
+        {% if fold %}<details class="mst-fold"><summary>About this panel</summary>{% endif %}<div class="mst-foot" id="mst-hz-foot"></div>{% if fold %}</details>{% endif %}
+      </div>
+{% endmacro %}
+
 {% macro rc(fold=false) %}
       <div class="mst-panel" id="mst-rc-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title" id="mst-rc-title">Radarcape receiver</span>

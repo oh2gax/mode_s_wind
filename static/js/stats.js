@@ -10,7 +10,8 @@
  * ADS-B position per 10° sector and altitude band, positions and signal per
  * range band), the Radarcape receiver's own status (GPS flags, GPS module
  * temperature, time sources, uptimes, position, settings — from 2026-10-26),
- * the meteo yield and the Radarcape aircraft list.  The window
+ * the meteo yield and the Radarcape aircraft list; the radio horizon (how far low
+ * aircraft are heard, by the hour over 7 days — from 2026-11-20).  The window
  * (1 min / 10 min / 1 h / 24 h / 7 d) is remembered in the browser.
  *
  * System health (from 2026-10-25): /api/health with every poll — a row of
@@ -1203,9 +1204,110 @@
     window.addEventListener('resize', () => { if (sens) renderSensors(); });
   })();
 
+  // ── Radio horizon (from 2026-11-20, collector/radio_horizon.py) ───────────────
+  // How far low aircraft are heard as a share of the standard radio horizon, by the hour:
+  // the level now, the last 7 days as a line with the horizon and the ducting limit, and the
+  // hours with a surface inversion at the airport marked along the bottom.  On the merged
+  // All receivers view one line per receiver the user may see.
+  let hzChart = null, hzKey = '';
+  const hzS = { rows: [], lim: { ext: 1.0, duct: 1.2 }, txt: '#94a3b8', N: 168, usual: null };      // what the chart's own drawing reads
+  const hzMarks = { id: 'hzMarks', afterDatasetsDraw(ch) {
+    const { ctx, chartArea: a, scales: { x, y } } = ch, { rows, lim, txt, N, usual } = hzS;
+    ctx.save(); ctx.font = '10px sans-serif'; ctx.fillStyle = txt; ctx.strokeStyle = txt; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+    for (const [v, name] of [[lim.ext, 'radio horizon'], [lim.duct, 'ducting']]) {
+      const py = y.getPixelForValue(v);
+      if (py < a.top || py > a.bottom) continue;
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke(); ctx.fillText(name, a.left + 4, py - 3);
+    }
+    if (usual != null) {                                   // the receiver's usual reach: dotted
+      const py = y.getPixelForValue(usual);
+      ctx.setLineDash([1, 3]); ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke(); ctx.fillText('usual', a.left + 4, py + 11);
+    }
+    ctx.setLineDash([]);
+    // hours with a surface inversion at the airport: marks along the bottom, the stronger the more opaque
+    const w = Math.max(1.5, (a.right - a.left) / N);
+    rows.forEach((r, i) => { if (r && r[7] != null && r[7] >= 0.5) { ctx.globalAlpha = Math.min(1, 0.25 + r[7] / 6); ctx.fillRect(x.getPixelForValue(i) - w / 2, a.bottom - 5, w, 5); } });
+    ctx.restore();
+  } };
+  const HZ_FAR = f => f ? `${fmt(f[1], 0)} NM at ${f[2].toLocaleString('en')} ft, bearing ${String(f[3]).padStart(3, '0')}°` +
+    (f[4] > 0 ? `, ${fmt(f[4], 0)} NM beyond the horizon` : '') : '';
+  const hzChip = (lv, names) => lv == null ? '<span class="mst-hz-lvl">no level</span>' : `<span class="mst-hz-lvl l${lv}">${names[lv] || ''}</span>`;
+  function renderHorizon(d) {
+    const pn = $('mst-hz-panel');
+    if (!pn) return;
+    const h = d.horizon;
+    if (!h) { pn.style.display = 'none'; return; }
+    pn.style.display = '';
+    const names = h.levels || ['Normal', 'Extended', 'Ducting'], lim = h.limits || { low: 0.8, ext: 1.0, duct: 1.2, confirm: 3, min_ft: 1500, max_ft: 10000 };
+    const about = `For each aircraft between ${lim.min_ft.toLocaleString('en')} and ${lim.max_ft.toLocaleString('en')} ft with a good position, the range is set against the standard radio horizon for its height, ` +
+      `1.23 × (√aircraft height + √antenna height) NM with the heights in feet. An aircraft counts with its ${lim.confirm === 3 ? 'third' : lim.confirm + 'th'} largest value of the hour, ` +
+      `and the hour's reach is the second largest of the aircraft, so that one wrong position cannot set it. <b>${names[1]}</b>: two aircraft heard beyond the horizon. ` +
+      `<b>${names[2]}</b>: two aircraft more than ${Math.round((lim.duct - 1) * 100)} % beyond it — the signal is bent along the ground, usually under an inversion (radio amateurs know it as a tropo opening). ` +
+      'The limits are provisional. On an ordinary day the reach is far below 1, because terrain, trees and buildings hide low aircraft far away and most distant traffic flies high; the dotted line is this receiver\'s usual reach (the middle one of the last 7 days\' hours), so an unusual hour stands out before it reaches a limit.';
+    const cw = $('mst-hz-chart-wrap'), tb = $('mst-hz-rx');
+    if (h.merged) {
+      cw.style.display = 'none';
+      const b = h.best;
+      $('mst-hz-note').innerHTML = b ? hzChip(b.level, names) : '';
+      $('mst-hz-now').innerHTML = b ? `Highest level of the receivers this hour${b.q != null ? ': reach ' + fmt(b.q, 2) + ' of the radio horizon' : ''}.`
+                                    : '<span class="mst-hz-dim">No level yet this hour: fewer than two low aircraft at a distance at any receiver.</span>';
+      const rows = (h.receivers || []).map(r => {
+        const c = r.now || {};
+        return `<tr><td>${r.id}</td><td>${hzChip(c.level, names)}</td><td class="num">${c.q != null ? fmt(c.q, 2) : '—'}</td><td class="num">${c.n_low != null ? c.n_low : '—'}</td>` +
+               `<td class="mst-dim2">${c.far ? HZ_FAR(c.far) : ''}</td></tr>`;
+      });
+      tb.parentElement.style.display = rows.length ? '' : 'none';
+      if (rows.length) table('mst-hz-rx', [['Receiver'], ['Level'], ['Reach', 'The reach confirmed by two aircraft, as a share of the radio horizon', 'num'],
+        ['Aircraft', 'Low aircraft heard from 0.8 of the horizon this hour', 'num'], ['Farthest']], rows);
+      $('mst-hz-foot').innerHTML = about + ' Choose a receiver above for its last 7 days.';
+      return;
+    }
+    tb.parentElement.style.display = 'none';
+    cw.style.display = '';
+    const c = h.now, hrs = h.hours || [];
+    $('mst-hz-note').innerHTML = c ? hzChip(c.level, names) : '';
+    $('mst-hz-now').innerHTML = !c ? '<span class="mst-hz-dim">No low aircraft with a good position heard yet this hour.</span>'
+      : (c.q != null ? `This hour: reach <b>${fmt(c.q, 2)}</b> of the radio horizon, confirmed by two aircraft` + (h.usual != null ? ` (usual ${fmt(h.usual, 2)})` : '')
+                     : '<span class="mst-hz-dim">No level yet this hour: fewer than two low aircraft at a distance</span>') +
+        ` · ${c.n_low} aircraft from ${lim.low} of the horizon` + (c.n_ext ? `, ${c.n_ext} beyond it` : '') +
+        (c.far ? `<br><span class="mst-hz-dim">Farthest: ${HZ_FAR(c.far)}</span>` : '') +
+        (c.inv != null ? `<br><span class="mst-hz-dim">Surface inversion at the airport this hour: +${fmt(c.inv, 1)} K</span>` : '');
+    // the hourly axis of the last 7 days, the open hour last
+    const H0 = Math.floor(d.now / 3600) * 3600, N = 168, by = new Map(hrs.map(x => [x[0], x]));
+    if (c && c.ts != null) by.set(c.ts, [c.ts, c.q, c.level, c.n_low, c.n_ext, c.n_duct, c.far, c.inv]);
+    const ts = Array.from({ length: N }, (_, i) => H0 - (N - 1 - i) * 3600);
+    const rows = ts.map(t => by.get(t) || null);
+    const pad2 = n => String(n).padStart(2, '0');
+    const lab = t => { const x = new Date(t * 1000); return `${x.getUTCDate()}.${x.getUTCMonth() + 1}. ${pad2(x.getUTCHours())}`; };
+    if (typeof Chart === 'undefined') { cw.style.display = 'none'; }
+    else {
+      const txt = css('--text-2'), grid = css('--border'), acc = css('--accent');
+      Object.assign(hzS, { rows, lim, txt, N, usual: h.usual != null ? h.usual : null });
+      const cfg = { type: 'line', plugins: [hzMarks],
+        data: { labels: ts.map(lab), datasets: [{ label: 'reach', data: rows.map(r => r && r[1] != null ? r[1] : null), borderColor: acc, backgroundColor: acc, borderWidth: 2, pointRadius: 0, stepped: 'middle', spanGaps: false }] },
+        options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false }, tooltip: { callbacks: {
+            title: it => lab(ts[it[0].dataIndex]) + ' UTC',
+            label: it => { const r = rows[it.dataIndex]; if (!r) return 'no low aircraft at a distance';
+              return [r[1] != null ? `reach ${fmt(r[1], 2)} of the horizon — ${names[r[2]] || ''}` : 'no level (fewer than two aircraft)',
+                      `${r[3]} aircraft from ${lim.low}` + (r[4] ? `, ${r[4]} beyond the horizon` : ''),
+                      ...(r[6] ? ['farthest ' + HZ_FAR(r[6])] : []), ...(r[7] != null ? [`surface inversion +${fmt(r[7], 1)} K`] : [])]; } } } },
+          scales: { x: { ticks: { color: txt, maxTicksLimit: EMBED ? 4 : 8, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+                    y: { min: 0, suggestedMax: 1.3, ticks: { color: txt, font: { size: 10 }, stepSize: 0.2 }, grid: { color: grid },
+                         title: { display: true, text: 'share of the radio horizon', color: txt, font: { size: 10 } } } } } };
+      const key = (d.rx && d.rx.id || '') + '|' + document.documentElement.dataset.theme;
+      if (hzChart && hzKey === key) { hzChart.data = cfg.data; hzChart.options = cfg.options; hzChart.update('none'); }
+      else { if (hzChart) hzChart.destroy(); hzChart = new Chart($('mst-hz-chart'), cfg); hzKey = key; }
+    }
+    const nlev = [0, 0, 0]; let nh = 0;
+    rows.forEach(r => { if (r && r[2] != null) { nlev[r[2]]++; nh++; } });
+    $('mst-hz-foot').innerHTML = (nh ? `Last 7 days: ${nh} hours with a level — ${nlev[1]} ${names[1].toLowerCase()}, ${nlev[2]} ${names[2].toLowerCase()}. ` : 'The 7-day line fills as the hours close. ') +
+      'The line is the reach by the hour (UTC); the marks along the bottom are hours with a surface inversion at the airport, found from the aircraft temperatures (the stronger, the darker).<br>' + about;
+  }
+
   function renderAll() {
     if (!data) return;
-    const parts = [renderRx, renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderMeteo, renderChart];
+    const parts = [renderRx, renderBar, renderDf, renderBds, renderTc, renderCad, renderIid, renderRc, renderSig, renderRange, renderHorizon, renderMeteo, renderChart];
     for (const f of parts) { try { f(data); } catch (e) { console.error('stats', f.name, e); } }
     fitIid();
   }

@@ -801,6 +801,34 @@ def create_app(
         out["merged"] = multirx.merging()
         if multirx.active():
             out = rx_rights.filter_msgstats(out, rr, [multirx.main_id()] + [x.id for x in multirx.extras()])
+        # how far beyond the radio horizon low aircraft are heard (from 2026-11-20,
+        # collector/radio_horizon.py): the receiver shown with its 7 days; on the
+        # merged All receivers view the highest level of all receivers and one line
+        # for each receiver this user may see one by one
+        try:
+            from collector import radio_horizon as _rhz
+            hdb = get_db()
+            if xr is not None:
+                out["horizon"] = _rhz.public(hdb, xr.ms.hz, xr.ms._lock)
+            elif not multirx.merging():
+                _m0 = msg_stats.get()
+                out["horizon"] = _rhz.public(hdb, _m0.hz, _m0._lock)
+            else:
+                rows, best = [], None
+                for x in ([multirx.main_rx()] if multirx.main_rx() is not None else []) + list(multirx.extras()):
+                    p = _rhz.public(hdb, x.ms.hz, x.ms._lock, detail=False)
+                    cur = p.get("now") or {}
+                    if cur.get("level") is not None and (best is None or cur["level"] > best["level"]
+                                                         or (cur["level"] == best["level"] and (cur.get("q") or 0) > (best.get("q") or 0))):
+                        best = {"level": cur["level"], "q": cur.get("q")}
+                    if rx_rights.visible(rr, x.id):
+                        rows.append({"id": x.id, "name": getattr(x, "name", "") or "", "now": p.get("now"), "last": p.get("last")})
+                out["horizon"] = {"merged": True, "best": best, "receivers": rows,
+                                  "limits": {"low": _rhz.LOW_Q, "ext": _rhz.EXT_Q, "duct": _rhz.DUCT_Q,
+                                             "confirm": _rhz.CONFIRM, "min_ft": _rhz.HZ_MIN_FT, "max_ft": _rhz.HZ_MAX_FT},
+                                  "levels": list(_rhz.LEVELS)}
+        except Exception as exc:               # noqa: BLE001  (the page shows the panel as empty)
+            app.logger.debug("radio horizon: %s", exc)
         return _private(_gzip_json(out))
 
     @app.route("/api/coverage")

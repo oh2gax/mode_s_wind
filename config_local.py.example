@@ -60,6 +60,12 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 # MLAT_FIX = False           # switch the fixes off
 # MLAT_SHORT_NS = {"MODES-RX-02": 56000}   # ns between a counter receiver's stamps of short and long replies
 
+# ── Radio horizon (Statistics page, from 20 Nov 2026; collector/radio_horizon.py) ─
+# The antenna's height above sea level in feet for the radio horizon: one
+# number, or a value per receiver id.  Without it: the height of the receiver's
+# MLAT_SITES entry less the geoid, else the Radarcape's own GPS height, else 30 ft.
+# RADIO_HORIZON_ANT_FT = {"MODES-RX-01": 175, "MODES-RX-02": 150}
+
 # ── Wind checks (from 10 Nov 2026; README: Heading calibration → GNSS gate) ─
 # Types whose wind is not used while their GNSS is degraded (NACp < 8): they
 # have no inertial reference, so their reported ground speed goes wrong.

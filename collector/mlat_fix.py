@@ -248,6 +248,7 @@ class _Acc:
         self.fixed = [set() for _ in range(na)]
         self.clock: list = []                      # (sigma ns, drift ns/s, replies, aircraft)
         self.rs: list = []                         # seconds from a hypothesis' first fix to its confirmation
+        self.gb: dict = {}                         # GPS receiver id → [(constant ns against the main one, aircraft)]
         self.low = None
         self.grid: dict | None = {} if grid else None
 
@@ -315,6 +316,10 @@ class _Acc:
                          int(_med([x[2] for x in self.clock])), int(_med([x[3] for x in self.clock]))]
         if self.rs:
             out["rs"] = [len(self.rs), int(_med(self.rs))]
+        if self.gb:                                # [median, aircraft, lowest, highest] of the period's values
+            out["gb"] = {k: [round(_med([x[0] for x in v]), 1), int(_med([x[1] for x in v])),
+                             round(min(x[0] for x in v), 1), round(max(x[0] for x in v), 1)]
+                         for k, v in self.gb.items() if v}
         if self.grid is not None:
             out["grid"] = {k: [g[0], st(g[1]), len(g[1])] for k, g in self.grid.items()}
         return out
@@ -357,6 +362,13 @@ def combine(recs: list, t0: int | None = None) -> dict:
     rss = [r["rs"] for r in recs if r.get("rs")]
     if rss:
         out["rs"] = [sum(x[0] for x in rss), wmed([(x[1], x[0]) for x in rss])]
+    gbs: dict = {}
+    for r in recs:
+        for k, v in (r.get("gb") or {}).items():
+            gbs.setdefault(k, []).append(v)
+    if gbs:
+        out["gb"] = {k: [round(_med([x[0] for x in v]), 1), int(_med([x[1] for x in v])),
+                         round(min(x[2] for x in v), 1), round(max(x[3] for x in v), 1)] for k, v in gbs.items()}
     return out
 
 
@@ -643,6 +655,14 @@ class Fixer:
             return
         self.bias[bit] = c
         self.bias_n[bit] = len(meds)
+        # for the Charts view: the constant over time shows how steady the receivers' GPS time is
+        # (from 2026-11-20; only values that rest on at least three aircraft)
+        if len(meds) >= 3 and self.acc_m is not None:
+            rid = self.names.get(bit, str(bit))
+            for acc, cap in ((self.acc_m, 12), (self.acc_h, 400)):
+                lst = acc.gb.setdefault(rid, [])
+                if len(lst) < cap:
+                    lst.append((c, len(meds)))
 
     # ── the counter clock ────────────────────────────────────────────────
     def _line(self, bit: int, t: float, icao: str):

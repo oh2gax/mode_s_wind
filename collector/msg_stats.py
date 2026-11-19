@@ -85,6 +85,8 @@ import time
 import zlib
 from collections import Counter, deque
 
+from collector import radio_horizon
+
 log = logging.getLogger("modes.msg_stats")
 
 # Interval histogram edges (s): bin i holds edges[i-1] <= dt < edges[i]
@@ -341,6 +343,9 @@ class MsgStats:
         self.sig_state = "off"                       # on / off / unavailable (set by the collector)
         self._cur_sig: int | None = None             # signal byte of the frame being decoded
         self._rpos: dict = {}                        # icao → (ts, lat, lon) of the last ADS-B position
+        # how far beyond the radio horizon low aircraft are heard (from 2026-11-20,
+        # collector/radio_horizon.py; fed by _range, stored in horizon_hours)
+        self.hz = radio_horizon.Horizon(rx or "")
         self._trend: deque = deque(maxlen=MINUTES_TREND)
         self._ten: deque = deque(maxlen=360)          # [t0, msgs] per 10 s
         self._ten_cur = [self._ten_of(time.time()), 0]
@@ -497,7 +502,7 @@ class MsgStats:
             i += 1
         h[i] += 1
 
-    def _range(self, icao: str, ts: float, lat: float, lon: float, alt) -> None:
+    def _range(self, icao: str, ts: float, lat: float, lon: float, alt, tc=None) -> None:
         """One decoded ADS-B airborne position (lock held)."""
         prev = self._rpos.get(icao)
         self._rpos[icao] = (ts, lat, lon)
@@ -517,7 +522,10 @@ class MsgStats:
         sec = self._min["r"].get(band)
         if sec is None:
             sec = self._min["r"][band] = [None] * RNG_SECTORS
-        i = int(_bearing(self.site[0], self.site[1], lat, lon) // (360 / RNG_SECTORS)) % RNG_SECTORS
+        brg = _bearing(self.site[0], self.site[1], lat, lon)
+        i = int(brg // (360 / RNG_SECTORS)) % RNG_SECTORS
+        self.hz.gps_alt_m = self.site_alt if self.site_src == "radarcape" else None
+        self.hz.add(icao, ts, d, alt, brg, tc)
         if sec[i] is None or d > sec[i][0]:
             sec[i] = [round(d, 1), int(alt) if alt is not None else None, icao]
         rb = len(RNG_EDGES_NM) - 1
@@ -559,7 +567,7 @@ class MsgStats:
                     self._cadence(icao, "es_pos", ts, phase)
                     plat, plon = result.get("latitude"), result.get("longitude")
                     if plat is not None and plon is not None:
-                        self._range(icao, ts, plat, plon, alt)
+                        self._range(icao, ts, plat, plon, alt, tc)
                 elif tc == 19:
                     c[("v19", result.get("subtype"))] += 1
                     if result.get("geo_minus_baro") is not None:
@@ -961,6 +969,10 @@ def _bin_rows(bins: dict, rows: list) -> None:
 def _persist(self, db) -> int:
     """Write the closed hours not yet stored (housekeeping thread, every
     minute; one INSERT per hour) and delete rows older than keep_days."""
+    try:                                         # the radio horizon's closed hours (one small row each)
+        radio_horizon.persist(db, self.hz, self._lock)
+    except Exception as exc:                     # noqa: BLE001
+        log.warning("Radio horizon: hour not written, tried again next time (%s)", exc)
     with self._lock:
         pend, self._pending = self._pending, []
         rows = [(h, [r for r in self._trend if h["t0"] <= r[0] < h["t0"] + 3600]) for h in pend]
@@ -995,6 +1007,10 @@ def _save_state(self, db) -> int:
         self.persist(db)
     except Exception as exc:                     # noqa: BLE001
         log.warning("Statistics history: hourly rows not written at the stop (%s)", exc)
+    try:
+        radio_horizon.save_open(db, self.hz, self._lock)
+    except Exception as exc:                     # noqa: BLE001
+        log.warning("Radio horizon: the open hour was not saved at the stop (%s)", exc)
     now = time.time()
     with self._lock:
         self._roll(now)
@@ -1019,6 +1035,7 @@ def _restore(self, db) -> str:
     from collector import health as _hb
     now = time.time()
     ensure_tables(db)
+    radio_horizon.restore(db, self.hz, self._lock)
     cur_h = float(int(now // 3600) * 3600)
     h_from = cur_h - (HOURS_DETAIL - 1) * 3600
     hours, trends, first = {}, {}, {}

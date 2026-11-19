@@ -510,6 +510,25 @@ CREATE TABLE IF NOT EXISTS nopos_log (
 );
 CREATE INDEX IF NOT EXISTS idx_nopos_log_ts ON nopos_log(ts);
 
+-- ── horizon_hours (from 2026-11-20) ─────────────────────────────────────────
+-- How far beyond the radio horizon each receiver hears low aircraft, one row a
+-- receiver and UTC hour (collector/radio_horizon.py; the Statistics page's
+-- Radio horizon panel).  Kept 400 days.  No aircraft addresses in closed rows.
+CREATE TABLE IF NOT EXISTS horizon_hours (
+    rx     TEXT    NOT NULL,      -- '' = the main receiver
+    ts     INTEGER NOT NULL,      -- start of the UTC hour
+    n      INTEGER,               -- positions counted
+    ac     INTEGER,               -- aircraft followed
+    n_low  INTEGER,               -- aircraft confirmed from 0.2 of the horizon
+    n_ext  INTEGER,               -- … beyond it
+    n_duct INTEGER,               -- … more than a fifth beyond it
+    q      REAL,                  -- the reach confirmed by two aircraft (share of the horizon)
+    far    TEXT,                  -- [q, NM, ft, bearing, NM beyond] of the farthest aircraft
+    ant_ft REAL,                  -- the antenna height used
+    open   TEXT,                  -- the open hour's state (clean stop only)
+    PRIMARY KEY (rx, ts)
+);
+
 -- ── msg_stats_hours / msg_stats_state ────────────────────────────────────────
 -- Statistics page history kept over restarts (from 2026-10-25,
 -- collector/msg_stats.py): one row per closed clock hour (zlib-compressed JSON:

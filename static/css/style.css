@@ -3387,6 +3387,14 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .mst-polar-tip { position: absolute; pointer-events: none; display: none; background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 4px; padding: 4px 7px; font-size: 11px; line-height: 1.4; color: var(--text-1); white-space: nowrap; z-index: 2; }
 .mst-legend { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+/* Radio horizon panel (from 2026-11-20) */
+.mst-hz-now { padding: 8px 10px 4px; font-size: 12px; line-height: 1.5; color: var(--text-1); }
+.mst-hz-now .mst-hz-dim { color: var(--text-2); }
+.mst-hz-chart { position: relative; height: 150px; padding: 2px 8px 0; }
+.mst-hz-lvl { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 17px;
+              border: 1px solid var(--border); color: var(--text-2); background: var(--bg-2); white-space: nowrap; }
+.mst-hz-lvl.l1 { border-color: var(--accent); color: var(--accent); }
+.mst-hz-lvl.l2 { border-color: var(--accent); background: var(--accent); color: #fff; }
 .mst-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .mst-stations span { display: inline-block; margin: 1px 6px 1px 0; font-family: "Courier New", monospace; color: var(--text-1); }
 @media (max-width: 1500px) { .mst-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

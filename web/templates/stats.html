@@ -91,6 +91,8 @@
 
       {{ sp.rng() }}
 
+      {{ sp.hz() }}
+
       {{ sp.cad() }}
     </div>
   </div>
@@ -239,6 +241,15 @@
       <div class="mst-mlat-sub">Seconds until a new track is confirmed by its motion (median)</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-rs"></canvas></div>
       <div class="mlc-txt" id="mlc-cnt"></div>
+    </div>
+    <!-- from 2026-11-20: how steady the GPS-timed receivers' clocks are against each other -->
+    <div class="mst-panel" id="mlc-gb-panel">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">GPS time of the receivers</span><span class="mst-hdr-note" id="mlc-gb-note">one receiver's time against the main one</span></div>
+      <div class="mst-mlat-sub">Time difference left after the geometry, ns (ten-minute median over the aircraft with a good position)</div>
+      <div class="mlc-chart mlc-s" style="height:150px"><canvas id="mlc-gb"></canvas></div>
+      <div class="mst-mlat-sub">Aircraft behind the value</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-gb-ac"></canvas></div>
+      <div class="mlc-txt" id="mlc-gb-t"></div>
     </div>
   </div>
   <div class="mst-body" id="mst-mlat" style="display:none">

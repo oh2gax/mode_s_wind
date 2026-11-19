@@ -10,6 +10,7 @@
  *   the clock of the receiver without GPS time: spread, reference aircraft, drift
  *   aircraft with a fix, with and without a position of their own; the share by altitude
  *   unresolved fixes and the time until a track is confirmed
+ *   the GPS-timed receivers' clocks against the main one (from 2026-11-20)
  *
  * The view's buttons and the page switching are in static/js/mlat_map.js.
  */
@@ -106,6 +107,18 @@
     // 6. unresolved fixes; the time to confirm a track
     chart('amb', 'mlc-amb', 'line', L, [{ label: 'unresolved, %', data: S.map(r => r.fx >= 20 ? +(100 * r.am / r.fx).toFixed(1) : null), borderColor: C.b }], { smax: 30 });
     chart('rs', 'mlc-rs', 'line', L, [{ label: 'seconds', data: S.map(r => r.rs ? r.rs[1] : null), borderColor: C.a }], {});
+    // 7. the GPS-timed receivers' clocks against the main one (from 2026-11-20): gb = {receiver: [ns, aircraft, lowest, highest]}
+    const gk = [...new Set(S.flatMap(r => Object.keys(r.gb || {})))].sort();
+    const gcol = [C.a, C.b, C.n];
+    chart('gb', 'mlc-gb', 'line', L, gk.length ? gk.map((k, i) => ({ label: k, data: S.map(r => r.gb && r.gb[k] ? r.gb[k][0] : null), borderColor: gcol[i % 3] }))
+                                               : [{ label: '', data: S.map(() => null), borderColor: C.a }],
+      { zero: false, y: 'ns', tip: c => { const v = (S[c.dataIndex].gb || {})[c.dataset.label]; return v ? `${c.dataset.label}: ${v[0]} ns (${v[2]} … ${v[3]}), ${v[1]} aircraft` : ''; } });
+    chart('gba', 'mlc-gb-ac', 'line', L, gk.length ? gk.map((k, i) => ({ label: k, data: S.map(r => r.gb && r.gb[k] ? r.gb[k][1] : null), borderColor: gcol[i % 3], stepped: true }))
+                                                  : [{ label: '', data: S.map(() => null), borderColor: C.a }], { prec: 0 });
+    const gT = T.gb || {};
+    $('mlc-gb-t').textContent = gk.length ? gk.map(k => gT[k] ? `${k}: ${gT[k][0]} ns in the middle, between ${gT[k][2]} and ${gT[k][3]} ns (${(gT[k][3] - gT[k][2]).toFixed(0)} ns apart).` : '').join(' ') +
+      ' The value itself comes from the cables and electronics and does not matter; how it moves does. Slow waves of some tens of nanoseconds come from the satellites in view and the sky each GPS antenna sees, and the fixes follow them. With only a few aircraft behind it the value also moves with which aircraft they are, because the receivers stamp strong replies a little early. A step means that the GPS time of a receiver jumped.'
+      : 'No values yet: they need a second GPS-timed receiver and at least three aircraft with a good position heard by both.';
     $('mlc-cnt').textContent = T.tr ? `In this period: ${T.h3.toLocaleString('en')} replies heard by three receivers, ${T.tr.toLocaleString('en')} tried (at most three per aircraft and second), ` +
       `${T.fx.toLocaleString('en')} fixes (${Math.round(100 * T.fx / T.tr)} %), ${T.fx ? Math.round(100 * T.am / T.fx) : 0} % of them unresolved; no clock line for ${T.nc.toLocaleString('en')} replies.` : '';
   }

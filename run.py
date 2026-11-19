@@ -1373,6 +1373,9 @@ def main() -> None:
     # stop, read back before the collector starts counting
     _ms = msg_stats.get()
     _ms.keep_days = float(getattr(cfg, "MSG_STATS_DAYS", 7))
+    # (the radio horizon's antenna heights — collector/radio_horizon.py, from 2026-11-20)
+    from collector import radio_horizon as _rhz
+    _rhz.configure(cfg, str(getattr(cfg, "RECEIVER_ID", "MODES-RX-01") or "MODES-RX-01"))
     try:
         from database.db import get_db as _get_db
         log.info("Statistics page: restored %s", _ms.restore(_get_db()) or "nothing (no history yet)")
