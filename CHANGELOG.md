@@ -22,6 +22,7 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 ### Documents
 - **Mobile guide 1.79** (`doc/Mobile_User_Guide.pdf`, 67 pages): a new section *MLAT (MLAT right)* — what the view is for, each part from the top, how to read it, its updates and data use — with a figure of the real values of 19 Nov 05:49 UTC (no aircraft addresses); the order of the tiles in *The menu*; the troubleshooting list and the quick reference.
 - `doc/guides.md`: the Mobile guide's entry.
+- **The author's place on the title pages** is now *Vantaa, Finland* (it read *Tuusula, Finland*) in the ten documents of `doc/` that carry it: *EDR explained*, the windshear study log, the mast study, the multilateration study log, the D-D-D note and the Mobile, Skew-T, Sounding, Statistics and Windshear guides. Only that line was replaced, in the finished PDFs: versions, dates, page counts and contents are unchanged, and the guides list needs no change. The main receiver is still described as standing in Tuusula, where it is.
 - README: *Mobile view* (the MLAT view, the order of the tiles), *Own multilateration* (the chart), the file tree.
 
 ## v.18112026 — 2026-11-18 (Own multilateration, step 0a: the pair recorder, the MLAT right and the MLAT tab)
