@@ -46,10 +46,94 @@
   const S = {
     win: +lsGet(LS.win, '300'), exp: +lsGet(LS.exp, '500'),
     adsb: lsGet(LS.adsb, '1') === '1', amb: lsGet(LS.amb, '0') === '1', lbl: lsGet(LS.lbl, '1') === '1',
-    vec: lsGet(LS.vec, '1') === '1',
+    vec: lsGet(LS.vec, '1') === '1', cov: lsGet('ms_mlm_cov', 'off'), ils: lsGet('ms_mlm_ils', '1') === '1',
   };
   let atc = null;                             // the canvas with the squares, vectors and labels
   let gridLayer = null, gridData = null, gridT = 0, selCh = {};
+  // Receiver coverage (from 2026-11-19), in the Live Map's style (static/js/live_wx.js): the
+  // outline of the area heard in the last 24 h from /api/coverage — the farthest ADS-B position
+  // per 10° sector — as a 1 px dashed line; all receivers together (the edge of their union, or
+  // the server's combined outline for a user who may not see each receiver's own) or one receiver
+  const COV_HOURS = 24;
+  const COV_COLS = [{ dark: 'rgba(191,219,254,0.75)', light: 'rgba(29,78,216,0.7)' }, { dark: 'rgba(196,181,253,0.9)', light: 'rgba(109,40,217,0.8)' },
+                    { dark: 'rgba(94,234,212,0.85)', light: 'rgba(15,118,110,0.8)' }, { dark: 'rgba(253,230,138,0.85)', light: 'rgba(180,83,9,0.8)' }];
+  const covCol = k => COV_COLS[k % COV_COLS.length][light() ? 'light' : 'dark'];
+  const rxShort = id => (id || '').replace(/^MODES-/, '') || 'Receiver';
+  let covLayer = null, covData = null, covT = 0, covOff = null;
+  // The airport's approach lines (from 2026-11-19), as on the Windshear map (static/js/windshear.js):
+  // the EFHK ILS finals (short dashes) and RNP approaches (long dashes) of /overlays/efhk_ils.geojson
+  // and the airport's outline; the labels keep clear of the finals
+  let ilsGeo = null, ilsLayer = null, ilsFeat = [], ilsSeq = 0;
+  async function ilsShow() {
+    const my = ++ilsSeq;
+    if (!map) return;
+    if (S.ils && !ilsGeo) {
+      const [ils, apt] = await Promise.all(['efhk_ils', 'efhk_apt'].map(n => fetch(`/overlays/${n}.geojson`).then(r => r.ok ? r.json() : null).catch(() => null)));
+      ilsGeo = { ils, apt };
+    }
+    if (my !== ilsSeq) return;
+    if (ilsLayer) { ilsLayer.remove(); ilsLayer = null; }
+    ilsFeat = [];
+    if (!S.ils || !ilsGeo) { if (atc) atc.redraw(); return; }
+    const lt = light(), grp = L.layerGroup(), rend = L.canvas({ pane: map.getPane('atcMapPane') ? 'atcMapPane' : 'overlayPane', padding: 0.3 });
+    if (ilsGeo.apt) L.geoJSON(ilsGeo.apt, { renderer: rend, interactive: false, style: { color: lt ? '#475569' : '#94a3b8', weight: 1, opacity: lt ? 0.7 : 0.5, fillOpacity: 0 } }).addTo(grp);
+    if (ilsGeo.ils) {
+      ilsFeat = (ilsGeo.ils.features || []).filter(f => f.properties && f.properties.airport === 'EFHK');
+      L.geoJSON({ type: 'FeatureCollection', features: ilsFeat }, { renderer: rend, interactive: false,
+        style: f => f.properties && f.properties.approach_type === 'RNP'
+          ? { color: lt ? '#92400e' : '#f59e0b', weight: 1.5, opacity: lt ? 0.9 : 0.7, dashArray: '10 5', fillOpacity: 0 }
+          : { color: lt ? '#1a3a6b' : '#38bdf8', weight: 1.5, opacity: lt ? 0.9 : 0.6, dashArray: '6 5', fillOpacity: 0 } }).addTo(grp);
+    }
+    ilsLayer = grp.addTo(map);
+    if (atc) atc.redraw();
+  }
+  const covRx = () => ((covData && covData.receivers) || []).map((r, i) => ({ r, i })).filter(x => x.r.outline && x.r.outline.length >= 3);
+  async function covLoad() {
+    covT = Date.now();
+    if (S.cov === 'off') { if (covLayer) covLayer.redraw(); return; }
+    try {
+      const d = await (await fetch(`/api/coverage?hours=${COV_HOURS}`, { cache: 'no-store' })).json();
+      covData = d;
+      const sel = $('mlm-cov'), have = covRx();
+      sel.innerHTML = '<option value="off">off</option><option value="all">all receivers</option>' +
+        have.map(x => `<option value="${esc(x.r.id)}">${esc(rxShort(x.r.id))}</option>`).join('');
+      if (S.cov !== 'all' && !have.some(x => x.r.id === S.cov)) S.cov = 'all';
+      sel.value = S.cov;
+    } catch (_) { /* keeps the last outline */ }
+    if (covLayer) covLayer.redraw();
+    draw();
+  }
+  function drawCov(g, m) {
+    if (S.cov === 'off' || !covData) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ringOf = r => r.outline.map(([la, lo]) => m.latLngToContainerPoint([la, lo]));
+    const trace = (c, ring) => { ring.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); };
+    const stroke = (c, ring, col, w) => { c.beginPath(); trace(c, ring); c.strokeStyle = col; c.lineWidth = w; c.lineJoin = 'round'; c.setLineDash([6, 4]); c.stroke(); c.setLineDash([]); };
+    const have = covRx();
+    if (S.cov !== 'all') {
+      const x = have.find(h => h.r.id === S.cov);
+      if (x) stroke(g, ringOf(x.r), covCol(x.i), 1.2);
+      return;
+    }
+    const cb = covData.combined;
+    if (cb && cb.outline && cb.outline.length >= 3) { stroke(g, ringOf(cb), covCol(0), 1); return; }
+    const rings = have.map(h => ringOf(h.r));
+    if (rings.length === 1) { stroke(g, rings[0], covCol(0), 1); return; }
+    // each outline with the parts inside the other receivers' areas cleared: the edge of the union
+    const cv = g.canvas;
+    if (!covOff) covOff = document.createElement('canvas');
+    covOff.width = cv.width; covOff.height = cv.height;
+    const o = covOff.getContext('2d');
+    rings.forEach((ring, k) => {
+      o.setTransform(1, 0, 0, 1, 0, 0); o.clearRect(0, 0, covOff.width, covOff.height);
+      o.setTransform(dpr, 0, 0, dpr, 0, 0);
+      stroke(o, ring, covCol(0), 1);
+      o.globalCompositeOperation = 'destination-out'; o.fillStyle = '#000';
+      o.beginPath(); rings.forEach((r, j) => { if (j !== k) trace(o, r); }); o.fill('nonzero');
+      o.globalCompositeOperation = 'source-over';
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(covOff, 0, 0); g.restore();
+    });
+  }
   // Accuracy grid: five classes of the median error, one hue, the larger the error the stronger
   const GRID_CL = [50, 100, 250, 500];
   const GRID_COL = () => light() ? ['#ddd6fe', '#c4b5fd', '#8b5cf6', '#6d28d9', '#4c1d95'] : ['#3b2a6b', '#5b3fb0', '#7c5ce0', '#a78bfa', '#ddd6fe'];
@@ -90,7 +174,7 @@
     document.dispatchEvent(new CustomEvent('mlm-view', { detail: { charts: onCh } }));   // static/js/mlat_charts.js
     bar.querySelectorAll('[data-mlview]').forEach(b => b.classList.toggle('active', b.dataset.mlview === view));
     clearTimeout(timer);
-    if (onMap) { initMap(); setTimeout(() => map && map.invalidateSize(), 50); poll(true); if (S.grid) gridLoad(); }
+    if (onMap) { initMap(); setTimeout(() => map && map.invalidateSize(), 50); poll(true); if (S.grid) gridLoad(); if (S.cov !== 'off') covLoad(); }
   }
   document.addEventListener('mst-mlat', e => { tabOn = !!(e.detail && e.detail.on); apply(); });
   $('mst-mlat-views').addEventListener('click', e => {
@@ -108,6 +192,11 @@
   $('mlm-grid').checked = S.grid = lsGet('ms_mlm_grid', '0') === '1';
   $('mlm-grid').addEventListener('change', e => { S.grid = e.target.checked; lsSet('ms_mlm_grid', S.grid ? '1' : '0'); gridLoad(); });
   document.addEventListener('mlc-range', () => { if (S.grid) gridLoad(); });
+  if (S.cov !== 'off' && S.cov !== 'all') $('mlm-cov').insertAdjacentHTML('beforeend', `<option value="${esc(S.cov)}">${esc(rxShort(S.cov))}</option>`);
+  $('mlm-ils').checked = S.ils;
+  $('mlm-ils').addEventListener('change', e => { S.ils = e.target.checked; lsSet('ms_mlm_ils', S.ils ? '1' : '0'); ilsShow(); });
+  $('mlm-cov').value = S.cov;
+  $('mlm-cov').addEventListener('change', e => { S.cov = e.target.value; lsSet('ms_mlm_cov', S.cov); covLoad(); });
   for (const [id, k] of [['mlm-adsb', 'adsb'], ['mlm-amb', 'amb'], ['mlm-lbl', 'lbl'], ['mlm-vec', 'vec']]) {
     $(id).addEventListener('change', e => { S[k] = e.target.checked; lsSet(LS[k], S[k] ? '1' : '0'); draw(); });
   }
@@ -132,10 +221,14 @@
     map.getPane('mlmGrid').style.pointerEvents = 'none';
     gridLayer = L.layerGroup().addTo(map);
     layer = L.layerGroup().addTo(map);
-    if (typeof AtcDisplay !== 'undefined') atc = AtcDisplay.canvasLayer(map, drawTargets);
+    if (typeof AtcDisplay !== 'undefined') {
+      covLayer = AtcDisplay.canvasLayer(map, drawCov);           // under the targets' canvas
+      atc = AtcDisplay.canvasLayer(map, drawTargets);
+    }
     if (window.msRxMarkers) { try { window.msRxMarkers(map).addTo(map); } catch (_) { /* the receivers are optional */ } }
     L.control.scale({ imperial: false, nautic: false }).addTo(map);
-    new MutationObserver(() => { setTiles(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    ilsShow();
+    new MutationObserver(() => { setTiles(); ilsShow(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   // ── data ────────────────────────────────────────────────────────────────
@@ -222,6 +315,17 @@
       (S.adsb ? `<div><i style="border-color:${C.adsb};border-top-width:1px"></i>broadcast ADS-B track · <i style="border-color:${C.link};border-top-width:2px;width:10px"></i>difference now</div>` : '') +
       (S.amb ? '<div>dashed: unresolved — two positions possible</div>' : '') +
       (S.grid && gridData ? `<div class="mlm-gridleg">median error, ${gridData.rng}:` + GRID_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + GRID_CL[i] : '> 500'}`).join('') + ' m</div>' : '');
+    if (S.ils && ilsFeat.length) {
+      const lt = light();
+      $('mlm-legend').insertAdjacentHTML('beforeend', `<div><i style="border-top:1.5px dashed ${lt ? '#1a3a6b' : '#38bdf8'}"></i>ILS final · ` +
+        `<i style="border-top:1.5px dashed ${lt ? '#92400e' : '#f59e0b'}"></i>RNP approach</div>`);
+    }
+    if (S.cov !== 'off' && covData) {
+      const one = S.cov !== 'all' ? covRx().find(h => h.r.id === S.cov) : null;
+      $('mlm-legend').insertAdjacentHTML('beforeend', `<div><i style="border-top:1px dashed ${covCol(one ? one.i : 0)}"></i>` +
+        `reception in the last ${COV_HOURS} h: ${one ? esc(rxShort(one.r.id)) : 'all receivers together'}</div>`);
+    }
+    if (S.cov !== 'off' && Date.now() - covT > 300000) covLoad();
     if (S.grid && Date.now() - gridT > 60000) gridLoad();
     selPanel();
   }
@@ -229,7 +333,8 @@
   const fl3 = alt => String(Math.max(0, Math.round(alt / 100))).padStart(3, '0');
   function drawTargets(g, m, W, H) {
     if (!state || !state.on) return;
-    const C = COL(), now = state.now, obst = [], items = [];
+    const C = COL(), now = state.now, items = [];
+    const obst = S.ils && ilsFeat.length ? AtcDisplay.lineObstacles(m, ilsFeat, W, H) : [];     // labels keep clear of the finals
     for (const [k, o] of AC) {
       if (!shown(o)) continue;
       const lp = o.last;

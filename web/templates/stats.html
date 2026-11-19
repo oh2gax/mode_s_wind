@@ -166,6 +166,8 @@
       <label title="The track the aircraft broadcasts itself (ADS-B), as a thin line beside ours"><input type="checkbox" id="mlm-adsb" checked> ADS-B track</label>
       <label title="Aircraft for which two positions are still possible (three receivers leave two solutions until the motion tells them apart): the more likely one, dashed"><input type="checkbox" id="mlm-amb"> Unresolved</label>
       <label title="Speed vector: where the aircraft is in 30 seconds, from the speed and direction of our own track"><input type="checkbox" id="mlm-vec" checked> Vector 30 s</label>
+      <label title="Receiver coverage, as on the Live Map: a thin dashed line around the area heard in the last 24 hours — the farthest ADS-B position in each 10° direction, any height. All receivers together (the edge of their combined area) or one receiver's own line in its colour">Coverage <select id="mlm-cov"><option value="off">off</option><option value="all">all receivers</option></select></label>
+      <label title="The approach lines of Helsinki-Vantaa as on the Windshear map: the ILS finals (short dashes) and the RNP approaches (long dashes), with the airport's outline"><input type="checkbox" id="mlm-ils" checked> Approach lines</label>
       <label title="Accuracy grid: each cell of about 5 km coloured by the median distance between our fixes there and the aircraft's own positions, over the period chosen in the Charts view; a cell with fixes but nothing to compare with is grey"><input type="checkbox" id="mlm-grid"> Accuracy grid</label>
       <label title="Radar-display labels: callsign; flight level with the climb / descent arrow; our own ground speed in tens of knots and the type"><input type="checkbox" id="mlm-lbl" checked> Labels</label>
     </span>
