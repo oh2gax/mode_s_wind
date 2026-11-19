@@ -106,7 +106,68 @@
     #mst-mlat .mst-mlat-sub { font-size: 11px; font-weight: 600; color: var(--text-2); padding: 8px 10px 0; }
     #mst-mlat .mst-mlat-scroll { max-height: 330px; overflow-y: auto; }
     @media (max-width: 900px) { #mst-mlat .mst-mlat-two { grid-template-columns: 1fr; } }
+    /* Own MLAT map (from 2026-11-19) */
+    .mlm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 6px 12px 0; font-size: 12px; color: var(--text-2); }
+    .mlm-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+    .mlm-ctl select { font: inherit; font-size: 12px; padding: 1px 4px; background: var(--bg-2, transparent); color: inherit; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    .mlm-ctl label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
+    .mlm-body { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 10px; padding: 8px 12px 12px; }
+    .mlm-mapwrap { position: relative; min-height: 480px; height: calc(100vh - 215px); border: 1px solid var(--border, #334155); border-radius: 6px; overflow: hidden; }
+    #mlm-map { position: absolute; inset: 0; background: #0b1220; }
+    [data-theme="light"] #mlm-map { background: #e5e7eb; }
+    .mlm-legend { position: absolute; left: 8px; bottom: 36px; z-index: 500; padding: 5px 8px; border-radius: 5px; font-size: 11px; line-height: 1.5;
+                  background: rgba(15, 23, 42, .88); color: #e2e8f0; pointer-events: none; }
+    [data-theme="light"] .mlm-legend { background: rgba(255, 255, 255, .92); color: #1e293b; }
+    .mlm-legend i { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 5px; }
+    .mlm-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; height: calc(100vh - 215px); min-height: 480px; }
+    .mlm-side .mst-panel:last-child { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .mlm-aclist { flex: 1; min-height: 0; overflow-y: auto; }
+    .mlm-side .mst-mlat-sub { font-size: 11px; font-weight: 600; color: var(--text-2); padding: 8px 10px 0; }
+    .mlm-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px 10px 2px; }
+    .mlm-tile { border: 1px solid var(--border, #334155); border-radius: 5px; padding: 4px 6px; min-width: 0; }
+    .mlm-tile b { display: block; font-size: 16px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+    .mlm-tile span { font-size: 10.5px; color: var(--text-2); }
+    #mlm-ac tr { cursor: pointer; }
+    #mlm-ac tr.sel td { background: rgba(59, 130, 246, .18); }
+    .mlm-tag { font-size: 10px; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; white-space: nowrap; }
+    .mlm-lbl { background: none; border: none; box-shadow: none; padding: 0; font-size: 10.5px; font-weight: 600; color: #e2e8f0; text-shadow: 0 0 3px #0b1220, 0 0 3px #0b1220; }
+    .mlm-lbl::before { display: none; }
+    [data-theme="light"] .mlm-lbl { color: #0f172a; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+    @media (max-width: 1100px) { .mlm-body { grid-template-columns: 1fr; } .mlm-side { height: auto; } .mlm-mapwrap { height: 60vh; } .mlm-aclist { max-height: 360px; } }
   </style>
+  <!-- the tab's two views (from 2026-11-19): the recorder, and the map of our own position fixes -->
+  <div class="mlm-bar" id="mst-mlat-views" style="display:none">
+    <span class="gps-zone-btns">
+      <button type="button" class="gps-zone-btn active" data-mlview="rec" title="The pair recorder and how well the receivers' clocks agree">Recorder</button>
+      <button type="button" class="gps-zone-btn" data-mlview="map" title="Own MLAT map: the positions computed from our own receivers' time stamps, and how they compare with the positions the aircraft broadcast">Map</button>
+    </span>
+    <span class="mlm-ctl" id="mlm-ctl" style="display:none">
+      <label title="How much of each track is drawn">Trail <select id="mlm-win"><option value="120">2 min</option><option value="300" selected>5 min</option><option value="900">15 min</option><option value="3600">1 h</option></select></label>
+      <label title="Only fixes whose expected error (from the geometry of the receivers and the timing) is below this">Expected error ≤ <select id="mlm-exp"><option value="200">200 m</option><option value="500" selected>500 m</option><option value="1000">1 km</option><option value="99999">all</option></select></label>
+      <label title="The track the aircraft broadcasts itself (ADS-B), as a thin line beside ours"><input type="checkbox" id="mlm-adsb" checked> ADS-B track</label>
+      <label title="Aircraft for which two positions are still possible (three receivers leave two solutions until the motion tells them apart): the more likely one, dashed"><input type="checkbox" id="mlm-amb"> Unresolved</label>
+      <label><input type="checkbox" id="mlm-lbl" checked> Labels</label>
+    </span>
+    <span class="mst-hdr-note" id="mlm-note"></span>
+  </div>
+  <div class="mlm-body" id="mst-mlat-map" style="display:none">
+    <div class="mlm-mapwrap"><div id="mlm-map"></div>
+      <div class="mlm-legend" id="mlm-legend"></div></div>
+    <div class="mlm-side">
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Own MLAT · position fixes</span></div>
+        <div class="mlm-tiles" id="mlm-tiles"></div>
+        <div class="mst-mlat-sub">Against the aircraft's own ADS-B position (last 10 min)</div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mlm-bands"></table></div>
+        <div class="mst-mlat-sub">Receivers</div>
+        <div class="mst-table-wrap"><table class="mst-table" id="mlm-rx"></table></div>
+      </div>
+      <div class="mst-panel">
+        <div class="gps-panel-hdr"><span class="gps-panel-title">Aircraft with a fix</span><span class="mst-hdr-note" id="mlm-acn"></span></div>
+        <div class="mst-table-wrap mlm-aclist"><table class="mst-table" id="mlm-ac"></table></div>
+      </div>
+    </div>
+  </div>
   <div class="mst-body" id="mst-mlat" style="display:none">
     <div class="mst-col">
       <div class="mst-panel">
@@ -175,4 +236,5 @@
 {% block scripts %}
 {% if mlat_view %}<script>window.MST_MLAT = true;</script>{% endif %}
 <script src="{{ url_for('static', filename='js/stats.js') }}"></script>
+{% if mlat_view %}<script src="{{ url_for('static', filename='js/mlat_map.js') }}"></script>{% endif %}
 {% endblock %}

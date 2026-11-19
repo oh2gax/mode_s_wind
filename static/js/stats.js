@@ -455,6 +455,8 @@
     if (data) renderRx(data);
     if (on) pollMlat();
     else if (data) { renderRange(data); fitIid(); }
+    // the tab's own views Recorder | Map (static/js/mlat_map.js, from 2026-11-19)
+    document.dispatchEvent(new CustomEvent('mst-mlat', { detail: { on } }));
   }
   async function pollMlat(once) {
     clearTimeout(mlatTimer);

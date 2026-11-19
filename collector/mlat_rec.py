@@ -254,6 +254,7 @@ class Recorder:
         self.err = None
         self._lock = threading.Lock()
         self._db = None
+        self.fix = None                            # position fixes (collector/mlat_fix.py, from 2026-11-19)
 
     # ── from the merger (collector thread) ──────────────────────────────
     def put(self, t: float, hx: str, st: list) -> None:
@@ -430,6 +431,9 @@ class Recorder:
                     continue
             if s and s[0] >= 1:
                 self.sites[bit] = {"src": "gps", "xyz": ecef(s[1], s[2], s[3]), "n": s[0], "ll": (s[1], s[2])}
+        if self.fix is not None:
+            for bit, s in self.sites.items():
+                self.fix.site[bit] = self.fix.fr.enu_xyz(*s["xyz"])
         bits = sorted(self.rxs)
         for i, a in enumerate(bits):
             for b in bits[i + 1:]:
@@ -521,6 +525,13 @@ class Recorder:
         for bit, _, _ in st:
             if bit in self.crx:
                 self.crx_n[bit] += 1
+        if self.fix is not None:
+            # own position fixes from the replies heard by three or more receivers
+            try:
+                self.fix.feed(t, len(data), icao, st, ls)
+            except Exception as exc:               # noqa: BLE001
+                self.fix.c["error"] += 1
+                log.debug("MLAT fix: %s", exc)
         st = sorted(x for x in st if x[0] in self.rxs)     # time differences: the GPS-timed receivers only
         for i, (a, ta, siga) in enumerate(st):
             for b, tb, sigb in st[i + 1:]:
@@ -900,6 +911,13 @@ def init(cfg, live_state: dict):
     # replies (once lined up with the main receiver), no time differences yet
     counters = [r for r in multirx.extras() if r.hz is not None]
     _REC = Recorder(cfg, rxs, live_state, counters)
+    # own position fixes (from 2026-11-19): with three or more receivers
+    if bool(getattr(cfg, "MLAT_FIX", True)) and len(rxs) + len(counters) >= 3:
+        try:
+            from collector import mlat_fix
+            _REC.fix = mlat_fix.Fixer(cfg, _REC.rxs, _REC.crx, live_state)
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("MLAT fixes not started: %s", exc)
     multirx._MLAT_PUT = _REC.put
     threading.Thread(target=_REC.run, name="mlat_rec", daemon=True).start()
     return _REC
@@ -931,6 +949,15 @@ def tdoa_expected(a: int, b: int, lat: float, lon: float, h_m: float):
         return None
     p = ecef(lat, lon, h_m)
     return (math.dist(p, sb["xyz"]) - math.dist(p, sa["xyz"])) / C_AIR * 1e9
+
+
+def fix_public(win: float = 600.0, since: float = 0.0) -> dict:
+    """The own position fixes for the MLAT map (collector/mlat_fix.py)."""
+    if _REC is None:
+        return {"on": False, "why": _WHY}
+    if _REC.fix is None:
+        return {"on": False, "why": "needs three receivers (MLAT_FIX)"}
+    return _REC.fix.public(win, since)
 
 
 def public(detail: bool = False) -> dict:

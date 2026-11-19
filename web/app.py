@@ -724,6 +724,28 @@ def create_app(
                 x["id"] = f"Receiver {i + 1}"
         return _private(_gzip_json(out))
 
+    @app.route("/api/mlat/fixes")
+    def mlat_fixes_api():
+        """Own position fixes (collector/mlat_fix.py, from 2026-11-19) for the
+        MLAT tab's map: the MLAT right only — a plain 404 for everyone else.
+        ?win= seconds of track (30–3600, default 300), ?since= only the track
+        points after this time (the "now" of the previous answer).  Aircraft
+        with their addresses, also those that send no position of their own
+        (the block lists apply in the engine); the receivers by name only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        out = mlat_rec.fix_public(request.args.get("win", default=300.0, type=float) or 300.0,
+                                  request.args.get("since", default=0.0, type=float) or 0.0)
+        r = _user_rights()
+        for i, x in enumerate(out.get("receivers") or []):
+            if not rx_rights.visible(r, x["id"]):
+                x["id"] = f"Receiver {i + 1}"
+                if x.get("why"):
+                    x["why"] = "no site position"
+        out["center"] = [cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON]
+        return _private(_gzip_json(out))
+
     @app.route("/api/msgstats")
     def msgstats_api():
         """Message statistics of the last `window` minutes (1–60, 1440 for

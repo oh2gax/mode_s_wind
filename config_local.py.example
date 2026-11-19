@@ -53,6 +53,12 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 # MLAT_POS_LATENCY = 0.09    # s, the age of a broadcast position when it is sent
 # MLAT_RAW_MAX_GB = 10       # cap of data/mlat_raw
 # MLAT_SUM_DAYS = 90         # how long the summaries in data/mlat.db are kept
+# Own position fixes (from 19 Nov 2026; the MLAT tab's Map): on by themselves where
+# three or more receivers have an antenna position.  A receiver without GPS time
+# (counter clock) needs its antenna in MLAT_SITES too, with the height — add e.g.
+#               "MODES-RX-02": (60.0000, 24.9000, 60.0)
+# MLAT_FIX = False           # switch the fixes off
+# MLAT_SHORT_NS = {"MODES-RX-02": 56000}   # ns between a counter receiver's stamps of short and long replies
 
 # ── Wind checks (from 10 Nov 2026; README: Heading calibration → GNSS gate) ─
 # Types whose wind is not used while their GNSS is degraded (NACp < 8): they

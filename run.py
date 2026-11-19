@@ -1495,6 +1495,13 @@ def main() -> None:
     if _mlat.get() is not None:
         ws_tracker.tdoa_fn = _mlat.tdoa_rows
         ws_tracker.tdoa_expected_fn = _mlat.tdoa_expected
+        # own position fixes (collector/mlat_fix.py): the QNH for the height of an
+        # aircraft at a level no other aircraft reports its GNSS height from
+        if getattr(_mlat.get(), "fix", None) is not None:
+            _mlat.get().fix.qnh_fn = lambda: ws_tracker._qnh_hpa
+            log.info("MLAT position fixes: on (%s)", ", ".join(
+                f"{n}{'' if b in _mlat.get().fix.site or b in _mlat.get().rxs else ' — no site position'}"
+                for b, n in sorted(_mlat.get().fix.names.items())))
     try:
         from database.db import get_db as _gdb
         _nd = int(getattr(cfg, "NOPOS_LOG_DAYS", 90) or 0)
