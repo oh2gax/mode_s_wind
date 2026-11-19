@@ -484,6 +484,7 @@
     const c = d.counters || {}, raw = d.raw || {}, name = {};
     (d.receivers || []).forEach(r => { name[r.bit] = r.id; });
     const site = r => r.site === 'config' ? 'antenna position from the settings'
+      : r.site === 'config, GPS height' ? 'antenna position from the settings, height from its GPS'
       : r.site === 'gps' ? `its own GPS position, mean of ${r.site_n} min` : '<span class="mst-rc-warn">position not known yet</span>';
     const ck = { gps: '<span class="mst-ok">GPS time</span>', nogps: '<span class="mst-rc-warn">no GPS time</span>', starting: 'starting' };
     st.innerHTML = '<tbody>'
@@ -519,7 +520,7 @@
       });
     });
     $('mst-mlat-clock').innerHTML = '<thead><tr><th>Receiver pair</th><th class="num" title="Replies both receivers stamped">Pairs</th>'
-      + '<th class="num" title="Pairs of aircraft with a fresh own ADS-B position: the time difference can be compared with the expected one">With position</th>'
+      + '<th class="num" title="Pairs of aircraft with a fresh own ADS-B position of declared good quality (NACp 8 and NIC 7 or better): the time difference can be compared with the expected one">With position</th>'
       + '<th class="num" title="Median of measured − expected time difference. A constant value is cable and receiver delay and the error of the site positions">Median</th>'
       + '<th class="num" title="16th … 84th percentile of the same">Middle 68 %</th><th class="num" title="Half of that range: about one standard deviation">Spread</th></tr></thead><tbody>'
       + (rows.join('') || '<tr><td colspan="6" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
@@ -534,17 +535,32 @@
     (d.receivers || []).forEach(r => { name[r.bit] = r.id; });
     $('mst-mlat-two').style.display = x && x.n_res > 50 && typeof Chart !== 'undefined' ? '' : 'none';
     if (!x) return;
+    const qn = $('mst-mlat-qnote');
+    if (qn && x.quality) qn.textContent = `Aircraft that declare NACp ${x.quality.nacp} or better and NIC ${x.quality.nic} or better only`
+      + (x.n_low ? ` (${nfmt(x.n_low)} pairs of the last 10 min left out)` : '') + `; each position moved on by ${Math.round((x.pos_latency || 0) * 1000)} ms, its age when sent.`;
     $('mst-mlat-df').innerHTML = '<thead><tr><th>Reply type</th><th class="num">Pairs</th><th class="num">With position</th><th class="num">Median</th><th class="num">Spread</th></tr></thead><tbody>'
       + (x.by_df.map(r => `<tr><td>${esc(DFN[r[0]] || 'DF' + r[0])}</td><td class="num">${nfmt(r[1])}</td><td class="num">${pct(r[2], r[1])}</td><td class="num">${nsTxt(r[3])}</td><td class="num">${r[4] == null ? '—' : '±' + r[4].toFixed(0) + ' ns'}</td></tr>`).join('')
          || '<tr><td colspan="5" class="mst-dim2">No pairs yet</td></tr>') + '</tbody>';
     $('mst-mlat-sig').innerHTML = '<thead><tr><th title="The weaker of the two receivers\' signal levels, median of the group">Signal (dBFS)</th><th class="num">Pairs</th><th class="num">Median</th><th class="num">Spread</th></tr></thead><tbody>'
       + (x.by_signal.map((r, i) => `<tr><td>${['weakest quarter', 'second quarter', 'third quarter', 'strongest quarter'][r[4] != null ? r[4] : i]} <span class="mst-dim2">${r[0].toFixed(0)}</span></td><td class="num">${nfmt(r[1])}</td><td class="num">${nsTxt(r[2])}</td><td class="num">${r[3] == null ? '—' : '±' + r[3].toFixed(0) + ' ns'}</td></tr>`).join('')
          || '<tr><td colspan="4" class="mst-dim2">Not enough pairs with a position yet</td></tr>') + '</tbody>';
-    $('mst-mlat-ac-note').textContent = `${x.aircraft_n} aircraft · last 5 min` + (x.no_position_n ? ` · ${x.no_position_n} without an ADS-B position` : '');
+    $('mst-mlat-ac-note').textContent = `${x.aircraft_n} aircraft · last 5 min` + (x.no_position_n ? ` · ${x.no_position_n} without an ADS-B position` : '')
+      + (x.low_quality_n ? ` · ${x.low_quality_n} with a low position quality` : '');
     const noPos = '<span class="mst-dim2" title="This aircraft has sent no own ADS-B position in the last minute: its pairs have no expected time difference"> no ADS-B position</span>';
+    // from 2026-11-19: the position quality the aircraft declares, and positions that do not fit the timing
+    const q = x.quality || { nacp: 8, nic: 7 };
+    const lowQ = r => `<span class="mst-dim2" title="The aircraft declares NACp ${r[11] == null ? '—' : r[11]} and NIC ${r[12] == null ? '—' : r[12]} (needed: NACp ${q.nacp} and NIC ${q.nic}): its pairs are not in the clock-agreement figures"> low position quality</span>`;
+    const offM = '<span class="mst-rc-warn" title="The position this aircraft broadcasts is far from where the time differences put it"> position does not fit</span>';
+    const mark = r => !r[8] ? noPos : (r[10] ? offM : '') + (r[2] && r[9] === false ? lowQ(r) : '');
+    const mf = x.misfit || [], mfEl = $('mst-mlat-misfit');
+    if (mfEl) {
+      mfEl.style.display = mf.length ? '' : 'none';
+      mfEl.innerHTML = mf.length ? `<b>${mf.length} aircraft whose own position does not fit the timing</b> (more than ${x.misfit_ns} ns from the others over at least ${x.misfit_min} pairs): `
+        + mf.map(r => `<code>${esc(r[0])}</code> ${nsTxt(r[2])}${r[6] ? '' : ` <span class="mst-dim2">NACp ${r[3] == null ? '—' : r[3]}, NIC ${r[4] == null ? '—' : r[4]}</span>`}${r[5] == null ? '' : ` <span class="mst-dim2">${nfmt(Math.round(r[5] / 100) * 100)} ft</span>`}`).join(' · ') : '';
+    }
     $('mst-mlat-ac').innerHTML = '<thead><tr><th>Address</th><th class="num">Pairs</th><th class="num">With position</th><th class="num">Median</th><th class="num">Spread</th>'
       + `<th class="num" title="Mean signal level at each receiver, dBFS">Signal ${esc(name[(d.pairs[0] || {}).a] || '')} / ${esc(name[(d.pairs[0] || {}).b] || '')}</th><th class="num">Altitude</th></tr></thead><tbody>`
-      + (x.aircraft.map(r => `<tr><td><code>${esc(r[0])}</code>${r[8] ? '' : noPos}</td><td class="num">${nfmt(r[1])}</td><td class="num">${nfmt(r[2])}</td><td class="num">${nsTxt(r[3])}</td><td class="num">${r[4] == null ? '—' : '±' + r[4].toFixed(0) + ' ns'}</td><td class="num">${r[5].toFixed(0)} / ${r[6].toFixed(0)}</td><td class="num">${r[7] == null ? '—' : nfmt(Math.round(r[7])) + ' ft'}</td></tr>`).join('')
+      + (x.aircraft.map(r => `<tr><td><code>${esc(r[0])}</code>${mark(r)}</td><td class="num">${nfmt(r[1])}</td><td class="num">${nfmt(r[2])}</td><td class="num">${nsTxt(r[3])}</td><td class="num">${r[4] == null ? '—' : '±' + r[4].toFixed(0) + ' ns'}</td><td class="num">${r[5].toFixed(0)} / ${r[6].toFixed(0)}</td><td class="num">${r[7] == null ? '—' : nfmt(Math.round(r[7])) + ' ft'}</td></tr>`).join('')
          || '<tr><td colspan="7" class="mst-dim2">No aircraft yet</td></tr>') + '</tbody>';
     const hms = t => { const q = new Date(t * 1000); return q.toISOString().slice(11, 19) + '.' + String(q.getUTCMilliseconds()).padStart(3, '0'); };
     $('mst-mlat-raw').innerHTML = '<thead><tr><th>UTC</th><th>Address</th><th>Reply</th><th class="num" title="Second receiver\'s stamp minus the first\'s">Time difference</th><th class="num">Measured − expected</th><th class="num">Signal (dBFS)</th><th class="num">Altitude</th></tr></thead><tbody>'

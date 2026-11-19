@@ -41,6 +41,19 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 #                     "status_url": "http://127.0.0.1:8105/tar1090/data/",
 #                     "lat": 60.30, "lon": 24.90, "private": True}]
 
+# ── Own multilateration, the pair recorder (from 18 Nov 2026; README: Own
+# multilateration) — runs only where receivers are merged and two or more have
+# GPS time.  None of these is needed.
+# MLAT_RECORD = True
+# MLAT_SITES = {"MODES-RX-01": (60.0000, 25.0000, 70.0),   # the 1090 MHz antennas: lat, lon and the
+#               "MODES-RX-03": (60.0000, 24.0000, 100.0)}  # height in metres above the WGS-84 ellipsoid
+#                                                          # (sea-level height + about 18 m in southern
+#                                                          # Finland); without a height: the GPS mean's.
+#                                                          # Without an entry: the Radarcape's GPS position.
+# MLAT_POS_LATENCY = 0.09    # s, the age of a broadcast position when it is sent
+# MLAT_RAW_MAX_GB = 10       # cap of data/mlat_raw
+# MLAT_SUM_DAYS = 90         # how long the summaries in data/mlat.db are kept
+
 # ── Wind checks (from 10 Nov 2026; README: Heading calibration → GNSS gate) ─
 # Types whose wind is not used while their GNSS is degraded (NACp < 8): they
 # have no inertial reference, so their reported ground speed goes wrong.

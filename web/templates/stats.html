@@ -132,6 +132,8 @@
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · clock agreement</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-clock"></table></div>
+        {# from 2026-11-19: which aircraft the figures use #}
+        <div class="mst-foot" id="mst-mlat-qnote"></div>
         <div class="mst-chart-wrap" id="mst-mlat-chart-wrap" style="display:none"><canvas id="mst-mlat-chart"></canvas></div>
         {# from the evening of 2026-11-18: the shape of the scatter and the direction pattern, last 10 min #}
         <div class="mst-mlat-two" id="mst-mlat-two" style="display:none">
@@ -151,9 +153,13 @@
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · by aircraft</span>
           <span class="mst-hdr-note" id="mst-mlat-ac-note"></span></div>
+        {# from 2026-11-19: aircraft whose own position is far from the timing #}
+        <div class="mst-foot" id="mst-mlat-misfit" style="display:none"></div>
         <div class="mst-table-wrap mst-mlat-scroll"><table class="mst-table" id="mst-mlat-ac"></table></div>
         <div class="mst-foot">The aircraft both receivers heard in the last 5 minutes, most pairs first. An aircraft without an
-          own ADS-B position is listed too and marked; its pairs have no expected time difference.</div>
+          own ADS-B position is listed too and marked; its pairs have no expected time difference. <em>Low position quality</em>:
+          the aircraft declares a poor position (typically no GNSS) — its pairs are not in the clock-agreement figures.
+          <em>Position does not fit</em>: its broadcast position is far from where the time differences put it.</div>
       </div>
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · latest pairs</span>

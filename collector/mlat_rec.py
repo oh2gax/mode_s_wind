@@ -76,6 +76,18 @@ Settings (config_local.py; none is needed):
     MLAT_RAW_MAX_GB = 10
     MLAT_SUM_DAYS = 90
     MLAT_SITES = {"MODES-RX-01": (lat, lon, height_m), …}   # the 1090 MHz antennas, when known
+                                  # (height above the WGS-84 ellipsoid; left out: the GPS mean's height)
+    MLAT_POS_LATENCY = 0.09       # s, the age of a broadcast position when it is sent
+
+From 2026-11-19 (after the first data check): the clock-agreement figures
+(minute rows, the windows, the charts of the MLAT tab) use only aircraft that
+declare a good position (NACp ≥ 8 and NIC ≥ 7) — at night most replies come
+from aircraft without GNSS, whose positions drift by hundreds of ns; the
+pairs of the others are counted (`pos_low` in the minute's extra) and their
+residuals still go into mlat_sum.  The expected value moves the position on by
+0.09 s; an aircraft whose own position is more than 250 ns from the timing over
+100 pairs is listed as "does not fit the timing"; the write-ahead log is
+written into mlat.db every ten minutes.
 """
 
 from __future__ import annotations
@@ -98,6 +110,15 @@ C_AIR = 299_792_458.0 / 1.0003      # m/s near the ground
 BUCKET_SEC = 30
 QUEUE_MAX = 200_000
 POS_MAX_AGE = 3.0                   # s between the reply and the own ADS-B position
+# From 2026-11-19 (the first data check, claude/aws_check_2026-11-19.md):
+POS_LATENCY = 0.09                  # s: a broadcast position is this old when it is sent (fitted 0.087 and 0.092 s);
+                                    # the aircraft is moved on by it (MLAT_POS_LATENCY)
+GOOD_NACP, GOOD_NIC = 8, 7          # the clock-agreement figures use only aircraft that declare at least this
+                                    # position quality: an aircraft without GNSS keeps sending a (drifting) position
+MISFIT_NS = 250                     # an own position this far from the timing …
+MISFIT_MIN = 100                    # … over at least this many pairs in 5 min "does not fit the timing"
+CHECKPOINT_SEC = 600                # the database's write-ahead log is written into the file this often,
+                                    # so that a plain copy of mlat.db is complete to within ten minutes
 FAR_MARGIN_NS = 20_000              # allowed beyond the distance between the sites
 FAR_DEFAULT_NS = 500_000            # sites not known yet
 MIN_FREE_BYTES = 2 * 1024 ** 3
@@ -161,6 +182,12 @@ def _stats(vals: list):
 _SNAP = ("adsb_lat", "adsb_lon", "altitude", "groundspeed", "track", "nac_p", "nic")
 
 
+def _good(nacp, nic) -> bool:
+    """The aircraft declares a position good enough to compare clocks with."""
+    return (isinstance(nacp, (int, float)) and nacp >= GOOD_NACP
+            and isinstance(nic, (int, float)) and nic >= GOOD_NIC)
+
+
 def _snap(ls: dict) -> dict:
     return {k: ls.get(k) for k in _SNAP}
 
@@ -208,7 +235,12 @@ class Recorder:
         self.buckets: dict = {}                    # (icao, a, b) → bucket
         self.bucket_t0 = None
         self.min_t0 = None
-        self.min_res: dict = {}                    # (a, b) → [residual, …] this minute
+        self.min_res: dict = {}                    # (a, b) → [residual, …] this minute (good position quality only)
+        self.min_low: Counter = Counter()          # (a, b) → pairs with a position of lower quality this minute
+        try:
+            self.pos_lat = float(getattr(cfg, "MLAT_POS_LATENCY", POS_LATENCY))
+        except (TypeError, ValueError):
+            self.pos_lat = POS_LATENCY
         self.min_n: Counter = Counter()            # (a, b) → pairs this minute
         self.minutes: deque = deque(maxlen=8640)   # (t0, a, b, n, n_res, med, lo, hi): 24 h of up to 6 pairs
         self.raw_f = None
@@ -246,7 +278,7 @@ class Recorder:
                  " + ".join(self.rxs[b].id for b in sorted(self.rxs)),
                  (" (raw stamps also of " + ", ".join(self.crx[b].id for b in sorted(self.crx)) + ")") if self.crx else "",
                  self.raw_dir, self.raw_cap / 1024 ** 3, self.db_path)
-        last_site = last_scan = time.time()
+        last_site = last_scan = last_ckpt = time.time()
         while True:
             time.sleep(1.0)
             try:
@@ -262,6 +294,9 @@ class Recorder:
                     last_scan = now
                     self._raw_scan()
                     self._prune(now)
+                if now - last_ckpt >= CHECKPOINT_SEC:
+                    last_ckpt = now
+                    self._checkpoint()
                 self.err = None
             except Exception as exc:               # noqa: BLE001
                 if str(exc) != self.err:
@@ -358,15 +393,12 @@ class Recorder:
     def _sites(self) -> None:
         """Once a minute: each receiver's place.  MLAT_SITES first (the 1090
         MHz antenna), else the running mean of the Radarcape's GPS position
-        (one GPS fix wanders by metres; 1 m = 3 ns)."""
+        (one GPS fix wanders by metres; 1 m = 3 ns).  The GPS mean is kept up
+        in both cases; an MLAT_SITES entry without a height takes the GPS
+        mean's height (from 2026-11-19 — before, it was taken as 0 m, which is
+        worse than no entry), and waits for it when there is none yet."""
         changed = False
         for bit, rx in self.rxs.items():
-            cs = self.cfg_sites.get(rx.id)
-            if cs and len(cs) >= 2:
-                h = float(cs[2]) if len(cs) > 2 and cs[2] is not None else 0.0
-                self.sites[bit] = {"src": "config", "xyz": ecef(float(cs[0]), float(cs[1]), h), "n": None,
-                                   "ll": (float(cs[0]), float(cs[1]))}
-                continue
             try:
                 p = self._gps_pos(rx)
             except Exception:                      # noqa: BLE001
@@ -381,6 +413,21 @@ class Recorder:
                 s[3] = (s[3] * n + p[2]) / (n + 1)
                 s[0] = n + 1
                 changed = True
+            cs = self.cfg_sites.get(rx.id)
+            if cs and len(cs) >= 2:
+                try:
+                    la, lo = float(cs[0]), float(cs[1])
+                    h = float(cs[2]) if len(cs) > 2 and cs[2] is not None else None
+                except (TypeError, ValueError):
+                    la = None
+                if la is not None:
+                    src = "config"
+                    if h is None:
+                        if not (s and s[0] >= 1):
+                            continue               # no height yet: no expected value this minute
+                        h, src = s[3], "config, GPS height"
+                    self.sites[bit] = {"src": src, "xyz": ecef(la, lo, h), "n": None, "ll": (la, lo)}
+                    continue
             if s and s[0] >= 1:
                 self.sites[bit] = {"src": "gps", "xyz": ecef(s[1], s[2], s[3]), "n": s[0], "ll": (s[1], s[2])}
         bits = sorted(self.rxs)
@@ -394,6 +441,16 @@ class Recorder:
             self._db.commit()
 
     # ── the replies ─────────────────────────────────────────────────────
+    def _checkpoint(self) -> None:
+        """Write the write-ahead log into mlat.db (from 2026-11-19): a copy of
+        the file alone used to end at the last automatic checkpoint, hours
+        back.  Nothing else reads the database, so it never waits."""
+        try:
+            self._db.commit()
+            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+        except Exception as exc:                   # noqa: BLE001
+            log.debug("MLAT checkpoint: %s", exc)
+
     def _drain(self) -> None:
         q = self.q
         while q:
@@ -408,7 +465,8 @@ class Recorder:
         aircraft's own ADS-B position, None without a fresh one or without both
         sites.  The height is the barometric altitude plus the aircraft's own
         GNSS − barometric difference when it has sent one (from the evening of
-        2026-11-18; before: the barometric altitude alone)."""
+        2026-11-18; before: the barometric altitude alone).  From 2026-11-19
+        the position is also moved on by its own age when sent (POS_LATENCY)."""
         sa, sb = self.sites.get(a), self.sites.get(b)
         if sa is None or sb is None:
             return None
@@ -419,6 +477,7 @@ class Recorder:
         if abs(dt) > POS_MAX_AGE:
             return None
         gs, trk = ls.get("groundspeed"), ls.get("track")
+        dt += self.pos_lat                         # the position was already this old when it was sent
         if dt and gs is not None and trk is not None:
             d = float(gs) * 0.514444 * dt
             la = math.radians(lat)
@@ -486,11 +545,17 @@ class Recorder:
                     sec = int(brg // 30)
                 pts = ls.get("last_adsb_pos_ts")
                 has_pos = pts is not None and abs(t - pts) < 60
+                nacp, nic = ls.get("nac_p"), ls.get("nic")
+                good = _good(nacp, nic)
                 self.recent.append((t, icao, df, d, res, siga or 0, sigb or 0, a, b, sec,
-                                    ls.get("altitude"), has_pos))
+                                    ls.get("altitude"), has_pos, good, nacp, nic))
                 self.min_n[(a, b)] += 1
                 if res is not None:
-                    self.min_res.setdefault((a, b), []).append(res)
+                    # the clock-agreement figures: aircraft with a position of declared good quality only
+                    if good:
+                        self.min_res.setdefault((a, b), []).append(res)
+                    else:
+                        self.min_low[(a, b)] += 1
                 bk = self.buckets.get((icao, a, b))
                 if bk is None:
                     bk = self.buckets[(icao, a, b)] = {"n": 0, "td": [], "ts": 0.0, "sa": 0.0, "sb": 0.0,
@@ -546,6 +611,9 @@ class Recorder:
         cm, self.cmin = self.cmin, Counter()
         cm["overflow"], self.overflow = self.overflow, 0
         ex = {k: v for k, v in cm.items() if v}
+        low = sum(self.min_low.values())
+        if low:
+            ex["pos_low"] = low                    # pairs with a position below GOOD_NACP / GOOD_NIC (not in n_res)
         ex["rx"] = self._rx_state()
         extra = json.dumps(ex)
         with self._lock:
@@ -559,7 +627,7 @@ class Recorder:
                 self.minutes.append(row)
                 self._db.execute("INSERT OR REPLACE INTO mlat_min VALUES (?,?,?,?,?,?,?,?,?)", row + (extra,))
         self._db.commit()
-        self.min_n, self.min_res, self.min_t0 = Counter(), {}, t0
+        self.min_n, self.min_res, self.min_low, self.min_t0 = Counter(), {}, Counter(), t0
 
     # ── the raw files ───────────────────────────────────────────────────
     def _raw_add(self, t: float, data: bytes, st: tuple) -> None:
@@ -661,7 +729,9 @@ class Recorder:
         if now - self._detail_cache[0] < 5 and self._detail_cache[1] is not None:
             return self._detail_cache[1]
         rec = [r for r in list(self.recent) if r[0] >= now - 600]
-        wr = [r for r in rec if r[4] is not None]
+        # the figures: pairs of aircraft with a position of declared good quality (from 2026-11-19)
+        wr = [r for r in rec if r[4] is not None and r[12]]
+        n_low = sum(1 for r in rec if r[4] is not None and not r[12])
 
         def st(vals):
             med, lo, hi = _stats(vals)
@@ -686,7 +756,7 @@ class Recorder:
                     sig.append([round(20 * math.log10(max(m, 1) / 255.0), 1), len(v), s_[0], s_[1], q])
         dfs = {}
         for r in rec:
-            dfs.setdefault(r[2], []).append(r[4])
+            dfs.setdefault(r[2], []).append(r[4] if r[12] else None)
         by_df = []
         for df, v in sorted(dfs.items()):
             w = [x for x in v if x is not None]
@@ -696,22 +766,34 @@ class Recorder:
         for r in rec:
             if r[0] >= now - 300:
                 ac.setdefault(r[1], []).append(r)
-        rows = []
+        all_s = st([r[4] for r in wr])
+        ref = all_s[0] if all_s[0] is not None and len(wr) >= 200 else 0.0
+        rows, misfit = [], []
         for icao, v in ac.items():
-            w = [x[4] for x in v if x[4] is not None]
+            w = [x[4] for x in v if x[4] is not None]      # every pair with a position, whatever its quality
             s_ = st(w)
+            last = v[-1]
+            # the own position does not fit the timing (plan step 0c, a first form): the aircraft's median
+            # is far from that of the aircraft with good positions.  Typical: no GNSS, the position drifts.
+            off = len(w) >= MISFIT_MIN and s_[0] is not None and abs(s_[0] - ref) > MISFIT_NS
             rows.append([icao, len(v), len(w), s_[0], s_[1],
                          round(20 * math.log10(max(sum(x[5] for x in v) / len(v), 1) / 255.0), 1),
-                         round(20 * math.log10(max(sum(x[6] for x in v) / len(v), 1) / 255.0), 1), v[-1][10],
-                         any(x[11] for x in v)])
+                         round(20 * math.log10(max(sum(x[6] for x in v) / len(v), 1) / 255.0), 1), last[10],
+                         any(x[11] for x in v), bool(last[12]), bool(off), last[13], last[14]])
+            if off:
+                misfit.append([icao, len(w), round(s_[0] - ref), last[13], last[14], last[10], bool(last[12])])
         rows.sort(key=lambda x: -x[1])
-        latest = [[round(r[0], 3), r[1], r[2], r[3], None if r[4] is None else round(r[4]), r[5], r[6], r[10], r[11]]
-                  for r in rec[-60:]][::-1]
-        all_s = st([r[4] for r in wr])
+        misfit.sort(key=lambda x: -abs(x[2]))
+        latest = [[round(r[0], 3), r[1], r[2], r[3], None if r[4] is None else round(r[4]), r[5], r[6], r[10], r[11],
+                   bool(r[12])] for r in rec[-60:]][::-1]
         out = {"window_sec": 600, "n": len(rec), "n_res": len(wr), "med": all_s[0], "spread": all_s[1],
                "hist": hist, "sectors": sect, "by_signal": sig, "by_df": by_df,
                "aircraft": rows[:80], "aircraft_n": len(rows), "no_position_n": sum(1 for x in rows if not x[8]),
-               "latest": latest}
+               "latest": latest,
+               # from 2026-11-19
+               "n_low": n_low, "low_quality_n": sum(1 for x in rows if x[2] and not x[9]),
+               "misfit": misfit[:20], "misfit_ns": MISFIT_NS, "misfit_min": MISFIT_MIN,
+               "quality": {"nacp": GOOD_NACP, "nic": GOOD_NIC}, "pos_latency": self.pos_lat}
         self._detail_cache = (now, out)
         return out
 
