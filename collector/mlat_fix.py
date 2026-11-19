@@ -36,6 +36,7 @@ import math
 import threading
 import time
 from collections import Counter, deque
+from random import random as _rnd
 
 log = logging.getLogger("modes.mlat")
 
@@ -214,6 +215,174 @@ _STARTS = [(0.0, 0.0)] + [(r * math.sin(math.radians(b)), r * math.cos(math.radi
                           for r in (20e3, 60e3, 120e3, 200e3, 300e3) for b in range(0, 360, 45)]
 
 
+# ── statistics of the fixes (from 2026-11-19, the MLAT tab's Charts view) ───
+STAT_BANDS  = (10, 20, 40, 80)          # NM from the airport → 5 bands
+ALT_BANDS   = (5000, 15000, 30000)      # ft → 4 bands
+GRID_LAT, GRID_LON = 0.05, 0.10         # the accuracy grid's cell (about 5.5 km)
+MIN_KEEP    = 1500                      # minutes kept in RAM (25 h)
+HOUR_KEEP   = 24 * 8                    # hours kept in RAM (8 d)
+NEAR_NM     = 10.0                      # "lowest fix near the airport"
+
+
+def _band(v: float, edges: tuple) -> int:
+    for i, e in enumerate(edges):
+        if v < e:
+            return i
+    return len(edges)
+
+
+class _Acc:
+    """One period (a minute or an hour) of fix statistics."""
+
+    def __init__(self, t0: int, cap: int, grid: bool) -> None:
+        self.t0, self.cap = t0, cap
+        self.c = Counter()
+        nb = len(STAT_BANDS) + 1
+        self.raw = [[] for _ in range(nb)]         # single-fix error m, resolved fixes with an own position
+        self.trk = [[] for _ in range(nb)]         # … of the smoothed track
+        self.exp = [[] for _ in range(nb)]         # expected error of the same fixes
+        self.nseen = [0] * nb
+        self.ac, self.nopos = set(), set()
+        na = len(ALT_BANDS) + 1
+        self.heard = [set() for _ in range(na)]
+        self.fixed = [set() for _ in range(na)]
+        self.clock: list = []                      # (sigma ns, drift ns/s, replies, aircraft)
+        self.rs: list = []                         # seconds from a hypothesis' first fix to its confirmation
+        self.low = None
+        self.grid: dict | None = {} if grid else None
+
+    def _res(self, lst: list, n: int, v) -> None:
+        if len(lst) < self.cap:
+            lst.append(v)
+        else:
+            k = int(_rnd() * n)
+            if k < self.cap:
+                lst[k] = v
+
+    def fix(self, icao, pos, amb, alt, dist_nm, exp, err_raw, err_trk, lat, lon) -> None:
+        self.c["fx"] += 1
+        self.ac.add(icao)
+        if not pos:
+            self.nopos.add(icao)
+        if amb:
+            self.c["am"] += 1
+            return
+        self.fixed[_band(alt, ALT_BANDS)].add(icao)
+        if self.grid is not None:
+            key = "%d,%d" % (math.floor(lat / GRID_LAT), math.floor(lon / GRID_LON))
+            g = self.grid.get(key)
+            if g is None:
+                g = self.grid[key] = [0, []]
+            g[0] += 1
+            if err_raw is not None and len(g[1]) < 40:
+                g[1].append(int(err_raw))
+        if err_raw is None or dist_nm is None:
+            return
+        b = _band(dist_nm, STAT_BANDS)
+        self.nseen[b] += 1
+        n = self.nseen[b]
+        self._res(self.raw[b], n, err_raw)
+        if len(self.trk[b]) < self.cap:
+            self.trk[b].append(err_trk)
+            self.exp[b].append(exp if exp is not None else 0.0)
+        if dist_nm < NEAR_NM and (self.low is None or alt < self.low):
+            self.low = alt
+
+    def close(self) -> dict:
+        def st(v):
+            if not v:
+                return None
+            v = sorted(v)
+            return int(v[len(v) // 2])
+        def p90(v):
+            if not v:
+                return None
+            v = sorted(v)
+            return int(v[min(len(v) - 1, int(0.9 * len(v)))])
+        c = self.c
+        out = {"t": self.t0, "h3": c["h3"], "tr": c["tr"], "fx": c["fx"], "am": c["am"], "nc": c["nc"],
+               "b": [[self.nseen[i], st(self.raw[i]), p90(self.raw[i]), st(self.exp[i]), st(self.trk[i])]
+                     for i in range(len(self.raw))],
+               "ac": len(self.ac), "np": len(self.nopos),
+               "cov": [[len(self.heard[i]), len(self.fixed[i] & self.heard[i]) if self.heard[i] else len(self.fixed[i])]
+                       for i in range(len(self.heard))],
+               "low": self.low}
+        near = self.raw[0] + self.raw[1]
+        out["e20"] = [self.nseen[0] + self.nseen[1], st(near), p90(near)]
+        out["e40"] = [self.nseen[2], st(self.raw[2]), p90(self.raw[2])]
+        if self.clock:
+            out["ck"] = [round(_med([x[0] for x in self.clock]), 1), round(_med([x[1] for x in self.clock]), 2),
+                         int(_med([x[2] for x in self.clock])), int(_med([x[3] for x in self.clock]))]
+        if self.rs:
+            out["rs"] = [len(self.rs), int(_med(self.rs))]
+        if self.grid is not None:
+            out["grid"] = {k: [g[0], st(g[1]), len(g[1])] for k, g in self.grid.items()}
+        return out
+
+
+def combine(recs: list, t0: int | None = None) -> dict:
+    """Several closed periods as one (sums; medians as the count-weighted median of the periods' medians)."""
+    def wmed(pairs):
+        pairs = sorted((v, n) for v, n in pairs if v is not None and n)
+        tot = sum(n for _, n in pairs)
+        if not tot:
+            return None
+        acc = 0
+        for v, n in pairs:
+            acc += n
+            if acc * 2 >= tot:
+                return v
+        return pairs[-1][0]
+    if not recs:
+        return {}
+    out = {"t": t0 if t0 is not None else recs[0]["t"]}
+    for k in ("h3", "tr", "fx", "am", "nc"):
+        out[k] = sum(r.get(k, 0) for r in recs)
+    nb = len(recs[0]["b"])
+    out["b"] = [[sum(r["b"][i][0] for r in recs)] + [wmed([(r["b"][i][j], r["b"][i][0]) for r in recs]) for j in (1, 2, 3, 4)]
+                for i in range(nb)]
+    for k in ("e20", "e40"):
+        out[k] = [sum(r[k][0] for r in recs), wmed([(r[k][1], r[k][0]) for r in recs]), wmed([(r[k][2], r[k][0]) for r in recs])]
+    out["ac"] = max(r.get("ac", 0) for r in recs)
+    out["np"] = max(r.get("np", 0) for r in recs)
+    # aircraft heard / with a resolved fix, summed over the periods (aircraft × periods): for the share
+    out["cov"] = [[sum(r["cov"][i][0] for r in recs), sum(r["cov"][i][1] for r in recs)] for i in range(len(recs[0]["cov"]))]
+    out["n"] = len(recs)
+    lows = [r["low"] for r in recs if r.get("low") is not None]
+    out["low"] = min(lows) if lows else None
+    cks = [r["ck"] for r in recs if r.get("ck")]
+    if cks:
+        out["ck"] = [round(_med([c[0] for c in cks]), 1), round(_med([c[1] for c in cks]), 2),
+                     int(_med([c[2] for c in cks])), int(_med([c[3] for c in cks]))]
+    rss = [r["rs"] for r in recs if r.get("rs")]
+    if rss:
+        out["rs"] = [sum(x[0] for x in rss), wmed([(x[1], x[0]) for x in rss])]
+    return out
+
+
+def merge_grids(recs: list) -> dict:
+    cells: dict = {}
+    for r in recs:
+        for k, g in (r.get("grid") or {}).items():
+            c = cells.setdefault(k, [0, []])
+            c[0] += g[0]
+            if g[1] is not None and g[2]:
+                c[1].append((g[1], g[2]))
+    out = {}
+    for k, (n, meds) in cells.items():
+        meds.sort()
+        tot = sum(w for _, w in meds)
+        med = None
+        acc = 0
+        for v, w in meds:
+            acc += w
+            if acc * 2 >= tot:
+                med = v
+                break
+        out[k] = [n, med, tot]
+    return out
+
+
 class Fixer:
     def __init__(self, cfg, gps_bits: dict, counter_bits: dict, live_state: dict) -> None:
         """gps_bits / counter_bits: bit → receiver (.id, .hz)."""
@@ -247,6 +416,14 @@ class Fixer:
         self.c = Counter()
         self.stat: deque = deque()                 # (t, dist NM, raw error m, track error m)
         self.cpu = 0.0
+        # statistics: the open minute and hour, the closed ones (also loaded from / stored to
+        # mlat.db by the recorder), and a sample of where the fixes lie from the own positions
+        self.acc_m: _Acc | None = None
+        self.acc_h: _Acc | None = None
+        self.minutes: deque = deque(maxlen=MIN_KEEP)
+        self.hours: deque = deque(maxlen=HOUR_KEEP)
+        self._out: list = []                       # ("min" | "hour", record) waiting to be stored
+        self.scatter: deque = deque(maxlen=4000)   # (t, along m, across m, dist NM)
         self.t_start = time.monotonic()
         self._lock = threading.Lock()
         for b, r in self.cnt.items():
@@ -348,11 +525,46 @@ class Fixer:
                 tr = self._truth(ls, t)
             if tr is not None:
                 self._reference(t, icao, arr, gbits, cbits, tr, ls)
+            self._roll(t)
+            al = ls.get("altitude")
+            if al is not None:
+                ab = _band(al, ALT_BANDS)
+                self.acc_m.heard[ab].add(icao)
+                self.acc_h.heard[ab].add(icao)
             if len(gbits) + len(cbits) >= 3:
                 self.c["heard3"] += 1
+                self.acc_m.c["h3"] += 1
+                self.acc_h.c["h3"] += 1
                 self.pending.append((t, icao, arr, gbits, cbits, ls.get("altitude"), ls))
         self._process()
         self.cpu += time.perf_counter() - t0c
+
+    def _roll(self, t: float) -> None:
+        """Close the minute / the hour when the time has moved on."""
+        m0 = int(t // 60) * 60
+        if self.acc_m is None:
+            self.acc_m = _Acc(m0, 300, False)
+            self.acc_h = _Acc(int(t // 3600) * 3600, 3000, True)
+            return
+        if m0 > self.acc_m.t0:
+            rec = self.acc_m.close()
+            with self._lock:
+                self.minutes.append(rec)
+                self._out.append(("min", rec))
+            self.acc_m = _Acc(m0, 300, False)
+            h0 = int(t // 3600) * 3600
+            if h0 > self.acc_h.t0:
+                rec = self.acc_h.close()
+                with self._lock:
+                    self.hours.append(rec)
+                    self._out.append(("hour", rec))
+                self.acc_h = _Acc(h0, 3000, True)
+
+    def take(self) -> list:
+        """The closed minutes / hours not yet stored (the recorder writes them to mlat.db)."""
+        with self._lock:
+            out, self._out = self._out, []
+        return out
 
     def _reference(self, t, icao, arr, gbits, cbits, tr, ls) -> None:
         e, n, z = tr[0], tr[1], tr[2]
@@ -472,6 +684,11 @@ class Fixer:
                     res = (a, b, mt, sig)
                 self.clk[bit] = {"t": t, "n": len(use), "ac": len({p[2] for p in use}),
                                  "sig": round(sig, 1), "drift": round(b, 2)}
+                if self.acc_m is not None and len(self.acc_m.clock) < 200:
+                    ck = (sig, b, len(use), self.clk[bit]["ac"])
+                    self.acc_m.clock.append(ck)
+                    if len(self.acc_h.clock) < 3000:
+                        self.acc_h.clock.append(ck)
         if len(self._fit_cache) > 4000:
             self._fit_cache.clear()
         self._fit_cache[key] = res
@@ -531,6 +748,8 @@ class Fixer:
             ln = self._line(b, t, icao)
             if ln is None:
                 self.c["no_clock"] += 1
+                self.acc_m.c["nc"] += 1
+                self.acc_h.c["nc"] += 1
                 continue
             o, sig = ln
             # arrival in GPS time = counter ns − (base + offset); against the reference receiver
@@ -542,6 +761,8 @@ class Fixer:
         if len(rx) < 3:
             return
         self.c["tried"] += 1
+        self.acc_m.c["tr"] += 1
+        self.acc_h.c["tr"] += 1
         hyps = a["hyps"]
         got = poor = False
         for hy in hyps:
@@ -673,6 +894,10 @@ class Fixer:
                     for p in a["trk"]:
                         if p[7] == hyps[0]["id"]:
                             p[6] = 0
+        if a["res"] and len(hyps) == 1 and not a.get("res_was") and self.acc_m is not None:
+            dt_res = t - hyps[0]["t0"]
+            self.acc_m.rs.append(dt_res)
+            self.acc_h.rs.append(dt_res)
         a["res_was"] = bool(a["res"] and len(hyps) == 1)
         a["hyps"] = hyps
 
@@ -685,7 +910,7 @@ class Fixer:
         amb = len(a["hyps"]) > 1 or not (a["res"] or t - hy["t0"] >= SINGLE_OK_SEC)
         if amb:
             self.c["ambiguous"] += 1
-        err_raw = err_trk = None
+        err_raw = err_trk = dist = None
         tr = self._truth(ls, t) if self._good(ls) else None
         if tr is not None:
             err_raw = math.hypot(hy["raw"][0] - tr[0], hy["raw"][1] - tr[1])
@@ -709,9 +934,15 @@ class Fixer:
                        (sum(p[2] for p in h1) - sum(p[2] for p in h0)) / k / dtm)
         if vel is None and hy["k"] >= 8:
             vel = (hy["ve"], hy["vn"])
+        rgs = ls.get("groundspeed") if (ls.get("vel_ts") is not None and abs(t - ls["vel_ts"]) <= VEL_FRESH) else None
         pt = [round(t, 1), round(lat, 5), round(lon, 5), int(alt),
               None if exp is None else int(min(exp, 99999)), None if err_trk is None else int(err_trk), 1 if amb else 0,
-              hy["id"]]
+              hy["id"],
+              None if vel is None else int(round(math.hypot(vel[0], vel[1]) / KT)),     # our own ground speed, kt
+              None if rgs is None else int(round(rgs))]                                 # the speed the aircraft reports
+        has_pos = tr is not None or (ls.get("last_adsb_pos_ts") is not None and t - ls["last_adsb_pos_ts"] < 60)
+        for acc in (self.acc_m, self.acc_h):
+            acc.fix(icao, has_pos, amb, float(alt), dist, exp, err_raw, err_trk, lat, lon)
         with self._lock:
             a["last"] = pt
             a["vel"] = None if vel is None else (int(round(math.hypot(vel[0], vel[1]) / KT)),
@@ -724,6 +955,13 @@ class Fixer:
                                               and t - ls["last_adsb_pos_ts"] < 60)
             if not a["trk"] or t - a["trk"][-1][0] >= TRACK_STEP:
                 a["trk"].append(pt)
+                trk_r = ls.get("track")
+                if tr is not None and not amb and trk_r is not None:
+                    # where the single fix lies from the own position: along and across the flight direction
+                    de, dn = hy["raw"][0] - tr[0], hy["raw"][1] - tr[1]
+                    br = math.radians(float(trk_r))
+                    self.scatter.append((round(t), int(de * math.sin(br) + dn * math.cos(br)),
+                                         int(de * math.cos(br) - dn * math.sin(br)), round(dist, 1)))
                 if tr is not None:
                     a["adsb"].append((round(t, 1), round(tr[3], 5), round(tr[4], 5)))
                 while a["trk"] and t - a["trk"][0][0] > KEEP_SEC:
@@ -739,6 +977,38 @@ class Fixer:
                 del self.ac[k]
 
     # ── for the page (web threads) ───────────────────────────────────────
+    def stats(self, rng: str = "1h") -> dict:
+        """The statistics of the Charts view: rng "1h" (by the minute), "24h" (10-minute steps) or
+        "7d" (hours) — the series, the whole range as one, the accuracy grid and the scatter sample."""
+        now = self.now or time.time()
+        with self._lock:
+            mins, hours = list(self.minutes), list(self.hours)
+            sc = list(self.scatter)
+        if rng == "7d":
+            ser = [{k: v for k, v in h.items() if k != "grid"} for h in hours if h["t"] >= now - 7 * 86400]
+            step, gr = 3600, [h for h in hours if h["t"] >= now - 7 * 86400]
+        elif rng == "24h":
+            by: dict = {}
+            for m in mins:
+                if m["t"] >= now - 86400:
+                    by.setdefault(m["t"] // 600 * 600, []).append(m)
+            ser = [combine(v, k) for k, v in sorted(by.items())]
+            step, gr = 600, [h for h in hours if h["t"] >= now - 86400]
+        else:
+            rng = "1h"
+            ser = [m for m in mins if m["t"] >= now - 3600]
+            step, gr = 60, [h for h in hours if h["t"] >= now - 3600]
+        grids = list(gr)
+        if self.acc_h is not None:
+            try:
+                grids.append(self.acc_h.close())   # the open hour so far
+            except Exception:                      # noqa: BLE001  (changed while read: next time)
+                pass
+        return {"on": True, "range": rng, "step": step, "now": round(now, 1), "series": ser,
+                "total": combine(ser) if ser else {}, "bands": list(STAT_BANDS), "alt_bands": list(ALT_BANDS),
+                "grid": merge_grids(grids), "cell": [GRID_LAT, GRID_LON],
+                "scatter": [s[1:] for s in sc if s[0] >= now - 3600][-2500:]}
+
     def public(self, win: float = 600.0, since: float = 0.0) -> dict:
         now = self.now or time.time()
         win = max(30.0, min(float(win), KEEP_SEC))
@@ -754,7 +1024,7 @@ class Fixer:
                             "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")),
                             "res": bool(a["res"]), "err": None if not er else int(er[len(er) // 2]),
                             "vel": a.get("vel"), "vr": a.get("vr"),
-                            "trk": [p[:7] for p in a["trk"] if p[0] > t_from],
+                            "trk": [p[:7] + p[8:10] for p in a["trk"] if p[0] > t_from],
                             "adsb": [p for p in a["adsb"] if p[0] > t_from]})
             st = list(self.stat)
         bands = []

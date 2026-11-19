@@ -746,6 +746,17 @@ def create_app(
         out["center"] = [cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON]
         return _private(_gzip_json(out))
 
+    @app.route("/api/mlat/fixstats")
+    def mlat_fixstats_api():
+        """Statistics of the own position fixes (from 2026-11-19) for the MLAT
+        tab's Charts view and the map's accuracy grid: ?range=1h (by the
+        minute), 24h (10-minute steps) or 7d (hours).  The MLAT right only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        rng = request.args.get("range", "1h")
+        return _private(_gzip_json(mlat_rec.fix_stats(rng if rng in ("1h", "24h", "7d") else "1h")))
+
     @app.route("/api/msgstats")
     def msgstats_api():
         """Message statistics of the last `window` minutes (1–60, 1440 for

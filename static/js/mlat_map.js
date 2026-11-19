@@ -49,19 +49,48 @@
     vec: lsGet(LS.vec, '1') === '1',
   };
   let atc = null;                             // the canvas with the squares, vectors and labels
+  let gridLayer = null, gridData = null, gridT = 0, selCh = {};
+  // Accuracy grid: five classes of the median error, one hue, the larger the error the stronger
+  const GRID_CL = [50, 100, 250, 500];
+  const GRID_COL = () => light() ? ['#ddd6fe', '#c4b5fd', '#8b5cf6', '#6d28d9', '#4c1d95'] : ['#3b2a6b', '#5b3fb0', '#7c5ce0', '#a78bfa', '#ddd6fe'];
+  async function gridLoad() {
+    if (!gridLayer) return;
+    if (!S.grid) { gridData = null; gridLayer.clearLayers(); draw(); return; }
+    gridT = Date.now();
+    try {
+      const rng = lsGet('ms_mlc_rng', '1h');
+      const d = await (await fetch('/api/mlat/fixstats?range=' + rng, { cache: 'no-store' })).json();
+      gridData = d.on ? { cells: d.grid || {}, cell: d.cell, rng } : null;
+    } catch (_) { /* keeps the last grid */ }
+    gridDraw(); draw();
+  }
+  function gridDraw() {
+    if (!gridLayer) return;
+    gridLayer.clearLayers();
+    if (!S.grid || !gridData) return;
+    const [dla, dlo] = gridData.cell, col = GRID_COL();
+    for (const [k, g] of Object.entries(gridData.cells)) {
+      const [i, j] = k.split(',').map(Number);
+      const c = g[1] == null ? null : col[GRID_CL.findIndex(x => g[1] <= x) < 0 ? 4 : GRID_CL.findIndex(x => g[1] <= x)];
+      L.rectangle([[i * dla, j * dlo], [(i + 1) * dla, (j + 1) * dlo]], { pane: 'mlmGrid', stroke: false, fillColor: c || '#94a3b8', fillOpacity: c ? 0.6 : 0.25, interactive: false }).addTo(gridLayer);
+    }
+  }
   const lblPos = {};                          // icao → the label's chosen position
 
   // ── the two views of the tab ────────────────────────────────────────────
   function apply() {
     const bar = $('mst-mlat-views');
     bar.style.display = tabOn ? '' : 'none';
-    const onMap = tabOn && view === 'map';
+    const onMap = tabOn && view === 'map', onCh = tabOn && view === 'charts';
     $('mst-mlat-map').style.display = onMap ? '' : 'none';
     $('mlm-ctl').style.display = onMap ? '' : 'none';
-    if (tabOn) $('mst-mlat').style.display = onMap ? 'none' : '';
+    $('mst-mlat-charts').style.display = onCh ? '' : 'none';
+    $('mlc-ctl').style.display = onCh ? '' : 'none';
+    if (tabOn) $('mst-mlat').style.display = onMap || onCh ? 'none' : '';
+    document.dispatchEvent(new CustomEvent('mlm-view', { detail: { charts: onCh } }));   // static/js/mlat_charts.js
     bar.querySelectorAll('[data-mlview]').forEach(b => b.classList.toggle('active', b.dataset.mlview === view));
     clearTimeout(timer);
-    if (onMap) { initMap(); setTimeout(() => map && map.invalidateSize(), 50); poll(true); }
+    if (onMap) { initMap(); setTimeout(() => map && map.invalidateSize(), 50); poll(true); if (S.grid) gridLoad(); }
   }
   document.addEventListener('mst-mlat', e => { tabOn = !!(e.detail && e.detail.on); apply(); });
   $('mst-mlat-views').addEventListener('click', e => {
@@ -76,6 +105,9 @@
   $('mlm-adsb').checked = S.adsb; $('mlm-amb').checked = S.amb; $('mlm-lbl').checked = S.lbl; $('mlm-vec').checked = S.vec;
   $('mlm-win').addEventListener('change', e => { S.win = +e.target.value; lsSet(LS.win, S.win); poll(true); });
   $('mlm-exp').addEventListener('change', e => { S.exp = +e.target.value; lsSet(LS.exp, S.exp); draw(); });
+  $('mlm-grid').checked = S.grid = lsGet('ms_mlm_grid', '0') === '1';
+  $('mlm-grid').addEventListener('change', e => { S.grid = e.target.checked; lsSet('ms_mlm_grid', S.grid ? '1' : '0'); gridLoad(); });
+  document.addEventListener('mlc-range', () => { if (S.grid) gridLoad(); });
   for (const [id, k] of [['mlm-adsb', 'adsb'], ['mlm-amb', 'amb'], ['mlm-lbl', 'lbl'], ['mlm-vec', 'vec']]) {
     $(id).addEventListener('change', e => { S[k] = e.target.checked; lsSet(LS[k], S[k] ? '1' : '0'); draw(); });
   }
@@ -96,6 +128,9 @@
     map = L.map('mlm-map', { zoomControl: true, preferCanvas: true, attributionControl: true }).setView([60.317, 24.963], 8);
     renderer = L.canvas({ padding: 0.3 });
     setTiles();
+    map.createPane('mlmGrid').style.zIndex = 350;
+    map.getPane('mlmGrid').style.pointerEvents = 'none';
+    gridLayer = L.layerGroup().addTo(map);
     layer = L.layerGroup().addTo(map);
     if (typeof AtcDisplay !== 'undefined') atc = AtcDisplay.canvasLayer(map, drawTargets);
     if (window.msRxMarkers) { try { window.msRxMarkers(map).addTo(map); } catch (_) { /* the receivers are optional */ } }
@@ -185,7 +220,10 @@
       `<div><i style="border-color:${C.pos}"></i>our fix — aircraft also broadcasts its position</div>` +
       `<div><i style="border-color:${C.nopos}"></i>our fix — aircraft sends no position (a dot in its square)</div>` +
       (S.adsb ? `<div><i style="border-color:${C.adsb};border-top-width:1px"></i>broadcast ADS-B track · <i style="border-color:${C.link};border-top-width:2px;width:10px"></i>difference now</div>` : '') +
-      (S.amb ? '<div>dashed: unresolved — two positions possible</div>' : '');
+      (S.amb ? '<div>dashed: unresolved — two positions possible</div>' : '') +
+      (S.grid && gridData ? `<div class="mlm-gridleg">median error, ${gridData.rng}:` + GRID_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + GRID_CL[i] : '> 500'}`).join('') + ' m</div>' : '');
+    if (S.grid && Date.now() - gridT > 60000) gridLoad();
+    selPanel();
   }
   // Squares, speed vectors and labels, as the Live Map's ATC style (one canvas over the map)
   const fl3 = alt => String(Math.max(0, Math.round(alt / 100))).padStart(3, '0');
@@ -212,6 +250,30 @@
       if (S.lbl) items.push({ key: k, p, lines: AtcDisplay.labelLines(ac, 'std', name(k, o), fl3), col, sel: on, fade: 1, alt: lp[3] });
     }
     if (items.length) AtcDisplay.drawLabels(g, items, W, H, obst, lblPos, 12, { halo: light() ? 'rgba(255,255,255,.9)' : 'rgba(11,18,32,.9)', leader: C.adsb });
+  }
+  // The selected aircraft: its distance from its own ADS-B position over the trail, and our
+  // ground speed against the one it reports (track points: [t, lat, lon, alt, expected, error,
+  // unresolved, our speed kt, reported speed kt])
+  function selPanel() {
+    const o = sel ? AC.get(sel) : null, box = $('mlm-selp');
+    box.style.display = o ? '' : 'none';
+    if (!o || typeof Chart === 'undefined') return;
+    $('mlm-selt').textContent = `${name(sel, o)} ${o.typ || ''} · ${sel}`;
+    const C = COL(), txt = light() ? '#475569' : '#94a3b8', grid = 'rgba(148,163,184,.18)';
+    const pts = o.trk.filter(p => !p[6]);
+    const lab = pts.map(p => { const t = new Date(p[0] * 1000); return String(t.getUTCHours()).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0') + ':' + String(t.getUTCSeconds()).padStart(2, '0'); });
+    const mk = (key, id, ds) => {
+      const cfg = { type: 'line', data: { labels: lab, datasets: ds.map(d => Object.assign({ borderWidth: 2, pointRadius: 0, tension: 0, spanGaps: false }, d)) },
+        options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: ds.length > 1, labels: { color: txt, boxWidth: 14, font: { size: 10 } } } },
+          scales: { x: { grid: { display: false }, ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 6, font: { size: 10 } } },
+                    y: { beginAtZero: key === 'e', grid: { color: grid }, ticks: { color: txt, font: { size: 10 } } } } } };
+      if (selCh[key]) { selCh[key].data = cfg.data; selCh[key].options = cfg.options; selCh[key].update('none'); }
+      else selCh[key] = new Chart($(id), cfg);
+    };
+    mk('e', 'mlm-sel-err', [{ label: 'distance from its own position, m', data: pts.map(p => p[5]), borderColor: o.pos ? C.pos : C.nopos }]);
+    mk('g', 'mlm-sel-gs', [{ label: 'ours', data: pts.map(p => p[7]), borderColor: o.pos ? C.pos : C.nopos },
+                           { label: 'reported', data: pts.map(p => p[8]), borderColor: C.adsb, borderDash: [4, 3] }]);
   }
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
   function tip(k, o) {

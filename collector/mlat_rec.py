@@ -319,6 +319,10 @@ class Recorder:
                 ts INTEGER, a INTEGER, b INTEGER, n INTEGER, n_res INTEGER,
                 res_med REAL, res_lo REAL, res_hi REAL, extra TEXT, PRIMARY KEY (ts, a, b));
             CREATE TABLE IF NOT EXISTS mlat_meta (k TEXT PRIMARY KEY, v TEXT);
+            -- statistics of the position fixes (collector/mlat_fix.py, from 2026-11-19): one JSON
+            -- row per minute (kept 2 days) and per hour (kept MLAT_SUM_DAYS, with the accuracy grid)
+            CREATE TABLE IF NOT EXISTS mlat_fix_min (ts INTEGER PRIMARY KEY, j TEXT);
+            CREATE TABLE IF NOT EXISTS mlat_fix_hour (ts INTEGER PRIMARY KEY, j TEXT);
         """)
         db.commit()
 
@@ -337,6 +341,14 @@ class Recorder:
         for r in self._db.execute("SELECT ts, a, b, n, n_res, res_med, res_lo, res_hi FROM mlat_min "
                                   "WHERE ts >= ? ORDER BY ts", (cut,)):
             self.minutes.append(tuple(r))
+        if self.fix is not None:
+            try:
+                for (j,) in self._db.execute("SELECT j FROM mlat_fix_min WHERE ts >= ? ORDER BY ts", (cut - 3600,)):
+                    self.fix.minutes.append(json.loads(j))
+                for (j,) in self._db.execute("SELECT j FROM mlat_fix_hour WHERE ts >= ? ORDER BY ts", (cut - 7 * 86400,)):
+                    self.fix.hours.append(json.loads(j))
+            except Exception as exc:               # noqa: BLE001
+                log.debug("MLAT fix statistics not loaded: %s", exc)
         ss = self._meta("site_sum") or {}
         for rx in self.rxs.values():
             v = ss.get(rx.id)
@@ -350,6 +362,8 @@ class Recorder:
         cut = int(now - self.sum_days * 86400)
         self._db.execute("DELETE FROM mlat_sum WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
+        self._db.execute("DELETE FROM mlat_fix_hour WHERE ts < ?", (cut,))
+        self._db.execute("DELETE FROM mlat_fix_min WHERE ts < ?", (int(now - 2 * 86400),))
         self._db.commit()
 
     def _rx_state(self) -> dict:
@@ -613,6 +627,14 @@ class Recorder:
             self.c["rows"] += len(rows)
 
     def _close_minute(self, now: float) -> None:
+        if self.fix is not None:
+            # the closed minutes / hours of the fix statistics
+            rows = self.fix.take()
+            if rows:
+                for kind, rec in rows:
+                    self._db.execute("INSERT OR REPLACE INTO mlat_fix_%s VALUES (?, ?)" % ("min" if kind == "min" else "hour"),
+                                     (rec["t"], json.dumps(rec, separators=(",", ":"))))
+                self._db.commit()
         t0 = int(now // 60) * 60
         if self.min_t0 is None:
             self.min_t0 = t0
@@ -958,6 +980,13 @@ def fix_public(win: float = 600.0, since: float = 0.0) -> dict:
     if _REC.fix is None:
         return {"on": False, "why": "needs three receivers (MLAT_FIX)"}
     return _REC.fix.public(win, since)
+
+
+def fix_stats(rng: str = "1h") -> dict:
+    """The statistics of the own position fixes for the MLAT tab's Charts view."""
+    if _REC is None or _REC.fix is None:
+        return {"on": False, "why": _WHY if _REC is None else "needs three receivers (MLAT_FIX)"}
+    return _REC.fix.stats(rng)
 
 
 def public(detail: bool = False) -> dict:
