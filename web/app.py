@@ -794,6 +794,16 @@ def create_app(
         from collector import mlat_rec
         return _private(_gzip_json(mlat_rec.replay_flights()))
 
+    @app.route("/api/mlat/grid")
+    def mlat_grid_api():
+        """The accuracy grid of the Own MLAT map alone (from 2026-11-20 evening): ?hours=1, 3, 6, 12, 24 or 168 —
+        per cell of about 5 km the fixes and their median distance from the aircraft's own positions.  The MLAT
+        right only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        return _private(_gzip_json(mlat_rec.fix_grid(request.args.get("hours", default=1, type=int))))
+
     @app.route("/api/mlat/fixstats")
     def mlat_fixstats_api():
         """Statistics of the own position fixes (from 2026-11-19) for the MLAT

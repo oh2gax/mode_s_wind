@@ -338,6 +338,7 @@ ALT_BANDS   = (5000, 15000, 30000)      # ft → 4 bands
 GRID_LAT, GRID_LON = 0.05, 0.10         # the accuracy grid's cell (about 5.5 km)
 MIN_KEEP    = 1500                      # minutes kept in RAM (25 h)
 HOUR_KEEP   = 24 * 8                    # hours kept in RAM (8 d)
+GRID_HOURS  = (1, 3, 6, 12, 24, 168)    # the periods the map's accuracy grid can be asked for (/api/mlat/grid)
 NEAR_NM     = 10.0                      # "lowest fix near the airport"
 
 
@@ -1246,6 +1247,23 @@ class Fixer:
                 "total": combine(ser) if ser else {}, "bands": list(STAT_BANDS), "alt_bands": list(ALT_BANDS),
                 "grid": merge_grids(grids), "cell": [GRID_LAT, GRID_LON],
                 "scatter": [s[1:] for s in sc if s[0] >= now - 3600][-2500:]}
+
+    def grid(self, hours: int = 1) -> dict:
+        """The accuracy grid alone, for the map (from 2026-11-20 evening): the cells of the last `hours` hours
+        (one of GRID_HOURS), each cell [fixes, median error m, fixes with an error].  The grid is kept by the
+        clock hour, so the period is the last `hours` whole hours and the running hour: between `hours` and
+        `hours` + 1 hours, never just the few minutes since the hour changed."""
+        hours = int(hours) if hours in GRID_HOURS else 1
+        now = self.now or time.time()
+        with self._lock:
+            grids = [h for h in self.hours if h["t"] > now - (hours + 1) * 3600]
+        if self.acc_h is not None:
+            try:
+                grids.append(self.acc_h.close())   # the open hour so far
+            except Exception:                      # noqa: BLE001  (changed while read: next time)
+                pass
+        return {"on": True, "hours": hours, "now": round(now, 1), "n_hours": len(grids),
+                "grid": merge_grids(grids), "cell": [GRID_LAT, GRID_LON]}
 
     def public(self, win: float = 600.0, since: float = 0.0) -> dict:
         now = self.now or time.time()

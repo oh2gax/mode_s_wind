@@ -119,7 +119,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.23
+version: 1.24
 date: 2026-11-20
 pages: 23
 open: stats
@@ -132,7 +132,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day
-- **The MLAT tab** (for users with the MLAT right; new in 1.19 to 1.23: the map's trails up to 24 hours, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
+- **The MLAT tab** (for users with the MLAT right; new in 1.19 to 1.24: the map's trails up to 24 hours, the accuracy grid's period, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## The GPS pages — Quality, Episodes and Aircraft
@@ -153,7 +153,7 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.84
+version: 1.85
 date: 2026-11-20
 pages: 68
 
@@ -168,7 +168,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - **Weather with GFS** (from 5 Nov 2026, where the server has it): *Model* MEPS or NOAA's GFS to 16 days, the 3-hour steps after +120 h, −1d / +1d, the GFS grid
 - **Mast** (from 1 Nov 2026): the Kivenlahti mast's lowest 300 m — EFHK now with the mast against MEPS and the aircraft, the tiles, the profile, the boundary layer with the mast's 10-minute steps, the time series and the comparison
 - **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a place tapped on the Weather map — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
-- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.81 to 1.84: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
+- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.81 to 1.85: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
 - What to do when something looks wrong, and a quick reference
 
 ## Meteograms

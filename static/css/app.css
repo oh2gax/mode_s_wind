@@ -609,6 +609,10 @@ body.app-body {
              color: var(--text-1); background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; }   /* 16 px: no zoom on focus on iOS */
 .aml-rp-at::placeholder { color: var(--text-3); font-size: 13px; } .aml-rp-at.bad { border-color: #ef4444; }
 #aml-p-fl .am-ctl .am-lbl { min-width: 0; }
+.aml-gridleg { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 3px; margin: 6px 4px 0; font-size: 11px; color: var(--text-2); }
+.aml-gridleg[hidden] { display: none; }
+.aml-gridleg span { margin-right: 4px; }
+.aml-gridleg b { display: inline-block; width: 14px; height: 9px; margin: 0 2px 0 5px; border-radius: 1px; }
 .aml-pick { min-height: 3.2em; position: relative; }
 .aml-pick.on { cursor: pointer; padding-right: 86px; }
 .aml-pick small { position: absolute; right: 8px; top: 6px; font-size: 10px; color: var(--text-3); }

@@ -207,7 +207,7 @@
       <button type="button" class="gps-zone-btn" data-mlview="charts" title="Statistics of our own position fixes: the error against ADS-B over time and by distance, the clock of the receiver without GPS time, what the fixes add">Charts</button>
     </span>
     <span class="mlm-ctl" id="mlc-ctl" style="display:none">
-      <span class="gps-zone-btns" id="mlc-rng" title="The period of the charts (and of the map's accuracy grid)">
+      <span class="gps-zone-btns" id="mlc-rng" title="The period of the charts">
         <button type="button" class="gps-zone-btn active" data-rng="1h">1 h</button><button type="button" class="gps-zone-btn" data-rng="24h">24 h</button><button type="button" class="gps-zone-btn" data-rng="7d">7 d</button>
       </span>
       <span class="mst-hdr-note" id="mlc-note"></span>
@@ -220,7 +220,7 @@
       <label title="Speed vector: where the aircraft is in 30 seconds, from the speed and direction of our own track"><input type="checkbox" id="mlm-vec" checked> Vector 30 s</label>
       <label title="Receiver coverage, as on the Live Map: a thin dashed line around the area heard in the last 24 hours — the farthest ADS-B position in each 10° direction, any height. All receivers together (the edge of their combined area) or one receiver's own line in its colour">Coverage <select id="mlm-cov"><option value="off">off</option><option value="all">all receivers</option></select></label>
       <label title="The approach lines of Helsinki-Vantaa as on the Windshear map: the ILS finals (short dashes) and the RNP approaches (long dashes), with the airport's outline"><input type="checkbox" id="mlm-ils" checked> Approach lines</label>
-      <label title="Accuracy grid: each cell of about 5 km coloured by the median distance between our fixes there and the aircraft's own positions, over the period chosen in the Charts view; a cell with fixes but nothing to compare with is grey"><input type="checkbox" id="mlm-grid"> Accuracy grid</label>
+      <label title="Accuracy grid: each cell of about 5 km coloured by the median distance between our fixes there and the aircraft's own positions, over the period chosen beside it; a cell with fixes but nothing to compare with is grey"><input type="checkbox" id="mlm-grid"> Accuracy grid <select id="mlm-gridh" title="The period of the accuracy grid: the last 1, 3, 6, 12 or 24 hours or 7 days. A long period still holds positions computed before later improvements" aria-label="Period of the accuracy grid"><option value="1">1 h</option><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">24 h</option><option value="168">7 d</option></select></label>
       <label title="Radar-display labels: callsign; flight level with the climb / descent arrow; our own ground speed in tens of knots and the type"><input type="checkbox" id="mlm-lbl" checked> Labels</label>
       <label title="Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level in the label as on the Live Map and the Windshear map (019↑060 = at 1 900 ft, climbing, 6 000 ft selected). It comes from the aircraft's own messages also when the position is ours"><input type="checkbox" id="mlm-sal"> Show Sel Alt</label>
       <label title="Solo: with an aircraft selected (on the map, in the list or in the Traffic window) only that aircraft is drawn; with none selected, all are"><input type="checkbox" id="mlm-solo"> Solo</label>

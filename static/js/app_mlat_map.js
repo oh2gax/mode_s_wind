@@ -25,11 +25,15 @@
  *      Flights  the aircraft located in the last 3 / 6 / 12 / 24 hours; a tap replays one alone
  *    (the fourth panel, Recorder, is app_mlat.js itself)
  *
- * Left to the web page: the accuracy grid, the coverage outline, the selected aircraft's two
- * charts, sorting by column, and the Traffic window (the chips do its job here).
+ * Accuracy grid (from the evening of 2026-11-20, option): each cell of about 5 km coloured by the
+ * median distance between our fixes there and the aircraft's own positions over the last 1 h to
+ * 7 d (/api/mlat/grid), with its legend under the slider.
+ *
+ * Left to the web page: the coverage outline, the selected aircraft's two charts, sorting by
+ * column, and the Traffic window (the chips do its job here).
  *
  * Options (menu, "MLAT options"; remembered on the phone as ms_app_mlm_*): Trail, Expected
- * error, ADS-B track, Unresolved, Vector, Labels, Show Sel Alt, Solo, Approach lines.
+ * error, ADS-B track, Unresolved, Vector, Labels, Show Sel Alt, Solo, Approach lines, Accuracy grid.
  *
  * Data: /api/mlat/fixes — the whole trail first and once a minute, in between only the new
  * points every 5 s, while the view is shown.  app_mlat.js calls init / show / hide / layout /
@@ -55,7 +59,8 @@
   const RP = { on: false, t: 0, play: false, speed: 10, t0: null, t1: null, chunks: new Map(), wait: new Set(), tick: null, wall: 0, meta: null, rangeT: 0, flights: [], missing: false };
   // the options: [key, select id, default, number?]
   const OPTS = [['win', 'app-mlat-win', '300', 1], ['exp', 'app-mlat-exp', '500', 1], ['adsb', 'app-mlat-adsb', 'on'], ['amb', 'app-mlat-amb', 'off'],
-                ['vec', 'app-mlat-vec', 'on'], ['lbl', 'app-mlat-lbl', 'on'], ['sal', 'app-mlat-sal', 'off'], ['solo', 'app-mlat-solo', 'off'], ['ils', 'app-mlat-ils', 'on']];
+                ['vec', 'app-mlat-vec', 'on'], ['lbl', 'app-mlat-lbl', 'on'], ['sal', 'app-mlat-sal', 'off'], ['solo', 'app-mlat-solo', 'off'], ['ils', 'app-mlat-ils', 'on'],
+                ['grid', 'app-mlat-grid', '0', 1]];        // the accuracy grid's period in hours, 0 = off
   const S = {};
 
   function setOpt(k, v) {                    // set from the code (a flight chosen for replay turns Solo on): the chips follow
@@ -79,6 +84,7 @@
         lsSet('ms_app_mlm_' + k, el.value);
         if (k === 'win') { if (RP.on) rpFrame(); else poll(true); }
         else if (k === 'ils') ilsShow();
+        else if (k === 'grid') gridLoad();
         else { draw(); renderLists(); }
       });
     }
@@ -122,7 +128,7 @@
       $('v-mlat').scrollTo({ top: 0, behavior: 'smooth' });
     });
     $('aml-pick').addEventListener('click', () => { if (sel) pick(sel, false); });
-    new MutationObserver(() => { setTiles(); ilsShow(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    new MutationObserver(() => { setTiles(); ilsShow(); gridDraw(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && on && !RP.on) poll(false); });
   }
 
@@ -174,6 +180,10 @@
     new Home().addTo(map);
     renderer = L.canvas({ padding: 0.3 });
     setTiles();
+    map.createPane('amlGrid').style.zIndex = 350;               // the accuracy grid: under everything drawn
+    map.getPane('amlGrid').style.pointerEvents = 'none';
+    gridLayer = L.layerGroup().addTo(map);
+    if (S.grid) gridLoad();
     map.createPane('amlHist').style.zIndex = 390;               // the long trails: under the tracks of the last hour
     map.getPane('amlHist').style.pointerEvents = 'none';
     histRend = L.canvas({ pane: 'amlHist', padding: 0.3 });
@@ -350,9 +360,40 @@
       flush();
     }
   }
+  // ── accuracy grid (from the evening of 2026-11-20) ──────────────────────
+  // Five classes of the median error, one hue, the larger the error the stronger (as on the web map)
+  const GRID_CL = [50, 100, 250, 500];
+  const GRID_COL = () => light() ? ['#ddd6fe', '#c4b5fd', '#8b5cf6', '#6d28d9', '#4c1d95'] : ['#3b2a6b', '#5b3fb0', '#7c5ce0', '#a78bfa', '#ddd6fe'];
+  let gridLayer = null, gridData = null, gridT = 0;
+  async function gridLoad() {
+    gridT = Date.now();
+    const h = S.grid;
+    if (!h) { gridData = null; gridDraw(); return; }
+    try {
+      const d = await (await fetch('/api/mlat/grid?hours=' + h, { cache: 'no-store' })).json();
+      if (h !== S.grid) return;                      // changed meanwhile: the newer request draws
+      gridData = d.on ? { cells: d.grid || {}, cell: d.cell, rng: h === 168 ? '7 d' : h + ' h' } : null;
+    } catch (_) { /* keeps the last grid */ }
+    gridDraw();
+  }
+  function gridDraw() {
+    const leg = $('aml-gridleg');
+    leg.hidden = !(S.grid && gridData);
+    if (!leg.hidden) leg.innerHTML = `<span>median error, ${gridData.rng}</span>` + GRID_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + GRID_CL[i] : '> 500'}`).join('') + ' m';
+    if (!gridLayer) return;
+    gridLayer.clearLayers();
+    if (!S.grid || !gridData) return;
+    const [dla, dlo] = gridData.cell, col = GRID_COL();
+    for (const [k, g] of Object.entries(gridData.cells)) {
+      const [i, j] = k.split(',').map(Number), q = GRID_CL.findIndex(x => g[1] <= x);
+      const c = g[1] == null ? null : col[q < 0 ? 4 : q];
+      L.rectangle([[i * dla, j * dlo], [(i + 1) * dla, (j + 1) * dlo]], { pane: 'amlGrid', stroke: false, fillColor: c || '#94a3b8', fillOpacity: c ? 0.6 : 0.25, interactive: false }).addTo(gridLayer);
+    }
+  }
   function draw() {
     if (!map || !layer) return;
     histCheck(); histDraw();
+    if (S.grid && Date.now() - gridT > 60000) gridLoad();
     layer.clearLayers();
     if (!state || !state.on) { if (atc) atc.redraw(); return; }
     const C = COL(), now = state.now;

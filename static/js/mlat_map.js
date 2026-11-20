@@ -162,9 +162,10 @@
     if (!S.grid) { gridData = null; gridLayer.clearLayers(); draw(); return; }
     gridT = Date.now();
     try {
-      const rng = lsGet('ms_mlc_rng', '1h');
-      const d = await (await fetch('/api/mlat/fixstats?range=' + rng, { cache: 'no-store' })).json();
-      gridData = d.on ? { cells: d.grid || {}, cell: d.cell, rng } : null;
+      // its own period (from the evening of 2026-11-20; before: the Charts view's), /api/mlat/grid?hours=
+      const h = S.gridH, d = await (await fetch('/api/mlat/grid?hours=' + h, { cache: 'no-store' })).json();
+      if (h !== S.gridH) return;                       // changed meanwhile: the newer request draws
+      gridData = d.on ? { cells: d.grid || {}, cell: d.cell, rng: h === 168 ? '7 d' : h + ' h' } : null;
     } catch (_) { /* keeps the last grid */ }
     gridDraw(); draw();
   }
@@ -211,7 +212,11 @@
   $('mlm-exp').addEventListener('change', e => { S.exp = +e.target.value; lsSet(LS.exp, S.exp); draw(); });
   $('mlm-grid').checked = S.grid = lsGet('ms_mlm_grid', '0') === '1';
   $('mlm-grid').addEventListener('change', e => { S.grid = e.target.checked; lsSet('ms_mlm_grid', S.grid ? '1' : '0'); gridLoad(); });
-  document.addEventListener('mlc-range', () => { if (S.grid) gridLoad(); });
+  // the grid's period: 1, 3, 6, 12, 24 h or 7 d; the first time it starts from the Charts view's period, which it followed before
+  S.gridH = +lsGet('ms_mlm_gridh', String({ '1h': 1, '24h': 24, '7d': 168 }[lsGet('ms_mlc_rng', '1h')] || 1));
+  if (![1, 3, 6, 12, 24, 168].includes(S.gridH)) S.gridH = 1;
+  $('mlm-gridh').value = String(S.gridH);
+  $('mlm-gridh').addEventListener('change', e => { S.gridH = +e.target.value; lsSet('ms_mlm_gridh', String(S.gridH)); if (S.grid) gridLoad(); });
   if (S.cov !== 'off' && S.cov !== 'all') $('mlm-cov').insertAdjacentHTML('beforeend', `<option value="${esc(S.cov)}">${esc(rxShort(S.cov))}</option>`);
   $('mlm-ils').checked = S.ils;
   $('mlm-ils').addEventListener('change', e => { S.ils = e.target.checked; lsSet('ms_mlm_ils', S.ils ? '1' : '0'); ilsShow(); });

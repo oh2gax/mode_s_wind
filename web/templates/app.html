@@ -276,6 +276,7 @@
     </div>
     <div class="aml-rp2"><input type="range" id="aml-rp-sl" class="aml-rp-sl" min="0" max="1" step="10" value="1" aria-label="Time in the last 24 hours">
       <input type="text" id="aml-rp-at" class="aml-rp-at" inputmode="numeric" maxlength="5" size="5" placeholder="hh:mm" autocomplete="off" enterkeyhint="go" title="Start the replay at this time, UTC: 14:00, 1400 or 14" aria-label="Start the replay at this UTC time, hours and minutes"></div>
+    <div id="aml-gridleg" class="aml-gridleg" hidden></div>
     <div id="aml-pick" class="app-pick aml-pick">Loading…</div>
     <div class="aml-pan"><select id="aml-panel" data-chips aria-label="Shown under the map">
       <option value="trf">Traffic</option><option value="fix">Fixes</option><option value="fl">Flights</option><option value="rec">Recorder</option></select></div>
@@ -760,7 +761,9 @@
       <select id="app-mlat-solo" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
     <div class="app-field"><span>Approach lines</span>
       <select id="app-mlat-ils" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
-    <div class="app-small">Trail: how much of each track is drawn; with 3 h and more the part older than an hour comes from the stored tracks, thinned to a point every 10 to 30 seconds, as thinner lines. Expected error: only fixes whose expected error is below this. ADS-B track: the track the aircraft broadcasts itself, as a thin line beside ours. Unresolved: aircraft for which two positions are still possible, dashed. Vector: where the aircraft is in 30 seconds, from our own track. Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level (019↑060). Solo: with an aircraft selected only that one is drawn. Remembered on the phone.</div>
+    <div class="app-field"><span>Accuracy grid</span>
+      <select id="app-mlat-grid" data-chips><option value="0">Off</option><option value="1">1 h</option><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">24 h</option><option value="168">7 d</option></select></div>
+    <div class="app-small">Trail: how much of each track is drawn; with 3 h and more the part older than an hour comes from the stored tracks, thinned to a point every 10 to 30 seconds, as thinner lines. Expected error: only fixes whose expected error is below this. ADS-B track: the track the aircraft broadcasts itself, as a thin line beside ours. Unresolved: aircraft for which two positions are still possible, dashed. Vector: where the aircraft is in 30 seconds, from our own track. Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level (019↑060). Solo: with an aircraft selected only that one is drawn. Accuracy grid: each cell of about 5 km coloured by the median distance between our fixes there and the aircraft's own positions over the chosen period (grey: fixes, but nothing to compare with); a long period still holds positions computed before later improvements. Remembered on the phone.</div>
   </details>
   {% endif %}
 

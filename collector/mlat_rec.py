@@ -1134,6 +1134,13 @@ def replay_flights() -> dict:
         db.close()
 
 
+def fix_grid(hours: int = 1) -> dict:
+    """The accuracy grid of the own position fixes for the map: the last 1, 3, 6, 12, 24 or 168 hours."""
+    if _REC is None or _REC.fix is None:
+        return {"on": False, "why": _WHY if _REC is None else _FIX_WHY}
+    return _REC.fix.grid(hours)
+
+
 def fix_stats(rng: str = "1h") -> dict:
     """The statistics of the own position fixes for the MLAT tab's Charts view."""
     if _REC is None or _REC.fix is None:
