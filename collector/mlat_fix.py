@@ -11,7 +11,9 @@ a known site gives a position:
                  with a straight line (offset + drift) through the replies of
                  OTHER aircraft with good positions, −CLK_BACK … +DELAY s
                  around the reply — which is why a fix is made DELAY seconds
-                 late.  Short replies are stamped SHORT_NS apart from long
+                 late.  Two or more other aircraft are the rule; from
+                 2026-11-20 one is enough when it gives many references over
+                 a long stretch (CLK1_*), with a wider timing error.  Short replies are stamped SHORT_NS apart from long
                  ones (the two receiver types stamp different ends).
   height         known: the reply's pressure altitude (or the aircraft's last
                  one) plus the GNSS − barometric difference the traffic at
@@ -52,6 +54,18 @@ CLK_MIN_N    = 12       # references needed for the line …
 CLK_MIN_AC   = 2        # … from this many aircraft …
 CLK_MIN_SPAN = 6.0      # … spanning this many seconds
 CLK_MAX_SIG  = 250.0    # ns: a worse line gives no fix
+# A line from ONE other aircraft (from 2026-11-20).  In thin traffic the receiver without GPS time often
+# shares a single aircraft with a good position with the others: in the 07 UTC hour of 20 Nov 43 % of the
+# attempts had no line, and in 70 % of those there were plenty of references, but all of one aircraft.
+# Measured on two busy hours against the line of all the OTHER aircraft (56 700 comparisons, 58
+# aircraft): under these conditions a one-aircraft line lies within 24 ns in half, 38 ns in 68 %, 76 ns
+# in 90 % and 179 ns in 99 % of the cases; the lines that fail them within 92 / 194 / 1 067 ns (50 / 68 /
+# 90 %).  Replayed on four thin hours: 34 % more fixes, the gained ones as close to the aircraft's own
+# positions as the others within 40 NM (median 40 m, 90 % 199 m within 20 NM).
+CLK1_MIN_N    = 60      # references of that one aircraft …
+CLK1_MIN_SPAN = 15.0    # … spanning this many seconds …
+CLK1_MAX_SIG  = 100.0   # … and scattered no more than this (ns)
+CLK1_ADD_NS   = 40.0    # added to the receiver's timing error in such a fix (1 sigma)
 CLK_BIN_MAX  = 40       # references kept per second
 SHORT_NS     = 56_000   # counter receivers: stamp of a 56-bit reply minus this
 GOOD_NACP, GOOD_NIC = 8, 7
@@ -67,6 +81,14 @@ SOLVES_PER_S = 3        # per aircraft
 GATE_M       = 1500.0   # a fix belongs to a track within this + GATE_MPS × dt
 GATE_MPS     = 150.0
 GATE_SIGMA   = 4.0      # … or this many times the fix's expected error
+# The stated error of a fix has a floor (from 2026-11-20).  expected_error() knows the timing errors only;
+# near the receivers those give 20-30 m, while the fixes there are 40-45 m from the aircraft's own positions:
+# within 10 NM only 23 % of the resolved fixes lay inside their stated error, beyond 20 NM 60-63 % (about two
+# thirds is right for a 1-sigma radial error).  With 35 m added in quadrature it is 51 % within 10 NM, 67 % at
+# 10-20 NM and 62 % overall (40 m fitted best; part of that is the error of the broadcast position itself).
+# Only the value that is reported and stored: the gates and the choice between two solutions use the plain
+# value, and a replay of 182 000 fixes gave the same fixes with and without it.
+EXP_FLOOR_M  = 35.0
 MAX_EXP_M    = 2500.0   # a fix expected to be worse than this is not made (poor geometry)
 MERGE_M      = 400.0    # two hypotheses this close are one
 HYP_DROP_SEC = 30.0     # a hypothesis without a fix for this long is dropped
@@ -679,8 +701,11 @@ class Fixer:
                 if p[2] != icao:
                     pts.append(p)
         res = False
-        if len(pts) >= CLK_MIN_N and len({p[2] for p in pts}) >= CLK_MIN_AC \
-                and max(p[0] for p in pts) - min(p[0] for p in pts) >= CLK_MIN_SPAN:
+        nac = len({p[2] for p in pts})
+        span = max(p[0] for p in pts) - min(p[0] for p in pts) if pts else 0.0
+        # several other aircraft, or one with many references over a long stretch (from 2026-11-20)
+        if len(pts) >= CLK_MIN_N and span >= CLK_MIN_SPAN and (
+                nac >= CLK_MIN_AC or (nac == 1 and len(pts) >= CLK1_MIN_N and span >= CLK1_MIN_SPAN)):
             a = b = sig = None
             use = pts
             for _ in range(3):
@@ -700,12 +725,21 @@ class Fixer:
                     break
                 use = nxt
             if a is not None and sig is not None:
-                if sig <= CLK_MAX_SIG:
-                    res = (a, b, mt, sig)
-                self.clk[bit] = {"t": t, "n": len(use), "ac": len({p[2] for p in use}),
+                uac = len({p[2] for p in use})
+                if uac >= CLK_MIN_AC:
+                    if sig <= CLK_MAX_SIG:
+                        res = (a, b, mt, sig)
+                # what is left is of one aircraft (also when the others' references were thrown out as
+                # outliers): the stricter conditions, and a wider timing error for the fix
+                elif len(use) >= CLK1_MIN_N and sig <= CLK1_MAX_SIG \
+                        and max(p[0] for p in use) - min(p[0] for p in use) >= CLK1_MIN_SPAN:
+                    res = (a, b, mt, math.hypot(max(sig, SIG_CNT_NS), CLK1_ADD_NS))
+                self.clk[bit] = {"t": t, "n": len(use), "ac": uac,
                                  "sig": round(sig, 1), "drift": round(b, 2)}
+                if res is False:
+                    self.clk[bit]["weak"] = True       # fitted, but not good enough for a fix
                 if self.acc_m is not None and len(self.acc_m.clock) < 200:
-                    ck = (sig, b, len(use), self.clk[bit]["ac"])
+                    ck = (sig, b, len(use), uac)
                     self.acc_m.clock.append(ck)
                     if len(self.acc_h.clock) < 3000:
                         self.acc_h.clock.append(ck)
@@ -924,6 +958,8 @@ class Fixer:
     def _emit(self, icao, a, hy, t, h, alt, sg, ls, nrx) -> None:
         e, n = hy["e"], hy["n"]
         exp = expected_error(self.fr, sg, h, e, n)
+        if exp is not None and EXP_FLOOR_M > 0.0:
+            exp = math.hypot(exp, EXP_FLOOR_M)
         self.c["fix"] += 1
         a["n"] += 1
         # unresolved: two candidates, or one that is neither confirmed by its motion nor old enough

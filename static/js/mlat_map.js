@@ -420,8 +420,13 @@
       if (!r.site) stt = `<span class="mst-warn">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
       else if (r.gps) stt = r.bit === (d.receivers.find(x => x.gps) || {}).bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) stt = '<span class="mst-warn">no clock line yet</span>';
-      else stt = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm` +
-        (r.clock.age > 30 ? ` · <span class="mst-warn">${Math.round(r.clock.age)} s old</span>` : '');
+      // from 2026-11-20: a line may rest on ONE other aircraft (many replies over a long stretch; the fix
+      // then carries a wider timing error), and a line that was fitted but is too weak for a fix says so
+      else stt = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft` +
+        (r.clock.ac === 1 && !r.clock.weak ? ' <span title="Only one other aircraft with a good position is heard together with this receiver: the line is used with a wider timing error">(one reference)</span>' : '') +
+        ` · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm` +
+        (r.clock.weak ? ' · <span class="mst-warn" title="Too few replies, too short a stretch or too much scatter for a position fix">too weak for a fix</span>' : '') +
+        (r.clock.age > 30 ? ` · <span class="mst-warn" title="No other aircraft with a good position has been heard together with this receiver since then: no position fixes meanwhile">${Math.round(r.clock.age)} s old</span>` : '');
       return `<tr><td>${esc(String(r.id).replace(/^MODES-/, ''))}</td><td>${r.gps ? 'GPS' : 'counter'}</td><td>${stt}</td></tr>`;
     }).join('') + '</tbody>';
     const tried = c.tried || 0;

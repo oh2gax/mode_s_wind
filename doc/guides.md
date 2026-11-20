@@ -238,19 +238,20 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 
 ## Own multilateration from Mode S replies (study log)
 file: MODE_S_Own_Multilateration_Study.pdf
-version: 1.3
-date: 2026-11-19
-pages: 20
+version: 1.4
+date: 2026-11-20
+pages: 25
 
 How a small network of receivers learns to locate aircraft by itself, from the tiny differences in the time at which the receivers hear the same Mode S reply — a study log that explains each step as it is taken, for readers who know Mode S and ADS-B from the receiving side. The positions are for study only; the map and charts of the *MLAT* tab are for users with the MLAT right.
 
 - **The principle**: one reply, several arrival times; lines of equal time difference; how many receivers give what; what limits the accuracy (clocks, antenna positions, cables, the air, reflections, geometry)
 - **The pair recorder** (18 November 2026): every reply heard by two receivers with GPS time, how the expected time difference is computed, the test with simulated receivers and the first half hour of data
 - **The first data check** (19 November 2026): replies without positions at night, how well the clocks agree, the receiver without GPS time, the first positions and the parallel runways from one time difference
-- **How two receivers with GPS time and one without can locate an aircraft** (new in 1.3): aircraft that broadcast a good position set the third receiver's counter, reply by reply; then any aircraft can be located, also one that sends no position. The two possible positions and how the aircraft's own motion picks one; the result on six hours
-- **What two receivers alone can do** (new in 1.3): one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
-- **Calibrating the receivers from the traffic** (new in 1.3): positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
-- What others have published (two readings, 20 references), the plan and its state, open questions, a dated diary and the terms
+- **How two receivers with GPS time and one without can locate an aircraft**: aircraft that broadcast a good position set the third receiver's counter, reply by reply; then any aircraft can be located, also one that sends no position. The two possible positions and how the aircraft's own motion picks one; the result on six hours
+- **What two receivers alone can do**: one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
+- **Calibrating the receivers from the traffic**: positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
+- **The second day** (new in 1.4): the antenna sites surveyed again; the calibration checked on a morning it had not seen (positions that lay up to 350 m too far out are now within 8 m at every distance); why the positions stopped for minutes in thin traffic, and the clock line from one reference aircraft that fills a third of those gaps
+- What others have published (three readings, 24 references), the plan and its state, open questions, a dated diary and the terms
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
