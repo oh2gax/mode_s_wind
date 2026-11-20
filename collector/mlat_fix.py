@@ -98,6 +98,34 @@ RES_OK_MPS   = 25.0     # motion fits the reported speed / track within this …
 RES_SEP_MPS  = 30.0     # … and the other hypothesis is this much worse
 VEL_FRESH    = 15.0     # s: reported speed / track used
 SINGLE_OK_SEC = 60.0    # a single hypothesis this old counts as the position without a motion check
+# The tracker of 2026-11-20 (afternoon).  On the morning of 20 Nov one aircraft was held on the wrong one of
+# the two solutions for a minute and a half and shown as resolved; the trace showed three gaps, closed here:
+# (1) a resolved track stayed resolved while its motion disagreed with the reported one by 30-70 m/s (only
+#     above 3 x RES_OK_MPS was it dropped)                                   -> RES_DOUBT_MPS
+# (2) while a track got fixes, the other solution was never looked for again -> REINIT_DOUBT
+# (3) where the two solutions cross, the single fixes are poor (1 km and more) and the track's own velocity
+#     swung by 100 m/s from fix to fix, so the next fix was looked for in the wrong place -> the filter (KF_*)
+# and a track that had been silent for HYP_DROP_SEC was picked up again by the next fix and, being old,
+# counted as resolved without a motion check                                -> STALE_DROP
+# Replayed on 13 hours of 19-20 Nov (busy and thin; 115 000 resolved fixes of aircraft with a good own
+# position): resolved fixes more than 3 km off 1.06 -> 0.15 %, more than 10 km 0.04 -> 0.01 %; track error in
+# the map's default view 47 / 343 / 1 417 m (median / 90 / 99 %) -> 38 / 193 / 612 m; median by distance
+# 35 / 32 / 92 / 463 m -> 37 / 27 / 57 / 203 m (0-10 / 10-20 / 20-40 / 40-80 NM).  The price: 5 % fewer fixes
+# count as resolved (unresolved share 19.7 -> 25.6 %).
+RES_DOUBT_MPS = 40.0    # a resolved track whose motion is this far from the reported one is unresolved again (0 = off)
+REINIT_DOUBT  = True    # … and the other solutions are looked for again
+RES_MIN_JUDGED = 6      # both hypotheses must have been compared with the reported motion this often before one is chosen
+STALE_DROP   = True     # a hypothesis silent for HYP_DROP_SEC is dropped before the next fix, not revived by it
+KF_ON        = True     # the track is a filter (position and velocity) that weighs each fix by its error ellipse
+KF_ACC       = 2.0      # m/s²: how hard an aircraft may accelerate or turn between fixes (process noise)
+KF_R_SCALE   = 1.5      # the fixes of one second share their clock errors: their stated error counts this many times
+KF_VEL_SIG   = 20.0     # m/s per axis: the reported speed / track as a measurement of the track's velocity (0 = not
+                        # used; 12 smooths more — 36 / 167 / 547 m — but holds a wrong track longer: 0.22 % beyond 3 km)
+KF_VEL_AGE   = 6.0      # s: … when it is at most this old
+# The 24-hour replay of the map (from 2026-11-20): one point of each aircraft's shown track every REPLAY_STEP
+# seconds is handed to the recorder, which stores it in data/mlat.db (collector/mlat_rec.py, table mlat_trk)
+REPLAY_STEP  = 2.0
+REPLAY_BUF   = 30000    # points held if the recorder does not fetch them (about half an hour of busy traffic)
 TRACK_STEP   = 2.0      # s between stored track points
 KEEP_SEC     = 3600.0   # tracks kept
 STAT_SEC     = 600.0    # window of the error statistics
@@ -231,6 +259,73 @@ def expected_error(fr: Frame, rx: list, h: float, e: float, n: float):
     if det <= 1e-30:
         return None
     return math.sqrt((a11 + a22) / det)
+
+
+def fix_cov(fr: Frame, rx: list, h: float, e: float, n: float):
+    """Covariance (m², east-east, east-north, north-north) of a fix at (e, n); rx as in expected_error."""
+    rr = fr.r + h
+    z = h - (e * e + n * n) / (2.0 * rr)
+    dze, dzn = -e / rr, -n / rr
+    ax, ay, az = e - rx[0][0], n - rx[0][1], z - rx[0][2]
+    d0 = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+    g0e, g0n = (ax + az * dze) / d0, (ay + az * dzn) / d0
+    a11 = a12 = a22 = 0.0
+    for x, y, zr, sg in rx[1:]:
+        bx, by, bz = e - x, n - y, z - zr
+        d = math.sqrt(bx * bx + by * by + bz * bz) or 1.0
+        je, jn = (bx + bz * dze) / d - g0e, (by + bz * dzn) / d - g0n
+        w = 1.0 / (sg * sg)
+        a11 += w * je * je
+        a12 += w * je * jn
+        a22 += w * jn * jn
+    det = a11 * a22 - a12 * a12
+    if det <= 1e-30:
+        return None
+    return a22 / det, -a12 / det, a11 / det
+
+
+def _kf_predict(x: list, P: list, dt: float, acc: float) -> None:
+    """Constant velocity over dt, in place.  x = [e, n, ve, vn], P = 4 x 4 (lists)."""
+    x[0] += x[2] * dt
+    x[1] += x[3] * dt
+    for i in (0, 1):                               # P = F P F'
+        j = i + 2
+        for k in range(4):
+            P[i][k] += dt * P[j][k]
+        for k in range(4):
+            P[k][i] += dt * P[k][j]
+    q = acc * acc
+    q4, q3, q2 = q * dt ** 4 / 4.0, q * dt ** 3 / 2.0, q * dt * dt
+    for i in (0, 1):
+        j = i + 2
+        P[i][i] += q4
+        P[i][j] += q3
+        P[j][i] += q3
+        P[j][j] += q2
+
+
+def _kf_update(x: list, P: list, i0: int, z0: float, z1: float, r11: float, r12: float, r22: float):
+    """A two-dimensional measurement of the state's elements i0, i0 + 1 with covariance r; in place.
+    Returns the squared normalised innovation (how many sigmas the measurement lay off, squared)."""
+    i1 = i0 + 1
+    y0, y1 = z0 - x[i0], z1 - x[i1]
+    s11, s12, s22 = P[i0][i0] + r11, P[i0][i1] + r12, P[i1][i1] + r22
+    det = s11 * s22 - s12 * s12
+    if det <= 0.0:
+        return None
+    v11, v12, v22 = s22 / det, -s12 / det, s11 / det
+    nis = y0 * (v11 * y0 + v12 * y1) + y1 * (v12 * y0 + v22 * y1)
+    K = [(P[k][i0] * v11 + P[k][i1] * v12, P[k][i0] * v12 + P[k][i1] * v22) for k in range(4)]
+    for k in range(4):
+        x[k] += K[k][0] * y0 + K[k][1] * y1
+    r0, r1 = P[i0][:], P[i1][:]
+    for k in range(4):
+        for m in range(4):
+            P[k][m] -= K[k][0] * r0[m] + K[k][1] * r1[m]
+    for k in range(4):                             # keep it symmetric
+        for m in range(k + 1, 4):
+            P[k][m] = P[m][k] = 0.5 * (P[k][m] + P[m][k])
+    return nis
 
 
 _STARTS = [(0.0, 0.0)] + [(r * math.sin(math.radians(b)), r * math.cos(math.radians(b)))
@@ -433,6 +528,7 @@ class Fixer:
         self.site: dict = {}                       # bit → (x, y, z) in the frame
         self.why_site: dict = {}
         self.qnh_fn = None                         # callable() → QNH hPa | None (run.py)
+        self.rp: list = []                         # track points for the replay store (take_replay)
         self.blocked_reg = tuple(getattr(cfg, "BLOCKED_REG_PREFIXES", ()) or ())
         self.main = min(self.gps) if self.gps else None
         self.bias: dict = {b: 0.0 for b in self.gps}       # ns, GPS receiver against the main one
@@ -593,6 +689,14 @@ class Fixer:
                     self.hours.append(rec)
                     self._out.append(("hour", rec))
                 self.acc_h = _Acc(h0, 3000, True)
+
+    def take_replay(self) -> list:
+        """The track points gathered for the replay store since the last call: (t, icao, lat, lon, alt ft,
+        stated error m, unresolved, distance from the own position m, own lat, own lon, our speed kt, our track °,
+        selected altitude ft, callsign, type, has a position of its own)."""
+        with self._lock:
+            out, self.rp = self.rp, []
+        return out
 
     def take(self) -> list:
         """The closed minutes / hours not yet stored (the recorder writes them to mlat.db)."""
@@ -818,7 +922,20 @@ class Fixer:
         self.acc_m.c["tr"] += 1
         self.acc_h.c["tr"] += 1
         hyps = a["hyps"]
+        if STALE_DROP and hyps and any(t - hy["tu"] > HYP_DROP_SEC for hy in hyps):
+            # a hypothesis that has had no fix for this long is not picked up again: after a gap in the
+            # reception the aircraft starts afresh, and is unresolved until its motion has been checked
+            a["hyps"] = hyps = [hy for hy in hyps if t - hy["tu"] <= HYP_DROP_SEC]
+            if not hyps:
+                a["res"] = False
+                a["doubt"] = False
         got = poor = False
+        vrep = None                                # the aircraft's reported motion, when fresh
+        if KF_ON and KF_VEL_SIG > 0.0:
+            gs_, tk_, vt_ = ls.get("groundspeed"), ls.get("track"), ls.get("vel_ts")
+            if gs_ is not None and tk_ is not None and vt_ is not None and abs(t - vt_) <= KF_VEL_AGE and 40 <= gs_ <= 700:
+                a_ = math.radians(float(tk_))
+                vrep = (float(gs_) * KT * math.sin(a_), float(gs_) * KT * math.cos(a_))
         for hy in hyps:
             dt = t - hy["t"]
             pe, pn = hy["e"] + hy["ve"] * dt, hy["n"] + hy["vn"] * dt
@@ -834,7 +951,20 @@ class Fixer:
             de, dn = s[0] - pe, s[1] - pn
             if math.hypot(de, dn) > gate or (len(rx) > 3 and s[2] > 600.0):
                 continue
-            if dt > 0.05:
+            if dt > 0.05 and KF_ON and hy.get("P") is not None:
+                cv = fix_cov(self.fr, sg, h, s[0], s[1])
+                if cv is not None:
+                    x, P = [hy["e"], hy["n"], hy["ve"], hy["vn"]], hy["P"]
+                    _kf_predict(x, P, dt, KF_ACC)
+                    f2 = KF_R_SCALE * KF_R_SCALE
+                    fl = 0.5 * EXP_FLOOR_M * EXP_FLOOR_M
+                    _kf_update(x, P, 0, s[0], s[1], f2 * cv[0] + fl, f2 * cv[1], f2 * cv[2] + fl)
+                    if vrep is not None:
+                        vs = KF_VEL_SIG * KF_VEL_SIG
+                        _kf_update(x, P, 2, vrep[0], vrep[1], vs, 0.0, vs)
+                    hy["e"], hy["n"], hy["ve"], hy["vn"] = x
+                    hy["t"] = t
+            elif dt > 0.05:
                 al, be = (0.4, 0.05) if hy["k"] >= 6 else (0.7, 0.3)
                 hy["e"], hy["n"] = pe + al * de, pn + al * dn
                 d_ = max(dt, 0.4)
@@ -862,6 +992,9 @@ class Fixer:
         if not got and t - a["init_t"] >= (2.0 if not hyps else 6.0):
             a["init_t"] = t
             self._init(a, rx, sg, h, t)
+        elif REINIT_DOUBT and a.get("doubt") and len(hyps) == 1 and t - a["init_t"] >= 6.0:
+            a["init_t"] = t                        # the track is in doubt: let the other solution compete
+            self._init(a, rx, sg, h, t)
         self._judge(a, t, ls)
         if len(rx) > 3 and len(a["hyps"]) == 1:
             a["res"] = True                        # four receivers: the fix checks itself
@@ -885,6 +1018,7 @@ class Fixer:
                 continue
             found.append(s)
         for s in found:
+            cv = fix_cov(self.fr, sg, h, s[0], s[1]) if KF_ON else None
             if any(math.hypot(s[0] - hy["e"], s[1] - hy["n"]) < 3000.0 for hy in a["hyps"]):
                 continue
             if len(a["hyps"]) >= 3:
@@ -893,6 +1027,11 @@ class Fixer:
             a["hyps"].append({"id": self._hid, "e": s[0], "n": s[1], "ve": 0.0, "vn": 0.0, "t": t, "t0": t, "k": 1,
                               "raw": (s[0], s[1]), "tu": t, "dv": None,
                               "hist": deque([(t, s[0], s[1])], maxlen=50)})
+            if cv is not None:
+                f2 = KF_R_SCALE * KF_R_SCALE
+                fl = 0.5 * EXP_FLOOR_M * EXP_FLOOR_M
+                a["hyps"][-1]["P"] = [[f2 * cv[0] + fl, f2 * cv[1], 0.0, 0.0], [f2 * cv[1], f2 * cv[2] + fl, 0.0, 0.0],
+                                      [0.0, 0.0, 250.0 ** 2, 0.0], [0.0, 0.0, 0.0, 250.0 ** 2]]
         if found:
             self.c["init"] += 1
 
@@ -916,16 +1055,22 @@ class Fixer:
                     vn = (sum(p[2] for p in h1) - sum(p[2] for p in h0)) / k / dtm
                     d = math.hypot(ve - v[0], vn - v[1])
                     hy["dv"] = d if hy["dv"] is None else hy["dv"] + 0.3 * (d - hy["dv"])
+                    hy["nj"] = hy.get("nj", 0) + 1
         judged = [hy for hy in hyps if hy["dv"] is not None]
         if len(hyps) >= 2 and len(judged) == len(hyps):
             judged.sort(key=lambda hy: hy["dv"])
-            if judged[0]["dv"] <= RES_OK_MPS and judged[1]["dv"] >= judged[0]["dv"] + RES_SEP_MPS:
+            if judged[0]["dv"] <= RES_OK_MPS and judged[1]["dv"] >= judged[0]["dv"] + RES_SEP_MPS \
+                    and min(hy.get("nj", 0) for hy in judged[:2]) >= RES_MIN_JUDGED:
                 hyps = [judged[0]]
                 a["res"] = True
                 self.c["resolved"] += 1
         elif len(hyps) == 1 and hyps[0]["dv"] is not None:
             if hyps[0]["dv"] <= RES_OK_MPS:
                 a["res"] = True
+                a["doubt"] = False
+            elif RES_DOUBT_MPS > 0.0 and RES_DOUBT_MPS < hyps[0]["dv"] <= 3 * RES_OK_MPS:
+                a["res"] = False                   # it no longer moves like the aircraft: not the position for sure
+                a["doubt"] = True
             elif hyps[0]["dv"] > 3 * RES_OK_MPS and t - hyps[0]["t0"] > 25.0:
                 hyps = []                          # moves unlike the aircraft: the mirror solution
                 a["res"] = False
@@ -937,6 +1082,8 @@ class Fixer:
             a["res"] = False
         if not hyps:
             a["res"] = False
+        if len(hyps) != 1:
+            a["doubt"] = False
         # the stored track: the points of dropped hypotheses go, those of a confirmed one count
         alive = {hy["id"] for hy in hyps}
         gone = {hy["id"] for hy in a["hyps"]} - alive
@@ -963,7 +1110,7 @@ class Fixer:
         self.c["fix"] += 1
         a["n"] += 1
         # unresolved: two candidates, or one that is neither confirmed by its motion nor old enough
-        amb = len(a["hyps"]) > 1 or not (a["res"] or t - hy["t0"] >= SINGLE_OK_SEC)
+        amb = len(a["hyps"]) > 1 or bool(a.get("doubt")) or not (a["res"] or t - hy["t0"] >= SINGLE_OK_SEC)
         if amb:
             self.c["ambiguous"] += 1
         err_raw = err_trk = dist = None
@@ -1003,6 +1150,16 @@ class Fixer:
             a["last"] = pt
             a["vel"] = None if vel is None else (int(round(math.hypot(vel[0], vel[1]) / KT)),
                                                  int(round(math.degrees(math.atan2(vel[0], vel[1])) % 360)))
+            # the altitude selected in the cockpit, when the aircraft sends it (for the map's label, from 2026-11-20)
+            sa_, sat_ = ls.get("sel_alt"), ls.get("sel_alt_ts")
+            a["sal"] = int(sa_) if (sa_ is not None and sat_ is not None and abs(t - sat_) <= 120.0) else None
+            if t - a.get("rp_t", 0.0) >= REPLAY_STEP and len(self.rp) < REPLAY_BUF:
+                a["rp_t"] = t
+                v_ = a["vel"]
+                self.rp.append((pt[0], icao, pt[1], pt[2], pt[3], pt[4], pt[6], pt[5],
+                                None if tr is None else round(tr[3], 5), None if tr is None else round(tr[4], 5),
+                                None if v_ is None else v_[0], None if v_ is None else v_[1], a["sal"],
+                                ls.get("callsign") or a.get("cs"), ls.get("aircraft_type") or a.get("typ"), 1 if has_pos else 0))
             a["vr"] = ls.get("vert_rate")
             a["nrx"] = nrx
             a["cs"] = ls.get("callsign") or a.get("cs")
@@ -1076,10 +1233,22 @@ class Fixer:
                 if last is None or now - last[0] > win:
                     continue
                 er = sorted(a["errs"])
+                # for the Traffic list (from 2026-11-20): the track's motion against the reported one (m/s),
+                # the number of candidate positions, how long the present track has run, and whether it is in doubt
+                hy0 = None
+                try:
+                    hs = a["hyps"]
+                    hy0 = hs[0] if hs else None
+                    nh = len(hs)
+                except Exception:                  # noqa: BLE001 — the solver thread may be replacing the list
+                    nh = 0
                 acs.append({"icao": icao, "cs": a.get("cs"), "typ": a.get("typ"), "last": last[:7],
                             "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")),
                             "res": bool(a["res"]), "err": None if not er else int(er[len(er) // 2]),
-                            "vel": a.get("vel"), "vr": a.get("vr"),
+                            "vel": a.get("vel"), "vr": a.get("vr"), "sal": a.get("sal"),
+                            "mm": None if hy0 is None or hy0.get("dv") is None else round(hy0["dv"], 1),
+                            "nh": nh, "tage": None if hy0 is None else int(max(0.0, now - hy0["t0"])),
+                            "doubt": bool(a.get("doubt")),
                             "trk": [p[:7] + p[8:10] for p in a["trk"] if p[0] > t_from],
                             "adsb": [p for p in a["adsb"] if p[0] > t_from]})
             st = list(self.stat)
@@ -1094,8 +1263,15 @@ class Fixer:
             lo = hi
         up = max(1.0, time.monotonic() - self.t_start)
         c = self.c
+        qnh = None                                 # for the altitudes below the transition altitude (the map's labels)
+        if self.qnh_fn is not None:
+            try:
+                qnh = self.qnh_fn()
+            except Exception:                      # noqa: BLE001
+                qnh = None
         return {
             "on": True, "now": round(now, 1), "delay": DELAY, "keep": KEEP_SEC,
+            "qnh": None if qnh is None else round(float(qnh), 1), "ta_ft": 5000,
             "receivers": [{"id": self.names[b], "bit": b, "gps": b in self.gps, "site": b in self.site,
                            "why": self.why_site.get(b),
                            "bias": None if b not in self.gps else round(self.bias.get(b, 0.0), 1),

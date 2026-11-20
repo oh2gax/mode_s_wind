@@ -746,6 +746,40 @@ def create_app(
         out["center"] = [cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON]
         return _private(_gzip_json(out))
 
+    def _qnh_at(ts: float):
+        """The EFHK METAR QNH (hPa) in force at ts, for the replay's levels below the transition altitude."""
+        try:
+            row = get_db().execute("SELECT qnh FROM metar_reports WHERE station = ? AND ts <= ? AND qnh IS NOT NULL "
+                                   "ORDER BY ts DESC LIMIT 1", (getattr(cfg, "WINDSHEAR_AIRPORT_ICAO", "EFHK"), int(ts))).fetchone()
+            return None if row is None else float(row[0])
+        except Exception:                          # noqa: BLE001
+            return None
+
+    @app.route("/api/mlat/replay")
+    def mlat_replay_api():
+        """The stored track points of the Own MLAT map (from 2026-11-20) for its replay: ?from= and ?to=
+        (Unix seconds, at most half an hour apart).  The MLAT right only — a plain 404 for everyone else."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        t0 = request.args.get("from", type=float)
+        t1 = request.args.get("to", type=float)
+        if t0 is None or t1 is None or t1 <= t0:
+            abort(400)
+        out = mlat_rec.replay_points(t0, t1)
+        out["qnh"] = _qnh_at(t0)
+        out["ta_ft"] = 5000
+        out["center"] = [cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON]
+        return _private(_gzip_json(out))
+
+    @app.route("/api/mlat/replay/flights")
+    def mlat_replay_flights_api():
+        """What the replay store holds: its time range and each aircraft's stretches.  The MLAT right only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        return _private(_gzip_json(mlat_rec.replay_flights()))
+
     @app.route("/api/mlat/fixstats")
     def mlat_fixstats_api():
         """Statistics of the own position fixes (from 2026-11-19) for the MLAT

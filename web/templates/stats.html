@@ -147,6 +147,39 @@
     .mlc-sc canvas { width: 100%; height: 100%; }
     .mlc-txt { font-size: 11.5px; color: var(--text-2); padding: 4px 10px 8px; line-height: 1.5; }
     .mlm-gridleg { margin-top: 3px; }
+    /* Replay bar (from 2026-11-20) */
+    .mlm-legend { bottom: 48px !important; }
+    .mlm-rp { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 800; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 16px);
+              padding: 4px 8px; border: 1px solid var(--border, #334155); border-radius: 6px; background: rgba(15, 23, 42, .93); color: #e2e8f0; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+    [data-theme="light"] .mlm-rp { background: rgba(255, 255, 255, .96); color: #1e293b; }
+    .mlm-rp button, .mlm-rp select { font: inherit; font-size: 12px; line-height: 1.2; padding: 2px 7px; cursor: pointer; white-space: nowrap; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    .mlm-rp select { padding: 2px 3px; } .mlm-rp select option { color: #1e293b; }
+    .mlm-rp button.on { background: #16a34a; border-color: #16a34a; color: #fff; }
+    .mlm-rp.rp button#mlm-rp-play.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .mlm-rp input[type=range] { width: 260px; min-width: 80px; flex: 1 1 260px; }
+    #mlm-rp-t { min-width: 138px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #mlm-rp-fl { max-width: 150px; }
+    .mlm-rpnote { font-size: 11.5px; color: var(--text-2); padding: 8px 10px; }
+    /* Traffic list window (from 2026-11-20) */
+    .mlm-trf { position: absolute; left: 54px; top: 10px; width: 800px; height: 250px; min-width: 240px; min-height: 26px; max-width: calc(100% - 8px); max-height: calc(100% - 8px);
+               z-index: 800; display: flex; flex-direction: column; resize: both; overflow: hidden; border: 1px solid var(--border, #334155); border-radius: 6px;
+               background: rgba(15, 23, 42, .93); color: #e2e8f0; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); font-size: 11.5px; }
+    [data-theme="light"] .mlm-trf { background: rgba(255, 255, 255, .96); color: #1e293b; }
+    .mlm-trf.min { height: auto !important; resize: none; min-height: 0; }
+    .mlm-trf.min .mlm-trf-body { display: none; }
+    .mlm-trf-hdr { display: flex; align-items: center; gap: 8px; padding: 3px 6px 3px 9px; cursor: move; user-select: none; touch-action: none; border-bottom: 1px solid var(--border, #334155); flex: 0 0 auto; }
+    .mlm-trf.min .mlm-trf-hdr { border-bottom: none; }
+    .mlm-trf-hdr span { flex: 1; font-size: 11px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mlm-trf-hdr button { font: inherit; font-weight: 700; line-height: 1; width: 22px; height: 18px; padding: 0; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    .mlm-trf-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+    #mlm-trf-tab { width: 100%; }
+    #mlm-trf-tab th { position: sticky; top: 0; z-index: 1; cursor: pointer; white-space: nowrap; background: #0f172a; }
+    [data-theme="light"] #mlm-trf-tab th { background: #f1f5f9; }
+    #mlm-trf-tab th.srt::after { content: ' ▾'; } #mlm-trf-tab th.srt.asc::after { content: ' ▴'; }
+    #mlm-trf-tab td { white-space: nowrap; padding-top: 2px; padding-bottom: 2px; }
+    #mlm-trf-tab tr { cursor: pointer; }
+    #mlm-trf-tab tr.sel td { background: rgba(59, 130, 246, .22); }
+    #mlm-trf-tab .w { color: #f59e0b; } [data-theme="light"] #mlm-trf-tab .w { color: #b45309; }
     .mlm-gridleg b { display: inline-block; width: 14px; height: 9px; margin: 0 3px 0 6px; vertical-align: middle; }
     @media (max-width: 1300px) { .mlc-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 820px) { .mlc-body { grid-template-columns: 1fr; } }
@@ -175,20 +208,46 @@
       <label title="The approach lines of Helsinki-Vantaa as on the Windshear map: the ILS finals (short dashes) and the RNP approaches (long dashes), with the airport's outline"><input type="checkbox" id="mlm-ils" checked> Approach lines</label>
       <label title="Accuracy grid: each cell of about 5 km coloured by the median distance between our fixes there and the aircraft's own positions, over the period chosen in the Charts view; a cell with fixes but nothing to compare with is grey"><input type="checkbox" id="mlm-grid"> Accuracy grid</label>
       <label title="Radar-display labels: callsign; flight level with the climb / descent arrow; our own ground speed in tens of knots and the type"><input type="checkbox" id="mlm-lbl" checked> Labels</label>
+      <label title="Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level in the label as on the Live Map and the Windshear map (019↑060 = at 1 900 ft, climbing, 6 000 ft selected). It comes from the aircraft's own messages also when the position is ours"><input type="checkbox" id="mlm-sal"> Show Sel Alt</label>
+      <label title="Solo: with an aircraft selected (on the map, in the list or in the Traffic window) only that aircraft is drawn; with none selected, all are"><input type="checkbox" id="mlm-solo"> Solo</label>
+      <label title="Traffic list: a movable, resizable window over the map with every aircraft that has a fix, and what the multilateration knows of it"><input type="checkbox" id="mlm-trfon" checked> Traffic list</label>
     </span>
     <span class="mst-hdr-note" id="mlm-note"></span>
   </div>
   <div class="mlm-body" id="mst-mlat-map" style="display:none">
-    <div class="mlm-mapwrap"><div id="mlm-map"></div>
-      <div class="mlm-legend" id="mlm-legend"></div></div>
+    <div class="mlm-mapwrap" id="mlm-mapwrap"><div id="mlm-map"></div>
+      <div class="mlm-legend" id="mlm-legend"></div>
+      <!-- Traffic list (from 2026-11-20, static/js/mlat_map.js): a window over the map — moved by its title bar,
+           resized from its corner, minimized to the title bar; place, size and state are kept in the browser -->
+      <div class="mlm-trf" id="mlm-trf" style="display:none">
+        <div class="mlm-trf-hdr" id="mlm-trf-hdr" title="Drag to move"><b>Traffic</b><span id="mlm-trf-n"></span>
+          <button type="button" id="mlm-trf-min" title="Minimize / restore">–</button></div>
+        <div class="mlm-trf-body" id="mlm-trf-body"><table class="mst-table" id="mlm-trf-tab"></table></div>
+      </div>
+      <!-- Replay of the last 24 hours (from 2026-11-20): the stored tracks of /api/mlat/replay played back -->
+      <div class="mlm-rp" id="mlm-rp">
+        <button type="button" id="mlm-rp-live" class="on" title="Back to the live picture">● Live</button>
+        <button type="button" data-rpj="-600" title="Back 10 minutes">«</button>
+        <button type="button" data-rpj="-60" title="Back 1 minute">‹</button>
+        <button type="button" id="mlm-rp-play" title="Play / pause the replay">▶</button>
+        <button type="button" data-rpj="60" title="Forward 1 minute">›</button>
+        <button type="button" data-rpj="600" title="Forward 10 minutes">»</button>
+        <select id="mlm-rp-speed" title="Replay speed"><option value="1">×1</option><option value="2">×2</option><option value="5">×5</option><option value="10" selected>×10</option><option value="50">×50</option></select>
+        <input type="range" id="mlm-rp-sl" min="0" max="1" step="10" value="1" title="Drag to a time in the last 24 hours">
+        <span id="mlm-rp-t" title="Time of the picture, UTC">Live</span>
+        <select id="mlm-rp-fl" title="Aircraft located in the last 24 hours: choosing one jumps to the start of its track and shows it alone (Solo)"><option value="">Flights…</option></select>
+      </div></div>
     <div class="mlm-side">
       <div class="mst-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Own MLAT · position fixes</span></div>
         <div class="mlm-tiles" id="mlm-tiles"></div>
+        <div id="mlm-liveonly">
         <div class="mst-mlat-sub">Against the aircraft's own ADS-B position (last 10 min)</div>
         <div class="mst-table-wrap"><table class="mst-table" id="mlm-bands"></table></div>
         <div class="mst-mlat-sub">Receivers</div>
         <div class="mst-table-wrap"><table class="mst-table" id="mlm-rx"></table></div>
+        </div>
+        <div class="mlm-rpnote" id="mlm-rpnote" style="display:none">Replay of the stored tracks: one point of each aircraft every two seconds, as they were shown at the time. The statistics by distance and the receivers' clocks are shown in Live only.</div>
       </div>
       <div class="mst-panel" id="mlm-selp" style="display:none">
         <div class="gps-panel-hdr"><span class="gps-panel-title" id="mlm-selt">Selected aircraft</span><span class="mst-hdr-note">click the row again to close</span></div>

@@ -75,6 +75,7 @@ Settings (config_local.py; none is needed):
     MLAT_DIR = None               # the raw folder (default data/mlat_raw)
     MLAT_RAW_MAX_GB = 10
     MLAT_SUM_DAYS = 90
+    MLAT_TRK_HOURS = 24         # the replay store of the Own MLAT map (track points every 2 s); 0 = none
     MLAT_SITES = {"MODES-RX-01": (lat, lon, height_m), …}   # the 1090 MHz antennas, when known
                                   # (height above the WGS-84 ellipsoid; left out: the GPS mean's height)
     MLAT_POS_LATENCY = 0.09       # s, the age of a broadcast position when it is sent
@@ -119,6 +120,9 @@ MISFIT_NS = 250                     # an own position this far from the timing �
 MISFIT_MIN = 100                    # … over at least this many pairs in 5 min "does not fit the timing"
 CHECKPOINT_SEC = 600                # the database's write-ahead log is written into the file this often,
                                     # so that a plain copy of mlat.db is complete to within ten minutes
+TRK_SEG_GAP = 900.0             # s: an aircraft not located for this long starts a new stretch in the replay store
+TRK_REQ_SEC = 1800.0            # the longest time one replay request may ask for
+TRK_REQ_ROWS = 60000            # … and the most points it gets
 FAR_MARGIN_NS = 20_000              # allowed beyond the distance between the sites
 FAR_DEFAULT_NS = 500_000            # sites not known yet
 MIN_FREE_BYTES = 2 * 1024 ** 3
@@ -223,6 +227,8 @@ class Recorder:
         self.db_path = os.path.join(data_dir, "mlat.db")
         self.raw_cap = int(float(getattr(cfg, "MLAT_RAW_MAX_GB", 10)) * 1024 ** 3)
         self.sum_days = float(getattr(cfg, "MLAT_SUM_DAYS", 90))
+        self.trk_hours = max(0.0, float(getattr(cfg, "MLAT_TRK_HOURS", 24)))   # the replay store; 0 = none
+        self._seg: dict = {}                       # icao → [t0, t1, n, cs, typ, pos]: the stretch being written
         self.cfg_sites = dict(getattr(cfg, "MLAT_SITES", None) or {})
         self.q: deque = deque()
         self.overflow = 0
@@ -323,6 +329,13 @@ class Recorder:
             -- row per minute (kept 2 days) and per hour (kept MLAT_SUM_DAYS, with the accuracy grid)
             CREATE TABLE IF NOT EXISTS mlat_fix_min (ts INTEGER PRIMARY KEY, j TEXT);
             CREATE TABLE IF NOT EXISTS mlat_fix_hour (ts INTEGER PRIMARY KEY, j TEXT);
+            -- the 24-hour replay of the Own MLAT map (from 2026-11-20): one point per aircraft every 2 s
+            -- (kept MLAT_TRK_HOURS, default 24) and one row per stretch of an aircraft (a gap of 15 min starts a new one)
+            CREATE TABLE IF NOT EXISTS mlat_trk (ts REAL, icao TEXT, lat REAL, lon REAL, alt INTEGER, exp INTEGER,
+                amb INTEGER, err INTEGER, olat REAL, olon REAL, gs INTEGER, trk INTEGER, sal INTEGER);
+            CREATE INDEX IF NOT EXISTS mlat_trk_ts ON mlat_trk (ts);
+            CREATE TABLE IF NOT EXISTS mlat_trk_ac (icao TEXT, t0 REAL, t1 REAL, n INTEGER, cs TEXT, typ TEXT, pos INTEGER,
+                PRIMARY KEY (icao, t0));
         """)
         db.commit()
 
@@ -364,6 +377,11 @@ class Recorder:
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_hour WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_min WHERE ts < ?", (int(now - 2 * 86400),))
+        cut_t = now - self.trk_hours * 3600.0 - 600.0
+        self._db.execute("DELETE FROM mlat_trk WHERE ts < ?", (cut_t,))
+        self._db.execute("DELETE FROM mlat_trk_ac WHERE t1 < ?", (cut_t,))
+        for k in [k for k, v in self._seg.items() if now - v[1] > 2 * TRK_SEG_GAP]:
+            del self._seg[k]
         self._db.commit()
 
     def _rx_state(self) -> dict:
@@ -626,6 +644,38 @@ class Recorder:
             self._db.commit()
             self.c["rows"] += len(rows)
 
+    def _store_tracks(self) -> None:
+        """The replay store (from 2026-11-20): the engine's thinned track points into mlat_trk, and the
+        stretch of each aircraft (first and last point, callsign, type) into mlat_trk_ac.  One commit."""
+        pts = self.fix.take_replay()
+        if not pts or self.trk_hours <= 0:
+            return
+        if not self._seg:                          # after a start: carry on the stretches that are still open
+            cut = pts[0][0] - TRK_SEG_GAP
+            for r in self._db.execute("SELECT icao, t0, t1, n, cs, typ, pos FROM mlat_trk_ac WHERE t1 >= ?", (cut,)):
+                old = self._seg.get(r[0])
+                if old is None or r[2] > old[1]:
+                    self._seg[r[0]] = [r[1], r[2], r[3], r[4], r[5], r[6]]
+        touched = set()
+        for p in pts:
+            t, icao = p[0], p[1]
+            sg = self._seg.get(icao)
+            if sg is None or t - sg[1] > TRK_SEG_GAP:
+                sg = self._seg[icao] = [t, t, 0, None, None, 0]
+            sg[1] = max(sg[1], t)
+            sg[2] += 1
+            if p[13]:
+                sg[3] = p[13]
+            if p[14]:
+                sg[4] = p[14]
+            if p[15]:
+                sg[5] = 1
+            touched.add(icao)
+        self._db.executemany("INSERT INTO mlat_trk VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [p[:13] for p in pts])
+        self._db.executemany("INSERT OR REPLACE INTO mlat_trk_ac VALUES (?,?,?,?,?,?,?)",
+                             [(k, *self._seg[k]) for k in touched])
+        self._db.commit()
+
     def _close_minute(self, now: float) -> None:
         if self.fix is not None:
             # the closed minutes / hours of the fix statistics
@@ -635,6 +685,7 @@ class Recorder:
                     self._db.execute("INSERT OR REPLACE INTO mlat_fix_%s VALUES (?, ?)" % ("min" if kind == "min" else "hour"),
                                      (rec["t"], json.dumps(rec, separators=(",", ":"))))
                 self._db.commit()
+            self._store_tracks()
         t0 = int(now // 60) * 60
         if self.min_t0 is None:
             self.min_t0 = t0
@@ -980,6 +1031,63 @@ def fix_public(win: float = 600.0, since: float = 0.0) -> dict:
     if _REC.fix is None:
         return {"on": False, "why": "needs three receivers (MLAT_FIX)"}
     return _REC.fix.public(win, since)
+
+
+def _trk_ro():
+    """A read-only connection to the replay store for a web request (the recorder's own connection belongs
+    to its thread; the database is in WAL mode, so a reader does not hold the writer up)."""
+    if _REC is None or _REC.fix is None or _REC.trk_hours <= 0:
+        return None
+    try:
+        return sqlite3.connect("file:%s?mode=ro" % _REC.db_path.replace("\\", "/"), uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+
+
+def replay_points(t_from: float, t_to: float) -> dict:
+    """The stored track points of t_from … t_to (at most TRK_REQ_SEC) for the map's replay, by aircraft:
+    {icao: {cs, typ, pos, p: [[t, lat, lon, alt, stated, unresolved, distance from own, own lat, own lon,
+    our speed kt, our track °, selected altitude ft], …]}}."""
+    db = _trk_ro()
+    if db is None:
+        return {"on": False, "why": _WHY if _REC is None else "no replay store"}
+    t_from = float(t_from)
+    t_to = min(float(t_to), t_from + TRK_REQ_SEC)
+    try:
+        acs: dict = {}
+        for r in db.execute("SELECT ts, icao, lat, lon, alt, exp, amb, err, olat, olon, gs, trk, sal FROM mlat_trk "
+                            "WHERE ts >= ? AND ts < ? ORDER BY ts LIMIT ?", (t_from, t_to, TRK_REQ_ROWS)):
+            a = acs.get(r[1])
+            if a is None:
+                a = acs[r[1]] = {"p": []}
+            a["p"].append([r[0], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12]])
+        if acs:
+            qm = ",".join("?" * len(acs))
+            for icao, cs, typ, pos in db.execute(
+                    "SELECT icao, cs, typ, pos FROM mlat_trk_ac WHERE icao IN (%s) AND t1 >= ? AND t0 <= ? ORDER BY t0" % qm,
+                    (*acs.keys(), t_from - 1.0, t_to + 1.0)):
+                acs[icao].update(cs=cs, typ=typ, pos=bool(pos))
+        return {"on": True, "from": t_from, "to": t_to, "step": 2.0, "aircraft": acs}
+    except sqlite3.Error as exc:
+        return {"on": False, "why": str(exc)}
+    finally:
+        db.close()
+
+
+def replay_flights() -> dict:
+    """What the replay store holds: its time range and the stretches of each aircraft (newest first)."""
+    db = _trk_ro()
+    if db is None:
+        return {"on": False, "why": _WHY if _REC is None else "no replay store"}
+    try:
+        lo, hi = db.execute("SELECT MIN(ts), MAX(ts) FROM mlat_trk").fetchone()
+        fl = [{"icao": r[0], "t0": r[1], "t1": r[2], "n": r[3], "cs": r[4], "typ": r[5], "pos": bool(r[6])}
+              for r in db.execute("SELECT icao, t0, t1, n, cs, typ, pos FROM mlat_trk_ac WHERE n >= 5 ORDER BY t0 DESC LIMIT 3000")]
+        return {"on": True, "t0": lo, "t1": hi, "hours": _REC.trk_hours, "flights": fl}
+    except sqlite3.Error as exc:
+        return {"on": False, "why": str(exc)}
+    finally:
+        db.close()
 
 
 def fix_stats(rng: str = "1h") -> dict:
