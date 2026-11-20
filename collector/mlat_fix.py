@@ -514,9 +514,34 @@ def merge_grids(recs: list) -> dict:
 
 class Fixer:
     def __init__(self, cfg, gps_bits: dict, counter_bits: dict, live_state: dict) -> None:
-        """gps_bits / counter_bits: bit → receiver (.id, .hz)."""
+        """gps_bits / counter_bits: bit → receiver (.id, .hz).
+
+        MLAT_FIX_RX (from 2026-11-20 evening): the ids of the receivers the fixes are computed with.
+        A receiver that is connected but not in the list is left out of everything here — its
+        stamps are still recorded by the pair recorder, so a new receiver can be tried on the
+        recording before it joins the live calculation.  Without the setting every receiver is
+        used, as before.  (A receiver with GPS time gets its place from its own GPS when
+        MLAT_SITES has none, so without this list it would join the moment it is connected.)"""
         self.cfg = cfg
         self.live = live_state
+        self.rec_only: dict = {}                   # bit → id of the receivers left out by MLAT_FIX_RX
+        self.use_why: str | None = None
+        use = getattr(cfg, "MLAT_FIX_RX", None)
+        if use:
+            use = {str(x).strip() for x in ([use] if isinstance(use, str) else use)}
+            every = dict(list(gps_bits.items()) + list(counter_bits.items()))
+            self.rec_only = {b: r.id for b, r in every.items() if r.id not in use}
+            unknown = sorted(use - {r.id for r in every.values()})
+            if unknown:
+                log.warning("MLAT_FIX_RX names receivers that are not connected: %s", ", ".join(unknown))
+            gps_bits = {b: r for b, r in gps_bits.items() if r.id in use}
+            counter_bits = {b: r for b, r in counter_bits.items() if r.id in use}
+            if self.rec_only:
+                log.info("MLAT fixes: %s recorded only (not in MLAT_FIX_RX)", ", ".join(sorted(self.rec_only.values())))
+            if len(gps_bits) + len(counter_bits) < 3:
+                self.use_why = "MLAT_FIX_RX leaves fewer than three connected receivers" + (
+                    " (not connected: " + ", ".join(unknown) + ")" if unknown else "")
+                log.warning("MLAT fixes: %s — no fixes", self.use_why)
         self.gps = dict(gps_bits)
         self.cnt = dict(counter_bits)
         self.names = {b: r.id for b, r in list(self.gps.items()) + list(self.cnt.items())}
@@ -1278,7 +1303,10 @@ class Fixer:
                            "bias_ac": self.bias_n.get(b),
                            "clock": None if b not in self.cnt else (
                                dict(self.clk[b], age=round(now - self.clk[b]["t"], 1)) if b in self.clk else None)}
-                          for b in sorted(self.names)],
+                          for b in sorted(self.names)]
+                         # the receivers MLAT_FIX_RX leaves out: listed, so that it is seen that they are connected
+                         + [{"id": rid, "bit": b, "rec_only": True} for b, rid in sorted(self.rec_only.items())],
+            "use_why": self.use_why,
             "counters": {k: c[k] for k in ("heard3", "tried", "fix", "ambiguous", "no_clock", "no_height", "no_alt",
                                            "skipped", "poor", "init", "resolved", "mirror", "error")},
             "cpu": round(100.0 * self.cpu / up, 2),

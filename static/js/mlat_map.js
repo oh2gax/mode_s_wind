@@ -658,6 +658,8 @@
       '</tbody>';
     $('mlm-rx').innerHTML = '<thead><tr><th>Receiver</th><th>Clock</th><th>State</th></tr></thead><tbody>' + (d.receivers || []).map(r => {
       let stt;
+      // a receiver the server's MLAT_FIX_RX leaves out (from the evening of 2026-11-20): connected and recorded, not in the fixes
+      if (r.rec_only) return `<tr class="mst-dim"><td>${esc(String(r.id).replace(/^MODES-/, ''))}</td><td>—</td><td title="This receiver is connected and its time stamps are recorded, but the live position fixes are computed without it (the server's MLAT_FIX_RX setting)">recorded only · not used for the fixes</td></tr>`;
       if (!r.site) stt = `<span class="mst-warn">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
       else if (r.gps) stt = r.bit === (d.receivers.find(x => x.gps) || {}).bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) stt = '<span class="mst-warn">no clock line yet</span>';

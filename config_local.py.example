@@ -59,6 +59,13 @@ RADARCAPE_STATUS_URL = "http://127.0.0.1:8080/systemstatus.json"
 # (counter clock) needs its antenna in MLAT_SITES too, with the height — add e.g.
 #               "MODES-RX-02": (60.0000, 24.9000, 60.0)
 # MLAT_FIX = False           # switch the fixes off
+# The receivers the fixes are computed with (from 20 Nov 2026).  Without it: every receiver,
+# as before.  With it: a receiver that is connected but not listed is recorded only (pair
+# recorder, raw files) and stays out of the live calculation — set it BEFORE a new receiver
+# is connected, try the new one on the recording, then add its id here.  A receiver with GPS
+# time takes its place from its own GPS when MLAT_SITES has none, so without this list it
+# would join the calculation the moment it connects.
+# MLAT_FIX_RX = ["MODES-RX-01", "MODES-RX-02", "MODES-RX-03"]
 # MLAT_SHORT_NS = {"MODES-RX-02": 56000}   # ns between a counter receiver's stamps of short and long replies
 
 # ── Radio horizon (Statistics page, from 20 Nov 2026; collector/radio_horizon.py) ─

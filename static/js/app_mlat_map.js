@@ -543,6 +543,7 @@
     const ref = (d.receivers || []).find(x => x.gps);
     $('aml-fx-rx').innerHTML = '<table><thead><tr><th>Receiver</th><th>Clock</th><th>State</th></tr></thead><tbody>' + (d.receivers || []).map(r => {
       let s;
+      if (r.rec_only) return `<tr><td>${esc(String(r.id).replace(/^MODES-/, ''))}</td><td>—</td><td class="aml-wrap">recorded only · not used for the fixes</td></tr>`;
       if (!r.site) s = `<span class="w">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
       else if (r.gps) s = ref && r.bit === ref.bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) s = '<span class="w">no clock line yet</span>';

@@ -465,7 +465,8 @@ class Recorder:
                 self.sites[bit] = {"src": "gps", "xyz": ecef(s[1], s[2], s[3]), "n": s[0], "ll": (s[1], s[2])}
         if self.fix is not None:
             for bit, s in self.sites.items():
-                self.fix.site[bit] = self.fix.fr.enu_xyz(*s["xyz"])
+                if bit in self.fix.gps or bit in self.fix.cnt:      # not the receivers MLAT_FIX_RX leaves out
+                    self.fix.site[bit] = self.fix.fr.enu_xyz(*s["xyz"])
         bits = sorted(self.rxs)
         for i, a in enumerate(bits):
             for b in bits[i + 1:]:
@@ -962,13 +963,14 @@ class Recorder:
 
 _REC: Recorder | None = None
 _WHY = "the collector has not started it"
+_FIX_WHY = "needs three receivers (MLAT_FIX)"      # why there are no own position fixes
 
 
 def init(cfg, live_state: dict):
     """Start the recorder when the receivers are merged and two or more of
     them have GPS time (Radarcapes).  Returns it, or None with the reason kept
     for the page."""
-    global _REC, _WHY
+    global _REC, _WHY, _FIX_WHY
     from collector import multirx
     if not bool(getattr(cfg, "MLAT_RECORD", True)):
         _WHY = "switched off (MLAT_RECORD = False)"
@@ -989,6 +991,9 @@ def init(cfg, live_state: dict):
         try:
             from collector import mlat_fix
             _REC.fix = mlat_fix.Fixer(cfg, _REC.rxs, _REC.crx, live_state)
+            if _REC.fix.use_why:                   # MLAT_FIX_RX leaves fewer than three receivers: no engine, and say why
+                _FIX_WHY = _REC.fix.use_why
+                _REC.fix = None
         except Exception as exc:                   # noqa: BLE001
             log.warning("MLAT fixes not started: %s", exc)
     multirx._MLAT_PUT = _REC.put
@@ -1029,7 +1034,7 @@ def fix_public(win: float = 600.0, since: float = 0.0) -> dict:
     if _REC is None:
         return {"on": False, "why": _WHY}
     if _REC.fix is None:
-        return {"on": False, "why": "needs three receivers (MLAT_FIX)"}
+        return {"on": False, "why": _FIX_WHY}
     return _REC.fix.public(win, since)
 
 
@@ -1093,7 +1098,7 @@ def replay_flights() -> dict:
 def fix_stats(rng: str = "1h") -> dict:
     """The statistics of the own position fixes for the MLAT tab's Charts view."""
     if _REC is None or _REC.fix is None:
-        return {"on": False, "why": _WHY if _REC is None else "needs three receivers (MLAT_FIX)"}
+        return {"on": False, "why": _WHY if _REC is None else _FIX_WHY}
     return _REC.fix.stats(rng)
 
 
