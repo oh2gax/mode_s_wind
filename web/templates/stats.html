@@ -213,7 +213,7 @@
       <span class="mst-hdr-note" id="mlc-note"></span>
     </span>
     <span class="mlm-ctl" id="mlm-ctl" style="display:none">
-      <label title="How much of each track is drawn">Trail <select id="mlm-win"><option value="120">2 min</option><option value="300" selected>5 min</option><option value="900">15 min</option><option value="3600">1 h</option></select></label>
+      <label title="How much of each track is drawn. Up to 1 h: every position. 3 h and more: the last hour as before, and the older part from the stored tracks — thinned to a point every 10 to 30 seconds and drawn as thinner lines; the broadcast ADS-B track is drawn for the last hour only">Trail <select id="mlm-win"><option value="120">2 min</option><option value="300" selected>5 min</option><option value="900">15 min</option><option value="3600">1 h</option><option value="10800">3 h</option><option value="21600">6 h</option><option value="43200">12 h</option><option value="86400">24 h</option></select></label>
       <label title="Only fixes whose expected error (from the geometry of the receivers and the timing) is below this">Expected error ≤ <select id="mlm-exp"><option value="200">200 m</option><option value="500" selected>500 m</option><option value="1000">1 km</option><option value="99999">all</option></select></label>
       <label title="The track the aircraft broadcasts itself (ADS-B), as a thin line beside ours"><input type="checkbox" id="mlm-adsb" checked> ADS-B track</label>
       <label title="Aircraft for which two positions are still possible (three receivers leave two solutions until the motion tells them apart): the more likely one, dashed"><input type="checkbox" id="mlm-amb"> Unresolved</label>

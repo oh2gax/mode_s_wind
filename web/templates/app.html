@@ -743,7 +743,7 @@
   <details class="app-sec" data-for="mlat">
     <summary>MLAT options</summary>
     <div class="app-field"><span>Trail</span>
-      <select id="app-mlat-win" data-chips><option value="120">2 min</option><option value="300">5 min</option><option value="900">15 min</option><option value="3600">1 h</option></select></div>
+      <select id="app-mlat-win" data-chips><option value="120">2 min</option><option value="300">5 min</option><option value="900">15 min</option><option value="3600">1 h</option><option value="10800">3 h</option><option value="21600">6 h</option><option value="43200">12 h</option><option value="86400">24 h</option></select></div>
     <div class="app-field"><span>Expected error ≤</span>
       <select id="app-mlat-exp" data-chips><option value="200">200 m</option><option value="500">500 m</option><option value="1000">1 km</option><option value="99999">all</option></select></div>
     <div class="app-field"><span>ADS-B track</span>
@@ -760,7 +760,7 @@
       <select id="app-mlat-solo" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
     <div class="app-field"><span>Approach lines</span>
       <select id="app-mlat-ils" data-chips><option value="off">Off</option><option value="on">On</option></select></div>
-    <div class="app-small">Trail: how much of each track is drawn. Expected error: only fixes whose expected error is below this. ADS-B track: the track the aircraft broadcasts itself, as a thin line beside ours. Unresolved: aircraft for which two positions are still possible, dashed. Vector: where the aircraft is in 30 seconds, from our own track. Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level (019↑060). Solo: with an aircraft selected only that one is drawn. Remembered on the phone.</div>
+    <div class="app-small">Trail: how much of each track is drawn; with 3 h and more the part older than an hour comes from the stored tracks, thinned to a point every 10 to 30 seconds, as thinner lines. Expected error: only fixes whose expected error is below this. ADS-B track: the track the aircraft broadcasts itself, as a thin line beside ours. Unresolved: aircraft for which two positions are still possible, dashed. Vector: where the aircraft is in 30 seconds, from our own track. Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level (019↑060). Solo: with an aircraft selected only that one is drawn. Remembered on the phone.</div>
   </details>
   {% endif %}
 

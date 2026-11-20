@@ -174,6 +174,10 @@
     new Home().addTo(map);
     renderer = L.canvas({ padding: 0.3 });
     setTiles();
+    map.createPane('amlHist').style.zIndex = 390;               // the long trails: under the tracks of the last hour
+    map.getPane('amlHist').style.pointerEvents = 'none';
+    histRend = L.canvas({ pane: 'amlHist', padding: 0.3 });
+    histLayer = L.layerGroup().addTo(map);
     layer = L.layerGroup().addTo(map);
     if (typeof AtcDisplay !== 'undefined') atc = AtcDisplay.canvasLayer(map, drawTargets);
     if (window.msRxMarkers) { try { window.msRxMarkers(map).addTo(map); } catch (_) { /* the receivers are optional */ } }
@@ -227,7 +231,7 @@
     if (full) { AC.clear(); last = 0; nPoll = 0; }
     const whole = !last || (++nPoll % 12 === 0);
     try {
-      const r = await fetch(`/api/mlat/fixes?win=${S.win}${whole ? '' : '&since=' + last}`, { cache: 'no-store' });
+      const r = await fetch(`/api/mlat/fixes?win=${Math.min(S.win, DETAIL)}${whole ? '' : '&since=' + last}`, { cache: 'no-store' });
       if (!r.ok) throw new Error(r.status);
       const d = await r.json();
       if (RP.on || !on) return;                      // the replay was started, or the view left, meanwhile
@@ -254,7 +258,7 @@
       for (const p of a.trk || []) if (p[0] > t1) o.trk.push(p);
       for (const p of a.adsb || []) if (p[0] > t2) o.adsb.push(p);
     }
-    const t0 = d.now - S.win;
+    const t0 = d.now - Math.min(S.win, DETAIL);
     for (const [k, o] of AC) {
       if (!seen.has(k)) { AC.delete(k); continue; }
       while (o.trk.length && o.trk[0][0] < t0) o.trk.shift();
@@ -272,8 +276,83 @@
   const fl3 = pa => { const a = onQnh(pa); return h3(a == null ? pa : a); };
   const lvl = pa => { if (pa == null) return '—'; const a = onQnh(pa); return a == null ? 'FL' + h3(pa) : 'A' + h3(a); };
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
+
+  // ── long trails (from the evening of 2026-11-20) ────────────────────────
+  // The engine keeps an hour of each track.  A trail of 3 h or more takes its older part from the stored tracks,
+  // thinned by the server (/api/mlat/trails: one point of each aircraft per step) and drawn as thinner lines under
+  // the detailed last hour.  The picture's time is state.now — the present, or the replay time; a little more than
+  // the trail is fetched on both sides, so that steps in a replay need no new request.
+  const DETAIL = 3600;                         // s of full-detail trail: the engine's memory
+  const HIST = { step: 0, from: 0, to: 0, ac: new Map(), busy: false, ver: 0, key: null, fail: 0 };
+  let histLayer = null, histRend = null;
+  const histStep = w => w <= 21600 ? 10 : w <= 43200 ? 20 : 30;
+  function histClear() { HIST.step = 0; HIST.from = HIST.to = 0; HIST.ac.clear(); HIST.ver++; }
+  async function histFetch(a, b, step, append) {
+    HIST.busy = true;
+    try {
+      const r = await fetch(`/api/mlat/trails?from=${Math.floor(a / step) * step}&to=${Math.ceil(b)}&step=${step}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      if (d.on && S.win > DETAIL && histStep(S.win) === step) {
+        if (!append) { HIST.ac.clear(); HIST.from = d.from; }
+        for (const k in d.aircraft) {
+          const n = d.aircraft[k];
+          let o = HIST.ac.get(k);
+          if (!o) { o = { pos: false, p: [] }; HIST.ac.set(k, o); }
+          if (n.pos) o.pos = true;
+          const tl = o.p.length ? o.p[o.p.length - 1][0] : 0;
+          for (const p of n.p) if (p[0] > tl) o.p.push(p);
+        }
+        if (append && state) {                       // live: what the trail has left behind goes
+          const old = state.now - S.win - 3600;
+          if (old > HIST.from) {
+            for (const [k, o] of HIST.ac) { const i = o.p.findIndex(p => p[0] >= old); if (i < 0) HIST.ac.delete(k); else if (i > 0) o.p = o.p.slice(i); }
+            HIST.from = old;
+          }
+        }
+        HIST.step = step; HIST.to = d.to; HIST.ver++; HIST.fail = 0;
+      } else if (!d.on) HIST.fail = Date.now();
+    } catch (_) { HIST.fail = Date.now(); }
+    HIST.busy = false;
+    if (on) draw();
+  }
+  function histCheck() {
+    if (S.win <= DETAIL || !state || !state.on) { if (HIST.step) histClear(); return; }
+    const step = histStep(S.win), t = state.now, a = t - S.win, b = t - DETAIL + 600;       // ten minutes shared with the detailed hour
+    if (HIST.busy || Date.now() - HIST.fail < 15000) return;
+    const cover = HIST.step === step && HIST.from <= a + step;
+    if (cover && HIST.to >= b) return;
+    const more = Math.min(S.win / 4, 3 * 3600);
+    if (cover && HIST.to > a) histFetch(HIST.to, t + more, step, true);
+    else histFetch(a - more, t + more, step, false);
+  }
+  function histDraw() {
+    if (!histLayer) return;
+    const on = S.win > DETAIL && HIST.step && state && state.on;
+    const key = on ? [HIST.ver, S.win, S.exp, S.amb, S.solo, sel, light(), Math.floor(state.now / 60)].join('|') : 'off';
+    if (key === HIST.key) return;                    // drawn again only when something changed, or once a minute
+    HIST.key = key;
+    histLayer.clearLayers();
+    if (!on) return;
+    const C = COL(), a = state.now - S.win, b = state.now - DETAIL + 300, gap = Math.max(3 * HIST.step, 60);
+    for (const [k, o] of HIST.ac) {
+      if (S.solo && sel && sel !== k) continue;
+      const col = o.pos ? C.pos : C.nopos, isSel = sel === k;
+      let seg = [], pt = null, dash = false;
+      const flush = () => { if (seg.length > 1) L.polyline(seg, { renderer: histRend, color: col, weight: isSel ? 2.5 : 1.3, opacity: isSel ? 0.9 : 0.6, dashArray: dash ? '3 5' : null, interactive: false }).addTo(histLayer); seg = []; };
+      for (const p of o.p) {
+        if (p[0] < a) continue;
+        if (p[0] > b) break;
+        const ok = (p[3] == null || p[3] <= S.exp) && (S.amb || !p[4]);
+        if (!ok || (pt && (p[0] - pt[0] > gap || !!p[4] !== dash))) flush();
+        if (ok) { if (!seg.length) dash = !!p[4]; seg.push([p[1], p[2]]); pt = p; }
+      }
+      flush();
+    }
+  }
   function draw() {
     if (!map || !layer) return;
+    histCheck(); histDraw();
     layer.clearLayers();
     if (!state || !state.on) { if (atc) atc.redraw(); return; }
     const C = COL(), now = state.now;
@@ -368,7 +447,7 @@
   // The picture at the replay time: the stored points of the trail's length up to it, in the form the live code draws
   function rpFrame() {
     if (!RP.on) return;
-    const t = RP.t, from = t - S.win, c0 = Math.floor(from / RP_CHUNK), c1 = Math.floor(t / RP_CHUNK);
+    const t = RP.t, from = t - Math.min(S.win, DETAIL), c0 = Math.floor(from / RP_CHUNK), c1 = Math.floor(t / RP_CHUNK);
     let meta = RP.meta, missing = false;
     const acc = new Map();
     for (let c = c0; c <= c1; c++) {

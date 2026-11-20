@@ -1079,6 +1079,45 @@ def replay_points(t_from: float, t_to: float) -> dict:
         db.close()
 
 
+TRAIL_MAX_SEC = 31 * 3600.0      # the longest stretch of thinned track points in one request
+TRAIL_MIN_STEP = 5.0
+TRAIL_MAX_ROWS = 250_000
+
+
+def trail_points(t_from: float, t_to: float, step: float) -> dict:
+    """The stored tracks thinned for the map's long trails (from 2026-11-20 evening): of every aircraft the first
+    point of each `step` seconds (at least TRAIL_MIN_STEP) between t_from and t_to (at most TRAIL_MAX_SEC apart),
+    {icao: {pos, p: [[t, lat, lon, stated error m, unresolved], …]}}.  The steps are counted from the Unix epoch,
+    so a later request that starts on a step's edge continues the earlier one."""
+    db = _trk_ro()
+    if db is None:
+        return {"on": False, "why": _WHY if _REC is None else "no replay store"}
+    step = max(TRAIL_MIN_STEP, float(step))
+    t_from = float(t_from)
+    t_to = min(float(t_to), t_from + TRAIL_MAX_SEC, time.time())
+    try:
+        acs: dict = {}
+        if t_to > t_from:
+            # SQLite gives the other columns of the row that holds MIN(ts)
+            for icao, ts, lat, lon, exp, amb in db.execute(
+                    "SELECT icao, MIN(ts), lat, lon, exp, amb FROM mlat_trk WHERE ts >= ? AND ts < ? "
+                    "GROUP BY icao, CAST(ts / ? AS INTEGER) ORDER BY 2 LIMIT ?", (t_from, t_to, step, TRAIL_MAX_ROWS)):
+                a = acs.get(icao)
+                if a is None:
+                    a = acs[icao] = {"pos": False, "p": []}
+                a["p"].append([round(ts, 1), round(lat, 5), round(lon, 5), exp, amb])
+            if acs:
+                for icao, pos in db.execute("SELECT icao, MAX(pos) FROM mlat_trk_ac WHERE t1 >= ? AND t0 <= ? GROUP BY icao",
+                                            (t_from - 1.0, t_to + 1.0)):
+                    if icao in acs:
+                        acs[icao]["pos"] = bool(pos)
+        return {"on": True, "from": t_from, "to": t_to, "step": step, "aircraft": acs}
+    except sqlite3.Error as exc:
+        return {"on": False, "why": str(exc)}
+    finally:
+        db.close()
+
+
 def replay_flights() -> dict:
     """What the replay store holds: its time range and the stretches of each aircraft (newest first)."""
     db = _trk_ro()

@@ -772,6 +772,20 @@ def create_app(
         out["center"] = [cfg.WINDSHEAR_AIRPORT_LAT, cfg.WINDSHEAR_AIRPORT_LON]
         return _private(_gzip_json(out))
 
+    @app.route("/api/mlat/trails")
+    def mlat_trails_api():
+        """The stored tracks thinned for the long trails of the Own MLAT map (from 2026-11-20 evening): ?from=, ?to=
+        (Unix seconds) and ?step= (seconds, 5 or more): one point of each aircraft per step.  The MLAT right only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        t0 = request.args.get("from", type=float)
+        t1 = request.args.get("to", type=float)
+        step = request.args.get("step", default=10.0, type=float)
+        if t0 is None or t1 is None or t1 <= t0 or step is None or not (step > 0):
+            abort(400)
+        return _private(_gzip_json(mlat_rec.trail_points(t0, t1, step)))
+
     @app.route("/api/mlat/replay/flights")
     def mlat_replay_flights_api():
         """What the replay store holds: its time range and each aircraft's stretches.  The MLAT right only."""
