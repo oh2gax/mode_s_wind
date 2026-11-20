@@ -238,9 +238,43 @@
       { attribution: '© OSM, © CARTO', subdomains: 'abcd', maxZoom: 15 }).addTo(map);
     tileKey = tk;
   }
+  // The map's place and zoom are remembered in the browser (from the evening of 2026-11-20, ms_mlm_mapview), and a
+  // house button under + / − goes back to the default view: the airport the server gives as the centre, zoom 8
+  const HOME_ZOOM = 8;
+  let homeC = [60.317, 24.963];
+  function savedView() {
+    try {
+      const v = JSON.parse(lsGet('ms_mlm_mapview', 'null'));
+      if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon) && Number.isFinite(v.z) && Math.abs(v.lat) <= 85 && Math.abs(v.lon) <= 180 && v.z >= 3 && v.z <= 15) return v;
+    } catch (_) { /* a broken value: the default view */ }
+    return null;
+  }
   function initMap() {
     if (map) return;
-    map = L.map('mlm-map', { zoomControl: true, preferCanvas: true, attributionControl: true }).setView([60.317, 24.963], 8);
+    const sv = savedView();
+    map = L.map('mlm-map', { zoomControl: true, preferCanvas: true, attributionControl: true }).setView(sv ? [sv.lat, sv.lon] : homeC, sv ? sv.z : HOME_ZOOM);
+    map._mlmCentred = !!sv;                          // a remembered view is not replaced by the server's centre
+    map.on('moveend', () => {
+      if (!map.getSize().x || !map._mlmCentred) return;           // hidden, or still at the built-in start
+      const c = map.getCenter();
+      lsSet('ms_mlm_mapview', JSON.stringify({ lat: +c.lat.toFixed(4), lon: +c.lng.toFixed(4), z: map.getZoom() }));
+    });
+    const Home = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const box = L.DomUtil.create('div', 'leaflet-bar ms-map-home');
+        const a = L.DomUtil.create('a', '', box);
+        a.href = '#'; a.title = 'Back to the default view (the airport, zoom 8)';
+        a.setAttribute('role', 'button'); a.setAttribute('aria-label', a.title);
+        a.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">'
+          + '<path d="M2.5 7.5 8 2.5l5.5 5M4 6.6V13.5h3V10h2v3.5h3V6.6" fill="none" stroke="currentColor" '
+          + 'stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); map._mlmCentred = true; map.setView(homeC, HOME_ZOOM); });
+        return box;
+      },
+    });
+    new Home().addTo(map);
     renderer = L.canvas({ padding: 0.3 });
     setTiles();
     map.createPane('mlmGrid').style.zIndex = 350;
@@ -281,7 +315,8 @@
     timer = setTimeout(() => poll(false), POLL);
   }
   function merge(d, whole) {
-    if (!last && d.center && map && !map._mlmCentred) { map.setView(d.center, 8); map._mlmCentred = true; }
+    if (d.center) homeC = d.center;
+    if (!last && d.center && map && !map._mlmCentred) { map._mlmCentred = true; map.setView(d.center, HOME_ZOOM); }
     const seen = new Set();
     for (const a of d.aircraft || []) {
       seen.add(a.icao);
@@ -497,7 +532,8 @@
       AC.set(k, o);
     }
     state = { on: true, now: t, qnh: meta ? meta.qnh : null, ta_ft: meta ? meta.ta : 5000, center: meta ? meta.center : null, replay: true };
-    if (!map._mlmCentred && state.center) { map.setView(state.center, 8); map._mlmCentred = true; }
+    if (state.center) homeC = state.center;
+    if (!map._mlmCentred && state.center) { map._mlmCentred = true; map.setView(state.center, HOME_ZOOM); }
     const live = [...AC.values()].filter(o => t - o.last[0] <= 60), withErr = live.map(o => o.last[5]).filter(v => v != null && !isNaN(v)).sort((a, b) => a - b);
     const tile = (v, l, tt) => `<div class="mlm-tile" title="${esc(tt)}"><b>${v}</b><span>${l}</span></div>`;
     $('mlm-tiles').innerHTML = tile(utc(t).slice(0, 5), 'replay, UTC', 'Time of the picture') + tile(live.length, 'aircraft', 'Aircraft with a stored position in the minute before') +
