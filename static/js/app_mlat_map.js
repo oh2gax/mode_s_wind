@@ -18,8 +18,8 @@
  *    the last 24 hours, one point per aircraft every 2 s).
  *  - One line for the selected aircraft (a tap on the map or on a row; a second tap releases).
  *  - Panels chosen with chips (app_mlat.js shows and hides them):
- *      Traffic  every aircraft with a fix in the last minute, two lines each: address and
- *               state, level, our speed / the reported one, stated / measured error, the
+ *      Traffic  every aircraft with a fix in the last minute, two lines each: registration
+ *               (when known), address and state, level, our speed / the reported one, stated / measured error, the
  *               motion figure / how long the track has run; nearest to the airport first
  *      Fixes    the tiles, the errors by distance and the receivers' clocks
  *      Flights  the aircraft located in the last 3 / 6 / 12 / 24 hours; a tap replays one alone
@@ -261,7 +261,7 @@
       seen.add(a.icao);
       let o = AC.get(a.icao);
       if (!o) { o = { trk: [], adsb: [] }; AC.set(a.icao, o); }
-      Object.assign(o, { cs: a.cs, typ: a.typ, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
+      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
                          mm: a.mm, nh: a.nh, tage: a.tage, doubt: a.doubt });
       if (whole) { o.trk = a.trk || []; o.adsb = a.adsb || []; continue; }
       const t1 = o.trk.length ? o.trk[o.trk.length - 1][0] : 0, t2 = o.adsb.length ? o.adsb[o.adsb.length - 1][0] : 0;
@@ -499,8 +499,8 @@
       for (const k in ch.ac) {
         const a = ch.ac[k];
         let o = acc.get(k);
-        if (!o) { o = { cs: a.cs, typ: a.typ, pos: !!a.pos, trk: [], adsb: [] }; acc.set(k, o); }
-        if (a.cs) o.cs = a.cs; if (a.typ) o.typ = a.typ; if (a.pos) o.pos = true;
+        if (!o) { o = { cs: a.cs, typ: a.typ, reg: a.reg, pos: !!a.pos, trk: [], adsb: [] }; acc.set(k, o); }
+        if (a.cs) o.cs = a.cs; if (a.typ) o.typ = a.typ; if (a.reg) o.reg = a.reg; if (a.pos) o.pos = true;
         for (const p of a.p) {
           if (p[0] < from || p[0] > t) continue;
           o.trk.push([p[0], p[1], p[2], p[3], p[4], p[6], p[5], p[9], null, p[10], p[11]]);
@@ -613,7 +613,7 @@
     if (!sel) { el.textContent = 'Tap an aircraft on the map or in the list.'; return; }
     if (!o || !o.last) { el.innerHTML = `<b>${esc(sel)}</b> — not in the picture now${S.solo ? ' (Solo: nothing else is drawn)' : ''}<small>tap to release</small>`; return; }
     const p = o.last, C = COL();
-    el.innerHTML = `<b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(sel, o))}</b> ${esc(o.typ || '')} · ${esc(sel)} · ${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''}`
+    el.innerHTML = `<b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(sel, o))}</b> ${esc(o.typ || '')} · ${o.reg ? esc(o.reg) + ' · ' : ''}${esc(sel)} · ${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''}`
       + (o.sal != null ? ` · sel ${lvl(o.sal)}` : '') + (o.nrx ? ` · ${o.nrx} receivers` : '')
       + `\nstated ±${mTxt(p[4])}` + (o.err != null ? ` · measured ${mTxt(o.err)}` : o.pos ? '' : ' · sends no position')
       + ` · ${stateOf(o)}` + (o.mm != null ? ` · motion ${Math.round(o.mm)} m/s` : '') + '<small>tap to release</small>';
@@ -626,12 +626,12 @@
     $('aml-trf-n').textContent = rows.length ? `${rows.length} aircraft · ${nop} without own position` + (state.qnh != null ? ` · QNH ${Math.round(state.qnh)}` : '') : '';
     if (!rows.length) { box.innerHTML = '<div class="agn-none">No fixes in the last minute.</div>'; return; }
     const C = COL();
-    box.innerHTML = '<table><thead><tr><th>Aircraft<small>address · state</small></th><th class="num">Level<small>NM</small></th><th class="num">Speed<small>reported</small></th>'
+    box.innerHTML = '<table><thead><tr><th>Aircraft<small>registration · address · state</small></th><th class="num">Level<small>NM</small></th><th class="num">Speed<small>reported</small></th>'
       + '<th class="num">Stated<small>measured</small></th><th class="num">Motion<small>track</small></th></tr></thead><tbody>'
       + rows.map(([k, o, d]) => {
         const p = o.last, vr = o.vr, arrow = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '', rg = repGs(o), st = stateOf(o);
         return `<tr data-k="${esc(k)}"${sel === k ? ' class="sel"' : ''}>`
-          + `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}<small>${esc(k)} · <span${st === 'resolved' ? '' : ' class="w"'}>${st}</span>${o.pos ? '' : ' · no position'}</small></td>`
+          + `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}<small>${o.reg ? esc(o.reg) + ' · ' : ''}${esc(k)} · <span${st === 'resolved' ? '' : ' class="w"'}>${st}</span>${o.pos ? '' : ' · no position'}</small></td>`
           + `<td class="num">${lvl(p[3])}${arrow}${S.sal && o.sal != null ? ' ' + lvl(o.sal) : ''}<small>${d == null ? '—' : d.toFixed(d < 10 ? 1 : 0) + ' NM'}</small></td>`
           + `<td class="num">${o.vel ? Math.round(o.vel[0]) : '—'}<small>${rg == null ? '—' : Math.round(rg)}</small></td>`
           + `<td class="num">±${mTxt(p[4])}<small>${mTxt(o.err)}</small></td>`
@@ -690,9 +690,9 @@
     $('aml-fl-n').textContent = rows.length ? `${rows.length} in the last ${flRange} h` : '';
     if (!rows.length) { box.innerHTML = `<div class="agn-none">${RP.t0 == null ? (RP.got ? 'Nothing is stored for the replay yet.' : 'Loading…') : 'No aircraft located in the last ' + flRange + ' h.'}</div>`; return; }
     const C = COL();
-    box.innerHTML = '<table><thead><tr><th>Aircraft<small>address</small></th><th class="num">From – to, UTC</th><th class="num">Points</th></tr></thead><tbody>'
+    box.innerHTML = '<table><thead><tr><th>Aircraft<small>registration · address</small></th><th class="num">From – to, UTC</th><th class="num">Points</th></tr></thead><tbody>'
       + rows.slice(0, 400).map(([f, i]) => `<tr data-i="${i}"${RP.on && sel === f.icao ? ' class="sel"' : ''}>`
-        + `<td><b style="color:${f.pos ? C.pos : C.nopos}">${esc(f.cs && f.cs !== f.icao ? f.cs : f.icao)}</b> ${esc(f.typ || '')}<small>${esc(f.icao)}${f.pos ? '' : ' · no position'}</small></td>`
+        + `<td><b style="color:${f.pos ? C.pos : C.nopos}">${esc(f.cs && f.cs !== f.icao ? f.cs : f.icao)}</b> ${esc(f.typ || '')}<small>${f.reg ? esc(f.reg) + ' · ' : ''}${esc(f.icao)}${f.pos ? '' : ' · no position'}</small></td>`
         + `<td class="num">${utc(f.t0).slice(0, 5)}–${utc(f.t1).slice(0, 5)}<small>${utc(f.t0, true).slice(0, -9)}</small></td><td class="num">${f.n}</td></tr>`).join('')
       + '</tbody></table>' + (rows.length > 400 ? `<div class="agn-none">The newest 400 of ${rows.length}.</div>` : '');
   }

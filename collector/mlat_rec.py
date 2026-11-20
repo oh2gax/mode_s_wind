@@ -1072,11 +1072,24 @@ def replay_points(t_from: float, t_to: float) -> dict:
                     "SELECT icao, cs, typ, pos FROM mlat_trk_ac WHERE icao IN (%s) AND t1 >= ? AND t0 <= ? ORDER BY t0" % qm,
                     (*acs.keys(), t_from - 1.0, t_to + 1.0)):
                 acs[icao].update(cs=cs, typ=typ, pos=bool(pos))
+            for icao, a in acs.items():
+                a["reg"] = _reg_of(icao)
         return {"on": True, "from": t_from, "to": t_to, "step": 2.0, "aircraft": acs}
     except sqlite3.Error as exc:
         return {"on": False, "why": str(exc)}
     finally:
         db.close()
+
+
+def _reg_of(icao: str) -> str | None:
+    """The registration of a stored aircraft for the map's lists (from 2026-11-20 evening).  The replay store has
+    no registration column; it is looked up by the address in the aircraft database (collector/aircraft_db.py —
+    BaseStation.sqb and aircraft_ref.db, answers kept in memory), so it is there for old tracks as well."""
+    try:
+        from collector import aircraft_db
+        return aircraft_db.lookup(icao)[0]
+    except Exception:                              # noqa: BLE001 — a list without registrations is still a list
+        return None
 
 
 TRAIL_MAX_SEC = 31 * 3600.0      # the longest stretch of thinned track points in one request
@@ -1125,7 +1138,7 @@ def replay_flights() -> dict:
         return {"on": False, "why": _WHY if _REC is None else "no replay store"}
     try:
         lo, hi = db.execute("SELECT MIN(ts), MAX(ts) FROM mlat_trk").fetchone()
-        fl = [{"icao": r[0], "t0": r[1], "t1": r[2], "n": r[3], "cs": r[4], "typ": r[5], "pos": bool(r[6])}
+        fl = [{"icao": r[0], "t0": r[1], "t1": r[2], "n": r[3], "cs": r[4], "typ": r[5], "pos": bool(r[6]), "reg": _reg_of(r[0])}
               for r in db.execute("SELECT icao, t0, t1, n, cs, typ, pos FROM mlat_trk_ac WHERE n >= 5 ORDER BY t0 DESC LIMIT 3000")]
         return {"on": True, "t0": lo, "t1": hi, "hours": _REC.trk_hours, "flights": fl}
     except sqlite3.Error as exc:

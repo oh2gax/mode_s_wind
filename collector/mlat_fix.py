@@ -1190,6 +1190,7 @@ class Fixer:
             a["nrx"] = nrx
             a["cs"] = ls.get("callsign") or a.get("cs")
             a["typ"] = ls.get("aircraft_type") or a.get("typ")
+            a["reg"] = ls.get("registration") or a.get("reg")      # for the map's lists (from 2026-11-20 evening)
             a["has_pos"] = tr is not None or (ls.get("last_adsb_pos_ts") is not None
                                               and t - ls["last_adsb_pos_ts"] < 60)
             if not a["trk"] or t - a["trk"][-1][0] >= TRACK_STEP:
@@ -1285,7 +1286,7 @@ class Fixer:
                     nh = len(hs)
                 except Exception:                  # noqa: BLE001 — the solver thread may be replacing the list
                     nh = 0
-                acs.append({"icao": icao, "cs": a.get("cs"), "typ": a.get("typ"), "last": last[:7],
+                acs.append({"icao": icao, "cs": a.get("cs"), "typ": a.get("typ"), "reg": a.get("reg"), "last": last[:7],
                             "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")),
                             "res": bool(a["res"]), "err": None if not er else int(er[len(er) // 2]),
                             "vel": a.get("vel"), "vr": a.get("vr"), "sal": a.get("sal"),

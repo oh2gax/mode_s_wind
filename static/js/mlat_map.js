@@ -331,7 +331,7 @@
       seen.add(a.icao);
       let o = AC.get(a.icao);
       if (!o) { o = { trk: [], adsb: [] }; AC.set(a.icao, o); }
-      Object.assign(o, { cs: a.cs, typ: a.typ, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
+      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
                          mm: a.mm, nh: a.nh, tage: a.tage, doubt: a.doubt });
       if (whole) { o.trk = a.trk || []; o.adsb = a.adsb || []; continue; }
       const t1 = o.trk.length ? o.trk[o.trk.length - 1][0] : 0, t2 = o.adsb.length ? o.adsb[o.adsb.length - 1][0] : 0;
@@ -519,7 +519,7 @@
     const o = sel ? AC.get(sel) : null, box = $('mlm-selp');
     box.style.display = o ? '' : 'none';
     if (!o || typeof Chart === 'undefined') return;
-    $('mlm-selt').textContent = `${name(sel, o)} ${o.typ || ''} · ${sel}`;
+    $('mlm-selt').textContent = `${name(sel, o)} ${o.typ || ''} · ${o.reg ? o.reg + ' · ' : ''}${sel}`;
     const C = COL(), txt = light() ? '#475569' : '#94a3b8', grid = 'rgba(148,163,184,.18)';
     const pts = o.trk.filter(p => !p[6]);
     const lab = pts.map(p => { const t = new Date(p[0] * 1000); return String(t.getUTCHours()).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0') + ':' + String(t.getUTCSeconds()).padStart(2, '0'); });
@@ -539,7 +539,7 @@
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
   function tip(k, o) {
     const p = o.last;
-    return `<b>${esc(name(k, o))}</b> ${esc(o.typ || '')} · ${esc(k)}<br>${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''} · ${o.nrx || 3} receivers<br>` +
+    return `<b>${esc(name(k, o))}</b> ${esc(o.typ || '')} · ${o.reg ? esc(o.reg) + ' · ' : ''}${esc(k)}<br>${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''} · ${o.nrx || 3} receivers<br>` +
       `expected ±${mTxt(p[4])}${o.err != null ? ` · measured ${mTxt(o.err)} from its ADS-B position` : (o.pos ? '' : ' · sends no position')}` +
       (p[6] ? '<br>unresolved: two positions possible' : '');
   }
@@ -593,8 +593,8 @@
       for (const k in ch.ac) {
         const a = ch.ac[k];
         let o = acc.get(k);
-        if (!o) { o = { cs: a.cs, typ: a.typ, pos: !!a.pos, trk: [], adsb: [] }; acc.set(k, o); }
-        if (a.cs) o.cs = a.cs; if (a.typ) o.typ = a.typ; if (a.pos) o.pos = true;
+        if (!o) { o = { cs: a.cs, typ: a.typ, reg: a.reg, pos: !!a.pos, trk: [], adsb: [] }; acc.set(k, o); }
+        if (a.cs) o.cs = a.cs; if (a.typ) o.typ = a.typ; if (a.reg) o.reg = a.reg; if (a.pos) o.pos = true;
         for (const p of a.p) {
           if (p[0] < from || p[0] > t) continue;
           o.trk.push([p[0], p[1], p[2], p[3], p[4], p[6], p[5], p[9], null, p[10], p[11]]);
@@ -800,6 +800,7 @@
   const TCOLS = [
     ['ac', 'Aircraft', 'Callsign (or address) and type', 0, (k, o) => name(k, o)],
     ['icao', 'Address', 'Mode S address', 0, k => k],
+    ['reg', 'Reg', 'Registration, when the aircraft database knows it (from the evening of 2026-11-20)', 0, (k, o) => o.reg || '\uffff'],
     ['lvl', 'Level', 'Up to the transition altitude the altitude on the EFHK METAR QNH (A023), above it the flight level; the arrow: climbing or descending 300 ft/min or more', 1, (k, o) => o.last[3]],
     ['gs', 'Speed', 'Ground speed in knots from our own track / the one the aircraft reports', 1, (k, o) => o.vel ? o.vel[0] : null],
     ['exp', 'Stated', 'Stated error of the last fix: from the timing errors and the geometry of the receivers, with a floor of 35 m', 1, (k, o) => o.last[4]],
@@ -819,6 +820,7 @@
   const FCOLS = [
     ['ac', 'Aircraft', 'Callsign (or address) and type', 0, f => flName(f)],
     ['icao', 'Address', 'Mode S address', 0, f => f.icao],
+    ['reg', 'Reg', 'Registration, when the aircraft database knows it', 0, f => f.reg || '\uffff'],
     ['t0', 'From', 'Start of the stored track, UTC', 1, f => f.t0],
     ['t1', 'To', 'End of the stored track, UTC. A break of 15 minutes or more starts a new track', 1, f => f.t1],
     ['len', 'Length', 'From the first to the last stored point', 1, f => f.t1 - f.t0],
@@ -837,13 +839,13 @@
     const key = [RP.flights.length, RP.t1, RP.t0, !!RP.got, flRange, flSort.k, flSort.asc, RP.on ? sel : '', light()].join('|');
     if (key === flKey) return;
     flKey = key;
-    const rows = flRows(), col = FCOLS.find(c => c[0] === flSort.k) || FCOLS[2], C = COL();
+    const rows = flRows(), col = FCOLS.find(c => c[0] === flSort.k) || FCOLS.find(c => c[0] === 't0'), C = COL();
     rows.sort((a, b) => { const x = col[4](a[0]), y = col[4](b[0]), c = col[3] ? x - y : String(x).localeCompare(String(y)); return flSort.asc ? c : -c; });
     const day = t => utc(t, true).slice(0, -9), today = day(RP.t1 != null ? RP.t1 : Date.now() / 1000);
     const len = v => v < 60 ? Math.round(v) + ' s' : v < 3600 ? Math.floor(v / 60) + ' min' : Math.floor(v / 3600) + ' h ' + String(Math.floor(v % 3600 / 60)).padStart(2, '0');
     $('mlm-trf-tab').innerHTML = '<thead><tr>' + FCOLS.map(c => `<th data-c="${c[0]}" title="${esc(c[2])}" class="${c[3] ? 'num' : ''}${c[0] === flSort.k ? ' srt' + (flSort.asc ? ' asc' : '') : ''}">${c[1]}</th>`).join('') + '<th></th></tr></thead><tbody>' +
       rows.slice(0, 1500).map(([f, i]) => `<tr data-i="${i}"${RP.on && sel === f.icao ? ' class="sel"' : ''}>` +
-        `<td><b style="color:${f.pos ? C.pos : C.nopos}">${esc(flName(f))}</b> ${esc(f.typ || '')}</td><td><code>${esc(f.icao)}</code></td>` +
+        `<td><b style="color:${f.pos ? C.pos : C.nopos}">${esc(flName(f))}</b> ${esc(f.typ || '')}</td><td><code>${esc(f.icao)}</code></td><td>${esc(f.reg || '—')}</td>` +
         `<td class="num">${day(f.t0) === today ? '' : day(f.t0) + ' '}${utc(f.t0).slice(0, 5)}</td><td class="num">${utc(f.t1).slice(0, 5)}</td><td class="num">${len(f.t1 - f.t0)}</td><td class="num">${f.n}</td>` +
         `<td>${f.pos ? 'broadcast' : '<span class="mlm-tag" title="Sent no position of its own">no position</span>'}</td>` +
         `<td><button type="button" class="mlm-fl-go" title="Replay this aircraft alone from the start of this track (Solo is turned on)">▶ Replay</button></td></tr>`).join('') +
@@ -875,7 +877,7 @@
       rows.map(([k, o]) => {
         const p = o.last, vr = o.vr, arrow = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '', rg = repGs(o), st = stateOf(o), d = nmFrom(p[1], p[2]);
         return `<tr data-k="${esc(k)}"${sel === k ? ' class="sel"' : ''}>` +
-          `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}</td><td><code>${esc(k)}</code></td>` +
+          `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}</td><td><code>${esc(k)}</code></td><td>${esc(o.reg || '—')}</td>` +
           `<td class="num">${lvl(p[3])}${arrow}${S.sal && o.sal != null ? ' <span title="Selected altitude">' + lvl(o.sal) + '</span>' : ''}</td>` +
           `<td class="num">${o.vel ? Math.round(o.vel[0]) : '—'} / ${rg == null ? '—' : Math.round(rg)}</td>` +
           `<td class="num">±${mTxt(p[4])}</td><td class="num">${mTxt(o.err)}</td>` +
@@ -899,7 +901,7 @@
   function trfGeom() { try { return JSON.parse(lsGet(LS.trf, 'null')) || {}; } catch (_) { return {}; } }
   function trfSave() {
     const w = $('mlm-trf'), g = trfGeom(), min = w.classList.contains('min');
-    g.x = w.offsetLeft; g.y = w.offsetTop; g.min = min; g.v = 2;
+    g.x = w.offsetLeft; g.y = w.offsetTop; g.min = min; g.v = 2; g.reg = 1;
     if (!min && w.offsetWidth > 0) { g.w = w.offsetWidth; g.h = w.offsetHeight; }
     lsSet(LS.trf, JSON.stringify(g));
   }
@@ -924,6 +926,9 @@
     const w = $('mlm-trf'), hdr = $('mlm-trf-hdr'), g = trfGeom();
     if (g.x != null && g.v !== 2) { g.x += 12; g.y += 8; }          // a place stored against the map box: the same spot
     if (g.x != null) { w.style.left = g.x + 'px'; w.style.top = g.y + 'px'; }
+    // the Reg column (20.11.2026) made the table a little wider than the old default: a window stored at about that
+    // width is widened once, so that it does not get a sideways scroll bar from the new column
+    if (g.w && !g.reg && g.w >= 780 && g.w < 850) g.w = 850;
     if (g.w) { w.style.width = g.w + 'px'; w.style.height = g.h + 'px'; }
     w.classList.toggle('min', !!g.min);
     let drag = null;
@@ -951,7 +956,7 @@
     $('mlm-trf-tab').addEventListener('click', e => {
       const th = e.target.closest('th[data-c]');
       if (th && trfMode === 'fl') {
-        flSort = { k: th.dataset.c, asc: flSort.k === th.dataset.c ? !flSort.asc : th.dataset.c === 'ac' || th.dataset.c === 'icao' };
+        flSort = { k: th.dataset.c, asc: flSort.k === th.dataset.c ? !flSort.asc : ['ac', 'icao', 'reg'].includes(th.dataset.c) };
         lsSet('ms_mlm_flsort', JSON.stringify(flSort)); trfRender(); return;
       }
       if (th) {
