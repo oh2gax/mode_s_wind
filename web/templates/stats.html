@@ -113,8 +113,8 @@
     .mlm-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
     .mlm-ctl select { font: inherit; font-size: 12px; padding: 1px 4px; background: var(--bg-2, transparent); color: inherit; border: 1px solid var(--border, #475569); border-radius: 4px; }
     .mlm-ctl label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
-    .mlm-body { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 10px; padding: 8px 12px 12px; }
-    .mlm-mapwrap { position: relative; min-height: 480px; height: calc(100vh - 215px); border: 1px solid var(--border, #334155); border-radius: 6px; overflow: hidden; }
+    .mlm-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 10px; padding: 8px 12px 12px; }
+    .mlm-mapwrap { position: relative; z-index: 0; min-height: 480px; height: calc(100vh - 215px); border: 1px solid var(--border, #334155); border-radius: 6px; overflow: hidden; }
     #mlm-map { position: absolute; inset: 0; background: #0b1220; }
     [data-theme="light"] #mlm-map { background: #e5e7eb; }
     .mlm-legend { position: absolute; left: 8px; bottom: 36px; z-index: 500; padding: 5px 8px; border-radius: 5px; font-size: 11px; line-height: 1.5;
@@ -153,24 +153,38 @@
               padding: 4px 8px; border: 1px solid var(--border, #334155); border-radius: 6px; background: rgba(15, 23, 42, .93); color: #e2e8f0; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
     [data-theme="light"] .mlm-rp { background: rgba(255, 255, 255, .96); color: #1e293b; }
     .mlm-rp button, .mlm-rp select { font: inherit; font-size: 12px; line-height: 1.2; padding: 2px 7px; cursor: pointer; white-space: nowrap; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
-    .mlm-rp select { padding: 2px 3px; } .mlm-rp select option { color: #1e293b; }
+    .mlm-rp select { padding: 2px 3px; }
+    /* the entries of a drop-down get both colours: with only the text colour set they were dark on dark in the dark theme (20.11.2026) */
+    .mlm-rp select option { color: #e2e8f0; background: #0f172a; } [data-theme="light"] .mlm-rp select option { color: #1e293b; background: #fff; }
+    .mlm-rp-at { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+    .mlm-rp-at input { font: inherit; font-size: 12px; width: 4.3em; padding: 1px 3px; text-align: center; font-variant-numeric: tabular-nums; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    .mlm-rp-at input::placeholder { color: inherit; opacity: .45; } .mlm-rp-at input.bad { border-color: #ef4444; }
     .mlm-rp button.on { background: #16a34a; border-color: #16a34a; color: #fff; }
     .mlm-rp.rp button#mlm-rp-play.on { background: #2563eb; border-color: #2563eb; color: #fff; }
     .mlm-rp input[type=range] { width: 260px; min-width: 80px; flex: 1 1 260px; }
     #mlm-rp-t { min-width: 138px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    #mlm-rp-fl { max-width: 150px; }
     .mlm-rpnote { font-size: 11.5px; color: var(--text-2); padding: 8px 10px; }
-    /* Traffic list window (from 2026-11-20) */
-    .mlm-trf { position: absolute; left: 54px; top: 10px; width: 800px; height: 250px; min-width: 240px; min-height: 26px; max-width: calc(100% - 8px); max-height: calc(100% - 8px);
+    /* Traffic list window (from 2026-11-20): a child of the Map view (.mlm-body), so it can stand over the map, over the
+       column beside it, or over both; the map box is a stacking context of its own (z-index 0), so the window is above
+       the map's own buttons wherever it stands */
+    .mlm-trf { position: absolute; left: 66px; top: 18px; width: 800px; height: 250px; min-width: 240px; min-height: 26px; max-width: calc(100% - 8px); max-height: calc(100% - 8px);
                z-index: 800; display: flex; flex-direction: column; resize: both; overflow: hidden; border: 1px solid var(--border, #334155); border-radius: 6px;
                background: rgba(15, 23, 42, .93); color: #e2e8f0; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); font-size: 11.5px; }
     [data-theme="light"] .mlm-trf { background: rgba(255, 255, 255, .96); color: #1e293b; }
+    .mlm-trf.solid { background: #0f172a; } [data-theme="light"] .mlm-trf.solid { background: #fff; }
     .mlm-trf.min { height: auto !important; resize: none; min-height: 0; }
     .mlm-trf.min .mlm-trf-body { display: none; }
     .mlm-trf-hdr { display: flex; align-items: center; gap: 8px; padding: 3px 6px 3px 9px; cursor: move; user-select: none; touch-action: none; border-bottom: 1px solid var(--border, #334155); flex: 0 0 auto; }
     .mlm-trf.min .mlm-trf-hdr { border-bottom: none; }
-    .mlm-trf-hdr span { flex: 1; font-size: 11px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mlm-trf-hdr > span#mlm-trf-n { flex: 1; font-size: 11px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .mlm-trf-hdr button { font: inherit; font-weight: 700; line-height: 1; width: 22px; height: 18px; padding: 0; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    /* the two lists of the window (Now / Flights) and the Flights list's range, as small joined buttons in the title bar */
+    .mlm-trf-seg { display: inline-flex; flex: none; }
+    .mlm-trf-hdr .mlm-trf-seg button { width: auto; height: 18px; padding: 0 7px; font-weight: 500; font-size: 11px; border-radius: 0; margin-left: -1px; }
+    .mlm-trf-hdr .mlm-trf-seg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; } .mlm-trf-hdr .mlm-trf-seg button:last-child { border-radius: 0 4px 4px 0; }
+    .mlm-trf-hdr .mlm-trf-seg button.on { background: #2563eb; border-color: #2563eb; color: #fff; position: relative; }
+    #mlm-trf-tab button.mlm-fl-go { font: inherit; font-size: 11px; line-height: 1.2; padding: 0 7px; cursor: pointer; color: inherit; background: transparent; border: 1px solid var(--border, #475569); border-radius: 4px; }
+    #mlm-trf-tab button.mlm-fl-go:hover { background: #2563eb; border-color: #2563eb; color: #fff; }
     .mlm-trf-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
     #mlm-trf-tab { width: 100%; }
     #mlm-trf-tab th { position: sticky; top: 0; z-index: 1; cursor: pointer; white-space: nowrap; background: #0f172a; }
@@ -210,20 +224,24 @@
       <label title="Radar-display labels: callsign; flight level with the climb / descent arrow; our own ground speed in tens of knots and the type"><input type="checkbox" id="mlm-lbl" checked> Labels</label>
       <label title="Show Sel Alt: the altitude selected in the cockpit, when the aircraft sends it, after the level in the label as on the Live Map and the Windshear map (019↑060 = at 1 900 ft, climbing, 6 000 ft selected). It comes from the aircraft's own messages also when the position is ours"><input type="checkbox" id="mlm-sal"> Show Sel Alt</label>
       <label title="Solo: with an aircraft selected (on the map, in the list or in the Traffic window) only that aircraft is drawn; with none selected, all are"><input type="checkbox" id="mlm-solo"> Solo</label>
-      <label title="Traffic list: a movable, resizable window over the map with every aircraft that has a fix, and what the multilateration knows of it"><input type="checkbox" id="mlm-trfon" checked> Traffic list</label>
+      <label title="Traffic list: a movable, resizable window with every aircraft that has a fix, and what the multilateration knows of it; its Flights list has the aircraft of the last 3 to 24 hours, each with a Replay button. It can stand over the map or be dragged beside it, over the column on the right"><input type="checkbox" id="mlm-trfon" checked> Traffic list</label>
     </span>
     <span class="mst-hdr-note" id="mlm-note"></span>
   </div>
   <div class="mlm-body" id="mst-mlat-map" style="display:none">
+    <!-- Traffic list (from 2026-11-20, static/js/mlat_map.js): a window in the Map view — moved by its title bar to
+         anywhere in the view (over the map or beside it), resized from its corner, minimized to the title bar; place,
+         size and state are kept in the browser -->
+    <div class="mlm-trf" id="mlm-trf" style="display:none">
+      <div class="mlm-trf-hdr" id="mlm-trf-hdr" title="Drag to move — over the map or beside it"><b>Traffic</b>
+        <span class="mlm-trf-seg" id="mlm-trf-mode" role="group" aria-label="List"><button type="button" data-trfm="now" title="The aircraft that have a fix now (in replay: at the replay time)">Now</button><button type="button" data-trfm="fl" title="The aircraft located in the stored time — the last 24 hours — each with a Replay button">Flights</button></span>
+        <span class="mlm-trf-seg" id="mlm-trf-rng" role="group" aria-label="Range of the Flights list" style="display:none"><button type="button" data-flr="3">3 h</button><button type="button" data-flr="6">6 h</button><button type="button" data-flr="12">12 h</button><button type="button" data-flr="24">24 h</button></span>
+        <span id="mlm-trf-n"></span>
+        <button type="button" id="mlm-trf-min" title="Minimize / restore">–</button></div>
+      <div class="mlm-trf-body" id="mlm-trf-body"><table class="mst-table" id="mlm-trf-tab"></table></div>
+    </div>
     <div class="mlm-mapwrap" id="mlm-mapwrap"><div id="mlm-map"></div>
       <div class="mlm-legend" id="mlm-legend"></div>
-      <!-- Traffic list (from 2026-11-20, static/js/mlat_map.js): a window over the map — moved by its title bar,
-           resized from its corner, minimized to the title bar; place, size and state are kept in the browser -->
-      <div class="mlm-trf" id="mlm-trf" style="display:none">
-        <div class="mlm-trf-hdr" id="mlm-trf-hdr" title="Drag to move"><b>Traffic</b><span id="mlm-trf-n"></span>
-          <button type="button" id="mlm-trf-min" title="Minimize / restore">–</button></div>
-        <div class="mlm-trf-body" id="mlm-trf-body"><table class="mst-table" id="mlm-trf-tab"></table></div>
-      </div>
       <!-- Replay of the last 24 hours (from 2026-11-20): the stored tracks of /api/mlat/replay played back -->
       <div class="mlm-rp" id="mlm-rp">
         <button type="button" id="mlm-rp-live" class="on" title="Back to the live picture">● Live</button>
@@ -235,7 +253,7 @@
         <select id="mlm-rp-speed" title="Replay speed"><option value="1">×1</option><option value="2">×2</option><option value="5">×5</option><option value="10" selected>×10</option><option value="50">×50</option></select>
         <input type="range" id="mlm-rp-sl" min="0" max="1" step="10" value="1" title="Drag to a time in the last 24 hours">
         <span id="mlm-rp-t" title="Time of the picture, UTC">Live</span>
-        <select id="mlm-rp-fl" title="Aircraft located in the last 24 hours: choosing one jumps to the start of its track and shows it alone (Solo)"><option value="">Flights…</option></select>
+<label class="mlm-rp-at" title="Type a time (14:00, 1400 or 14) and press Enter: the replay starts there, UTC. The store holds the last 24 hours, so each clock time is in it once: a time later than now means yesterday. During a replay the field shows the replay time">from <input type="text" id="mlm-rp-at" inputmode="numeric" maxlength="5" size="5" placeholder="hh:mm" autocomplete="off" aria-label="Start the replay at this UTC time, hours and minutes"> UTC</label>
       </div></div>
     <div class="mlm-side">
       <div class="mst-panel">

@@ -4,6 +4,12 @@
  * server leaves the tile, the view and this script out for everyone else, and
  * /api/mlat/state answers a plain 404).
  *
+ * From 2026-11-20 evening the view is the own-MLAT map (app_mlat_map.js: the map,
+ * the replay bar and the line of the selected aircraft, always on top) with one
+ * of four panels under it, chosen with chips and remembered (ms_app_mlat_panel):
+ * Traffic, Fixes, Flights (all three written by app_mlat_map.js) and Recorder —
+ * what this file draws, and what the whole view was before:
+ *
  *  - Now: the pair recorder's state — green when it runs and every GPS-timed
  *    receiver is on GPS time, amber otherwise — with each receiver's clock,
  *    GPS state and temperature.
@@ -19,8 +25,9 @@
  *    without an own ADS-B position is marked).
  *  The newest-pairs table of the web page is left out (too wide for a phone).
  *
- * Data: /api/mlat/state?detail=1 every 10 s while shown.  app.js calls
- * init / show / hide / refresh / layout.
+ * Data: /api/mlat/state?detail=1 every 10 s while the Recorder panel is shown.
+ * app.js calls init / show / hide / refresh / layout; the sub line under the
+ * title belongs to the map (app_mlat_map.js).
  */
 (function () {
   'use strict';
@@ -33,11 +40,24 @@
   const sp = v => v == null ? '—' : '±' + Number(v).toFixed(0) + ' ns';
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const DFN = { 0: 'DF0', 4: 'DF4 altitude', 5: 'DF5 squawk', 11: 'DF11 all-call', 16: 'DF16', 17: 'DF17 ADS-B', 18: 'DF18', 20: 'DF20 Comm-B', 21: 'DF21 Comm-B' };
-  let on = false, inited = false, data = null, sub = () => {}, busy = false, failed = false;
+  const PANELS = ['trf', 'fix', 'fl', 'rec'];
+  let on = false, inited = false, data = null, busy = false, failed = false, panel = 'trf';
+  const MM = () => window.AppMlatMap;
 
+  function showPanel() {
+    for (const p of PANELS) $('aml-p-' + p).hidden = p !== panel;
+    if (MM()) MM().setPanel(panel);
+    if (panel === 'rec' && on) { render(); load(); }
+  }
   function init(o) {
-    if (o && o.sub) sub = o.sub;
+    if (inited || !o) return;
     inited = true;
+    if (MM()) MM().init(o);
+    const ps = $('aml-panel');
+    panel = o.lsGet('ms_app_mlat_panel', 'trf'); if (!PANELS.includes(panel)) panel = 'trf';
+    ps.value = panel; ps.dispatchEvent(new Event('change'));                // the chips follow
+    ps.addEventListener('change', () => { if (ps.value === panel) return; panel = ps.value; o.lsSet('ms_app_mlat_panel', panel); showPanel(); });
+    showPanel();
   }
 
   async function load() {
@@ -49,7 +69,7 @@
       data = await r.json(); failed = false;
     } catch (_) { failed = true; }
     busy = false;
-    if (on) render();
+    if (on && panel === 'rec') render();
   }
 
   function sizeCanvas(cv, H) {
@@ -151,7 +171,6 @@
       now.className = 'agn-now agn-deg';
       now.innerHTML = `<i class="agn-dot"></i><span>Recorder off<small>${esc(data.why || '')}</small></span>`;
       ['aml-tiles', 'aml-clock', 'aml-df', 'aml-sig', 'aml-ac'].forEach(id => { $(id).innerHTML = ''; });
-      sub('MLAT · recorder off');
       drawLine(); drawHist(); drawSect();
       return;
     }
@@ -181,15 +200,14 @@
     $('aml-ac').innerHTML = (x.aircraft || []).length ? '<table><thead><tr><th>Address</th><th class="num">Pairs</th><th class="num">Median</th><th class="num">Spread</th><th class="num">Altitude</th></tr></thead><tbody>'
       + x.aircraft.slice(0, 40).map(r => `<tr><td class="agn-cs">${esc(r[0])}${r[8] ? '' : ' <small class="aml-nopos">no ADS-B pos.</small>'}</td><td class="num">${nf(r[1])}</td><td class="num">${ns(r[3])}</td><td class="num">${sp(r[4])}</td><td class="num">${r[7] == null ? '—' : nf(Math.round(r[7] / 100) * 100)}</td></tr>`).join('')
       + '</tbody></table>' : '<div class="agn-none">No aircraft yet.</div>';
-    sub(`MLAT · ${hm(data.now)} UTC${failed ? ' · update failed' : ''}`);
     drawLine(); drawHist(); drawSect();
   }
 
   window.AppMlat = {
     init,
-    show() { if (!inited) init(); on = true; render(); load(); },
-    hide() { on = false; },
-    refresh() { if (on) load(); },
-    layout() { if (on && data) { drawLine(); drawHist(); drawSect(); } },
+    show() { on = true; if (MM()) MM().show(); if (panel === 'rec') { render(); load(); } },
+    hide() { on = false; if (MM()) MM().hide(); },
+    refresh() { if (on && panel === 'rec') load(); },
+    layout() { if (MM()) MM().layout(); if (on && data && panel === 'rec') { drawLine(); drawHist(); drawSect(); } },
   };
 })();

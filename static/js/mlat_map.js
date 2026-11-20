@@ -29,8 +29,12 @@
  * Replay (from 2026-11-20): the bar at the bottom of the map plays back the tracks the
  * server stored in the last 24 hours (/api/mlat/replay, one point per aircraft every 2 s) —
  * Live, back / forward 1 and 10 minutes, play / pause, speeds ×1 … ×50, a slider over the
- * stored time and a list of the aircraft located.  In replay the same drawing code runs on
- * the stored points; the statistics and the receivers' clocks are live only.
+ * stored time and a time field (UTC) to start the replay at a clock time.  In replay the same
+ * drawing code runs on the stored points; the statistics and the receivers' clocks are live only.
+ *
+ * The Traffic window has two lists (from the evening of 2026-11-20): Now — the aircraft with
+ * a fix — and Flights — the aircraft located in the last 3 / 6 / 12 / 24 hours, each with a
+ * Replay button that plays it alone from the start of its track (before: a drop-down in the bar).
  *
  * The first request takes the whole trail; then only the new points every 5 s.
  * The fixes are a few seconds late (the server waits for clock references on
@@ -270,6 +274,7 @@
       state = d;
       if (d.on) merge(d, whole);
       render(d);
+      if (trfMode === 'fl' && S.trfon) rpRange(false);          // the Flights list: once a minute (rpRange keeps the pace)
     } catch (e) {
       $('mlm-note').textContent = 'Update failed — retrying';
     }
@@ -429,14 +434,12 @@
       const r = await fetch('/api/mlat/replay/flights', { cache: 'no-store' });
       if (!r.ok) throw new Error(r.status);
       const d = await r.json();
-      if (!d.on || d.t0 == null) { RP.t0 = RP.t1 = null; return; }
+      RP.got = true;                                 // an answer has come: an empty list now means that nothing is stored
+      if (!d.on || d.t0 == null) { RP.t0 = RP.t1 = null; RP.flights = []; if (trfMode === 'fl') trfRender(); return; }
       RP.t0 = d.t0; RP.t1 = d.t1; RP.flights = d.flights || [];
       const sl = $('mlm-rp-sl'); sl.min = Math.floor(d.t0); sl.max = Math.ceil(d.t1);
       if (!RP.on) sl.value = sl.max;
-      const fl = $('mlm-rp-fl'), cur = fl.value;
-      fl.innerHTML = `<option value="">Flights… (${RP.flights.length})</option>` + RP.flights.slice(0, 600).map((f, i) =>
-        `<option value="${i}">${esc(f.cs && f.cs !== f.icao ? f.cs : f.icao)} ${esc(f.typ || '')} · ${utc(f.t0).slice(0, 5)}–${utc(f.t1).slice(0, 5)}${f.pos ? '' : ' · no position'}</option>`).join('');
-      fl.value = cur && fl.querySelector(`option[value="${cur}"]`) ? cur : '';
+      if (trfMode === 'fl') trfRender();
     } catch (_) { /* tried again in a minute */ }
   }
   async function rpFetch(c) {
@@ -502,6 +505,7 @@
       tile(withErr.length ? mTxt(withErr[Math.floor(withErr.length / 2)]) : '—', 'median error now', 'Median distance between our track and the aircraft’s own position, the aircraft in the picture');
     $('mlm-note').textContent = `Replay · ${utc(t, true)} UTC · ×${RP.speed}${RP.play ? '' : ' · paused'}${missing ? ' · loading…' : ''}`;
     $('mlm-rp-t').textContent = utc(t, true);
+    if (document.activeElement !== $('mlm-rp-at')) $('mlm-rp-at').value = utc(t).slice(0, 5);
     if (document.activeElement !== $('mlm-rp-sl')) $('mlm-rp-sl').value = Math.round(t);
     draw(); renderList();
   }
@@ -512,7 +516,7 @@
     $('mlm-rp-play').textContent = RP.on && RP.play ? '❚❚' : '▶';
     $('mlm-liveonly').style.display = RP.on ? 'none' : '';
     $('mlm-rpnote').style.display = RP.on ? '' : 'none';
-    if (!RP.on) { $('mlm-rp-t').textContent = 'Live'; if (RP.t1 != null) $('mlm-rp-sl').value = $('mlm-rp-sl').max; }
+    if (!RP.on) { $('mlm-rp-t').textContent = 'Live'; $('mlm-rp-at').value = ''; if (RP.t1 != null) $('mlm-rp-sl').value = $('mlm-rp-sl').max; }
   }
   function rpLoop() {
     clearInterval(RP.tick);
@@ -559,14 +563,34 @@
   $('mlm-rp-speed').value = lsGet('ms_mlm_rpspeed', '10'); RP.speed = +$('mlm-rp-speed').value || 10;
   $('mlm-rp-speed').addEventListener('change', e => { RP.speed = +e.target.value || 1; lsSet('ms_mlm_rpspeed', String(RP.speed)); if (RP.on) rpFrame(); });
   $('mlm-rp-sl').addEventListener('input', e => rpGo(+e.target.value, RP.on ? null : false));
-  $('mlm-rp-fl').addEventListener('change', e => {
-    const f = RP.flights[+e.target.value];
-    if (e.target.value === '' || !f) return;
+  // Start the replay at a clock time (UTC).  The store holds the last 24 hours, so a clock time is in it once: the
+  // latest moment with that time that is not after the newest stored point (a time later than now is yesterday's)
+  // The field is plain text, not a time picker: a picker shows AM / PM in some browsers, and the time is UTC.
+  // Accepts 14:00, 14.00, 1400, 930 and 14; returns [h, m] or null
+  const hhmm = v => { const m = /^\s*(\d{1,2})(?:[:.,h ]?(\d{2}))?\s*$/.exec(v || ''); return m && +m[1] <= 23 && +(m[2] || 0) <= 59 ? [+m[1], +(m[2] || 0)] : null; };
+  async function rpAt(el) {
+    const m = hhmm(el.value);
+    el.classList.toggle('bad', !m && el.value.trim() !== '');
+    if (!m) return;
+    await rpRange(RP.t0 == null);
+    if (RP.t0 == null) { $('mlm-note').textContent = 'Nothing is stored for the replay yet'; return; }
+    const ref = RP.t1, d = new Date(ref * 1000);
+    let t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), m[0], m[1]) / 1000;
+    if (t > ref) t -= 86400;
+    rpGo(t, true);
+  }
+  // Enter, or leaving the field after a change, starts the replay there
+  $('mlm-rp-at').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.target._done = e.target.value; rpAt(e.target); e.target.blur(); } });
+  $('mlm-rp-at').addEventListener('change', e => { if (e.target._done === e.target.value) { e.target._done = null; return; } rpAt(e.target); });
+  $('mlm-rp-at').addEventListener('input', e => e.target.classList.remove('bad'));
+  // Replay one aircraft alone from the start of a stored track (the Flights list of the Traffic window)
+  function rpFlight(f) {
+    if (!f) return;
     sel = f.icao;
     S.solo = true; $('mlm-solo').checked = true; lsSet(LS.solo, '1');
     if (!S.amb) { S.amb = true; $('mlm-amb').checked = true; }               // its unresolved stretches too
     rpGo(f.t0 + 2, true);
-  });
+  }
   for (const ev of ['wheel', 'dblclick', 'mousedown', 'touchstart']) $('mlm-rp').addEventListener(ev, e => e.stopPropagation(), { passive: true });
 
   // ── side panel ──────────────────────────────────────────────────────────
@@ -664,10 +688,54 @@
     ['n', 'Fixes', 'Fixes of this aircraft since it was first located', 1, (k, o) => o.n],
     ['d', 'NM', 'Distance from the airport', 1, (k, o) => nmFrom(o.last[1], o.last[2])],
   ];
+  // The window's two lists (from the evening of 2026-11-20): 'now' — the aircraft with a fix — and 'fl' — the stored
+  // tracks of the last flRange hours (/api/mlat/replay/flights, newest first), each with a Replay button
+  let trfMode = lsGet('ms_mlm_trfmode', 'now') === 'fl' ? 'fl' : 'now';
+  let flRange = [3, 6, 12, 24].includes(+lsGet('ms_mlm_flrange', '24')) ? +lsGet('ms_mlm_flrange', '24') : 24;
+  const flName = f => f.cs && f.cs !== f.icao ? f.cs : f.icao;
+  const FCOLS = [
+    ['ac', 'Aircraft', 'Callsign (or address) and type', 0, f => flName(f)],
+    ['icao', 'Address', 'Mode S address', 0, f => f.icao],
+    ['t0', 'From', 'Start of the stored track, UTC', 1, f => f.t0],
+    ['t1', 'To', 'End of the stored track, UTC. A break of 15 minutes or more starts a new track', 1, f => f.t1],
+    ['len', 'Length', 'From the first to the last stored point', 1, f => f.t1 - f.t0],
+    ['n', 'Points', 'Stored points: at most one every two seconds', 1, f => f.n],
+    ['pos', 'Own position', 'Whether the aircraft broadcast a position of its own during the track; without one its place is known only from our receivers', 0, f => f.pos ? 'broadcast' : 'none'],
+  ];
+  let flSort = (() => { try { const v = JSON.parse(lsGet('ms_mlm_flsort', 'null')); return v && FCOLS.some(c => c[0] === v.k) ? v : { k: 't0', asc: false }; } catch (_) { return { k: 't0', asc: false }; } })();
+  const flRows = () => { const t1 = RP.t1 != null ? RP.t1 : Date.now() / 1000; return RP.flights.map((f, i) => [f, i]).filter(([f]) => f.t1 >= t1 - flRange * 3600); };
+  function trfModeUi() {
+    for (const b of $('mlm-trf-mode').children) b.classList.toggle('on', b.dataset.trfm === trfMode);
+    for (const b of $('mlm-trf-rng').children) b.classList.toggle('on', +b.dataset.flr === flRange);
+    $('mlm-trf-rng').style.display = trfMode === 'fl' ? '' : 'none';
+  }
+  let flKey = null;                            // what the table shows: it is rewritten only when that changes (a replay asks 4 times a second)
+  function flRender() {
+    const key = [RP.flights.length, RP.t1, RP.t0, !!RP.got, flRange, flSort.k, flSort.asc, RP.on ? sel : '', light()].join('|');
+    if (key === flKey) return;
+    flKey = key;
+    const rows = flRows(), col = FCOLS.find(c => c[0] === flSort.k) || FCOLS[2], C = COL();
+    rows.sort((a, b) => { const x = col[4](a[0]), y = col[4](b[0]), c = col[3] ? x - y : String(x).localeCompare(String(y)); return flSort.asc ? c : -c; });
+    const day = t => utc(t, true).slice(0, -9), today = day(RP.t1 != null ? RP.t1 : Date.now() / 1000);
+    const len = v => v < 60 ? Math.round(v) + ' s' : v < 3600 ? Math.floor(v / 60) + ' min' : Math.floor(v / 3600) + ' h ' + String(Math.floor(v % 3600 / 60)).padStart(2, '0');
+    $('mlm-trf-tab').innerHTML = '<thead><tr>' + FCOLS.map(c => `<th data-c="${c[0]}" title="${esc(c[2])}" class="${c[3] ? 'num' : ''}${c[0] === flSort.k ? ' srt' + (flSort.asc ? ' asc' : '') : ''}">${c[1]}</th>`).join('') + '<th></th></tr></thead><tbody>' +
+      rows.slice(0, 1500).map(([f, i]) => `<tr data-i="${i}"${RP.on && sel === f.icao ? ' class="sel"' : ''}>` +
+        `<td><b style="color:${f.pos ? C.pos : C.nopos}">${esc(flName(f))}</b> ${esc(f.typ || '')}</td><td><code>${esc(f.icao)}</code></td>` +
+        `<td class="num">${day(f.t0) === today ? '' : day(f.t0) + ' '}${utc(f.t0).slice(0, 5)}</td><td class="num">${utc(f.t1).slice(0, 5)}</td><td class="num">${len(f.t1 - f.t0)}</td><td class="num">${f.n}</td>` +
+        `<td>${f.pos ? 'broadcast' : '<span class="mlm-tag" title="Sent no position of its own">no position</span>'}</td>` +
+        `<td><button type="button" class="mlm-fl-go" title="Replay this aircraft alone from the start of this track (Solo is turned on)">▶ Replay</button></td></tr>`).join('') +
+      (rows.length ? '' : `<tr class="mst-dim"><td colspan="${FCOLS.length + 1}">${RP.t0 == null ? (RP.got ? 'Nothing is stored for the replay yet' : 'Loading…') : 'No aircraft located in the last ' + flRange + ' h'}</td></tr>`) + '</tbody>';
+  }
   let trfSort = (() => { try { const v = JSON.parse(lsGet(LS.trfsort, 'null')); return v && TCOLS.some(c => c[0] === v.k) ? v : { k: 'd', asc: true }; } catch (_) { return { k: 'd', asc: true }; } })();
   function trfRender() {
     const win = $('mlm-trf');
+    if (trfMode === 'fl') {                          // the Flights list does not depend on the live state
+      $('mlm-trf-n').textContent = trfCount();
+      if (S.trfon && !win.classList.contains('min')) flRender();
+      return;
+    }
     if (!S.trfon || !state || !state.on || win.classList.contains('min')) { if (state) $('mlm-trf-n').textContent = trfCount(); return; }
+    flKey = null;
     const col = TCOLS.find(c => c[0] === trfSort.k) || TCOLS[0];
     const rows = [...AC.entries()].filter(([, o]) => o.last && state.now - o.last[0] <= 60);
     rows.sort((a, b) => {
@@ -694,22 +762,35 @@
       }).join('') + (rows.length ? '' : `<tr class="mst-dim"><td colspan="${TCOLS.length}">No fixes in the last minute</td></tr>`) + '</tbody>';
   }
   function trfCount() {
+    if (trfMode === 'fl') {
+      const rows = flRows();
+      return rows.length ? `${rows.length} tracks in the last ${flRange} h · ${rows.filter(r => !r[0].pos).length} without a position of their own` : '';
+    }
+    if (!state) return '';
     const live = [...AC.values()].filter(o => o.last && state.now - o.last[0] <= 60);
     return live.length ? `${live.length} aircraft · ${live.filter(o => !o.pos).length} without a position of their own` + (state.qnh != null ? ` · QNH ${Math.round(state.qnh)}` : '') : 'no fixes in the last minute';
   }
-  // place, size and state: kept in the browser, and kept inside the map area
+  // place, size and state: kept in the browser. The window belongs to the Map view (#mst-mlat-map), not to the map box, so
+  // it can stand over the map or beside it (over the column on the right, or below the map on a narrow screen); it is
+  // kept inside the view. Places are counted from the view's corner (v: 2; before 20.11.2026 evening: from the map's)
   function trfGeom() { try { return JSON.parse(lsGet(LS.trf, 'null')) || {}; } catch (_) { return {}; } }
   function trfSave() {
     const w = $('mlm-trf'), g = trfGeom(), min = w.classList.contains('min');
-    g.x = w.offsetLeft; g.y = w.offsetTop; g.min = min;
+    g.x = w.offsetLeft; g.y = w.offsetTop; g.min = min; g.v = 2;
     if (!min && w.offsetWidth > 0) { g.w = w.offsetWidth; g.h = w.offsetHeight; }
     lsSet(LS.trf, JSON.stringify(g));
   }
   function trfClamp() {
-    const w = $('mlm-trf'), box = $('mlm-mapwrap');
+    const w = $('mlm-trf'), box = $('mst-mlat-map');
     if (!box.clientWidth || w.style.display === 'none') return;
-    const x = Math.max(0, Math.min(w.offsetLeft, box.clientWidth - Math.min(w.offsetWidth, 120))), y = Math.max(0, Math.min(w.offsetTop, box.clientHeight - 26));
+    // the whole window stays in the view, so its corner handle is always within reach; and it cannot be made larger than
+    // the room between its place and the view's edge
+    const x = Math.max(0, Math.min(w.offsetLeft, box.clientWidth - w.offsetWidth)), y = Math.max(0, Math.min(w.offsetTop, box.clientHeight - w.offsetHeight));
     w.style.left = x + 'px'; w.style.top = y + 'px';
+    w.style.maxWidth = Math.max(240, box.clientWidth - x) + 'px'; w.style.maxHeight = Math.max(26, box.clientHeight - y) + 'px';
+    // over the map it is slightly see-through; with more than half of it beside the map (over text) it is solid
+    const mp = $('mlm-mapwrap'), cx = x + w.offsetWidth / 2, cy = y + w.offsetHeight / 2;
+    w.classList.toggle('solid', cx < mp.offsetLeft || cx > mp.offsetLeft + mp.offsetWidth || cy < mp.offsetTop || cy > mp.offsetTop + mp.offsetHeight);
   }
   function trfShow() {
     const w = $('mlm-trf');
@@ -718,6 +799,7 @@
   }
   (function trfInit() {
     const w = $('mlm-trf'), hdr = $('mlm-trf-hdr'), g = trfGeom();
+    if (g.x != null && g.v !== 2) { g.x += 12; g.y += 8; }          // a place stored against the map box: the same spot
     if (g.x != null) { w.style.left = g.x + 'px'; w.style.top = g.y + 'px'; }
     if (g.w) { w.style.width = g.w + 'px'; w.style.height = g.h + 'px'; }
     w.classList.toggle('min', !!g.min);
@@ -745,20 +827,41 @@
     $('mlm-trf-min').textContent = g.min ? '+' : '–';
     $('mlm-trf-tab').addEventListener('click', e => {
       const th = e.target.closest('th[data-c]');
+      if (th && trfMode === 'fl') {
+        flSort = { k: th.dataset.c, asc: flSort.k === th.dataset.c ? !flSort.asc : th.dataset.c === 'ac' || th.dataset.c === 'icao' };
+        lsSet('ms_mlm_flsort', JSON.stringify(flSort)); trfRender(); return;
+      }
       if (th) {
         trfSort = { k: th.dataset.c, asc: trfSort.k === th.dataset.c ? !trfSort.asc : true };
         lsSet(LS.trfsort, JSON.stringify(trfSort)); trfRender(); return;
       }
+      const go = e.target.closest('button.mlm-fl-go'), fr = go && go.closest('tr[data-i]');
+      if (fr) { rpFlight(RP.flights[+fr.dataset.i]); return; }
       const tr = e.target.closest('tr[data-k]');
       if (tr) pick(tr.dataset.k, true);
     });
+    // the two lists and the range of the Flights list
+    $('mlm-trf-mode').addEventListener('click', e => {
+      const b = e.target.closest('[data-trfm]');
+      if (!b || b.dataset.trfm === trfMode) return;
+      trfMode = b.dataset.trfm; lsSet('ms_mlm_trfmode', trfMode); trfModeUi();
+      flKey = null; $('mlm-trf-tab').innerHTML = '';
+      if (trfMode === 'fl') rpRange(true);
+      trfRender();
+    });
+    $('mlm-trf-rng').addEventListener('click', e => {
+      const b = e.target.closest('[data-flr]');
+      if (!b) return;
+      flRange = +b.dataset.flr; lsSet('ms_mlm_flrange', String(flRange)); trfModeUi(); trfRender();
+    });
+    trfModeUi();
     // the corner handle resizes the window (CSS resize): remember the size; a window resize keeps it inside
     if (typeof ResizeObserver !== 'undefined') {
       let t = null;
       new ResizeObserver(() => { clearTimeout(t); t = setTimeout(() => { if (w.style.display !== 'none' && !drag) { trfClamp(); trfSave(); } }, 300); }).observe(w);
     }
     window.addEventListener('resize', trfClamp);
-    // wheel and clicks in the window are not for the map under it
+    // wheel and clicks in the window are not for anything under it
     for (const ev of ['wheel', 'dblclick', 'mousedown', 'touchstart']) w.addEventListener(ev, e => e.stopPropagation(), { passive: true });
   })();
 })();

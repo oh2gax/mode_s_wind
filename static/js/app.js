@@ -2064,8 +2064,9 @@
 
   // the GNSS view's options and the sub line (from 2026-11-03, app_gnss.js)
   if (VIEWS.gnss) window.AppGnss.init({ sub: t => { if (view === 'gnss') $('app-sub').textContent = t; } });
-  // the MLAT view's sub line (from 2026-11-19, app_mlat.js)
-  if (VIEWS.mlat) window.AppMlat.init({ sub: t => { if (view === 'mlat') $('app-sub').textContent = t; } });
+  // the MLAT view (from 2026-11-19, app_mlat.js; from 2026-11-20 evening with the own-MLAT map, app_mlat_map.js,
+  // which loads Leaflet and the ATC display code the first time the view is opened): the sub line, the storage and the loaders
+  if (VIEWS.mlat) window.AppMlat.init({ sub: t => { if (view === 'mlat') $('app-sub').textContent = t; }, lsGet, lsSet, loadLeaflet, loadAtc });
   // the Pilot view's options and the sub line (from 2026-11-05, app_pilot.js)
   // Map (from 2026-11-05 evening): a preset sets the Weather options (as the menu would) and opens
   // the Weather view; the options before the first preset are kept (ms_app_pilot_wxsave) for

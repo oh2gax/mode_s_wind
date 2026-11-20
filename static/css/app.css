@@ -579,6 +579,50 @@ body.app-body {
 .aml-nopos { font-weight: 400; color: var(--text-3); font-size: 10px; }
 #v-mlat .agn-now small { line-height: 1.5; }
 #v-mlat .agn-list td.num, #v-mlat .agn-list th.num { text-align: right; }
+/* the own-MLAT map of the MLAT view (from 2026-11-20 evening, app_mlat_map.js): the map on top, the replay bar,
+   the line of the selected aircraft, the chips of the panels and the two-line lists */
+.aml-mapbox { position: relative; z-index: 0; isolation: isolate; flex: none; height: 46vh; min-height: 250px; max-height: 560px;
+              margin: 6px 2px 0; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+#aml-map { width: 100%; height: 100%; background: #0b1622; }
+[data-theme="light"] #aml-map { background: #dfe6ee; }
+#aml-map .leaflet-control-attribution { font-size: 9px; background: rgba(15,25,35,.8); color: var(--text-3); }
+#aml-map .leaflet-control-attribution a { color: var(--text-2); }
+[data-theme="light"] #aml-map .leaflet-control-attribution { background: rgba(232,237,244,.88); }
+#aml-map .leaflet-control-scale-line { background: rgba(15,25,35,.7); color: var(--text-2); border-color: var(--text-3); font-size: 10px; }
+[data-theme="light"] #aml-map .leaflet-control-scale-line { background: rgba(255,255,255,.75); }
+.aml-mapbox .leaflet-bar a { width: 34px; height: 34px; line-height: 34px; }   /* Leaflet's CSS loads later */
+.aml-mapmsg { position: absolute; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 12px;
+              text-align: center; font-size: 12px; color: var(--text-3); pointer-events: none; }
+.aml-mapmsg[hidden] { display: none; }
+.aml-rp { display: flex; align-items: center; gap: 4px; margin: 6px 2px 0; }
+.aml-rp button { flex: none; min-width: 34px; min-height: 34px; padding: 4px 8px; font: inherit; font-size: 14px; line-height: 1; white-space: nowrap; cursor: pointer;
+                 color: var(--text-1); background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; -webkit-tap-highlight-color: transparent; }
+.aml-rp button#aml-rp-live, .aml-rp button#aml-rp-speed { font-size: 12.5px; }
+.aml-rp button#aml-rp-live.on { background: #16a34a; border-color: #16a34a; color: #fff; }
+.aml-rp button#aml-rp-play.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+#aml-rp-t { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 2px; }
+.aml-rp.rp #aml-rp-t { color: var(--text-1); font-weight: 600; }
+@media (max-width: 374px) { .aml-rp { gap: 3px; } .aml-rp button { min-width: 31px; padding: 4px 6px; } }
+.aml-rp2 { display: flex; align-items: center; gap: 8px; margin: 6px 4px 0; }
+.aml-rp-sl { display: block; flex: 1 1 auto; min-width: 0; min-height: 26px; }
+.aml-rp-at { flex: none; width: 4.6em; font: inherit; font-size: 16px; min-height: 32px; padding: 2px 4px; text-align: center; font-variant-numeric: tabular-nums;
+             color: var(--text-1); background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; }   /* 16 px: no zoom on focus on iOS */
+.aml-rp-at::placeholder { color: var(--text-3); font-size: 13px; } .aml-rp-at.bad { border-color: #ef4444; }
+#aml-p-fl .am-ctl .am-lbl { min-width: 0; }
+.aml-pick { min-height: 3.2em; position: relative; }
+.aml-pick.on { cursor: pointer; padding-right: 86px; }
+.aml-pick small { position: absolute; right: 8px; top: 6px; font-size: 10px; color: var(--text-3); }
+.aml-pan { margin: 8px 2px 0; }
+.aml-pan .app-chips { flex-wrap: nowrap; }
+.aml-pan .app-chip { flex: 1 1 0; min-height: 32px; padding: 4px 6px; font-size: 12.5px; }
+/* two-line rows: the second line small and grey under the first */
+.aml-two th small, .aml-two td small { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); line-height: 1.35; }
+.aml-two td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; }
+.aml-two tbody tr { cursor: pointer; }
+.aml-two tr.sel td { background: rgba(59, 130, 246, .2); }
+.aml-two td:first-child { white-space: normal; }
+#v-mlat .w { color: #f59e0b; } [data-theme="light"] #v-mlat .w { color: #b45309; }
+#v-mlat .agn-list td.aml-wrap { white-space: normal; }
 [data-theme="light"] .agn-list .agn-hit { color: #a8457a; }
 /* the chart heading and its legend: the legend goes under the heading, at the right, when both do not fit */
 .app-gnss .am-hd { flex-wrap: wrap; row-gap: 2px; }
