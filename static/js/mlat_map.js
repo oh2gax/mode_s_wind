@@ -188,6 +188,7 @@
     bar.style.display = tabOn ? '' : 'none';
     const onMap = tabOn && view === 'map', onCh = tabOn && view === 'charts';
     $('mst-mlat-map').style.display = onMap ? '' : 'none';
+    if (!onMap) showMsg(null);
     $('mlm-ctl').style.display = onMap ? '' : 'none';
     $('mst-mlat-charts').style.display = onCh ? '' : 'none';
     $('mlc-ctl').style.display = onCh ? '' : 'none';
@@ -636,6 +637,7 @@
     $('mlm-rp-play').classList.toggle('on', RP.on && RP.play);
     $('mlm-rp-play').textContent = RP.on && RP.play ? '❚❚' : '▶';
     $('mlm-liveonly').style.display = RP.on ? 'none' : '';
+    if (RP.on) showMsg(null);
     $('mlm-rpnote').style.display = RP.on ? '' : 'none';
     if (!RP.on) { $('mlm-rp-t').textContent = 'Live'; $('mlm-rp-at').value = ''; if (RP.t1 != null) $('mlm-rp-sl').value = $('mlm-rp-sl').max; }
   }
@@ -714,9 +716,42 @@
   }
   for (const ev of ['wheel', 'dblclick', 'mousedown', 'touchstart']) $('mlm-rp').addEventListener(ev, e => e.stopPropagation(), { passive: true });
 
+  // ── the message about the clock (from 2026-11-21) ───────────────────────
+  // The fixes need the clock of the receiver without GPS time, and that clock is set by aircraft with a usable own
+  // position.  Under GNSS interference there are none for minutes to hours: the map then says so, with the numbers,
+  // so that an empty map does not look like a fault.  While the server carries the clock on without references
+  // (up to hold_max seconds) a softer line says that, too.  Returns { cls, html, title } or null.
+  function clockMsg(d) {
+    if (!d || !d.on) return null;
+    const rx = (d.receivers || []).find(r => !r.gps && !r.rec_only && r.site);
+    if (!rx) return null;
+    const nm = esc(String(rx.id).replace(/^MODES-/, '')), ck = rx.clock, rf = d.refs;
+    const ref = (d.receivers || []).find(r => r.gps), rn = ref ? esc(String(ref.id).replace(/^MODES-/, '')) : 'the time reference';
+    const title = rf ? `In the last ${rf.sec} seconds ${rf.heard} aircraft were heard by ${nm} and ${rn} together; ${rf.pos} of them broadcast a position, ${rf.good} with an accuracy and integrity that lets it set the clock (NACp 8 or better and NIC 6 or better, and only when the GPS-timed receivers confirm the position)` : '';
+    if (ck && ck.hold != null) {
+      if (ck.hold < 20) return null;                 // a few seconds without a reference are routine
+      return { cls: 'hold', title, html: `<b>${nm}’s clock is being carried:</b> ${ck.hold} s without a reference aircraft (limit ${ck.hold_max} s). The fixes go on with a wider error` +
+        (rf && rf.heard ? ` — ${rf.good} of the ${rf.heard} aircraft it hears send${rf.good === 1 ? 's' : ''} a usable position.` : '.') };
+    }
+    if (ck && !ck.weak && ck.age != null && ck.age <= 30) return null;
+    let why;
+    if (!rf) why = `${nm}’s clock has no reference aircraft.`;
+    else if (!rf.heard) why = `no aircraft is heard by ${nm} and ${rn} together.`;
+    else if (!rf.good) why = `none of the ${rf.heard} aircraft ${nm} hears sends a usable position, so its clock cannot be set. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
+    else why = `only ${rf.good} of the ${rf.heard} aircraft ${nm} hears send${rf.good === 1 ? 's' : ''} a usable position — too little to set its clock. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
+    return { cls: 'stop', title, html: `<b>No position fixes at the moment:</b> ${why}` };
+  }
+  function showMsg(m) {
+    const el = $('mlm-msg');
+    if (!el) return;
+    if (!m || RP.on || view !== 'map') { el.style.display = 'none'; return; }
+    el.className = 'mlm-msg ' + m.cls; el.innerHTML = m.html; el.title = m.title || ''; el.style.display = '';
+  }
+
   // ── side panel ──────────────────────────────────────────────────────────
   function render(d) {
     const note = $('mlm-note');
+    showMsg(clockMsg(d));
     if (!d.on) {
       note.textContent = 'Position fixes are off: ' + (d.why || 'not available on this server');
       $('mlm-tiles').innerHTML = ''; $('mlm-bands').innerHTML = ''; $('mlm-rx').innerHTML = ''; $('mlm-ac').innerHTML = ''; $('mlm-acn').textContent = '';
@@ -750,11 +785,13 @@
       else if (!r.clock) stt = '<span class="mst-warn">no clock line yet</span>';
       // from 2026-11-20: a line may rest on ONE other aircraft (many replies over a long stretch; the fix
       // then carries a wider timing error), and a line that was fitted but is too weak for a fix says so
+      // from 2026-11-21: no reference aircraft at the moment, and the server carries the clock on (see clockMsg)
+      else if (r.clock.hold != null) stt = `<span class="mst-warn" title="No reference aircraft at the moment: the clock is carried on along the curve of the references of the last ten minutes, for at most ${r.clock.hold_max} seconds; the fixes of this time carry the wider timing error shown">carried ${r.clock.hold} s without a reference · ±${r.clock.hold_sig} ns</span>`;
       else stt = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft` +
         (r.clock.ac === 1 && !r.clock.weak ? ' <span title="Only one other aircraft with a good position is heard together with this receiver: the line is used with a wider timing error">(one reference)</span>' : '') +
         ` · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm` +
         (r.clock.weak ? ' · <span class="mst-warn" title="Too few replies, too short a stretch or too much scatter for a position fix">too weak for a fix</span>' : '') +
-        (r.clock.age > 30 ? ` · <span class="mst-warn" title="No other aircraft with a good position has been heard together with this receiver since then: no position fixes meanwhile">${Math.round(r.clock.age)} s old</span>` : '');
+        (r.clock.age > 30 ? ` · <span class="mst-warn" title="No other aircraft with a usable position has been heard together with this receiver since then: no position fixes meanwhile">no reference for ${Math.round(r.clock.age)} s</span>` : '');
       return `<tr><td>${esc(String(r.id).replace(/^MODES-/, ''))}</td><td>${r.gps ? 'GPS' : 'counter'}</td><td>${stt}</td></tr>`;
     }).join('') + '</tbody>';
     const tried = c.tried || 0;

@@ -537,6 +537,7 @@
     $('aml-rp-play').classList.toggle('on', RP.on && RP.play);
     $('aml-rp-play').textContent = RP.on && RP.play ? '❚❚' : '▶';
     $('aml-rp-play').setAttribute('aria-label', RP.on && RP.play ? 'Pause the replay' : 'Play the replay');
+    if (RP.on) showMsg(null);
     if (!RP.on) { $('aml-rp-t').textContent = 'Live'; $('aml-rp-at').value = ''; if (RP.t1 != null) $('aml-rp-sl').value = $('aml-rp-sl').max; }
   }
   function rpLoop() {
@@ -667,10 +668,11 @@
       if (!r.site) s = `<span class="w">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
       else if (r.gps) s = ref && r.bit === ref.bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) s = '<span class="w">no clock line yet</span>';
+      else if (r.clock.hold != null) s = `<span class="w">carried ${r.clock.hold} s without a reference · ±${r.clock.hold_sig} ns</span>`;
       else s = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft` + (r.clock.ac === 1 && !r.clock.weak ? ' (one reference)' : '')
         + ` · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm`
         + (r.clock.weak ? ' · <span class="w">too weak for a fix</span>' : '')
-        + (r.clock.age > 30 ? ` · <span class="w">${Math.round(r.clock.age)} s old</span>` : '');
+        + (r.clock.age > 30 ? ` · <span class="w">no reference for ${Math.round(r.clock.age)} s</span>` : '');
       return `<tr><td>${esc(String(r.id).replace(/^MODES-/, ''))}</td><td>${r.gps ? 'GPS' : 'counter'}</td><td class="aml-wrap">${s}</td></tr>`;
     }).join('') + '</tbody></table>';
     const tried = c.tried || 0;
@@ -702,8 +704,40 @@
     else if (panel === 'fix') renderFixes();
     else if (panel === 'fl') renderFlights();
   }
+  // ── the message about the clock (from 2026-11-21) ───────────────────────
+  // The fixes need the clock of the receiver without GPS time, and that clock is set by aircraft with a usable own
+  // position.  Under GNSS interference there are none for minutes to hours: the map then says so, with the numbers,
+  // so that an empty map does not look like a fault.  While the server carries the clock on without references
+  // (up to hold_max seconds) a softer line says that, too.  Returns { cls, html, title } or null.
+  function clockMsg(d) {
+    if (!d || !d.on) return null;
+    const rx = (d.receivers || []).find(r => !r.gps && !r.rec_only && r.site);
+    if (!rx) return null;
+    const nm = esc(String(rx.id).replace(/^MODES-/, '')), ck = rx.clock, rf = d.refs;
+    const ref = (d.receivers || []).find(r => r.gps), rn = ref ? esc(String(ref.id).replace(/^MODES-/, '')) : 'the time reference';
+    const title = rf ? `In the last ${rf.sec} seconds ${rf.heard} aircraft were heard by ${nm} and ${rn} together; ${rf.pos} of them broadcast a position, ${rf.good} with an accuracy and integrity that lets it set the clock (NACp 8 or better and NIC 6 or better, and only when the GPS-timed receivers confirm the position)` : '';
+    if (ck && ck.hold != null) {
+      if (ck.hold < 20) return null;                 // a few seconds without a reference are routine
+      return { cls: 'hold', title, html: `<b>${nm}’s clock is being carried:</b> ${ck.hold} s without a reference aircraft (limit ${ck.hold_max} s). The fixes go on with a wider error` +
+        (rf && rf.heard ? ` — ${rf.good} of the ${rf.heard} aircraft it hears send${rf.good === 1 ? 's' : ''} a usable position.` : '.') };
+    }
+    if (ck && !ck.weak && ck.age != null && ck.age <= 30) return null;
+    let why;
+    if (!rf) why = `${nm}’s clock has no reference aircraft.`;
+    else if (!rf.heard) why = `no aircraft is heard by ${nm} and ${rn} together.`;
+    else if (!rf.good) why = `none of the ${rf.heard} aircraft ${nm} hears sends a usable position, so its clock cannot be set. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
+    else why = `only ${rf.good} of the ${rf.heard} aircraft ${nm} hears send${rf.good === 1 ? 's' : ''} a usable position — too little to set its clock. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
+    return { cls: 'stop', title, html: `<b>No position fixes at the moment:</b> ${why}` };
+  }
+  function showMsg(m) {
+    const el = $('aml-clkmsg');
+    if (!el) return;
+    if (!m || RP.on) { el.hidden = true; return; }
+    el.className = 'aml-clkmsg ' + m.cls; el.innerHTML = m.html; el.hidden = false;
+  }
   function render() {
     if (!on) return;
+    showMsg(RP.on ? null : clockMsg(state));
     draw(); renderLists();
     if (!state) { sub(failed ? 'MLAT · no answer from the server' : 'MLAT · loading…'); return; }
     if (!state.on) { sub('MLAT · position fixes off'); return; }

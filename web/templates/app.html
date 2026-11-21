@@ -264,6 +264,8 @@
        the agreement of the GPS-timed receivers' clocks, which was the whole view before (static/js/app_mlat.js) -->
   <section id="v-mlat" class="app-view app-mast app-gnss" hidden>
     <div id="aml-mapbox" class="aml-mapbox"><div id="aml-map"></div><div id="aml-mapmsg" class="aml-mapmsg">Loading the map…</div></div>
+    <!-- From 2026-11-21: said plainly when the fixes stop because the aircraft send no usable position (GNSS interference) -->
+    <div id="aml-clkmsg" class="aml-clkmsg" role="status" hidden></div>
     <div id="aml-rp" class="aml-rp" role="group" aria-label="Replay of the last 24 hours">
       <button type="button" id="aml-rp-live" class="on" title="Back to the live picture">● Live</button>
       <button type="button" data-rpj="-600" title="Back 10 minutes" aria-label="Back 10 minutes">«</button>

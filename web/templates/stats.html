@@ -149,6 +149,12 @@
     .mlm-gridleg { margin-top: 3px; }
     /* Replay bar (from 2026-11-20) */
     .mlm-legend { bottom: 48px !important; }
+    .mlm-msg { margin: 0 0 8px; padding: 6px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; background: rgba(15, 23, 42, .94); color: #e2e8f0; border: 1px solid #f59e0b; }
+    .mlm-msg.hold { border-color: var(--border, #475569); }
+    .mlm-msg b { color: #fbbf24; }
+    [data-theme="light"] .mlm-msg { background: rgba(255, 255, 255, .97); color: #1e293b; border-color: #d97706; }
+    [data-theme="light"] .mlm-msg.hold { border-color: #94a3b8; }
+    [data-theme="light"] .mlm-msg b { color: #b45309; }
     .mlm-rp { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 800; display: flex; align-items: center; gap: 4px; max-width: calc(100% - 16px);
               padding: 4px 8px; border: 1px solid var(--border, #334155); border-radius: 6px; background: rgba(15, 23, 42, .93); color: #e2e8f0; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
     [data-theme="light"] .mlm-rp { background: rgba(255, 255, 255, .96); color: #1e293b; }
@@ -228,6 +234,9 @@
     </span>
     <span class="mst-hdr-note" id="mlm-note"></span>
   </div>
+  <!-- From 2026-11-21: said plainly, above the map, when the fixes stop because the aircraft send no usable position
+       (GNSS interference), or while the clock of the receiver without GPS time is carried on without references -->
+  <div class="mlm-msg" id="mlm-msg" role="status" style="display:none"></div>
   <div class="mlm-body" id="mst-mlat-map" style="display:none">
     <!-- Traffic list (from 2026-11-20, static/js/mlat_map.js): a window in the Map view — moved by its title bar to
          anywhere in the view (over the map or beside it), resized from its corner, minimized to the title bar; place,

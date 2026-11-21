@@ -611,6 +611,15 @@ body.app-body {
 #aml-p-fl .am-ctl .am-lbl { min-width: 0; }
 .aml-gridleg { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 3px; margin: 6px 4px 0; font-size: 11px; color: var(--text-2); }
 .aml-gridleg[hidden] { display: none; }
+/* the message about the clock of the receiver without GPS time (from 2026-11-21) */
+.aml-clkmsg { flex: none; margin: 6px 2px 0; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; color: var(--text-1);
+  background: var(--bg-2); border: 1px solid #f59e0b; }
+.aml-clkmsg[hidden] { display: none; }
+.aml-clkmsg.hold { border-color: var(--border, #475569); }
+.aml-clkmsg b { color: #fbbf24; }
+[data-theme="light"] .aml-clkmsg { border-color: #d97706; }
+[data-theme="light"] .aml-clkmsg.hold { border-color: #94a3b8; }
+[data-theme="light"] .aml-clkmsg b { color: #b45309; }
 .aml-gridleg span { margin-right: 4px; }
 .aml-gridleg b { display: inline-block; width: 14px; height: 9px; margin: 0 2px 0 5px; border-radius: 1px; }
 .aml-pick { min-height: 3.2em; position: relative; }

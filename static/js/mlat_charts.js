@@ -120,7 +120,9 @@
       ' The value itself comes from the cables and electronics and does not matter; how it moves does. Slow waves of some tens of nanoseconds come from the satellites in view and the sky each GPS antenna sees, and the fixes follow them. With only a few aircraft behind it the value also moves with which aircraft they are, because the receivers stamp strong replies a little early. A step means that the GPS time of a receiver jumped.'
       : 'No values yet: they need a second GPS-timed receiver and at least three aircraft with a good position heard by both.';
     $('mlc-cnt').textContent = T.tr ? `In this period: ${T.h3.toLocaleString('en')} replies heard by three receivers, ${T.tr.toLocaleString('en')} tried (at most three per aircraft and second), ` +
-      `${T.fx.toLocaleString('en')} fixes (${Math.round(100 * T.fx / T.tr)} %), ${T.fx ? Math.round(100 * T.am / T.fx) : 0} % of them unresolved; no clock line for ${T.nc.toLocaleString('en')} replies.` : '';
+      `${T.fx.toLocaleString('en')} fixes (${Math.round(100 * T.fx / T.tr)} %), ${T.fx ? Math.round(100 * T.am / T.fx) : 0} % of them unresolved; no clock line for ${T.nc.toLocaleString('en')} replies` +
+      // from 2026-11-21: how many of the tried rested on the clock carried without a reference (hold-over)
+      (T.hd ? `; for ${T.hd.toLocaleString('en')} of the tried the clock was carried without a reference.` : '.') : '';
   }
 
   // Scatter of the single fixes around the aircraft's own position: up = ahead in the flight

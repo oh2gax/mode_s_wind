@@ -15,6 +15,14 @@ a known site gives a position:
                  2026-11-20 one is enough when it gives many references over
                  a long stretch (CLK1_*), with a wider timing error.  Short replies are stamped SHORT_NS apart from long
                  ones (the two receiver types stamp different ends).
+                 From 2026-11-21 the clock is carried on for up to
+                 CLK_HOLD_MAX seconds when the references stop (GNSS
+                 interference: the aircraft send no usable position), along a
+                 curve through the line ends of the last ten minutes and with
+                 a timing error that grows with the time carried; and every
+                 reference is first checked against the GPS-timed receivers
+                 (REF_PAIR_NS) — a position that disagrees with them is not
+                 used, whatever integrity it reports.
   height         known: the reply's pressure altitude (or the aircraft's last
                  one) plus the GNSS − barometric difference the traffic at
                  that level reports; else QNH altitude + geoid height.
@@ -66,7 +74,40 @@ CLK1_MIN_N    = 60      # references of that one aircraft …
 CLK1_MIN_SPAN = 15.0    # … spanning this many seconds …
 CLK1_MAX_SIG  = 100.0   # … and scattered no more than this (ns)
 CLK1_ADD_NS   = 40.0    # added to the receiver's timing error in such a fix (1 sigma)
+CLK1_CONFIRMED = True   # from 2026-11-21: … and at least half of its references confirmed by the GPS-timed receivers
+                        # (REF_PAIR_NS below): under interference an aircraft may report a good integrity with a wrong
+                        # position, and a line of one aircraft has no second aircraft to show it
 CLK_BIN_MAX  = 40       # references kept per second
+# Hold-over (from 2026-11-21).  With GNSS interference the aircraft around stop sending usable positions for
+# minutes to hours, and the counter receiver's clock has nothing to be set by.  Measured on the recording of
+# 20 Nov 14 UTC - 21 Nov 07 UTC (about 900 moments with a line, the clock then predicted without the later references and
+# compared with them): the 26-second line extended is off by 100-150 ns (68 %) after one minute and by 440-670 ns
+# after five; a curve through the last ten minutes by 40-75 ns after one minute, 55-95 ns after two, 80-135 ns after
+# three and 135-225 ns after five (the lower figure in the afternoon with many references, the higher in the evening
+# and night); after ten minutes 0.4-0.6 us, which is no clock any more.  The crystal's drift wanders by 0.4-0.8 ns/s
+# from one five-minute stretch to the next.  The same recording showed no jump of the sample count in 17 hours.
+CLK_HOLD_MAX   = 180.0  # s: the clock is carried this long past the last reference
+CLK_HOLD_KEEP  = 600.0  # s of references kept for the curve (one entry per second and aircraft)
+CLK_HOLD_NS_S  = 0.75   # ns of timing error (1 sigma) added per second carried
+CLK_HOLD_AFTER = 8.0    # s: a line whose last reference is older than this is replaced by the carried clock
+CLK_HOLD_MAX_SIG = 100.0   # ns: entries scattered more than this around the curve carry no clock
+CLK_HOLD_QUAD  = (360.0, 60)   # the curve (2nd degree): entries over at least this many seconds, this many of them
+CLK_HOLD_LIN   = (60.0, 20)    # else a straight line over the last 120 s: at least this span and this many
+CLK_HOLD_END   = (30.0, 10, 30)   # … and, either way, in the last 30 s before the gap: this many entries with this many replies
+                                  # from two or more aircraft — or one aircraft under the conditions of a one-aircraft line
+                                  # (CLK1_MIN_N replies over CLK1_MIN_SPAN seconds; CLK1_ADD_NS is then added as there)
+# References checked against the GPS-timed receivers (from 2026-11-21).  The reply of a reference aircraft is also
+# stamped by the GPS-timed receivers; the difference of their stamps must fit the position the aircraft reports.
+# On the same recording the aircraft with a good reported integrity fitted within 147 ns in 90 % and 326 ns in 99 %
+# of 33 000 replies, but two aircraft reported a good integrity for a few seconds with positions 24 and 37 km
+# off, which spoils the line for up to half a minute.  Positions with NIC 6 (NACp still good) fitted as well as the
+# good ones (90 % within 114 ns) and are used when they pass a tighter check; positions with zero integrity were
+# mostly right too but with a tail tens of kilometres off, and are not used.
+REF_PAIR_NS     = 400.0  # a reference whose GPS-pair time difference is this far from its position is not used
+REF_LOW_NACP    = 8      # a position reported with at least this NACp …
+REF_LOW_NIC     = 6      # … and at least this NIC is used when the GPS pair confirms it within …
+REF_LOW_PAIR_NS = 200.0  # … this
+REF_SEEN_SEC    = 60.0   # the reference count shown on the map looks this far back
 SHORT_NS     = 56_000   # counter receivers: stamp of a 56-bit reply minus this
 GOOD_NACP, GOOD_NIC = 8, 7
 BIAS_SEC     = 600.0    # a GPS receiver's constant: median over this long …
@@ -150,6 +191,42 @@ def _med(v):
 
 def _pct(s, q):
     return None if not s else s[min(len(s) - 1, int(q * len(s)))]
+
+
+def _polyfit(xs, ys, deg: int):
+    """Least-squares c0 + c1 x + c2 x² (c2 = 0 for deg 1) or None.  x is scaled inside for the conditioning."""
+    n = len(xs)
+    if n < deg + 1:
+        return None
+    k = 100.0
+    u = [x / k for x in xs]
+    s1 = sum(u)
+    s2 = sum(v * v for v in u)
+    y0 = sum(ys)
+    y1 = sum(v * y for v, y in zip(u, ys))
+    if deg == 1:
+        det = n * s2 - s1 * s1
+        if abs(det) < 1e-9:
+            return None
+        c1 = (n * y1 - s1 * y0) / det
+        return ((y0 - c1 * s1) / n, c1 / k, 0.0)
+    s3 = sum(v ** 3 for v in u)
+    s4 = sum(v ** 4 for v in u)
+    y2 = sum(v * v * y for v, y in zip(u, ys))
+    m = [[float(n), s1, s2, y0], [s1, s2, s3, y1], [s2, s3, s4, y2]]
+    for i in range(3):
+        piv = max(range(i, 3), key=lambda r: abs(m[r][i]))
+        if abs(m[piv][i]) < 1e-9:
+            return None
+        m[i], m[piv] = m[piv], m[i]
+        for r in range(i + 1, 3):
+            f = m[r][i] / m[i][i]
+            for c in range(i, 4):
+                m[r][c] -= f * m[i][c]
+    c2 = m[2][3] / m[2][2]
+    c1 = (m[1][3] - m[1][2] * c2) / m[1][1]
+    c0 = (m[0][3] - m[0][2] * c2 - m[0][1] * c1) / m[0][0]
+    return (c0, c1 / k, c2 / (k * k))
 
 
 class Frame:
@@ -420,6 +497,7 @@ class _Acc:
             return int(v[min(len(v) - 1, int(0.9 * len(v)))])
         c = self.c
         out = {"t": self.t0, "h3": c["h3"], "tr": c["tr"], "fx": c["fx"], "am": c["am"], "nc": c["nc"],
+               "hd": c["hd"],                      # attempts made with a carried clock (from 2026-11-21)
                "b": [[self.nseen[i], st(self.raw[i]), p90(self.raw[i]), st(self.exp[i]), st(self.trk[i])]
                      for i in range(len(self.raw))],
                "ac": len(self.ac), "np": len(self.nopos),
@@ -459,7 +537,7 @@ def combine(recs: list, t0: int | None = None) -> dict:
     if not recs:
         return {}
     out = {"t": t0 if t0 is not None else recs[0]["t"]}
-    for k in ("h3", "tr", "fx", "am", "nc"):
+    for k in ("h3", "tr", "fx", "am", "nc", "hd"):
         out[k] = sum(r.get(k, 0) for r in recs)
     nb = len(recs[0]["b"])
     out["b"] = [[sum(r["b"][i][0] for r in recs)] + [wmed([(r["b"][i][j], r["b"][i][0]) for r in recs]) for j in (1, 2, 3, 4)]
@@ -561,9 +639,16 @@ class Fixer:
         self._bias_ac: dict = {b: {} for b in self.gps}    # bit → {icao: deque[(t, residual ns)]}
         self._bias_t: dict = {b: 0.0 for b in self.gps}
         self.bias_n: dict = {b: 0 for b in self.gps}       # aircraft behind the constant
-        self.refs: dict = {b: {} for b in self.cnt}        # bit → {second: [(t, o, icao)]}
+        self.refs: dict = {b: {} for b in self.cnt}        # bit → {second: [(t, o, icao, confirmed by the GPS pair)]}
         self.base: dict = {}                               # bit → integer ns base of the offsets
         self.clk: dict = {}                                # bit → last line {"t", "n", "ac", "sig", "drift"}
+        self.hold: dict = {b: deque() for b in self.cnt}   # bit → the references by second and aircraft: (t, median offset, replies, icao)
+        self._hold_ics: dict = {b: Counter() for b in self.cnt}   # bit → how many of those entries each aircraft has
+        self._hold_done: dict = {}                         # bit → last second summarised
+        self._hold_fit: dict = {}                          # (bit, aircraft left out | None) → (last second, model)
+        self.held: dict = {}                               # bit → (t, seconds carried, sigma ns) of the last carried use
+        self._held = None                                  # seconds carried, of the line just returned (None: a fitted line)
+        self.seen: dict = {}                               # icao → [t, level] of the aircraft heard by a counter receiver and the main one
         self._fit_cache: dict = {}
         self.pending: deque = deque()
         self.now = 0.0
@@ -659,6 +744,17 @@ class Fixer:
         a, b = ls.get("nac_p"), ls.get("nic")
         return a is not None and b is not None and a >= GOOD_NACP and b >= GOOD_NIC
 
+    @staticmethod
+    def _ref_level(ls: dict) -> int:
+        """How far a position can serve as a clock reference: 2 = good reported integrity, 1 = good accuracy
+        but a lower integrity (used only when the GPS-timed receivers confirm it), 0 = not."""
+        a, b = ls.get("nac_p"), ls.get("nic")
+        if a is None or b is None:
+            return 0
+        if a >= GOOD_NACP and b >= GOOD_NIC:
+            return 2
+        return 1 if (a >= REF_LOW_NACP and b >= REF_LOW_NIC) else 0
+
     # ── input (recorder thread) ──────────────────────────────────────────
     def feed(self, t: float, nbytes: int, icao: str, st: list, ls: dict) -> None:
         """One reply: st = [(bit, ticks, signal)] of every receiver that heard it."""
@@ -677,10 +773,21 @@ class Fixer:
         cbits = [b for b in arr if b in self.cnt and b in self.site]
         if gbits:
             tr = None
-            if self._good(ls):
+            lvl = self._ref_level(ls)
+            if lvl:
                 tr = self._truth(ls, t)
             if tr is not None:
-                self._reference(t, icao, arr, gbits, cbits, tr, ls)
+                self._reference(t, icao, arr, gbits, cbits, tr, ls, lvl)
+            if cbits and self.main in arr:
+                # for the message on the map: of the aircraft heard by a counter receiver and the main one, how
+                # many send a position at all, and how many one that can set the clock
+                pts = ls.get("last_adsb_pos_ts")
+                k = 0 if (pts is None or t - pts > 10.0 or ls.get("adsb_lat") is None) else (2 if lvl else 1)
+                sn = self.seen.get(icao)
+                if sn is None:
+                    self.seen[icao] = [t, k]
+                else:
+                    sn[0], sn[1] = t, k
             self._roll(t)
             al = ls.get("altitude")
             if al is not None:
@@ -730,19 +837,23 @@ class Fixer:
             out, self._out = self._out, []
         return out
 
-    def _reference(self, t, icao, arr, gbits, cbits, tr, ls) -> None:
+    def _reference(self, t, icao, arr, gbits, cbits, tr, ls, lvl: int = 2) -> None:
         e, n, z = tr[0], tr[1], tr[2]
         rng = {}
         for b in gbits + cbits:
             s = self.site[b]
             rng[b] = math.sqrt((e - s[0]) ** 2 + (n - s[1]) ** 2 + (z - s[2]) ** 2)
         m = self.main
+        pair = None                                # the position against the GPS-timed receivers: True / False / not heard by two
         # the constant of each GPS receiver against the main one
         if m in arr and m in rng:
             for b in gbits:
                 if b != m:
                     r = (arr[b] - arr[m]) - (rng[b] - rng[m]) / C_AIR * 1e9
-                    if abs(r) < 2000:
+                    if self.bias_n.get(b):
+                        ok = abs(r - self.bias[b]) <= (REF_PAIR_NS if lvl >= 2 else REF_LOW_PAIR_NS)
+                        pair = ok if pair is None else (pair and ok)
+                    if lvl >= 2 and abs(r) < 2000:
                         dq = self._bias_ac[b].get(icao)
                         if dq is None:
                             dq = self._bias_ac[b][icao] = deque()
@@ -751,6 +862,14 @@ class Fixer:
                         if t - self._bias_t[b] >= BIAS_EVERY:
                             self._bias_t[b] = t
                             self._bias_update(b, t)
+        # a position the GPS-timed receivers contradict is no reference, whatever integrity it reports; one with a
+        # lower integrity is a reference only when they confirm it
+        if pair is False or (lvl < 2 and pair is not True):
+            if cbits:
+                self.c["ref_off" if pair is False else "ref_unchecked"] += 1
+            return
+        if lvl < 2:
+            self.c["ref_low"] += 1
         # the counter receivers' offset against GPS time
         g = m if m in rng else gbits[0]
         for b in cbits:
@@ -763,11 +882,12 @@ class Fixer:
             bins = self.refs[b]
             lst = bins.get(sec)
             if lst is None:
+                self._hold_sync(b, sec - 1)        # the finished seconds, before the old ones are dropped
                 lst = bins[sec] = []
                 for k in [k for k in bins if k < sec - 90]:
                     del bins[k]
             if len(lst) < CLK_BIN_MAX:
-                lst.append((t, o, icao))
+                lst.append((t, o, icao, pair is True))
         # the height difference GNSS − barometric of the traffic, by level
         gmb, alt = ls.get("geo_minus_baro"), ls.get("altitude")
         if isinstance(gmb, (int, float)) and abs(gmb) < 3000 and alt is not None:
@@ -823,7 +943,13 @@ class Fixer:
         key = (bit, icao, int(t))
         hit = self._fit_cache.get(key)
         if hit is not None:
-            return None if hit is False else (hit[0] + hit[1] * (t - hit[2]), hit[3])
+            if hit is False:
+                self._held = None
+                return None
+            self._held = hit[4]
+            if hit[4] is not None:
+                self.held[bit] = (t, hit[4], hit[3])
+            return (hit[0] + hit[1] * (t - hit[2]), hit[3])
         bins = self.refs[bit]
         pts = []
         for sec in range(int(t - CLK_BACK), int(t + DELAY) + 1):
@@ -831,6 +957,7 @@ class Fixer:
                 if p[2] != icao:
                     pts.append(p)
         res = False
+        late = False                               # fitted, but its last reference is old: the carried clock is better
         nac = len({p[2] for p in pts})
         span = max(p[0] for p in pts) - min(p[0] for p in pts) if pts else 0.0
         # several other aircraft, or one with many references over a long stretch (from 2026-11-20)
@@ -862,21 +989,139 @@ class Fixer:
                 # what is left is of one aircraft (also when the others' references were thrown out as
                 # outliers): the stricter conditions, and a wider timing error for the fix
                 elif len(use) >= CLK1_MIN_N and sig <= CLK1_MAX_SIG \
-                        and max(p[0] for p in use) - min(p[0] for p in use) >= CLK1_MIN_SPAN:
+                        and max(p[0] for p in use) - min(p[0] for p in use) >= CLK1_MIN_SPAN \
+                        and (not CLK1_CONFIRMED or 2 * sum(1 for p in use if p[3]) >= len(use)):
                     res = (a, b, mt, math.hypot(max(sig, SIG_CNT_NS), CLK1_ADD_NS))
                 self.clk[bit] = {"t": t, "n": len(use), "ac": uac,
                                  "sig": round(sig, 1), "drift": round(b, 2)}
                 if res is False:
                     self.clk[bit]["weak"] = True       # fitted, but not good enough for a fix
+                else:
+                    late = t - max(p[0] for p in use) > CLK_HOLD_AFTER
                 if self.acc_m is not None and len(self.acc_m.clock) < 200:
                     ck = (sig, b, len(use), uac)
                     self.acc_m.clock.append(ck)
                     if len(self.acc_h.clock) < 3000:
                         self.acc_h.clock.append(ck)
+        held = None
+        if res is False or late:
+            hm = self._hold_line(bit, t, icao)
+            if hm is not None:
+                res, held = hm[:4], hm[4]
         if len(self._fit_cache) > 4000:
             self._fit_cache.clear()
-        self._fit_cache[key] = res
-        return None if res is False else (res[0] + res[1] * (t - res[2]), res[3])
+        self._fit_cache[key] = False if res is False else res + (held,)
+        self._held = held
+        if res is False:
+            return None
+        if held is not None:
+            self.held[bit] = (t, held, res[3])
+        return (res[0] + res[1] * (t - res[2]), res[3])
+
+    def _hold_sync(self, bit: int, upto: int) -> None:
+        """The references of the finished seconds (≤ upto) as one entry per second and aircraft — the memory of the
+        carried clock (CLK_HOLD_KEEP seconds; the references themselves are kept for 90 s only)."""
+        done = self._hold_done.get(bit, -1)
+        if upto <= done:
+            return
+        bins = self.refs[bit]
+        hq, ics = self.hold[bit], self._hold_ics[bit]
+        for sec in sorted(k for k in bins if done < k <= upto):
+            by: dict = {}
+            for p in bins[sec]:
+                by.setdefault(p[2], []).append(p)
+            for ic, v in by.items():
+                hq.append((sum(p[0] for p in v) / len(v), _med([p[1] for p in v]), len(v), ic, sum(1 for p in v if p[3])))
+                ics[ic] += 1
+        self._hold_done[bit] = upto
+        while hq and upto - hq[0][0] > CLK_HOLD_KEEP:
+            ic = hq.popleft()[3]
+            ics[ic] -= 1
+            if ics[ic] <= 0:
+                del ics[ic]
+
+    def _hold_line(self, bit: int, t: float, icao: str):
+        """The carried clock of counter receiver bit at t: (offset at t, slope, t, sigma, seconds carried) or None.
+        A curve through the references of the last CLK_HOLD_KEEP seconds (one point per second and aircraft, so that
+        every aircraft counts alike), continued past the last of them; the timing error grows by CLK_HOLD_NS_S for
+        every second carried.  The aircraft's own references are left out — its fix never rests on its own position."""
+        if bit not in self.hold or CLK_HOLD_MAX <= 0:
+            return None
+        self._hold_sync(bit, int(self.now) - 1)
+        hq = self.hold[bit]
+        if len(hq) < CLK_HOLD_LIN[1]:
+            return None
+        own = icao if self._hold_ics[bit].get(icao) else None
+        key = (bit, own)
+        c = self._hold_fit.get(key)
+        if c is not None and c[0] == self._hold_done[bit]:
+            md = c[1]
+        else:
+            md = self._hold_model([e for e in hq if e[3] != own] if own else list(hq))
+            if len(self._hold_fit) > 200:
+                self._hold_fit.clear()
+            self._hold_fit[key] = (self._hold_done[bit], md)
+        if md is False:
+            return None
+        te, c0, c1, c2, sg, one = md
+        g = t - te
+        if g > CLK_HOLD_MAX or g < -(DELAY + 1.0):
+            return None
+        ga = max(0.0, g)
+        sig = math.hypot(math.hypot(max(sg, SIG_CNT_NS), CLK1_ADD_NS if one else 0.0), CLK_HOLD_NS_S * ga)
+        if sig > CLK_MAX_SIG:
+            return None
+        return (c0 + c1 * g + c2 * g * g, c1 + 2.0 * c2 * g, t, sig, ga)
+
+    @staticmethod
+    def _hold_model(pts: list):
+        """(t of the last reference, offset there, slope, curvature, scatter, rests on one aircraft) of the
+        entries, or False."""
+        if len(pts) < CLK_HOLD_LIN[1]:
+            return False
+        te = pts[-1][0]
+        deg = 2 if (te - pts[0][0] >= CLK_HOLD_QUAD[0] and len(pts) >= CLK_HOLD_QUAD[1]) else 1
+        if deg == 1:
+            pts = [e for e in pts if te - e[0] <= 120.0]
+            if len(pts) < CLK_HOLD_LIN[1] or te - pts[0][0] < CLK_HOLD_LIN[0]:
+                return False
+        if len(pts) > 1500:                        # busy minutes: every k-th of the older entries is enough
+            k = len(pts) // 1200 + 1
+            pts = pts[:-120:k] + pts[-120:]
+        o0 = pts[-1][1]
+        co, sg = None, 0.0
+        for _ in range(3):
+            co = _polyfit([e[0] - te for e in pts], [e[1] - o0 for e in pts], deg)
+            if co is None:
+                return False
+            rs = [abs(e[1] - o0 - (co[0] + co[1] * (e[0] - te) + co[2] * (e[0] - te) ** 2)) for e in pts]
+            sg = 1.4826 * _med(rs)
+            lim = max(150.0, 3.0 * sg)
+            keep = [e for e, r in zip(pts, rs) if r <= lim]
+            if len(keep) == len(pts) or len(keep) < CLK_HOLD_LIN[1]:
+                break
+            pts = keep
+        if sg > CLK_HOLD_MAX_SIG:
+            return False
+        # what the end of the curve rests on, after the outliers are gone: two or more aircraft with a few seconds
+        # each — or one, under the conditions of a one-aircraft line
+        by: dict = {}
+        for e in pts:
+            if te - e[0] <= CLK_HOLD_END[0]:
+                by.setdefault(e[3], []).append(e)
+        strong = [v for v in by.values() if len(v) >= 3]
+        one = len(strong) < CLK_MIN_AC
+        if one:
+            v = max(by.values(), key=len) if by else []
+            nrep = sum(e[2] for e in v)
+            if nrep < CLK1_MIN_N or len(v) < CLK1_MIN_SPAN or v[-1][0] - v[0][0] < CLK1_MIN_SPAN \
+                    or (CLK1_CONFIRMED and 2 * sum(e[4] for e in v) < nrep):
+                return False
+        else:
+            nrep = sum(e[2] for v in strong for e in v)
+            if sum(len(v) for v in strong) < CLK_HOLD_END[1] or nrep < CLK_HOLD_END[2]:
+                return False
+        return (te, o0 + co[0], co[1], co[2], sg, one)
 
     # ── solving (recorder thread) ────────────────────────────────────────
     def _process(self) -> None:
@@ -936,6 +1181,10 @@ class Fixer:
                 self.acc_h.c["nc"] += 1
                 continue
             o, sig = ln
+            if self._held is not None:
+                self.c["held"] += 1
+                self.acc_m.c["hd"] += 1
+                self.acc_h.c["hd"] += 1
             # arrival in GPS time = counter ns − (base + offset); against the reference receiver
             dr = ((arr[b] - self.base[b] - arr[ref]) - o + self.bias.get(ref, 0.0)) * C_AIR * 1e-9
             s = self.site[b]
@@ -1215,6 +1464,8 @@ class Fixer:
             for k in [k for k, a in self.ac.items()
                       if (a["last"] is None and t - a["t0"] > 300) or (a["last"] is not None and t - a["last"][0] > KEEP_SEC)]:
                 del self.ac[k]
+            for k in [k for k, v in self.seen.items() if t - v[0] > 300.0]:
+                del self.seen[k]
 
     # ── for the page (web threads) ───────────────────────────────────────
     def stats(self, rng: str = "1h") -> dict:
@@ -1313,6 +1564,29 @@ class Fixer:
                 qnh = self.qnh_fn()
             except Exception:                      # noqa: BLE001
                 qnh = None
+        # for the message on the map: the aircraft heard by a counter receiver together with the main one in the last
+        # REF_SEEN_SEC seconds — how many send a position, and how many one that can set the clock
+        seen = None
+        if self.cnt:
+            for _ in range(3):
+                try:
+                    v = [x[1] for x in list(self.seen.values()) if now - x[0] <= REF_SEEN_SEC]
+                    seen = {"sec": int(REF_SEEN_SEC), "heard": len(v), "pos": sum(1 for k in v if k >= 1),
+                            "good": sum(1 for k in v if k >= 2)}
+                    break
+                except RuntimeError:               # the recorder thread added an aircraft meanwhile
+                    continue
+        def clock(b):
+            if b not in self.cnt:
+                return None
+            ck = self.clk.get(b)
+            hd = self.held.get(b)
+            out = None if ck is None else dict(ck, age=round(now - ck["t"], 1))
+            # carried: the last fixes were made on the carried clock (the solver runs DELAY seconds behind)
+            if hd is not None and now - hd[0] <= DELAY + 6.0:
+                out = dict(out or {"t": hd[0], "n": 0, "ac": 0, "sig": None, "drift": None, "age": None},
+                           hold=round(hd[1]), hold_sig=round(hd[2]), hold_max=int(CLK_HOLD_MAX))
+            return out
         return {
             "on": True, "now": round(now, 1), "delay": DELAY, "keep": KEEP_SEC,
             "qnh": None if qnh is None else round(float(qnh), 1), "ta_ft": 5000,
@@ -1320,14 +1594,15 @@ class Fixer:
                            "why": self.why_site.get(b),
                            "bias": None if b not in self.gps else round(self.bias.get(b, 0.0), 1),
                            "bias_ac": self.bias_n.get(b),
-                           "clock": None if b not in self.cnt else (
-                               dict(self.clk[b], age=round(now - self.clk[b]["t"], 1)) if b in self.clk else None)}
+                           "clock": clock(b)}
                           for b in sorted(self.names)]
                          # the receivers MLAT_FIX_RX leaves out: listed, so that it is seen that they are connected
                          + [{"id": rid, "bit": b, "rec_only": True} for b, rid in sorted(self.rec_only.items())],
             "use_why": self.use_why,
+            "refs": seen,
             "counters": {k: c[k] for k in ("heard3", "tried", "fix", "ambiguous", "no_clock", "no_height", "no_alt",
-                                           "skipped", "poor", "init", "resolved", "mirror", "error")},
+                                           "skipped", "poor", "init", "resolved", "mirror", "error",
+                                           "held", "ref_off", "ref_low")},
             "cpu": round(100.0 * self.cpu / up, 2),
             "height": {"levels": len([1 for g in self.gmb.values() if now - g[1] <= GMB_KEEP_SEC])},
             "bands": bands, "stat_n": len(st), "stat_amb": sum(1 for s in st if s[4]), "stat_sec": STAT_SEC,

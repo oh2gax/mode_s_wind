@@ -119,8 +119,8 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.25
-date: 2026-11-20
+version: 1.26
+date: 2026-11-21
 pages: 23
 open: stats
 
@@ -132,7 +132,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day
-- **The MLAT tab** (for users with the MLAT right; new in 1.19 to 1.25: the map's trails up to 24 hours, the accuracy grid's period, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
+- **The MLAT tab** (for users with the MLAT right; new in 1.26: the line above the map that says when no positions can be made and why, and the clock carried over short gaps; new in 1.19 to 1.25: the map's trails up to 24 hours, the accuracy grid's period, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## The GPS pages — Quality, Episodes and Aircraft
@@ -153,9 +153,9 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.86
-date: 2026-11-20
-pages: 68
+version: 1.87
+date: 2026-11-21
+pages: 69
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
@@ -168,7 +168,7 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - **Weather with GFS** (from 5 Nov 2026, where the server has it): *Model* MEPS or NOAA's GFS to 16 days, the 3-hour steps after +120 h, −1d / +1d, the GFS grid
 - **Mast** (from 1 Nov 2026): the Kivenlahti mast's lowest 300 m — EFHK now with the mast against MEPS and the aircraft, the tiles, the profile, the boundary layer with the mast's 10-minute steps, the time series and the comparison
 - **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a place tapped on the Weather map — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
-- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.81 to 1.86: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
+- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.87: the line under the map that says when no positions can be made and why; new in 1.81 to 1.86: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
 - What to do when something looks wrong, and a quick reference
 
 ## Meteograms
@@ -238,9 +238,9 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 
 ## Own multilateration from Mode S replies (study log)
 file: MODE_S_Own_Multilateration_Study.pdf
-version: 1.5
-date: 2026-11-20
-pages: 27
+version: 1.6
+date: 2026-11-21
+pages: 30
 
 How a small network of receivers learns to locate aircraft by itself, from the tiny differences in the time at which the receivers hear the same Mode S reply — a study log that explains each step as it is taken, for readers who know Mode S and ADS-B from the receiving side. The positions are for study only; the map and charts of the *MLAT* tab are for users with the MLAT right.
 
@@ -251,6 +251,7 @@ How a small network of receivers learns to locate aircraft by itself, from the t
 - **What two receivers alone can do**: one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
 - **Calibrating the receivers from the traffic**: positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
 - **The second day**: the antenna sites surveyed again; the calibration checked on a morning it had not seen (positions that lay up to 350 m too far out are now within 8 m at every distance); why the positions stopped for minutes in thin traffic, and the clock line from one reference aircraft that fills a third of those gaps
+- **The third day** (new in 1.6): what GNSS interference does to the positions — the receiver without GPS time loses the aircraft that set its clock; whether its counter jumps, how long its clock can be carried (about three minutes), and why the position quality an aircraft reports is not the error of its position (checked against the two GPS-timed receivers); the carried clock and the checked references, with a first version that tested itself against its own input
 - **The afternoon of the second day** (new in 1.5): the error stated with each position checked against the aircraft's own positions and given a floor; why the tracker could hold the wrong one of two possible positions and show it as good, and the tracker that now doubts such a track and follows each one with a filter (positions shown as good but more than 3 km off: 1.1 → 0.15 %); the map's traffic window and replay
 - What others have published (three readings, 24 references), the plan and its state, open questions, a dated diary and the terms
 
