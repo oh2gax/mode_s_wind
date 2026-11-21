@@ -16,9 +16,13 @@
     <!-- the meteogram's own controls (shown with the Meteogram view) -->
     <div class="wm-group" id="wx-mg-ctrl">
       <label class="wm-label">{{ L('Place', 'Paikka') }}</label>
-      <select id="wx-mg-place" class="wm-select" title="{{ L('The place of the meteogram: the airport, a receiver site (its position to 0.01°), or a place pinned on the map (Point values → a click → Meteogram in its card)', 'Meteogrammin paikka: lentoasema, vastaanotinpaikka (sijainti 0,01°:n tarkkuudella) tai kartalle kiinnitetty paikka (Point values → napsautus kartalla → Meteogram pistekortissa)') }}">
+      <select id="wx-mg-place" class="wm-select" title="{{ L('The place of the meteogram: the airport, a receiver site (its position to 0.01°), or a place pinned on the map (Point values → a click → Meteogram in its card; up to 8 are kept, each can be renamed or removed with the buttons beside this list)', 'Meteogrammin paikka: lentoasema, vastaanotinpaikka (sijainti 0,01°:n tarkkuudella) tai kartalle kiinnitetty paikka (Point values → napsautus kartalla → Meteogram pistekortissa; enintään 8 säilyy, ja kunkin voi nimetä tai poistaa luettelon vieressä olevilla painikkeilla)') }}">
         <option value="apt" selected>{{ airport_icao }}</option>
       </select>
+      <!-- a pinned place's own name and its removal (from 2026-11-21; shown by weather_mg.js while one is chosen) -->
+      <input id="wx-mg-pin-name" class="wm-select wx-mg-pinname" type="text" maxlength="30" hidden autocomplete="off" spellcheck="false" placeholder="{{ L('Name of the place', 'Paikan nimi') }}" aria-label="{{ L('Name of the pinned place', 'Kiinnitetyn paikan nimi') }}">
+      <button id="wx-mg-pin-ren" class="wm-play-btn wx-mg-pinbtn" type="button" hidden>{{ L('Rename', 'Nimeä') }}</button>
+      <button id="wx-mg-pin-del" class="wm-play-btn wx-mg-pinbtn" type="button" hidden title="{{ L('Take this pinned place off the list', 'Poista tämä kiinnitetty paikka luettelosta') }}">{{ L('Remove', 'Poista') }}</button>
       <label class="wm-label">{{ L('Model', 'Malli') }}</label>
       <select id="wx-mg-model" class="wm-select" title="{% if mg_fin %}MEPS — menneet päivät ja noin 2 vuorokautta eteenpäin (2,5 km lentoaseman lähellä, muualla 10 km){% if gfs_on %}; GFS — nyt ja enintään 16 vuorokautta eteenpäin (0,25°); Molemmat — GFS:n päivät ja MEPS omien päiviensä päällä (MEPS paksu, GFS ohut katkoviiva){% endif %}{% else %}MEPS — the past days and about 2 days ahead (2.5 km near the airport, else 10 km){% if gfs_on %}; GFS — from now up to 16 days ahead (0.25°); Both — GFS's days with MEPS drawn over its own (MEPS bold, GFS thin and dashed){% endif %}{% endif %}">
         <option value="meps"{% if not gfs_on %} selected{% endif %}>MEPS</option>
@@ -242,6 +246,10 @@ window.MG_LANG = {{ ('fi' if mg_fin else 'en')|tojson }};   // the meteogram's l
 .weather-page .wx-vbtn.wx-von { background:var(--accent); color:#fff; border-color:var(--accent); }
 .weather-page #wx-mg-ctrl { display:none; flex-wrap:wrap; gap:6px 10px; align-items:center; }
 .weather-page.wx-mg-mode #wx-mg-ctrl { display:flex; }
+/* a pinned place's Rename / Remove and the name field (from 2026-11-21) */
+.weather-page .wx-mg-pinbtn { width:auto; padding:0 8px; margin-left:-2px; }
+.weather-page .wx-mg-pinname { width:170px; cursor:text; margin-left:-2px; }
+.weather-page .wx-mg-pinbtn[hidden], .weather-page .wx-mg-pinname[hidden], .weather-page #wx-mg-place[hidden] { display:none !important; }
 .weather-page.wx-mg-mode .windmap-controls > :not(.wx-viewsw):not(#wx-mg-ctrl) { display:none !important; }
 .weather-page.wx-mg-mode .windmap-mapwrap { display:none; }
 .weather-page.wx-mg-mode .wx-point-card { display:none; }

@@ -813,7 +813,29 @@ def create_app(
             abort(404)
         from collector import mlat_rec
         rng = request.args.get("range", "1h")
-        return _private(_gzip_json(mlat_rec.fix_stats(rng if rng in ("1h", "24h", "7d") else "1h")))
+        out = mlat_rec.fix_stats(rng if rng in ("1h", "24h", "7d") else "1h")
+        if out.get("on"):
+            # from 2026-11-21 midday: the air temperature at the airport (METAR) over the same time, drawn under the
+            # drift of the counter receiver's clock — the crystal follows the temperature
+            try:
+                span = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}[out.get("range", "1h")]
+                now = float(out.get("now") or time.time())
+                rows = get_db().execute("SELECT ts, tt FROM metar_reports WHERE station = ? AND ts >= ? AND ts <= ? AND tt IS NOT NULL "
+                                        "ORDER BY ts", (getattr(cfg, "WINDSHEAR_AIRPORT_ICAO", "EFHK"), int(now - span - 3600), int(now))).fetchall()
+                out["temp"] = [[int(r[0]), float(r[1])] for r in rows]
+            except Exception:                      # noqa: BLE001
+                out["temp"] = []
+        return _private(_gzip_json(out))
+
+    @app.route("/api/mlat/suspects")
+    def mlat_suspects_api():
+        """Aircraft whose broadcast position does not fit the time stamps of the GPS-timed receivers (from
+        2026-11-21 midday; collector/mlat_fix.py suspects()): the last hour, with how far off at least and, when we
+        have a fix of our own for the same moment, where the aircraft is by the arrival times.  The MLAT right only."""
+        if not _mlat_ok():
+            abort(404)
+        from collector import mlat_rec
+        return _private(_gzip_json(mlat_rec.fix_suspects()))
 
     @app.route("/api/msgstats")
     def msgstats_api():

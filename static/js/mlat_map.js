@@ -70,6 +70,13 @@
   };
   let atc = null;                             // the canvas with the squares, vectors and labels
   let gridLayer = null, gridData = null, gridT = 0, selCh = {};
+  let susData = null, susT = 0;
+  const SUS_SHOW = 120;                        // s: a misfit is drawn this long after it last failed the check
+  async function susLoad() {
+    susT = Date.now();
+    try { const d = await (await fetch('/api/mlat/suspects', { cache: 'no-store' })).json(); susData = d.on ? d : null; } catch (_) { /* keeps the last */ }
+    if (S.sus) draw();
+  }
   // Receiver coverage (from 2026-11-19), in the Live Map's style (static/js/live_wx.js): the
   // outline of the area heard in the last 24 h from /api/coverage — the farthest ADS-B position
   // per 10° sector — as a 1 px dashed line; all receivers together (the edge of their union, or
@@ -157,6 +164,13 @@
   // Accuracy grid: five classes of the median error, one hue, the larger the error the stronger
   const GRID_CL = [50, 100, 250, 500];
   const GRID_COL = () => light() ? ['#ddd6fe', '#c4b5fd', '#8b5cf6', '#6d28d9', '#4c1d95'] : ['#3b2a6b', '#5b3fb0', '#7c5ce0', '#a78bfa', '#ddd6fe'];
+  // From 2026-11-21 midday the grid has three things to show (S.gridM, #mlm-gridm): "acc" the accuracy as before;
+  // "fix" of the aircraft-minutes heard by three receivers, the share that had a resolved fix; "rx3" of the
+  // aircraft-minutes heard by two or more receivers, the share heard by three.  The last two come from the
+  // server's coverage cells (aircraft with a good own position only: they are placed by it), one hue, five classes.
+  const COVER_CL = [20, 40, 60, 80];
+  const COVER_COL = () => light() ? ['#e0f2fe', '#bae6fd', '#7dd3fc', '#0ea5e9', '#0369a1'] : ['#0c3a55', '#0e5a85', '#0284c7', '#38bdf8', '#bae6fd'];
+  const GRID_MODES = { acc: 'median error', fix: 'heard by three receivers: share with a fix', rx3: 'heard by two or more: share heard by three' };
   async function gridLoad() {
     if (!gridLayer) return;
     if (!S.grid) { gridData = null; gridLayer.clearLayers(); draw(); return; }
@@ -165,7 +179,7 @@
       // its own period (from the evening of 2026-11-20; before: the Charts view's), /api/mlat/grid?hours=
       const h = S.gridH, d = await (await fetch('/api/mlat/grid?hours=' + h, { cache: 'no-store' })).json();
       if (h !== S.gridH) return;                       // changed meanwhile: the newer request draws
-      gridData = d.on ? { cells: d.grid || {}, cell: d.cell, rng: h === 168 ? '7 d' : h + ' h' } : null;
+      gridData = d.on ? { cells: d.grid || {}, cover: d.cover || {}, cell: d.cell, rng: h === 168 ? '7 d' : h + ' h' } : null;
     } catch (_) { /* keeps the last grid */ }
     gridDraw(); draw();
   }
@@ -174,6 +188,16 @@
     gridLayer.clearLayers();
     if (!S.grid || !gridData) return;
     const [dla, dlo] = gridData.cell, col = GRID_COL();
+    if (S.gridM !== 'acc') {
+      const cc = COVER_COL(), fx = S.gridM === 'fix';
+      for (const [k, g] of Object.entries(gridData.cover)) {
+        const den = fx ? g[1] : g[0], num = fx ? g[2] : g[1];
+        if (den < 3) continue;                         // fewer than three aircraft-minutes: no share
+        const [i, j] = k.split(',').map(Number), pc = 100 * num / den, q = COVER_CL.findIndex(x => pc <= x);
+        L.rectangle([[i * dla, j * dlo], [(i + 1) * dla, (j + 1) * dlo]], { pane: 'mlmGrid', stroke: false, fillColor: cc[q < 0 ? 4 : q], fillOpacity: 0.6, interactive: false }).addTo(gridLayer);
+      }
+      return;
+    }
     for (const [k, g] of Object.entries(gridData.cells)) {
       const [i, j] = k.split(',').map(Number);
       const c = g[1] == null ? null : col[GRID_CL.findIndex(x => g[1] <= x) < 0 ? 4 : GRID_CL.findIndex(x => g[1] <= x)];
@@ -218,6 +242,13 @@
   if (![1, 3, 6, 12, 24, 168].includes(S.gridH)) S.gridH = 1;
   $('mlm-gridh').value = String(S.gridH);
   $('mlm-gridh').addEventListener('change', e => { S.gridH = +e.target.value; lsSet('ms_mlm_gridh', String(S.gridH)); if (S.grid) gridLoad(); });
+  S.gridM = lsGet('ms_mlm_gridm', 'acc'); if (!GRID_MODES[S.gridM]) S.gridM = 'acc';
+  $('mlm-gridm').value = S.gridM;
+  $('mlm-gridm').addEventListener('change', e => { S.gridM = e.target.value; lsSet('ms_mlm_gridm', S.gridM); gridDraw(); draw(); });
+  // Misfit positions (from 2026-11-21 midday): aircraft whose broadcast position does not fit the time stamps of the
+  // GPS-timed receivers (/api/mlat/suspects), drawn where they SAY they are, with a line to our own fix when there is one
+  $('mlm-sus').checked = S.sus = lsGet('ms_mlm_sus', '0') === '1';
+  $('mlm-sus').addEventListener('change', e => { S.sus = e.target.checked; lsSet('ms_mlm_sus', S.sus ? '1' : '0'); if (S.sus) susLoad(); else { susData = null; draw(); } });
   if (S.cov !== 'off' && S.cov !== 'all') $('mlm-cov').insertAdjacentHTML('beforeend', `<option value="${esc(S.cov)}">${esc(rxShort(S.cov))}</option>`);
   $('mlm-ils').checked = S.ils;
   $('mlm-ils').addEventListener('change', e => { S.ils = e.target.checked; lsSet('ms_mlm_ils', S.ils ? '1' : '0'); ilsShow(); });
@@ -458,6 +489,16 @@
       m.bindTooltip(tip(k, o), { direction: 'top', offset: [0, -8] });
       if (!atc) L.circleMarker([lp[1], lp[2]], { renderer, radius: 4, color: col, weight: 1.5, fillOpacity: 0, interactive: false }).addTo(layer);
     }
+    // misfit positions: a dotted ring where the aircraft says it is, and a dotted line to where our fix puts it
+    if (S.sus && susData && !RP.on) {
+      for (const a of susData.aircraft) {
+        if (!a.bc || now - a.t > SUS_SHOW) continue;
+        const nm = esc(a.cs || a.reg || a.icao), far = `at least ${a.min_km} km off`;
+        L.circleMarker(a.bc, { renderer, radius: 9, color: C.link, weight: 2, dashArray: '2 4', fillOpacity: 0 }).addTo(layer)
+          .bindTooltip(`${nm} · the position it broadcasts does not fit the receivers’ timing: ${far}` + (a.km != null ? ` · our fix is ${a.km} km from it` : ''), { direction: 'top', offset: [0, -8] });
+        if (a.own) L.polyline([a.bc, [a.own[0], a.own[1]]], { renderer, color: C.link, weight: 1.5, dashArray: '2 5', opacity: 0.9, interactive: false }).addTo(layer);
+      }
+    }
     if (atc) atc.redraw();
     $('mlm-legend').innerHTML =
       `<div><i style="border-color:${C.pos}"></i>our fix — aircraft also broadcasts its position</div>` +
@@ -465,7 +506,10 @@
       (S.adsb ? `<div><i style="border-color:${C.adsb};border-top-width:1px"></i>broadcast ADS-B track · <i style="border-color:${C.link};border-top-width:2px;width:10px"></i>difference now</div>` : '') +
       (S.amb ? '<div>dashed: unresolved — two positions possible</div>' : '') +
       (S.win > DETAIL ? `<div>thin lines: the stored tracks older than an hour, a point every ${histStep(S.win)} s</div>` : '') +
-      (S.grid && gridData ? `<div class="mlm-gridleg">median error, ${gridData.rng}:` + GRID_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + GRID_CL[i] : '> 500'}`).join('') + ' m</div>' : '');
+      (S.grid && gridData ? (S.gridM === 'acc'
+        ? `<div class="mlm-gridleg">median error, ${gridData.rng}:` + GRID_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + GRID_CL[i] : '> 500'}`).join('') + ' m</div>'
+        : `<div class="mlm-gridleg">${GRID_MODES[S.gridM]}, ${gridData.rng}:` + COVER_COL().map((c, i) => `<b style="background:${c}"></b>${i < 4 ? '≤ ' + COVER_CL[i] : '> 80'}`).join('') + ' %</div>') : '') +
+      (S.sus && susData && susData.aircraft.some(a => a.bc && state && state.now - a.t <= SUS_SHOW) ? `<div><i style="border-top:2px dotted ${C.link}"></i>broadcast position that does not fit the receivers' timing (ring) — line to our fix</div>` : '');
     if (S.ils && ilsFeat.length) {
       const lt = light();
       $('mlm-legend').insertAdjacentHTML('beforeend', `<div><i style="border-top:1.5px dashed ${lt ? '#1a3a6b' : '#38bdf8'}"></i>ILS final · ` +
@@ -478,6 +522,7 @@
     }
     if (S.cov !== 'off' && Date.now() - covT > 300000) covLoad();
     if (S.grid && Date.now() - gridT > 60000) gridLoad();
+    if (S.sus && !RP.on && Date.now() - susT > 15000) susLoad();
     selPanel();
   }
   // Squares, speed vectors and labels, as the Live Map's ATC style (one canvas over the map)

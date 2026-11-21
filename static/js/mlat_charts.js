@@ -11,6 +11,11 @@
  *   aircraft with a fix, with and without a position of their own; the share by altitude
  *   unresolved fixes and the time until a track is confirmed
  *   the GPS-timed receivers' clocks against the main one (from 2026-11-20)
+ *   from 2026-11-21 midday: the counter receiver's clock through the period (fitted / carried / none) and the
+ *   aircraft it could be set by; what became of the replies heard by three receivers; fixes inside their stated
+ *   error; aircraft without a position of their own, heard and located; the air temperature under the drift;
+ *   tracks confirmed and put in doubt; positions that do not fit the GPS-timed receivers (/api/mlat/suspects);
+ *   which receivers hear a reply together; one line per day
  *
  * The view's buttons and the page switching are in static/js/mlat_map.js.
  */
@@ -23,9 +28,14 @@
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* a convenience only */ } };
   const light = () => document.documentElement.dataset.theme === 'light';
   // two series colours (validated for both themes) and a neutral
-  const COL = () => light() ? { a: '#1d4ed8', b: '#c2410c', n: '#64748b', txt: '#475569' } : { a: '#3b82f6', b: '#ea580c', n: '#94a3b8', txt: '#94a3b8' };
+  // (c: a third hue, from 2026-11-21 — blue / orange / violet pass the palette checks on both surfaces; n is the neutral)
+  const COL = () => light() ? { a: '#1d4ed8', b: '#c2410c', c: '#7c3aed', n: '#64748b', txt: '#475569' } : { a: '#3b82f6', b: '#ea580c', c: '#8b5cf6', n: '#94a3b8', txt: '#94a3b8' };
   const GRID = 'rgba(148,163,184,.18)';
-  let on = false, rng = lsGet('ms_mlc_rng', '1h'), timer = null, data = null;
+  let on = false, rng = lsGet('ms_mlc_rng', '1h'), timer = null, data = null, sus = null;
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const num = v => v == null ? '—' : Math.round(v).toLocaleString('en');
+  const pct = (a, b, d = 0) => b ? (100 * a / b).toFixed(d) + ' %' : '—';
+  const hm = t => { const d = new Date(t * 1000); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
   const pad = n => String(n).padStart(2, '0');
   const lab = (t, r) => { const d = new Date(t * 1000); return r === '7d' ? `${d.getUTCDate()}.${d.getUTCMonth() + 1} ${pad(d.getUTCHours())}` : `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
@@ -49,6 +59,7 @@
         const r = await fetch('/api/mlat/fixstats?range=' + rng, { cache: 'no-store' });
         if (!r.ok) throw new Error(r.status);
         data = await r.json();
+        try { const q = await fetch('/api/mlat/suspects', { cache: 'no-store' }); sus = q.ok ? await q.json() : null; } catch (_) { sus = null; }
         render(data);
       } catch (_) { $('mlc-note').textContent = 'Update failed — retrying'; }
     }
@@ -63,7 +74,7 @@
                    tooltip: { callbacks: opt.tip ? { label: opt.tip } : {} } },
         scales: { x: { stacked: !!opt.stacked, grid: { display: false }, ticks: { color: C.txt, maxRotation: 0, autoSkip: true, maxTicksLimit: opt.xt || 10, font: { size: 10 } } },
                   y: { stacked: !!opt.stacked, beginAtZero: opt.zero !== false, grid: { color: GRID }, ticks: { color: C.txt, font: { size: 10 }, precision: opt.prec },
-                       title: { display: !!opt.y, text: opt.y, color: C.txt, font: { size: 10 } }, suggestedMax: opt.smax } } } };
+                       title: { display: !!opt.y, text: opt.y, color: C.txt, font: { size: 10 } }, suggestedMax: opt.smax, max: opt.max } } } };
     if (CH[key]) { CH[key].data = cfg.data; CH[key].options = cfg.options; CH[key].update('none'); }
     else CH[key] = new Chart($(id), cfg);
   }
@@ -94,7 +105,8 @@
     const ck = k => S.map(r => r.ck ? r.ck[k] : null);
     chart('cks', 'mlc-ck-sig', 'line', L, [{ label: 'spread, ns', data: ck(0), borderColor: C.a }], {});
     chart('cka', 'mlc-ck-ac', 'line', L, [{ label: 'reference aircraft', data: ck(3), borderColor: C.a, stepped: true }], { prec: 0 });
-    chart('ckd', 'mlc-ck-dr', 'line', L, [{ label: 'drift, ppm', data: ck(1).map(v => v == null ? null : +(v / 1000).toFixed(4)), borderColor: C.a }], { zero: false });
+    // (in ppb from 2026-11-21 midday — parts in a billion, the unit the crystal's wander is read in; before: ppm)
+    chart('ckd', 'mlc-ck-dr', 'line', L, [{ label: 'drift, ppb', data: ck(1).map(v => v == null ? null : +v.toFixed(1)), borderColor: C.a }], { zero: false });
     // 5. aircraft with a fix; the share by altitude
     chart('ac', 'mlc-ac', 'bar', L, [
       { label: 'also broadcast their position', data: S.map(r => Math.max(0, r.ac - r.np)), backgroundColor: C.a, borderColor: 'transparent', borderWidth: { top: 1 } },
@@ -123,6 +135,108 @@
       `${T.fx.toLocaleString('en')} fixes (${Math.round(100 * T.fx / T.tr)} %), ${T.fx ? Math.round(100 * T.am / T.fx) : 0} % of them unresolved; no clock line for ${T.nc.toLocaleString('en')} replies` +
       // from 2026-11-21: how many of the tried rested on the clock carried without a reference (hold-over)
       (T.hd ? `; for ${T.hd.toLocaleString('en')} of the tried the clock was carried without a reference.` : '.') : '';
+
+    // ── from 2026-11-21 midday ────────────────────────────────────────────
+    // 8. the counter receiver's clock through the period: of the attempts (tried + lost for want of a clock), the
+    //    share made on a fitted line, on the carried clock, and lost; under it the aircraft it could be set by
+    const att = r => (r.tr || 0) + (r.nc || 0), sh = (v, r) => att(r) >= 20 ? +(100 * v / att(r)).toFixed(1) : null;
+    chart('clk', 'mlc-clk', 'bar', L, [
+      { label: 'on a fitted line', data: S.map(r => sh((r.tr || 0) - (r.hd || 0), r)), backgroundColor: C.a },
+      { label: 'on the carried clock', data: S.map(r => sh(r.hd || 0, r)), backgroundColor: C.c },
+      { label: 'no clock', data: S.map(r => sh(r.nc || 0, r)), backgroundColor: C.b }], { stacked: true, y: '% of the attempts', xt: 14, max: 100 });
+    const rf = i => S.map(r => r.rf ? r.rf[i] : null);
+    chart('rf', 'mlc-rf', 'line', L, [
+      { label: 'heard', data: rf(0), borderColor: C.n, stepped: true },
+      { label: 'send a position', data: rf(1), borderColor: C.b, stepped: true },
+      { label: 'usable to set the clock', data: rf(2), borderColor: C.a, stepped: true }], { prec: 0, xt: 14, y: 'aircraft' });
+    const tA = (T.tr || 0) + (T.nc || 0);
+    $('mlc-clk-t').textContent = tA ? `In this period ${pct((T.tr || 0) - (T.hd || 0), tA)} of the attempts were made on a fitted line, ${pct(T.hd || 0, tA, 1)} on the clock carried without a reference (at most three minutes) and ${pct(T.nc || 0, tA, 1)} were lost for want of a clock. ` +
+      'The clock is set by aircraft with a usable position of their own; when the lowest line falls to zero and stays there, GNSS interference has taken them away and the orange share grows. The counts of the aircraft begin on 21 Nov 2026.' : '';
+    // 9. what became of the replies heard by three receivers (the periods that have the new counts)
+    const N = S.filter(r => r.sk != null), sum = k => N.reduce((a, r) => a + (r[k] || 0), 0);
+    if (N.length) {
+      const h3 = sum('h3'), sk = sum('sk'), nh = sum('nh'), nc = sum('nc'), tr = sum('tr'), fx = sum('fx'), am = sum('am'), po = sum('po'), hd = sum('hd');
+      const row = (l, v, t, ind) => `<tr${t ? ` title="${esc(t)}"` : ''}><td${ind ? ' style="padding-left:18px"' : ''}>${l}</td><td class="num">${num(v)}</td><td class="num">${pct(v, h3, 1)}</td><td><span class="mlc-bar" style="width:${h3 ? Math.max(1, Math.round(90 * v / h3)) : 0}px"></span></td></tr>`;
+      $('mlc-fun').innerHTML = '<thead><tr><th>Replies</th><th class="num">Number</th><th class="num">Share</th><th></th></tr></thead><tbody>' +
+        row('heard by three receivers', h3) +
+        row('not tried: more than three a second', sk, 'At most three replies of an aircraft are solved in a second; the rest are not needed', true) +
+        row('no height for the aircraft', nh, 'No pressure altitude in the reply or known for the aircraft, or no way to turn it into a height', true) +
+        row('no clock for the receiver without GPS time', nc, 'No reference aircraft, and the clock could not be carried', true) +
+        row('tried', tr, hd ? `${num(hd)} of them on the carried clock` : '', true) +
+        row('no position found', Math.max(0, tr - fx), `No solution near a track, or the expected error too large (${num(po)} of them)`, true) +
+        row('position fixes', fx, '', true) +
+        row('of them unresolved', am, 'Two positions still possible', true) + '</tbody>';
+      $('mlc-fun-t').textContent = `${N.length < S.length ? 'The steps since 21 Nov 2026 (the earlier ones do not have all the counts). ' : ''}Of the replies that were tried, ${pct(fx, tr)} gave a fix; of all attempts, ${pct(nc, tr + nc, 1)} had no clock.`;
+    } else { $('mlc-fun').innerHTML = ''; $('mlc-fun-t').textContent = 'No counts yet: they begin with the version of 21 Nov 2026.'; }
+    chart('out', 'mlc-out', 'bar', L, [
+      { label: 'resolved fix', data: S.map(r => sh((r.fx || 0) - (r.am || 0), r)), backgroundColor: C.a },
+      { label: 'unresolved fix', data: S.map(r => sh(r.am || 0, r)), backgroundColor: C.c },
+      { label: 'no position found', data: S.map(r => sh(Math.max(0, (r.tr || 0) - (r.fx || 0)), r)), backgroundColor: C.n },
+      { label: 'no clock', data: S.map(r => sh(r.nc || 0, r)), backgroundColor: C.b }], { stacked: true, xt: 8, max: 100 });
+    // 10. fixes inside their stated error (resolved fixes with an own position to compare): about two thirds belong
+    const ieN = (r, i) => r.ie && r.ie[i] ? (r.ie[i][2] != null ? r.ie[i][2] : (r.b && r.b[i] ? r.b[i][0] : 0)) : 0;
+    const ieS = (r, bands, j) => { if (!r.ie) return null; let a = 0, n = 0; for (const i of bands) { a += r.ie[i] ? r.ie[i][j] : 0; n += ieN(r, i); } return n >= 30 ? +(100 * a / n).toFixed(1) : null; };
+    chart('ie', 'mlc-ie', 'line', L, [
+      { label: 'within 20 NM of the airport', data: S.map(r => ieS(r, [0, 1], 0)), borderColor: C.a },
+      { label: '20–40 NM', data: S.map(r => ieS(r, [2], 0)), borderColor: C.b },
+      { label: 'two thirds', data: S.map(() => 66.7), borderColor: C.n, borderWidth: 1, borderDash: [4, 4] }], { y: '% inside the stated error', max: 100, xt: 8 });
+    const IE = T.ie || [];
+    $('mlc-ie-t').innerHTML = IE.length ? '<thead><tr><th>Distance</th><th class="num">Fixes compared</th><th class="num" title="Share of the fixes closer to the aircraft’s own position than their stated error">Inside the stated error</th><th class="num">Inside twice it</th></tr></thead><tbody>' +
+      IE.map((e, i) => `<tr><td>${bn[i]}</td><td class="num">${num(e[2])}</td><td class="num">${e[2] >= 30 ? pct(e[0], e[2]) : '—'}</td><td class="num">${e[2] >= 30 ? pct(e[1], e[2]) : '—'}</td></tr>`).join('') + '</tbody>' : '';
+    $('mlc-ie-n').textContent = 'The stated error is what the system expects from the receivers’ timing and the geometry (one sigma). When it is right, about two thirds of the fixes lie inside it and nearly all inside twice it. A line well below two thirds means the fixes are worse than they say — the clocks or the reference aircraft, usually.' + (IE.length ? '' : ' The counts begin on 21 Nov 2026.');
+    // 11. aircraft that send no position of their own: heard by three receivers, and located by us
+    chart('np', 'mlc-np', 'line', L, [
+      { label: 'heard by three receivers', data: S.map(r => r.a3 ? r.a3[1] : null), borderColor: C.n, stepped: true },
+      { label: 'located', data: S.map(r => r.a3 ? r.np : null), borderColor: C.b, stepped: true }], { prec: 0, y: 'aircraft' });
+    $('mlc-np-t').textContent = T.a3s && T.a3s[1] ? `Over the period ${pct(T.nps, T.a3s[1])} of the aircraft without a position of their own that three receivers heard were located (counted per ${per}).` : '';
+    // 12. the air temperature under the drift (the latest METAR at each step), and how the drift goes with it
+    const TT = d.temp || [];
+    const ttAt = t => { let v = null; for (const p of TT) { if (p[0] <= t + d.step) v = p; else break; } return v && t + d.step - v[0] <= 5400 ? v[1] : null; };
+    const tts = S.map(r => ttAt(r.t));
+    chart('cktt', 'mlc-ck-tt', 'line', L, [{ label: '°C', data: tts, borderColor: C.b, stepped: true }], { zero: false });
+    const dr = ck(1), prs = dr.map((v, i) => [tts[i], v]).filter(p => p[0] != null && p[1] != null), dv = dr.filter(v => v != null);
+    let ckTxt = dv.length ? `Drift in this period: ${Math.round(Math.min(...dv))} to ${Math.round(Math.max(...dv))} ppb (parts in a billion; 1 000 ppb = 1 ppm).` : '';
+    if (prs.length >= 8) {
+      const mx = prs.reduce((a, p) => a + p[0], 0) / prs.length, my = prs.reduce((a, p) => a + p[1], 0) / prs.length;
+      const sxx = prs.reduce((a, p) => a + (p[0] - mx) ** 2, 0), syy = prs.reduce((a, p) => a + (p[1] - my) ** 2, 0), sxy = prs.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
+      const lo = Math.min(...prs.map(p => p[0])), hi = Math.max(...prs.map(p => p[0]));
+      if (hi - lo >= 1.5 && sxx > 0 && syy > 0) ckTxt += ` Against the air temperature (${lo} to ${hi} °C): ${(sxy / sxx).toFixed(1)} ppb per degree, correlation ${(sxy / Math.sqrt(sxx * syy)).toFixed(2)} — a first figure only; the receiver is not at the airport and has its own warmth.`;
+      else ckTxt += ' The air temperature moved too little in this period to say how the drift goes with it.';
+    }
+    $('mlc-ck-t').textContent = ckTxt;
+    // 13. tracks confirmed by their motion, and tracks put in doubt again
+    chart('trk', 'mlc-trk', 'bar', L, [
+      { label: 'confirmed', data: S.map(r => r.rs ? r.rs[0] : 0), backgroundColor: C.a },
+      { label: 'put in doubt', data: S.map(r => r.dz == null ? null : r.dz), backgroundColor: C.b }], { prec: 0 });
+    // 14. positions that do not fit the time stamps of the GPS-timed receivers
+    chart('pc', 'mlc-pc', 'bar', L, [{ label: 'aircraft', data: S.map(r => r.pc ? r.pc[1] : null), backgroundColor: C.b }], { prec: 0 });
+    const SA = sus && sus.on ? sus.aircraft || [] : [];
+    $('mlc-sus').innerHTML = SA.length ? '<thead><tr><th>Aircraft</th><th>Address</th><th>Reg</th><th class="num" title="The accuracy (NACp) and integrity (NIC) the aircraft reported with the position">NACp / NIC</th><th class="num">Level</th>' +
+      '<th class="num" title="From the largest misfit of the time stamps: the position was at least this far from where the aircraft was. The check sees only the part across the line of sight, so the real error is this or more">Off by at least</th>' +
+      '<th class="num" title="Distance between the position the aircraft broadcast and our own fix of the same moment, when we had one">Our fix from it</th><th class="num" title="Times the check failed (every five seconds while it does)">Failed</th><th>First</th><th>Last, UTC</th></tr></thead><tbody>' +
+      SA.map(a => `<tr><td><b>${esc(a.cs || '—')}</b>${a.typ ? ' <span class="mst-dim">' + esc(a.typ) + '</span>' : ''}</td><td>${esc(a.icao)}</td><td>${esc(a.reg || '—')}</td><td class="num">${a.q ? (a.q[0] == null ? '—' : a.q[0]) + ' / ' + (a.q[1] == null ? '—' : a.q[1]) : '—'}</td>` +
+        `<td class="num">${a.alt == null ? '—' : 'FL' + String(Math.round(a.alt / 100)).padStart(3, '0')}</td><td class="num">${a.min_km} km</td><td class="num">${a.km == null ? '—' : a.km + ' km'}</td><td class="num">${a.n}</td><td>${hm(a.t0)}</td><td>${hm(a.t)}</td></tr>`).join('') + '</tbody>'
+      : '<tbody><tr><td class="mst-dim">No aircraft in the last hour whose position did not fit.</td></tr></tbody>';
+    $('mlc-sus-t').textContent = sus && sus.on ? `Every reply of an aircraft that sends a position and is heard by two GPS-timed receivers is checked, whatever accuracy the aircraft reports: the difference of the two time stamps must fit the position. ` +
+      `${sus.checked} aircraft are being checked now. An aircraft is listed when the middle value of its last two minutes is ${(sus.limit_ns / 1000).toFixed(0)} µs or more off (300 m of range difference; positions that are right stay under 0.4 µs). ` +
+      'A listed position is wrong, not merely uncertain: frozen, far behind or false. On the map, Misfit positions draws where such an aircraft says it is and where our fix puts it.' : '';
+    // 15. which receivers heard a reply together (replies heard by two or more)
+    const RX = d.rx || {}, CB = T.cb || {}, cbT = Object.values(CB).reduce((a, v) => a + v, 0);
+    const rxn = m => Object.keys(RX).filter(b => m & (1 << +b)).map(b => String(RX[b]).replace(/^MODES-/, '')).join(' + ');
+    $('mlc-cb').innerHTML = cbT ? '<thead><tr><th>Heard by</th><th class="num">Replies</th><th class="num">Share</th><th></th></tr></thead><tbody>' +
+      Object.entries(CB).sort((a, b) => b[1] - a[1]).map(([m, v]) => `<tr><td>${esc(rxn(+m))}</td><td class="num">${num(v)}</td><td class="num">${pct(v, cbT, 1)}</td><td><span class="mlc-bar" style="width:${Math.max(1, Math.round(90 * v / cbT))}px"></span></td></tr>`).join('') +
+      Object.keys(RX).map(b => { const v = Object.entries(CB).filter(([m]) => +m & (1 << +b)).reduce((a, e) => a + e[1], 0); return `<tr class="mst-dim"><td>${esc(String(RX[b]).replace(/^MODES-/, ''))} takes part in</td><td class="num">${num(v)}</td><td class="num">${pct(v, cbT, 1)}</td><td></td></tr>`; }).join('') + '</tbody>'
+      : '<tbody><tr><td class="mst-dim">No counts yet: they begin with the version of 21 Nov 2026.</td></tr></tbody>';
+    $('mlc-cb-t').textContent = cbT ? 'Only a reply heard by all three can give a position; one heard by two gives a time difference. What each receiver hears alone is not counted here — see the receiver’s own tab above.' : '';
+    // 16. one line per day
+    const DY = (d.days || []).slice().reverse();
+    $('mlc-days').innerHTML = DY.length ? '<thead><tr><th>Day (UTC)</th><th class="num" title="Hours with data">Hours</th><th class="num">Fixes</th><th class="num" title="Of the attempts (tried + lost for want of a clock)">No clock</th><th class="num" title="Of the attempts, made on the clock carried without a reference">Carried</th>' +
+      '<th class="num" title="Median distance of the single fixes from the aircraft’s own positions, within 20 NM of the airport">Error ≤ 20 NM</th><th class="num">20–40 NM</th><th class="num" title="Share of the fixes inside their stated error, within 20 NM">Inside stated</th><th class="num">Unresolved</th>' +
+      '<th class="num" title="Aircraft located that send no position of their own, summed over the hours (an aircraft counts once in every hour it is located)">Located without a position</th><th class="num" title="Aircraft whose broadcast position did not fit, summed over the hours">Misfits</th></tr></thead><tbody>' +
+      DY.map(x => { const a = x.tr + x.nc, d0 = new Date(x.t * 1000), ie = x.ie ? [x.ie[0][0] + x.ie[1][0], x.ie[0][2] + x.ie[1][2]] : null;
+        return `<tr><td>${d0.getUTCDate()}.${d0.getUTCMonth() + 1}.</td><td class="num">${x.hours}</td><td class="num">${num(x.fx)}</td><td class="num">${pct(x.nc, a, 1)}</td><td class="num">${pct(x.hd, a, 1)}</td><td class="num">${x.e20 && x.e20[0] ? mTxt(x.e20[1]) : '—'}</td><td class="num">${x.e40 && x.e40[0] ? mTxt(x.e40[1]) : '—'}</td>` +
+          `<td class="num">${ie && ie[1] >= 30 ? pct(ie[0], ie[1]) : '—'}</td><td class="num">${pct(x.am, x.fx)}</td><td class="num">${num(x.nph)}<span class="mst-dim"> ah</span></td><td class="num">${x.pc ? num(x.pc[1]) : '—'}</td></tr>`; }).join('') + '</tbody>' : '';
+    $('mlc-days-t').textContent = DY.length ? 'The stored hours of the last eight days. “ah” is aircraft-hours: an aircraft located in three different hours counts three times. Columns without a value are from before 21 Nov 2026, or from a day with too few fixes.' : '';
   }
 
   // Scatter of the single fixes around the aircraft's own position: up = ahead in the flight

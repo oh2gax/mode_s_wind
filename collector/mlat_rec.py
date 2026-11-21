@@ -1154,6 +1154,13 @@ def fix_grid(hours: int = 1) -> dict:
     return _REC.fix.grid(hours)
 
 
+def fix_suspects() -> dict:
+    """The aircraft whose broadcast position does not fit the GPS-timed receivers' time stamps (the last hour)."""
+    if _REC is None or _REC.fix is None:
+        return {"on": False, "why": _WHY if _REC is None else _FIX_WHY}
+    return _REC.fix.suspects()
+
+
 def fix_stats(rng: str = "1h") -> dict:
     """The statistics of the own position fixes for the MLAT tab's Charts view."""
     if _REC is None or _REC.fix is None:

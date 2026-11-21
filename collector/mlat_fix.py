@@ -108,6 +108,14 @@ REF_LOW_NACP    = 8      # a position reported with at least this NACp …
 REF_LOW_NIC     = 6      # … and at least this NIC is used when the GPS pair confirms it within …
 REF_LOW_PAIR_NS = 200.0  # … this
 REF_SEEN_SEC    = 60.0   # the reference count shown on the map looks this far back
+# Positions that do not fit (from 2026-11-21 midday): the same check, kept for EVERY aircraft that sends a position
+# and is heard by two GPS-timed receivers, whatever integrity it reports — a list for the page.  An aircraft is listed
+# when the median of its last two minutes (at least PCHK_MIN_N replies) is PCHK_NS or more off: 1 us is 300 m of
+# range difference, far above the 150-330 ns (90 / 99 %) of positions that are right, and the position itself is at
+# least that far off (the check sees only the part across the line of sight).
+PCHK_SEC, PCHK_MIN_N, PCHK_NS = 120.0, 15, 1000.0
+PCHK_KEEP = 3600.0       # a listed aircraft stays in the list this long after it last failed the check
+PCHK_OWN_M = 2000.0      # our own fix is shown beside a listed position only when it is resolved and states at most this error
 SHORT_NS     = 56_000   # counter receivers: stamp of a 56-bit reply minus this
 GOOD_NACP, GOOD_NIC = 8, 7
 BIAS_SEC     = 600.0    # a GPS receiver's constant: median over this long …
@@ -446,6 +454,14 @@ class _Acc:
         self.gb: dict = {}                         # GPS receiver id → [(constant ns against the main one, aircraft)]
         self.low = None
         self.grid: dict | None = {} if grid else None
+        # from 2026-11-21 midday, for the Charts view:
+        self.rf = [set(), set(), set()]            # aircraft heard by a counter receiver with the main one: all, sending a position, usable
+        self.ins = [[0, 0] for _ in range(nb)]     # of the nseen fixes: inside their stated error, inside twice it
+        self.a3 = [set(), set()]                   # aircraft heard by three receivers: all, without a position of their own
+        self.pc = [set(), set()]                   # aircraft with a position checked against the GPS-timed receivers: all, not fitting
+        self.cb: Counter = Counter()               # replies by the receivers that heard them (bit mask)
+        self.cg: dict | None = {} if grid else None    # coverage cells: key → [aircraft-minutes heard by 2+, by 3+, by 3+ with a resolved fix]
+        self._cv: dict = {}                        # icao → [minute, cell, heard by three, resolved fix]
 
     def _res(self, lst: list, n: int, v) -> None:
         if len(lst) < self.cap:
@@ -455,6 +471,21 @@ class _Acc:
             if k < self.cap:
                 lst[k] = v
 
+    def cover(self, icao, minute: int, cell: str, three: bool) -> None:
+        """An aircraft with a good own position heard by two or more receivers, for the coverage cells: one count
+        per aircraft and minute, in the cell where it was last."""
+        v = self._cv.get(icao)
+        if v is None or v[0] != minute:
+            if v is not None:
+                g = self.cg.setdefault(v[1], [0, 0, 0])
+                g[0] += 1
+                g[1] += 1 if v[2] else 0
+                g[2] += 1 if (v[2] and v[3]) else 0
+            v = self._cv[icao] = [minute, cell, False, False]
+        v[1] = cell
+        if three:
+            v[2] = True
+
     def fix(self, icao, pos, amb, alt, dist_nm, exp, err_raw, err_trk, lat, lon) -> None:
         self.c["fx"] += 1
         self.ac.add(icao)
@@ -463,6 +494,9 @@ class _Acc:
         if amb:
             self.c["am"] += 1
             return
+        v = self._cv.get(icao)
+        if v is not None:
+            v[3] = True
         self.fixed[_band(alt, ALT_BANDS)].add(icao)
         if self.grid is not None:
             key = "%d,%d" % (math.floor(lat / GRID_LAT), math.floor(lon / GRID_LON))
@@ -477,6 +511,11 @@ class _Acc:
         b = _band(dist_nm, STAT_BANDS)
         self.nseen[b] += 1
         n = self.nseen[b]
+        if exp:
+            if err_raw <= exp:
+                self.ins[b][0] += 1
+            if err_raw <= 2.0 * exp:
+                self.ins[b][1] += 1
         self._res(self.raw[b], n, err_raw)
         if len(self.trk[b]) < self.cap:
             self.trk[b].append(err_trk)
@@ -498,6 +537,14 @@ class _Acc:
         c = self.c
         out = {"t": self.t0, "h3": c["h3"], "tr": c["tr"], "fx": c["fx"], "am": c["am"], "nc": c["nc"],
                "hd": c["hd"],                      # attempts made with a carried clock (from 2026-11-21)
+               # from 2026-11-21 midday: not tried (three a second per aircraft), no height, expected error too
+               # large, tracks put in doubt; reference candidates; fixes inside the stated error by distance;
+               # aircraft heard by three (all, without own position); positions checked (all, not fitting);
+               # replies by the receivers that heard them
+               "sk": c["sk"], "nh": c["nh"], "po": c["po"], "dz": c["dz"],
+               "rf": [len(x) for x in self.rf], "ie": [list(x) for x in self.ins],
+               "a3": [len(x) for x in self.a3], "pc": [len(x) for x in self.pc],
+               "cb": {str(k): v for k, v in self.cb.items()},
                "b": [[self.nseen[i], st(self.raw[i]), p90(self.raw[i]), st(self.exp[i]), st(self.trk[i])]
                      for i in range(len(self.raw))],
                "ac": len(self.ac), "np": len(self.nopos),
@@ -518,6 +565,15 @@ class _Acc:
                          for k, v in self.gb.items() if v}
         if self.grid is not None:
             out["grid"] = {k: [g[0], st(g[1]), len(g[1])] for k, g in self.grid.items()}
+        if self.cg is not None:
+            # with the aircraft of the running minute (close() is also asked for the open hour: nothing is changed here)
+            cg = {k: list(v) for k, v in list(self.cg.items())}
+            for v in list(self._cv.values()):
+                g = cg.setdefault(v[1], [0, 0, 0])
+                g[0] += 1
+                g[1] += 1 if v[2] else 0
+                g[2] += 1 if (v[2] and v[3]) else 0
+            out["cg"] = cg
         return out
 
 
@@ -537,8 +593,22 @@ def combine(recs: list, t0: int | None = None) -> dict:
     if not recs:
         return {}
     out = {"t": t0 if t0 is not None else recs[0]["t"]}
-    for k in ("h3", "tr", "fx", "am", "nc", "hd"):
+    for k in ("h3", "tr", "fx", "am", "nc", "hd", "sk", "nh", "po", "dz"):
         out[k] = sum(r.get(k, 0) for r in recs)
+    # the records from before 2026-11-21 midday have none of the following: the sums then cover the later ones only
+    new = [r for r in recs if r.get("rf") is not None]
+    if new:
+        out["nn"] = len(new)                       # periods behind the following
+        for k, n in (("rf", 3), ("a3", 2), ("pc", 2)):
+            out[k] = [max(r[k][i] for r in new) for i in range(n)]       # aircraft: the busiest period
+            out[k + "s"] = [sum(r[k][i] for r in new) for i in range(n)]  # aircraft × periods, for shares
+        out["nps"] = sum(r.get("np", 0) for r in new)
+        out["ie"] = [[sum(r["ie"][i][j] for r in new) for j in (0, 1)] + [sum(r["b"][i][0] for r in new)]
+                     for i in range(len(new[0]["ie"]))]
+        cb: Counter = Counter()
+        for r in new:
+            cb.update(r.get("cb") or {})
+        out["cb"] = dict(cb)
     nb = len(recs[0]["b"])
     out["b"] = [[sum(r["b"][i][0] for r in recs)] + [wmed([(r["b"][i][j], r["b"][i][0]) for r in recs]) for j in (1, 2, 3, 4)]
                 for i in range(nb)]
@@ -565,6 +635,36 @@ def combine(recs: list, t0: int | None = None) -> dict:
     if gbs:
         out["gb"] = {k: [round(_med([x[0] for x in v]), 1), int(_med([x[1] for x in v])),
                          round(min(x[2] for x in v), 1), round(max(x[3] for x in v), 1)] for k, v in gbs.items()}
+    return out
+
+
+def merge_cover(recs: list) -> dict:
+    """The coverage cells of several hours as one: key → [aircraft-minutes heard by 2+, by 3+, by 3+ with a fix]."""
+    out: dict = {}
+    for r in recs:
+        for k, g in (r.get("cg") or {}).items():
+            c = out.setdefault(k, [0, 0, 0])
+            c[0] += g[0]
+            c[1] += g[1]
+            c[2] += g[2]
+    return out
+
+
+def days(hours: list) -> list:
+    """One line per UTC day from the hour records (the day-by-day table of the Charts view): fixes, attempts, lost
+    and carried, the error within 20 NM, aircraft-hours with a fix and of aircraft without a position of their own."""
+    by: dict = {}
+    for h in hours:
+        by.setdefault(h["t"] // 86400 * 86400, []).append(h)
+    out = []
+    for d, recs in sorted(by.items()):
+        c = combine(recs, d)
+        new = [r for r in recs if r.get("a3") is not None]
+        out.append({"t": d, "hours": len(recs), "h3": c["h3"], "tr": c["tr"], "fx": c["fx"], "am": c["am"], "nc": c["nc"],
+                    "hd": c["hd"], "e20": c["e20"], "e40": c["e40"], "ach": sum(r.get("ac", 0) for r in recs),
+                    "nph": sum(r.get("np", 0) for r in recs),
+                    "a3n": sum(r["a3"][1] for r in new) if new else None, "nphn": sum(r.get("np", 0) for r in new) if new else None,
+                    "ie": c.get("ie"), "pc": c.get("pcs")})
     return out
 
 
@@ -649,6 +749,8 @@ class Fixer:
         self.held: dict = {}                               # bit → (t, seconds carried, sigma ns) of the last carried use
         self._held = None                                  # seconds carried, of the line just returned (None: a fitted line)
         self.seen: dict = {}                               # icao → [t, level] of the aircraft heard by a counter receiver and the main one
+        self.pchk: dict = {}                               # icao → the position check of the last PCHK_SEC seconds
+        self.susp: dict = {}                               # icao → an aircraft whose position does not fit (the page's list)
         self._fit_cache: dict = {}
         self.pending: deque = deque()
         self.now = 0.0
@@ -774,30 +876,58 @@ class Fixer:
         if gbits:
             tr = None
             lvl = self._ref_level(ls)
-            if lvl:
+            pts = ls.get("last_adsb_pos_ts")
+            if lvl or (pts is not None and len(gbits) >= 2 and self.main in arr):
                 tr = self._truth(ls, t)
             if tr is not None:
-                self._reference(t, icao, arr, gbits, cbits, tr, ls, lvl)
+                if lvl:
+                    self._reference(t, icao, arr, gbits, cbits, tr, ls, lvl)
+                else:
+                    self._pair_only(t, icao, arr, gbits, tr, ls)      # no reference: the position check alone
+            self._roll(t)
+            fresh = pts is not None and t - pts <= 10.0 and ls.get("adsb_lat") is not None
             if cbits and self.main in arr:
                 # for the message on the map: of the aircraft heard by a counter receiver and the main one, how
                 # many send a position at all, and how many one that can set the clock
-                pts = ls.get("last_adsb_pos_ts")
-                k = 0 if (pts is None or t - pts > 10.0 or ls.get("adsb_lat") is None) else (2 if lvl else 1)
+                k = 0 if not fresh else (2 if lvl else 1)
                 sn = self.seen.get(icao)
                 if sn is None:
                     self.seen[icao] = [t, k]
                 else:
                     sn[0], sn[1] = t, k
-            self._roll(t)
+                for acc in (self.acc_m, self.acc_h):
+                    for i in range(k + 1):
+                        acc.rf[i].add(icao)
+            nrx = len(gbits) + len(cbits)
+            if nrx >= 2:
+                mask = 0
+                for b in gbits:
+                    mask |= 1 << b
+                for b in cbits:
+                    mask |= 1 << b
+                self.acc_m.cb[mask] += 1
+                self.acc_h.cb[mask] += 1
+                if lvl >= 2 and fresh:
+                    # where the receivers hear an aircraft together (the coverage cells of the map)
+                    try:
+                        cell = "%d,%d" % (math.floor(float(ls["adsb_lat"]) / GRID_LAT), math.floor(float(ls["adsb_lon"]) / GRID_LON))
+                        self.acc_h.cover(icao, int(t // 60), cell, nrx >= 3)
+                    except Exception:              # noqa: BLE001
+                        pass
             al = ls.get("altitude")
             if al is not None:
                 ab = _band(al, ALT_BANDS)
                 self.acc_m.heard[ab].add(icao)
                 self.acc_h.heard[ab].add(icao)
-            if len(gbits) + len(cbits) >= 3:
+            if nrx >= 3:
                 self.c["heard3"] += 1
                 self.acc_m.c["h3"] += 1
                 self.acc_h.c["h3"] += 1
+                nopos = pts is None or t - pts >= 60.0
+                for acc in (self.acc_m, self.acc_h):
+                    acc.a3[0].add(icao)
+                    if nopos:
+                        acc.a3[1].add(icao)
                 self.pending.append((t, icao, arr, gbits, cbits, ls.get("altitude"), ls))
         self._process()
         self.cpu += time.perf_counter() - t0c
@@ -853,6 +983,7 @@ class Fixer:
                     if self.bias_n.get(b):
                         ok = abs(r - self.bias[b]) <= (REF_PAIR_NS if lvl >= 2 else REF_LOW_PAIR_NS)
                         pair = ok if pair is None else (pair and ok)
+                        self._pair_note(t, icao, r - self.bias[b], ls, tr)
                     if lvl >= 2 and abs(r) < 2000:
                         dq = self._bias_ac[b].get(icao)
                         if dq is None:
@@ -898,6 +1029,95 @@ class Fixer:
             else:
                 g0[0] += 0.05 * (float(gmb) - g0[0])
                 g0[1] = t
+
+    def _pair_only(self, t, icao, arr, gbits, tr, ls) -> None:
+        """A position that is no clock reference (reported integrity too low), checked against the GPS-timed
+        receivers all the same — for the list of positions that do not fit."""
+        m = self.main
+        s0 = self.site.get(m)
+        if s0 is None:
+            return
+        e, n, z = tr[0], tr[1], tr[2]
+        r0 = math.sqrt((e - s0[0]) ** 2 + (n - s0[1]) ** 2 + (z - s0[2]) ** 2)
+        for b in gbits:
+            if b != m and self.bias_n.get(b):
+                s = self.site[b]
+                rb = math.sqrt((e - s[0]) ** 2 + (n - s[1]) ** 2 + (z - s[2]) ** 2)
+                self._pair_note(t, icao, (arr[b] - arr[m]) - (rb - r0) / C_AIR * 1e9 - self.bias[b], ls, tr)
+                return
+
+    def _pair_note(self, t, icao, d, ls, tr) -> None:
+        """One result of the position check (d: ns between the measured and the expected time difference of two
+        GPS-timed receivers).  Kept for PCHK_SEC seconds per aircraft, two a second at most, judged every five
+        seconds: a median of PCHK_NS or more puts the aircraft on the list of positions that do not fit."""
+        p = self.pchk.get(icao)
+        if p is None:
+            p = self.pchk[icao] = {"dq": deque(), "tj": 0.0}
+        dq = p["dq"]
+        if dq and t - dq[-1][0] < 0.5:
+            return
+        dq.append((t, d))
+        while dq and t - dq[0][0] > PCHK_SEC:
+            dq.popleft()
+        p["t"] = t
+        if self.acc_m is not None:
+            self.acc_m.pc[0].add(icao)
+            self.acc_h.pc[0].add(icao)
+        if t - p["tj"] < 5.0 or len(dq) < PCHK_MIN_N:
+            return
+        p["tj"] = t
+        med = _med([abs(x[1]) for x in dq])
+        if med < PCHK_NS:
+            return
+        if self.acc_m is not None:
+            self.acc_m.pc[1].add(icao)
+            self.acc_h.pc[1].add(icao)
+        sgn = _med([x[1] for x in dq])
+        s = self.susp.get(icao)
+        if s is None:
+            s = self.susp[icao] = {"t0": t, "n": 0, "max": 0.0}
+        s["t"] = t
+        s["n"] += 1
+        s["med"] = round(sgn, 0)
+        s["max"] = max(s["max"], round(med, 0))
+        s["k"] = len(dq)
+        s["q"] = (ls.get("nac_p"), ls.get("nic"))
+        s["alt"] = ls.get("altitude")
+        s["cs"] = ls.get("callsign") or s.get("cs")
+        s["typ"] = ls.get("aircraft_type") or s.get("typ")
+        s["reg"] = ls.get("registration") or s.get("reg")
+        s["bc"] = (round(tr[3], 5), round(tr[4], 5))           # the position it broadcasts
+        a = self.ac.get(icao)
+        own = a["last"] if a is not None else None
+        if own is not None and t - own[0] <= 15.0 and not own[6] and own[4] is not None and own[4] <= PCHK_OWN_M:
+            # our own fix of the same moment, when there is a good one (resolved, stated error small): where the
+            # aircraft is by the arrival times
+            e, n, _ = self.fr.enu(own[1], own[2], 0.0)
+            s["own"] = (own[1], own[2], own[4], own[6])
+            s["km"] = round(math.hypot(e - tr[0], n - tr[1]) / 1000.0, 1)
+            s["t_own"] = t
+
+    def suspects(self) -> dict:
+        """The aircraft whose broadcast position did not fit the GPS-timed receivers' stamps in the last hour."""
+        now = self.now or time.time()
+        out, items = [], []
+        for _ in range(3):
+            try:
+                items = list(self.susp.items())
+                break
+            except RuntimeError:                   # the recorder thread added one meanwhile
+                continue
+        for icao, s in items:
+            if now - s.get("t", 0) > PCHK_KEEP:
+                continue
+            out.append({"icao": icao, "cs": s.get("cs"), "typ": s.get("typ"), "reg": s.get("reg"), "t0": round(s["t0"], 1),
+                        "t": round(s["t"], 1), "n": s["n"], "k": s.get("k"), "ns": s.get("med"), "max_ns": s["max"],
+                        "min_km": round(s["max"] * 1e-9 * C_AIR / 1000.0, 1), "q": s.get("q"), "alt": s.get("alt"),
+                        "bc": s.get("bc"), "own": s.get("own") if s.get("t_own") and s["t"] - s["t_own"] <= 60.0 else None,
+                        "km": s.get("km") if s.get("t_own") and s["t"] - s["t_own"] <= 60.0 else None})
+        out.sort(key=lambda x: -x["t"])
+        return {"on": True, "now": round(now, 1), "keep": PCHK_KEEP, "limit_ns": PCHK_NS, "sec": PCHK_SEC,
+                "checked": len([1 for p in list(self.pchk.values()) if now - p.get("t", 0) <= 60.0]), "aircraft": out}
 
     def _bias_update(self, bit: int, t: float) -> None:
         """The constant of a GPS receiver against the main one: every aircraft
@@ -1139,6 +1359,8 @@ class Fixer:
     def _one(self, t, icao, arr, gbits, cbits, alt, ls) -> None:
         if alt is None:
             self.c["no_alt"] += 1
+            self.acc_m.c["nh"] += 1
+            self.acc_h.c["nh"] += 1
             return
         a = self.ac.get(icao)
         if a is None:
@@ -1154,11 +1376,15 @@ class Fixer:
             a["sec"], a["nsec"] = sec, 0
         if a["nsec"] >= SOLVES_PER_S:
             self.c["skipped"] += 1
+            self.acc_m.c["sk"] += 1
+            self.acc_h.c["sk"] += 1
             return
         a["nsec"] += 1
         h = self._height(float(alt), t)
         if h is None:
             self.c["no_height"] += 1
+            self.acc_m.c["nh"] += 1
+            self.acc_h.c["nh"] += 1
             return
         ref = self.main if self.main in gbits else gbits[0]
         t_ref = arr[ref] - self.bias.get(ref, 0.0)
@@ -1264,6 +1490,8 @@ class Fixer:
                 a["hyps"] = hyps = keep
         if poor and not got:
             self.c["poor"] += 1
+            self.acc_m.c["po"] += 1
+            self.acc_h.c["po"] += 1
         if not got and t - a["init_t"] >= (2.0 if not hyps else 6.0):
             a["init_t"] = t
             self._init(a, rx, sg, h, t)
@@ -1345,6 +1573,9 @@ class Fixer:
                 a["doubt"] = False
             elif RES_DOUBT_MPS > 0.0 and RES_DOUBT_MPS < hyps[0]["dv"] <= 3 * RES_OK_MPS:
                 a["res"] = False                   # it no longer moves like the aircraft: not the position for sure
+                if not a.get("doubt") and self.acc_m is not None:
+                    self.acc_m.c["dz"] += 1        # a track put in doubt (counted once, when it happens)
+                    self.acc_h.c["dz"] += 1
                 a["doubt"] = True
             elif hyps[0]["dv"] > 3 * RES_OK_MPS and t - hyps[0]["t0"] > 25.0:
                 hyps = []                          # moves unlike the aircraft: the mirror solution
@@ -1466,6 +1697,10 @@ class Fixer:
                 del self.ac[k]
             for k in [k for k, v in self.seen.items() if t - v[0] > 300.0]:
                 del self.seen[k]
+            for k in [k for k, v in self.pchk.items() if t - v.get("t", 0.0) > 300.0]:
+                del self.pchk[k]
+            for k in [k for k, v in self.susp.items() if t - v.get("t", 0.0) > PCHK_KEEP]:
+                del self.susp[k]
 
     # ── for the page (web threads) ───────────────────────────────────────
     def stats(self, rng: str = "1h") -> dict:
@@ -1476,7 +1711,7 @@ class Fixer:
             mins, hours = list(self.minutes), list(self.hours)
             sc = list(self.scatter)
         if rng == "7d":
-            ser = [{k: v for k, v in h.items() if k != "grid"} for h in hours if h["t"] >= now - 7 * 86400]
+            ser = [{k: v for k, v in h.items() if k not in ("grid", "cg")} for h in hours if h["t"] >= now - 7 * 86400]
             step, gr = 3600, [h for h in hours if h["t"] >= now - 7 * 86400]
         elif rng == "24h":
             by: dict = {}
@@ -1490,15 +1725,20 @@ class Fixer:
             ser = [m for m in mins if m["t"] >= now - 3600]
             step, gr = 60, [h for h in hours if h["t"] >= now - 3600]
         grids = list(gr)
+        open_h = None
         if self.acc_h is not None:
             try:
-                grids.append(self.acc_h.close())   # the open hour so far
+                open_h = self.acc_h.close()        # the open hour so far
+                grids.append(open_h)
             except Exception:                      # noqa: BLE001  (changed while read: next time)
                 pass
         return {"on": True, "range": rng, "step": step, "now": round(now, 1), "series": ser,
                 "total": combine(ser) if ser else {}, "bands": list(STAT_BANDS), "alt_bands": list(ALT_BANDS),
                 "grid": merge_grids(grids), "cell": [GRID_LAT, GRID_LON],
-                "scatter": [s[1:] for s in sc if s[0] >= now - 3600][-2500:]}
+                "scatter": [s[1:] for s in sc if s[0] >= now - 3600][-2500:],
+                # from 2026-11-21 midday: the receivers behind the bit masks of "cb", and one line per day
+                "rx": {str(b): n for b, n in sorted(self.names.items())},
+                "days": days(hours + ([open_h] if open_h is not None else []))}
 
     def grid(self, hours: int = 1) -> dict:
         """The accuracy grid alone, for the map (from 2026-11-20 evening): the cells of the last `hours` hours
@@ -1515,7 +1755,7 @@ class Fixer:
             except Exception:                      # noqa: BLE001  (changed while read: next time)
                 pass
         return {"on": True, "hours": hours, "now": round(now, 1), "n_hours": len(grids),
-                "grid": merge_grids(grids), "cell": [GRID_LAT, GRID_LON]}
+                "grid": merge_grids(grids), "cover": merge_cover(grids), "cell": [GRID_LAT, GRID_LON]}
 
     def public(self, win: float = 600.0, since: float = 0.0) -> dict:
         now = self.now or time.time()

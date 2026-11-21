@@ -26,6 +26,9 @@
  * The view and the choices are remembered in this browser (ms_weather_mg); the
  * address #mg=lat,lon (or #mg=RX-02) opens the meteogram of that place.  Refreshed every 10 min
  * while shown (the server caches the answers, a new run makes new ones).
+ * Pinned places (from 2026-11-21): up to PIN_MAX of them (st.pins [{lat, lon, name}], before one
+ * st.pin that the next pin replaced), each under its own name or its coordinates in the Place
+ * list; Rename and Remove beside the list while one is chosen.  The names stay in this browser.
  */
 'use strict';
 
@@ -54,12 +57,39 @@ const WxMg = (() => {
   const APT = { kind: 'apt', lat: MG_AIRPORT.lat, lon: MG_AIRPORT.lon, title: MG_AIRPORT.icao };
   let rxs = [];
   let place = APT;
-  const pinPlace = () => ({ kind: 'pin', lat: st.pin.lat, lon: st.pin.lon, title: tr('Pinned place', 'Kiinnitetty paikka') });
+  // the pinned places (from 2026-11-21 several, each with a name of its own or none); the id is the
+  // position to 0.001°, as in the address
+  const PIN_MAX = 8, NAME_MAX = 30;
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const okLL = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  const pinId = p => `${p.lat.toFixed(3)},${p.lon.toFixed(3)}`;
+  const cleanName = n => String(n == null ? '' : n).replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
+  st.pins = (Array.isArray(st.pins) ? st.pins : []).filter(p => p && okLL(p.lat, p.lon))
+    .map(p => ({ lat: p.lat, lon: p.lon, name: cleanName(p.name) })).slice(0, PIN_MAX);
+  function addPin(lat, lon) {
+    const n = { lat: +lat.toFixed(4), lon: +lon.toFixed(4), name: '' };
+    const had = st.pins.find(p => pinId(p) === pinId(n));
+    if (had) return had;
+    st.pins.push(n);
+    while (st.pins.length > PIN_MAX) {                       // the oldest without a name goes first
+      const i = st.pins.findIndex(p => !p.name && p !== n);
+      st.pins.splice(i < 0 ? 0 : i, 1);
+    }
+    return n;
+  }
+  if (st.pin && okLL(st.pin.lat, st.pin.lon)) {              // the one pinned place of before
+    const p = addPin(st.pin.lat, st.pin.lon);
+    if (st.place === 'pin') st.place = 'pin:' + pinId(p);
+  }
+  delete st.pin;
+  const pinPlace = p => ({ kind: 'pin', id: pinId(p), lat: p.lat, lon: p.lon, title: p.name || tr('Pinned place', 'Kiinnitetty paikka') });
+  const curPin = () => place.kind === 'pin' ? st.pins.find(p => pinId(p) === place.id) : null;
   const rxPlace = r => ({ kind: 'rx', id: r.id, lat: r.lat, lon: r.lon, title: r.label });
-  const placeVal = () => place.kind === 'rx' ? 'rx:' + place.id : place.kind;
+  const placeVal = () => place.kind === 'rx' ? 'rx:' + place.id : place.kind === 'pin' ? 'pin:' + place.id : place.kind;
   function pickPlace(v) {
     const r = v.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === v);
-    place = r ? rxPlace(r) : v === 'pin' && st.pin ? pinPlace() : APT;
+    const p = v.startsWith('pin:') && st.pins.find(x => 'pin:' + pinId(x) === v);
+    place = r ? rxPlace(r) : p ? pinPlace(p) : APT;
   }
   let chart = null, run = 0, timer = 0, lastData = null, skillData = null;
   // Finnish time in the chart (from 2026-11-11 late evening): the Time / Aika selector
@@ -75,11 +105,53 @@ const WxMg = (() => {
   }
   function fillPlace() {
     const el = $('wx-mg-place');
-    const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     el.innerHTML = `<option value="apt">${MG_AIRPORT.icao}</option>`
       + (rxs.length ? '<optgroup label="' + tr('Receiver sites', 'Vastaanotinpaikat') + '">' + rxs.map(r => `<option value="rx:${esc(r.id)}">${esc(r.label)}</option>`).join('') + '</optgroup>' : '')
-      + (st.pin ? `<option value="pin">${fmtLL(st.pin.lat, st.pin.lon)} ${tr('(pinned)', '(kiinnitetty)')}</option>` : '');
+      + (st.pins.length ? '<optgroup label="' + tr('Pinned places', 'Kiinnitetyt paikat') + '">'
+        + st.pins.map(p => `<option value="pin:${pinId(p)}">${p.name ? esc(p.name) : fmtLL(p.lat, p.lon)}</option>`).join('') + '</optgroup>' : '');
     el.value = placeVal();
+    pinTools();
+  }
+  // Rename and Remove beside the Place list: only while a pinned place is chosen.  Rename puts a text
+  // field in the list's place — Enter (or OK, or a click elsewhere) saves, Esc cancels, an empty
+  // name gives the coordinates back.
+  let naming = false;
+  function pinTools() {
+    const ren = $('wx-mg-pin-ren'), del = $('wx-mg-pin-del'), inp = $('wx-mg-pin-name');
+    if (!ren || !del || !inp) return;
+    const p = curPin();
+    if (!p) naming = false;
+    ren.hidden = !p; del.hidden = !p || naming;
+    ren.textContent = naming ? 'OK' : tr('Rename', 'Nimeä');
+    ren.title = naming ? tr('Save the name (Enter); Esc cancels', 'Tallenna nimi (Enter); Esc peruu')
+      : tr('Give this pinned place a name of your own — kept in this browser', 'Anna kiinnitetylle paikalle oma nimi — säilyy tässä selaimessa');
+    inp.hidden = !naming; $('wx-mg-place').hidden = naming;
+  }
+  function nameStart() {
+    const p = curPin();
+    if (!p) return;
+    naming = true; pinTools();
+    const inp = $('wx-mg-pin-name');
+    inp.value = p.name; inp.focus(); inp.select();
+  }
+  function nameEnd(keep) {
+    if (!naming) return;
+    naming = false;
+    const p = curPin();
+    if (p && keep) {
+      p.name = cleanName($('wx-mg-pin-name').value); save();
+      place = pinPlace(p);
+      if (lastData && st.view === 'mg') draw();
+    }
+    fillPlace();
+  }
+  function removePin() {
+    const p = curPin();
+    if (!p) return;
+    naming = false;
+    st.pins.splice(st.pins.indexOf(p), 1);
+    place = APT; st.place = 'apt'; save();
+    fillPlace(); setHash(); load();
   }
   function syncControls() {
     $('wx-mg-model').value = st.model;
@@ -121,7 +193,7 @@ const WxMg = (() => {
     const url = k => k === 'meps'
       ? `/api/weather/meteogram?${q}&model=meps&past=${m === 'meps' ? rng : 6}&fc=${m === 'meps' ? 80 : rng}`
       : `/api/weather/meteogram?${q}&model=gfs&past=2&fc=${rng}`;
-    $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)} · ${tr('loading…', 'ladataan…')}`;
+    $('wx-mg-head').innerHTML = `<b>${esc(place.title)}</b> · ${fmtLL(place.lat, place.lon)} · ${tr('loading…', 'ladataan…')}`;
     if (MG_GFS) Meteogram.skill().then(sk => { if (sk !== skillData) { skillData = sk; if (my === run && lastData) draw(); } });
     try {
       const res = await Promise.all(want.map(k => fetch(url(k)).then(r => r.json())));
@@ -141,7 +213,7 @@ const WxMg = (() => {
     const cells = [];
     if (data.meps) cells.push(`MEPS${tr('', ':n')} ${dc(data.meps.cell.fine_grid ? '2.5 km / 10 km' : '10 km')} ${tr('cell', '-ruutu')} ${fmtLL(data.meps.cell.lat, data.meps.cell.lon)}`);
     if (data.gfs) cells.push(`GFS${tr('', ':n')} ${dc('0.25°')} ${tr('cell', '-ruutu')} ${fmtLL(data.gfs.cell.lat, data.gfs.cell.lon)}`);
-    $('wx-mg-head').innerHTML = `<b>${place.title}</b> · ${fmtLL(place.lat, place.lon)}` + (cells.length ? ' · ' + cells.join(' · ') : '');
+    $('wx-mg-head').innerHTML = `<b>${esc(place.title)}</b> · ${fmtLL(place.lat, place.lon)}` + (cells.length ? ' · ' + cells.join(' · ') : '');
     if (chart) chart.destroy();
     const panels = {};
     PANELS.forEach(k => { panels[k] = panelOn(k); });
@@ -227,8 +299,18 @@ const WxMg = (() => {
   $('wx-mg-range').addEventListener('change', e => { st.range[st.model === 'meps' ? 'meps' : 'gfs'] = e.target.value; save(); load(); });
   $('wx-mg-place').addEventListener('change', e => {
     pickPlace(e.target.value); st.place = placeVal(); save();
-    setHash(); load();
+    pinTools(); setHash(); load();
   });
+  if ($('wx-mg-pin-ren')) {
+    $('wx-mg-pin-ren').addEventListener('click', () => { if (naming) nameEnd(true); else nameStart(); });
+    $('wx-mg-pin-del').addEventListener('click', removePin);
+    $('wx-mg-pin-name').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEnd(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); nameEnd(false); }
+    });
+    // a click elsewhere saves too; the wait lets a click on OK (which takes the focus first) do it itself
+    $('wx-mg-pin-name').addEventListener('blur', () => setTimeout(() => nameEnd(true), 200));
+  }
   PANELS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).addEventListener('change', e => { st.panels[k] = e.target.checked; save(); draw(); }); });
   OPTS.forEach(k => { if ($('wx-mg-' + k)) $('wx-mg-' + k).addEventListener('change', e => { st[k] = e.target.checked; save(); draw(); }); });
   if ($('wx-mg-err')) $('wx-mg-err').addEventListener('change', e => { st.err = e.target.checked; save(); draw(); });
@@ -244,9 +326,7 @@ const WxMg = (() => {
     if (!m) return false;
     if (m[1] != null) {
       const lat = +m[1], lon = +m[2];
-      if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
-        st.pin = { lat, lon }; place = pinPlace(); st.place = 'pin';
-      }
+      if (okLL(lat, lon)) { place = pinPlace(addPin(lat, lon)); st.place = placeVal(); }
     } else if (m[3]) st.place = 'rx:MODES-' + m[3].toUpperCase().replace(/^MODES-/, '');
     else { st.place = 'apt'; place = APT; }
     return true;
@@ -267,8 +347,7 @@ const WxMg = (() => {
 
   // the point card's "Meteogram" (weather.js)
   function open(lat, lon) {
-    st.pin = { lat, lon }; st.place = 'pin'; save();
-    place = pinPlace();
+    place = pinPlace(addPin(lat, lon)); st.place = placeVal(); save();
     fillPlace();
     setView('mg');
   }

@@ -119,9 +119,9 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.27
+version: 1.28
 date: 2026-11-21
-pages: 23
+pages: 24
 open: stats
 
 What the receiver hears from the aircraft, and how to read and use the **Statistics** page.
@@ -132,7 +132,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day
-- **The MLAT tab** (for users with the MLAT right; new in 1.26 and 1.27: the line in the *Position fixes* window that says when no positions can be made and why, and the clock carried over short gaps; new in 1.19 to 1.25: the map's trails up to 24 hours, the accuracy grid's period, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
+- **The MLAT tab** (for users with the MLAT right; new in 1.28: the new panels of the Charts view — the clock through the period, what became of the replies, whether the stated error is right, positions that do not fit the receivers' timing, which receivers hear a reply together, day by day — and the grid's three choices on the map; new in 1.26 and 1.27: the line in the *Position fixes* window that says when no positions can be made and why, and the clock carried over short gaps; new in 1.19 to 1.25: the map's trails up to 24 hours, the accuracy grid's period, its Traffic window, which can stand over the map or beside it, its two lists *Now* and *Flights* and what the columns mean, the replay of the last 24 hours, Solo, Show Sel Alt and the levels on the QNH): how positions come from the receivers' time stamps with two receivers that have GPS time and one that has not, the two possible positions, what two receivers alone can do; the *Recorder*, *Map* and *Charts* views and the new *GPS time of the receivers* panel
 - What you can analyse: the sample rate of the wind data, changes in the ground system, the aircraft fleet, receiver, antenna and data quality, ACAS activity — and the limitations of a passive receiver
 
 ## The GPS pages — Quality, Episodes and Aircraft
@@ -173,14 +173,14 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 
 ## Meteograms
 file: Meteogram_User_Guide.pdf
-version: 1.04
-date: 2026-11-11
+version: 1.05
+date: 2026-11-21
 pages: 13
 open: mg
 
 How to read the **meteograms** of the Weather page and the phone: the model weather of one place over the days, with what was measured next to it.
 
-- Opening a meteogram: the airport, a receiver site or a pinned place, the address `#mg`, the controls; the phone's Meteogram view
+- Opening a meteogram: the airport, a receiver site or a pinned place (new in 1.05: several pinned places, each can be **renamed** and **removed**), the address `#mg`, the controls; the phone's Meteogram view
 - **MEPS** and **GFS** — grids, runs, ranges, *Both*, the past hours and the grid cell
 - The panels one by one: **temperature** with the **850 hPa** temperature and the **dew point**, the **freezing level**, **precipitation**, **thunderstorm (CAPE)**, **wind** with barbs, **wind values** in kt or m/s, the **850 hPa wind** and the **landings' winds**, **pressure**, **clouds** with the cloud base / ceiling and visibility, the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
 - **What MODE-S Wind measures itself**: the aircraft's 850 hPa temperature and wind and the freezing level, the landings' winds and the METAR
@@ -191,14 +191,14 @@ How to read the **meteograms** of the Weather page and the phone: the model weat
 
 ## Meteogrammit (suomeksi)
 file: Meteogram_User_Guide_FI.pdf
-version: 1.04
-date: 2026-11-11
+version: 1.05
+date: 2026-11-21
 pages: 13
 open: mgfi
 
 The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: the same contents with the Finnish meteogram (FIN right) in the figures. The Weather page's meteogram opens it with **?** for the users with the FIN right.
 
-- Meteogrammin avaaminen ja ohjaimet, MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
+- Meteogrammin avaaminen ja ohjaimet (uutta 1.05:ssä: useita kiinnitettyjä paikkoja, jotka voi **nimetä** ja **poistaa**), MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
