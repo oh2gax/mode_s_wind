@@ -149,7 +149,7 @@
     .mlm-gridleg { margin-top: 3px; }
     /* Replay bar (from 2026-11-20) */
     .mlm-legend { bottom: 48px !important; }
-    .mlm-msg { margin: 0 0 8px; padding: 6px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; background: rgba(15, 23, 42, .94); color: #e2e8f0; border: 1px solid #f59e0b; }
+    .mlm-msg { margin: 8px 10px 10px; padding: 6px 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; background: rgba(15, 23, 42, .94); color: #e2e8f0; border: 1px solid #f59e0b; }
     .mlm-msg.hold { border-color: var(--border, #475569); }
     .mlm-msg b { color: #fbbf24; }
     [data-theme="light"] .mlm-msg { background: rgba(255, 255, 255, .97); color: #1e293b; border-color: #d97706; }
@@ -234,9 +234,6 @@
     </span>
     <span class="mst-hdr-note" id="mlm-note"></span>
   </div>
-  <!-- From 2026-11-21: said plainly, above the map, when the fixes stop because the aircraft send no usable position
-       (GNSS interference), or while the clock of the receiver without GPS time is carried on without references -->
-  <div class="mlm-msg" id="mlm-msg" role="status" style="display:none"></div>
   <div class="mlm-body" id="mst-mlat-map" style="display:none">
     <!-- Traffic list (from 2026-11-20, static/js/mlat_map.js): a window in the Map view — moved by its title bar to
          anywhere in the view (over the map or beside it), resized from its corner, minimized to the title bar; place,
@@ -273,6 +270,10 @@
         <div class="mst-table-wrap"><table class="mst-table" id="mlm-bands"></table></div>
         <div class="mst-mlat-sub">Receivers</div>
         <div class="mst-table-wrap"><table class="mst-table" id="mlm-rx"></table></div>
+        <!-- From 2026-11-21: said plainly when the fixes stop because the aircraft send no usable position (GNSS
+             interference), or while the clock of the receiver without GPS time is carried on without references.
+             Under the receivers table, so that nothing else moves when it comes and goes -->
+        <div class="mlm-msg" id="mlm-msg" role="status" style="display:none"></div>
         </div>
         <div class="mlm-rpnote" id="mlm-rpnote" style="display:none">Replay of the stored tracks: one point of each aircraft every two seconds, as they were shown at the time. The statistics by distance and the receivers' clocks are shown in Live only.</div>
       </div>

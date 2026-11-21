@@ -246,6 +246,7 @@
       const d = await r.json();
       if (RP.on || !on) return;                      // the replay was started, or the view left, meanwhile
       state = d; failed = false;
+      fxNote(d);
       if (d.on) merge(d, whole);
       const c = d.counters || {};
       rate = lastCnt && d.now > lastCnt.t ? (c.fix - lastCnt.fix) / (d.now - lastCnt.t) : rate;
@@ -668,7 +669,7 @@
       if (!r.site) s = `<span class="w">no antenna position${r.why ? ' (' + esc(r.why) + ')' : ''}</span>`;
       else if (r.gps) s = ref && r.bit === ref.bit ? 'time reference' : `constant ${r.bias > 0 ? '+' : ''}${r.bias} ns` + (r.bias_ac ? ` · from ${r.bias_ac} aircraft, 10 min` : '');
       else if (!r.clock) s = '<span class="w">no clock line yet</span>';
-      else if (r.clock.hold != null) s = `<span class="w">carried ${r.clock.hold} s without a reference · ±${r.clock.hold_sig} ns</span>`;
+      else if (r.clock.hold != null && (r.clock.age == null || r.clock.age > 15)) s = `<span class="w">carried ${r.clock.hold} s without a reference · ±${r.clock.hold_sig} ns</span>`;
       else s = `line from ${r.clock.n} replies of ${r.clock.ac} aircraft` + (r.clock.ac === 1 && !r.clock.weak ? ' (one reference)' : '')
         + ` · ±${r.clock.sig} ns · drift ${(r.clock.drift / 1000).toFixed(3)} ppm`
         + (r.clock.weak ? ' · <span class="w">too weak for a fix</span>' : '')
@@ -709,19 +710,35 @@
   // position.  Under GNSS interference there are none for minutes to hours: the map then says so, with the numbers,
   // so that an empty map does not look like a fault.  While the server carries the clock on without references
   // (up to hold_max seconds) a softer line says that, too.  Returns { cls, html, title } or null.
+  // The clock state in the answer is that of the LAST reply solved, and a reply of an aircraft that is itself a
+  // reference is solved without its own references — so one answer can say "weak" or "carried" while the fixes of
+  // the other aircraft flow.  The message therefore goes by what happened over the last polls (fxHist): "no fixes"
+  // only when none was made for 12 seconds or more, "carried" only when no line has been fitted for a while.
+  let fxHist = [];                             // { t, fix, nc } of the last polls (about 40 s)
+  function fxNote(d) {
+    const c = d && d.on && d.counters;
+    if (!c) { fxHist = []; return; }
+    const lastH = fxHist[fxHist.length - 1];
+    if (lastH && (lastH.t === d.now)) return;
+    if (lastH && (c.fix < lastH.fix || d.now < lastH.t)) fxHist = [];        // the server was restarted
+    fxHist.push({ t: d.now, fix: c.fix, nc: c.no_clock });
+    while (fxHist.length && d.now - fxHist[0].t > 40) fxHist.shift();
+  }
   function clockMsg(d) {
     if (!d || !d.on) return null;
+    const c0 = d.counters || {}, old = fxHist.find(h => d.now - h.t >= 12);
+    const made = old ? c0.fix - old.fix : null, lost = old ? c0.no_clock - old.nc : 0;   // made null: opened just now
     const rx = (d.receivers || []).find(r => !r.gps && !r.rec_only && r.site);
     if (!rx) return null;
     const nm = esc(String(rx.id).replace(/^MODES-/, '')), ck = rx.clock, rf = d.refs;
     const ref = (d.receivers || []).find(r => r.gps), rn = ref ? esc(String(ref.id).replace(/^MODES-/, '')) : 'the time reference';
     const title = rf ? `In the last ${rf.sec} seconds ${rf.heard} aircraft were heard by ${nm} and ${rn} together; ${rf.pos} of them broadcast a position, ${rf.good} with an accuracy and integrity that lets it set the clock (NACp 8 or better and NIC 6 or better, and only when the GPS-timed receivers confirm the position)` : '';
-    if (ck && ck.hold != null) {
-      if (ck.hold < 20) return null;                 // a few seconds without a reference are routine
+    if (ck && ck.hold != null && ck.hold >= 20 && (ck.age == null || ck.age > 15)) {   // carried for all, not for one aircraft
       return { cls: 'hold', title, html: `<b>${nm}’s clock is being carried:</b> ${ck.hold} s without a reference aircraft (limit ${ck.hold_max} s). The fixes go on with a wider error` +
         (rf && rf.heard ? ` — ${rf.good} of the ${rf.heard} aircraft it hears send${rf.good === 1 ? 's' : ''} a usable position.` : '.') };
     }
-    if (ck && !ck.weak && ck.age != null && ck.age <= 30) return null;
+    const noLine = !ck || ck.age == null || ck.age > 30;
+    if (made === null ? !noLine : (made > 0 || !(lost > 0 || noLine || ck.weak))) return null;
     let why;
     if (!rf) why = `${nm}’s clock has no reference aircraft.`;
     else if (!rf.heard) why = `no aircraft is heard by ${nm} and ${rn} together.`;
