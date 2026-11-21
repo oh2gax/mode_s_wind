@@ -119,16 +119,16 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.29
+version: 1.30
 date: 2026-11-21
-pages: 24
+pages: 25
 open: stats
 
 What the receiver hears from the aircraft, and how to read and use the **Statistics** page.
 
 - Mode S and ADS-B in a nutshell: interrogations and replies, all-call and roll-call, the 24-bit address, interrogator codes (II / SI), squitters, and who interrogates around Helsinki (Fintraffic's WAM network and the Mode S radars)
 - The messages: the downlink formats, parity and why some addresses cannot be verified; Comm-B and the registers 1,0 … 6,0 (ELS / EHS) with their contents; the ADS-B type codes, versions and the GNSS − baro difference
-- The page part by part: **arranging the panels** by dragging them (new in 1.29, with *Reset layout*), summary bar, the **system health** dots and panel (including the magnetic declination model, and the **Pi / Server** dot of the computer the page runs on), the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), the **data transfer** meter (bytes from the receiver, served to the users and through the network interface — per minute, hour, day and month), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
+- The page part by part: **arranging the panels** by dragging them (new in 1.29 and 1.30, with *Reset layout* and the packed Charts view), summary bar, the **system health** dots and panel (including the magnetic declination model, and the **Pi / Server** dot of the computer the page runs on), the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), the **data transfer** meter (bytes from the receiver, served to the users and through the network interface — per minute, hour, day and month), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day

@@ -17,8 +17,9 @@
  *   tracks confirmed and put in doubt; positions that do not fit the GPS-timed receivers (/api/mlat/suspects);
  *   which receivers hear a reply together; one line per day
  *
- * From the evening of 2026-11-21 the panels can be put in another order: drag one by its title bar (mouse or
- * pen) and the others make room, in the same grid; the order is kept in this browser (ms_mlc_order) and
+ * From the evening of 2026-11-21 the panels can be put in another place: drag one by its title bar (mouse or
+ * pen) and the others make room.  The view is a band over the whole width, three columns and a second band
+ * (packed: no holes between panels); the arrangement is kept in this browser (ms_mlc_layout) and
  * "Reset layout" brings the original one back (static/js/panel_order.js, shared with the Statistics page).
  *
  * The view's buttons and the page switching are in static/js/mlat_map.js.
@@ -56,7 +57,10 @@
   new MutationObserver(() => { if (on && data) render(data); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   // ── The order of the panels: drag one by its title bar (static/js/panel_order.js); kept in this browser ──
-  if (window.PanelOrder) window.PanelOrder.attach({ root: $('mst-mlat-charts'), key: 'ms_mlc_order', reset: $('mlc-reset') });
+  // (ms_mlc_layout: the bands and columns of the late evening of 2026-11-21; the order saved for the grid of rows
+  // of a few hours before, ms_mlc_order, does not fit them and is dropped)
+  try { localStorage.removeItem('ms_mlc_order'); } catch (_) { /* a convenience only */ }
+  if (window.PanelOrder) window.PanelOrder.attach({ root: $('mst-mlat-charts'), groupSel: '.mlc-col', key: 'ms_mlc_layout', reset: $('mlc-reset') });
 
   async function poll() {
     clearTimeout(timer);

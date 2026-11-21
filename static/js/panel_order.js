@@ -5,9 +5,10 @@
  *
  *   PanelOrder.attach({ root, groupSel, keyOf, key, reset, scroll, visible })
  *
- *   root      the element that holds the panels (.mst-panel) — directly (a grid:
- *             the Charts view) or in columns (groupSel, e.g. '.mst-col': the
- *             Statistics page)
+ *   root      the element that holds the panels (.mst-panel) — in columns
+ *             (groupSel, e.g. '.mst-col': the Statistics page, the Recorder view;
+ *             '.mlc-col': the Charts view's bands and columns) or directly (a grid
+ *             of rows; no page uses that now — rows leave holes under short panels)
  *   keyOf     panel → its name in the saved order (default: data-pk)
  *   key       the localStorage key of the saved order
  *   reset     a button that puts the original order back; shown only while the
@@ -20,7 +21,9 @@
  * while the pointer goes over the others: nothing floats, and a panel is as
  * wide as the place it is put in.  In a grid it takes the place of the panel under the pointer; in
  * columns it goes above or below that panel (its upper or lower half), or to
- * the end of a column when dropped in the free room under it.  Esc puts it back.
+ * the end of a column when dropped in the free room under it; while a panel is
+ * dragged the columns are outlined, so that an empty one can be found.  Esc puts
+ * it back.
  * The order is a convenience of this browser: nothing goes to the server.  A
  * panel the saved order does not know (added in a later version) goes where the
  * page has it, after the panel it follows there.
@@ -29,7 +32,8 @@
   'use strict';
   const CSS = '.po-hdr{cursor:grab}'
     + '.po-dragging,.po-dragging *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}'
-    + '.mst-panel.po-drag{outline:2px solid var(--accent,#3b82f6);outline-offset:-2px;opacity:.55}';
+    + '.mst-panel.po-drag{outline:2px solid var(--accent,#3b82f6);outline-offset:-2px;opacity:.55}'
+    + '.po-dragging .po-grp{min-height:56px;outline:1px dashed rgba(148,163,184,.55);outline-offset:3px;border-radius:6px}';
   let styled = false;
 
   function attach(o) {
@@ -66,6 +70,7 @@
     }
     { const saved = lsGet(); if (saved) apply(saved.split('|').map(g => g ? g.split(',') : [])); changed(); }
     if (o.reset) o.reset.addEventListener('click', () => { apply(DEF); changed(); });
+    if (cols) groups().forEach(g => g.classList.add('po-grp'));
     groups().forEach(g => panelsOf(g).forEach(p => {
       const h = p.querySelector(':scope > .gps-panel-hdr');
       if (h) { h.classList.add('po-hdr'); if (!h.title) h.title = 'Drag to move this panel'; }
