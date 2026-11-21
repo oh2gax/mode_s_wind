@@ -7,7 +7,20 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.21112026 — 2026-11-21 (Own multilateration under GNSS interference: the clock of the receiver without GPS time is carried over short gaps, every clock reference is checked against the GPS-timed receivers, and the map says in words when no fixes can be made; the data check behind it; ten more charts, tables and map options that show how the engine does; Weather page: several pinned places for the meteogram, each can be renamed and removed)
+## v.21112026 — 2026-11-21 (Own multilateration under GNSS interference: the clock of the receiver without GPS time is carried over short gaps, every clock reference is checked against the GPS-timed receivers, and the map says in words when no fixes can be made; the data check behind it; ten more charts, tables and map options that show how the engine does; Weather page: several pinned places for the meteogram, each can be renamed and removed; Statistics page: the panels can be dragged into another order)
+
+### Statistics page: the panels can be dragged into another order (`static/js/panel_order.js` new, `static/js/stats.js`, `static/js/mlat_charts.js`, `web/templates/stats.html`, `web/templates/_stats_panels.html`)
+
+Asked by the user for the MLAT tab's Charts view (*move the chart windows where the user wants them; resizing not needed*), then for the windows of the Statistics page as well.
+
+- **A shared helper**, `PanelOrder.attach({ root, groupSel, key, reset, scroll, visible })`: a panel (`.mst-panel` with a name in `data-pk`) is taken by its title bar (`.gps-panel-hdr`; not by a button, list or link in it) with the mouse or a pen and moves **in the layout itself** while the pointer goes over the others — nothing floats, and a panel is as wide as the place it is put in. A drag starts after 6 px, so a click stays a click; the view scrolls when the pointer comes within 60 px of its upper or lower edge; Esc (or the window losing focus) puts the panel back. Not by touch, where the gesture scrolls.
+- **Three places use it**, each with its own saved order and its own *Reset layout* button, which is shown only while the order differs from the original:
+  - the **Statistics page** (`ms_mst_order`; three columns): above or below the panel under the pointer (its upper or lower half), or the end of a column when dropped in the free room under it. The button stands after the *Window* buttons and is hidden while the MLAT tab is open.
+  - the MLAT tab's **Recorder** view (`ms_mlr_order`; two columns, one of them wide);
+  - the MLAT tab's **Charts** view (`ms_mlc_order`; a grid): the panel takes the place of the panel under the pointer.
+- The order is a convenience of the browser (localStorage); nothing goes to the server. A saved order that lacks a panel (one added in a later version), names one that no longer exists or names one twice is repaired: a missing panel goes where the page has it, after the panel it follows there.
+- The panels' names: `data-pk` in `_stats_panels.html` (`rate`, `df`, `sig`, `meteo`, `sens`, `bds`, `tc`, `iid`, `rc`, `rng`, `hz`, `cad` — the attribute does nothing in the phone view, which does not load the helper) and in `stats.html` (Recorder: `state`, `df`, `clock`, `ac`, `raw`; Charts: `err`, `clk`, `fun`, `ie`, `band`, `sc`, `ck`, `ac`, `amb`, `gb`, `sus`, `cb`, `days`).
+- Tested in a browser against the sandbox server at 1 700 and 1 400 px: moves within a column and between columns, a long drag with scrolling, Esc, a drag started on a control (moves nothing), the order after a reload, a damaged saved order, each *Reset layout* and that it leaves the other two orders alone; the charts keep their sizes and go on updating after the moves; no page errors.
 
 ### Weather page: pinned places of the meteogram can be renamed and removed (`static/js/weather_mg.js`, `web/templates/weather.html`)
 
@@ -67,7 +80,7 @@ Ten additions to the MLAT tab, asked for after the morning's work. The fixes the
 
 - **Own multilateration — study log 1.7** (`doc/MODE_S_Own_Multilateration_Study.pdf`, 30 pages): a new section on the third day — why the fixes stop under GNSS interference, the three questions asked of the recording, the carried clock and the checked references, the first version that tested itself and its correction, the line on the page (1.6 in the morning; 1.7 with where the line stands and when it shows).
 - **Meteograms guide 1.05** and **Meteogrammit (suomeksi) 1.05** (13 pages each): the pinned places — several, *Rename* and *Remove*, where the names are kept.
-- **Statistics guide 1.28** (1.26 in the morning, 1.27 before noon; 24 pages), **Mobile guide 1.87**: the line in the *Position fixes* window (web) or under the map (phone) and the new wording of the receivers table; in the Statistics guide also how the clock is carried and how references are checked and, in 1.28, the new panels of the Charts view, the list of positions that do not fit and the grid's three choices, with a figure.
+- **Statistics guide 1.29** (1.26 in the morning, 1.27 before noon, 1.28 at midday; 24 pages), **Mobile guide 1.87**: the line in the *Position fixes* window (web) or under the map (phone) and the new wording of the receivers table; in the Statistics guide also how the clock is carried and how references are checked and, in 1.28, the new panels of the Charts view, the list of positions that do not fit and the grid's three choices, with a figure; in 1.29 how the panels are moved and *Reset layout*.
 
 ---
 

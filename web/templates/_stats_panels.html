@@ -4,8 +4,9 @@
     explanation behind "About this panel").  The element ids are the ones
     static/js/stats.js fills. -#}
 
+{# data-pk: the panel's name in the order saved by static/js/panel_order.js (the full Statistics page, from 2026-11-21) #}
 {% macro rate(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="rate">
         <div class="gps-panel-hdr">
           <span class="mst-tabs" id="mst-chart-tabs" role="tablist">
             <button class="mst-tab active" type="button" role="tab" data-tab="msgs" title="Messages per second and the other message series">Message rate</button>
@@ -36,7 +37,7 @@
 {% endmacro %}
 
 {% macro df(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="df">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Downlink formats</span>
           <span class="mst-hdr-note" id="mst-df-note"></span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-df"></table></div>
@@ -44,7 +45,7 @@
 {% endmacro %}
 
 {% macro sig(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="sig">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Signal strength</span>
           <select id="mst-sig-cat" class="gpe-input" title="Message class">
             <option value="all">All frames</option>
@@ -61,14 +62,14 @@
 {% endmacro %}
 
 {% macro meteo(fold=false) %}
-      <div class="mst-panel" id="mst-meteo-panel">
+      <div class="mst-panel" data-pk="meteo" id="mst-meteo-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title" id="mst-meteo-title">Meteo yield · Radarcape aircraft list</span></div>
         <div class="mst-table-wrap" id="mst-meteo"></div>
       </div>
 {% endmacro %}
 
 {% macro bds(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="bds">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Comm-B registers (EHS / ELS replies, DF20/21)</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-bds"></table></div>
         {% if fold %}<details class="mst-fold"><summary>About this panel</summary>{% endif %}<div class="mst-foot" id="mst-bds-foot"></div>{% if fold %}</details>{% endif %}
@@ -76,7 +77,7 @@
 {% endmacro %}
 
 {% macro tc(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="tc">
         <div class="gps-panel-hdr"><span class="gps-panel-title">ADS-B extended squitter (DF17)</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-tc"></table></div>
         {% if fold %}<details class="mst-fold"><summary>About this panel</summary>{% endif %}<div class="mst-foot" id="mst-tc-foot"></div>{% if fold %}</details>{% endif %}
@@ -84,7 +85,7 @@
 {% endmacro %}
 
 {% macro iid(fold=false) %}
-      <div class="mst-panel" id="mst-iid-panel">
+      <div class="mst-panel" data-pk="iid" id="mst-iid-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Interrogators (DF11 all-call replies)</span></div>
         <!-- bottom kept level with the Meteo yield panel; the rest scrolls (stats.js fitIid) -->
         <div class="mst-scroll" id="mst-iid-scroll">
@@ -95,7 +96,7 @@
 {% endmacro %}
 
 {% macro sensors(fold=false) %}
-      <div class="mst-panel" id="mst-sens-panel">
+      <div class="mst-panel" data-pk="sens" id="mst-sens-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Aircraft as sensors</span>
           <select id="mst-sens-q" class="gpe-input" title="What is compared">
             <option value="off">Heading offset (°)</option>
@@ -123,7 +124,7 @@
 {% endmacro %}
 
 {% macro cad(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="cad">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Reply cadence per aircraft (WAM / radar)</span>
           <select id="mst-cad-kind" class="gpe-input" title="Register or message type">
             <option value="5,0">BDS 5,0</option>
@@ -146,7 +147,7 @@
 {% endmacro %}
 
 {% macro rng(fold=false) %}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="rng">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Range rings (ADS-B positions)</span>
           <span class="mst-hdr-note" id="mst-rng-note"></span></div>
         <div class="mst-polar-wrap"><canvas id="mst-polar"></canvas><div class="mst-polar-tip" id="mst-polar-tip"></div></div>
@@ -157,7 +158,7 @@
 
 {# from 2026-11-20: how far beyond the radio horizon low aircraft are heard (collector/radio_horizon.py) #}
 {% macro hz(fold=false) %}
-      <div class="mst-panel" id="mst-hz-panel" style="display:none">
+      <div class="mst-panel" data-pk="hz" id="mst-hz-panel" style="display:none">
         <div class="gps-panel-hdr"><span class="gps-panel-title">Radio horizon (1090 MHz)</span>
           <span class="mst-hdr-note" id="mst-hz-note"></span></div>
         <div class="mst-hz-now" id="mst-hz-now"></div>
@@ -168,7 +169,7 @@
 {% endmacro %}
 
 {% macro rc(fold=false) %}
-      <div class="mst-panel" id="mst-rc-panel">
+      <div class="mst-panel" data-pk="rc" id="mst-rc-panel">
         <div class="gps-panel-hdr"><span class="gps-panel-title" id="mst-rc-title">Radarcape receiver</span>
           <span class="mst-hdr-note" id="mst-rc-note"></span></div>
         <div class="mst-table-wrap"><table class="mst-table mst-kv" id="mst-rc"></table></div>

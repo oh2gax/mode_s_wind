@@ -17,6 +17,10 @@
  *   tracks confirmed and put in doubt; positions that do not fit the GPS-timed receivers (/api/mlat/suspects);
  *   which receivers hear a reply together; one line per day
  *
+ * From the evening of 2026-11-21 the panels can be put in another order: drag one by its title bar (mouse or
+ * pen) and the others make room, in the same grid; the order is kept in this browser (ms_mlc_order) and
+ * "Reset layout" brings the original one back (static/js/panel_order.js, shared with the Statistics page).
+ *
  * The view's buttons and the page switching are in static/js/mlat_map.js.
  */
 (function () {
@@ -50,6 +54,9 @@
   $('mlc-rng').querySelectorAll('[data-rng]').forEach(b => b.classList.toggle('active', b.dataset.rng === rng));
   document.addEventListener('mlm-view', e => { on = !!(e.detail && e.detail.charts); clearTimeout(timer); if (on) poll(); });
   new MutationObserver(() => { if (on && data) render(data); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ── The order of the panels: drag one by its title bar (static/js/panel_order.js); kept in this browser ──
+  if (window.PanelOrder) window.PanelOrder.attach({ root: $('mst-mlat-charts'), key: 'ms_mlc_order', reset: $('mlc-reset') });
 
   async function poll() {
     clearTimeout(timer);

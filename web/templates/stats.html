@@ -48,6 +48,7 @@
         <button class="gps-zone-btn" data-win="10080" title="The last 7 days, from the hourly records stored in the database (kept over restarts; the time the server was down is not counted). The Radarcape receiver panel, the system health and the aircraft list stay live.">7 d</button>
       </span>
     </span>
+    <button type="button" class="gps-zone-btn" id="mst-reset" style="display:none" title="Put the panels of the page back in their original places">Reset layout</button>
     <span class="mst-health" id="mst-health" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false"
           title="System health — click for details">
       <span class="mst-hl-dots" id="mst-hl-dots"></span>
@@ -216,10 +217,12 @@
       <button type="button" class="gps-zone-btn" data-mlview="map" title="Own MLAT map: the positions computed from our own receivers' time stamps, and how they compare with the positions the aircraft broadcast">Map</button>
       <button type="button" class="gps-zone-btn" data-mlview="charts" title="Statistics of our own position fixes: the error against ADS-B over time and by distance, the clock of the receiver without GPS time, what the fixes add">Charts</button>
     </span>
+    <button type="button" class="gps-zone-btn" id="mlr-reset" style="display:none" title="Put the panels of the Recorder view back in their original places (drag a panel by its title bar to move it)">Reset layout</button>
     <span class="mlm-ctl" id="mlc-ctl" style="display:none">
       <span class="gps-zone-btns" id="mlc-rng" title="The period of the charts">
         <button type="button" class="gps-zone-btn active" data-rng="1h">1 h</button><button type="button" class="gps-zone-btn" data-rng="24h">24 h</button><button type="button" class="gps-zone-btn" data-rng="7d">7 d</button>
       </span>
+      <button type="button" class="gps-zone-btn" id="mlc-reset" style="display:none" title="Put the panels of the Charts view back in their original order (drag a panel by its title bar to move it)">Reset layout</button>
       <span class="mst-hdr-note" id="mlc-note"></span>
     </span>
     <span class="mlm-ctl" id="mlm-ctl" style="display:none">
@@ -297,44 +300,44 @@
   </div>
   <!-- Charts view (from 2026-11-19, static/js/mlat_charts.js): statistics of the own position fixes -->
   <div class="mlc-body" id="mst-mlat-charts" style="display:none">
-    <div class="mst-panel mlc-wide">
+    <div class="mst-panel mlc-wide" data-pk="err">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Error against the aircraft's own ADS-B position</span><span class="mst-hdr-note">median of the single fixes, resolved fixes only</span></div>
       <div class="mlc-chart"><canvas id="mlc-err"></canvas></div>
       <div class="mst-mlat-sub">Fixes per minute</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-fix"></canvas></div>
     </div>
     <!-- from 2026-11-21 midday: the clock of the receiver without GPS time through the period, and what it had to be set by -->
-    <div class="mst-panel mlc-wide">
+    <div class="mst-panel mlc-wide" data-pk="clk">
       <div class="gps-panel-hdr"><span class="gps-panel-title">The clock of the receiver without GPS time, through the period</span><span class="mst-hdr-note">share of the position attempts</span></div>
       <div class="mlc-chart mlc-m"><canvas id="mlc-clk"></canvas></div>
       <div class="mst-mlat-sub">Aircraft that receiver hears together with the time reference</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-rf"></canvas></div>
       <div class="mlc-txt" id="mlc-clk-t"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="fun">
       <div class="gps-panel-hdr"><span class="gps-panel-title">What became of the replies</span><span class="mst-hdr-note">heard by three receivers</span></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-fun"></table></div>
       <div class="mst-mlat-sub">Outcome of the attempts, %</div>
       <div class="mlc-chart mlc-m"><canvas id="mlc-out"></canvas></div>
       <div class="mlc-txt" id="mlc-fun-t"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="ie">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Is the stated error right?</span><span class="mst-hdr-note">fixes inside their stated error</span></div>
       <div class="mlc-chart"><canvas id="mlc-ie"></canvas></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-ie-t"></table></div>
       <div class="mlc-txt" id="mlc-ie-n"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="band">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Measured against expected, by distance</span><span class="mst-hdr-note">from the airport</span></div>
       <div class="mlc-chart"><canvas id="mlc-band"></canvas></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-band-t"></table></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="sc">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Where our fix lies from the ADS-B position</span><span class="mst-hdr-note">last hour · flight direction up</span></div>
       <div class="mlc-sc"><canvas id="mlc-sc"></canvas></div>
       <div class="mlc-txt" id="mlc-sc-t"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="ck">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Clock of the receiver without GPS time</span><span class="mst-hdr-note">the line through other aircraft's replies</span></div>
       <div class="mst-mlat-sub">Spread around the line, ns</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-ck-sig"></canvas></div>
@@ -346,7 +349,7 @@
       <div class="mlc-chart mlc-s"><canvas id="mlc-ck-tt"></canvas></div>
       <div class="mlc-txt" id="mlc-ck-t"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="ac">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Aircraft with a fix</span><span class="mst-hdr-note">those without a position of their own are what the fixes add</span></div>
       <div class="mlc-chart"><canvas id="mlc-ac"></canvas></div>
       <div class="mst-mlat-sub">Aircraft that send no position of their own: heard by three receivers, and located</div>
@@ -356,7 +359,7 @@
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-cov"></table></div>
       <div class="mlc-txt" id="mlc-low"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="amb">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Unresolved fixes</span><span class="mst-hdr-note">two positions still possible</span></div>
       <div class="mst-mlat-sub">Share of the fixes, %</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-amb"></canvas></div>
@@ -367,7 +370,7 @@
       <div class="mlc-txt" id="mlc-cnt"></div>
     </div>
     <!-- from 2026-11-20: how steady the GPS-timed receivers' clocks are against each other -->
-    <div class="mst-panel" id="mlc-gb-panel">
+    <div class="mst-panel" id="mlc-gb-panel" data-pk="gb">
       <div class="gps-panel-hdr"><span class="gps-panel-title">GPS time of the receivers</span><span class="mst-hdr-note" id="mlc-gb-note">one receiver's time against the main one</span></div>
       <div class="mst-mlat-sub">Time difference left after the geometry, ns (ten-minute median over the aircraft with a good position)</div>
       <div class="mlc-chart mlc-s" style="height:150px"><canvas id="mlc-gb"></canvas></div>
@@ -376,19 +379,19 @@
       <div class="mlc-txt" id="mlc-gb-t"></div>
     </div>
     <!-- from 2026-11-21 midday: broadcast positions checked against the GPS-timed receivers; which receivers hear a reply together; one line per day -->
-    <div class="mst-panel mlc-wide" id="mlc-sus-panel">
+    <div class="mst-panel mlc-wide" id="mlc-sus-panel" data-pk="sus">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Positions that do not fit</span><span class="mst-hdr-note" id="mlc-sus-note">broadcast positions against the time stamps of the GPS-timed receivers · last hour</span></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-sus"></table></div>
       <div class="mst-mlat-sub">Aircraft whose position did not fit, per step</div>
       <div class="mlc-chart mlc-s"><canvas id="mlc-pc"></canvas></div>
       <div class="mlc-txt" id="mlc-sus-t"></div>
     </div>
-    <div class="mst-panel">
+    <div class="mst-panel" data-pk="cb">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Which receivers hear a reply together</span><span class="mst-hdr-note">replies heard by two or more</span></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-cb"></table></div>
       <div class="mlc-txt" id="mlc-cb-t"></div>
     </div>
-    <div class="mst-panel mlc-wide2">
+    <div class="mst-panel mlc-wide2" data-pk="days">
       <div class="gps-panel-hdr"><span class="gps-panel-title">Day by day</span><span class="mst-hdr-note">UTC days, from the stored hours</span></div>
       <div class="mst-table-wrap"><table class="mst-table" id="mlc-days"></table></div>
       <div class="mlc-txt" id="mlc-days-t"></div>
@@ -396,7 +399,7 @@
   </div>
   <div class="mst-body" id="mst-mlat" style="display:none">
     <div class="mst-col">
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="state">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · pair recorder</span>
           <span class="mst-hdr-note" id="mst-mlat-note"></span></div>
         <div class="mst-table-wrap"><table class="mst-table mst-kv" id="mst-mlat-state"></table></div>
@@ -406,7 +409,7 @@
           receivers give one time difference per reply, which is not yet a position.</div>
       </div>
       {# from the evening of 2026-11-18: the last 10 minutes by reply type and by signal strength #}
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="df">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · by reply type and signal</span>
           <span class="mst-hdr-note">last 10 min</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-df"></table></div>
@@ -416,7 +419,7 @@
       </div>
     </div>
     <div class="mst-col mst-mlat-wide">
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="clock">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · clock agreement</span></div>
         <div class="mst-table-wrap"><table class="mst-table" id="mst-mlat-clock"></table></div>
         {# from 2026-11-19: which aircraft the figures use #}
@@ -437,7 +440,7 @@
           The histogram shows the shape of the scatter. The direction chart shows whether the median depends on where the aircraft
           is: an error in a site position gives a pattern there, a cable or receiver delay does not.</div>
       </div>
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="ac">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · by aircraft</span>
           <span class="mst-hdr-note" id="mst-mlat-ac-note"></span></div>
         {# from 2026-11-19: aircraft whose own position is far from the timing #}
@@ -448,7 +451,7 @@
           the aircraft declares a poor position (typically no GNSS) — its pairs are not in the clock-agreement figures.
           <em>Position does not fit</em>: its broadcast position is far from where the time differences put it.</div>
       </div>
-      <div class="mst-panel">
+      <div class="mst-panel" data-pk="raw">
         <div class="gps-panel-hdr"><span class="gps-panel-title">MLAT · latest pairs</span>
           <span class="mst-hdr-note">newest first</span></div>
         <div class="mst-table-wrap mst-mlat-scroll"><table class="mst-table" id="mst-mlat-raw"></table></div>
@@ -461,6 +464,8 @@
 
 {% block scripts %}
 {% if mlat_view %}<script>window.MST_MLAT = true;</script>{% endif %}
+{# the panels can be dragged into another order (from the evening of 2026-11-21) — before stats.js, which attaches it #}
+<script src="{{ url_for('static', filename='js/panel_order.js') }}"></script>
 <script src="{{ url_for('static', filename='js/stats.js') }}"></script>
 {% if mlat_view %}<script src="{{ url_for('static', filename='js/atc_display.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mlat_map.js') }}"></script>

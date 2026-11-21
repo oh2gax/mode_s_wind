@@ -2350,6 +2350,8 @@ From 5 Nov 2026 (evening): the phone's **Pilot** view on the full site, for the 
 
 User guide with the Mode S / ADS-B background, every register, the signal strength, range rings, the radio horizon and health indicators, the MLAT tab (from version 1.18), and what can be analysed: [`doc/Statistics_User_Guide.pdf`](doc/Statistics_User_Guide.pdf) (version 1.17 — from 2 Nov 2026 with the section *More receivers*, from 6 Nov 2026 the *altitude-checked out* count of the Downlink formats card and a receiver that is *off*; also the **?** at the right end of the summary bar).
 
+**Arranging the panels** (from the evening of 21 Nov 2026; `static/js/panel_order.js`): a panel is taken by its title bar with the mouse or a pen — by a free part of it, not by a button or list in it — and dragged to another place: within its column or into another one (above or below the panel under the pointer, or the end of a column when dropped in the free room under it), and likewise in the MLAT tab's *Recorder* view (two columns) and *Charts* view (a grid, where the panel takes the place of the one under the pointer). The panel moves in the layout itself while the others make room — nothing floats, and a panel is as wide as the place it is put in; the view scrolls near its upper and lower edge; Esc puts the panel back; touch is left to scrolling. Each of the three has its own order in the browser (`ms_mst_order`, `ms_mlr_order`, `ms_mlc_order`; nothing on the server) and its own **Reset layout** button, shown only while the order differs from the original (the page's one after the *Window* buttons). A saved order is repaired when it lacks a panel added later or names one that is gone. The panels are named by `data-pk` (`web/templates/_stats_panels.html`, `stats.html`); the phone view does not load the helper and keeps one fixed order.
+
 **Buttons** (from the evening of 30 Oct 2026, as the Windshear page): the window buttons (1 min … 1 w), the *Message rate* / *Data transfer* tabs and the chart ranges are plain grey (`--bg-2`) when off and dark blue (`#1a3a6b`) when on; before the accent blue. On this page only (`.mst-page button` at the end of `static/css/style.css`); the phone's Statistics view keeps its look.
 
 ![MODE-S Wind Statistics page](doc/Statistics_Screen_1.png)
@@ -2879,6 +2881,7 @@ mode_s_wind/
 │       ├── gps_aircraft.js    # GPS Aircraft page: key figures, day chart, calendar, flights; overview: weekday × hour, types, airlines (2026-11-08)
 │       ├── stats.js           # Statistics page: polling, tables, rate chart, signal histogram, range rings, system health (also embedded in /app, window.MST_EMBED / MsStats)
 │       ├── mlat_map.js        # Own MLAT map (Statistics → MLAT → Map, MLAT right): our own position fixes against the broadcast ADS-B tracks
+│       ├── panel_order.js     # Statistics page: the panels can be dragged into another order by their title bar (also the MLAT tab's Recorder and Charts views); kept in the browser
 │       ├── mlat_charts.js     # MLAT tab, Charts view: statistics of the own position fixes (error over time and by distance, scatter, clock, aircraft, unresolved)
 │       └── maintenance.js     # Maintenance page client-side logic (purge controls, autopurge, stats)
 ├── overlays/                  # GeoJSON overlays served to the Windshear map

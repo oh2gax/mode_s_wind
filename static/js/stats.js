@@ -458,6 +458,7 @@
     else if (data) { renderRange(data); fitIid(); }
     // the tab's own views Recorder | Map (static/js/mlat_map.js, from 2026-11-19)
     document.dispatchEvent(new CustomEvent('mst-mlat', { detail: { on } }));
+    if (panelOrder) panelOrder.refresh();                      // "Reset layout" belongs to the page's own panels
   }
   async function pollMlat(once) {
     clearTimeout(mlatTimer);
@@ -1426,6 +1427,25 @@
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && active) { poll(); if (mlatOn) pollMlat(); } });
   initButtons();
+  // The panels can be dragged into another place by their title bar, within a column or to another one
+  // (from the evening of 2026-11-21; static/js/panel_order.js — the full page only, not the phone view).
+  // A panel's name in the saved order is its own id or the first id inside it; kept in this browser.
+  var panelOrder = null;
+  if (!EMBED && window.PanelOrder) {
+    const body = document.querySelector('.mst-page > .mst-body:not(#mst-mlat)');
+    if (body) {
+      body.querySelectorAll(':scope > .mst-col > .mst-panel').forEach(p => {       // named once, before anything is drawn into them
+        if (!p.dataset.pk) p.dataset.pk = (p.id || (p.querySelector('[id]') || {}).id || '').replace(/^mst-/, '').replace(/-panel$/, '');
+      });
+      panelOrder = window.PanelOrder.attach({ root: body, groupSel: '.mst-col', key: 'ms_mst_order', reset: $('mst-reset'), visible: () => !mlatOn });
+    }
+    // the same for the MLAT tab's Recorder view (its Charts view: static/js/mlat_charts.js)
+    if (MLAT && $('mst-mlat')) {
+      const rec = window.PanelOrder.attach({ root: $('mst-mlat'), groupSel: '.mst-col', key: 'ms_mlr_order', reset: $('mlr-reset'),
+        visible: () => mlatOn && $('mst-mlat').style.display !== 'none' });
+      document.addEventListener('mlm-view', () => rec && rec.refresh());       // the view bar's own switch (mlat_map.js)
+    }
+  }
   if (EMBED) {
     // the mobile view drives the polling: only while its Statistics view is shown
     window.MsStats = {
