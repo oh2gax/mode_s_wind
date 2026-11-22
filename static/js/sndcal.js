@@ -4,7 +4,7 @@
  * One row per UTC day (the newest at the top), one column per UTC hour, each
  * cell coloured by one quantity of that hour (/api/sounding/calendar →
  * web/api/th_extra.py calendar):
- *   inv   surface inversion: T(600–1 000 ft) − T(surface), K (bl_hours)
+ *   inv   surface inversion: T(about 300 m above the airport) − T(surface), K (bl_hours; T(600–1 000 ft) until 22 Nov 2026)
  *   llj   low-level jet below 5 000 ft, kt (bl_hours)
  *   wind  wind speed of the area profile's 2 000–3 000 ft layer, kt
  *   ws    landings / departures with a windshear level

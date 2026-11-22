@@ -80,9 +80,9 @@ How to read the Skew-T diagram of the **Live Map** (the *Atmosphere Profile* pan
 
 ## The Sounding and Wind Map pages
 file: Sounding_Page_User_Guide.pdf
-version: 3.16
+version: 3.17
 date: 2026-11-22
-pages: 58
+pages: 59
 open: sounding, windmap@44
 
 All views of the **Sounding page** and the **Wind Map** page, with the physics behind them and worked examples from a cold front and a strong high in October 2026.
@@ -98,8 +98,8 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.48
-date: 2026-11-19
+version: 2.49
+date: 2026-11-22
 pages: 35
 open: windshear
 
@@ -153,7 +153,7 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.90
+version: 1.91
 date: 2026-11-22
 pages: 71
 
@@ -222,7 +222,7 @@ The development of the windshear detection as a study log for aviation meteorolo
 
 ## Mode S and the Kivenlahti mast (study log)
 file: EFHK_Mode_S_Mast_Wind_Study.pdf
-version: 1.3
+version: 1.4
 date: 2026-11-22
 pages: 17
 
@@ -234,7 +234,7 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 - **Wind**: speeds that follow the mast closely, direction differences at the mast's 217 and 327 m shared by all three other sources, the speed profile and the low-level jet
 - **Mast data quality** (version 1.1): the wind differences by wind sector — the mast's 217-m and 327-m directions off by a nearly constant +16° / −8° (a sensor alignment, not the flow; a 30° turn between them where the aircraft see 6°), its 92-m speed low in south-westerly winds; temperatures without a fault
 - **Update to 4 November 2026** (version 1.2, 237 hours): the tables for the whole period; the direction offsets unchanged in the new north-westerly and northerly winds, the 92-m speed loss confined to the south-west; the strong surface inversion of 3–4 November ahead of a front (up to 5 K), seen by the aircraft from 04 UTC and with MEPS 2.8 K too warm at 26 m
-- **Update to 22 November 2026** (version 1.3, 661 hours): four weeks of tables; the direction offsets constant week by week and in every wind sector, now marked on the pages and corrected in the comparison; the 92-m level by wind direction; the aircraft's cold difference below 200 m split by landings and departures, runway and type; inversion criteria scored against the mast; 8 November, when the same inversion lay 300 m lower at the coast
+- **Update to 22 November 2026** (versions 1.3 and 1.4, 661 hours; in 1.4 the pages' inversion flag uses the rule the scores favour): four weeks of tables; the direction offsets constant week by week and in every wind sector, now marked on the pages and corrected in the comparison; the 92-m level by wind direction; the aircraft's cold difference below 200 m split by landings and departures, runway and type; inversion criteria scored against the mast; 8 November, when the same inversion lay 300 m lower at the coast
 - What the mast adds, the dated log of the checks (the latest of 22 November 2026), limits and next steps
 
 ## Own multilateration from Mode S replies (study log)

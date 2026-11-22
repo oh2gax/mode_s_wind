@@ -22,8 +22,18 @@ minutes after the hour; the hour in progress is computed when asked):
          and 25 % within 1 500 ft above it, and is at least 4 kt above the
          lowest speed below it → {"ft", "kt", "dir", "drop" (m/s), "sh"
          (kt per 1 000 ft below the nose)}
-  inv    surface inversion: the air at 600–1 000 ft MSL at least 0.5 K
-         warmer than the METAR temperature → {"dT" (K), "top" (ft MSL)}.
+  inv    surface inversion → {"dT" (K), "top" (ft MSL)}.  From 22 Nov 2026:
+         the air about 300 m above the airport (INV_REF_M = 297 m, the top
+         level of the Kivenlahti mast; 1 150 ft MSL at EFHK, between two
+         200-ft bands) more than INV_DT = 0.3 K warmer than the METAR
+         temperature; dT is that difference.  Scored against the mast's
+         T(297 m) − T(2 m) > 0.3 K over four weeks (25 Oct – 22 Nov 2026,
+         mast study log 1.3) this found 39 of 48 inversion hours with 13
+         false alarms (CSI 0.64); the rule used until then — the mean of the
+         600–1 000 ft bands at least 0.5 K warmer than the METAR — 35 of the
+         same 48 with 24 (0.49), and any rule from the lower bands did worse, because
+         the aircraft temperatures are coldest and most scattered there.  The
+         stored hours were given the new flag once (reinvert()).
          "top" from 10 Nov 2026: the top of the warmest layer — of the bands
          from the lowest one up that are still at least half dT warmer than
          the METAR, the highest band within INV_TOP_TOL (0.2 K) of the warmest
@@ -75,10 +85,12 @@ LLJ_DROP_MS = 2.5
 LLJ_DROP_REL = 1.25
 LLJ_BELOW_KT = 2 / KT_MS             # 2 m/s ≈ 3.9 kt above the lowest speed below
 
-INV_DT = 0.5                          # K
+INV_DT = 0.3                          # K: warmer than the METAR by more than this (0.5 K over 600–1 000 ft until 22 Nov 2026)
+INV_REF_M = 297.0                     # m above the airport: the level compared with the METAR (from 2026-11-22)
+INV_REF_GAP_FT = 420                  # the two bands around that level may be this far apart
 INV_MIN_FLIGHTS = 4
 INV_TOP_TOL = 0.2                     # K: the warmest layer = within this of the warmest band
-INV_TOP_KEY = "bl_inv_top_v2"         # maintenance_config: reinvert() is done
+INV_TOP_KEY = "bl_inv_v3"             # maintenance_config: reinvert() is done ("bl_inv_top_v2": the top of 10 Nov 2026)
 
 # above TOP_FT, for the inversion aloft only (from 2026-11-10)
 HI_TOP_FT = 10000
@@ -216,25 +228,45 @@ def inv_top(sm: dict, tt, dT) -> int | None:
     return top
 
 
+def inv_ref_ft() -> float:
+    """The level of the inversion criterion in ft MSL: INV_REF_M above the airport."""
+    return float(_cfg.get("elev") or 179.0) + INV_REF_M / 0.3048
+
+
+def _t_at(sm: dict, ft: float, max_gap: float = INV_REF_GAP_FT):
+    """The temperature of the smoothed bands sm = {ft: °C} at ft, between its two neighbours."""
+    if ft in sm:
+        return sm[ft]
+    lo = [b for b in sm if b < ft]
+    hi = [b for b in sm if b > ft]
+    if not lo or not hi:
+        return None
+    a, b = max(lo), min(hi)
+    if b - a > max_gap:
+        return None
+    return sm[a] + (sm[b] - sm[a]) * (ft - a) / (b - a)
+
+
 def detect_inv(t: list, tt) -> dict | None:
-    """Surface inversion from the smoothed bands [[ft, °C, n]] and the METAR temperature."""
+    """Surface inversion from the smoothed bands [[ft, °C, n]] and the METAR temperature:
+    the air INV_REF_M above the airport more than INV_DT warmer than the METAR (from 2026-11-22)."""
     if tt is None or not t:
         return None
     sm = {b: v for b, v, _ in t}
-    low = [sm[b] for b in (600, 800, 1000) if b in sm]
-    if len(low) < 2:
+    ref = _t_at(sm, inv_ref_ft())
+    if ref is None:
         return None
-    dT = st.mean(low) - tt
-    if dT < INV_DT:
+    dT = ref - tt
+    if dT <= INV_DT:
         return None
     return {"dT": round(dT, 1), "top": inv_top(sm, tt, dT)}
 
 
 def reinvert(db) -> int:
-    """One-time (10 Nov 2026): the surface inversion of every stored hour
-    again from its stored bands and METAR temperature, for the new "top"
-    (detect_inv).  Only "inv" changes.  Marked done in maintenance_config.
-    Returns the hours changed."""
+    """One-time (22 Nov 2026; 10 Nov 2026 for the new "top"): the surface
+    inversion of every stored hour again from its stored bands and METAR
+    temperature, by the criterion of detect_inv.  Only "inv" changes.  Marked
+    done in maintenance_config.  Returns the hours changed."""
     try:
         if db.execute("SELECT value FROM maintenance_config WHERE key = ?", (INV_TOP_KEY,)).fetchone():
             return 0
@@ -246,9 +278,7 @@ def reinvert(db) -> int:
             d = json.loads(data)
         except ValueError:
             continue
-        if not d.get("inv"):
-            continue
-        inv = detect_inv(d.get("t") or [], d.get("tt"))
+        inv = detect_inv(d.get("t") or [], d.get("tt"))     # every hour: the new criterion also finds new ones
         if inv != d.get("inv"):
             d["inv"] = inv
             db.execute("UPDATE bl_hours SET data = ? WHERE ts = ?",

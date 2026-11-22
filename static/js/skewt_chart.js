@@ -410,7 +410,7 @@ function createSkewT(canvas, tip, cfg = {}) {
   // The airport's boundary layer of the period (from 2026-10-29; /api/lowlevel
   // "bl" = collector/boundary.py): the low-level jet as a ◆ at its nose near the
   // right edge with its speed and direction, and the surface inversion (the air
-  // at 600–1 000 ft warmer than the METAR temperature) as a red bracket from the
+  // about 300 m above the airport warmer than the METAR temperature; 600–1 000 ft MSL until 22 Nov 2026) as a red bracket from the
   // ground to its top at the left — drawn whenever the Airport profile is on.
   function aptPressAt(ft) {
     const lv = (miniLow.levels || []).filter(l => l.alt_msl != null && l.pressure).sort((a, b) => a.alt_msl - b.alt_msl);

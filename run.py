@@ -219,10 +219,10 @@ def _hourly_jobs_thread(cfg, metar_fn=None) -> None:
                 # of its last climb-outs came after its own job; replaced only if changed
                 _bl.refresh_hour(db, int(time.time() // 3600) * 3600 - 7200)
                 if first:
-                    # one-time (10 Nov 2026): the new top of the surface inversion
+                    # one-time (22 Nov 2026: the criterion of the surface inversion; 10 Nov 2026: its top)
                     n_i = _bl.reinvert(db)
                     if n_i:
-                        hj_log.info("Boundary layer: surface inversion top recomputed for %d hour(s)", n_i)
+                        hj_log.info("Boundary layer: surface inversion recomputed for %d hour(s)", n_i)
             except Exception as exc:
                 hj_log.warning("Boundary layer failed: %s", exc)
             first = False

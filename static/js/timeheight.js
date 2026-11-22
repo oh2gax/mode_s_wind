@@ -1471,7 +1471,7 @@
     const red = blRed(light());
     if (r.llj) parts.push(`<b>low-level jet</b> ${r.llj.kt} kt from ${String(r.llj.dir).padStart(3, '0')}° at ${fmtFt(r.llj.ft)}` +
       ` <span class="mini-tip-dim">(${r.llj.drop} m/s weaker within 1 500 ft above${r.llj.sh != null ? `; shear below ${r.llj.sh} kt / 1 000 ft` : ''})</span>`);
-    if (r.inv) parts.push(`<b style="color:${red}">surface inversion</b> +${r.inv.dT.toFixed(1)} K at 600–1 000 ft against the surface` +
+    if (r.inv) parts.push(`<b style="color:${red}">surface inversion</b> +${r.inv.dT.toFixed(1)} K about 1 000 ft above the airport against the surface` +
       (r.inv.top ? `, warmer up to about ${fmtFt(r.inv.top)}` : ''));
     if (r.avg) {
       parts.push(`low-level jet in <b>${r.avg.llj}</b> of ${r.avg.n} hours${r.avg.llj ? ` (mean ${Math.round(r.avg.kt)} kt)` : ''} · surface inversion in <b>${r.avg.inv}</b> of ${r.avg.n}${r.avg.inv ? ` (mean +${r.avg.dT.toFixed(1)} K)` : ''}`);
