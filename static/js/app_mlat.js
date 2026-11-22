@@ -8,7 +8,13 @@
  * the replay bar and the line of the selected aircraft, always on top) with one
  * of four panels under it, chosen with chips and remembered (ms_app_mlat_panel):
  * Traffic, Fixes, Flights (all three written by app_mlat_map.js) and Recorder —
- * what this file draws, and what the whole view was before:
+ * what this file draws, and what the whole view was before.  From 2026-11-22 a
+ * fifth panel, Charts: the panels of the Statistics page's Charts view
+ * (web/templates/_mlat_charts.html, shared with that page), drawn by that page's
+ * own script static/js/mlat_charts.js.  This file only loads it (with Chart.js,
+ * the first time the panel is opened) and tells it when the panel is shown and
+ * hidden, with the event the Statistics page uses for the same ("mlm-view").
+ * The Recorder panel:
  *
  *  - Now: the pair recorder's state — green when it runs and every GPS-timed
  *    receiver is on GPS time, amber otherwise — with each receiver's clock,
@@ -40,14 +46,30 @@
   const sp = v => v == null ? '—' : '±' + Number(v).toFixed(0) + ' ns';
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const DFN = { 0: 'DF0', 4: 'DF4 altitude', 5: 'DF5 squawk', 11: 'DF11 all-call', 16: 'DF16', 17: 'DF17 ADS-B', 18: 'DF18', 20: 'DF20 Comm-B', 21: 'DF21 Comm-B' };
-  const PANELS = ['trf', 'fix', 'fl', 'rec'];
+  const PANELS = ['trf', 'fix', 'fl', 'rec', 'chr'];
   let on = false, inited = false, data = null, busy = false, failed = false, panel = 'trf';
   const MM = () => window.AppMlatMap;
+
+  // ── Charts (from 2026-11-22): mlat_charts.js polls only while it is told that the charts are shown ──
+  let mlcLoad = null;
+  const loadScript = src => new Promise((ok, fail) => {
+    const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = fail; document.head.appendChild(sc);
+  });
+  const tellCharts = () => document.dispatchEvent(new CustomEvent('mlm-view', { detail: { charts: on && panel === 'chr' } }));
+  function charts() {
+    if (!(on && panel === 'chr')) { if (mlcLoad) tellCharts(); return; }
+    if (!mlcLoad) {
+      window.MLC_PHONE = true;                                              // one column, two-line rows in the wide table
+      mlcLoad = (typeof Chart === 'undefined' ? loadScript(APP_CHART_JS) : Promise.resolve()).then(() => loadScript(APP_MLC_JS));
+      mlcLoad.then(tellCharts, () => { mlcLoad = null; $('mlc-note').textContent = 'Could not load the charts — open the panel again to retry.'; });
+    } else mlcLoad.then(tellCharts, () => {});
+  }
 
   function showPanel() {
     for (const p of PANELS) $('aml-p-' + p).hidden = p !== panel;
     if (MM()) MM().setPanel(panel);
     if (panel === 'rec' && on) { render(); load(); }
+    charts();
   }
   function init(o) {
     if (inited || !o) return;
@@ -205,8 +227,8 @@
 
   window.AppMlat = {
     init,
-    show() { on = true; if (MM()) MM().show(); if (panel === 'rec') { render(); load(); } },
-    hide() { on = false; if (MM()) MM().hide(); },
+    show() { on = true; if (MM()) MM().show(); if (panel === 'rec') { render(); load(); } charts(); },
+    hide() { on = false; if (MM()) MM().hide(); charts(); },
     refresh() { if (on && panel === 'rec') load(); },
     layout() { if (MM()) MM().layout(); if (on && data && panel === 'rec') { drawLine(); drawHist(); drawSect(); } },
   };

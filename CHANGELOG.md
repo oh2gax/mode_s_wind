@@ -7,7 +7,16 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.22112026 — 2026-11-22 (Own multilateration: the positions that do not fit are stored and shown for 24 h and 7 d; the data check of the first full day of the changed engine — a day of long GNSS interference — with the position check replayed over the whole recording)
+## v.22112026 — 2026-11-22 (Phone app: the MLAT view gets the Charts panel — every panel of the Statistics page's Charts view, from one shared template; own multilateration: the positions that do not fit are stored and shown for 24 h and 7 d; the data check of the first full day of the changed engine — a day of long GNSS interference — with the position check replayed over the whole recording)
+
+### Phone app: the MLAT view's Charts panel (`web/templates/_mlat_charts.html` new, `web/templates/stats.html`, `web/templates/app.html`, `static/js/app_mlat.js`, `static/js/mlat_charts.js`, `static/css/app.css`)
+
+The charts of the last days (the ten of 21 Nov, the stored misfit list of this morning) were on the Statistics page only; the phone's MLAT view had the map with Traffic, Fixes, Flights and Recorder.
+
+- **A fifth chip, *Charts***, under the map of the phone's MLAT view: all thirteen panels of the Statistics page's Charts view in one column, in that page's order, with the period chips 1 h / 24 h / 7 d (the period is the one remembered for the full site, `ms_mlc_rng`). MLAT right only, as the rest of the view.
+- **One source for both pages**: the panels moved out of `stats.html` into `_mlat_charts.html` (five macros — the top band, three columns, the bottom band). The Statistics page calls each into its column; the phone calls them one after the other. The same `mlat_charts.js` fills both, so a chart added there appears on the phone too. The Statistics page's rendered markup is identical to before (compared), and its dragging and *Reset layout* were tested again.
+- **On the phone** `app_mlat.js` loads Chart.js and `mlat_charts.js` the first time the chip is tapped, sets `window.MLC_PHONE` and tells the script when the panel is shown and hidden with the event the Statistics page uses (`mlm-view`) — it polls every 30 s only while the panel is on the screen. In that mode the charts get fewer axis labels, the table *Positions that do not fit* is four columns of two lines (callsign and type over address and registration; level over NACp / NIC; *off by at least* over *position moved* and our own fix; last time over the number of failed checks and the first time), and the note about the map option is left out (the phone's map does not have it). The day-by-day table slides sideways. No dragging on the phone.
+- Tested in a phone-sized browser (390, 360 and 320 px; dark and light) on the replayed evening of 21 Nov: the three periods, 20 charts drawn, no panel wider than the screen, no requests after leaving the panel or the view, the panel opens by itself after a reload when it was the last one chosen; no page errors.
 
 ### Own multilateration: the list of positions that do not fit is stored (`collector/mlat_fix.py`, `collector/mlat_rec.py`, `web/app.py`, `static/js/mlat_charts.js`)
 
@@ -32,6 +41,7 @@ Agreed on 21 Nov: replay the recording for the misfit list first, and store the 
 
 - **Own multilateration — study log 1.8** (`doc/MODE_S_Own_Multilateration_Study.pdf`, 32 pages): new section *The fourth day* — the first day and night on the carried clock, aircraft without a position counted and located (figure), the position check over the recording (table), our own wrong positions and the one-sided hearing of one receiver; diary, open questions, version history.
 - **Statistics guide 1.31** (25 pages): the stored listings with the 24 h and 7 d periods, and the columns *Position moved* and *Our fix from it*.
+- **Mobile guide 1.88** (71 pages): the new subsection *The Charts panel* — the period chips, the thirteen panels one by one, the two-line table of the positions that do not fit, a figure of three screens (the hour 20–21 UTC of 21 Nov, drawn from the recording), the data use.
 - `README.md`: the store, the table and the API parameter; `doc/whats_new.md`, `doc/guides.md`.
 
 ## v.21112026 — 2026-11-21 (Own multilateration under GNSS interference: the clock of the receiver without GPS time is carried over short gaps, every clock reference is checked against the GPS-timed receivers, and the map says in words when no fixes can be made; the data check behind it; ten more charts, tables and map options that show how the engine does; Weather page: several pinned places for the meteogram, each can be renamed and removed; Statistics page: the panels can be dragged into another order)

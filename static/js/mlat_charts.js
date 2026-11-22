@@ -24,12 +24,16 @@
  * "Reset layout" brings the original one back (static/js/panel_order.js, shared with the Statistics page).
  *
  * The view's buttons and the page switching are in static/js/mlat_map.js.
+ *
+ * From 2026-11-22 the same panels (web/templates/_mlat_charts.html) are also the Charts panel of the phone app's
+ * MLAT view (/app, static/js/app_mlat.js loads this file there and sets window.MLC_PHONE): one column, fewer axis
+ * labels, and the table of the positions that do not fit in four columns of two lines.  No dragging there.
  */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
   if (!$('mst-mlat-charts') || typeof Chart === 'undefined') return;
-  const POLL = 30000, CH = {};
+  const POLL = 30000, CH = {}, PHONE = !!window.MLC_PHONE;
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (_) { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* a convenience only */ } };
   const light = () => document.documentElement.dataset.theme === 'light';
@@ -85,7 +89,7 @@
       options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: datasets.length > 1, labels: { color: C.txt, boxWidth: 14, font: { size: 10.5 } } },
                    tooltip: { callbacks: opt.tip ? { label: opt.tip } : {} } },
-        scales: { x: { stacked: !!opt.stacked, grid: { display: false }, ticks: { color: C.txt, maxRotation: 0, autoSkip: true, maxTicksLimit: opt.xt || 10, font: { size: 10 } } },
+        scales: { x: { stacked: !!opt.stacked, grid: { display: false }, ticks: { color: C.txt, maxRotation: 0, autoSkip: true, maxTicksLimit: PHONE ? Math.min(opt.xt || 10, 6) : opt.xt || 10, font: { size: 10 } } },
                   y: { stacked: !!opt.stacked, beginAtZero: opt.zero !== false, grid: { color: GRID }, ticks: { color: C.txt, font: { size: 10 }, precision: opt.prec },
                        title: { display: !!opt.y, text: opt.y, color: C.txt, font: { size: 10 } }, suggestedMax: opt.smax, max: opt.max } } } };
     if (CH[key]) { CH[key].data = cfg.data; CH[key].options = cfg.options; CH[key].update('none'); }
@@ -229,7 +233,16 @@
     // how far the broadcast position itself moved during the listing: a false position that stands still shows as 0 km
     const kmB = a => { if (!a.bc0 || !a.bc) return null; const f = Math.PI / 180, x = (a.bc[1] - a.bc0[1]) * Math.cos((a.bc[0] + a.bc0[0]) / 2 * f), y = a.bc[0] - a.bc0[0]; return Math.hypot(x, y) * 111.2; };
     if ($('mlc-sus-note')) $('mlc-sus-note').textContent = 'broadcast positions against the time stamps of the GPS-timed receivers · ' + sPer + (SA.length > 1 ? ' · ' + SA.length + ' listings' : '');
-    $('mlc-sus').innerHTML = SA.length ? '<thead><tr><th>Aircraft</th><th>Address</th><th>Reg</th><th class="num" title="The accuracy (NACp) and integrity (NIC) the aircraft reported with the position">NACp / NIC</th><th class="num">Level</th>' +
+    // the phone (from 2026-11-22): the same values in four columns of two lines
+    if (PHONE) $('mlc-sus').innerHTML = SA.length ? '<thead><tr><th>Aircraft<small>address · registration</small></th><th class="num">Level<small>NACp / NIC</small></th>' +
+      '<th class="num">Off by at least<small>position moved · our fix from it</small></th><th class="num">Last, UTC<small>failed · first</small></th></tr></thead><tbody>' +
+      SA.map(a => { const mv = kmB(a), fx = a.km != null ? a.km + ' km' + (a.kmx != null && a.kmx !== a.km ? ' (' + a.kmx + ')' : '') : a.kmx != null ? '(' + a.kmx + ' km)' : null;
+        return `<tr><td><b>${esc(a.cs || '—')}</b>${a.typ ? ' <span class="mst-dim">' + esc(a.typ) + '</span>' : ''}<small>${esc(a.icao)}${a.reg ? ' · ' + esc(a.reg) : ''}</small></td>` +
+          `<td class="num">${a.alt == null ? '—' : 'FL' + String(Math.round(a.alt / 100)).padStart(3, '0')}<small>${a.q ? (a.q[0] == null ? '—' : a.q[0]) + ' / ' + (a.q[1] == null ? '—' : a.q[1]) : '—'}</small></td>` +
+          `<td class="num">${a.min_km} km<small>moved ${mv == null ? '—' : mv < 10 ? mv.toFixed(1) + ' km' : Math.round(mv) + ' km'}${fx ? ' · fix ' + fx : ''}</small></td>` +
+          `<td class="num">${sT(a.t)}<small>${a.n}× · ${sT(a.t0)}</small></td></tr>`; }).join('') + '</tbody>'
+      : `<tbody><tr><td class="mst-dim">No aircraft in the ${sPer} whose position did not fit.</td></tr></tbody>`;
+    else $('mlc-sus').innerHTML = SA.length ? '<thead><tr><th>Aircraft</th><th>Address</th><th>Reg</th><th class="num" title="The accuracy (NACp) and integrity (NIC) the aircraft reported with the position">NACp / NIC</th><th class="num">Level</th>' +
       '<th class="num" title="From the largest misfit of the time stamps: the position was at least this far from where the aircraft was. The check sees only the part across the line of sight, so the real error is this or more">Off by at least</th>' +
       '<th class="num" title="Distance between the position the aircraft broadcast and our own fix of the same moment, when we had one; in brackets the largest such distance of the listing">Our fix from it</th>' +
       '<th class="num" title="How far the broadcast position itself moved between the first and the last failed check. Near 0 km for minutes: the position stands still while the aircraft flies on">Position moved</th>' +
@@ -241,7 +254,7 @@
       : `<tbody><tr><td class="mst-dim">No aircraft in the ${sPer} whose position did not fit.</td></tr></tbody>`;
     $('mlc-sus-t').textContent = sus && sus.on ? `Every reply of an aircraft that sends a position and is heard by two GPS-timed receivers is checked, whatever accuracy the aircraft reports: the difference of the two time stamps must fit the position. ` +
       `${sus.checked} aircraft are being checked now. An aircraft is listed when the middle value of its last two minutes is ${(sus.limit_ns / 1000).toFixed(0)} µs or more off (300 m of range difference; positions that are right stay under 0.4 µs). ` +
-      'A listed position is wrong, not merely uncertain: frozen, far behind or false. On the map, Misfit positions draws where such an aircraft says it is and where our fix puts it. ' +
+      'A listed position is wrong, not merely uncertain: frozen, far behind or false. ' + (PHONE ? '' : 'On the map, Misfit positions draws where such an aircraft says it is and where our fix puts it. ') +
       'With the 24 h and 7 d periods the table shows the stored listings of that time (kept from 22 Nov 2026).' : '';
     // 15. which receivers heard a reply together (replies heard by two or more)
     const RX = d.rx || {}, CB = T.cb || {}, cbT = Object.values(CB).reduce((a, v) => a + v, 0);

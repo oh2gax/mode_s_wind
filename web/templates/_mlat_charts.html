@@ -1,0 +1,117 @@
+{# _mlat_charts.html — the panels of the MLAT tab's Charts view (from 2026-11-22 a file of their own: the
+   Statistics page and the phone app /app both draw them, and static/js/mlat_charts.js fills both).
+   Five groups, as the Statistics page lays them out: a band over the whole width, three columns and a second
+   band.  The page puts each group in its own .mlc-col; the phone app puts them one after the other in one
+   column.  A panel added here appears in both.  No variables are used: the macros need no context.
+   Every panel has a data-pk (the key its place is remembered by on the Statistics page). #}
+
+{% macro band_top() %}
+    <div class="mst-panel" data-pk="err">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Error against the aircraft's own ADS-B position</span><span class="mst-hdr-note">median of the single fixes, resolved fixes only</span></div>
+      <div class="mlc-chart"><canvas id="mlc-err"></canvas></div>
+      <div class="mst-mlat-sub">Fixes per minute</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-fix"></canvas></div>
+    </div>
+    <!-- from 2026-11-21 midday: the clock of the receiver without GPS time through the period, and what it had to be set by -->
+    <div class="mst-panel" data-pk="clk">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">The clock of the receiver without GPS time, through the period</span><span class="mst-hdr-note">share of the position attempts</span></div>
+      <div class="mlc-chart mlc-m"><canvas id="mlc-clk"></canvas></div>
+      <div class="mst-mlat-sub">Aircraft that receiver hears together with the time reference</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-rf"></canvas></div>
+      <div class="mlc-txt" id="mlc-clk-t"></div>
+    </div>
+{% endmacro %}
+
+{% macro col_a() %}
+    <div class="mst-panel" data-pk="fun">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">What became of the replies</span><span class="mst-hdr-note">heard by three receivers</span></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-fun"></table></div>
+      <div class="mst-mlat-sub">Outcome of the attempts, %</div>
+      <div class="mlc-chart mlc-m"><canvas id="mlc-out"></canvas></div>
+      <div class="mlc-txt" id="mlc-fun-t"></div>
+    </div>
+    <div class="mst-panel" data-pk="sc">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Where our fix lies from the ADS-B position</span><span class="mst-hdr-note">last hour · flight direction up</span></div>
+      <div class="mlc-sc"><canvas id="mlc-sc"></canvas></div>
+      <div class="mlc-txt" id="mlc-sc-t"></div>
+    </div>
+    <div class="mst-panel" data-pk="amb">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Unresolved fixes</span><span class="mst-hdr-note">two positions still possible</span></div>
+      <div class="mst-mlat-sub">Share of the fixes, %</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-amb"></canvas></div>
+      <div class="mst-mlat-sub">Seconds until a new track is confirmed by its motion (median)</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-rs"></canvas></div>
+      <div class="mst-mlat-sub">Tracks confirmed, and tracks put in doubt again</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-trk"></canvas></div>
+      <div class="mlc-txt" id="mlc-cnt"></div>
+    </div>
+{% endmacro %}
+
+{% macro col_b() %}
+    <div class="mst-panel" data-pk="ie">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Is the stated error right?</span><span class="mst-hdr-note">fixes inside their stated error</span></div>
+      <div class="mlc-chart"><canvas id="mlc-ie"></canvas></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-ie-t"></table></div>
+      <div class="mlc-txt" id="mlc-ie-n"></div>
+    </div>
+    <div class="mst-panel" data-pk="ck">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Clock of the receiver without GPS time</span><span class="mst-hdr-note">the line through other aircraft's replies</span></div>
+      <div class="mst-mlat-sub">Spread around the line, ns</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-ck-sig"></canvas></div>
+      <div class="mst-mlat-sub">Reference aircraft</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-ck-ac"></canvas></div>
+      <div class="mst-mlat-sub">Drift of its counter, ppb (parts in a billion)</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-ck-dr"></canvas></div>
+      <div class="mst-mlat-sub">Air temperature at the airport, °C (METAR)</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-ck-tt"></canvas></div>
+      <div class="mlc-txt" id="mlc-ck-t"></div>
+    </div>
+    <!-- from 2026-11-20: how steady the GPS-timed receivers' clocks are against each other -->
+    <div class="mst-panel" id="mlc-gb-panel" data-pk="gb">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">GPS time of the receivers</span><span class="mst-hdr-note" id="mlc-gb-note">one receiver's time against the main one</span></div>
+      <div class="mst-mlat-sub">Time difference left after the geometry, ns (ten-minute median over the aircraft with a good position)</div>
+      <div class="mlc-chart mlc-s" style="height:150px"><canvas id="mlc-gb"></canvas></div>
+      <div class="mst-mlat-sub">Aircraft behind the value</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-gb-ac"></canvas></div>
+      <div class="mlc-txt" id="mlc-gb-t"></div>
+    </div>
+{% endmacro %}
+
+{% macro col_c() %}
+    <div class="mst-panel" data-pk="band">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Measured against expected, by distance</span><span class="mst-hdr-note">from the airport</span></div>
+      <div class="mlc-chart"><canvas id="mlc-band"></canvas></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-band-t"></table></div>
+    </div>
+    <div class="mst-panel" data-pk="ac">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Aircraft with a fix</span><span class="mst-hdr-note">those without a position of their own are what the fixes add</span></div>
+      <div class="mlc-chart"><canvas id="mlc-ac"></canvas></div>
+      <div class="mst-mlat-sub">Aircraft that send no position of their own: heard by three receivers, and located</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-np"></canvas></div>
+      <div class="mlc-txt" id="mlc-np-t"></div>
+      <div class="mst-mlat-sub">Share of the aircraft heard that get a resolved fix, by altitude</div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-cov"></table></div>
+      <div class="mlc-txt" id="mlc-low"></div>
+    </div>
+    <div class="mst-panel" data-pk="cb">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Which receivers hear a reply together</span><span class="mst-hdr-note">replies heard by two or more</span></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-cb"></table></div>
+      <div class="mlc-txt" id="mlc-cb-t"></div>
+    </div>
+{% endmacro %}
+
+{% macro band_bottom() %}
+    <!-- from 2026-11-21 midday: broadcast positions checked against the GPS-timed receivers; which receivers hear a reply together; one line per day -->
+    <div class="mst-panel" id="mlc-sus-panel" data-pk="sus">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Positions that do not fit</span><span class="mst-hdr-note" id="mlc-sus-note">broadcast positions against the time stamps of the GPS-timed receivers · last hour</span></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-sus"></table></div>
+      <div class="mst-mlat-sub">Aircraft whose position did not fit, per step</div>
+      <div class="mlc-chart mlc-s"><canvas id="mlc-pc"></canvas></div>
+      <div class="mlc-txt" id="mlc-sus-t"></div>
+    </div>
+    <div class="mst-panel" data-pk="days">
+      <div class="gps-panel-hdr"><span class="gps-panel-title">Day by day</span><span class="mst-hdr-note">UTC days, from the stored hours</span></div>
+      <div class="mst-table-wrap"><table class="mst-table" id="mlc-days"></table></div>
+      <div class="mlc-txt" id="mlc-days-t"></div>
+    </div>
+{% endmacro %}

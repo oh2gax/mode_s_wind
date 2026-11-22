@@ -261,7 +261,11 @@
        From 2026-11-20 evening: the own-MLAT map on top (static/js/app_mlat_map.js — our position fixes with
        radar labels, the replay of the last 24 hours, the line of the selected aircraft) and under it one of
        four panels chosen with chips: Traffic, Fixes, Flights, and Recorder — the pair recorder's state and
-       the agreement of the GPS-timed receivers' clocks, which was the whole view before (static/js/app_mlat.js) -->
+       the agreement of the GPS-timed receivers' clocks, which was the whole view before (static/js/app_mlat.js).
+       From 2026-11-22 a fifth panel, Charts: the panels of the Statistics page's Charts view (_mlat_charts.html,
+       shared with that page) in one column, drawn by the same static/js/mlat_charts.js, which is loaded with
+       Chart.js the first time the panel is opened -->
+  {% import "_mlat_charts.html" as mc %}
   <section id="v-mlat" class="app-view app-mast app-gnss" hidden>
     <div id="aml-mapbox" class="aml-mapbox"><div id="aml-map"></div><div id="aml-mapmsg" class="aml-mapmsg">Loading the map…</div></div>
     <!-- From 2026-11-21: said plainly when the fixes stop because the aircraft send no usable position (GNSS interference) -->
@@ -281,7 +285,7 @@
     <div id="aml-gridleg" class="aml-gridleg" hidden></div>
     <div id="aml-pick" class="app-pick aml-pick">Loading…</div>
     <div class="aml-pan"><select id="aml-panel" data-chips aria-label="Shown under the map">
-      <option value="trf">Traffic</option><option value="fix">Fixes</option><option value="fl">Flights</option><option value="rec">Recorder</option></select></div>
+      <option value="trf">Traffic</option><option value="fix">Fixes</option><option value="fl">Flights</option><option value="rec">Recorder</option><option value="chr">Charts</option></select></div>
 
     <div id="aml-p-trf">
       <div class="am-hd">Traffic <span class="agn-leg" id="aml-trf-n"></span></div>
@@ -302,6 +306,20 @@
         <select id="aml-fl-rng" data-chips><option value="3">3 h</option><option value="6">6 h</option><option value="12">12 h</option><option value="24">24 h</option></select></div>
       <div id="aml-fl" class="app-list agn-list aml-two"></div>
       <div class="app-small am-disc">The aircraft located in the chosen time, newest first. A tap replays that aircraft alone from the start of its track (Solo and Unresolved are turned on; Live in the bar under the map goes back to now). To start the replay at a clock time instead, set the time field beside the slider (UTC; a time later than now means yesterday).</div>
+    </div>
+    <div id="aml-p-chr" hidden>
+      <div class="am-ctl"><span class="am-lbl">Period</span>
+        <span class="app-chips" id="mlc-rng" role="group" aria-label="The period of the charts">
+          <button type="button" class="app-chip" data-rng="1h">1 h</button><button type="button" class="app-chip" data-rng="24h">24 h</button><button type="button" class="app-chip" data-rng="7d">7 d</button></span>
+        <span class="aml-chr-note" id="mlc-note">Loading the charts…</span></div>
+      <div class="aml-chr" id="mst-mlat-charts">
+        {{ mc.band_top() }}
+        {{ mc.col_a() }}
+        {{ mc.col_b() }}
+        {{ mc.col_c() }}
+        {{ mc.band_bottom() }}
+      </div>
+      <div class="app-small am-disc">Research data — how our own position fixes do: the same panels as the Charts view of the Statistics page's MLAT tab, in one column. 1 h is drawn by the minute, 24 h in 10-minute steps and 7 d by the hour; times in UTC. Touch a chart to read its values. <i>Positions that do not fit</i> lists the aircraft whose broadcast position disagrees with the time stamps of the GPS-timed receivers — the last hour, or with 24 h and 7 d the stored listings. Not for flight operations.</div>
     </div>
     <div id="aml-p-rec" hidden>
     <div id="aml-now" class="agn-now"></div>
@@ -885,7 +903,11 @@
 <script src="{{ url_for('static', filename='js/rx_markers.js') }}"></script>
 {% if gnss_view %}<script src="{{ url_for('static', filename='js/app_gnss.js') }}"></script>{% endif %}
 {% if pilot_view %}<script src="{{ url_for('static', filename='js/app_pilot.js') }}"></script>{% endif %}
-{% if mlat_view %}<script src="{{ url_for('static', filename='js/app_mlat_map.js') }}"></script>
+{% if mlat_view %}<script>
+  // the MLAT view's Charts panel (from 2026-11-22): the Statistics page's script, loaded with Chart.js when first opened
+  const APP_MLC_JS = "{{ url_for('static', filename='js/mlat_charts.js') }}";
+</script>
+<script src="{{ url_for('static', filename='js/app_mlat_map.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app_mlat.js') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
