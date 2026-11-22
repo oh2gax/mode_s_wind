@@ -107,8 +107,9 @@ function applySevColors() {
   ds[1].backgroundColor = rgbaHex(P.mild, 0.72);  ds[1].borderColor = P.mild; ds[1].borderWidth = 0;
   ds[2].borderColor = P.spoof; ds[2].backgroundColor = P.spoof;
   ds[3].borderColor = P.pct;   ds[3].borderWidth = 1.2;
-  const y1 = t10Chart.options.scales.y1;
-  y1.ticks.color = y1.title.color = P.pct;
+  ds[4].borderColor = P.gap;   ds[4].borderWidth = 1.4;      // the aircraft's own "no position" (TC 0), dashed
+  const y1 = t10Chart.options.scales.y1, th = canvasTheme();
+  y1.ticks.color = y1.title.color = th.axisLabel;            // two lines share the axis: its text is neutral
 }
 
 // ── Zone selector state ───────────────────────────────────────────────────────
@@ -1657,6 +1658,9 @@ function initT10Chart() {
         { label: '% FL050–250 degraded', data: [], type: 'line', borderColor: '#38bdf8',
           borderWidth: 1.5, pointRadius: 0, pointHitRadius: 4, tension: 0.2, fill: false,
           order: 1, yAxisID: 'y1', spanGaps: false },
+        { label: '% FL050–250 saying “no position” (TC 0)', data: [], type: 'line', borderColor: '#a596f2', borderDash: [5, 3],
+          borderWidth: 1.4, pointRadius: 0, pointHitRadius: 4, tension: 0, fill: false,
+          order: 1, yAxisID: 'y1', spanGaps: false },
       ],
     },
     options: {
@@ -1666,7 +1670,8 @@ function initT10Chart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: true, labels: { color: th.text, font: { size: 11 }, boxWidth: 12, padding: 8,
-                                            sort: (a, b) => a.datasetIndex - b.datasetIndex } },
+                                            sort: (a, b) => a.datasetIndex - b.datasetIndex,
+                                            filter: it => !t10Chart || !t10Chart.data.datasets[it.datasetIndex].hidden } },
         tooltip: {
           callbacks: {
             title: items => {
@@ -1675,14 +1680,14 @@ function initT10Chart() {
             },
             label: item => {
               if (item.raw == null) return null;
-              if (item.datasetIndex === 3) return ` ${item.dataset.label}: ${item.raw} %`;
+              if (item.datasetIndex === 3 || item.datasetIndex === 4) return ` ${item.dataset.label.replace(/^% /, '')}: ${item.raw} %`;
               return ` ${item.dataset.label}: ${item.raw}`;
             },
             footer: items => {
               const r = t10Chart.$rows[items[0].dataIndex];
               if (!r) return ['No data'];
-              return [`Aircraft seen: ${r.ac} · degraded ${r.deg}`,
-                      `FL050–250: ${r.mdeg} of ${r.mac} degraded`];
+              return [`Aircraft seen: ${r.ac} · degraded ${r.deg}` + (r.tc0 != null ? ` · saying “no position” ${r.tc0}` : ''),
+                      `FL050–250: ${r.mdeg} of ${r.mac} degraded` + (r.mtc0 != null ? ` · ${r.mtc0} saying “no position”` : '')];
             },
           },
         },
@@ -1696,7 +1701,7 @@ function initT10Chart() {
         y1: { beginAtZero: true, suggestedMax: 20, max: 100, position: 'right',
               ticks: { color: '#38bdf8', font: { size: 10 }, callback: v => v + ' %' },
               grid: { drawOnChartArea: false },
-              title: { display: true, text: 'FL050–250 degraded', color: '#38bdf8', font: { size: 10 } } },
+              title: { display: true, text: 'share of FL050–250 aircraft', color: '#38bdf8', font: { size: 10 } } },
       },
     },
   });
@@ -1711,7 +1716,7 @@ async function fetchDetail(hours) {
 
 function updateT10Chart(d) {
   if (!t10Chart) return;
-  const keys = d.keys || ['ac', 'deg', 'sev', 'spf', 'mac', 'mdeg'];
+  const keys = d.keys || ['ac', 'deg', 'sev', 'spf', 'mac', 'mdeg'];        // from 2026-11-22 evening also tc0, mtc0
   const bySlot = {};
   for (const s of d.slots || []) {
     const o = {};
@@ -1733,6 +1738,10 @@ function updateT10Chart(d) {
   t10Chart.data.datasets[1].data = rows.map(r => r ? Math.max(0, r.deg - r.sev) : null);
   t10Chart.data.datasets[2].data = rows.map(r => r && r.spf ? r.spf : null);
   t10Chart.data.datasets[3].data = rows.map(r => r && r.mac ? Math.round(1000 * r.mdeg / r.mac) / 10 : null);
+  // the share that themselves say "no position" (type code 0) — counted from the evening of 22 Nov 2026; no line before
+  const tc = rows.map(r => r && r.mac && r.mtc0 != null ? Math.round(1000 * r.mtc0 / r.mac) / 10 : null);
+  t10Chart.data.datasets[4].data = tc;
+  t10Chart.data.datasets[4].hidden = !tc.some(v => v != null);
   t10Chart.options.scales.x.ticks.maxTicksLimit = multiDay ? 8 : 12;
   t10Chart.$emptyMsg = d.since == null ? '10-minute data is recorded from 9 Oct 2026 — none in this window yet' : '';
   t10Chart.update('none');

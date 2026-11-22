@@ -213,7 +213,12 @@ EPISODE_RESTORE_MAX_SEC = 600.0   # after a restart within this time, open episo
 # ── 10-minute slots / severity / spoofing indicators (since 2026-10-09) ────────
 SLOT_SEC       = 600                 # 10-minute slots inside the hourly bucket
 SLOTS          = BUCKET_SEC // SLOT_SEC
-T10_KEYS       = ("ac", "deg", "sev", "spf", "mac", "mdeg")
+# from the evening of 2026-11-22 two more: aircraft that themselves said "no position" in the slot — an ADS-B
+# position message of type code 0 within TC0_SLOT_SEC of a sweep — at all levels (tc0) and in FL050–250 (mtc0).
+# A count beside the others: no signal, event or episode comes from it.  Hours stored before have no such lists.
+T10_KEYS       = ("ac", "deg", "sev", "spf", "mac", "mdeg", "tc0", "mtc0")
+T10_NEW        = ("tc0", "mtc0")     # absent in older rows: served as None, not as 0
+TC0_SLOT_SEC   = 10.0                # s: a type-code-0 message this recent counts the aircraft in the slot
 MID_LO_FT, MID_HI_FT = 5_000, 25_000  # "mid" altitude range FL050–250
 SPOOF_KINDS    = ("mlat_dis", "gmb_sat", "gmb_jump", "pos_jump")
 SPOOF_POS_SEC  = 10.0    # own ADS-B and MLAT positions must be this recent to compare
@@ -661,7 +666,7 @@ class GpsQualityTracker:
                                         kinds, counts, None, ok)
 
     def _record_seen(self, icao: str, zones: list[str],
-                     altitude: float | None = None) -> None:
+                     altitude: float | None = None, tc0: bool = False) -> None:
         """Mark an aircraft as seen in the 'all' bucket and any qualifying zone
         buckets, and in the FL band of its current altitude."""
         band = _seen_band(altitude)
@@ -675,6 +680,10 @@ class GpsQualityTracker:
             _slot_add(zb, now, "ac", icao)
             if mid:
                 _slot_add(zb, now, "mac", icao)
+            if tc0:                               # the aircraft itself says that it has no position
+                _slot_add(zb, now, "tc0", icao)
+                if mid:
+                    _slot_add(zb, now, "mtc0", icao)
 
     # ── Database persistence ──────────────────────────────────────────────────
 
@@ -888,6 +897,10 @@ class GpsQualityTracker:
                 v = t10.get(k)
                 if isinstance(v, list) and len(v) == SLOTS:
                     b["t10"][k] = v
+            if "tc0" not in t10:                  # a checkpoint of before 2026-11-22 evening: the slots that
+                i0 = min(max(int((time.time() - b["ts"]) // SLOT_SEC), 0), SLOTS - 1)   # have passed were not counted
+                for k in T10_NEW:
+                    b["t10"][k] = [None] * i0 + [0] * (SLOTS - i0)
         for src, dst in (("band_sev_ac", "_band_sev"), ("band_spf_ac", "_band_spf")):
             for lbl, v in (d.get(src) or {}).items():
                 b[dst].setdefault(lbl, set()).update(v)
@@ -1224,7 +1237,8 @@ class GpsQualityTracker:
                     if dist_nm <= limit:
                         active_zones.append(zone)
 
-            self._record_seen(icao, active_zones, alt)
+            t0 = ac.get("tc0_ts")
+            self._record_seen(icao, active_zones, alt, tc0=t0 is not None and 0 <= now - t0 <= TC0_SLOT_SEC)
 
             # Skip degradation signal checks below the minimum altitude gate
             # (landing aircraft that the receiver loses at a few hundred ft).
@@ -1400,7 +1414,8 @@ class GpsQualityTracker:
                     "zones":       list(st.get("zones") or ()),
                     # from 2026-11-22: the aircraft itself says that it has no position (an ADS-B
                     # airborne-position message of type code 0 in the last minute) — a marker in the
-                    # live tables only; the signals and the counts are as before
+                    # live tables; the signals and the events are as before (the 10-minute slots count such
+                    # aircraft separately: tc0 / mtc0 of T10_KEYS)
                     "tc0":         bool(ac.get("tc0_ts") is not None and now - ac["tc0_ts"] <= TC0_FRESH_SEC),
                 })
 
@@ -1475,7 +1490,8 @@ class GpsQualityTracker:
         DB once per hour and cached; the hour in progress comes from RAM.
 
         Returns:
-          slots     — [[slot_ts, ac, deg, sev, spf, mac, mdeg], …] (T10_KEYS order)
+          slots     — [[slot_ts, ac, deg, sev, spf, mac, mdeg, tc0, mtc0], …] (T10_KEYS order;
+                      tc0 / mtc0 None where the hour was stored before they were counted)
           hours     — [[hour_ts, aircraft, degraded, severe, spoof-flagged], …]
           severity  — degraded / severe aircraft-hours and severe sweeps by kind
           spoof     — per indicator: sweeps and distinct aircraft; ADS-B/MLAT
@@ -1526,7 +1542,8 @@ class GpsQualityTracker:
                 st = r["ts"] + i * SLOT_SEC
                 if st > now:
                     break
-                slots.append([st] + [(t10.get(k) or [0] * SLOTS)[i] for k in T10_KEYS])
+                slots.append([st] + [None if k in T10_NEW and k not in t10 else (t10.get(k) or [0] * SLOTS)[i]
+                                     for k in T10_KEYS])
             hrs.append([r["ts"], r["total"], r["degraded"], r["sevn"], r["spfn"]])
             deg_h += r["degraded"]
             sev_h += r["sevn"] or 0

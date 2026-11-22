@@ -54,7 +54,7 @@
           <span class="gps-panel-title" id="gps-chart-title">GPS Degradation Events — Last 24 Hours</span>
           <div class="gps-heatmap-range-btns" id="gps-ts-view-btns">
             <button class="gps-range-btn active" data-ts-view="hour" title="Hourly (or daily) degradation events by signal">Events</button>
-            <button class="gps-range-btn" data-ts-view="10m" title="Degraded aircraft per 10 minutes, severe vs mild, with the share of FL050–250 traffic degraded and aircraft with a spoofing indicator (up to 7 days; recorded from 9 Oct 2026)">10 min</button>
+            <button class="gps-range-btn" data-ts-view="10m" title="Degraded aircraft per 10 minutes, severe vs mild, with the share of FL050–250 traffic degraded, the share that itself says it has no position (type code 0, dashed; from 22 Nov 2026) and aircraft with a spoofing indicator (up to 7 days; recorded from 9 Oct 2026)">10 min</button>
           </div>
           <div class="gps-range-btns" id="gps-range-btns">
             <button class="gps-range-btn active" data-range="1d">1d</button>
@@ -234,7 +234,7 @@
           </div>
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-tc0">TC 0</span>
-            <span class="gps-key-desc">A marker in the live list, not a signal of its own: in the last minute the aircraft itself said that it has no position (an ADS-B position message of type code 0). Gap and ADS-B are inferred from silence; this is the same thing in the aircraft's own words. Not counted in the charts.</span>
+            <span class="gps-key-desc">A marker in the live list, not a signal of its own: in the last minute the aircraft itself said that it has no position (an ADS-B position message of type code 0). Gap and ADS-B are inferred from silence; this is the same thing in the aircraft's own words. No signal or event is counted from it; the <i>10 min</i> view of the events chart draws the share of FL050–250 aircraft saying it as a dashed line.</span>
           </div>
           <div class="gps-key-item">
             <span class="gps-flag gps-flag-sev">SEV</span>
