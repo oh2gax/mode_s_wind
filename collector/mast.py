@@ -295,8 +295,31 @@ class MastFetcher:
 _instance: MastFetcher | None = None
 
 
+# Wind directions of the mast that differ from the aircraft and the model by a constant amount (from 2026-11-22).
+# Mode S − mast was +13° at 217 m and −11° at 327 m over 661 hours (25 Oct – 22 Nov 2026), MEPS − mast +9° and −15°,
+# the same in every week and in every wind sector, and the mast's turn between the two levels 29° against the
+# aircraft's 5°: an alignment of the sensors, not the flow (study log, version 1.3).  {level m: degrees to ADD to the
+# mast's direction}: the mean of the two sources.  The stored and the shown values stay as observed; the pages mark
+# these levels and the comparison (web/api/mast.py compare) turns the mast's direction by this before comparing.
+# MAST_DIR_OFFSET in config_local.py replaces it ({} switches it off).
+DIR_OFFSET: dict = {217: 11.0, 327: -13.0}
+
+
+def dir_corr(h_m, wd):
+    """The mast's direction at level h_m turned by its known offset (None stays None)."""
+    off = DIR_OFFSET.get(int(h_m)) if h_m is not None else None
+    return wd if wd is None or not off else (wd + off) % 360.0
+
+
 def init(cfg, get_db) -> MastFetcher:
     global _instance
+    global DIR_OFFSET
+    v = getattr(cfg, "MAST_DIR_OFFSET", None)
+    if isinstance(v, dict):
+        try:
+            DIR_OFFSET = {int(k): float(x) for k, x in v.items() if x}
+        except (TypeError, ValueError):
+            log.warning("MAST_DIR_OFFSET is not {level m: degrees} — the built-in offsets are used")
     _instance = MastFetcher(get_db, int(getattr(cfg, "MAST_FMISID", FMISID)),
                             float(getattr(cfg, "MAST_BACKFILL_DAYS", BACKFILL_DAYS)))
     return _instance

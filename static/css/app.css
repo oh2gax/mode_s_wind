@@ -690,3 +690,6 @@ body.app-body {
 .aml-chr span.mst-dim, .aml-chr td.mst-dim { color: var(--text-3); font-weight: 400; }
 .aml-chr #mlc-ie-t th, .aml-chr #mlc-band-t th, .aml-chr #mlc-cov th { white-space: normal; vertical-align: bottom; }
 @media (max-width: 349px) { .aml-chr #mlc-band-t { font-size: 11px; } .aml-chr #mlc-band-t th, .aml-chr #mlc-band-t td { padding-left: 3px; padding-right: 3px; } }
+
+/* Mast view: a wind direction that is suspect (from 2026-11-22; static/js/app_mast.js) */
+.mast-susp { color: #d97706; font-weight: 600; }

@@ -110,3 +110,8 @@ WEB_BEHIND_PROXY = True      # visitor address from nginx (only with WEB_HOST 12
 # Other settings can be overridden the same way, e.g.
 # DB_PATH = "/mnt/ssd/modes_meteo.db"
 # WEB_PASS = "…"             # keep passwords out of git: here, not in config.py
+
+# The Kivenlahti mast: wind directions that differ from the aircraft and the model by a constant amount
+# (collector/mast.py DIR_OFFSET; from 22 Nov 2026).  {level in metres: degrees added to the mast's direction in the
+# comparison}; the Mast pages mark these levels and show the observed values.  {} switches it off.
+# MAST_DIR_OFFSET = {217: 11, 327: -13}

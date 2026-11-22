@@ -121,7 +121,8 @@
     const dry = -0.0098 * (o.tl[tt] - o.tl[0]);
     const stab = dT == null ? '' : dT > 0.3 ? 'inversion' : dT > dry + 0.6 ? 'stable' : dT < dry - 0.6 ? 'unstable' : 'well mixed';
     const shear = o.ws[top] != null && o.ws[0] != null ? (o.ws[top] - o.ws[0]) / ((o.wl[top] - o.wl[0]) * FT / 1000) : null;
-    const wtxt = i => o.ws[i] != null && o.wd[i] != null ? `${String(Math.round(o.wd[i])).padStart(3, '0')}° ${Math.round(o.ws[i])}<small> kt</small>` : '–';
+    const dOff = (prof.station || {}).dir_off || {};                    // from 2026-11-22: levels whose direction is suspect (study log 1.3)
+    const wtxt = i => o.ws[i] != null && o.wd[i] != null ? `${String(Math.round(o.wd[i])).padStart(3, '0')}°${dOff[o.wl[i]] ? '<span class="mast-susp">†</span>' : ''} ${Math.round(o.ws[i])}<small> kt</small>` : '–';
     el.innerHTML = [
       tile(`${wtxt(top)}${o.wg[top] != null ? `<small> G${Math.round(o.wg[top])}</small>` : ''}`, `wind ${o.wl[top]} m (${Math.round((o.wl[top] + (prof.elev_m || 44)) * FT).toLocaleString('en').replace(/,/g, ' ')} ft MSL)`),
       tile(dT != null ? `${f1(dT, 1, true)}<small> K</small>` : '–', `ΔT ${o.tl[tt]} − ${o.tl[0]} m · <b class="am-${stab.replace(' ', '-')}">${stab}</b>`),
@@ -271,7 +272,7 @@
         }).join('') + '</tr>').join('') + '</tbody></table>';
     } else {
       h = '<table class="app-list am-cmp"><thead><tr><th>Level</th>' + src.map(([, n]) => `<th class="num">${n}</th>`).join('') + '</tr></thead><tbody>' +
-        cmp.wl.slice().reverse().map(lv => '<tr><td>' + `${lv} m <span class="dim">${ftOf(lv)} ft</span></td>` + src.map(([k]) => {
+        cmp.wl.slice().reverse().map(lv => '<tr><td>' + `${lv} m${((cmp.station || {}).dir_off || {})[lv] ? '<span class="mast-susp">†</span>' : ''} <span class="dim">${ftOf(lv)} ft</span></td>` + src.map(([k]) => {
           const r = ((C[k] || {}).wind || []).find(x => x.h_m === lv) || {};
           return r.n ? `<td class="num${Math.abs(r.spd_bias) >= 5 ? ' am-big' : ''}">${f1(r.spd_bias, 1, true)} kt<span class="dim"> / ${f1(r.vrms, 0)}</span><br><span class="dim">${r.dir_bias != null ? f1(r.dir_bias, 0, true) + '° · ' : ''}n ${r.n}</span></td>` : '<td class="num dim">–</td>';
         }).join('') + '</tr>').join('') + '</tbody></table>';
@@ -279,7 +280,7 @@
     const sf = C.meps_sfc || {};
     h += `<div class="app-small">${S.ck === 't'
       ? 'Source − mast at the same height above the ground, mean / RMS in K (+ = the source warmer). '
-      : 'Source − mast, speed difference in kt / vector RMS (+ = the source stronger), direction difference in ° (winds of 5 kt or more; + = veered). '}`
+      : 'Source − mast, speed difference in kt / vector RMS (+ = the source stronger), direction difference in ° (winds of 5 kt or more; + = veered). ' + (() => { const o = (cmp.station || {}).dir_off || {}, k = Object.keys(o); return k.length ? `<span class="mast-susp">†</span> The mast\'s direction at ${k.map(h => `${h} m is turned by ${o[h] > 0 ? '+' : '−'}${Math.abs(o[h])}°`).join(' and at ')} before comparing: these two differ from the aircraft and the model by a constant amount (the sensors\' alignment). The mast\'s own values are shown as observed. ` : ''; })()}`
       + `Last ${cmp.days} days, ${cmp.hours} mast hours: Mode S in ${cmp.n_modes}, MEPS in ${cmp.n_meps}, ${cmp.n_sonde} soundings. `
       + (S.ck === 't' ? `MEPS 2 m at the mast: ${sf.t2m ? `${f1(sf.t2m.bias, 1, true)} K (RMS ${f1(sf.t2m.rms, 1)}, n ${sf.t2m.n})` : '–'}.`
                       : `MEPS 10 m wind against the mast's ${cmp.wl[0]} m: ${sf.w10 ? `${f1(sf.w10.spd_bias, 1, true)} kt (vector RMS ${f1(sf.w10.vrms, 0)}, n ${sf.w10.n})` : '–'}.`)

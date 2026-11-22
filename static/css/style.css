@@ -3913,3 +3913,6 @@ body:not(.app-body) .leaflet-control-zoom a.leaflet-disabled { background: rgba(
 [data-theme="light"] .ws-nopos-h, [data-theme="light"] .ws-nopos-sub, [data-theme="light"] .ws-nopos-row b { color: #0f172a; }
 [data-theme="light"] .ws-nopos-p, [data-theme="light"] .ws-nopos-dim, [data-theme="light"] .ws-nopos-row, [data-theme="light"] .ws-nopos-tbl th { color: #64748b; }
 [data-theme="light"] .ws-nopos-tbl th, [data-theme="light"] .ws-nopos-tbl td { border-bottom-color: #e2e8f0; }
+
+/* Mast: a wind direction that is suspect (from 2026-11-22; static/js/mast.js) */
+.mast-susp { color: #d97706; font-weight: 600; cursor: help; }

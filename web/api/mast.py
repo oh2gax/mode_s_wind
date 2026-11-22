@@ -48,8 +48,11 @@ def _elev(st: dict) -> float:
 
 def _station() -> dict:
     f = _m.get()
-    return dict(f.station) if f else {"name": "Espoo Latokaski (Kivenlahti mast)", "lat": 60.17771,
-                                      "lon": 24.64009, "elev": 44.0}
+    st = dict(f.station) if f else {"name": "Espoo Latokaski (Kivenlahti mast)", "lat": 60.17771,
+                                    "lon": 24.64009, "elev": 44.0}
+    # from 2026-11-22: the levels whose wind direction is suspect, with the degrees the comparison adds (the pages mark them)
+    st["dir_off"] = {str(k): v for k, v in _m.DIR_OFFSET.items()}
+    return st
 
 
 def _fmisid() -> int:
@@ -303,7 +306,8 @@ def _wstats(pairs: list) -> dict | None:
 
 
 def compare(db, days: float = 7) -> dict:
-    """source − mast for every hour of the last `days` days, per mast level."""
+    """source − mast for every hour of the last `days` days, per mast level.  From 2026-11-22 the mast's wind
+    direction at the levels of collector.mast.DIR_OFFSET is turned by its known offset before comparing."""
     st = _station()
     e = _elev(st)
     now = time.time()
@@ -331,7 +335,7 @@ def compare(db, days: float = 7) -> dict:
                     continue
                 w = _wind_at(wpts, hm * FT, 260)
                 if w:
-                    acc["modes"]["w"][hm].append((w[0], w[1], hr["ws"][i], hr["wd"][i])); used = True
+                    acc["modes"]["w"][hm].append((w[0], w[1], hr["ws"][i], _m.dir_corr(hm, hr["wd"][i]))); used = True
             tpts = [(x[0] - APT_ELEV_FT, x[1]) for x in bl.get("t") or []]
             for i, hm in enumerate(tl):
                 if hm < 60 or hr["t"][i] is None:
@@ -358,7 +362,7 @@ def compare(db, days: float = 7) -> dict:
                         continue
                     w = _wind_at([(z, ws, wd) for z, _, ws, wd in ml], hm, 60)
                     if w:
-                        acc["meps"]["w"][hm].append((w[0], w[1], ob["ws"][i] / KT_MS, ob["wd"][i]))
+                        acc["meps"]["w"][hm].append((w[0], w[1], ob["ws"][i] / KT_MS, _m.dir_corr(hm, ob["wd"][i])))
                 for i, hm in enumerate(tl):
                     if hm < 10 or ob["t"][i] is None:
                         continue
@@ -401,7 +405,7 @@ def compare(db, days: float = 7) -> dict:
                     continue
                 w = _wind_at([(z, ws, wd) for z, _, ws, wd in pts], hm, 80)
                 if w:
-                    acc["sonde"]["w"][hm].append((w[0], w[1], ob["ws"][i] / KT_MS, ob["wd"][i]))
+                    acc["sonde"]["w"][hm].append((w[0], w[1], ob["ws"][i] / KT_MS, _m.dir_corr(hm, ob["wd"][i])))
             for i, hm in enumerate(tl):
                 if hm < 10 or ob["t"][i] is None:
                     continue

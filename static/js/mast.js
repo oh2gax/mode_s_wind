@@ -35,6 +35,14 @@
   if (!['top', 'all', 'off'].includes(st.msLv)) st.msLv = 'top';
   let ser = null, prof = null, cmp = null, msr = null, on = false, timer = null, seq = 0;
 
+  // ── suspect wind directions (from 2026-11-22) ─────────────────────────────
+  // The mast's direction at 217 m and 327 m differs from the aircraft and from the model by a constant amount in every
+  // week and wind sector — an alignment of the sensors (study log 1.3).  The values are shown as observed, with a
+  // mark; the comparison table uses the direction turned by the offset the server gives (station.dir_off).
+  const dirOff = () => ((prof || cmp || ser || {}).station || {}).dir_off || {};
+  const suspTxt = h => { const o = dirOff()[h]; return o ? `The mast's direction at ${h} m reads about ${Math.abs(o)}° too ${o > 0 ? 'low' : 'high'}: it differs from the aircraft and the model by that amount in every wind — probably the sensor's alignment. Shown as observed.` : ''; };
+  const susp = h => dirOff()[h] ? `<span class="mast-susp" title="${suspTxt(h)}">†</span>` : '';
+
   const C = () => {
     const L = light();
     return { ink: L ? '#0f172a' : '#e2e8f0', ink2: L ? '#475569' : '#94a3b8', ink3: L ? '#94a3b8' : '#64748b',
@@ -164,7 +172,7 @@
     const stab = dT == null ? '' : dT > 0.3 ? 'inversion' : dT > dry + 0.6 ? 'stable' : dT < dry - 0.6 ? 'unstable (super-adiabatic)' : 'well mixed (about dry-adiabatic)';
     el.innerHTML = [
       tile(`${utc(o.ts, false)} <small>UTC</small>`, `${st.at ? 'chosen observation' : 'newest observation'} · ${utc(o.ts)} · ${esc((prof.station || {}).name || '')}`),
-      tile(o.ws[top] != null ? `${String(Math.round(o.wd[top])).padStart(3, '0')}° ${Math.round(o.ws[top])} <small>kt</small>` : '–',
+      tile(o.ws[top] != null ? `${String(Math.round(o.wd[top])).padStart(3, '0')}°${susp(o.wl[top])} ${Math.round(o.ws[top])} <small>kt</small>` : '–',
            `wind at ${o.wl[top]} m (${ftOf(o.wl[top]).toLocaleString('en')} ft MSL), gust ${o.wg[top] != null ? Math.round(o.wg[top]) + ' kt' : '–'} · at ${o.wl[0]} m ${o.ws[0] != null ? String(Math.round(o.wd[0])).padStart(3, '0') + '° ' + Math.round(o.ws[0]) + ' kt' : '–'}`),
       tile(dT != null ? `${f1(dT, 1, true)} <small>K</small>` : '–', `T(${o.tl[tt]} m) − T(${o.tl[0]} m): ${stab} (dry-adiabatic ${f1(dry, 1, true)} K)`),
       tile(shear != null ? `${f1(shear, 1, true)} <small>kt / 1 000 ft</small>` : '–', `wind speed change ${o.wl[0]} → ${o.wl[top]} m (vertical shear)`),
@@ -178,7 +186,8 @@
     if (!prof || !prof.found) { el.innerHTML = '<div class="sv-empty">No mast observation yet.</div>'; return; }
     const r = profileSvg(prof, st);
     el.innerHTML = r.svg;
-    $('mt-profile-legend').innerHTML = r.legend.join(' &nbsp; ') + ' &nbsp; <span class="text-dim">- - dry adiabat</span>';
+    $('mt-profile-legend').innerHTML = r.legend.join(' &nbsp; ') + ' &nbsp; <span class="text-dim">- - dry adiabat</span>' +
+      (Object.keys(dirOff()).length ? ` &nbsp; <span class="mast-susp" title="${Object.keys(dirOff()).map(suspTxt).join(' ')}">† mast direction at ${Object.keys(dirOff()).join(' and ')} m suspect</span>` : '');
   }
   // the profile as SVG (from 2026-11-01 night also the phone's Mast view, app_mast.js):
   // sel = { modes, meps, sonde } the sources shown; o.compact: the phone's size
@@ -244,7 +253,7 @@
     const col = name => cols.findIndex(c => c[0] === name);
     o.wl.forEach((h, i) => {
       const yy = y(ftOf(h));
-      s += `<g><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.wd[i] != null ? String(Math.round(o.wd[i])).padStart(3, '0') + '°' : '–'} ${o.ws[i] != null ? Math.round(o.ws[i]) + ' kt' : ''}, gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}</title>${barb(cx(col('Mast')), yy, o.ws[i], o.wd[i], K.mast, bl)}</g>`;
+      s += `<g><title>Mast ${h} m (${ftOf(h)} ft MSL): ${o.wd[i] != null ? String(Math.round(o.wd[i])).padStart(3, '0') + '°' : '–'} ${o.ws[i] != null ? Math.round(o.ws[i]) + ' kt' : ''}, gust ${o.wg[i] != null ? Math.round(o.wg[i]) + ' kt' : '–'}${dirOff()[h] ? ' — † ' + suspTxt(h) : ''}</title>${barb(cx(col('Mast')), yy, o.ws[i], o.wd[i], K.mast, bl)}</g>`;
     });
     const thin = (pts, key) => { let last = -1e9; return pts.filter(p => { const yy = y(p[0]); if (Math.abs(yy - last) < 18) return false; last = yy; return true; }); };
     if (msW.length) thin(msW.slice().sort((a, b) => a[0] - b[0])).forEach(r => {
@@ -436,7 +445,7 @@
     const keyY = panels[0].y0 + 6;
     // highest level at the top, lowest at the bottom, as the heights go (2026-11-01)
     const kRow = (n, i) => n - 1 - i;
-    wl.forEach((h, i) => { const ky = keyY + kRow(wl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m</text>`; });
+    wl.forEach((h, i) => { const ky = keyY + kRow(wl.length, i) * 16; s += `<line x1="${ml + pw + 8}" x2="${ml + pw + 22}" y1="${ky}" y2="${ky}" stroke="${ramp(i / Math.max(1, wl.length - 1))}" stroke-width="2"/><text x="${ml + pw + 26}" y="${ky + 4}" font-size="10" fill="${K.ink2}">${h} m${dirOff()[h] ? '<tspan fill="#d97706"> †</tspan>' : ''}</text>`; });
     s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + 6}" font-size="9" fill="${K.ink3}">${mOn ? '- - gust' : 'mast off'}</text>`;
     if (MSR.length) s += `<circle cx="${ml + pw + 12}" cy="${keyY + wl.length * 16 + 18}" r="2.6" fill="${K.bg}" stroke="${K.ink2}" stroke-width="1.4"/><text x="${ml + pw + 18}" y="${keyY + wl.length * 16 + 21}" font-size="9" fill="${K.ink3}">Mode S</text>`;
     if (sm) s += `<text x="${ml + pw + 8}" y="${keyY + wl.length * 16 + (MSR.length ? 34 : 20)}" font-size="9" fill="${K.ink3}">mast 1-h mean</text>`;
@@ -483,7 +492,7 @@
     const xx = geo.x(r[0]);
     if (cur) { cur.setAttribute('x1', xx); cur.setAttribute('x2', xx); cur.setAttribute('visibility', 'visible'); }
     const wl = geo.wl, tl = geo.tl;
-    const w = wl.map((h, i) => `${h} m: ${r[5][i] != null ? String(Math.round(r[5][i])).padStart(3, '0') + '°' : '–'} ${r[4][i] != null ? Math.round(r[4][i]) : '–'} kt <span class="mini-tip-dim">G${r[6][i] != null ? Math.round(r[6][i]) : '–'}</span>`).reverse().join('<br>');
+    const w = wl.map((h, i) => `${h} m: ${r[5][i] != null ? String(Math.round(r[5][i])).padStart(3, '0') + '°' + (dirOff()[h] ? '<span class="mast-susp">†</span>' : '') : '–'} ${r[4][i] != null ? Math.round(r[4][i]) : '–'} kt <span class="mini-tip-dim">G${r[6][i] != null ? Math.round(r[6][i]) : '–'}</span>`).reverse().join('<br>');
     const t = tl.map((h, i) => `${h} m ${r[1][i] != null ? r[1][i].toFixed(1) : '–'} °C <span class="mini-tip-dim">${r[2][i] != null ? Math.round(r[2][i]) + ' %' : ''}</span>`).reverse().join('<br>');
     const ml = msLine(geo, r[0]);
     if (!geo.mOn) tip.innerHTML = `<b>${utc(r[0])} UTC</b> <span class="mini-tip-dim">· click: the profile of this time</span><br>` +
@@ -512,7 +521,7 @@
           return r.n ? `<td class="num text-dim">${r.n}</td><td class="num ${big(r.spd_bias, 5)}">${f1(r.spd_bias, 1, true)}</td><td class="num ${big(r.vrms, 10)}">${f1(r.vrms, 1)}</td><td class="num">${r.dir_bias != null ? f1(r.dir_bias, 0, true) + '°' : '–'}</td>`
                      : '<td class="num text-dim">0</td><td class="num">–</td><td class="num">–</td><td class="num">–</td>';
         }).join('');
-        return `<tr><td>${h} m <span class="text-dim">${ftOf(h).toLocaleString('en')} ft</span></td>${cells}</tr>`;
+        return `<tr><td>${h} m${susp(h)} <span class="text-dim">${ftOf(h).toLocaleString('en')} ft</span></td>${cells}</tr>`;
       }).join('') + '</tbody>';
     elT.innerHTML = '<thead><tr><th>Mast level</th>' + srcs.map(([, n]) => `<th class="num" colspan="3">${n}</th>`).join('') + '</tr>' +
       '<tr><th></th>' + srcs.map(() => '<th class="num">n</th><th class="num" title="Mean difference, source − mast (K): + = the source warmer">Mean</th><th class="num">RMS</th>').join('') + '</tr></thead><tbody>' +
@@ -527,7 +536,8 @@
     const sf = (S.meps_sfc || {});
     $('mt-compare-sfc').innerHTML = `Last ${cmp.days} days, ${cmp.hours} mast hours: Mode S in ${cmp.n_modes} hours, MEPS in ${cmp.n_meps}, ${cmp.n_sonde} soundings. ` +
       `MEPS weather maps at the mast: 2 m temperature ${sf.t2m ? `<b>${f1(sf.t2m.bias, 2, true)} K</b> (RMS ${f1(sf.t2m.rms, 2)}, n ${sf.t2m.n})` : '–'}; ` +
-      `10 m wind against the mast's ${cmp.wl[0]} m: ${sf.w10 ? `speed <b>${f1(sf.w10.spd_bias, 1, true)} kt</b>, vector RMS ${f1(sf.w10.vrms, 1)} kt (n ${sf.w10.n})` : '–'}.`;
+      `10 m wind against the mast's ${cmp.wl[0]} m: ${sf.w10 ? `speed <b>${f1(sf.w10.spd_bias, 1, true)} kt</b>, vector RMS ${f1(sf.w10.vrms, 1)} kt (n ${sf.w10.n})` : '–'}.` +
+      (() => { const o = (cmp.station || {}).dir_off || {}, k = Object.keys(o); return k.length ? ` <span class="mast-susp">†</span> In the wind table the mast's direction at ${k.map(h => `${h} m is turned by ${o[h] > 0 ? '+' : '−'}${Math.abs(o[h])}°`).join(' and at ')} before comparing: those two directions differ from the aircraft and the model by a constant amount (the sensors' alignment). The mast's own values are shown and stored as observed.` : ''; })();
   }
 
   // ── controls ────────────────────────────────────────────────────────────
