@@ -262,7 +262,7 @@
       seen.add(a.icao);
       let o = AC.get(a.icao);
       if (!o) { o = { trk: [], adsb: [] }; AC.set(a.icao, o); }
-      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
+      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, np0: a.np0, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
                          mm: a.mm, nh: a.nh, tage: a.tage, doubt: a.doubt });
       if (whole) { o.trk = a.trk || []; o.adsb = a.adsb || []; continue; }
       const t1 = o.trk.length ? o.trk[o.trk.length - 1][0] : 0, t2 = o.adsb.length ? o.adsb[o.adsb.length - 1][0] : 0;
@@ -617,7 +617,7 @@
     const p = o.last, C = COL();
     el.innerHTML = `<b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(sel, o))}</b> ${esc(o.typ || '')} · ${o.reg ? esc(o.reg) + ' · ' : ''}${esc(sel)} · ${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''}`
       + (o.sal != null ? ` · sel ${lvl(o.sal)}` : '') + (o.nrx ? ` · ${o.nrx} receivers` : '')
-      + `\nstated ±${mTxt(p[4])}` + (o.err != null ? ` · measured ${mTxt(o.err)}` : o.pos ? '' : ' · sends no position')
+      + `\nstated ±${mTxt(p[4])}` + (o.err != null ? ` · measured ${mTxt(o.err)}` : o.pos ? '' : o.np0 ? ' · sends no position, and says so (type code 0)' : ' · sends no position')
       + ` · ${stateOf(o)}` + (o.mm != null ? ` · motion ${Math.round(o.mm)} m/s` : '') + '<small>tap to release</small>';
   }
   function renderTraffic() {
@@ -633,7 +633,7 @@
       + rows.map(([k, o, d]) => {
         const p = o.last, vr = o.vr, arrow = vr == null ? '' : vr >= 300 ? '↑' : vr <= -300 ? '↓' : '', rg = repGs(o), st = stateOf(o);
         return `<tr data-k="${esc(k)}"${sel === k ? ' class="sel"' : ''}>`
-          + `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}<small>${o.reg ? esc(o.reg) + ' · ' : ''}${esc(k)} · <span${st === 'resolved' ? '' : ' class="w"'}>${st}</span>${o.pos ? '' : ' · no position'}</small></td>`
+          + `<td><b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(k, o))}</b> ${esc(o.typ || '')}<small>${o.reg ? esc(o.reg) + ' · ' : ''}${esc(k)} · <span${st === 'resolved' ? '' : ' class="w"'}>${st}</span>${o.pos ? '' : o.np0 ? ' · no position, says so' : ' · no position'}</small></td>`
           + `<td class="num">${lvl(p[3])}${arrow}${S.sal && o.sal != null ? ' ' + lvl(o.sal) : ''}<small>${d == null ? '—' : d.toFixed(d < 10 ? 1 : 0) + ' NM'}</small></td>`
           + `<td class="num">${o.vel ? Math.round(o.vel[0]) : '—'}<small>${rg == null ? '—' : Math.round(rg)}</small></td>`
           + `<td class="num">±${mTxt(p[4])}<small>${mTxt(o.err)}</small></td>`

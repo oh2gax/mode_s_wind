@@ -604,6 +604,12 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
         difference (ft) — a spoofed GNSS fix usually shows up as a sudden
         jump or a saturated value here
       • TC 9-18 / 20-22 (airborne position): NIC and containment radius Rc
+      • TC 0 (airborne position with no position in it, from 2026-11-22): the
+        aircraft itself says that it has none — the time of the last such
+        message (tc0_ts).  In 79 recorded hours of 18–22 Nov 2026 nine in
+        ten minutes in which an ADS-B aircraft sent no position had these
+        messages: the direct sign of a lost GNSS position, where a missing
+        position is otherwise only inferred from silence.
     Each value gets its own timestamp so consumers can ignore stale values.
     """
     if tc is None:
@@ -638,6 +644,8 @@ def _update_quality_fields(merged: dict, tc, result: dict, ts: float) -> None:
         if nic is not None:
             merged["nic"], merged["nic_rc_m"] = nic
             merged["nic_ts"] = ts
+    elif tc == 0:
+        merged["tc0_ts"] = ts
 
 
 # Computed-wind fields cleared from a stored observation whose BDS 5,0 / 6,0

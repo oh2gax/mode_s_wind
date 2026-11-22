@@ -363,7 +363,7 @@
       seen.add(a.icao);
       let o = AC.get(a.icao);
       if (!o) { o = { trk: [], adsb: [] }; AC.set(a.icao, o); }
-      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
+      Object.assign(o, { cs: a.cs, typ: a.typ, reg: a.reg, pos: a.pos, np0: a.np0, res: a.res, n: a.n, nrx: a.nrx, err: a.err, last: a.last, vel: a.vel, vr: a.vr, sal: a.sal,
                          mm: a.mm, nh: a.nh, tage: a.tage, doubt: a.doubt });
       if (whole) { o.trk = a.trk || []; o.adsb = a.adsb || []; continue; }
       const t1 = o.trk.length ? o.trk[o.trk.length - 1][0] : 0, t2 = o.adsb.length ? o.adsb[o.adsb.length - 1][0] : 0;
@@ -583,10 +583,13 @@
                            { label: 'reported', data: pts.map(p => p[8]), borderColor: C.adsb, borderDash: [4, 3] }]);
   }
   const mTxt = v => v == null ? '—' : v >= 10000 ? (v / 1000).toFixed(0) + ' km' : v >= 1000 ? (v / 1000).toFixed(1) + ' km' : Math.round(v) + ' m';
+  // an aircraft without a position of its own; from 2026-11-22 "says so" when it sends ADS-B position messages with type code 0
+  const NOPOS = o => o.np0 ? '<span class="mlm-tag" title="Sends position messages that say “no position” (ADS-B type code 0): the aircraft itself reports that it has none">no position · says so</span>'
+                           : '<span class="mlm-tag" title="Sends no position of its own">no position</span>';
   function tip(k, o) {
     const p = o.last;
     return `<b>${esc(name(k, o))}</b> ${esc(o.typ || '')} · ${o.reg ? esc(o.reg) + ' · ' : ''}${esc(k)}<br>${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''} · ${o.nrx || 3} receivers<br>` +
-      `expected ±${mTxt(p[4])}${o.err != null ? ` · measured ${mTxt(o.err)} from its ADS-B position` : (o.pos ? '' : ' · sends no position')}` +
+      `expected ±${mTxt(p[4])}${o.err != null ? ` · measured ${mTxt(o.err)} from its ADS-B position` : (o.pos ? '' : o.np0 ? ' · sends no position, and says so (type code 0)' : ' · sends no position')}` +
       (p[6] ? '<br>unresolved: two positions possible' : '');
   }
 
@@ -872,7 +875,7 @@
       '<th class="num" title="Median distance from the aircraft’s own ADS-B position, last fixes">Measured</th><th></th></tr></thead><tbody>' +
       rows.map(([k, o]) => `<tr data-k="${esc(k)}"${sel === k ? ' class="sel"' : ''}><td><b>${esc(name(k, o))}</b> ${esc(o.typ || '')}</td><td><code>${esc(k)}</code></td>` +
         `<td class="num">${lvl(o.last[3])}</td><td class="num">±${mTxt(o.last[4])}</td><td class="num">${mTxt(o.err)}</td>` +
-        `<td>${o.pos ? '' : '<span class="mlm-tag" title="Sends no position of its own">no position</span>'}${o.last[6] ? ' <span class="mlm-tag" title="Two positions are still possible">unresolved</span>' : ''}</td></tr>`).join('') +
+        `<td>${o.pos ? '' : NOPOS(o)}${o.last[6] ? ' <span class="mlm-tag" title="Two positions are still possible">unresolved</span>' : ''}</td></tr>`).join('') +
       (rows.length ? '' : '<tr class="mst-dim"><td colspan="6">No fixes in the last minute</td></tr>') + '</tbody>';
     trfRender();
   }
@@ -982,7 +985,7 @@
           `<td class="num">${o.vel ? Math.round(o.vel[0]) : '—'} / ${rg == null ? '—' : Math.round(rg)}</td>` +
           `<td class="num">±${mTxt(p[4])}</td><td class="num">${mTxt(o.err)}</td>` +
           `<td class="num${o.mm != null && o.mm > 25 ? ' w' : ''}">${o.mm == null ? '—' : Math.round(o.mm)}</td>` +
-          `<td${st === 'resolved' ? '' : ' class="w"'}>${st}${o.pos ? '' : ' <span class="mlm-tag" title="Sends no position of its own">no position</span>'}</td>` +
+          `<td${st === 'resolved' ? '' : ' class="w"'}>${st}${o.pos ? '' : ' ' + NOPOS(o)}</td>` +
           `<td class="num">${o.nrx || (RP.on ? '—' : 3)}</td><td class="num">${dur(o.tage)}</td><td class="num">${o.n}</td><td class="num">${d == null ? '—' : d.toFixed(d < 10 ? 1 : 0)}</td></tr>`;
       }).join('') + (rows.length ? '' : `<tr class="mst-dim"><td colspan="${TCOLS.length}">No fixes in the last minute</td></tr>`) + '</tbody>';
   }

@@ -87,7 +87,7 @@
     const C = COL();
     const cfg = { type, data: { labels, datasets: datasets.map(d => Object.assign(type === 'line' ? { borderWidth: 2, pointRadius: 0, tension: 0, spanGaps: false } : { borderWidth: 0, borderRadius: 2 }, d)) },
       options: { animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: datasets.length > 1, labels: { color: C.txt, boxWidth: 14, font: { size: 10.5 } } },
+        plugins: { legend: { display: datasets.length > 1, labels: { color: C.txt, boxWidth: 14, font: { size: 10.5 }, filter: it => !!it.text } },
                    tooltip: { callbacks: opt.tip ? { label: opt.tip } : {} } },
         scales: { x: { stacked: !!opt.stacked, grid: { display: false }, ticks: { color: C.txt, maxRotation: 0, autoSkip: true, maxTicksLimit: PHONE ? Math.min(opt.xt || 10, 6) : opt.xt || 10, font: { size: 10 } } },
                   y: { stacked: !!opt.stacked, beginAtZero: opt.zero !== false, grid: { color: GRID }, ticks: { color: C.txt, font: { size: 10 }, precision: opt.prec },
@@ -139,13 +139,19 @@
     // 7. the GPS-timed receivers' clocks against the main one (from 2026-11-20): gb = {receiver: [ns, aircraft, lowest, highest]}
     const gk = [...new Set(S.flatMap(r => Object.keys(r.gb || {})))].sort();
     const gcol = [C.a, C.b, C.n];
-    chart('gb', 'mlc-gb', 'line', L, gk.length ? gk.map((k, i) => ({ label: k, data: S.map(r => r.gb && r.gb[k] ? r.gb[k][0] : null), borderColor: gcol[i % 3] }))
+    // from 2026-11-22: a band of GB_BAND ns either side of the period's middle, drawn when one receiver is compared.  In the first
+    // four days (19–22 Nov 2026) 98 % of the minutes lay inside 50 ns, and nearly all the others had fewer than five aircraft.
+    const GB_BAND = 50, gT0 = T.gb || {}, gMid = gk.length === 1 && gT0[gk[0]] ? gT0[gk[0]][0] : null;
+    const gBand = gMid == null ? [] : [1, -1].map(sg => ({ label: sg > 0 ? `middle ± ${GB_BAND} ns` : '', data: S.map(() => gMid + sg * GB_BAND), borderColor: C.n, borderWidth: 1, borderDash: [4, 4] }));
+    const gOut = gMid == null ? null : S.reduce((o, r) => { const v = r.gb && r.gb[gk[0]]; if (v && v[1] >= 5) { o[1]++; if (Math.abs(v[0] - gMid) > GB_BAND) o[0]++; } return o; }, [0, 0]);
+    chart('gb', 'mlc-gb', 'line', L, gk.length ? gk.map((k, i) => ({ label: k, data: S.map(r => r.gb && r.gb[k] ? r.gb[k][0] : null), borderColor: gcol[i % 3] })).concat(gBand)
                                                : [{ label: '', data: S.map(() => null), borderColor: C.a }],
-      { zero: false, y: 'ns', tip: c => { const v = (S[c.dataIndex].gb || {})[c.dataset.label]; return v ? `${c.dataset.label}: ${v[0]} ns (${v[2]} … ${v[3]}), ${v[1]} aircraft` : ''; } });
+      { zero: false, y: 'ns', tip: c => { const v = (S[c.dataIndex].gb || {})[c.dataset.label]; if (!v && c.dataset.borderDash) return c.dataset.label ? `${c.dataset.label}: ${gMid - GB_BAND} … ${gMid + GB_BAND} ns` : null; return v ? `${c.dataset.label}: ${v[0]} ns (${v[2]} … ${v[3]}), ${v[1]} aircraft` : ''; } });
     chart('gba', 'mlc-gb-ac', 'line', L, gk.length ? gk.map((k, i) => ({ label: k, data: S.map(r => r.gb && r.gb[k] ? r.gb[k][1] : null), borderColor: gcol[i % 3], stepped: true }))
                                                   : [{ label: '', data: S.map(() => null), borderColor: C.a }], { prec: 0 });
     const gT = T.gb || {};
     $('mlc-gb-t').textContent = gk.length ? gk.map(k => gT[k] ? `${k}: ${gT[k][0]} ns in the middle, between ${gT[k][2]} and ${gT[k][3]} ns (${(gT[k][3] - gT[k][2]).toFixed(0)} ns apart).` : '').join(' ') +
+      (gOut && gOut[1] ? ` The dashed lines are ${GB_BAND} ns either side of the middle: ${gOut[0] ? gOut[0] + ' of the ' + gOut[1] : 'none of the ' + gOut[1]} ${d.range === '7d' ? 'hours' : d.range === '24h' ? '10-minute steps' : 'minutes'} with five or more aircraft ${gOut[0] === 1 ? 'lies' : 'lie'} outside them. Inside is normal; a value that stays outside with many aircraft behind it is worth a look at that receiver’s GPS.` : '') +
       ' The value itself comes from the cables and electronics and does not matter; how it moves does. Slow waves of some tens of nanoseconds come from the satellites in view and the sky each GPS antenna sees, and the fixes follow them. With only a few aircraft behind it the value also moves with which aircraft they are, because the receivers stamp strong replies a little early. A step means that the GPS time of a receiver jumped.'
       : 'No values yet: they need a second GPS-timed receiver and at least three aircraft with a good position heard by both.';
     $('mlc-cnt').textContent = T.tr ? `In this period: ${T.h3.toLocaleString('en')} replies heard by three receivers, ${T.tr.toLocaleString('en')} tried (at most three per aircraft and second), ` +
@@ -204,8 +210,11 @@
     // 11. aircraft that send no position of their own: heard by three receivers, and located by us
     chart('np', 'mlc-np', 'line', L, [
       { label: 'heard by three receivers', data: S.map(r => r.a3 ? r.a3[1] : null), borderColor: C.n, stepped: true },
-      { label: 'located', data: S.map(r => r.a3 ? r.np : null), borderColor: C.b, stepped: true }], { prec: 0, y: 'aircraft' });
-    $('mlc-np-t').textContent = T.a3s && T.a3s[1] ? `Over the period ${pct(T.nps, T.a3s[1])} of the aircraft without a position of their own that three receivers heard were located (counted per ${per}).` : '';
+      { label: 'located', data: S.map(r => r.a3 ? r.np : null), borderColor: C.b, stepped: true }]
+      // from 2026-11-22: of those heard, the aircraft that say so themselves (ADS-B position messages with type code 0)
+      .concat(S.some(r => r.a0 != null) ? [{ label: 'say so themselves (type code 0)', data: S.map(r => r.a0 != null ? r.a0 : null), borderColor: C.c, borderDash: [3, 3], stepped: true }] : []), { prec: 0, y: 'aircraft' });
+    $('mlc-np-t').textContent = T.a3s && T.a3s[1] ? `Over the period ${pct(T.nps, T.a3s[1])} of the aircraft without a position of their own that three receivers heard were located (counted per ${per}).` +
+      (T.a0s && T.a0s[1] ? ` ${pct(T.a0s[0], T.a0s[1])} of them said so themselves: their position messages carried type code 0, which means “no position” — the direct sign that the aircraft has lost its satellite position.` : '') : '';
     // 12. the air temperature under the drift (the latest METAR at each step), and how the drift goes with it
     const TT = d.temp || [];
     const ttAt = t => { let v = null; for (const p of TT) { if (p[0] <= t + d.step) v = p; else break; } return v && t + d.step - v[0] <= 5400 ? v[1] : null; };

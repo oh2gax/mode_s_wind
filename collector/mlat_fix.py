@@ -458,6 +458,7 @@ class _Acc:
         self.rf = [set(), set(), set()]            # aircraft heard by a counter receiver with the main one: all, sending a position, usable
         self.ins = [[0, 0] for _ in range(nb)]     # of the nseen fixes: inside their stated error, inside twice it
         self.a3 = [set(), set()]                   # aircraft heard by three receivers: all, without a position of their own
+        self.a0: set = set()                       # … of those without: saying so themselves, with ADS-B type code 0 (from 2026-11-22)
         self.pc = [set(), set()]                   # aircraft with a position checked against the GPS-timed receivers: all, not fitting
         self.cb: Counter = Counter()               # replies by the receivers that heard them (bit mask)
         self.cg: dict | None = {} if grid else None    # coverage cells: key → [aircraft-minutes heard by 2+, by 3+, by 3+ with a resolved fix]
@@ -543,7 +544,7 @@ class _Acc:
                # replies by the receivers that heard them
                "sk": c["sk"], "nh": c["nh"], "po": c["po"], "dz": c["dz"],
                "rf": [len(x) for x in self.rf], "ie": [list(x) for x in self.ins],
-               "a3": [len(x) for x in self.a3], "pc": [len(x) for x in self.pc],
+               "a3": [len(x) for x in self.a3], "pc": [len(x) for x in self.pc], "a0": len(self.a0),
                "cb": {str(k): v for k, v in self.cb.items()},
                "b": [[self.nseen[i], st(self.raw[i]), p90(self.raw[i]), st(self.exp[i]), st(self.trk[i])]
                      for i in range(len(self.raw))],
@@ -603,6 +604,10 @@ def combine(recs: list, t0: int | None = None) -> dict:
             out[k] = [max(r[k][i] for r in new) for i in range(n)]       # aircraft: the busiest period
             out[k + "s"] = [sum(r[k][i] for r in new) for i in range(n)]  # aircraft × periods, for shares
         out["nps"] = sum(r.get("np", 0) for r in new)
+        new0 = [r for r in new if r.get("a0") is not None]       # the records from 2026-11-22 on: type code 0
+        if new0:
+            out["a0"] = max(r["a0"] for r in new0)
+            out["a0s"] = [sum(r["a0"] for r in new0), sum(r["a3"][1] for r in new0)]   # saying so, of those without a position
         out["ie"] = [[sum(r["ie"][i][j] for r in new) for j in (0, 1)] + [sum(r["b"][i][0] for r in new)]
                      for i in range(len(new[0]["ie"]))]
         cb: Counter = Counter()
@@ -924,10 +929,14 @@ class Fixer:
                 self.acc_m.c["h3"] += 1
                 self.acc_h.c["h3"] += 1
                 nopos = pts is None or t - pts >= 60.0
+                t0 = ls.get("tc0_ts")                        # its last ADS-B position message with type code 0
+                says = nopos and t0 is not None and t - t0 < 60.0
                 for acc in (self.acc_m, self.acc_h):
                     acc.a3[0].add(icao)
                     if nopos:
                         acc.a3[1].add(icao)
+                    if says:
+                        acc.a0.add(icao)
                 self.pending.append((t, icao, arr, gbits, cbits, ls.get("altitude"), ls))
         self._process()
         self.cpu += time.perf_counter() - t0c
@@ -1677,6 +1686,8 @@ class Fixer:
             a["reg"] = ls.get("registration") or a.get("reg")      # for the map's lists (from 2026-11-20 evening)
             a["has_pos"] = tr is not None or (ls.get("last_adsb_pos_ts") is not None
                                               and t - ls["last_adsb_pos_ts"] < 60)
+            # no position, and the aircraft says so itself (ADS-B type code 0 in the last minute; from 2026-11-22)
+            a["np0"] = (not a["has_pos"]) and ls.get("tc0_ts") is not None and t - ls["tc0_ts"] < 60
             if not a["trk"] or t - a["trk"][-1][0] >= TRACK_STEP:
                 a["trk"].append(pt)
                 trk_r = ls.get("track")
@@ -1782,7 +1793,7 @@ class Fixer:
                 except Exception:                  # noqa: BLE001 — the solver thread may be replacing the list
                     nh = 0
                 acs.append({"icao": icao, "cs": a.get("cs"), "typ": a.get("typ"), "reg": a.get("reg"), "last": last[:7],
-                            "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")),
+                            "n": a["n"], "nrx": a.get("nrx"), "pos": bool(a.get("has_pos")), "np0": bool(a.get("np0")),
                             "res": bool(a["res"]), "err": None if not er else int(er[len(er) // 2]),
                             "vel": a.get("vel"), "vr": a.get("vr"), "sal": a.get("sal"),
                             "mm": None if hy0 is None or hy0.get("dv") is None else round(hy0["dv"], 1),

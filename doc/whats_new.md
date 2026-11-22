@@ -3,13 +3,15 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
-## v.22112026 — The MLAT charts on the phone; own MLAT: the list of false positions is kept for a week, and a new chapter on what a day of interference looked like
+## v.22112026 — Aircraft that say they have no position; the MLAT charts on the phone; own MLAT: the list of false positions is kept for a week, and a new chapter on what a day of interference looked like
 
+- **MLAT: "no position · says so"** (MLAT right) — an aircraft that has lost its satellite position goes on sending its position messages, but with a code that means "no position". The Traffic lists (full site and phone) now show *no position · says so* for such an aircraft, and the Charts view counts them in *Aircraft with a fix*, as a dashed line beside the aircraft heard without a position. When the two lines run together, the missing positions are lost satellite positions and not weak reception — in the recordings of 18–22 November that was the case in nine minutes out of ten.
+- **MLAT Charts: a band in *GPS time of the receivers*** (MLAT right) — two dashed lines 50 ns either side of the period's middle show what is normal; the text under the chart says how many steps lie outside.
 - **Phone app: MLAT charts** (MLAT right) — the MLAT view has a fifth chip under the map, *Charts*: every panel of the full site's Charts view, one under the other, for the last hour, 24 hours or 7 days — the error against the aircraft's own positions, the clock of the receiver without GPS time, what became of the replies, the stated error, aircraft with and without a position of their own, the positions that do not fit, and the rest. Touch a chart to read its values. Charts added to the full site from now on appear on the phone too.
 - **MLAT tab: positions that do not fit, for 24 hours and 7 days** (MLAT right) — the table of the *Charts* view used to show the last hour only. It now follows the period buttons: with *24 h* and *7 d* it shows every aircraft listed in that time, with the date. A new column, *Position moved*, tells how far the broadcast position itself moved while the check failed: near 0 km for minutes means a position that stands still while the aircraft flies on. The listings are kept from 22 November onwards.
 - **Own multilateration — study log 1.8** (User guides) — a new chapter, *The fourth day*: on 21–22 November seven in ten aircraft heard by all three receivers sent no position of their own, and the system located most of them; what the check of every broadcast position found in five days of recordings (54 cases of positions that were false, most of them standing still far from the aircraft, and one that our own receivers could measure); and what the same check showed about our own mistakes.
-- **Statistics guide 1.31** (User guides) — the table's new periods and columns.
-- **Mobile guide 1.88** (User guides) — the Charts panel, panel by panel.
+- **Statistics guide 1.32** (User guides) — the table's new periods and columns, *no position · says so*, the band of the GPS-time chart; the figures of the Charts view show the present arrangement.
+- **Mobile guide 1.89** (User guides) — the Charts panel, panel by panel.
 
 ## v.21112026 — Own MLAT: the map says why no positions come, short gaps are bridged, and ten new charts show how the positions come about; pinned places of the meteogram can be named and removed; the panels of the Statistics page can be moved
 
