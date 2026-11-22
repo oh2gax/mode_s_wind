@@ -1087,6 +1087,8 @@ class Fixer:
         s["typ"] = ls.get("aircraft_type") or s.get("typ")
         s["reg"] = ls.get("registration") or s.get("reg")
         s["bc"] = (round(tr[3], 5), round(tr[4], 5))           # the position it broadcasts
+        if "bc0" not in s:                                     # … and the first one of this listing (from 2026-11-22):
+            s["bc0"] = s["bc"]                                 # a false position that stands still shows as bc0 == bc
         a = self.ac.get(icao)
         own = a["last"] if a is not None else None
         if own is not None and t - own[0] <= 15.0 and not own[6] and own[4] is not None and own[4] <= PCHK_OWN_M:
@@ -1095,6 +1097,7 @@ class Fixer:
             e, n, _ = self.fr.enu(own[1], own[2], 0.0)
             s["own"] = (own[1], own[2], own[4], own[6])
             s["km"] = round(math.hypot(e - tr[0], n - tr[1]) / 1000.0, 1)
+            s["kmx"] = max(s.get("kmx", 0.0), s["km"])
             s["t_own"] = t
 
     def suspects(self) -> dict:
@@ -1114,7 +1117,8 @@ class Fixer:
                         "t": round(s["t"], 1), "n": s["n"], "k": s.get("k"), "ns": s.get("med"), "max_ns": s["max"],
                         "min_km": round(s["max"] * 1e-9 * C_AIR / 1000.0, 1), "q": s.get("q"), "alt": s.get("alt"),
                         "bc": s.get("bc"), "own": s.get("own") if s.get("t_own") and s["t"] - s["t_own"] <= 60.0 else None,
-                        "km": s.get("km") if s.get("t_own") and s["t"] - s["t_own"] <= 60.0 else None})
+                        "km": s.get("km") if s.get("t_own") and s["t"] - s["t_own"] <= 60.0 else None,
+                        "bc0": s.get("bc0"), "kmx": s.get("kmx"), "own_last": s.get("own"), "t_own": s.get("t_own")})
         out.sort(key=lambda x: -x["t"])
         return {"on": True, "now": round(now, 1), "keep": PCHK_KEEP, "limit_ns": PCHK_NS, "sec": PCHK_SEC,
                 "checked": len([1 for p in list(self.pchk.values()) if now - p.get("t", 0) <= 60.0]), "aircraft": out}

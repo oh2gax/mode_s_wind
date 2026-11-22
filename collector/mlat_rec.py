@@ -336,6 +336,14 @@ class Recorder:
             CREATE INDEX IF NOT EXISTS mlat_trk_ts ON mlat_trk (ts);
             CREATE TABLE IF NOT EXISTS mlat_trk_ac (icao TEXT, t0 REAL, t1 REAL, n INTEGER, cs TEXT, typ TEXT, pos INTEGER,
                 PRIMARY KEY (icao, t0));
+            -- positions that did not fit the GPS-timed receivers' time stamps (from 2026-11-22; the engine's list
+            -- lives for an hour only): one row per listing of an aircraft, rewritten while it lasts, kept MLAT_SUM_DAYS.
+            -- lat0/lon0 first and lat1/lon1 last broadcast position; olat/olon our own fix when there was a good one;
+            -- km its distance from the broadcast position then, kmx the largest such distance; max_ns the largest misfit.
+            CREATE TABLE IF NOT EXISTS mlat_misfit (icao TEXT, t0 REAL, t1 REAL, n INTEGER, ns REAL, max_ns REAL,
+                nacp INTEGER, nic INTEGER, alt INTEGER, cs TEXT, typ TEXT, reg TEXT, lat0 REAL, lon0 REAL, lat1 REAL, lon1 REAL,
+                olat REAL, olon REAL, km REAL, kmx REAL, PRIMARY KEY (icao, t0));
+            CREATE INDEX IF NOT EXISTS mlat_misfit_t1 ON mlat_misfit (t1);
         """)
         db.commit()
 
@@ -377,6 +385,7 @@ class Recorder:
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_hour WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_min WHERE ts < ?", (int(now - 2 * 86400),))
+        self._db.execute("DELETE FROM mlat_misfit WHERE t1 < ?", (cut,))
         cut_t = now - self.trk_hours * 3600.0 - 600.0
         self._db.execute("DELETE FROM mlat_trk WHERE ts < ?", (cut_t,))
         self._db.execute("DELETE FROM mlat_trk_ac WHERE t1 < ?", (cut_t,))
@@ -677,6 +686,27 @@ class Recorder:
                              [(k, *self._seg[k]) for k in touched])
         self._db.commit()
 
+    def _store_misfits(self, now: float) -> None:
+        """The engine's list of positions that do not fit → mlat_misfit, once a minute: the listings that
+        changed in the last three minutes (a listing is one aircraft from its first failed check until an
+        hour after its last one)."""
+        try:
+            lst = self.fix.suspects().get("aircraft") or []
+        except Exception:                          # the list is a by-product: never in the recorder's way
+            return
+        rows = []
+        for a in lst:
+            if now - a.get("t", 0) > 180.0:
+                continue
+            q = a.get("q") or (None, None)
+            b0, b1, own = a.get("bc0") or a.get("bc") or (None, None), a.get("bc") or (None, None), a.get("own_last")
+            rows.append((a["icao"], a["t0"], a["t"], a.get("n"), a.get("ns"), a.get("max_ns"), q[0], q[1], a.get("alt"),
+                         a.get("cs"), a.get("typ"), a.get("reg"), b0[0], b0[1], b1[0], b1[1],
+                         own[0] if own else None, own[1] if own else None, a.get("km") if own else None, a.get("kmx")))
+        if rows:
+            self._db.executemany("INSERT OR REPLACE INTO mlat_misfit VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            self._db.commit()
+
     def _close_minute(self, now: float) -> None:
         if self.fix is not None:
             # the closed minutes / hours of the fix statistics
@@ -687,6 +717,7 @@ class Recorder:
                                      (rec["t"], json.dumps(rec, separators=(",", ":"))))
                 self._db.commit()
             self._store_tracks()
+            self._store_misfits(now)
         t0 = int(now // 60) * 60
         if self.min_t0 is None:
             self.min_t0 = t0
@@ -1154,11 +1185,42 @@ def fix_grid(hours: int = 1) -> dict:
     return _REC.fix.grid(hours)
 
 
-def fix_suspects() -> dict:
-    """The aircraft whose broadcast position does not fit the GPS-timed receivers' time stamps (the last hour)."""
+def fix_suspects(hours: int = 0) -> dict:
+    """The aircraft whose broadcast position does not fit the GPS-timed receivers' time stamps: the engine's
+    list of the last hour, or (hours 24 / 168, from 2026-11-22) the stored listings of that period with the
+    live ones on top."""
     if _REC is None or _REC.fix is None:
         return {"on": False, "why": _WHY if _REC is None else _FIX_WHY}
-    return _REC.fix.suspects()
+    out = _REC.fix.suspects()
+    for a in out.get("aircraft") or []:
+        a.pop("own_last", None)
+        a.pop("t_own", None)
+    if hours not in (24, 168):
+        out["hours"] = 1
+        return out
+    out["hours"] = hours
+    live = {(a["icao"], a["t0"]): a for a in out.get("aircraft") or []}
+    try:
+        db = sqlite3.connect("file:%s?mode=ro" % _REC.db_path.replace("\\", "/"), uri=True, timeout=5)
+    except sqlite3.Error:
+        return out
+    try:
+        rows = db.execute("SELECT icao, t0, t1, n, ns, max_ns, nacp, nic, alt, cs, typ, reg, lat0, lon0, lat1, lon1, olat, olon, km, kmx "
+                          "FROM mlat_misfit WHERE t1 >= ? ORDER BY t1 DESC LIMIT 500", (out["now"] - hours * 3600.0,)).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        db.close()
+    for r in rows:
+        if (r[0], r[1]) in live:
+            continue
+        out["aircraft"].append({"icao": r[0], "cs": r[9], "typ": r[10], "reg": r[11], "t0": r[1], "t": r[2], "n": r[3], "k": None,
+                                "ns": r[4], "max_ns": r[5], "min_km": round((r[5] or 0.0) * 1e-9 * C_AIR / 1000.0, 1),
+                                "q": (r[6], r[7]), "alt": r[8], "bc": (r[14], r[15]) if r[14] is not None else None,
+                                "own": (r[16], r[17]) if r[16] is not None else None, "km": r[18],
+                                "bc0": (r[12], r[13]) if r[12] is not None else None, "kmx": r[19]})
+    out["aircraft"].sort(key=lambda x: -x["t"])
+    return out
 
 
 def fix_stats(rng: str = "1h") -> dict:

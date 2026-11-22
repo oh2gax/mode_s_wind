@@ -14,7 +14,8 @@
  *   from 2026-11-21 midday: the counter receiver's clock through the period (fitted / carried / none) and the
  *   aircraft it could be set by; what became of the replies heard by three receivers; fixes inside their stated
  *   error; aircraft without a position of their own, heard and located; the air temperature under the drift;
- *   tracks confirmed and put in doubt; positions that do not fit the GPS-timed receivers (/api/mlat/suspects);
+ *   tracks confirmed and put in doubt; positions that do not fit the GPS-timed receivers (/api/mlat/suspects; with the
+ *   24 h and 7 d periods the stored listings, from 2026-11-22);
  *   which receivers hear a reply together; one line per day
  *
  * From the evening of 2026-11-21 the panels can be put in another place: drag one by its title bar (mouse or
@@ -70,7 +71,8 @@
         const r = await fetch('/api/mlat/fixstats?range=' + rng, { cache: 'no-store' });
         if (!r.ok) throw new Error(r.status);
         data = await r.json();
-        try { const q = await fetch('/api/mlat/suspects', { cache: 'no-store' }); sus = q.ok ? await q.json() : null; } catch (_) { sus = null; }
+        // the list of the last hour, or (from 2026-11-22) the stored listings of the period shown
+        try { const q = await fetch('/api/mlat/suspects' + (rng === '24h' ? '?hours=24' : rng === '7d' ? '?hours=168' : ''), { cache: 'no-store' }); sus = q.ok ? await q.json() : null; } catch (_) { sus = null; }
         render(data);
       } catch (_) { $('mlc-note').textContent = 'Update failed — retrying'; }
     }
@@ -222,15 +224,25 @@
     // 14. positions that do not fit the time stamps of the GPS-timed receivers
     chart('pc', 'mlc-pc', 'bar', L, [{ label: 'aircraft', data: S.map(r => r.pc ? r.pc[1] : null), backgroundColor: C.b }], { prec: 0 });
     const SA = sus && sus.on ? sus.aircraft || [] : [];
+    const sH = sus && sus.hours > 1 ? sus.hours : 1, sPer = sH === 168 ? 'last 7 days' : sH === 24 ? 'last 24 hours' : 'last hour';
+    const sT = t => sH > 1 ? new Date(t * 1000).toISOString().slice(8, 10) + '.' + new Date(t * 1000).toISOString().slice(5, 7) + '. ' + hm(t) : hm(t);
+    // how far the broadcast position itself moved during the listing: a false position that stands still shows as 0 km
+    const kmB = a => { if (!a.bc0 || !a.bc) return null; const f = Math.PI / 180, x = (a.bc[1] - a.bc0[1]) * Math.cos((a.bc[0] + a.bc0[0]) / 2 * f), y = a.bc[0] - a.bc0[0]; return Math.hypot(x, y) * 111.2; };
+    if ($('mlc-sus-note')) $('mlc-sus-note').textContent = 'broadcast positions against the time stamps of the GPS-timed receivers · ' + sPer + (SA.length > 1 ? ' · ' + SA.length + ' listings' : '');
     $('mlc-sus').innerHTML = SA.length ? '<thead><tr><th>Aircraft</th><th>Address</th><th>Reg</th><th class="num" title="The accuracy (NACp) and integrity (NIC) the aircraft reported with the position">NACp / NIC</th><th class="num">Level</th>' +
       '<th class="num" title="From the largest misfit of the time stamps: the position was at least this far from where the aircraft was. The check sees only the part across the line of sight, so the real error is this or more">Off by at least</th>' +
-      '<th class="num" title="Distance between the position the aircraft broadcast and our own fix of the same moment, when we had one">Our fix from it</th><th class="num" title="Times the check failed (every five seconds while it does)">Failed</th><th>First</th><th>Last, UTC</th></tr></thead><tbody>' +
-      SA.map(a => `<tr><td><b>${esc(a.cs || '—')}</b>${a.typ ? ' <span class="mst-dim">' + esc(a.typ) + '</span>' : ''}</td><td>${esc(a.icao)}</td><td>${esc(a.reg || '—')}</td><td class="num">${a.q ? (a.q[0] == null ? '—' : a.q[0]) + ' / ' + (a.q[1] == null ? '—' : a.q[1]) : '—'}</td>` +
-        `<td class="num">${a.alt == null ? '—' : 'FL' + String(Math.round(a.alt / 100)).padStart(3, '0')}</td><td class="num">${a.min_km} km</td><td class="num">${a.km == null ? '—' : a.km + ' km'}</td><td class="num">${a.n}</td><td>${hm(a.t0)}</td><td>${hm(a.t)}</td></tr>`).join('') + '</tbody>'
-      : '<tbody><tr><td class="mst-dim">No aircraft in the last hour whose position did not fit.</td></tr></tbody>';
+      '<th class="num" title="Distance between the position the aircraft broadcast and our own fix of the same moment, when we had one; in brackets the largest such distance of the listing">Our fix from it</th>' +
+      '<th class="num" title="How far the broadcast position itself moved between the first and the last failed check. Near 0 km for minutes: the position stands still while the aircraft flies on">Position moved</th>' +
+      '<th class="num" title="Times the check failed (every five seconds while it does)">Failed</th><th>First</th><th>Last, UTC</th></tr></thead><tbody>' +
+      SA.map(a => { const mv = kmB(a), kx = a.kmx != null && a.kmx !== a.km ? ` <span class="mst-dim">(${a.kmx})</span>` : '';
+        return `<tr><td><b>${esc(a.cs || '—')}</b>${a.typ ? ' <span class="mst-dim">' + esc(a.typ) + '</span>' : ''}</td><td>${esc(a.icao)}</td><td>${esc(a.reg || '—')}</td><td class="num">${a.q ? (a.q[0] == null ? '—' : a.q[0]) + ' / ' + (a.q[1] == null ? '—' : a.q[1]) : '—'}</td>` +
+        `<td class="num">${a.alt == null ? '—' : 'FL' + String(Math.round(a.alt / 100)).padStart(3, '0')}</td><td class="num">${a.min_km} km</td><td class="num">${a.km == null ? (a.kmx != null ? '<span class="mst-dim">(' + a.kmx + ' km)</span>' : '—') : a.km + ' km' + kx}</td>` +
+        `<td class="num">${mv == null ? '—' : mv < 10 ? mv.toFixed(1) + ' km' : Math.round(mv) + ' km'}</td><td class="num">${a.n}</td><td>${sT(a.t0)}</td><td>${sT(a.t)}</td></tr>`; }).join('') + '</tbody>'
+      : `<tbody><tr><td class="mst-dim">No aircraft in the ${sPer} whose position did not fit.</td></tr></tbody>`;
     $('mlc-sus-t').textContent = sus && sus.on ? `Every reply of an aircraft that sends a position and is heard by two GPS-timed receivers is checked, whatever accuracy the aircraft reports: the difference of the two time stamps must fit the position. ` +
       `${sus.checked} aircraft are being checked now. An aircraft is listed when the middle value of its last two minutes is ${(sus.limit_ns / 1000).toFixed(0)} µs or more off (300 m of range difference; positions that are right stay under 0.4 µs). ` +
-      'A listed position is wrong, not merely uncertain: frozen, far behind or false. On the map, Misfit positions draws where such an aircraft says it is and where our fix puts it.' : '';
+      'A listed position is wrong, not merely uncertain: frozen, far behind or false. On the map, Misfit positions draws where such an aircraft says it is and where our fix puts it. ' +
+      'With the 24 h and 7 d periods the table shows the stored listings of that time (kept from 22 Nov 2026).' : '';
     // 15. which receivers heard a reply together (replies heard by two or more)
     const RX = d.rx || {}, CB = T.cb || {}, cbT = Object.values(CB).reduce((a, v) => a + v, 0);
     const rxn = m => Object.keys(RX).filter(b => m & (1 << +b)).map(b => String(RX[b]).replace(/^MODES-/, '')).join(' + ');

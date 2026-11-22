@@ -831,11 +831,16 @@ def create_app(
     def mlat_suspects_api():
         """Aircraft whose broadcast position does not fit the time stamps of the GPS-timed receivers (from
         2026-11-21 midday; collector/mlat_fix.py suspects()): the last hour, with how far off at least and, when we
-        have a fix of our own for the same moment, where the aircraft is by the arrival times.  The MLAT right only."""
+        have a fix of our own for the same moment, where the aircraft is by the arrival times.  ?hours=24 or 168
+        (from 2026-11-22): the listings stored in mlat.db for that period.  The MLAT right only."""
         if not _mlat_ok():
             abort(404)
         from collector import mlat_rec
-        return _private(_gzip_json(mlat_rec.fix_suspects()))
+        try:
+            hours = int(request.args.get("hours", 0))
+        except (TypeError, ValueError):
+            hours = 0
+        return _private(_gzip_json(mlat_rec.fix_suspects(hours if hours in (24, 168) else 0)))
 
     @app.route("/api/msgstats")
     def msgstats_api():

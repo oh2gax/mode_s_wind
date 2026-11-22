@@ -3,6 +3,12 @@
 Short notes for users of the web pages, newest first. Each version is one day of
 development (v.DDMMYYYY). The full technical history is in CHANGELOG.md.
 
+## v.22112026 — Own MLAT: the list of false positions is kept for a week, and a new chapter on what a day of interference looked like
+
+- **MLAT tab: positions that do not fit, for 24 hours and 7 days** (MLAT right) — the table of the *Charts* view used to show the last hour only. It now follows the period buttons: with *24 h* and *7 d* it shows every aircraft listed in that time, with the date. A new column, *Position moved*, tells how far the broadcast position itself moved while the check failed: near 0 km for minutes means a position that stands still while the aircraft flies on. The listings are kept from 22 November onwards.
+- **Own multilateration — study log 1.8** (User guides) — a new chapter, *The fourth day*: on 21–22 November seven in ten aircraft heard by all three receivers sent no position of their own, and the system located most of them; what the check of every broadcast position found in five days of recordings (54 cases of positions that were false, most of them standing still far from the aircraft, and one that our own receivers could measure); and what the same check showed about our own mistakes.
+- **Statistics guide 1.31** (User guides) — the table's new periods and columns.
+
 ## v.21112026 — Own MLAT: the map says why no positions come, short gaps are bridged, and ten new charts show how the positions come about; pinned places of the meteogram can be named and removed; the panels of the Statistics page can be moved
 
 - **Statistics page: put the panels where you want them** — take a panel by its title bar with the mouse and drag it to another place: within its column, into another column, or in the *Recorder* and *Charts* views of the MLAT tab. The other panels make room, the page scrolls when you come near its edge, and Esc puts the panel back. The *Charts* view is now packed like the rest of the page — a band over the whole width, three columns and a second band — so there are no empty areas between the panels, before or after a move; a panel dragged into a band becomes as wide as the page. The arrangement is remembered in your browser, and **Reset layout** (shown once something has been moved) brings the original one back. The **Statistics guide** is now 1.30.
