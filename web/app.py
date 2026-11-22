@@ -3252,6 +3252,29 @@ def create_app(
             d = {**d, "slots": []}
         return _private(jsonify(d))
 
+    @app.route("/api/gps/switches")
+    def gps_switches_api():
+        """The morning step down and the evening step up of the share of FL050–250
+        aircraft with degraded GPS, day by day (from the late evening of
+        2026-11-22): dated from the tracker's minute counts with a change point,
+        with the 10-minute rule beside it (collector/gps_switch.py).
+
+        ?zone=all|50nm|20nm (default 50nm), ?days=N (1 – 31, default 14).
+        Full view only (web/rights.py).
+        """
+        if not _gnss_ok():
+            return _gnss_denied()
+        if gps_tracker is None:
+            return _private(jsonify({"days": [], "since": None}))
+        zone = request.args.get("zone", "50nm")
+        if zone not in ("all", "50nm", "20nm"):
+            zone = "50nm"
+        try:
+            days = int(request.args.get("days", 14))
+        except ValueError:
+            days = 14
+        return _private(jsonify(gps_tracker.get_switches(zone=zone, days=days)))
+
     # ── Weather (METAR / TAF) proxy ───────────────────────────────────────
 
     @app.route("/api/wx")

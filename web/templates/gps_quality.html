@@ -55,6 +55,7 @@
           <div class="gps-heatmap-range-btns" id="gps-ts-view-btns">
             <button class="gps-range-btn active" data-ts-view="hour" title="Hourly (or daily) degradation events by signal">Events</button>
             <button class="gps-range-btn" data-ts-view="10m" title="Degraded aircraft per 10 minutes, severe vs mild, with the share of FL050–250 traffic degraded, the share that itself says it has no position (type code 0, dashed; from 22 Nov 2026) and aircraft with a spoofing indicator (up to 7 days; recorded from 9 Oct 2026)">10 min</button>
+            <button class="gps-range-btn" data-ts-view="steps" title="The minute at which the share of FL050–250 aircraft with degraded GPS steps down in the morning and up in the evening, day by day — dated from minute counts (kept from the late evening of 22 Nov 2026), with the earlier 10-minute estimate beside it">Steps</button>
           </div>
           <div class="gps-range-btns" id="gps-range-btns">
             <button class="gps-range-btn active" data-range="1d">1d</button>
@@ -70,6 +71,8 @@
         <div class="gps-chart-wrap">
           <canvas id="gps-timeseries-canvas"></canvas>
           <canvas id="gps-t10-canvas" style="display:none"></canvas>
+          <!-- from the late evening of 2026-11-22: the daily steps as a table (static/js/gps_quality.js renderSteps) -->
+          <div id="gps-steps" class="gps-steps" style="display:none"></div>
         </div>
       </div>
 

@@ -2634,6 +2634,19 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
   width: 100% !important;
   height: 100% !important;
 }
+/* the Steps view (from the late evening of 2026-11-22): a table in the chart's place */
+.gps-steps { position: absolute; inset: 0.5rem; overflow: auto; }
+.gps-steps-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.gps-steps-table th { position: sticky; top: 0; background: var(--bg-1); color: var(--text-2); font-weight: 600; font-size: 11px; text-align: left; padding: 3px 10px 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.gps-steps-table thead tr:nth-child(2) th { top: 21px; font-weight: 500; }
+.gps-steps-table th[colspan] { border-left: 1px solid var(--border); }
+.gps-steps-table td { padding: 4px 10px 4px 6px; border-bottom: 1px solid var(--border); color: var(--text-1); white-space: nowrap; }
+.gps-steps-table td.gps-st-t, .gps-steps-table td.gps-st-none { border-left: 1px solid var(--border); }
+.gps-steps-table td small { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.gps-steps-table td.gps-st-p, .gps-steps-table td.gps-st-rule, .gps-steps-table td.gps-st-day { color: var(--text-2); }
+.gps-steps-table td.gps-st-none { color: var(--text-3); }
+.gps-st-tag { font-size: 10px; color: var(--text-2); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+.gps-steps-note { font-size: 11.5px; line-height: 1.5; color: var(--text-3); padding: 8px 6px 2px; white-space: normal; }
 
 /* ── Heatmap ─────────────────────────────────────────────────────────────── */
 .gps-heatmap-panel {

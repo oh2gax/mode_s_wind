@@ -219,6 +219,13 @@ SLOTS          = BUCKET_SEC // SLOT_SEC
 T10_KEYS       = ("ac", "deg", "sev", "spf", "mac", "mdeg", "tc0", "mtc0")
 T10_NEW        = ("tc0", "mtc0")     # absent in older rows: served as None, not as 0
 TC0_SLOT_SEC   = 10.0                # s: a type-code-0 message this recent counts the aircraft in the slot
+# from the late evening of 2026-11-22: the same for every MINUTE of the hour, FL050–250 only — aircraft seen (mac),
+# flagged (mdeg) and saying "no position" (mtc0): band_detail "t1", three lists of 60.  A study of the recorded hours
+# of 18–22 Nov 2026 dated the daily steps of the interference to the minute from such counts, where the 10-minute
+# slots were 10 to 30 minutes off (collector/gps_switch.py dates them).  About half a kilobyte per hourly row.
+MIN_KEYS       = ("mac", "mdeg", "mtc0")
+MINS           = BUCKET_SEC // 60
+SWITCH_MAX_DAYS = 31                 # /api/gps/switches window limit
 MID_LO_FT, MID_HI_FT = 5_000, 25_000  # "mid" altitude range FL050–250
 SPOOF_KINDS    = ("mlat_dis", "gmb_sat", "gmb_jump", "pos_jump")
 SPOOF_POS_SEC  = 10.0    # own ADS-B and MLAT positions must be this recent to compare
@@ -304,6 +311,8 @@ def _band_detail(b: dict) -> dict:
         det["spl"] = [{"icao": i, **e} for i, e in sorted(b["spl"].items(), key=lambda x: x[1]["t"])]
     if "t10" in b:
         det["t10"] = b["t10"]
+    if "t1" in b:
+        det["t1"] = b["t1"]
     if b.get("_sev"):
         det["sevn"] = len(b["_sev"])      # distinct severe aircraft in the hour
     if b.get("_spf"):
@@ -336,9 +345,29 @@ def _slot_add(b: dict, now: float, key: str, icao: str) -> None:
     b.setdefault("t10", _empty_t10())[key][i] = len(s[key])
 
 
-_TRANSIENT_KEYS = ("_seen", "_deg", "_band_seen", "_band_deg", "_band_sev", "_band_spf", "_slot",
+def _empty_t1() -> dict:
+    return {k: [0] * MINS for k in MIN_KEYS}
+
+
+def _min_add(b: dict, now: float, key: str, icao: str) -> None:
+    """Add an aircraft (FL050–250) to the current minute of a bucket.  Only the
+    minute in progress keeps its aircraft sets; finished minutes are counts."""
+    i = min(max(int((now - b["ts"]) // 60), 0), MINS - 1)
+    s = b.get("_min")
+    if s is not None and i < s["i"]:          # clock stepped back: stay in the minute
+        i = s["i"]
+    if s is None or s["i"] != i:
+        s = b["_min"] = {"i": i, **{k: set() for k in MIN_KEYS}}
+    s[key].add(icao)
+    t1 = b.get("t1")
+    if t1 is None:
+        t1 = b["t1"] = _empty_t1()
+    t1[key][i] = len(s[key])
+
+
+_TRANSIENT_KEYS = ("_seen", "_deg", "_band_seen", "_band_deg", "_band_sev", "_band_spf", "_slot", "_min",
                    "_sev", "_spf")
-_RAW_DETAIL_KEYS = ("band_sig", "band_sev", "band_spf", "spl", "t10")   # folded into band_detail
+_RAW_DETAIL_KEYS = ("band_sig", "band_sev", "band_spf", "spl", "t10", "t1")   # folded into band_detail
 
 
 def _freeze_bucket(b: dict, detail: dict | None = None) -> None:
@@ -400,6 +429,7 @@ def _empty_bucket(ts: float) -> dict:
         "band_spf": {},     # {band: {spoof kind|cmp|gmb_n: n}}
         "spl":      {},     # {icao: {...}} aircraft with a spoofing indicator ('all' zone)
         "t10":      _empty_t10(),                  # 10-minute slot counts
+        "t1":       _empty_t1(),                   # minute counts, FL050–250 (from 2026-11-22 late evening)
         "_band_sev": {},    # transient: severely degraded icaos per band
         "_band_spf": {},    # transient: icaos with a spoofing indicator per band
         "_sev":      set(), # transient: severely degraded icaos (all bands)
@@ -485,6 +515,7 @@ class GpsQualityTracker:
         self._last_checkpoint = 0.0
         # get_detail(): parsed completed hours per (zone, hours, current hour)
         self._detail_cache: dict = {}
+        self._switch_cache: dict = {}    # (zone, days, hour) → the stored hours' slot and minute counts
 
         # Restore history from DB (completed hours only), plus the hour that
         # was in progress when the process last stopped (checkpoint).
@@ -568,6 +599,7 @@ class GpsQualityTracker:
         _slot_add(bucket, now, "deg", icao)
         if altitude is not None and MID_LO_FT <= altitude < MID_HI_FT:
             _slot_add(bucket, now, "mdeg", icao)
+            _min_add(bucket, now, "mdeg", icao)
         if sev:
             _slot_add(bucket, now, "sev", icao)
             bucket.setdefault("_sev", set()).add(icao)
@@ -680,10 +712,12 @@ class GpsQualityTracker:
             _slot_add(zb, now, "ac", icao)
             if mid:
                 _slot_add(zb, now, "mac", icao)
+                _min_add(zb, now, "mac", icao)
             if tc0:                               # the aircraft itself says that it has no position
                 _slot_add(zb, now, "tc0", icao)
                 if mid:
                     _slot_add(zb, now, "mtc0", icao)
+                    _min_add(zb, now, "mtc0", icao)
 
     # ── Database persistence ──────────────────────────────────────────────────
 
@@ -901,6 +935,16 @@ class GpsQualityTracker:
                 i0 = min(max(int((time.time() - b["ts"]) // SLOT_SEC), 0), SLOTS - 1)   # have passed were not counted
                 for k in T10_NEW:
                     b["t10"][k] = [None] * i0 + [0] * (SLOTS - i0)
+        t1 = d.get("t1")
+        m0 = min(max(int((time.time() - b["ts"]) // 60), 0), MINS - 1)
+        if isinstance(t1, dict):
+            for k in MIN_KEYS:
+                v = t1.get(k)
+                if isinstance(v, list) and len(v) == MINS:
+                    b["t1"][k] = v
+        else:                                     # a checkpoint of before the minute counts: the minutes
+            for k in MIN_KEYS:                    # that have passed were not counted
+                b["t1"][k] = [None] * m0 + [0] * (MINS - m0)
         for src, dst in (("band_sev_ac", "_band_sev"), ("band_spf_ac", "_band_spf")):
             for lbl, v in (d.get(src) or {}).items():
                 b[dst].setdefault(lbl, set()).update(v)
@@ -1434,6 +1478,7 @@ class GpsQualityTracker:
         return {
             "ts": int(ts), "total": total or 0, "degraded": degraded or 0,
             "t10":  det.get("t10"),
+            "t1":   det.get("t1"),
             "sevn": det.get("sevn", max((det.get("sev") or {"": 0}).values())),
             "spfn": det.get("spfn", 0),
             "s0":   det.get("s0") or {},
@@ -1483,6 +1528,60 @@ class GpsQualityTracker:
         except Exception as exc:
             log.warning("GPS quality: reading detail rows failed: %s", exc)
         return [out[k] for k in sorted(out)]
+
+    def get_switches(self, zone: str = "50nm", days: int = 14) -> dict:
+        """The morning step down and the evening step up of the degraded share
+        at FL050–250, day by day (collector/gps_switch.py): dated from the
+        minute counts with a change point, and by the 10-minute rule beside
+        it.  Completed hours are read from the DB once per hour and cached; the
+        hour in progress comes from RAM.  Days before the minute counts
+        (2026-11-22 late evening) have the rule only.
+
+        Returns {zone, days: [{day, down, up}, …] newest first, since (first
+        minute with counts in the window, None = none), params}."""
+        from collector import gps_switch as gs
+        if zone not in ZONE_LIMITS_NM:
+            zone = "all"
+        days = max(1, min(int(days), SWITCH_MAX_DAYS))
+        now = time.time()
+        now_hour = _bucket_hour(now)
+        day_now = int(now // 86400) * 86400
+        t0 = day_now - (days - 1) * 86400
+        key = (zone, days, now_hour)
+        with self._lock:
+            done = self._switch_cache.get(key)
+        if done is None:
+            done = [{"ts": r["ts"], "t10": r["t10"], "t1": r["t1"]} for r in self._read_detail_rows(zone, t0, now_hour)]
+            with self._lock:
+                kept = {k: v for k, v in self._switch_cache.items() if k[2] == now_hour}
+                self._switch_cache = kept if len(kept) < 6 else {}
+                self._switch_cache[key] = done
+        rows = list(done)
+        with self._lock:
+            zb = self._zone_buckets[zone] if zone in self._zone_buckets else self._buckets
+            if zb and zb[-1]["ts"] >= now_hour and "t10" in zb[-1]:
+                cur = zb[-1]
+                rows.append({"ts": cur["ts"], "t10": {k: list(v) for k, v in cur["t10"].items()},
+                             "t1": {k: list(v) for k, v in (cur.get("t1") or {}).items()} or None})
+        minutes: dict = {}
+        slots: dict = {}
+        for r in rows:
+            t10, t1 = r.get("t10") or {}, r.get("t1")
+            mac, mdeg = t10.get("mac"), t10.get("mdeg")
+            if mac and mdeg:
+                for i in range(SLOTS):
+                    slots[r["ts"] + i * SLOT_SEC] = (mac[i] or 0, mdeg[i] or 0)
+            if t1 and t1.get("mac") and t1.get("mdeg"):
+                tc = t1.get("mtc0") or [None] * MINS
+                for i in range(MINS):
+                    if t1["mac"][i] is None or t1["mdeg"][i] is None:
+                        continue
+                    minutes[r["ts"] + i * 60] = (t1["mac"][i], t1["mdeg"][i], tc[i])
+        out = [gs.day_steps(d0, minutes, slots, now) for d0 in range(int(t0), int(day_now) + 1, 86400)]
+        out.reverse()
+        return {"zone": zone, "days_n": days, "days": out, "since": min(minutes) if minutes else None,
+                "params": {"down_hours": list(gs.DOWN_HOURS), "up_hours": list(gs.UP_HOURS), "rule_share": gs.RULE_SHARE,
+                           "min_step": gs.CP_MIN_STEP, "ramp_min": gs.RAMP_MIN}}
 
     def get_detail(self, zone: str = "all", hours: int = 24) -> dict:
         """10-minute slots, severity and spoofing indicators for the last

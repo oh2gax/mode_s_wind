@@ -1609,7 +1609,9 @@ function spoofGroups(kinds) {
 const SPOOF_MULTI_TIP = 'Flagged by two or more independent checks in the same hour (ADS-B vs MLAT, GNSS−baro altitude, position jump; the two GNSS−baro indicators count as one)';
 let spoofMultiOnly = localStorage.getItem('ms_gps_spoof_multi') === 'true';
 
-let tsView      = localStorage.getItem('ms_gps_ts_view') === '10m' ? '10m' : 'hour';
+// 'hour' (Events), '10m', or — from the late evening of 2026-11-22 — 'steps': the table of the daily steps
+const TS_VIEWS  = ['hour', '10m', 'steps'];
+let tsView      = TS_VIEWS.includes(localStorage.getItem('ms_gps_ts_view')) ? localStorage.getItem('ms_gps_ts_view') : 'hour';
 let t10Chart    = null;
 let spoofHours  = Number(localStorage.getItem('ms_gps_spoof_hours')) || 24;
 if (![24, 168, 744].includes(spoofHours)) spoofHours = 24;
@@ -1622,6 +1624,86 @@ function t10Hours() {
 function _pad2(n) { return String(n).padStart(2, '0'); }
 function _hhmm(ts) { const d = new Date(ts * 1000); return `${_pad2(d.getUTCHours())}:${_pad2(d.getUTCMinutes())}`; }
 function _dmhm(ts) { const d = new Date(ts * 1000); return `${d.getUTCDate()}.${d.getUTCMonth() + 1}. ${_hhmm(ts)}`; }
+
+// ── The daily steps (from the late evening of 2026-11-22; /api/gps/switches, collector/gps_switch.py) ──────────
+// When the share of FL050–250 aircraft with degraded GPS steps down in the morning and up in the evening: dated from
+// the tracker's minute counts with a change point, with the 10-minute rule beside it.  The Steps view lists the days;
+// the 10-minute chart marks the dated steps with thin vertical lines.  What is shown is when and how much, not why.
+let stepsData = null;
+function stepsDays() {
+  const cfg = RANGE_CONFIG[currentRange] || RANGE_CONFIG['1d'];
+  return Math.min(31, Math.max(7, Math.ceil(cfg.hours / 24)));
+}
+async function fetchSteps(days) {
+  const r = await fetch(`/api/gps/switches?zone=${encodeURIComponent(currentZone)}&days=${days}`);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+const _pc = v => Math.round(100 * v) + ' %';
+function _stepCell(s, up) {
+  if (s == null) return '<td class="gps-st-none" colspan="3" title="The hours searched for this step have not come yet">—</td>';
+  const rule = `<td class="gps-st-rule" title="The earlier estimate: the first 10-minute slot of a run with the smoothed share of FL050–250 aircraft degraded ${up ? 'at or above' : 'below'} 35 %">${s.rule != null ? _hhmm(s.rule) : '—'}</td>`;
+  const c = s.cp, t = s.cp_tc0;
+  if (!c) {
+    const why = !s.minutes ? 'No minute counts for these hours (they are kept from the late evening of 22 Nov 2026)'
+      : `No clear step ${up ? 'up' : 'down'} in these hours: ${s.minutes} minutes with counts, ${s.ac_min} aircraft-minutes at FL050–250`;
+    return `<td class="gps-st-none" colspan="2" title="${why}">${!s.minutes ? 'no minute counts' : 'no clear step'}${s.open ? ' so far' : ''}</td>` + rule;
+  }
+  const rng = c.lo === c.hi ? '' : ` <small>${_hhmm(c.lo)}–${_hhmm(c.hi)}</small>`;
+  const tip = `Aircraft-minutes at FL050–250: ${c.n0} before, ${c.n1} after.`
+    + (t ? ` From the aircraft that say “no position” (TC 0): ${_hhmm(t.t)}${t.lo === t.hi ? '' : ' (' + _hhmm(t.lo) + '–' + _hhmm(t.hi) + ')'}, ${_pc(t.p0)} → ${_pc(t.p1)}.` : '')
+    + (c.ramp ? ' The change is slow: the minute is the middle of a ramp, not a step.' : '') + (s.open ? ' The hours searched are not over: this can still change.' : '');
+  return `<td class="gps-st-t" title="${tip}"><b>${_hhmm(c.t)}</b>${rng}${c.ramp ? ' <span class="gps-st-tag">ramp</span>' : ''}${s.open ? ' <span class="gps-st-tag">so far</span>' : ''}</td>`
+    + `<td class="gps-st-p">${_pc(c.p0)} → ${_pc(c.p1)}</td>` + rule;
+}
+function renderSteps(d) {
+  const box = document.getElementById('gps-steps');
+  if (!box) return;
+  const days = (d && d.days) || [];
+  const zn = { all: 'all aircraft', '50nm': 'within 50 NM', '20nm': 'within 20 NM' }[currentZone] || '';
+  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  box.innerHTML = '<table class="gps-steps-table"><thead>'
+    + '<tr><th rowspan="2">Day (UTC)</th><th colspan="3">Step down, 02–10 UTC</th><th colspan="3">Step up, 13–23 UTC</th></tr>'
+    + '<tr><th>Dated to</th><th>Share before → after</th><th>10-min rule</th><th>Dated to</th><th>Share before → after</th><th>10-min rule</th></tr></thead><tbody>'
+    + days.map(r => { const dt = new Date(r.day * 1000);
+        return `<tr><td class="gps-st-day">${WD[dt.getUTCDay()]} ${dt.getUTCDate()}.${dt.getUTCMonth() + 1}.</td>${_stepCell(r.down, false)}${_stepCell(r.up, true)}</tr>`; }).join('')
+    + '</tbody></table>'
+    + `<div class="gps-steps-note">The minute at which the share of FL050–250 aircraft with degraded GPS (${zn}) steps down in the morning and up in the evening — `
+    + 'the best split of the minute counts into two levels, with the minutes that fit nearly as well as its range. A step is listed only when the two levels differ by 20 points or more. '
+    + '<i>10-min rule</i>: the earlier, coarser estimate, kept for comparison. Research data — when and how much, not why. '
+    + (d && d.since != null ? `Minute counts from ${_dmhm(d.since)} UTC.` : 'No minute counts in this window yet: they are kept from the late evening of 22 Nov 2026.') + '</div>';
+}
+async function refreshSteps() {
+  if (tsView === 'steps') {
+    try { stepsData = await fetchSteps(stepsDays()); renderSteps(stepsData); }
+    catch (_) { const box = document.getElementById('gps-steps'); if (box && !stepsData) box.innerHTML = '<div class="gps-steps-note">The steps could not be loaded.</div>'; }
+  } else if (tsView === '10m' && t10Chart) {
+    try { const d = await fetchSteps(Math.min(31, Math.ceil(t10Hours() / 24) + 1)); t10Chart.$steps = stepMarks(d); t10Chart.update('none'); } catch (_) { /* no marks */ }
+  }
+}
+function stepMarks(d) {
+  const out = [];
+  for (const r of (d && d.days) || []) for (const [k, up] of [['down', false], ['up', true]]) if (r[k] && r[k].cp) out.push({ t: r[k].cp.t, up, ramp: r[k].cp.ramp });
+  return out;
+}
+// thin vertical lines at the dated steps of the 10-minute chart, with the time while there are few of them
+const t10StepsPlugin = {
+  id: 't10Steps',
+  afterDatasetsDraw(chart) {
+    const st = chart.$steps, ts = chart.$slotTs, a = chart.chartArea, x = chart.scales.x;
+    if (!st || !st.length || !ts || ts.length < 2 || !a) return;
+    const w = x.getPixelForValue(1) - x.getPixelForValue(0), th = canvasTheme();
+    const vis = st.filter(s => s.t >= ts[0] && s.t < ts[ts.length - 1] + 600);
+    const { ctx } = chart;
+    ctx.save(); ctx.strokeStyle = th.axisLabel; ctx.fillStyle = th.axisLabel; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.font = '10px sans-serif'; ctx.textBaseline = 'top';
+    for (const s of vis) {
+      const i = Math.floor((s.t - ts[0]) / 600), px = x.getPixelForValue(i) + ((s.t - ts[i]) / 600 - 0.5) * w;
+      ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+      if (vis.length <= 6) { const lab = (s.up ? '↑ ' : '↓ ') + _hhmm(s.t); const r = px + 4 + ctx.measureText(lab).width > a.right; ctx.textAlign = r ? 'right' : 'left'; ctx.fillText(lab, px + (r ? -4 : 4), a.top + 2); }
+    }
+    ctx.restore();
+  },
+};
 
 // Message in an empty chart
 const t10EmptyPlugin = {
@@ -1644,7 +1726,7 @@ function initT10Chart() {
   const th  = canvasTheme();
   t10Chart = new Chart(ctx, {
     type: 'bar',
-    plugins: [t10EmptyPlugin],
+    plugins: [t10EmptyPlugin, t10StepsPlugin],
     data: {
       labels: [],
       datasets: [
@@ -1748,12 +1830,13 @@ function updateT10Chart(d) {
 }
 
 async function refreshT10() {
-  if (tsView !== '10m') return;
+  if (tsView !== '10m') { if (tsView === 'steps') refreshSteps(); return; }
   try { updateT10Chart(await fetchDetail(t10Hours())); } catch (_) { /* silent */ }
+  refreshSteps();
 }
 
 function applyTsView(view) {
-  tsView = view === '10m' ? '10m' : 'hour';
+  tsView = TS_VIEWS.includes(view) ? view : 'hour';
   localStorage.setItem('ms_gps_ts_view', tsView);
   document.querySelectorAll('#gps-ts-view-btns .gps-range-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tsView === tsView);
@@ -1762,8 +1845,13 @@ function applyTsView(view) {
   const t10 = document.getElementById('gps-t10-canvas');
   ev.style.display  = tsView === 'hour' ? '' : 'none';
   t10.style.display = tsView === '10m'  ? '' : 'none';
+  const stp = document.getElementById('gps-steps');
+  if (stp) stp.style.display = tsView === 'steps' ? '' : 'none';
   updateTsTitle();
-  if (tsView === '10m') {
+  if (tsView === 'steps') {
+    if (stepsData) renderSteps(stepsData);
+    refreshSteps();
+  } else if (tsView === '10m') {
     if (!t10Chart) initT10Chart();
     t10Chart.resize();
     refreshT10();
@@ -1776,7 +1864,9 @@ function updateTsTitle() {
   const titleEl = document.getElementById('gps-chart-title');
   if (!titleEl) return;
   const cfg = RANGE_CONFIG[currentRange] || RANGE_CONFIG['1d'];
-  if (tsView === '10m') {
+  if (tsView === 'steps') {
+    titleEl.textContent = `Morning and evening steps — Last ${stepsDays()} Days`;
+  } else if (tsView === '10m') {
     const capped = cfg.hours > T10_MAX_HOURS;
     titleEl.textContent = 'Degraded Aircraft per 10 min — ' + (capped ? 'Last 7 Days (max)' : cfg.title);
   } else {
