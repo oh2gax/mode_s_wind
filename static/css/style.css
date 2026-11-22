@@ -2767,6 +2767,8 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 .gps-flag-freeze { color: #88b6cd; }
 .gps-flag-gap    { color: #a8a0d0; }
 .gps-flag-adsb   { color: #76ad9f; }
+/* from 2026-11-22: the aircraft's own "no position" (type code 0) — a marker beside the signals, dashed to tell it apart */
+.gps-flag-tc0    { color: #b6bfcc; border-style: dashed; }
 .gps-flag-sev    { color: #d48f8f; }
 .gps-flag-spf    { color: #c995ad; }
 .gps-summary-sev { color: #d48f8f; }
@@ -2997,6 +2999,7 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 [data-theme="light"] .gps-flag-freeze { color: #3d7896; }
 [data-theme="light"] .gps-flag-gap    { color: #6a5fa3; }
 [data-theme="light"] .gps-flag-adsb   { color: #3a7a6d; }
+[data-theme="light"] .gps-flag-tc0    { color: #55606f; }
 [data-theme="light"] .gps-flag-sev    { color: #a94f4f; }
 [data-theme="light"] .gps-flag-spf    { color: #9c5577; }
 [data-theme="light"] .gps-summary-sev { color: #a94f4f; }

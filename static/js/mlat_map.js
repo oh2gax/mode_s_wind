@@ -787,7 +787,11 @@
   function clockMsg(d) {
     if (!d || !d.on) return null;
     const c0 = d.counters || {}, old = fxHist.find(h => d.now - h.t >= 12);
-    const made = old ? c0.fix - old.fix : null, lost = old ? c0.no_clock - old.nc : 0;   // made null: opened just now
+    // from 2026-11-22 the server tells how long ago the last fix was made (fix_age) and the last reply was lost for want
+    // of a clock line (nc_age), so the message is right from the first answer; an older server: the last polls, as before
+    const srv = d.fix_age !== undefined, fa = d.fix_age, na = d.nc_age;
+    const made = srv ? (fa != null && fa < 12 ? 1 : 0) : old ? c0.fix - old.fix : null;                // made null: opened just now
+    const lost = srv ? (na != null && na < 12 ? 1 : 0) : old ? c0.no_clock - old.nc : 0;
     const rx = (d.receivers || []).find(r => !r.gps && !r.rec_only && r.site);
     if (!rx) return null;
     const nm = esc(String(rx.id).replace(/^MODES-/, '')), ck = rx.clock, rf = d.refs;
@@ -804,7 +808,7 @@
     else if (!rf.heard) why = `no aircraft is heard by ${nm} and ${rn} together.`;
     else if (!rf.good) why = `none of the ${rf.heard} aircraft ${nm} hears sends a usable position, so its clock cannot be set. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
     else why = `only ${rf.good} of the ${rf.heard} aircraft ${nm} hears send${rf.good === 1 ? 's' : ''} a usable position — too little to set its clock. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
-    return { cls: 'stop', title, html: `<b>No position fixes at the moment:</b> ${why}` };
+    return { cls: 'stop', title, html: `<b>No position fixes ${srv && fa != null && fa >= 20 ? 'for ' + (fa < 90 ? Math.round(fa) + ' s' : Math.round(fa / 60) + ' min') : 'at the moment'}:</b> ${why}` };
   }
   function showMsg(m) {
     const el = $('mlm-msg');

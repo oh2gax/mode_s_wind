@@ -202,6 +202,7 @@ LAST_POS_MAX_AGE_SEC = 120.0
 
 # ── Degradation episode log ───────────────────────────────────────────────────
 SIG_ORDER          = ("nacp", "nic", "freeze", "gap", "adsb_loss")
+TC0_FRESH_SEC      = 60.0     # s: a type-code-0 message this recent marks the aircraft in the live table
 EPISODE_MERGE_SEC  = 120.0   # a clean period shorter than this does not end an episode
 EPISODE_RADIUS_NM  = 100.0
 EPISODE_BUF_MAX    = 20_000   # closed episodes kept for retry while the DB is unwritable
@@ -1397,6 +1398,10 @@ class GpsQualityTracker:
                     # distance zones of the aircraft in this sweep ('50nm', '20nm';
                     # from 2026-11-11, for the Pilot view's area selector)
                     "zones":       list(st.get("zones") or ()),
+                    # from 2026-11-22: the aircraft itself says that it has no position (an ADS-B
+                    # airborne-position message of type code 0 in the last minute) — a marker in the
+                    # live tables only; the signals and the counts are as before
+                    "tc0":         bool(ac.get("tc0_ts") is not None and now - ac["tc0_ts"] <= TC0_FRESH_SEC),
                 })
 
             # Sort by altitude descending (highest first)

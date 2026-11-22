@@ -762,6 +762,8 @@ class Fixer:
         self.gmb: dict = {}                        # band → [value ft, t]
         self.ac: dict = {}                         # icao → aircraft state
         self.c = Counter()
+        self.t_fix = None                          # when the last fix was made, and the last reply lost for want of a
+        self.t_nc = None                           # clock line (engine time): the maps' message goes by their age
         self.stat: deque = deque()                 # (t, dist NM, raw error m, track error m)
         self.cpu = 0.0
         # statistics: the open minute and hour, the closed ones (also loaded from / stored to
@@ -1416,6 +1418,7 @@ class Fixer:
             ln = self._line(b, t, icao)
             if ln is None:
                 self.c["no_clock"] += 1
+                self.t_nc = self.now
                 self.acc_m.c["nc"] += 1
                 self.acc_h.c["nc"] += 1
                 continue
@@ -1627,6 +1630,7 @@ class Fixer:
         if exp is not None and EXP_FLOOR_M > 0.0:
             exp = math.hypot(exp, EXP_FLOOR_M)
         self.c["fix"] += 1
+        self.t_fix = self.now
         a["n"] += 1
         # unresolved: two candidates, or one that is neither confirmed by its motion nor old enough
         amb = len(a["hyps"]) > 1 or bool(a.get("doubt")) or not (a["res"] or t - hy["t0"] >= SINGLE_OK_SEC)
@@ -1855,6 +1859,9 @@ class Fixer:
                          + [{"id": rid, "bit": b, "rec_only": True} for b, rid in sorted(self.rec_only.items())],
             "use_why": self.use_why,
             "refs": seen,
+            # seconds since the last fix and since the last reply lost for want of a clock line (None: none since the start)
+            "fix_age": None if self.t_fix is None else round(max(0.0, now - self.t_fix), 1),
+            "nc_age": None if self.t_nc is None else round(max(0.0, now - self.t_nc), 1),
             "counters": {k: c[k] for k in ("heard3", "tried", "fix", "ambiguous", "no_clock", "no_height", "no_alt",
                                            "skipped", "poor", "init", "resolved", "mirror", "error",
                                            "held", "ref_off", "ref_low")},

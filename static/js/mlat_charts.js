@@ -65,7 +65,14 @@
   // (ms_mlc_layout: the bands and columns of the late evening of 2026-11-21; the order saved for the grid of rows
   // of a few hours before, ms_mlc_order, does not fit them and is dropped)
   try { localStorage.removeItem('ms_mlc_order'); } catch (_) { /* a convenience only */ }
-  if (window.PanelOrder) window.PanelOrder.attach({ root: $('mst-mlat-charts'), groupSel: '.mlc-col', key: 'ms_mlc_layout', reset: $('mlc-reset') });
+  // From 2026-11-22: a panel folds to its title bar (the arrow at the bar's right end), and the phone view has both —
+  // there the panels are one column, taken by a finger held on the title bar, with an order and folds of its own.
+  if (window.PanelOrder) {
+    if (PHONE) window.PanelOrder.attach({ root: $('mst-mlat-charts').parentNode, groupSel: '.aml-chr', key: 'ms_app_mlc_order', fold: 'ms_app_mlc_fold',
+      touch: true, reset: $('mlc-reset'), scroll: document.getElementById('v-mlat') });
+    else window.PanelOrder.attach({ root: $('mst-mlat-charts'), groupSel: '.mlc-col', key: 'ms_mlc_layout', fold: 'ms_mlc_fold', reset: $('mlc-reset') });
+  }
+  document.addEventListener('po-fold', e => { if (on && data && e.detail && !e.detail.folded) render(data); });   // an opened panel is drawn at its size
 
   async function poll() {
     clearTimeout(timer);

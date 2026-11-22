@@ -20,7 +20,7 @@ A two-page brochure of MODE-S Wind and its receiving station — for handing to 
 
 ## The receiving station (A4 overview)
 file: MODE_S_Wind_Receiving_Station_OH2GAX.pdf
-version: 1.19
+version: 1.20
 date: 2026-11-22
 pages: 10
 
@@ -119,7 +119,7 @@ How MODE-S Wind finds low-level windshear from the aircraft's own Mode S replies
 
 ## Mode S & ADS-B and the Statistics page
 file: Statistics_User_Guide.pdf
-version: 1.33
+version: 1.34
 date: 2026-11-22
 pages: 26
 open: stats
@@ -128,7 +128,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 - Mode S and ADS-B in a nutshell: interrogations and replies, all-call and roll-call, the 24-bit address, interrogator codes (II / SI), squitters, and who interrogates around Helsinki (Fintraffic's WAM network and the Mode S radars)
 - The messages: the downlink formats, parity and why some addresses cannot be verified; Comm-B and the registers 1,0 … 6,0 (ELS / EHS) with their contents; the ADS-B type codes, versions and the GNSS − baro difference
-- The page part by part: **arranging the panels** by dragging them (new in 1.29 and 1.30, with *Reset layout* and the packed Charts view), summary bar, the **system health** dots and panel (including the magnetic declination model, and the **Pi / Server** dot of the computer the page runs on), the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), the **data transfer** meter (bytes from the receiver, served to the users and through the network interface — per minute, hour, day and month), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
+- The page part by part: **arranging the panels** by dragging them (new in 1.29 and 1.30, with *Reset layout* and the packed Charts view) and **folding** a panel to its title bar (new in 1.34), summary bar, the **system health** dots and panel (including the magnetic declination model, and the **Pi / Server** dot of the computer the page runs on), the windows 1 min … **7 d**, message rate (1 h / 24 h / 7 d), the **data transfer** meter (bytes from the receiver, served to the users and through the network interface — per minute, hour, day and month), downlink formats, **signal strength**, Comm-B registers, ADS-B type codes, **reply cadence** per flight phase, **interrogators** from the all-call replies, the **Radarcape receiver**'s own status (GPS flags, timestamps, GPS module temperature, settings), **range rings**, meteo yield and the Radarcape aircraft list — and how the history is kept over restarts
 - **Aircraft as sensors** (new in 1.16): the aircraft types compared as wind sensors — heading offset, direction-dependent heading error, flight-to-flight spread and wind difference from the others
 - **More receivers** (from 2 Nov 2026): the receiver row — **All receivers** (every receiver's replies, each once: what the weather uses) and each receiver's own tab; how the cloud server merges them (one time scale, each reply once, late and too-late frames); the *Receivers · merged* panel and a receiver's own panel; a feed dot per receiver; and who sees which receiver — everyone *All receivers*, the owners their own (**yours**), Full view every receiver
 - **Radio horizon** (new in 1.18): how far aircraft at lower levels are heard compared with the standard radio horizon, by the hour over 7 days — what ducting is, how the reach is counted, the levels *Normal* / *Extended* / *Ducting*, the marks for surface inversions, and why the reach is far below 1 on an ordinary day
@@ -137,15 +137,15 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## The GPS pages — Quality, Episodes and Aircraft
 file: GPS_User_Guide.pdf
-version: 1.2
-date: 2026-11-14
+version: 1.3
+date: 2026-11-22
 pages: 11
 open: gps@3, gpsep@5, gpsac@6
 
 GPS interference as the aircraft themselves report it, and how to read the three **GPS** pages (shown to users with the **Full view** right).
 
 - What is measured: the aircraft's own **NACp** and **NIC**, the five degradation signals (NACp, NIC, Freeze, Gap, ADS-B loss), severe looks, **episodes** within 100 NM of EFHK and how they end, the four **spoofing indicators** and *2+*, and what a flight is
-- **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap (days, or weeks over 3 months, 6 months and a year; 3 months also day by day), the live table, the FL-band analysis and the severity and spoofing panel
+- **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap (days, or weeks over 3 months, 6 months and a year; 3 months also day by day), the live table (with the **TC 0** marker, new in 1.3: the aircraft itself says that it has no position), the FL-band analysis and the severity and spoofing panel
 - **GPS Episodes**: the window and filters, the map, the list with its chips and *altitude vs distance*
 - **GPS Aircraft**: one aircraft, a callsign or a type — key figures, the days with the **receivers' coverage**, the calendar and the flights
 - **The overview of all traffic**: the Hours and Airline filters, key figures with *today vs the last 7 days*, day by day, **week by week**, **time of day × weekday**, **arrivals and departures** (where GPS came back, still degraded below 1 000 ft; where it was lost), **direction and altitude**, the **kind of degradation**, and the tables by type, airline and aircraft
@@ -153,9 +153,9 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 ## MODE-S Wind on a phone
 file: Mobile_User_Guide.pdf
-version: 1.91
+version: 1.92
 date: 2026-11-22
-pages: 71
+pages: 72
 
 How to use the mobile view **`/app`** on a phone: one product at a time, filling the screen, every choice in the ☰ menu.
 
@@ -167,20 +167,20 @@ How to use the mobile view **`/app`** on a phone: one product at a time, filling
 - **Pilot** (the Pilot right, research only): **Now** — the METAR, the boundary layer (a surface inversion and, from 9 Nov 2026, an **inversion aloft** — up to 10 000 ft from 10 Nov 2026 —, the low-level jet), runways in use, the wind on final (of the runways in use or of runways you choose; at 3, 7 or 13 heights), windshear, turbulence and go-arounds; **Approach** — the headwind on final by runway in ft above the runway, your aircraft class highlighted; **Departure** — the headwind, crosswind and temperature on the climb-out with a climb table and the low-level jet; **Aloft** — winds and temperatures by flight level for your class, the tropopause and the jet; **Icing** — freezing levels and a warm layer above a sub-freezing surface; **Turbulence** — EDR by height and over 6 hours; **GNSS** — degraded GPS as counts; **My flight** — a landing or departure against the flights before it; **Map** — the Weather view's pilot presets; and the full site's **Pilot page** with the same tabs
 - **Weather with GFS** (from 5 Nov 2026, where the server has it): *Model* MEPS or NOAA's GFS to 16 days, the 3-hour steps after +120 h, −1d / +1d, the GFS grid
 - **Mast** (from 1 Nov 2026): the Kivenlahti mast's lowest 300 m — EFHK now with the mast against MEPS and the aircraft, the tiles, the profile, the boundary layer with the mast's 10-minute steps, the time series and the comparison
-- **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a place tapped on the Weather map — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
-- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.89: *no position, says so*; new in 1.88: the **Charts** panel — the full site's charts of how the positioning does, for 1 h, 24 h or 7 d; new in 1.87: the line under the map that says when no positions can be made and why; new in 1.81 to 1.86: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
+- **Meteogram** (from 5 Nov 2026): one place — EFHK, a receiver site or a pinned place (a place tapped on the Weather map; from 1.92 up to eight, each can be named and removed) — over the days from MEPS, GFS (to 16 days) or both: temperature, precipitation, wind, pressure and clouds on one time axis, tap or drag for the values; from 6 Nov 2026 the **typical error** — a band showing how far the forecast has been off at EFHK by the days ahead, and up to which day GFS has been useful; from 7 Nov 2026 the **850 hPa temperature** — the models' line and the value measured by the aircraft near the receiver — and, as options, the **freezing level** (model and measured), **dew point & visibility**, **thunderstorm potential (CAPE)**, the **850 hPa wind**, the **landings' winds** at 1 000 / 2 000 ft, the **METAR** observations and the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
+- **MLAT** (the MLAT right, from 19 Nov 2026; new in 1.92: **folding and moving the panels** of the Charts panel with a finger (also in the Statistics view), **Misfit positions** on the map, the line under the map says for how long no positions have come; new in 1.89: *no position, says so*; new in 1.88: the **Charts** panel — the full site's charts of how the positioning does, for 1 h, 24 h or 7 d; new in 1.87: the line under the map that says when no positions can be made and why; new in 1.81 to 1.86: the **map** of the system's own position fixes with radar labels, the **replay** of the last 24 hours, the selected aircraft, the panels **Traffic**, **Fixes** and **Flights** and the MLAT options): in the **Recorder** panel the monitoring view of the recording for MODE-S Wind's own multilateration — recorder and receiver clocks, the clock agreement (measured − expected time difference) for 10 min, 1 h and 24 h, by the minute, by direction, reply type and signal strength — and the order of the menu tiles from 19 Nov 2026
 - What to do when something looks wrong, and a quick reference
 
 ## Meteograms
 file: Meteogram_User_Guide.pdf
-version: 1.05
-date: 2026-11-21
+version: 1.06
+date: 2026-11-22
 pages: 13
 open: mg
 
 How to read the **meteograms** of the Weather page and the phone: the model weather of one place over the days, with what was measured next to it.
 
-- Opening a meteogram: the airport, a receiver site or a pinned place (new in 1.05: several pinned places, each can be **renamed** and **removed**), the address `#mg`, the controls; the phone's Meteogram view
+- Opening a meteogram: the airport, a receiver site or a pinned place (new in 1.05: several pinned places, each can be **renamed** and **removed** — in 1.06 on the phone too), the address `#mg`, the controls; the phone's Meteogram view
 - **MEPS** and **GFS** — grids, runs, ranges, *Both*, the past hours and the grid cell
 - The panels one by one: **temperature** with the **850 hPa** temperature and the **dew point**, the **freezing level**, **precipitation**, **thunderstorm (CAPE)**, **wind** with barbs, **wind values** in kt or m/s, the **850 hPa wind** and the **landings' winds**, **pressure**, **clouds** with the cloud base / ceiling and visibility, the **sun times** (from 11 Nov 2026 on the long ranges too: on a row of their own, or on two short rows when the days are narrow)
 - **What MODE-S Wind measures itself**: the aircraft's 850 hPa temperature and wind and the freezing level, the landings' winds and the METAR
@@ -191,14 +191,14 @@ How to read the **meteograms** of the Weather page and the phone: the model weat
 
 ## Meteogrammit (suomeksi)
 file: Meteogram_User_Guide_FI.pdf
-version: 1.05
-date: 2026-11-21
+version: 1.06
+date: 2026-11-22
 pages: 13
 open: mgfi
 
 The Meteograms guide **in Finnish** — *meteogrammien käyttöopas suomeksi*: the same contents with the Finnish meteogram (FIN right) in the figures. The Weather page's meteogram opens it with **?** for the users with the FIN right.
 
-- Meteogrammin avaaminen ja ohjaimet (uutta 1.05:ssä: useita kiinnitettyjä paikkoja, jotka voi **nimetä** ja **poistaa**), MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
+- Meteogrammin avaaminen ja ohjaimet (uutta 1.05:ssä: useita kiinnitettyjä paikkoja, jotka voi **nimetä** ja **poistaa** — 1.06:ssa myös puhelimessa), MEPS ja GFS, paneelit yksi kerrallaan, tuulen arvot, MODE-S Windin omat mittaukset, yhden tunnin arvot, tyypillinen virhe ja ennustetarkistus, puhelin, **Aika**-valinta (UTC tai Suomen aika, 11.11.2026 alkaen), suomenkielinen meteogrammi, järkevä lukeminen ja termit suomeksi ja englanniksi
 
 ## EFHK windshear detection study (study log)
 file: EFHK_MODE_S_EHS_Windshear_Detection_Study.pdf
@@ -239,9 +239,9 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 
 ## Own multilateration from Mode S replies (study log)
 file: MODE_S_Own_Multilateration_Study.pdf
-version: 1.8
+version: 1.9
 date: 2026-11-22
-pages: 32
+pages: 33
 
 How a small network of receivers learns to locate aircraft by itself, from the tiny differences in the time at which the receivers hear the same Mode S reply — a study log that explains each step as it is taken, for readers who know Mode S and ADS-B from the receiving side. The positions are for study only; the map and charts of the *MLAT* tab are for users with the MLAT right.
 
@@ -252,6 +252,7 @@ How a small network of receivers learns to locate aircraft by itself, from the t
 - **What two receivers alone can do**: one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
 - **Calibrating the receivers from the traffic**: positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
 - **The second day**: the antenna sites surveyed again; the calibration checked on a morning it had not seen (positions that lay up to 350 m too far out are now within 8 m at every distance); why the positions stopped for minutes in thin traffic, and the clock line from one reference aircraft that fills a third of those gaps
+- **The aircraft say it themselves** (new in 1.9): an aircraft that has lost its satellite position goes on sending position messages with type code 0, "no position" — nine in ten missing positions in the recording come with them; shown in the Traffic lists and the Charts view, and as a marker on the GPS pages
 - **The fourth day** (new in 1.8): the first full day of the changed engine, which was a day of long GNSS interference — seven in ten aircraft heard by all three receivers sent no position and most of them were located; every broadcast position checked over five days of recordings (positions that stood still far from the aircraft, and one false position measured with our own fixes); our own wrong positions found by the same check
 - **The third day** (new in 1.6; 1.7: where the message stands and when it shows): what GNSS interference does to the positions — the receiver without GPS time loses the aircraft that set its clock; whether its counter jumps, how long its clock can be carried (about three minutes), and why the position quality an aircraft reports is not the error of its position (checked against the two GPS-timed receivers); the carried clock and the checked references, with a first version that tested itself against its own input
 - **The afternoon of the second day** (new in 1.5): the error stated with each position checked against the aircraft's own positions and given a floor; why the tracker could hold the wrong one of two possible positions and show it as good, and the tracker that now doubts such a track and follows each one with a filter (positions shown as good but more than 3 km off: 1.1 → 0.15 %); the map's traffic window and replay

@@ -60,7 +60,8 @@
   // the options: [key, select id, default, number?]
   const OPTS = [['win', 'app-mlat-win', '300', 1], ['exp', 'app-mlat-exp', '500', 1], ['adsb', 'app-mlat-adsb', 'on'], ['amb', 'app-mlat-amb', 'off'],
                 ['vec', 'app-mlat-vec', 'on'], ['lbl', 'app-mlat-lbl', 'on'], ['sal', 'app-mlat-sal', 'off'], ['solo', 'app-mlat-solo', 'off'], ['ils', 'app-mlat-ils', 'on'],
-                ['grid', 'app-mlat-grid', '0', 1]];        // the accuracy grid's period in hours, 0 = off
+                ['grid', 'app-mlat-grid', '0', 1],         // the accuracy grid's period in hours, 0 = off
+                ['sus', 'app-mlat-sus', 'off']];           // misfit positions (from 2026-11-22, as on the Statistics page's map)
   const S = {};
 
   function setOpt(k, v) {                    // set from the code (a flight chosen for replay turns Solo on): the chips follow
@@ -85,6 +86,7 @@
         if (k === 'win') { if (RP.on) rpFrame(); else poll(true); }
         else if (k === 'ils') ilsShow();
         else if (k === 'grid') gridLoad();
+        else if (k === 'sus') { if (S.sus) susLoad(); else { susData = null; draw(); } }
         else { draw(); renderLists(); }
       });
     }
@@ -391,12 +393,36 @@
       L.rectangle([[i * dla, j * dlo], [(i + 1) * dla, (j + 1) * dlo]], { pane: 'amlGrid', stroke: false, fillColor: c || '#94a3b8', fillOpacity: c ? 0.6 : 0.25, interactive: false }).addTo(gridLayer);
     }
   }
+  // Misfit positions (from 2026-11-22 on the phone; the Statistics page's map has had them from 2026-11-21): aircraft
+  // whose broadcast position does not fit the time stamps of the GPS-timed receivers (/api/mlat/suspects), drawn
+  // where they SAY they are — a dotted ring, with a dotted line to our own fix when there is one.  A tap on a ring
+  // tells which aircraft in the line under the map (a tooltip would go with the next redraw).
+  let susData = null, susT = 0, susSel = null;
+  const SUS_SHOW = 120;                        // s: a misfit is drawn this long after it last failed the check
+  async function susLoad() {
+    susT = Date.now();
+    try { const d = await (await fetch('/api/mlat/suspects', { cache: 'no-store' })).json(); susData = d.on ? d : null; } catch (_) { /* keeps the last */ }
+    if (S.sus) draw();
+  }
+  function susLegend(n) {
+    const el = $('aml-susleg');
+    if (!el) return;
+    el.hidden = !(S.sus && !RP.on && state && state.on);
+    if (el.hidden) return;
+    const a = n && susSel && susData ? susData.aircraft.find(x => x.icao === susSel && x.bc && state.now - x.t <= SUS_SHOW) : null;
+    if (!a) susSel = null;
+    el.textContent = a ? `${a.cs || a.reg || a.icao}${a.reg && a.cs ? ' · ' + a.reg : ''} · ${a.icao}: the position it broadcasts does not fit the receivers’ timing — at least ${a.min_km} km off`
+        + (a.km != null ? `; our fix is ${a.km} km from it.` : '; no fix of our own to compare with.')
+      : n ? `Dotted ring: a broadcast position that does not fit the receivers’ timing (${n} now) — the dotted line goes to our fix. Tap a ring for the aircraft.`
+      : 'Misfit positions: none in the last two minutes.';
+  }
   function draw() {
     if (!map || !layer) return;
     histCheck(); histDraw();
     if (S.grid && Date.now() - gridT > 60000) gridLoad();
+    if (S.sus && !RP.on && Date.now() - susT > 15000) susLoad();
     layer.clearLayers();
-    if (!state || !state.on) { if (atc) atc.redraw(); return; }
+    if (!state || !state.on) { susLegend(0); if (atc) atc.redraw(); return; }
     const C = COL(), now = state.now;
     for (const [k, o] of AC) {
       if (!shown(k, o)) continue;
@@ -421,6 +447,23 @@
       L.circleMarker([lp[1], lp[2]], { renderer, radius: 15, stroke: false, fillOpacity: 0 }).addTo(layer).on('click', () => pick(k, false));
       if (!atc) L.circleMarker([lp[1], lp[2]], { renderer, radius: 4, color: col, weight: 1.5, fillOpacity: 0, interactive: false }).addTo(layer);
     }
+    // the misfit rings last, over the aircraft's tap areas (a ring often lies on its own aircraft): a tap on a ring
+    // names the aircraft under the map and, when it is in the picture, selects it
+    let nSus = 0;
+    if (S.sus && susData && !RP.on) {
+      for (const a of susData.aircraft) {
+        if (!a.bc || now - a.t > SUS_SHOW) continue;
+        nSus++;
+        if (a.own) L.polyline([a.bc, [a.own[0], a.own[1]]], { renderer, color: C.link, weight: 1.5, dashArray: '2 5', opacity: 0.9, interactive: false }).addTo(layer);
+        L.circleMarker(a.bc, { renderer, radius: 11, color: C.link, weight: susSel === a.icao ? 3 : 2, dashArray: '2 4', fillOpacity: 0, bubblingMouseEvents: false }).addTo(layer)
+          .on('click', () => {
+            const was = susSel === a.icao;
+            susSel = was ? null : a.icao;
+            if (AC.has(a.icao) && (sel === a.icao) === was) pick(a.icao, false); else draw();
+          });
+      }
+    }
+    susLegend(nSus);
     if (atc) atc.redraw();
   }
   function drawTargets(g, m, W, H) {
@@ -615,10 +658,13 @@
     if (!sel) { el.textContent = 'Tap an aircraft on the map or in the list.'; return; }
     if (!o || !o.last) { el.innerHTML = `<b>${esc(sel)}</b> — not in the picture now${S.solo ? ' (Solo: nothing else is drawn)' : ''}<small>tap to release</small>`; return; }
     const p = o.last, C = COL();
+    // with Misfit positions on: said here too, as the ring can lie under the aircraft's own tap area
+    const ms = S.sus && susData && !RP.on ? susData.aircraft.find(a => a.icao === sel && a.bc && state.now - a.t <= SUS_SHOW) : null;
     el.innerHTML = `<b style="color:${o.pos ? C.pos : C.nopos}">${esc(name(sel, o))}</b> ${esc(o.typ || '')} · ${o.reg ? esc(o.reg) + ' · ' : ''}${esc(sel)} · ${lvl(p[3])}${onQnh(p[3]) != null ? ` (QNH ${Math.round(state.qnh)})` : ''}`
       + (o.sal != null ? ` · sel ${lvl(o.sal)}` : '') + (o.nrx ? ` · ${o.nrx} receivers` : '')
       + `\nstated ±${mTxt(p[4])}` + (o.err != null ? ` · measured ${mTxt(o.err)}` : o.pos ? '' : o.np0 ? ' · sends no position, and says so (type code 0)' : ' · sends no position')
-      + ` · ${stateOf(o)}` + (o.mm != null ? ` · motion ${Math.round(o.mm)} m/s` : '') + '<small>tap to release</small>';
+      + ` · ${stateOf(o)}` + (o.mm != null ? ` · motion ${Math.round(o.mm)} m/s` : '')
+      + (ms ? ` · the position it broadcasts does not fit the receivers’ timing: at least ${ms.min_km} km off` : '') + '<small>tap to release</small>';
   }
   function renderTraffic() {
     const box = $('aml-trf');
@@ -727,7 +773,11 @@
   function clockMsg(d) {
     if (!d || !d.on) return null;
     const c0 = d.counters || {}, old = fxHist.find(h => d.now - h.t >= 12);
-    const made = old ? c0.fix - old.fix : null, lost = old ? c0.no_clock - old.nc : 0;   // made null: opened just now
+    // from 2026-11-22 the server tells how long ago the last fix was made (fix_age) and the last reply was lost for want
+    // of a clock line (nc_age), so the message is right from the first answer; an older server: the last polls, as before
+    const srv = d.fix_age !== undefined, fa = d.fix_age, na = d.nc_age;
+    const made = srv ? (fa != null && fa < 12 ? 1 : 0) : old ? c0.fix - old.fix : null;                // made null: opened just now
+    const lost = srv ? (na != null && na < 12 ? 1 : 0) : old ? c0.no_clock - old.nc : 0;
     const rx = (d.receivers || []).find(r => !r.gps && !r.rec_only && r.site);
     if (!rx) return null;
     const nm = esc(String(rx.id).replace(/^MODES-/, '')), ck = rx.clock, rf = d.refs;
@@ -744,7 +794,7 @@
     else if (!rf.heard) why = `no aircraft is heard by ${nm} and ${rn} together.`;
     else if (!rf.good) why = `none of the ${rf.heard} aircraft ${nm} hears sends a usable position, so its clock cannot be set. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
     else why = `only ${rf.good} of the ${rf.heard} aircraft ${nm} hears send${rf.good === 1 ? 's' : ''} a usable position — too little to set its clock. This is GNSS interference in the area, not a fault — the fixes return by themselves.`;
-    return { cls: 'stop', title, html: `<b>No position fixes at the moment:</b> ${why}` };
+    return { cls: 'stop', title, html: `<b>No position fixes ${srv && fa != null && fa >= 20 ? 'for ' + (fa < 90 ? Math.round(fa) + ' s' : Math.round(fa / 60) + ' min') : 'at the moment'}:</b> ${why}` };
   }
   function showMsg(m) {
     const el = $('aml-clkmsg');

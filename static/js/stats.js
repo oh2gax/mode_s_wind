@@ -1437,14 +1437,21 @@
       body.querySelectorAll(':scope > .mst-col > .mst-panel').forEach(p => {       // named once, before anything is drawn into them
         if (!p.dataset.pk) p.dataset.pk = (p.id || (p.querySelector('[id]') || {}).id || '').replace(/^mst-/, '').replace(/-panel$/, '');
       });
-      panelOrder = window.PanelOrder.attach({ root: body, groupSel: '.mst-col', key: 'ms_mst_order', reset: $('mst-reset'), visible: () => !mlatOn });
+      panelOrder = window.PanelOrder.attach({ root: body, groupSel: '.mst-col', key: 'ms_mst_order', fold: 'ms_mst_fold', reset: $('mst-reset'), visible: () => !mlatOn });
     }
     // the same for the MLAT tab's Recorder view (its Charts view: static/js/mlat_charts.js)
     if (MLAT && $('mst-mlat')) {
-      const rec = window.PanelOrder.attach({ root: $('mst-mlat'), groupSel: '.mst-col', key: 'ms_mlr_order', reset: $('mlr-reset'),
+      const rec = window.PanelOrder.attach({ root: $('mst-mlat'), groupSel: '.mst-col', key: 'ms_mlr_order', fold: 'ms_mlr_fold', reset: $('mlr-reset'),
         visible: () => mlatOn && $('mst-mlat').style.display !== 'none' });
       document.addEventListener('mlm-view', () => rec && rec.refresh());       // the view bar's own switch (mlat_map.js)
     }
+  }
+  if (EMBED && window.PanelOrder && document.querySelector('#v-stats > .app-st-col')) {
+    // the phone view (from 2026-11-22): one column of sections; a panel is taken by a finger held on its title bar,
+    // and folds to that bar — an order and folds of the phone's own
+    window.PanelOrder.attach({ root: $('v-stats'), groupSel: '.app-st-col', panelSel: '.app-st-sec', touch: true, scroll: $('v-stats'),
+      keyOf: p => { const m = p.querySelector('.mst-panel[data-pk]'); return m ? m.dataset.pk : ''; },
+      key: 'ms_app_st_order', fold: 'ms_app_st_fold', reset: $('app-st-reset') });
   }
   if (EMBED) {
     // the mobile view drives the polling: only while its Statistics view is shown

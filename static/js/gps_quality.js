@@ -1390,6 +1390,9 @@ const FLAG_HTML = {
   gap:       '<span class="gps-flag gps-flag-gap">Gap</span>',
   adsb_loss: '<span class="gps-flag gps-flag-adsb">ADS-B</span>',
 };
+// from 2026-11-22: not a signal of its own but the aircraft's own word — an airborne-position message of type code 0
+// ("no position") in the last minute.  Gap and ADS-B are inferred from silence; this says the same directly.
+const TC0_HTML = '<span class="gps-flag gps-flag-tc0" title="The aircraft itself says that it has no position: an ADS-B position message of type code 0 in the last minute. Not counted as a signal of its own.">TC 0</span>';
 
 function renderLiveTable(liveEvents) {
   const tbody = document.getElementById('gps-live-tbody');
@@ -1415,7 +1418,7 @@ function renderLiveTable(liveEvents) {
     // Severe = position unusable (NACp 0, NIC 0 or no own position)
     const severe = (fl_.includes('nacp') && ac.nac_p === 0) || (fl_.includes('nic') && ac.nic === 0)
                    || fl_.includes('gap') || fl_.includes('adsb_loss');
-    const flags = fl_.map(f => FLAG_HTML[f] || f).join(' ');
+    const flags = fl_.map(f => FLAG_HTML[f] || f).join(' ') + (ac.tc0 ? ' ' + TC0_HTML : '');
     return `<tr${severe ? ' class="gps-row-sev" title="Severe — position unusable (NACp 0, NIC 0 or no own position)"' : ''}>
       <td class="gps-td-cs">${cs}</td>
       <td class="gps-td-icao">${ac.icao}</td>

@@ -63,7 +63,36 @@
   OPTS.forEach(k => { S[k] = lsGet('ms_app_mg_' + k, 'false') === 'true'; });
   if (!GFS || !['meps', 'gfs', 'both'].includes(S.model)) S.model = GFS && ['gfs', 'both'].includes(S.model) ? S.model : 'meps';
   if (!RANGES.includes(S.range)) S.range = '120';
-  if (!(S.place === 'pin' && S.pin) && !S.place.startsWith('rx:')) S.place = 'apt';
+  // Pinned places (from 2026-11-22 several, as on the Weather page's meteogram: before, the one tapped place): up to
+  // PIN_MAX, each with a name of its own or none; the id is the position to 0.001°.  Kept on the phone only.
+  const PIN_MAX = 8, NAME_MAX = 30;
+  const okLL = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  const pinId = p => `${p.lat.toFixed(3)},${p.lon.toFixed(3)}`;
+  const cleanName = n => String(n == null ? '' : n).replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
+  S.pins = (() => { try { const a = JSON.parse(lsGet('ms_app_mg_pins', '[]')); return Array.isArray(a) ? a : []; } catch (_) { return []; } })()
+    .filter(p => p && okLL(p.lat, p.lon)).map(p => ({ lat: p.lat, lon: p.lon, name: cleanName(p.name) })).slice(0, PIN_MAX);
+  const savePins = () => lsSet('ms_app_mg_pins', JSON.stringify(S.pins));
+  function addPin(lat, lon) {
+    const n = { lat: +lat.toFixed(4), lon: +lon.toFixed(4), name: '' };
+    const had = S.pins.find(p => pinId(p) === pinId(n));
+    if (had) return had;
+    S.pins.push(n);
+    while (S.pins.length > PIN_MAX) {                        // the oldest without a name goes first
+      const i = S.pins.findIndex(p => !p.name && p !== n);
+      S.pins.splice(i < 0 ? 0 : i, 1);
+    }
+    savePins();
+    return n;
+  }
+  if (S.pin && okLL(S.pin.lat, S.pin.lon)) {                 // the one tapped place of before
+    const p = addPin(S.pin.lat, S.pin.lon);
+    if (S.place === 'pin') { S.place = 'pin:' + pinId(p); lsSet('ms_app_mg_place', S.place); }
+    lsSet('ms_app_mg_pin', 'null');
+  }
+  delete S.pin;
+  const curPin = () => (S.place.startsWith('pin:') && S.pins.find(p => 'pin:' + pinId(p) === S.place)) || null;
+  let naming = false;
+  if (!curPin() && !S.place.startsWith('rx:')) S.place = 'apt';
   let rxs = [];                                   // Meteogram.receivers()
 
   let on = false, seq = 0, chart = null, data = null, fetched = 0, skill = null;
@@ -73,10 +102,11 @@
   const place = () => {
     const r = S.place.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === S.place);
     if (r) return { lat: r.lat, lon: r.lon, title: r.label, sub: r.short };
-    if (S.place === 'pin' && S.pin) return { lat: S.pin.lat, lon: S.pin.lon, title: tr('Tapped place', 'Napautettu paikka'), sub: fmtLL(S.pin.lat, S.pin.lon) };
+    const pn = curPin();
+    if (pn) return { lat: pn.lat, lon: pn.lon, title: pn.name || tr('Pinned place', 'Kiinnitetty paikka'), sub: fmtLL(pn.lat, pn.lon) };
     return { lat: APT.lat, lon: APT.lon, title: APT.icao, sub: APT.icao, apt: true };
   };
-  const curPlace = () => { const r = S.place.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === S.place); return r || S.place === 'pin' ? S.place : 'apt'; };
+  const curPlace = () => { const r = S.place.startsWith('rx:') && rxs.find(x => 'rx:' + x.id === S.place); return r || curPin() ? S.place : 'apt'; };
 
   // ── the chips at the top of the view ────────────────────────────────────
   function chips(id, items, cur, onPick) {
@@ -86,15 +116,56 @@
     box.onclick = e => { const b = e.target.closest('.app-chip'); if (b && !b.disabled && b.dataset.v !== cur) onPick(b.dataset.v); };
   }
   function syncChips() {
-    chips('amg-place', [['apt', APT.icao]].concat(rxs.map(r => ['rx:' + r.id, r.short]), S.pin ? [['pin', tr('Tapped', 'Napautettu')]] : []), curPlace(), v => {
-      S.place = v; lsSet('ms_app_mg_place', v); syncChips(); load(true);
+    chips('amg-place', [['apt', APT.icao]].concat(rxs.map(r => ['rx:' + r.id, r.short]), S.pins.map(p => ['pin:' + pinId(p), p.name || fmtLL(p.lat, p.lon)])), curPlace(), v => {
+      naming = false; S.place = v; lsSet('ms_app_mg_place', v); syncChips(); load(true);
     });
+    pinTools();
     const models = [['meps', 'MEPS']].concat(GFS ? [['gfs', 'GFS'], ['both', tr('Both', 'Molemmat')]] : []);
     chips('amg-model', models, S.model, v => { S.model = v; lsSet('ms_app_mg_model', v); syncChips(); load(true); });
     $('amg-model-row').hidden = !GFS;
     const meps = S.model === 'meps';
     chips('amg-range', [['48', '2'], ['120', '5'], ['168', '7'], ['240', '10'], ['384', '16']].map(r => [r[0], r[1] + tr(' d', ' vrk'), meps && r[0] !== '48']),
       meps ? '48' : S.range, v => { S.range = v; lsSet('ms_app_mg_range', v); syncChips(); load(true); });
+  }
+
+  // the row under the places while a pinned place is shown: give it a name, or remove it
+  function pinTools() {
+    const box = $('amg-pin'), p = curPin();
+    if (!box) return;
+    box.hidden = !p;
+    if (!p) { naming = false; box.innerHTML = ''; return; }
+    box.innerHTML = '<span class="am-lbl"></span>' + (naming
+      ? `<input type="text" id="amg-pin-name" class="amg-pin-name" maxlength="${NAME_MAX}" autocomplete="off" enterkeyhint="done" placeholder="${tr('Name of the place', 'Paikan nimi')}" value="${esc(p.name)}">`
+        + `<button type="button" class="app-chip" data-pin="ok">OK</button><button type="button" class="app-chip" data-pin="no">${tr('Cancel', 'Peru')}</button>`
+      : `<button type="button" class="app-chip" data-pin="ren">${p.name ? tr('Rename', 'Nimeä uudelleen') : tr('Name this place', 'Nimeä paikka')}</button>`
+        + `<button type="button" class="app-chip" data-pin="del">${tr('Remove', 'Poista')}</button>`
+        + `<span class="amg-pin-n">${S.pins.length} / ${PIN_MAX}</span>`);
+    if (naming) { const inp = $('amg-pin-name'); try { inp.focus(); inp.select(); } catch (_) { /* not focusable now */ } }
+  }
+  function nameEnd(keep) {
+    const p = curPin(), inp = $('amg-pin-name');
+    naming = false;
+    if (p && keep && inp) { p.name = cleanName(inp.value); savePins(); }
+    syncChips();
+    if (keep && on && data) draw();
+  }
+  if ($('amg-pin')) {
+    $('amg-pin').addEventListener('click', e => {
+      const b = e.target.closest('[data-pin]'), p = curPin();
+      if (!b || !p) return;
+      const a = b.dataset.pin;
+      if (a === 'ren') { naming = true; pinTools(); }
+      else if (a === 'ok') nameEnd(true);
+      else if (a === 'no') nameEnd(false);
+      else if (a === 'del') {
+        naming = false; S.pins.splice(S.pins.indexOf(p), 1); savePins();
+        S.place = 'apt'; lsSet('ms_app_mg_place', 'apt'); syncChips(); load(true);
+      }
+    });
+    $('amg-pin').addEventListener('keydown', e => {
+      if (!naming) return;
+      if (e.key === 'Enter') { e.preventDefault(); nameEnd(true); } else if (e.key === 'Escape') { e.preventDefault(); nameEnd(false); }
+    });
   }
 
   // ── data ────────────────────────────────────────────────────────────────
@@ -213,8 +284,9 @@
     layout() { if (on && chart && chart.redraw) chart.redraw(); },
     // the Weather view's tap card: the meteogram of that place
     openAt(lat, lon) {
-      S.pin = { lat: +lat, lon: +lon }; S.place = 'pin';
-      lsSet('ms_app_mg_pin', JSON.stringify(S.pin)); lsSet('ms_app_mg_place', 'pin');
+      if (!okLL(+lat, +lon)) return;
+      naming = false; S.place = 'pin:' + pinId(addPin(+lat, +lon));
+      lsSet('ms_app_mg_place', S.place);
       data = null;
       if (typeof window.AppSetView === 'function') window.AppSetView('mg');
       else { syncChips(); load(true); }

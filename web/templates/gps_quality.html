@@ -233,6 +233,10 @@
             <span class="gps-key-desc">Aircraft still transmitting ADS-B, but no own position for ≥45 s while MLAT keeps updating its position — GPS dropped out, MLAT covering. Common at EFHK during GPS jamming.</span>
           </div>
           <div class="gps-key-item">
+            <span class="gps-flag gps-flag-tc0">TC 0</span>
+            <span class="gps-key-desc">A marker in the live list, not a signal of its own: in the last minute the aircraft itself said that it has no position (an ADS-B position message of type code 0). Gap and ADS-B are inferred from silence; this is the same thing in the aircraft's own words. Not counted in the charts.</span>
+          </div>
+          <div class="gps-key-item">
             <span class="gps-flag gps-flag-sev">SEV</span>
             <span class="gps-key-desc">Severe — the position is unusable (live list: red callsign): NACp 0 (accuracy unknown), NIC 0 (no integrity) or no own ADS-B position at all (Gap / ADS-B). Everything else (NACp / NIC 1–6, Freeze) is milder degradation.</span>
           </div>

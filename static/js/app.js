@@ -2100,6 +2100,7 @@
       if (!ST.loading) {
         window.MST_EMBED = { win: ST.win };
         ST.loading = (typeof Chart === 'undefined' ? loadScript(APP_CHART_JS).catch(() => null) : Promise.resolve())
+          .then(() => (window.PanelOrder ? null : loadScript(APP_PO_JS).catch(() => null)))      // without it: the panels in their fixed order
           .then(() => loadScript(APP_STATS_JS));
       }
       try { await ST.loading; } catch (_) { $('mst-updated').textContent = 'Could not load the statistics.'; return; }

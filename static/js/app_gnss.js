@@ -229,7 +229,8 @@
       lt.innerHTML = '<table><thead><tr><th>Callsign</th><th class="num">FL</th><th class="num">NACp</th><th class="num">NIC</th><th>Signals</th></tr></thead><tbody>'
         + live.map(a => {
           const fl = a.altitude != null ? String(Math.round(a.altitude / 100)).padStart(3, '0') : '—';
-          const fx = (a.flags || []).map(f => FLAG[f] ? `<span class="gps-flag ${FLAG[f][1]}">${FLAG[f][0]}</span>` : esc(f)).join(' ');
+          const fx = (a.flags || []).map(f => FLAG[f] ? `<span class="gps-flag ${FLAG[f][1]}">${FLAG[f][0]}</span>` : esc(f)).join(' ')
+            + (a.tc0 ? ' <span class="gps-flag gps-flag-tc0" title="The aircraft itself says that it has no position (ADS-B type code 0)">TC 0</span>' : '');
           return `<tr${severe(a) ? ' class="agn-sevrow"' : ''}><td class="agn-cs">${esc(a.callsign || a.icao)}</td><td class="num">${fl}</td>`
             + `<td class="num">${a.nac_p ?? '—'}</td><td class="num">${a.nic ?? '—'}</td><td class="agn-flags">${fx}</td></tr>`;
         }).join('') + '</tbody></table>';

@@ -60,7 +60,9 @@
     if (!(on && panel === 'chr')) { if (mlcLoad) tellCharts(); return; }
     if (!mlcLoad) {
       window.MLC_PHONE = true;                                              // one column, two-line rows in the wide table
-      mlcLoad = (typeof Chart === 'undefined' ? loadScript(APP_CHART_JS) : Promise.resolve()).then(() => loadScript(APP_MLC_JS));
+      mlcLoad = (typeof Chart === 'undefined' ? loadScript(APP_CHART_JS) : Promise.resolve())
+        .then(() => (window.PanelOrder ? null : loadScript(APP_PO_JS).catch(() => null)))     // without it: the panels in their fixed order
+        .then(() => loadScript(APP_MLC_JS));
       mlcLoad.then(tellCharts, () => { mlcLoad = null; $('mlc-note').textContent = 'Could not load the charts — open the panel again to retry.'; });
     } else mlcLoad.then(tellCharts, () => {});
   }
