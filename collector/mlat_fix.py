@@ -147,6 +147,19 @@ RES_OK_MPS   = 25.0     # motion fits the reported speed / track within this …
 RES_SEP_MPS  = 30.0     # … and the other hypothesis is this much worse
 VEL_FRESH    = 15.0     # s: reported speed / track used
 SINGLE_OK_SEC = 60.0    # a single hypothesis this old counts as the position without a motion check
+# The motion check in turns (2026-11-23).  A track's own motion is the chord between the first and the last third of
+# its history — a velocity averaged over 12 s and more, centred well in the past — and it was compared with the
+# velocity the aircraft reports NOW (in fact 4 s after the fix: the fix is solved DELAY late).  In a turn the two
+# differ by construction: nine replayed daytime hours of 19-20 Nov gave a difference of 26 m/s (median) after a turn
+# against 5 m/s in straight flight, 65 % of the fixes after a turn unresolved against 5 %, and those fixes were right
+# (61 m median from the aircraft's own position).  Now like is compared with like: every history point keeps the
+# velocity report of its moment, and the chord is compared with the reported velocity averaged over the SAME span
+# in the same way (integrated along the history's own times).  Where the reports do not cover the span the latest
+# report is used as before.
+RES_MATCH      = True   # compare a track's motion with the reported velocity over the same span (False = the latest report)
+RES_MATCH_N    = 4      # … when the history holds at least this many different velocity reports …
+RES_MATCH_EDGE = 6.0    # … the first no later than this after its first point and the last no earlier than this before its last …
+RES_MATCH_GAP  = 12.0   # … and no two reports in between are farther apart than this (s)
 # The tracker of 2026-11-20 (afternoon).  On the morning of 20 Nov one aircraft was held on the wrong one of
 # the two solutions for a minute and a half and shown as resolved; the trace showed three gaps, closed here:
 # (1) a resolved track stayed resolved while its motion disagreed with the reported one by 30-70 m/s (only
@@ -236,6 +249,37 @@ def _polyfit(xs, ys, deg: int):
     c0 = (m[0][3] - m[0][2] * c2 - m[0][1] * c1) / m[0][0]
     return (c0, c1 / k, c2 / (k * k))
 
+
+
+def _matched_velocity(pts: list, k: int, dtm: float):
+    """The reported velocity averaged over a track history the way the track's own chord is: the reports
+    kept with the history points (report time, east, north m/s) are joined into a velocity that changes
+    linearly from report to report, integrated along the history's own times, and the same chord — last
+    third against first third — is taken of that path.  None when the reports do not cover the span."""
+    rep = sorted({(p[3], p[4], p[5]) for p in pts if len(p) > 5 and p[3] is not None})
+    if len(rep) < RES_MATCH_N or rep[0][0] > pts[0][0] + RES_MATCH_EDGE or rep[-1][0] < pts[-1][0] - RES_MATCH_EDGE:
+        return None
+    if any(rep[i + 1][0] - rep[i][0] > RES_MATCH_GAP for i in range(len(rep) - 1)):
+        return None
+    j = 0
+    vs = []
+    for p in pts:                                    # the reported velocity at each history time
+        tt = p[0]
+        while j < len(rep) - 2 and rep[j + 1][0] <= tt:
+            j += 1
+        r0, r1 = rep[j], rep[j + 1]
+        f = (tt - r0[0]) / (r1[0] - r0[0]) if r1[0] > r0[0] else 0.0
+        f = min(max(f, 0.0), 1.0)                    # before the first and after the last report: that report
+        vs.append((r0[1] + f * (r1[1] - r0[1]), r0[2] + f * (r1[2] - r0[2])))
+    qe = qn = 0.0
+    q = [(0.0, 0.0)]
+    for i in range(1, len(pts)):
+        d = pts[i][0] - pts[i - 1][0]
+        qe += 0.5 * (vs[i - 1][0] + vs[i][0]) * d
+        qn += 0.5 * (vs[i - 1][1] + vs[i][1]) * d
+        q.append((qe, qn))
+    return ((sum(x[0] for x in q[-k:]) - sum(x[0] for x in q[:k])) / k / dtm,
+            (sum(x[1] for x in q[-k:]) - sum(x[1] for x in q[:k])) / k / dtm)
 
 class Frame:
     """Local east-north-up frame at (lat0, lon0, 0 m)."""
@@ -1453,6 +1497,11 @@ class Fixer:
             if gs_ is not None and tk_ is not None and vt_ is not None and abs(t - vt_) <= KF_VEL_AGE and 40 <= gs_ <= 700:
                 a_ = math.radians(float(tk_))
                 vrep = (float(gs_) * KT * math.sin(a_), float(gs_) * KT * math.cos(a_))
+        vh = (None, None, None)                    # the velocity report of this moment, kept with the history point
+        gs_, tk_, vt_ = ls.get("groundspeed"), ls.get("track"), ls.get("vel_ts")
+        if gs_ is not None and tk_ is not None and vt_ is not None and abs(t - vt_) <= VEL_FRESH and 40 <= gs_ <= 700:
+            a_ = math.radians(float(tk_))
+            vh = (float(vt_), float(gs_) * KT * math.sin(a_), float(gs_) * KT * math.cos(a_))
         for hy in hyps:
             dt = t - hy["t"]
             pe, pn = hy["e"] + hy["ve"] * dt, hy["n"] + hy["vn"] * dt
@@ -1493,7 +1542,7 @@ class Fixer:
             hy["tu"] = t
             hi = hy["hist"]
             if not hi or t - hi[-1][0] >= 0.5:
-                hi.append((t, s[0], s[1]))
+                hi.append((t, s[0], s[1]) + vh)
             got = True
         if len(hyps) > 1:
             # hypotheses that have run into the same solution are one: the older stays
@@ -1572,7 +1621,10 @@ class Fixer:
                 if dtm > 3.0:
                     ve = (sum(p[1] for p in h1) - sum(p[1] for p in h0)) / k / dtm
                     vn = (sum(p[2] for p in h1) - sum(p[2] for p in h0)) / k / dtm
-                    d = math.hypot(ve - v[0], vn - v[1])
+                    vm = _matched_velocity(list(hi), k, dtm) if RES_MATCH else None
+                    if vm is None:
+                        vm = v                     # the reports do not cover the span: the latest one, as before
+                    d = math.hypot(ve - vm[0], vn - vm[1])
                     hy["dv"] = d if hy["dv"] is None else hy["dv"] + 0.3 * (d - hy["dv"])
                     hy["nj"] = hy.get("nj", 0) + 1
         judged = [hy for hy in hyps if hy["dv"] is not None]
