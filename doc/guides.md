@@ -239,9 +239,9 @@ The aircraft's winds and temperatures in the lowest 300 m against the FMI's 327-
 
 ## Own multilateration from Mode S replies (study log)
 file: MODE_S_Own_Multilateration_Study.pdf
-version: 1.10
+version: 1.11
 date: 2026-11-23
-pages: 34
+pages: 35
 
 How a small network of receivers learns to locate aircraft by itself, from the tiny differences in the time at which the receivers hear the same Mode S reply — a study log that explains each step as it is taken, for readers who know Mode S and ADS-B from the receiving side. The positions are for study only; the map and charts of the *MLAT* tab are for users with the MLAT right.
 
@@ -252,7 +252,7 @@ How a small network of receivers learns to locate aircraft by itself, from the t
 - **What two receivers alone can do**: one time difference, with the altitude on the glide path and the track, is enough to record a landing without a position and to tell the parallel runways apart
 - **Calibrating the receivers from the traffic**: positions that lay too far out, one fit for all the possible causes, an antenna with a blocked side that behaves as if it stood elsewhere, strong replies stamped early, and why a receiver's own GPS position is not a survey
 - **The second day**: the antenna sites surveyed again; the calibration checked on a morning it had not seen (positions that lay up to 350 m too far out are now within 8 m at every distance); why the positions stopped for minutes in thin traffic, and the clock line from one reference aircraft that fills a third of those gaps
-- **The fifth day: lost in the turns** (new in 1.10): why an aircraft often vanished from the map in a sharp turn near the airport — a motion check that compared an average over many seconds with the report of the moment, its correction and the replay before and after — and the part that is reception
+- **The fifth day: lost in the turns** (new in 1.10; the limits drawn in afterwards in 1.11): why an aircraft often vanished from the map in a sharp turn near the airport — a motion check that compared an average over many seconds with the report of the moment, its correction and the replay before and after — and the part that is reception
 - **The aircraft say it themselves** (new in 1.9): an aircraft that has lost its satellite position goes on sending position messages with type code 0, "no position" — nine in ten missing positions in the recording come with them; shown in the Traffic lists and the Charts view, and as a marker on the GPS pages
 - **The fourth day** (new in 1.8): the first full day of the changed engine, which was a day of long GNSS interference — seven in ten aircraft heard by all three receivers sent no position and most of them were located; every broadcast position checked over five days of recordings (positions that stood still far from the aircraft, and one false position measured with our own fixes); our own wrong positions found by the same check
 - **The third day** (new in 1.6; 1.7: where the message stands and when it shows): what GNSS interference does to the positions — the receiver without GPS time loses the aircraft that set its clock; whether its counter jumps, how long its clock can be carried (about three minutes), and why the position quality an aircraft reports is not the error of its position (checked against the two GPS-timed receivers); the carried clock and the checked references, with a first version that tested itself against its own input

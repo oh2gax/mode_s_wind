@@ -143,8 +143,10 @@ MERGE_M      = 400.0    # two hypotheses this close are one
 HYP_DROP_SEC = 30.0     # a hypothesis without a fix for this long is dropped
 RES_MIN_N    = 6        # fixes and seconds before a hypothesis is judged by its motion
 RES_MIN_SEC  = 12.0
-RES_OK_MPS   = 25.0     # motion fits the reported speed / track within this …
+RES_OK_MPS   = 20.0     # motion fits the reported speed / track within this … (25 until 2026-11-23, see RES_MATCH below)
 RES_SEP_MPS  = 30.0     # … and the other hypothesis is this much worse
+RES_DROP_MPS = 75.0     # a single track whose motion is this far from the reported one is dropped (the mirror solution);
+                        # a limit of its own from 2026-11-23 — before, three times RES_OK_MPS
 VEL_FRESH    = 15.0     # s: reported speed / track used
 SINGLE_OK_SEC = 60.0    # a single hypothesis this old counts as the position without a motion check
 # The motion check in turns (2026-11-23).  A track's own motion is the chord between the first and the last third of
@@ -156,6 +158,14 @@ SINGLE_OK_SEC = 60.0    # a single hypothesis this old counts as the position wi
 # velocity report of its moment, and the chord is compared with the reported velocity averaged over the SAME span
 # in the same way (integrated along the history's own times).  Where the reports do not cover the span the latest
 # report is used as before.
+# The limits after that (the same day).  With the matched comparison a right track differs from the reports by 2 m/s
+# in the median (90 %: 5 m/s in straight flight, 17 after a turn; before 5 / 11 and 28 / 56), and the wrong positions
+# that are still shown sit at 15 m/s and above.  So the limits could come in: accepted within 20 m/s (was 25), put in
+# doubt above 30 (was 40); the drop limit stays at 75 and is a constant of its own (RES_DROP_MPS).  Replayed against
+# 25 / 40 on 16 hours of 19-20 Nov and on 3 hours of 22 Nov that played no part: shown fixes more than 3 km off
+# 354 -> 246 and 320 -> 245, more than 10 km 111 -> 7 and 134 -> 126; 2.2 and 2.3 % fewer fixes shown; unresolved
+# 19.3 -> 21.5 and 22.2 -> 24.3 %.  A tighter pair (15 / 25) cost twice as much and gained less on the first set
+# (354 -> 314) though more on the second (320 -> 191): not taken.  To be looked at again in the tuning round.
 RES_MATCH      = True   # compare a track's motion with the reported velocity over the same span (False = the latest report)
 RES_MATCH_N    = 4      # … when the history holds at least this many different velocity reports …
 RES_MATCH_EDGE = 6.0    # … the first no later than this after its first point and the last no earlier than this before its last …
@@ -174,7 +184,8 @@ RES_MATCH_GAP  = 12.0   # … and no two reports in between are farther apart th
 # the map's default view 47 / 343 / 1 417 m (median / 90 / 99 %) -> 38 / 193 / 612 m; median by distance
 # 35 / 32 / 92 / 463 m -> 37 / 27 / 57 / 203 m (0-10 / 10-20 / 20-40 / 40-80 NM).  The price: 5 % fewer fixes
 # count as resolved (unresolved share 19.7 -> 25.6 %).
-RES_DOUBT_MPS = 40.0    # a resolved track whose motion is this far from the reported one is unresolved again (0 = off)
+RES_DOUBT_MPS = 30.0    # a resolved track whose motion is this far from the reported one is unresolved again (0 = off;
+                        # 40 until 2026-11-23)
 REINIT_DOUBT  = True    # … and the other solutions are looked for again
 RES_MIN_JUDGED = 6      # both hypotheses must have been compared with the reported motion this often before one is chosen
 STALE_DROP   = True     # a hypothesis silent for HYP_DROP_SEC is dropped before the next fix, not revived by it
@@ -1639,13 +1650,13 @@ class Fixer:
             if hyps[0]["dv"] <= RES_OK_MPS:
                 a["res"] = True
                 a["doubt"] = False
-            elif RES_DOUBT_MPS > 0.0 and RES_DOUBT_MPS < hyps[0]["dv"] <= 3 * RES_OK_MPS:
+            elif RES_DOUBT_MPS > 0.0 and RES_DOUBT_MPS < hyps[0]["dv"] <= RES_DROP_MPS:
                 a["res"] = False                   # it no longer moves like the aircraft: not the position for sure
                 if not a.get("doubt") and self.acc_m is not None:
                     self.acc_m.c["dz"] += 1        # a track put in doubt (counted once, when it happens)
                     self.acc_h.c["dz"] += 1
                 a["doubt"] = True
-            elif hyps[0]["dv"] > 3 * RES_OK_MPS and t - hyps[0]["t0"] > 25.0:
+            elif hyps[0]["dv"] > RES_DROP_MPS and t - hyps[0]["t0"] > 25.0:
                 hyps = []                          # moves unlike the aircraft: the mirror solution
                 a["res"] = False
                 a["init_t"] = 0.0
