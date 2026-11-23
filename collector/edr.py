@@ -47,8 +47,28 @@ could be repeated at several heights — FIN3A on 30 Oct read EDR 0.34 / peak
 landings practically unchanged.  The stored records are recomputed once at the
 start (run.py _edr_backfill, by version).
 
+Record version 3 (23 Nov 2026): a second pair distance for the flights that
+got no value.  The two radars' sweeps reach an aircraft alternately; when they
+arrive almost together (gaps like 0.4 s and 3.6 s) neighbouring replies are
+under 100 m or over 200 m apart and no pair falls in the 100–200 m bin, though
+the series is complete — about a quarter of the flights.  Such a flight (fewer
+than MIN_PAIRS pairs at 100–200 m) now uses the pairs 200–400 m apart, and its
+record carries "w": 1.  A flight with enough 100–200 m pairs is computed
+exactly as before.  The wider pairs do not follow the r^⅔ law fully (pieces
+detrended over 2 km, low heights), so they are not scaled by it but
+calibrated against the 100–200 m values on the daily sums of the flights that
+have both (9 097 landings, 5 422 departures, 9 Oct–23 Nov 2026):
+D₂ − N0₂ = k · (D₁ − N0), landings N0₂ 0.40, k 1.23 (r 0.996 over 45 days),
+departures N0₂ 0.47, k 1.51 (r 0.93 over 26 days; the law would give 1.59).
+Landings with both: mean difference 0.001, same class in 85 %; against the
+mean of the hour's other landings the wide value correlates 0.82, the
+100–200 m value 0.71, and 0.73 on the landings that only have the wide one.
+With a value: landings 75.5 → 98.4 %, departures 71.9 → 97.4 %.  Version-2
+records with a value are the same in version 3 and are left as they are
+(KEEP_VERSIONS); run.py _edr_backfill computes only the flights without one.
+
 compute(series) takes the decoded series (WindshearTracker.decode_series);
-from_blob(blob) the stored blob.  Cheap: only pairs within 200 m are formed.
+from_blob(blob) the stored blob.  Cheap: only pairs within 400 m are formed.
 """
 
 from __future__ import annotations
@@ -56,11 +76,17 @@ from __future__ import annotations
 import bisect
 import math
 
-VERSION = 2                   # 2: duplicate / future-stamped replies dropped (2026-10-31)
+VERSION = 3                   # 2: duplicate / future-stamped replies dropped (2026-10-31)
+                              # 3: flights without 100–200 m pairs use 200–400 m ("w": 1, 2026-11-23)
+KEEP_VERSIONS = (2,)          # a stored record of these versions that has a value is unchanged in VERSION
 KT = 0.514444                 # kt → m/s
 N0 = 0.35                     # noise floor of D at 100–200 m (m² s⁻²)
 R_MID = math.sqrt(100 * 200)  # 141 m, the middle of the separation bin
 R_LO, R_HI = 100.0, 200.0
+R2_LO, R2_HI = 200.0, 400.0   # the wider pairs (version 3), used only without enough 100–200 m pairs
+# (noise floor of D at 200–400 m, D ratio to the 100–200 m bin) — measured, see the module text
+WIDE_LANDING = (0.40, 1.23)
+WIDE_DEPARTURE = (0.47, 1.51)
 FUTURE_SEC = 3.0              # a reply this much later than one stored after it is mis-stamped
 PIECE_M = 2000.0              # straight piece length
 TURN_DEG = 15.0               # largest track change within a piece
@@ -87,6 +113,12 @@ def _edr(s: float, c: int) -> float:
     return math.sqrt(max(s / c - N0, 0.0) / (2.0 * R_MID ** (2.0 / 3.0)))
 
 
+def _edr_wide(s: float, c: int, cal: tuple) -> float:
+    """EDR from the 200–400 m pairs: D brought to the 100–200 m scale by the
+    measured noise floor and ratio (cal), then as _edr."""
+    return math.sqrt(max((s / c - cal[0]) / cal[1], 0.0) / (2.0 * R_MID ** (2.0 / 3.0)))
+
+
 def _detrend(x: list, u: list) -> list:
     n = len(x)
     mx, mu = sum(x) / n, sum(u) / n
@@ -96,7 +128,8 @@ def _detrend(x: list, u: list) -> list:
 
 
 def _pieces(rows: list) -> list:
-    """rows: (t, tas, gs, alt, trk) sorted by t → [{t0, t1, a0, a1, s, c}]."""
+    """rows: (t, tas, gs, alt, trk) sorted by t → [{t0, t1, a0, a1, s, c, s2, c2}]
+    (s, c: the 100–200 m pairs; s2, c2: the 200–400 m pairs, version 3)."""
     t = [r[0] for r in rows]
     x = [0.0]
     for i in range(1, len(rows)):
@@ -112,18 +145,21 @@ def _pieces(rows: list) -> list:
             if max(d) - min(d) <= TURN_DEG:
                 xs = x[i:j]
                 us = _detrend(xs, hw[i:j])
-                s, c = 0.0, 0
+                s, c, s2, c2 = 0.0, 0, 0.0, 0
                 for a in range(len(xs)):
                     for b in range(a + 1, len(xs)):
                         r = xs[b] - xs[a]
-                        if r >= R_HI:
+                        if r >= R2_HI:
                             break
-                        if r >= R_LO:
+                        if r >= R_HI:
+                            s2 += (us[b] - us[a]) ** 2
+                            c2 += 1
+                        elif r >= R_LO:
                             s += (us[b] - us[a]) ** 2
                             c += 1
-                if c >= MIN_PAIRS_PIECE:
+                if c >= MIN_PAIRS_PIECE or c2 >= MIN_PAIRS_PIECE:
                     out.append({"t0": t[i], "t1": t[j - 1], "a0": rows[i][3], "a1": rows[j - 1][3],
-                                "s": s, "c": c})
+                                "s": s, "c": c, "s2": s2, "c2": c2})
         i = j
     return out
 
@@ -150,9 +186,12 @@ def _clean(rows: list) -> list:
     return out
 
 
-def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | None = None) -> dict | None:
+def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | None = None,
+            dep: bool | None = None) -> dict | None:
     """EDR record of one flight from its decoded raw series, or None
-    (top_ft: the upper limit above the threshold, default HI_FT)."""
+    (top_ft: the upper limit above the threshold, default HI_FT; dep: a
+    departure — picks the calibration of the wider pairs, default: top above
+    HI_FT)."""
     if not series:
         return None
     if elev_ft is None:
@@ -164,14 +203,21 @@ def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | N
                   if None not in r and LO_FT <= r[3] - elev_ft < top and r[2] > 30)
     if len(rows) < MIN_REPLIES:
         return None
-    pcs = _pieces(rows)
-    c_all = sum(p["c"] for p in pcs)
-    if c_all < MIN_PAIRS:
-        return None
+    every = _pieces(rows)
+    pcs = [p for p in every if p["c"] >= MIN_PAIRS_PIECE]
+    wide = sum(p["c"] for p in pcs) < MIN_PAIRS
+    if wide:                                  # version 3: the 200–400 m pairs instead
+        pcs = [dict(p, s=p["s2"], c=p["c2"]) for p in every if p["c2"] >= MIN_PAIRS_PIECE]
+        if sum(p["c"] for p in pcs) < MIN_PAIRS:
+            return None
+        cal = WIDE_DEPARTURE if (top > HI_FT if dep is None else dep) else WIDE_LANDING
+        val = lambda s, c: _edr_wide(s, c, cal)
+    else:
+        val = _edr
 
     def pooled(ps):
         c = sum(p["c"] for p in ps)
-        return round(_edr(sum(p["s"] for p in ps), c), 3) if c >= MIN_PAIRS else None
+        return round(val(sum(p["s"] for p in ps), c), 3) if c >= MIN_PAIRS else None
 
     mid = lambda p: (p["a0"] + p["a1"]) / 2 - elev_ft
     sw = series.get("sw") or {}
@@ -188,22 +234,26 @@ def compute(series: dict | None, elev_ft: float | None = None, top_ft: float | N
     seg = []
     for p in pcs:
         pts = [where(p["t0"] + i * (p["t1"] - p["t0"]) / 3) for i in range(4)]
-        seg.append({"e": round(_edr(p["s"], p["c"]), 3),
+        seg.append({"e": round(val(p["s"], p["c"]), 3),
                     "a": [int(round(p["a0"])), int(round(p["a1"]))],
                     "p": [q for q in pts if q]})
-    return {"v": VERSION, "m": pooled(pcs),
-            "lo": pooled([p for p in pcs if mid(p) < MID_FT]),
-            "hi": pooled([p for p in pcs if mid(p) >= MID_FT]),
-            "pk": max(s["e"] for s in seg), "n": len(pcs), "top": int(top), "seg": seg}
+    rec = {"v": VERSION, "m": pooled(pcs),
+           "lo": pooled([p for p in pcs if mid(p) < MID_FT]),
+           "hi": pooled([p for p in pcs if mid(p) >= MID_FT]),
+           "pk": max(s["e"] for s in seg), "n": len(pcs), "top": int(top), "seg": seg}
+    if wide:
+        rec["w"] = 1
+    return rec
 
 
-def from_blob(blob, elev_ft: float | None = None, top_ft: float | None = None) -> dict | None:
+def from_blob(blob, elev_ft: float | None = None, top_ft: float | None = None,
+              dep: bool | None = None) -> dict | None:
     """EDR record from a stored approach_series / departure_series blob.  Never raises."""
     if not blob:
         return None
     try:
         from collector.windshear import WindshearTracker
-        return compute(WindshearTracker.decode_series(blob), elev_ft, top_ft)
+        return compute(WindshearTracker.decode_series(blob), elev_ft, top_ft, dep)
     except Exception:                         # noqa: BLE001  (a damaged blob)
         return None
 
@@ -212,4 +262,7 @@ def summary(rec: dict | None) -> dict | None:
     """The record without the pieces (for the history lists)."""
     if not rec:
         return None
-    return {k: rec.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")}
+    out = {k: rec.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")}
+    if rec.get("w"):
+        out["w"] = 1                          # from the 200–400 m pairs (version 3)
+    return out

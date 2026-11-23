@@ -651,7 +651,7 @@ def _edr_json(series_blob, dep: bool = False) -> str | None:
     (collector/edr.py, from 2026-10-29) as JSON, or None; departures use the
     climb up to 5 000 ft (edr.DEP_TOP_FT, from 2026-10-29)."""
     from collector import edr as _edr
-    rec = _edr.from_blob(series_blob, top_ft=_edr.DEP_TOP_FT if dep else None)
+    rec = _edr.from_blob(series_blob, top_ft=_edr.DEP_TOP_FT if dep else None, dep=dep)
     return json.dumps(rec, separators=(",", ":")) if rec else None
 
 
@@ -660,7 +660,11 @@ def _edr_backfill() -> None:
     landings and departures that have a raw reply series but no EDR yet (or
     one of an older method version) — the series are kept
     APPROACH_SERIES_DAYS, so after an update the last 90 days are filled in.
-    Small batches with short pauses, so the Pi's collector is not disturbed."""
+    Small batches with short pauses, so the Pi's collector is not disturbed.
+    From 2026-11-23 (record version 3): a record of an earlier version that
+    has a value and is unchanged by the new version (edr.KEEP_VERSIONS) is
+    left as it is — only the flights without a value are computed again, so
+    the update writes about a quarter of the rows and not all of them."""
     from database.db import get_db
     from collector import edr as _edr
     el = logging.getLogger("modes.edr")
@@ -671,9 +675,11 @@ def _edr_backfill() -> None:
         n_done = 0
         for main, ser in (("approach_history", "approach_series"), ("departure_profiles", "departure_series")):
             # ids first, the blobs (about 10 kB each) batch by batch
+            keep = "".join(f" AND NOT (instr(m.edr_json, '\"v\":{int(v)},') > 0 "
+                           f"AND instr(m.edr_json, '\"m\":null') = 0)" for v in _edr.KEEP_VERSIONS)
             todo = db.execute(
                 f"SELECT m.id, m.ts, m.icao FROM {main} m "
-                f"WHERE (m.edr_json IS NULL OR instr(m.edr_json, '\"v\":{_edr.VERSION},') = 0) "
+                f"WHERE (m.edr_json IS NULL OR (instr(m.edr_json, '\"v\":{_edr.VERSION},') = 0{keep})) "
                 f"AND EXISTS (SELECT 1 FROM {ser} s WHERE s.ts = m.ts AND s.icao = m.icao) "
                 f"ORDER BY m.ts DESC").fetchall()
             for i in range(0, len(todo), 50):

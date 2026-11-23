@@ -98,8 +98,8 @@ All views of the **Sounding page** and the **Wind Map** page, with the physics b
 
 ## Windshear detection and the Windshear page
 file: Windshear_User_Guide.pdf
-version: 2.49
-date: 2026-11-22
+version: 2.50
+date: 2026-11-23
 pages: 35
 open: windshear
 
@@ -261,9 +261,9 @@ How a small network of receivers learns to locate aircraft by itself, from the t
 
 ## EDR explained — turbulence intensity
 file: EDR_Explained.pdf
-version: 1.3
-date: 2026-11-18
-pages: 14
+version: 1.4
+date: 2026-11-23
+pages: 16
 open: edr
 
 The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation meteorologists and atmospheric scientists — with a first section in plain words for everyone. Updated whenever the MODE-S Wind calculation changes.
@@ -273,6 +273,7 @@ The eddy dissipation rate (EDR), the ICAO measure of turbulence, for aviation me
 - **History and use in aviation**: from pilot reports and gust loads to MacCready, the NCAR in-situ algorithms and the ICAO standard (2001; the limits of Amendment 79, 2020, and PANS-MET), WAFS and GTG forecasts in EDR
 - **Hong Kong International Airport**: the Hong Kong Observatory's anemometer, lidar and flight-data EDR and ADS-B turbulence detection
 - **The MODE-S Wind method**: EDR from the headwind TAS − GS of the Mode S replies on final approach and climb-out (straight 2-km pieces, the 100–200 m structure function, the noise floor of the 2-kt rounding), its parameters (method v2 from 31 October 2026: repeated and out-of-order reply times dropped) and the scale problem
+- **The wider pairs** (23 November 2026, version 1.4, method v3): why a quarter of the flights had no value — the two radars' replies falling almost together — and how such a flight now uses reply pairs 200–400 m apart, calibrated against the 100–200 m pairs and tested on the flights that have both
 - **Results at Helsinki-Vantaa** 9–30 October 2026: distribution, surface wind and height, class independence, the daily agreement with the ACI, departures; where EDR is shown (also the Windshear map and one flight's headwind profile); limitations, calibration (the first pilot reports) and the version history
 - **Three checks of the method** (18 November 2026, version 1.3): how accurate Mode S winds are near the ground (the UFO project's comparison with lidars, and MODE-S Wind against the Kivenlahti mast), what the outer scale of the turbulence costs at the 100–200 m separation used (about 10 %, from simulated turbulence), and the EDR expected from the surface wind (same order of magnitude; measured 1.0–1.5 times the expected value in winds of 10 kt and more)
 

@@ -7,7 +7,26 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
-## v.23112026 — 2026-11-23 (Own MLAT: positions are no longer hidden in turns — the motion check compares a track with the reported velocity over the same seconds; its limits then drawn in: fewer wrong positions shown)
+## v.23112026 — 2026-11-23 (Own MLAT: positions are no longer hidden in turns — the motion check compares a track with the reported velocity over the same seconds; its limits then drawn in: fewer wrong positions shown; turbulence (EDR): a quarter of the flights had no value — they now use reply pairs 200–400 m apart)
+
+### Turbulence (EDR): the flights without a value use wider pairs — record version 3 (`collector/edr.py`, `run.py`)
+
+A check of the wind, windshear and other calculations after a week of MLAT work found nothing broken, and one standing gap: about a quarter of the landings and departures had no turbulence value, every day since the method began.
+
+- **The cause.** Not late turns or short series, as the documents said. The replies come in two interleaved series, each 4.0 s apart (two neighbouring gaps add up to 4.00 s in the median), as from two radars turning once in four seconds. In the landings with a value the smaller of the two alternating gaps was 1.2 s (quartiles 0.8–1.5 s); in those without it was 0.4 s (0.3–0.5 s). At 70 m/s that is 28 m and 250 m: no pair lies 100–200 m apart, though the series is complete.
+- **The change.** A flight with fewer than 6 pairs at 100–200 m uses the pairs **200–400 m** apart (`R2_LO`, `R2_HI`); its record carries `"w": 1`. A flight with enough 100–200 m pairs is computed exactly as before: all 10 785 stored values were computed again with the new code and none changed.
+- **Calibrated, not scaled by the law.** The r^⅔ law does not hold up to 400 m here. On the daily sums of the flights that have both (9 097 landings, 5 422 departures, 9 Oct–23 Nov), D at 200–400 m is a straight line of D at 100–200 m: noise floor 0.40 and ratio 1.23 for landings (45 days, r 0.996; `WIDE_LANDING`), 0.47 and 1.51 for departures (26 days, r 0.93; `WIDE_DEPARTURE`). The law would give 1.59. Fitted on every second day only: 0.38 and 1.26.
+- **Tested on flights that have both.** Landings: mean 0.070 and 0.071, same class in 85 %, correlation 0.78 (0.88 with 30 pairs or more each). Departures: 0.050 and 0.050, same class in 87 %, correlation 0.49 (0.69).
+- **Tested against the hour's other landings** (their mean 100–200 m value). Landings: the 100–200 m value correlates 0.71, the wider value of the same flights 0.82, and the landings that only have the wider value 0.73. Departures: 0.30, 0.44 and 0.42. The wider value rests on three to four times as many pairs.
+- **Coverage.** Landings with a value 75.5 → 98.4 %, departures 71.9 → 97.4 %. The rest have fewer than 8 replies in the height range or no straight piece.
+- **What remains.** Departures that only have the wider value read a little higher (mean 0.059 against 0.050): they are more often flights with few pairs, which read higher at either distance; with 50 pairs or more the two groups agree (0.045 and 0.046). The wider pairs are used only where the others are missing, so earlier values and statistics stay as they were.
+- **Back-fill at start-up** (`run.py` `_edr_backfill`, `edr.KEEP_VERSIONS`): only the stored flights without a value are computed again, not all of them — on this morning's database 3 754 rows (2 085 landings and 1 382 departures got a value) in a few seconds; a second start touches nothing. Tested with the real function on a copy of the database.
+- **On screen** (`web/app.py`, `static/js/windshear.js`): the hover of a row in the Approach History's *EDR* view says when the value comes from the 200–400 m pairs. Checked in a browser on the copy: 22 Nov, 180 of 190 landings with a value (29 from the wider pairs), 206 of 207 departures (24).
+
+### Documents
+
+- **EDR explained 1.4** (16 pages): method v3 — why a quarter of the flights had no value, the calibration and its tests (new Section 6.5, a figure and a table), two marked corrections on coverage.
+- **Windshear guide 2.50**: the wider pairs in the turbulence section.
 
 ### Own multilateration: the limits of the motion check drawn in (`collector/mlat_fix.py`)
 

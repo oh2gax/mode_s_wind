@@ -2399,7 +2399,12 @@ def create_app(
                 e = _json.loads(txt) if txt else None
             except ValueError:
                 return None
-            return {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if e and e.get("m") is not None else None
+            if not e or e.get("m") is None:
+                return None
+            out = {k: e.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")}
+            if e.get("w"):
+                out["w"] = 1                  # from the 200–400 m pairs (from 2026-11-23)
+            return out
 
         def _ga_attach(db, result):
             """The go-arounds before each landing that had any (from 2026-10-30): the
@@ -2642,7 +2647,8 @@ def create_app(
                 ed = _json.loads(r["edr_json"]) if r["edr_json"] else None
             except (TypeError, ValueError):
                 ed = None
-            ed = {k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n", "top")} if ed and ed.get("m") is not None else None
+            ed = ({k: ed.get(k) for k in ("m", "lo", "hi", "pk", "n", "top") + (("w",) if ed.get("w") else ())}
+                  if ed and ed.get("m") is not None else None)   # "w": from the 200–400 m pairs (from 2026-11-23)
             if sh is None and ed is None and not full:
                 continue
             if isinstance(sh, dict):                 # the fine profile: /api/windshear/flight-profile

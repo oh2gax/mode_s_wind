@@ -4237,6 +4237,7 @@ function _edrTitle(e) {
     `200–1000 ft: ${f(d.lo)}  ·  1000–${d.top || 3000} ft: ${f(d.hi)}  ·  roughest 2-km piece: ${f(d.pk)}  ·  ${d.n} pieces`,
     'ICAO Annex 3 (peak EDR, medium aircraft): light ≥ 0.10, moderate ≥ 0.20, severe ≥ 0.45 —',
     'here an average over the approach from replies about 2 s apart, not the 1-min peak',
+    d.w ? 'From reply pairs 200–400 m apart (calibrated to the usual 100–200 m): the two radars\' sweeps arrived together on this flight' : '',
     blAtLine(e.ts, '')].filter(Boolean).join('\n');
 }
 
