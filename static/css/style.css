@@ -3193,6 +3193,9 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
 }
 .gpe-leg-dot.gpe-leg-hollow { background: transparent; }
 /* False positions on the GPS Episodes map (from 27 Nov 2026) */
+/* "Episode lines hidden": the legend keeps only the false positions' part */
+#gpe-legend.gpe-ep-off > :not(#gpe-fp-leg) { display: none; }
+#gpe-legend.gpe-ep-off #gpe-fp-leg .gpe-leg-sep { display: none; }
 .gpe-leg-ring {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   border: 2px solid #f6e8f0; background: rgba(201, 149, 173, 0.35); vertical-align: middle; margin-right: 5px;

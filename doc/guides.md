@@ -137,7 +137,7 @@ What the receiver hears from the aircraft, and how to read and use the **Statist
 
 ## The GPS pages — Quality, Episodes and Aircraft
 file: GPS_User_Guide.pdf
-version: 1.7
+version: 1.9
 date: 2026-11-27
 pages: 12
 open: gps@3, gpsep@5, gpsac@7
@@ -146,7 +146,7 @@ GPS interference as the aircraft themselves report it, and how to read the three
 
 - What is measured: the aircraft's own **NACp** and **NIC**, the five degradation signals (NACp, NIC, Freeze, Gap, ADS-B loss), severe looks, **episodes** within 100 NM of EFHK and how they end, the four **spoofing indicators** and *2+*, and what a flight is
 - **GPS Quality**: the summary bar and zones, the events chart and the 10-minute view, the FL-band heatmap (days, or weeks over 3 months, 6 months and a year; 3 months also day by day), the live table (with the **TC 0** marker, new in 1.3: the aircraft itself says that it has no position; new in 1.4: its share as a dashed line in the 10-minute view) and the **Steps** view (new in 1.5): the minute at which the degraded share steps down in the morning and up in the evening, day by day, the FL-band analysis and the severity and spoofing panel
-- **GPS Episodes**: the window and filters, the map, the list with its chips and *altitude vs distance*; and, for users who also have the **MLAT** right, **false positions on the map** — where a spoofed aircraft said it was and where it was by the station's own fix (27 November 2026, versions 1.6 and 1.7)
+- **GPS Episodes**: the window and filters, the map, the list with its chips and *altitude vs distance*; and, for users who also have the **MLAT** right, **false positions on the map** — where a spoofed aircraft said it was and where it was by the station's own fix (27 November 2026, versions 1.6 to 1.9)
 - **GPS Aircraft**: one aircraft, a callsign or a type — key figures, the days with the **receivers' coverage**, the calendar and the flights
 - **The overview of all traffic**: the Hours and Airline filters, key figures with *today vs the last 7 days*, day by day, **week by week**, **time of day × weekday**, **arrivals and departures** (where GPS came back, still degraded below 1 000 ft; where it was lost), **direction and altitude**, the **kind of degradation**, and the tables by type, airline and aircraft
 - How to read it sensibly, and the first results of 9 Oct – 7 Nov 2026 — all figures with real data

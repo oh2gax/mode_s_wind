@@ -456,7 +456,23 @@ async function loadEpisodes() {
 // from the ring to where the aircraft was by our own fix, when there was one.
 const fpSel = document.getElementById('gpe-fp');
 const fpMinSel = document.getElementById('gpe-fp-min');
+// a pane of its own, above the episode lines: the rings stay on top and can be clicked whenever the lines are redrawn
+map.createPane('gpeFp');
+map.getPane('gpeFp').style.zIndex = 450;
 const fpLayer = L.layerGroup().addTo(map);
+// "Episode lines: hidden" (from the evening of 27 Nov 2026): only the false positions on the map.  It applies
+// while the false positions are shown; with them off the lines are always drawn, so the map is never empty.
+const epLinesSel = document.getElementById('gpe-ep-lines');
+let epLines = 'show';
+function applyEpLines() {
+  if (!epLinesSel) return;
+  const hide = epLines === 'hide' && fpMode !== 'off';
+  if (hide) { if (map.hasLayer(epLayer)) map.removeLayer(epLayer); }
+  else if (!map.hasLayer(epLayer)) map.addLayer(epLayer);
+  epLinesSel.disabled = fpMode === 'off';
+  const leg = document.getElementById('gpe-legend');
+  if (leg) leg.classList.toggle('gpe-ep-off', hide);
+}
 let fpRows = [], fpSince = null, fpMode = 'off', fpMin = 0, fpFit = false, fpSeq = 0;
 let fpLoaded = false;
 const FP_MODES = ['off', 'win', '2592000', '7776000', '15811200', '31536000'];
@@ -519,16 +535,16 @@ function renderFalsePos(why) {
     const acs = new Set(g.rows.map(a => a.icao)).size;
     const tMin = Math.min(...g.rows.map(a => a.t0)), tMax = Math.max(...g.rows.map(a => a.t1));
     const far = Math.max(...g.rows.map(fpOff));
-    bounds.push(c);
+    if (fpDistKm(home, c) <= 800) bounds.push(c);      // a place further away than that does not zoom the map out
     for (const a of g.rows) {
       if (g.moved && a.bc0) {                   // the broadcast position's own path, first → last
-        L.polyline([a.bc0, a.bc], { color: ring, weight: 1.2, opacity: 0.7, dashArray: '1 4', interactive: false }).addTo(fpLayer);
-        L.circleMarker(a.bc0, { radius: 3, color: ring, weight: 1.5, fill: false, opacity: 0.8, interactive: false }).addTo(fpLayer);
+        L.polyline([a.bc0, a.bc], { color: ring, weight: 1.2, opacity: 0.7, dashArray: '1 4', interactive: false, pane: 'gpeFp' }).addTo(fpLayer);
+        L.circleMarker(a.bc0, { radius: 3, color: ring, weight: 1.5, fill: false, opacity: 0.8, interactive: false, pane: 'gpeFp' }).addTo(fpLayer);
       }
       if (a.own && lines < 600) {               // where the aircraft was by our own fix
         lines++;
-        L.polyline([a.bc, a.own], { color: ring, weight: 1, opacity: 0.45, dashArray: '5 5', interactive: false }).addTo(fpLayer);
-        L.circleMarker(a.own, { radius: 3.5, color: isLight() ? '#ffffff' : '#0f172a', weight: 1, fillColor: ownCol, fillOpacity: 0.95 })
+        L.polyline([a.bc, a.own], { color: ring, weight: 1, opacity: 0.45, dashArray: '5 5', interactive: false, pane: 'gpeFp' }).addTo(fpLayer);
+        L.circleMarker(a.own, { radius: 3.5, color: isLight() ? '#ffffff' : '#0f172a', weight: 1, fillColor: ownCol, fillOpacity: 0.95, pane: 'gpeFp' })
           .bindTooltip(`${[a.cs, a.reg, a.typ].filter(Boolean).join(' ') || a.icao} · ${fmtUtc(a.t1, true)} UTC · here by our own fix, ` +
                        `${a.km != null ? Math.round(a.km) + ' km from the position it broadcast' : 'position broadcast elsewhere'}`).addTo(fpLayer);
         bounds.push(a.own);
@@ -544,7 +560,7 @@ function renderFalsePos(why) {
       (g.rows.some(a => a.alias) ? '<br><span style="opacity:.75">Some of these were stored one longitude zone too far west (before 27 Nov 2026); shown here where they were broadcast.</span>' : '') +
       `<table><tr><th>From (UTC)</th><th>Lasted</th><th>Aircraft</th><th>Level</th><th>NIC/NACp</th><th>Off by at least</th><th>From our fix</th></tr>${rowsHtml}</table>` +
       (n > 14 ? `<div class="gpe-fp-more">and ${n - 14} earlier</div>` : '') + '</div>';
-    L.circleMarker(c, { radius: Math.min(26, 5 + 3 * Math.sqrt(n)), color: ring, weight: 2.2, opacity: 0.95, fillColor: fillCol, fillOpacity: 0.3 })
+    L.circleMarker(c, { radius: Math.min(26, 5 + 3 * Math.sqrt(n)), color: ring, weight: 2.2, opacity: 0.95, fillColor: fillCol, fillOpacity: 0.3, pane: 'gpeFp' })
       .bindTooltip(`${n} false position${n === 1 ? '' : 's'} · ${acs} aircraft · up to ${Math.round(far)} km off — click for the list`)
       .bindPopup(pop, { maxWidth: 460 }).addTo(fpLayer);
   }
@@ -572,8 +588,17 @@ if (fpSel) {
     fpFit = fpMode === 'off' && fpSel.value !== 'off';     // switched on: fit the map to it once
     fpMode = fpSel.value;
     localStorage.setItem('ms_gpe_fp', fpMode);
+    applyEpLines();
     loadFalsePos();
   });
+  if (localStorage.getItem('ms_gpe_ep_lines') === 'hide') epLines = 'hide';
+  epLinesSel.value = epLines;
+  epLinesSel.addEventListener('change', () => {
+    epLines = epLinesSel.value === 'hide' ? 'hide' : 'show';
+    localStorage.setItem('ms_gpe_ep_lines', epLines);
+    applyEpLines();
+  });
+  applyEpLines();
   fpMinSel.addEventListener('change', () => {
     fpMin = Number(fpMinSel.value) || 0;
     localStorage.setItem('ms_gpe_fp_min', String(fpMin));

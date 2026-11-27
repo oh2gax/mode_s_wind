@@ -83,7 +83,7 @@
     <!-- False positions (from 27 Nov 2026): only with Full view and the MLAT right -->
     <span class="gpe-ctrl">
       <span class="gps-summary-label" title="Aircraft whose broadcast position did not fit the arrival times of their replies at our GPS-timed receivers (own multilateration). A ring stands where the aircraft said it was; a line leads to where it was by our own fix, when there was one.">False positions</span>
-      <select id="gpe-fp" class="gpe-input" title="Show them on the map, and for which period. The list begins on 22 November 2026 and is kept without limit.">
+      <select id="gpe-fp" class="gpe-input" title="Show them on the map, and for which period. The list is kept without limit; the legend says when it begins.">
         <option value="off">Off</option>
         <option value="win">As the window</option>
         <option value="2592000">30 days</option>
@@ -95,6 +95,10 @@
         <option value="0">Any distance</option>
         <option value="5">5 km +</option>
         <option value="20">20 km +</option>
+      </select>
+      <select id="gpe-ep-lines" class="gpe-input" title="Hide the episodes' lines, so that the map shows only the false positions. The list and the chart stay. It applies while the false positions are shown.">
+        <option value="show">Episode lines shown</option>
+        <option value="hide">Episode lines hidden</option>
       </select>
     </span>
     {% endif %}
