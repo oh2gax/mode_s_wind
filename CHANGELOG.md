@@ -7,6 +7,36 @@ notes of the latest versions are in `doc/whats_new.md` (the **What's new** windo
 
 ---
 
+## v.27112026 — 2026-11-27 (A far false position is no longer placed one zone too far west: the position fallback decodes pairs of frames; GPS Episodes: false positions on the map, with the place by our own fix — Full view and the MLAT right)
+
+### GPS Episodes: false positions on the map (`static/js/gps_episodes.js`, `web/templates/gps_episodes.html`, `web/app.py`, `collector/mlat_rec.py`)
+
+Asked for after the data check of the day: see on the GPS map when and where aircraft broadcast false positions — such as the fixed places far to the east — and where they really were.
+
+- **The layer.** A control *False positions* in the page's bar: a ring where the aircraft said it was (positions that stood still gathered by place, the ring growing with their number; a moving one on its own with a dotted line from its first place), and a dot with a dashed line where the aircraft was by our own fix, when there was one. Clicking a ring lists its listings: start, duration, aircraft, level, NIC / NACp, off by at least, distance from our own fix.
+- **The period.** *As the window* (the page's window or date), or 30 days, 90 days, half a year, 1 year whatever the window is. A second select keeps positions off by at least 5 or 20 km — a lower limit when there is no own fix.
+- **Who sees it.** Only a user with both Full view and the MLAT right; then everything, the aircraft too. For everyone else the control is not on the page and `/api/gps/falsepos` answers a plain 404. Military, government and police aircraft are left out as on the other GPS pages.
+- **The data.** The stored list of positions that do not fit (`mlat_misfit`), read by the new `mlat_rec.false_positions()`. It is now kept **without limit** (was as long as the sums, 90 days): some tens of rows a day, about 2 MB a year, and nothing else holds this record once the raw hours are gone. `MLAT_MISFIT_DAYS` sets a limit in days if one is wanted (0, the default, keeps everything). `_prune` tested both ways.
+- **Old rows.** Four listings of 24–25 Nov were stored with the place one longitude zone too far west (the fault corrected above). The layer shows such a row where it was broadcast — only when one zone further east is a place the same or another aircraft did broadcast — and says so in the ring's list. The stored rows are not changed.
+- **Tested** in a browser on copies of the databases (main database of 23 Nov, multilateration database of 27 Nov with its 124 listings): 22 Nov shows 36 listings of 33 aircraft at 11 places, 8 with our own fix; the largest ring holds 26 listings of 24 aircraft; half a year shows all 124 at 54 places; no place is left in the wrong zone; the choice survives a reload; both themes. With the MLAT right taken away: no control, no legend, the API 404, the page otherwise as before.
+
+### Documents
+
+- **GPS User Guide 1.6 and 1.7** (12 pages): a new subsection on the false positions and how to read them; 1.7 for the 1-year period and the list kept without limit.
+
+### Position fallback: a pair of frames, never one frame against the receiver (`collector/receiver.py`)
+
+Found in the GPS interference data check of the day: the list and the map of misfit positions (own multilateration) showed four episodes of 24 and 25 November at a place over the sea west of Åland. No aircraft broadcast that place.
+
+- **The cause.** When the decoder withholds a position — the first pairs of a new aircraft, or a jump further than an aircraft can fly — the collector decoded the single frame with the receiver's own position as the reference. That has one answer only within half a longitude zone of the reference (6.2° at 60°N, about 180 NM). An aircraft whose GNSS is spoofed broadcasts a place it is not at, and one of the fixed false positions lies some 200 NM east of the receiver, just over half a zone away: its even frames came out one zone, about 690 km, too far west, its odd frames at the place really broadcast. Checked with the library on made-up frames.
+- **The change** (`cpr_pair_position()`): (1) a pair — the frame and the aircraft's latest frame of the other format, at most 10 s apart — decoded globally, which needs no reference; (2) without a pair, the single frame against the aircraft's **own** last position (at most 300 s old), and only when it gives a place the aircraft can have flown to; (3) a pair's place that is a jump from the last position must be repeated by the next pair (within 15 s and 5 km) before it is used, since a pair mixed of a frame before and one after a jump gives a place that is neither. The limit of about 500 km around the receiver stays.
+- **Replayed through the collector** (`run_collector`, before and after) on the recorded hours that had the wrong place, 24 Nov 14 UTC and 25 Nov 14–15 UTC: aircraft-seconds at the wrong place **551 → 0** and **1 625 → 0** (9 and 6 aircraft); at the place really broadcast 2 854 → 3 406 and 1 777 → 3 192; entries of the misfit list at the wrong place 18 → 0 and 15 → 0; own fixes 65 394 → 65 387 and 137 601 → 137 597.
+- **The price.** A newly seen aircraft gets its first position from its first pair, no longer from its first message. In the recording — only replies heard by both GPS-timed receivers, far sparser than the live stream — aircraft-seconds with a fresh position fell by 0.9 and 0.8 %, 4 of 58 and 1 of 87 aircraft at the edge of the coverage got no position, and the first position of a new aircraft came after 31 s instead of 9–11 s in the median. The live stream, where every receiver's messages count, loses less.
+- **Also tried:** pairs only, without step 2 (fresh positions −1.5 and −1.4 %), and keeping the first position from one message (`CPR_FIRST_SINGLE = True`: no loss, but the wrong place still stood for 63 and 9 aircraft-seconds). The middle way was taken; the switch is in the module.
+- **What it does not change:** the counts and times of the GPS pages use the quality the aircraft report, not the decoded place; winds use the position only when one is given.
+
+---
+
 ## v.23112026 — 2026-11-23 (Own MLAT: positions are no longer hidden in turns — the motion check compares a track with the reported velocity over the same seconds; its limits then drawn in: fewer wrong positions shown; turbulence (EDR): a quarter of the flights had no value — they now use reply pairs 200–400 m apart)
 
 ### Turbulence (EDR): the flights without a value use wider pairs — record version 3 (`collector/edr.py`, `run.py`)

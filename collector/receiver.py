@@ -24,7 +24,7 @@ from typing import Optional
 
 from pyModeS import PipeDecoder
 from pyModeS.cli._source import NetworkSource
-from pyModeS.position._cpr import airborne_position_with_ref
+from pyModeS.position._cpr import airborne_position_pair, airborne_position_with_ref
 
 from collector.filter import check_mrar, check_mhr, best_meteo, is_blocked_icao, is_blocked_registration
 from collector.wind_calc import try_compute_wind
@@ -439,6 +439,124 @@ def get_bds_samples(icao: str, since_ts: float) -> tuple[list, list]:
     return b50, b60
 
 
+# ── Position fallback: a pair of messages, never one against the receiver (from 2026-11-27) ──
+# PipeDecoder gives no position for the first pairs of a newly seen aircraft,
+# and none when a position jumps further than an aircraft can fly.  Until
+# 27 Nov 2026 the fallback then decoded the single message with the
+# receiver's position as the reference.  That is unambiguous only within half
+# a longitude zone of the reference (6.2° at 60°N, about 180 NM).  An aircraft
+# whose GNSS is spoofed broadcasts a place it is not at, and such a place can
+# lie further away: one of the fixed false positions, about 200 NM east of
+# the receiver and just over half a zone from it, came out one zone too far
+# west in its even frames — some 690 km from the place broadcast, over the
+# sea west of Åland — and stood so in the list and on the map of misfit
+# positions (24 and 25 Nov 2026).  A single message cannot tell the two
+# places apart; an even and an odd frame together can (the global decode
+# needs no reference).  So the
+# fallback now works in this order:
+#   1. a pair — this frame and the aircraft's latest frame of the other format,
+#      at most CPR_PAIR_SEC apart;
+#   2. without a pair, the single message against the aircraft's OWN last
+#      position (not the receiver's), and only when the place it gives is one
+#      the aircraft can have flown to since;
+#   3. a pair's place that is further from the last position than the aircraft
+#      can have flown — a jump — must be repeated by the next pair before it is
+#      used: one pair mixed of a frame before and a frame after a jump gives a
+#      place that is neither.
+# An aircraft seen for the first time gets its first position from its first
+# pair, no longer from its first message.
+# Replayed through run_collector on the recorded hours with the wrong place
+# (24 Nov 14 UTC, 25 Nov 14–15 UTC; replies heard by both GPS-timed receivers
+# only, so far sparser than the live stream): aircraft-seconds at the wrong
+# place 551 → 0 and 1 625 → 0, at the place really broadcast 2 854 → 3 406
+# and 1 777 → 3 192; the misfit list's entries west of 20.3° E 18 → 0 and 15 → 0;
+# own fixes 65 394 → 65 387 and 137 601 → 137 597.  The price, in that sparse recording:
+# aircraft-seconds with a fresh position −0.9 and −0.8 %, 4 of 58 and 1 of 87
+# aircraft at the edge of the coverage without any position, the first
+# position of a new aircraft after 31 s instead of 9–11 s in the median
+# (less in the live stream, where every receiver's messages count).
+# CPR_FIRST_SINGLE = True brings back the first position from one message
+# (no loss of positions, but the wrong place can then stand for some seconds:
+# 63 and 9 aircraft-seconds in the same hours).
+CPR_PAIR_SEC = 10.0          # an even and an odd frame at most this far apart form a pair
+CPR_REF_SEC = 300.0          # the aircraft's last position is a reference for this long
+CPR_JUMP_KM = 2.0            # further than this + CPR_JUMP_KM_S × age from the last position = a jump
+CPR_JUMP_KM_S = 0.772        # 1500 kt, the decoder's own limit
+CPR_CONFIRM_SEC = 15.0       # a jump is confirmed by a second pair within this time …
+CPR_CONFIRM_KM = 5.0         # … at most this far (+ CPR_JUMP_KM_S × age) from the first
+CPR_FIRST_SINGLE = False     # True: the first position of a new aircraft from one message, as before 27 Nov 2026
+_CPR_STATE: dict = {}        # icao → {0: (ts, lat17, lon17), 1: (…), "cand": (ts, lat, lon)}
+
+
+def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distance in km (flat-earth, good enough for the limits here)."""
+    dy = (lat2 - lat1) * 111.2
+    dx = (lon2 - lon1) * 111.2 * math.cos(math.radians((lat1 + lat2) / 2.0))
+    return math.hypot(dx, dy)
+
+
+def cpr_pair_position(icao: str, ts: float, fmt: int, cpr_lat: int, cpr_lon: int,
+                      prev_lat, prev_lon, prev_ts, rx_lat: float, rx_lon: float,
+                      state: dict | None = None):
+    """The fallback position of one airborne-position message (see above):
+    (lat, lon) from this frame and the aircraft's latest frame of the other
+    format, or from this frame alone against the aircraft's last position
+    (prev_lat, prev_lon, prev_ts) when that gives a place it can have flown
+    to; None when there is neither, when the place is outside the area the
+    receivers can hear, or when it is a jump that no second pair has repeated
+    yet.  state: the per-aircraft frames (default the module's own)."""
+    st = (_CPR_STATE if state is None else state).setdefault(icao, {})
+    fmt = 1 if fmt else 0
+    st[fmt] = (ts, cpr_lat, cpr_lon)
+    have_prev = (prev_lat is not None and prev_lon is not None and prev_ts is not None
+                 and 0.0 <= ts - prev_ts <= CPR_REF_SEC)
+    inside = lambda la, lo: abs(la - rx_lat) < 5.0 and abs(lo - rx_lon) < 8.0   # ~500 km around the receiver
+    other = st.get(1 - fmt)
+    pos = None
+    if other is not None and 0.0 <= ts - other[0] <= CPR_PAIR_SEC:
+        even, odd = (st[0], st[1])
+        try:
+            pos = airborne_position_pair(even[1], even[2], odd[1], odd[2], even_is_newer=(fmt == 0))
+        except Exception:
+            pos = None
+    if pos is None:
+        # One message alone: only against the aircraft's own last position, and only
+        # when the place it gives is one the aircraft can have flown to.  A real
+        # aircraft does not move half a zone in CPR_REF_SEC, so this cannot be the
+        # wrong zone; a jump to a false position fails the test and waits for pairs.
+        if have_prev:
+            try:
+                la1, lo1 = airborne_position_with_ref(fmt, cpr_lat, cpr_lon, prev_lat, prev_lon)
+            except Exception:
+                return None
+            if inside(la1, lo1) and _km(prev_lat, prev_lon, la1, lo1) <= CPR_JUMP_KM + CPR_JUMP_KM_S * (ts - prev_ts):
+                st.pop("cand", None)
+                return la1, lo1
+        elif CPR_FIRST_SINGLE and prev_lat is None:
+            try:
+                la1, lo1 = airborne_position_with_ref(fmt, cpr_lat, cpr_lon, rx_lat, rx_lon)
+            except Exception:
+                return None
+            if inside(la1, lo1):
+                return la1, lo1
+        return None
+    lat, lon = pos
+    if lon > 180.0:
+        lon -= 360.0
+    if not inside(lat, lon):
+        st.pop("cand", None)
+        return None
+    if have_prev and _km(prev_lat, prev_lon, lat, lon) > CPR_JUMP_KM + CPR_JUMP_KM_S * (ts - prev_ts):
+        cand = st.get("cand")
+        st["cand"] = (ts, lat, lon)
+        if (cand is None or not 0.0 < ts - cand[0] <= CPR_CONFIRM_SEC
+                or _km(cand[1], cand[2], lat, lon) > CPR_CONFIRM_KM + CPR_JUMP_KM_S * (ts - cand[0])):
+            return None                       # a jump seen once: wait for the next pair
+    else:
+        st.pop("cand", None)
+    return lat, lon
+
+
 def prune_bds_cache(max_age_sec: float = 120.0) -> int:
     """Drop BDS 5,0 / 6,0 cache entries older than max_age_sec.
 
@@ -463,6 +581,9 @@ def prune_bds_cache(max_age_sec: float = 120.0) -> int:
         for icao, e in list(_WJ.items()):
             if e["t"] < cutoff - WIND_JUMP_REF_SEC:
                 _WJ.pop(icao, None)
+        for icao, e in list(_CPR_STATE.items()):  # the position fallback's frames (from 2026-11-27)
+            if max((v[0] for v in e.values()), default=0.0) < cutoff:
+                _CPR_STATE.pop(icao, None)
         if _RX_MASK:                              # kept as long as the samples could be read
             mcut = cutoff - 600
             for k in [k for k in _RX_MASK if k[1] < mcut]:
@@ -979,9 +1100,10 @@ def run_collector(
                 #
                 # Fix: when PipeDecoder returned no lat/lon for a DF17
                 # airborne-position message but the raw CPR fields are
-                # present, decode immediately using the receiver position
-                # as reference (valid within 180 NM ≈ 333 km — covers
-                # all Finnish airspace traffic).
+                # present, decode them here.  From 2026-11-27 from a pair of
+                # frames (cpr_pair_position), no longer from the single
+                # message with the receiver as reference: that put a far
+                # false position one longitude zone too far west.
                 # Condition on the decoder result (not obs, which was already
                 # filled from cache above) and on airborne-position type codes
                 # only — surface CPR (TC 5-8) needs a different decoder.
@@ -994,16 +1116,13 @@ def run_collector(
                             and _cpr_lat is not None
                             and _cpr_lon is not None):
                         try:
-                            _lat, _lon = airborne_position_with_ref(
-                                _cpr_fmt, _cpr_lat, _cpr_lon,
-                                cfg.RECEIVER_LAT, cfg.RECEIVER_LON,
-                            )
-                            # Sanity gate: must be within ~500 km of receiver
-                            # (5° lat ≈ 555 km, 8° lon ≈ 440 km at 60°N).
-                            if (abs(_lat - cfg.RECEIVER_LAT) < 5.0
-                                    and abs(_lon - cfg.RECEIVER_LON) < 8.0):
-                                obs["lat"] = round(_lat, 6)
-                                obs["lon"] = round(_lon, 6)
+                            _pp = cpr_pair_position(
+                                icao, ts, _cpr_fmt, _cpr_lat, _cpr_lon,
+                                cached.get("lat"), cached.get("lon"), cached.get("last_adsb_pos_ts"),
+                                cfg.RECEIVER_LAT, cfg.RECEIVER_LON)
+                            if _pp is not None:
+                                obs["lat"] = round(_pp[0], 6)
+                                obs["lon"] = round(_pp[1], 6)
                                 _fresh_adsb_pos = True  # CPR decoded a fresh position
                         except Exception:
                             pass

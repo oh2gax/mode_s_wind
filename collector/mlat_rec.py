@@ -227,6 +227,12 @@ class Recorder:
         self.db_path = os.path.join(data_dir, "mlat.db")
         self.raw_cap = int(float(getattr(cfg, "MLAT_RAW_MAX_GB", 10)) * 1024 ** 3)
         self.sum_days = float(getattr(cfg, "MLAT_SUM_DAYS", 90))
+        # the stored listings of positions that do not fit (the GPS Episodes map's "False positions" layer):
+        # from 2026-11-27 kept without limit — some tens of rows a day, about 2 MB a year, and nothing else
+        # holds them once the raw hours are gone.  MLAT_MISFIT_DAYS > 0 sets a limit in days (never shorter
+        # than the sums); 0, the default, keeps everything.
+        _md = float(getattr(cfg, "MLAT_MISFIT_DAYS", 0) or 0)
+        self.misfit_days = max(self.sum_days, _md) if _md > 0 else 0.0
         self.trk_hours = max(0.0, float(getattr(cfg, "MLAT_TRK_HOURS", 24)))   # the replay store; 0 = none
         self._seg: dict = {}                       # icao → [t0, t1, n, cs, typ, pos]: the stretch being written
         self.cfg_sites = dict(getattr(cfg, "MLAT_SITES", None) or {})
@@ -337,7 +343,8 @@ class Recorder:
             CREATE TABLE IF NOT EXISTS mlat_trk_ac (icao TEXT, t0 REAL, t1 REAL, n INTEGER, cs TEXT, typ TEXT, pos INTEGER,
                 PRIMARY KEY (icao, t0));
             -- positions that did not fit the GPS-timed receivers' time stamps (from 2026-11-22; the engine's list
-            -- lives for an hour only): one row per listing of an aircraft, rewritten while it lasts, kept MLAT_SUM_DAYS.
+            -- lives for an hour only): one row per listing of an aircraft, rewritten while it lasts, kept MLAT_SUM_DAYS
+            -- (from 2026-11-27 without limit, unless MLAT_MISFIT_DAYS sets one).
             -- lat0/lon0 first and lat1/lon1 last broadcast position; olat/olon our own fix when there was a good one;
             -- km its distance from the broadcast position then, kmx the largest such distance; max_ns the largest misfit.
             CREATE TABLE IF NOT EXISTS mlat_misfit (icao TEXT, t0 REAL, t1 REAL, n INTEGER, ns REAL, max_ns REAL,
@@ -385,7 +392,9 @@ class Recorder:
         self._db.execute("DELETE FROM mlat_min WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_hour WHERE ts < ?", (cut,))
         self._db.execute("DELETE FROM mlat_fix_min WHERE ts < ?", (int(now - 2 * 86400),))
-        self._db.execute("DELETE FROM mlat_misfit WHERE t1 < ?", (cut,))
+        _md = getattr(self, "misfit_days", self.sum_days)
+        if _md > 0:                                # 0 = the listings are kept without limit (from 2026-11-27)
+            self._db.execute("DELETE FROM mlat_misfit WHERE t1 < ?", (int(now - _md * 86400),))
         cut_t = now - self.trk_hours * 3600.0 - 600.0
         self._db.execute("DELETE FROM mlat_trk WHERE ts < ?", (cut_t,))
         self._db.execute("DELETE FROM mlat_trk_ac WHERE t1 < ?", (cut_t,))
@@ -1221,6 +1230,74 @@ def fix_suspects(hours: int = 0) -> dict:
                                 "bc0": (r[12], r[13]) if r[12] is not None else None, "kmx": r[19]})
     out["aircraft"].sort(key=lambda x: -x["t"])
     return out
+
+
+FALSEPOS_MAX_DAYS = 366               # the longest period one request may ask for (the page's "1 year")
+# Listings stored before the position fallback was corrected (collector/receiver.py, 27 Nov 2026) can hold a
+# far false position one longitude zone too far west — over the sea west of Åland, where no aircraft said it
+# was.  false_positions() shows such a place where it was broadcast and marks the row ("alias").
+ALIAS_BEFORE = 1795910400.0         # 28 Nov 2026 00:00 UTC: listings that began before this may hold the wrong zone
+ALIAS_WEST_LON = 20.3               # … when their place lies west of this
+
+
+def _unalias(rows: list) -> None:
+    """rows: the dicts of false_positions(), changed in place."""
+    try:
+        from pyModeS.position._cpr import cprNL
+    except Exception:                              # noqa: BLE001
+        return
+    east = [r[k] for r in rows for k in ("bc0", "bc") if r.get(k) and r[k][1] >= ALIAS_WEST_LON + 5.0]
+    for r in rows:
+        if r["t0"] >= ALIAS_BEFORE:
+            continue
+        for k, other in (("bc0", "bc"), ("bc", "bc0")):
+            p = r.get(k)
+            if not p or not ALIAS_WEST_LON - 3.5 <= p[1] < ALIAS_WEST_LON:
+                continue
+            nl = cprNL(p[0])
+            cands = [p[1] + 360.0 / nl, p[1] + 360.0 / max(nl - 1, 1)]      # an even or an odd frame's zone
+            o = r.get(other)
+            refs = [o[1]] if o and o[1] >= ALIAS_WEST_LON + 5.0 else [e[1] for e in east if abs(e[0] - p[0]) < 0.1]
+            # only when one zone further east is a place the same or another aircraft did broadcast
+            best = min(((abs(c - x), c) for c in cands for x in refs), default=None)
+            if best is None or best[0] > 0.15:
+                continue
+            r[k] = (p[0], round(best[1], 4))
+            r["alias"] = True
+
+
+def false_positions(t_from: float, t_to: float) -> dict:
+    """The stored listings of positions that do not fit (mlat_misfit) that overlap t_from … t_to, for the
+    "False positions" layer of the GPS Episodes map (from 2026-11-27): where the aircraft said it was (first
+    and last broadcast position), where it was by our own fix when there was one, how far off, and who.
+    {on, rows: [...] newest first, since (the oldest stored listing), days (how long they are kept;
+    0 = without limit)}."""
+    if _REC is None:
+        return {"on": False, "why": _WHY}
+    try:
+        db = sqlite3.connect("file:%s?mode=ro" % _REC.db_path.replace("\\", "/"), uri=True, timeout=5)
+    except sqlite3.Error as exc:
+        return {"on": False, "why": str(exc)}
+    try:
+        since = db.execute("SELECT MIN(t0) FROM mlat_misfit").fetchone()[0]
+        rows = db.execute("SELECT icao, t0, t1, n, ns, max_ns, nacp, nic, alt, cs, typ, reg, lat0, lon0, lat1, lon1, olat, olon, km, kmx "
+                          "FROM mlat_misfit WHERE t1 >= ? AND t0 < ? ORDER BY t1 DESC LIMIT 20000", (t_from, t_to)).fetchall()
+    except sqlite3.Error as exc:
+        return {"on": False, "why": str(exc)}
+    finally:
+        db.close()
+    out = []
+    for r in rows:
+        if r[14] is None or r[15] is None:           # no broadcast place: nothing to draw
+            continue
+        out.append({"icao": r[0], "t0": r[1], "t1": r[2], "n": r[3], "cs": r[9], "typ": r[10], "reg": r[11] or _reg_of(r[0]),
+                    "nacp": r[6], "nic": r[7], "alt": r[8],
+                    "min_km": round(abs(r[5] or 0.0) * 1e-9 * C_AIR / 1000.0, 1),
+                    "bc0": (r[12], r[13]) if r[12] is not None else None, "bc": (r[14], r[15]),
+                    "own": (r[16], r[17]) if r[16] is not None else None, "km": r[18], "kmx": r[19]})
+    _unalias(out)
+    return {"on": True, "rows": out, "since": since,
+            "days": float(getattr(_REC, "misfit_days", getattr(_REC, "sum_days", 90)))}      # 0 = kept without limit
 
 
 def fix_stats(rng: str = "1h") -> dict:

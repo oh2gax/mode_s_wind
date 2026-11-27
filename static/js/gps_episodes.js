@@ -443,6 +443,144 @@ async function loadEpisodes() {
   } catch (err) {
     document.getElementById('gpe-updated').textContent = 'Load failed';
   }
+  if (fpSel && (fpMode === 'win' || !fpLoaded)) { fpLoaded = true; loadFalsePos(); }   // the false positions follow the window
+}
+
+// ── False positions (from 27 Nov 2026) ──────────────────────────────────────
+// Aircraft whose broadcast position did not fit the arrival times of their
+// replies at our GPS-timed receivers (the own multilateration's stored list,
+// /api/gps/falsepos; kept without limit).  The control exists only for a user
+// with Full view and the MLAT right; then everything is shown, the aircraft too.
+// A ring stands where the aircraft said it was — positions that stood still are
+// gathered by place (0.05°), the ring growing with their number; a line leads
+// from the ring to where the aircraft was by our own fix, when there was one.
+const fpSel = document.getElementById('gpe-fp');
+const fpMinSel = document.getElementById('gpe-fp-min');
+const fpLayer = L.layerGroup().addTo(map);
+let fpRows = [], fpSince = null, fpMode = 'off', fpMin = 0, fpFit = false, fpSeq = 0;
+let fpLoaded = false;
+const FP_MODES = ['off', 'win', '2592000', '7776000', '15811200', '31536000'];
+const fpEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function fpDistKm(p, q) {
+  const dy = (q[0] - p[0]) * 111.2, dx = (q[1] - p[1]) * 111.2 * Math.cos((p[0] + q[0]) / 2 * Math.PI / 180);
+  return Math.hypot(dx, dy);
+}
+// how far off at least: from the timing (min_km), or from our own fix (km / kmx)
+const fpOff = a => Math.max(a.min_km || 0, a.kmx || 0, a.km || 0);
+const fpWho = a => [a.cs, a.reg, a.typ].filter(Boolean).map(fpEsc).join(' ') + ` <span style="opacity:.7">${fpEsc(a.icao)}</span>`;
+
+async function loadFalsePos() {
+  if (!fpSel) return;
+  const seq = ++fpSeq;
+  if (fpMode === 'off') { fpRows = []; renderFalsePos(); return; }
+  const url = fpMode === 'win'
+    ? (gpeDate ? `/api/gps/falsepos?date=${gpeDate}` : `/api/gps/falsepos?window=${gpeIcao ? (gpeIcaoWin || 31536000) : gpeWindow}`)
+    : `/api/gps/falsepos?window=${fpMode}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    if (seq !== fpSeq) return;                  // a newer request is on its way
+    fpRows = d.on ? (d.rows || []) : [];
+    fpSince = d.since || null;
+    if (gpeIcao) { const only = new Set(gpeIcao.split(',')); fpRows = fpRows.filter(a => only.has(String(a.icao).toUpperCase())); }
+    renderFalsePos(d.on ? '' : (d.why || 'not available'));
+  } catch (err) {
+    if (seq === fpSeq) { fpRows = []; renderFalsePos('load failed'); }
+  }
+}
+
+function renderFalsePos(why) {
+  if (!fpSel) return;
+  fpLayer.clearLayers();
+  const leg = document.getElementById('gpe-fp-leg'), sum = document.getElementById('gpe-fp-sum');
+  if (leg) leg.hidden = fpMode === 'off';
+  if (fpMode === 'off') return;
+  // the ring's own colour: none of the episode-end colours, and clear of the many "lost" lines
+  const P = gpsPal(), ring = isLight() ? '#5b2440' : '#f6e8f0', fillCol = P.spoof, ownCol = P.freeze;
+  const home = [GPE_AIRPORT.lat, GPE_AIRPORT.lon];
+  // (a first position more than 600 km away is a decoding slip of the first frames, not a place: left out)
+  const rows = fpRows.filter(a => a.bc && fpOff(a) >= fpMin)
+    .map(a => (a.bc0 && fpDistKm(home, a.bc0) > 600) ? { ...a, bc0: null } : a);
+  // positions that stood still, by place; one that moved (2 km or more between its first and last) on its own
+  const groups = new Map();
+  for (const a of rows) {
+    const moved = a.bc0 ? fpDistKm(a.bc0, a.bc) : 0;
+    const key = moved < 2 ? `${Math.round(a.bc[0] / 0.05)}_${Math.round(a.bc[1] / 0.05)}` : `m_${a.icao}_${a.t0}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, g = { rows: [], lat: 0, lon: 0, moved: moved >= 2 });
+    g.rows.push(a); g.lat += a.bc[0]; g.lon += a.bc[1];
+  }
+  const bounds = [];
+  let lines = 0;
+  // large groups first, so the small rings stay on top and can be clicked
+  for (const g of [...groups.values()].sort((x, y) => y.rows.length - x.rows.length)) {
+    const n = g.rows.length, c = [g.lat / n, g.lon / n];
+    const acs = new Set(g.rows.map(a => a.icao)).size;
+    const tMin = Math.min(...g.rows.map(a => a.t0)), tMax = Math.max(...g.rows.map(a => a.t1));
+    const far = Math.max(...g.rows.map(fpOff));
+    bounds.push(c);
+    for (const a of g.rows) {
+      if (g.moved && a.bc0) {                   // the broadcast position's own path, first → last
+        L.polyline([a.bc0, a.bc], { color: ring, weight: 1.2, opacity: 0.7, dashArray: '1 4', interactive: false }).addTo(fpLayer);
+        L.circleMarker(a.bc0, { radius: 3, color: ring, weight: 1.5, fill: false, opacity: 0.8, interactive: false }).addTo(fpLayer);
+      }
+      if (a.own && lines < 600) {               // where the aircraft was by our own fix
+        lines++;
+        L.polyline([a.bc, a.own], { color: ring, weight: 1, opacity: 0.45, dashArray: '5 5', interactive: false }).addTo(fpLayer);
+        L.circleMarker(a.own, { radius: 3.5, color: isLight() ? '#ffffff' : '#0f172a', weight: 1, fillColor: ownCol, fillOpacity: 0.95 })
+          .bindTooltip(`${[a.cs, a.reg, a.typ].filter(Boolean).join(' ') || a.icao} · ${fmtUtc(a.t1, true)} UTC · here by our own fix, ` +
+                       `${a.km != null ? Math.round(a.km) + ' km from the position it broadcast' : 'position broadcast elsewhere'}`).addTo(fpLayer);
+        bounds.push(a.own);
+      }
+    }
+    const newest = [...g.rows].sort((x, y) => y.t1 - x.t1);
+    const rowsHtml = newest.slice(0, 14).map(a =>
+      `<tr><td>${fmtUtc(a.t0, true)}</td><td>${fmtDur(a.t1 - a.t0)}</td><td>${fpWho(a)}</td><td>FL${fmtFl(a.alt)}</td>` +
+      `<td>${a.nic == null ? '–' : a.nic}/${a.nacp == null ? '–' : a.nacp}</td><td>${Math.round(fpOff(a))} km</td>` +
+      `<td>${a.own ? (a.km != null ? Math.round(a.km) + ' km' : 'yes') : '–'}</td></tr>`).join('');
+    const pop = `<div class="gpe-fp-pop"><b>${n} listing${n === 1 ? '' : 's'} · ${acs} aircraft</b> · ` +
+      `${c[0].toFixed(2)}° N ${c[1].toFixed(2)}° E${g.moved ? ' (moving)' : ''}<br>${fmtUtc(tMin, true)} – ${fmtUtc(tMax, true)} UTC · off by up to ${Math.round(far)} km` +
+      (g.rows.some(a => a.alias) ? '<br><span style="opacity:.75">Some of these were stored one longitude zone too far west (before 27 Nov 2026); shown here where they were broadcast.</span>' : '') +
+      `<table><tr><th>From (UTC)</th><th>Lasted</th><th>Aircraft</th><th>Level</th><th>NIC/NACp</th><th>Off by at least</th><th>From our fix</th></tr>${rowsHtml}</table>` +
+      (n > 14 ? `<div class="gpe-fp-more">and ${n - 14} earlier</div>` : '') + '</div>';
+    L.circleMarker(c, { radius: Math.min(26, 5 + 3 * Math.sqrt(n)), color: ring, weight: 2.2, opacity: 0.95, fillColor: fillCol, fillOpacity: 0.3 })
+      .bindTooltip(`${n} false position${n === 1 ? '' : 's'} · ${acs} aircraft · up to ${Math.round(far)} km off — click for the list`)
+      .bindPopup(pop, { maxWidth: 460 }).addTo(fpLayer);
+  }
+  if (sum) {
+    const acAll = new Set(rows.map(a => a.icao)).size, own = rows.filter(a => a.own).length;
+    const sd = fpSince ? new Date(fpSince * 1000) : null;
+    sum.textContent = why ? `Not shown: ${why}` :
+      `${rows.length} listing${rows.length === 1 ? '' : 's'} · ${acAll} aircraft · ${groups.size} place${groups.size === 1 ? '' : 's'} · ${own} with our own fix` +
+      (sd ? ` · list kept from ${sd.getUTCDate()}.${sd.getUTCMonth() + 1}.${sd.getUTCFullYear()}` : '');
+  }
+  if (fpFit && bounds.length) {                 // once, when the layer is switched on: show all of it
+    fpFit = false;
+    map.fitBounds(L.latLngBounds(bounds.concat([[GPE_AIRPORT.lat, GPE_AIRPORT.lon]])).pad(0.12), { maxZoom: 8 });
+  }
+}
+
+if (fpSel) {
+  const sm = localStorage.getItem('ms_gpe_fp');
+  if (FP_MODES.includes(sm)) fpMode = sm;
+  fpSel.value = fpMode;
+  const sv = Number(localStorage.getItem('ms_gpe_fp_min'));
+  if ([0, 5, 20].includes(sv)) fpMin = sv;
+  fpMinSel.value = String(fpMin);
+  fpSel.addEventListener('change', () => {
+    fpFit = fpMode === 'off' && fpSel.value !== 'off';     // switched on: fit the map to it once
+    fpMode = fpSel.value;
+    localStorage.setItem('ms_gpe_fp', fpMode);
+    loadFalsePos();
+  });
+  fpMinSel.addEventListener('change', () => {
+    fpMin = Number(fpMinSel.value) || 0;
+    localStorage.setItem('ms_gpe_fp_min', String(fpMin));
+    renderFalsePos();
+  });
+  // a longer period than the window: the stored list changes once a minute at most
+  setInterval(() => { if (fpMode !== 'off' && fpMode !== 'win') loadFalsePos(); }, 600_000);
 }
 
 // ── Controls ─────────────────────────────────────────────────────────────────
@@ -511,6 +649,7 @@ window.onThemeChange = function () {
   drawRings();
   setEpColors();
   renderAll();            // map lines, list, summary and scatter in the theme's colours
+  renderFalsePos();       // and the false positions (from 27 Nov 2026)
 };
 
 // ── Startup ──────────────────────────────────────────────────────────────────

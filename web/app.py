@@ -619,7 +619,9 @@ def create_app(
                                receiver_lat=cfg.RECEIVER_LAT,
                                receiver_lon=cfg.RECEIVER_LON,
                                episode_radius_nm=getattr(cfg, "GPS_EPISODE_RADIUS_NM", 100.0),
-                               coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0))
+                               coverage_edge_nm=getattr(cfg, "GPS_EPISODE_EDGE_NM", 130.0),
+                               # the "False positions" layer (from 2026-11-27): Full view and the MLAT right
+                               falsepos_ok=_mlat_ok())
 
     @app.route("/gps-aircraft")
     def gps_aircraft_page():
@@ -2925,6 +2927,52 @@ def create_app(
         if ws_tracker is None:
             return jsonify([])
         return jsonify(ws_tracker.get_windrose_obs())
+
+    @app.route("/api/gps/falsepos")
+    def gps_falsepos_api():
+        """False positions for the GPS Episodes map (from 2026-11-27): the stored
+        listings of aircraft whose broadcast position did not fit the time stamps
+        of the GPS-timed receivers (own multilateration, mlat.db mlat_misfit, kept
+        without limit unless MLAT_MISFIT_DAYS sets one), with our own fix of the same moment when
+        there was one.  Needs BOTH Full view and the MLAT right; for everyone
+        else the address does not exist (a plain 404).  Military, government and
+        police aircraft are left out, as on the other GPS pages.
+
+        Query params (one of):
+          window — seconds back from now (default 86400, max 366 days)
+          date   — UTC calendar day YYYY-MM-DD
+        """
+        if not (_gnss_ok() and _mlat_ok()):
+            abort(404)
+        import re as _re
+        from collector import mlat_rec
+        date = request.args.get("date", type=str)
+        if date:
+            if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+            import calendar as _cal
+            y, m, d = (int(x) for x in date.split("-"))
+            t0 = _cal.timegm((y, m, d, 0, 0, 0))
+            t1 = t0 + 86400
+        else:
+            window = request.args.get("window", default=86400, type=int)
+            window = max(600, min(window, mlat_rec.FALSEPOS_MAX_DAYS * 86400))
+            t1 = time.time() + 60
+            t0 = time.time() - window
+        out = mlat_rec.false_positions(t0, t1)
+        if out.get("on"):
+            from web.api.gps_aircraft import _special
+            keep = {}
+            rows = []
+            for r in out["rows"]:
+                ok = keep.get(r["icao"])
+                if ok is None:
+                    ok = keep[r["icao"]] = not _special(r["icao"])
+                if ok:
+                    rows.append(r)
+            out["rows"] = rows
+        out["t0"], out["t1"] = t0, t1
+        return _private(_gzip_json(out))
 
     @app.route("/api/gps/episodes")
     def gps_episodes_api():

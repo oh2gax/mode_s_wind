@@ -3192,6 +3192,20 @@ body.sl-page { display: flex; align-items: flex-start; justify-content: center; 
   margin-right: 2px;
 }
 .gpe-leg-dot.gpe-leg-hollow { background: transparent; }
+/* False positions on the GPS Episodes map (from 27 Nov 2026) */
+.gpe-leg-ring {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid #f6e8f0; background: rgba(201, 149, 173, 0.35); vertical-align: middle; margin-right: 5px;
+}
+[data-theme="light"] .gpe-leg-ring { border-color: #5b2440; background: rgba(156, 85, 119, 0.3); }
+.gpe-leg-dot.gpe-fp-own { border-color: #88b6cd; background: #88b6cd; }
+[data-theme="light"] .gpe-leg-dot.gpe-fp-own { border-color: #3d7896; background: #3d7896; }
+.gpe-fp-pop { font-size: 11px; line-height: 1.45; max-width: 420px; }
+.gpe-fp-pop b { font-weight: 600; }
+.gpe-fp-pop table { border-collapse: collapse; margin-top: 4px; }
+.gpe-fp-pop td, .gpe-fp-pop th { padding: 1px 8px 1px 0; text-align: left; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gpe-fp-pop th { font-weight: 500; opacity: 0.7; }
+.gpe-fp-pop .gpe-fp-more { opacity: 0.7; margin-top: 3px; }
 .gpe-leg-note { font-size: 10px; color: var(--text-3); }
 .gpe-ring-lbl {
   font-size: 10px;

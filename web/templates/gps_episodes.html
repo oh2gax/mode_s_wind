@@ -79,6 +79,25 @@
         <option value="multi">2+ independent</option>
       </select>
     </span>
+    {% if falsepos_ok %}
+    <!-- False positions (from 27 Nov 2026): only with Full view and the MLAT right -->
+    <span class="gpe-ctrl">
+      <span class="gps-summary-label" title="Aircraft whose broadcast position did not fit the arrival times of their replies at our GPS-timed receivers (own multilateration). A ring stands where the aircraft said it was; a line leads to where it was by our own fix, when there was one.">False positions</span>
+      <select id="gpe-fp" class="gpe-input" title="Show them on the map, and for which period. The list begins on 22 November 2026 and is kept without limit.">
+        <option value="off">Off</option>
+        <option value="win">As the window</option>
+        <option value="2592000">30 days</option>
+        <option value="7776000">90 days</option>
+        <option value="15811200">Half a year</option>
+        <option value="31536000">1 year</option>
+      </select>
+      <select id="gpe-fp-min" class="gpe-input" title="Only positions that were off by at least this much. Without a fix of our own the distance comes from the timing alone and is the least it can be: the real error is that or more.">
+        <option value="0">Any distance</option>
+        <option value="5">5 km +</option>
+        <option value="20">20 km +</option>
+      </select>
+    </span>
+    {% endif %}
     <span class="gps-updated" id="gpe-updated">Loading…</span>
   </div>
 
@@ -98,6 +117,15 @@
         <div><span class="gpe-leg-dot gpe-leg-hollow"></span>Start &nbsp;<span class="gpe-leg-dot"></span>End
              &nbsp;<span class="gpe-leg-dot gpe-end-rec"></span>Recovery point</div>
         <div class="gpe-leg-note">Line = position at start → at last degraded sweep</div>
+        {% if falsepos_ok %}
+        <div id="gpe-fp-leg" hidden>
+          <div class="gpe-leg-sep"></div>
+          <div class="gpe-leg-title">False positions</div>
+          <div><span class="gpe-leg-ring"></span>Where the aircraft said it was (larger = more often)</div>
+          <div><span class="gpe-leg-dot gpe-fp-own"></span> Where it was by our own fix</div>
+          <div class="gpe-leg-note" id="gpe-fp-sum"></div>
+        </div>
+        {% endif %}
       </div>
     </div>
 
